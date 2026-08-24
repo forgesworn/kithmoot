@@ -35,6 +35,11 @@ export class NostrRelayPool implements RelayTransport {
 
   subscribe(filters: Filter[], onEvent: (event: Event) => void): () => void {
     if (this.#closed) throw new Error('pool is closed')
+    // Belt and braces. `subscribeMap` de-duplicates across the relays of one
+    // subscription itself, so removing this changes nothing observable today -
+    // which is exactly why it stays: the guarantee callers of `RelayTransport`
+    // depend on is ours to make, not a pinned dependency's to keep. See
+    // `nostr-tools-version-guard.test.ts`.
     const seen = new Set<string>()
     // subscribeMany only accepts one filter per relay, so fan each filter
     // out to every relay and let subscribeMap group them back into a
