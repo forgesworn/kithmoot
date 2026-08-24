@@ -21,6 +21,11 @@ export interface MeshOptions {
   session: MeshSession
   factory: PeerFactory
   localDevice: string
+  /** Our own participant pubkey. Supplied explicitly, never inferred from
+   *  the roster: our own entry only appears there once a relay echoes it
+   *  back, and until it does an inferred answer does not recognise our other
+   *  device as ours. */
+  localParticipant: string
   deviceSk: Uint8Array
   transport: RelayTransport
   roomId: string
@@ -94,13 +99,16 @@ export class Mesh {
    *  devices no longer present, open peers for newly-seen remote devices,
    *  and never touch our own participant's devices either way. */
   #reconcile(views: ParticipantView[]): void {
-    const own = views.find((v) => v.devices.includes(this.#opts.localDevice))
-    const ownDevices = new Set(own?.devices ?? [this.#opts.localDevice])
-
     const wantedDevices = new Map<string, string>() // device -> participant
     for (const view of views) {
+      // Every device of our own participant is skipped, whether or not our
+      // own roster entry has come back from the relay yet.
+      if (view.participant === this.#opts.localParticipant) continue
       for (const device of view.devices) {
-        if (ownDevices.has(device)) continue
+        // Belt and braces: a malformed roster claiming our device under
+        // someone else's participant must not talk us into a peer to
+        // ourselves either.
+        if (device === this.#opts.localDevice) continue
         wantedDevices.set(device, view.participant)
       }
     }

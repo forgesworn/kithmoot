@@ -55,7 +55,7 @@ describe('Mesh', () => {
     const factory = createFakeFactory()
     const relay = new SimRelay()
     const local = device()
-    const mesh = new Mesh({ session, factory, localDevice: local.pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
 
     const remoteParticipant = device().pub
     const remote = device()
@@ -72,9 +72,38 @@ describe('Mesh', () => {
     const local = device()
     const ownParticipant = device().pub
     const otherOwnDevice = device()
-    const mesh = new Mesh({ session, factory, localDevice: local.pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: ownParticipant, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
 
     session.setViews([view(ownParticipant, [local.pub, otherOwnDevice.pub])])
+
+    expect(factory.instances).toHaveLength(0)
+    mesh.close()
+  })
+
+  it('creates NO peer for our own other device before our own entry arrives', () => {
+    // The production join window: join() publishes our roster entry and
+    // constructs Mesh immediately, but the relay has not echoed our own
+    // entry back yet - so the only view of our participant on the roster is
+    // our OTHER device. Inferring "my devices" from whichever view already
+    // contains localDevice finds nothing here and opens a peer to ourselves,
+    // which is the phone uploading its screen share back to its own laptop.
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const ownParticipant = device().pub
+    const otherOwnDevice = device()
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: ownParticipant,
+      deviceSk: local.sk,
+      transport: new SimTransport(relay),
+      roomId: ROOM_ID,
+    })
+
+    session.setViews([view(ownParticipant, [otherOwnDevice.pub])])
 
     expect(factory.instances).toHaveLength(0)
     mesh.close()
@@ -87,7 +116,7 @@ describe('Mesh', () => {
     const local = device()
     const remoteParticipant = device().pub
     const remote = device()
-    const mesh = new Mesh({ session, factory, localDevice: local.pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
 
     session.setViews([view(remoteParticipant, [remote.pub])])
     expect(factory.instances).toHaveLength(1)
@@ -113,7 +142,7 @@ describe('Mesh', () => {
     const local = device()
     const remoteParticipant = device().pub
     const remote = device()
-    const mesh = new Mesh({ session, factory, localDevice: local.pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
 
     const received: { participant: string; device: string; track: MediaStreamTrack }[] = []
     mesh.onRemoteTrack((t) => received.push(t))
@@ -136,7 +165,7 @@ describe('Mesh', () => {
     const remoteParticipant = device().pub
     const remoteA = device()
     const remoteB = device()
-    const mesh = new Mesh({ session, factory, localDevice: local.pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
 
     const received: { participant: string; device: string }[] = []
     mesh.onRemoteTrack((t) => received.push({ participant: t.participant, device: t.device }))
@@ -159,7 +188,7 @@ describe('Mesh', () => {
     const relay = new SimRelay()
     const local = device()
     const stranger = device() // never appears in the roster, so unknown to the mesh
-    const mesh = new Mesh({ session, factory, localDevice: local.pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
 
     const wrap = wrapSignal(
       { type: 'ice', roomId: ROOM_ID, candidate: 'irrelevant' },
@@ -182,8 +211,8 @@ describe('Mesh', () => {
     const sessionA = new FakeSession()
     const sessionB = new FakeSession()
 
-    const meshA = new Mesh({ session: sessionA, factory: factoryA, localDevice: a.pub, deviceSk: a.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
-    const meshB = new Mesh({ session: sessionB, factory: factoryB, localDevice: b.pub, deviceSk: b.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const meshA = new Mesh({ session: sessionA, factory: factoryA, localDevice: a.pub, localParticipant: participantA, deviceSk: a.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const meshB = new Mesh({ session: sessionB, factory: factoryB, localDevice: b.pub, localParticipant: participantB, deviceSk: b.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
 
     const roster = [view(participantA, [a.pub]), view(participantB, [b.pub])]
     sessionA.setViews(roster)

@@ -124,6 +124,7 @@ export class RoomSession {
         session: this,
         factory: this.#opts.factory,
         localDevice: device,
+        localParticipant: entry.participant,
         deviceSk: this.#opts.deviceSk,
         transport: this.#opts.transport,
         roomId: this.roomId,
