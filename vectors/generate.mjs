@@ -677,6 +677,34 @@ accessVector('kith-room-admits-kin-proof', 'positive', 'A kith-gated room also a
 accessVector('kith-room-rejects-ken-proof', 'negative', "A kith-gated room refuses a ken proof - ken is one-way recognition and never satisfies a kith gate ('tier too low').", KITH_POLICY, kenProof.proof)
 accessVector('kith-room-rejects-untrusted-issuer', 'negative', 'A kith-gated room refuses a well-formed, correctly-signed kith proof from an issuer not on its allow-list.', KITH_POLICY, untrustedKithProof.proof)
 
+// Hex identifiers in this protocol are compared case-insensitively (see
+// "Hex identifiers are compared case-insensitively" in vectors/README.md).
+// These two vectors are the reason that rule is written down: the first
+// independent implementation (Kotlin/Android) did an exact string match on
+// `proof.issuer` against `policy.admitted`, which passed every other
+// accessEvaluation vector - none of which vary the hex case - and would
+// still have silently refused a genuine issuer the moment a room's
+// allow-list was typed or pasted in upper-case hex. Both directions are
+// covered: the allow-list entry in upper case against an ordinarily-cased
+// proof, and the mirror image.
+const upperCaseHostPolicy = { tier: 'kith', admitted: [fx.HOST.toUpperCase()] }
+accessVector(
+  'kith-room-admits-issuer-via-upper-case-allow-list-entry',
+  'positive',
+  "The allow-list names the trusted issuer (HOST) in upper-case hex; the proof itself is issued and signed normally, so its issuer field is the ordinary lower-case pubkey. Still admitted - an implementation that compares the allow-list entry to the issuer with an exact string match wrongly refuses this.",
+  upperCaseHostPolicy,
+  kithProof.proof,
+)
+
+const upperCaseIssuerProof = { ...kithProof.proof, issuer: kithProof.proof.issuer.toUpperCase() }
+accessVector(
+  'kith-room-admits-upper-case-issuer-against-lower-case-allow-list',
+  'positive',
+  "The mirror image: the proof carries its own issuer field in upper-case hex - issuer is not part of the signed message (see canonicalMessage in src/access.ts), so upper-casing it does not disturb the signature - while the room's allow-list names HOST in the ordinary lower case. Still admitted.",
+  KITH_POLICY,
+  upperCaseIssuerProof,
+)
+
 // The vector every other accessEvaluation negative above is NOT: both
 // 'kith-room-rejects-ken-proof' and 'kith-room-rejects-untrusted-issuer' are
 // refused before evaluateAccess ever reaches schnorr.verify - one on the

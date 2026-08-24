@@ -3,6 +3,7 @@ import { nip44 } from 'nostr-tools'
 import { KINDS } from './kinds.js'
 import { verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
+import { hexEquals } from './hex.js'
 import type { RosterEntry } from './types.js'
 
 export interface EncodeRosterOptions {
@@ -51,21 +52,22 @@ export interface DecodeRosterOptions {
 export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): RosterEntry | null {
   try {
     if (event.kind !== KINDS.ROSTER) return null
-    if (event.tags.find((t) => t[0] === 'd')?.[1] !== opts.roomId) return null
+    const roomTag = event.tags.find((t) => t[0] === 'd')?.[1]
+    if (roomTag === undefined || !hexEquals(roomTag, opts.roomId)) return null
     if (!verifyEventUncached(event)) return null
 
     const entry = JSON.parse(nip44.v2.decrypt(event.content, opts.roomKey)) as RosterEntry
 
     // The device that signed this event must be the device the credential names.
-    if (entry.device !== event.pubkey) return null
+    if (!hexEquals(entry.device, event.pubkey)) return null
 
     const verdict = verifyDeviceCredential(entry.credential, {
       roomId: opts.roomId,
       now: opts.now,
     })
     if (!verdict.ok) return null
-    if (verdict.device !== event.pubkey) return null
-    if (verdict.participant !== entry.participant) return null
+    if (!hexEquals(verdict.device, event.pubkey)) return null
+    if (!hexEquals(verdict.participant, entry.participant)) return null
 
     // Deliberately NOT restamping verifiedSymbol onto the credential here.
     // It would be truthful at the moment of writing, but it hands a future

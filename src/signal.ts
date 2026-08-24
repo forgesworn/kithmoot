@@ -1,6 +1,7 @@
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { KINDS } from './kinds.js'
+import { hexEquals } from './hex.js'
 import type { TrackAdvert } from './types.js'
 
 export interface SignalBody {
@@ -73,11 +74,11 @@ export function unwrapSignal(
     if (!verifyEvent(inner)) return null
 
     const body = JSON.parse(inner.content) as SignalBody
-    if (body.roomId !== opts.roomId) return null
+    if (!hexEquals(body.roomId, opts.roomId)) return null
 
     // The inner event must be addressed to us, not merely wrapped to us.
     const addressed = inner.tags.find((t) => t[0] === 'p')?.[1]
-    if (addressed !== getPublicKey(opts.recipientSk)) return null
+    if (addressed === undefined || !hexEquals(addressed, getPublicKey(opts.recipientSk))) return null
 
     return { from: inner.pubkey, body }
   } catch {

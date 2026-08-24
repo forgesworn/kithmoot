@@ -1,6 +1,7 @@
 import { finalizeEvent } from 'nostr-tools/pure'
 import { KINDS } from './kinds.js'
 import { verifyEventUncached } from './verify.js'
+import { hexEquals } from './hex.js'
 import type { DeviceCredential } from './types.js'
 
 export interface CreateCredentialOptions {
@@ -47,7 +48,7 @@ export function verifyDeviceCredential(
   if (cred.kind !== KINDS.CREDENTIAL) return { ok: false, reason: 'wrong kind' }
 
   const room = cred.tags.find((t) => t[0] === 'd')?.[1]
-  if (room !== opts.roomId) return { ok: false, reason: 'wrong room' }
+  if (room === undefined || !hexEquals(room, opts.roomId)) return { ok: false, reason: 'wrong room' }
 
   const expiration = cred.tags.find((t) => t[0] === 'expiration')?.[1]
   // A missing tag and a present-but-non-numeric one are the same failure:

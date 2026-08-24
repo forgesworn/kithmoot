@@ -2,6 +2,7 @@ import { schnorr } from '@noble/curves/secp256k1.js'
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { getPublicKey } from 'nostr-tools/pure'
+import { hexEquals } from './hex.js'
 import type { KindredProof, RoomPolicy } from './types.js'
 
 /** Closest first, matching the canonical order in the kindred primitive. */
@@ -54,12 +55,13 @@ export function evaluateAccess(
 ): { admitted: boolean; reason: string } {
   if (policy.tier === 'open') return { admitted: true, reason: 'open room' }
   if (!proof) return { admitted: false, reason: 'no kindred proof' }
-  if (proof.participant !== participant) return { admitted: false, reason: 'proof names another participant' }
+  // Hex, compared case-insensitively throughout this function: see
+  // `hexEquals` and `vectors/README.md`. An allow-list entry, or a proof,
+  // stored in upper-case hex names exactly the same identifier and must not
+  // be rejected on case alone.
+  if (!hexEquals(proof.participant, participant)) return { admitted: false, reason: 'proof names another participant' }
   if (proof.expiresAt <= now) return { admitted: false, reason: 'expired' }
-  // Hex, compared case-insensitively: an allow-list entry stored in
-  // upper-case hex names exactly the same issuer and must not be rejected.
-  const issuer = proof.issuer.toLowerCase()
-  if (!policy.admitted?.some((a) => a.toLowerCase() === issuer)) {
+  if (!policy.admitted?.some((a) => hexEquals(a, proof.issuer))) {
     return { admitted: false, reason: 'untrusted issuer' }
   }
 

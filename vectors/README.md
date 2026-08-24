@@ -206,7 +206,7 @@ Checked in this order; the first match wins.
 |---|---|---|
 | 1 | `policy.tier === 'open'` | `open room` (admitted) |
 | 2 | no proof supplied | `no kindred proof` |
-| 3 | `proof.participant !== participant` | `proof names another participant` |
+| 3 | `proof.participant` does not match `participant` (case-insensitive hex) | `proof names another participant` |
 | 4 | `proof.expiresAt <= now` | `expired` |
 | 5 | `proof.issuer` not in `policy.admitted` (case-insensitive hex) | `untrusted issuer` |
 | 6 | `proof.tier` not a recognised kindred tier | `unrecognised tier` |
@@ -258,6 +258,65 @@ must reject a non-finite expiry outright: TypeScript via
 `Number.isFinite(expiresAt)`, Kotlin via `toLongOrNull()` (which already
 returns `null` - and therefore `"no expiration"` - for anything that is not
 a valid integer, with no separate fix needed).
+
+## Hex identifiers are compared case-insensitively
+
+**Every hex-encoded identifier this protocol compares for equality -
+pubkeys (`participant`, `device`, `issuer`, a signal's recipient) and
+`roomId` - must be compared case-insensitively.** This protocol always
+*produces* such identifiers in lower case (`getPublicKey`, `deriveRoom`'s
+`toString(16)`, and their Kotlin equivalents all emit lower-case hex), but
+nothing on the wire enforces that, and a room's access policy in particular
+is data a person can type or paste - a `RoomPolicy.admitted` entry stored in
+upper-case hex names exactly the same issuer and must not be rejected for
+it. Decode paths must accept any case on input; they do not need to
+*produce* anything but lower case.
+
+This was found on audit, not by a vector, and is exactly the class of bug a
+vector or a test only catches if someone thinks to vary the case: the first
+independent implementation (Kotlin/Android) compared `proof.issuer` against
+`policy.admitted` with an exact string match, so the same room, the same
+kindred proof, and the same allow-list produced different admit/reject
+answers on web versus Android depending purely on which case the allow-list
+happened to be typed in - a silent split-brain with no error on either side.
+`accessEvaluation`'s `kith-room-admits-issuer-via-upper-case-allow-list-entry`
+and `kith-room-admits-upper-case-issuer-against-lower-case-allow-list`
+vectors exist specifically to catch this, in both directions.
+
+Every comparison of this kind must be normalised the same way on both
+sides - do not lower-case one operand and leave the other as-is. The
+reference implementation does this via a single `hexEquals` helper
+(`src/hex.ts`) used at every hex-equality comparison site, rather than
+`.toLowerCase()` sprinkled ad hoc through `access.ts`, `roster.ts`,
+`credential.ts` and `signal.ts`; Kotlin's `String.hexEquals` extension
+(`crypto/Hex.kt`) plays the same role. Comparisons this covers, concretely:
+`proof.participant` against the `participant` argument and `proof.issuer`
+against each `policy.admitted` entry (`access.ts`); a roster entry's
+`device` against the signing event's `pubkey`, and the credential's
+verified `device`/`participant` against the entry's (`roster.ts`); a
+credential's `d` tag against the room id (`credential.ts`); a signal's
+`roomId` and its `p` tag against the local room id and recipient pubkey
+(`signal.ts`).
+
+**What this does not cover.** `sig` is never compared for equality - it is
+decoded to bytes and fed to schnorr verification, which is case-agnostic by
+construction - so it is unaffected either way. A handful of comparisons of
+the same *shape* were found outside the four files above during this audit
+and deliberately left untouched, because they are not wire-format
+interop the vectors pin, and both implementations already agree with each
+other on them (case-sensitive on both sides, not case-insensitive - a
+latent risk of the same kind, not a live divergence today):
+`resolveSingularRoles`'s device-pubkey tiebreak (`roles.ts` /
+`RoleArbiter.kt`), `Peer`'s polite/impolite tiebreak
+(`peer.ts` / `Negotiation.kt`), `RoomSession`'s self-device/self-participant
+filtering (`session.ts`, `mesh.ts` / `RoomSession.kt`, `WebRtcEngine.kt`),
+credential-adoption's device check (`session.ts` / `RoomIdentity.kt`), and
+`decodeChatEvent`'s device/participant/room checks (`chat.ts`, which has no
+Kotlin equivalent in `:protocol` at all - `Chat.kt` lives in `:app`). A
+future pass should extend the same `hexEquals` treatment there for
+consistency, but none of it is reachable via `evaluateAccess`,
+`verifyDeviceCredential`, `decodeRosterEvent` or `unwrapSignal`, so it is
+out of scope for the vectors in this file.
 
 ## Using these vectors from another implementation
 
