@@ -14,6 +14,29 @@ export interface TrackAdvert {
   role: TrackRole
 }
 
+/** Kindred tiers, closest first: family, mutual verified bond, one-way
+ *  recognition, no requirement at all. */
+export type AccessTier = 'open' | 'ken' | 'kith' | 'kin'
+
+/** A room's admission rule. `admitted` lists the issuer pubkeys the room
+ *  trusts to vouch for guests; irrelevant when `tier` is `open`. */
+export interface RoomPolicy {
+  tier: AccessTier
+  admitted?: string[]
+}
+
+/**
+ * A signed claim that `issuer` recognises `participant` at `tier`, until
+ * `expiresAt`. Never issued for `open`, since open needs no proof.
+ */
+export type KindredProof = {
+  tier: Exclude<AccessTier, 'open'>
+  participant: string
+  issuer: string
+  sig: string
+  expiresAt: number
+}
+
 export interface RosterEntry {
   /** The person. */
   participant: string
