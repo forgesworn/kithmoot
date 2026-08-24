@@ -1,5 +1,6 @@
-import { finalizeEvent, verifyEvent, verifiedSymbol } from 'nostr-tools/pure'
+import { finalizeEvent } from 'nostr-tools/pure'
 import { KINDS } from './kinds.js'
+import { verifyEventUncached } from './verify.js'
 import type { DeviceCredential } from './types.js'
 
 export interface CreateCredentialOptions {
@@ -56,17 +57,10 @@ export function verifyDeviceCredential(
   if (!device) return { ok: false, reason: 'no device' }
 
   // Signature last: it is the most expensive check, and tampering with any tag
-  // above invalidates it anyway.
-  //
-  // verifyEvent caches its result on the event object under `verifiedSymbol`.
-  // That property is an own enumerable symbol, so a shallow copy (eg. `{ ...cred }`,
-  // which is exactly how a caller might rebuild an event after editing a tag)
-  // carries the cached flag along with it - verifyEvent would then return the
-  // stale result without re-checking anything. Strip it from a copy first so
-  // every credential gets a fresh check, never a trusted-by-accident one.
-  const unverified = { ...cred }
-  delete unverified[verifiedSymbol]
-  if (!verifyEvent(unverified)) return { ok: false, reason: 'bad signature' }
+  // above invalidates it anyway. Via `verifyEventUncached` so a credential
+  // that arrives carrying a cached verdict still gets a real check - see
+  // `verify.ts` for why that matters.
+  if (!verifyEventUncached(cred)) return { ok: false, reason: 'bad signature' }
 
   return { ok: true, participant: cred.pubkey, device }
 }

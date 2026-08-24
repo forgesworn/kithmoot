@@ -1,7 +1,8 @@
-import { finalizeEvent, getPublicKey, verifyEvent, verifiedSymbol, type Event } from 'nostr-tools/pure'
+import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { KINDS } from './kinds.js'
 import { verifyDeviceCredential } from './credential.js'
+import { verifyEventUncached } from './verify.js'
 import type { RosterEntry } from './types.js'
 
 export interface EncodeRosterOptions {
@@ -51,7 +52,7 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
   try {
     if (event.kind !== KINDS.ROSTER) return null
     if (event.tags.find((t) => t[0] === 'd')?.[1] !== opts.roomId) return null
-    if (!verifyEvent(event)) return null
+    if (!verifyEventUncached(event)) return null
 
     const entry = JSON.parse(nip44.v2.decrypt(event.content, opts.roomKey)) as RosterEntry
 
@@ -66,15 +67,11 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     if (verdict.device !== event.pubkey) return null
     if (verdict.participant !== entry.participant) return null
 
-    // JSON.stringify drops symbol-keyed properties, so the credential parsed
-    // back out of the ciphertext has lost the verifiedSymbol cache that
-    // finalizeEvent stamped on it originally. verifyDeviceCredential just did
-    // the real work of checking its signature, so restamp it here - this
-    // mirrors nostr-tools's own caching convention and means a caller who
-    // re-verifies this credential later gets the cached fast path instead of
-    // silently re-hashing.
-    entry.credential[verifiedSymbol] = true
-
+    // Deliberately NOT restamping verifiedSymbol onto the credential here.
+    // It would be truthful at the moment of writing, but it hands a future
+    // caller an object pre-marked verified - the exact footgun
+    // `verifyEventUncached` exists to close. Re-hashing a credential is
+    // cheap; a signature check that silently does nothing is not.
     return entry
   } catch {
     return null

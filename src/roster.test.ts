@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey, verifiedSymbol, type Event } from 'nostr-tools/pure'
+import { nip44 } from 'nostr-tools'
 import { deriveRoom } from './room.js'
 import { createDeviceCredential } from './credential.js'
 import { encodeRosterEvent, decodeRosterEvent } from './roster.js'
@@ -35,7 +36,20 @@ describe('roster events', () => {
     const { roomId, roomKey, deviceSk, entry } = fixture()
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
     const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
-    expect(decoded).toEqual(entry)
+    // Compared against the wire shape rather than the fixture object: the
+    // ciphertext is JSON, so symbol-keyed properties never survive the trip,
+    // and `finalizeEvent` stamps verifiedSymbol on the credential it mints.
+    // Everything that actually crosses the wire must come back identical.
+    expect(decoded).toEqual(JSON.parse(JSON.stringify(entry)))
+  })
+
+  it('hands back a credential that is not pre-marked verified', () => {
+    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    // A decoded credential carrying a cached verdict would make any later
+    // verifyEvent on it a no-op for whoever we hand it to.
+    expect(decoded!.credential[verifiedSymbol]).toBeUndefined()
   })
 
   it('leaves no participant pubkey readable on the wire', () => {
@@ -70,6 +84,28 @@ describe('roster events', () => {
     const { roomId, roomKey, deviceSk, entry } = fixture()
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
     expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW + 999_999 })).toBeNull()
+  })
+
+  it('re-verifies the signature even when the event arrives pre-marked verified', () => {
+    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const genuine = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+
+    // Everything the decoder checks after decryption still lines up - the
+    // device signed it, the credential authorises that device - so the only
+    // thing standing between this event and the roster is the signature over
+    // the swapped ciphertext. nostr-tools caches verification results on the
+    // event object, so an attacker who sets that cache skips the check
+    // entirely unless the decoder verifies a stripped copy.
+    const forged: Event = {
+      ...genuine,
+      content: nip44.v2.encrypt(
+        JSON.stringify({ ...entry, tracks: [{ trackId: 'forged', role: 'screen' }] }),
+        roomKey,
+      ),
+    }
+    forged[verifiedSymbol] = true
+
+    expect(decodeRosterEvent(forged, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
   it('returns null for malformed ciphertext rather than throwing', () => {

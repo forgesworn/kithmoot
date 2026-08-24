@@ -1,7 +1,8 @@
-import { finalizeEvent, getPublicKey, verifyEvent, type Event } from 'nostr-tools/pure'
+import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
+import { verifyEventUncached } from './verify.js'
 import type { RelayTransport } from './relay-pool.js'
 
 export interface ChatMessage {
@@ -59,7 +60,7 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
   try {
     if (event.kind !== KINDS.CHAT) return null
     if (event.tags.find((t) => t[0] === 'd')?.[1] !== opts.roomId) return null
-    if (!verifyEvent(event)) return null
+    if (!verifyEventUncached(event)) return null
 
     const msg = JSON.parse(nip44.v2.decrypt(event.content, opts.roomKey)) as ChatMessage
 

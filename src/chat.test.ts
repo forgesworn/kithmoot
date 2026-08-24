@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey, verifiedSymbol, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { deriveRoom } from './room.js'
 import { encodeChatEvent, decodeChatEvent, ChatLog } from './chat.js'
@@ -83,6 +83,25 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     const content = nip44.v2.encrypt(JSON.stringify({ id: 'x', text: 'no participant, device, or sentAt' }), roomKey)
     const notAMessage = finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: [['d', roomId]], content }, deviceSk)
     expect(decodeChatEvent(notAMessage, { roomId, roomKey, now: NOW })).toBeNull()
+  })
+
+  it('re-verifies the signature even when the event arrives pre-marked verified', () => {
+    const { roomId, roomKey, deviceSk, msg } = fixture()
+    const genuine = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
+
+    // The attacker holds the room key, so they can mint ciphertext the room
+    // decodes - what they cannot do is sign it. They swap the ciphertext of a
+    // genuinely signed event and set nostr-tools' own verification cache on
+    // the object, which short-circuits verifyEvent for anything that reads it
+    // off the raw inbound event rather than a stripped copy.
+    const forgedText = 'I never said this'
+    const forged: Event = {
+      ...genuine,
+      content: nip44.v2.encrypt(JSON.stringify({ ...msg, text: forgedText }), roomKey),
+    }
+    forged[verifiedSymbol] = true
+
+    expect(decodeChatEvent(forged, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
   it('returns null when the event claims a device that did not sign it', () => {
