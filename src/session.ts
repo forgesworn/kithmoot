@@ -222,6 +222,7 @@ export class RoomSession {
       tracks: self.tracks,
       claims: self.claims,
       updatedAt: this.#now(),
+      ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(reply ? { reply: true } : {}),
     }
     const event = encodeRosterEvent(entry, {
@@ -276,6 +277,16 @@ export class RoomSession {
       now: this.#now(),
     })
     if (!entry) return
+
+    // Every member evaluates every other member's tier for itself. The
+    // joiner's own self-check at join() is a courtesy that fails fast; it
+    // proves nothing to anybody else, because a modified client - or one
+    // simply constructed without a policy - skips it entirely. This is where
+    // the gate is actually enforced.
+    if (this.#opts.policy) {
+      const verdict = evaluateAccess(this.#opts.policy, entry.participant, entry.proof, this.#now())
+      if (!verdict.admitted) return
+    }
 
     const existing = this.#entries.get(entry.device)
     if (existing && existing.updatedAt > entry.updatedAt) return

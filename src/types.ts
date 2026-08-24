@@ -44,6 +44,11 @@ export interface RosterEntry {
   device: string
   /** Proof that `device` speaks for `participant` in this room. */
   credential: DeviceCredential
+  /** This participant's kindred proof, so every other member can evaluate
+   *  their tier for itself rather than trusting them to have self-checked.
+   *  Inside the room-key ciphertext, so relays never see it. Absent in an
+   *  open room, where there is nothing to prove. */
+  proof?: KindredProof
   /** Tracks this device is publishing. */
   tracks: TrackAdvert[]
   /** Singular roles this device is claiming, with the time of the claim. */

@@ -572,3 +572,98 @@ describe('RoomSession roster announce and respond', () => {
     expect(relay.published.filter((e) => e.kind === KINDS.ROSTER)).toHaveLength(2)
   })
 })
+
+describe('RoomSession member-side access gating', () => {
+  function gated(relay: SimRelay, policy: { tier: 'kith'; admitted: string[] }, proof?: ReturnType<typeof issueKindredProof>, participantSk = generateSecretKey()) {
+    return new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk,
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+      policy,
+      proof,
+    })
+  }
+
+  it('refuses to render a member who joined a gated room without a proof', async () => {
+    const relay = new SimRelay()
+    const hostSk = generateSecretKey()
+    const policy = { tier: 'kith' as const, admitted: [getPublicKey(hostSk)] }
+
+    const memberSk = generateSecretKey()
+    const member = gated(
+      relay,
+      policy,
+      issueKindredProof({ hostSk, participant: getPublicKey(memberSk), tier: 'kith', expiresAt: NOW + 3600 }),
+      memberSk,
+    )
+    await member.join([], {})
+
+    // A modified client - or simply one constructed without the policy -
+    // skips the local self-check entirely and publishes a roster entry.
+    // Nothing about the room stops it doing that, so every other member has
+    // to decide for itself whether to render them.
+    const gatecrasher = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk: generateSecretKey(),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    await gatecrasher.join([], {})
+    await settle()
+
+    expect(member.participants().map((v) => v.participant)).toEqual([member.participant])
+  })
+
+  it('renders a member whose proof satisfies the gate', async () => {
+    const relay = new SimRelay()
+    const hostSk = generateSecretKey()
+    const policy = { tier: 'kith' as const, admitted: [getPublicKey(hostSk)] }
+
+    const aSk = generateSecretKey()
+    const bSk = generateSecretKey()
+    const a = gated(relay, policy, issueKindredProof({ hostSk, participant: getPublicKey(aSk), tier: 'kith', expiresAt: NOW + 3600 }), aSk)
+    const b = gated(relay, policy, issueKindredProof({ hostSk, participant: getPublicKey(bSk), tier: 'kin', expiresAt: NOW + 3600 }), bSk)
+
+    await a.join([], {})
+    await b.join([], {})
+    await settle()
+
+    // Each renders the other, and neither drops its own entry on its own gate.
+    expect(a.participants()).toHaveLength(2)
+    expect(b.participants()).toHaveLength(2)
+  })
+
+  it('refuses a member whose proof came from an issuer the room does not trust', async () => {
+    const relay = new SimRelay()
+    const hostSk = generateSecretKey()
+    const strangerSk = generateSecretKey()
+    const policy = { tier: 'kith' as const, admitted: [getPublicKey(hostSk)] }
+
+    const memberSk = generateSecretKey()
+    const member = gated(relay, policy, issueKindredProof({ hostSk, participant: getPublicKey(memberSk), tier: 'kith', expiresAt: NOW + 3600 }), memberSk)
+    await member.join([], {})
+
+    // The gatecrasher believes its own policy names a trusted issuer, so its
+    // local self-check passes. The room disagrees, and the room is what counts.
+    const crasherSk = generateSecretKey()
+    const crasher = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk: crasherSk,
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+      policy: { tier: 'kith', admitted: [getPublicKey(strangerSk)] },
+      proof: issueKindredProof({ hostSk: strangerSk, participant: getPublicKey(crasherSk), tier: 'kith', expiresAt: NOW + 3600 }),
+    })
+    await crasher.join([], {})
+    await settle()
+
+    expect(member.participants()).toHaveLength(1)
+  })
+})

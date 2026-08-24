@@ -11,6 +11,7 @@ import {
   hostPairing,
   requestPairing,
   type DeviceCredential,
+  type RoomPolicy,
   type ParticipantView,
   type TrackAdvert,
   type ChatMessage,
@@ -164,6 +165,10 @@ interface RoomUrlPayload {
   s: string
   r: string[]
   i: string[]
+  /** The room's admission rule, in the library's own join-URL field. Carried
+   *  through every time this app rebuilds a fragment, so opening a gated
+   *  link never quietly rewrites the address bar into an ungated one. */
+  a?: RoomPolicy
   /** A one-off pairing code. Never a key. */
   c?: string
 }
@@ -172,6 +177,12 @@ interface RoomUrlPayload {
 // trusted with the room key so this is a small hole, but a join link should
 // not be able to name anything else at all.
 const ICE_SCHEMES = ['stun:', 'stuns:', 'turn:', 'turns:']
+
+// The room's admission rule, read off the join link. Everyone holding the
+// link holds the same rule, so members cannot disagree about who belongs -
+// see docs/decisions.md. This app has no UI for CREATING a gated room yet;
+// it honours, and passes on, one it is handed.
+let roomPolicy: RoomPolicy | undefined
 
 function safeIceUrls(urls: string[]): string[] {
   return urls.filter((u) => ICE_SCHEMES.some((scheme) => u.toLowerCase().startsWith(scheme)))
@@ -188,6 +199,7 @@ function encodePayload(
     r: relays,
     i: urls,
   }
+  if (roomPolicy) payload.a = roomPolicy
   if (pairingCode) payload.c = bytesToHex(pairingCode)
   return base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))
 }
@@ -273,9 +285,10 @@ function activeTracks(): MediaStreamTrack[] {
 function roomFromLocation(): boolean {
   if (location.hash.length <= 1) return false
 
-  const { secret, relays: hinted } = decodeJoinUrl(location.href)
+  const { secret, relays: hinted, policy } = decodeJoinUrl(location.href)
   roomSecret = secret
   relays = hinted.length ? hinted : RELAYS
+  roomPolicy = policy
 
   const extras = decodeExtras(location.href)
   iceUrls = extras.iceUrls
@@ -625,6 +638,7 @@ async function startSession(): Promise<void> {
           credential,
           deviceSk,
           factory,
+          policy: roomPolicy,
         })
       : new RoomSession({
           transport: new NostrRelayPool(relays),
@@ -632,6 +646,7 @@ async function startSession(): Promise<void> {
           participantSk: participantKey(),
           deviceSk,
           factory,
+          policy: roomPolicy,
         })
     session = s
     meParticipant = s.participant

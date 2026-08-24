@@ -2,10 +2,10 @@ import { schnorr } from '@noble/curves/secp256k1.js'
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { getPublicKey } from 'nostr-tools/pure'
-import type { AccessTier, KindredProof, RoomPolicy } from './types.js'
+import type { KindredProof, RoomPolicy } from './types.js'
 
 /** Closest first, matching the canonical order in the kindred primitive. */
-const TIER_RANK: Record<AccessTier, number> = { kin: 3, kith: 2, ken: 1, open: 0 }
+const TIER_RANK: Record<string, number | undefined> = { kin: 3, kith: 2, ken: 1, open: 0 }
 
 /**
  * The exact bytes a kindred proof signs over. Every field that changes the
@@ -56,8 +56,21 @@ export function evaluateAccess(
   if (!proof) return { admitted: false, reason: 'no kindred proof' }
   if (proof.participant !== participant) return { admitted: false, reason: 'proof names another participant' }
   if (proof.expiresAt <= now) return { admitted: false, reason: 'expired' }
-  if (!policy.admitted?.includes(proof.issuer)) return { admitted: false, reason: 'untrusted issuer' }
-  if (TIER_RANK[proof.tier] < TIER_RANK[policy.tier]) return { admitted: false, reason: 'tier too low' }
+  // Hex, compared case-insensitively: an allow-list entry stored in
+  // upper-case hex names exactly the same issuer and must not be rejected.
+  const issuer = proof.issuer.toLowerCase()
+  if (!policy.admitted?.some((a) => a.toLowerCase() === issuer)) {
+    return { admitted: false, reason: 'untrusted issuer' }
+  }
+
+  // Fail closed on a tier we do not recognise. TIER_RANK[unknown] is
+  // undefined and `undefined < 2` is false, so the obvious comparison skips
+  // the rejection branch and admits - the opposite of what a gate is for. A
+  // trusted issuer's typo, or a looser independent implementation, is all it
+  // would take.
+  const rank = TIER_RANK[proof.tier]
+  if (rank === undefined) return { admitted: false, reason: 'unrecognised tier' }
+  if (rank < (TIER_RANK[policy.tier] ?? 0)) return { admitted: false, reason: 'tier too low' }
 
   try {
     const message = canonicalMessage(proof.tier, proof.participant, proof.expiresAt)

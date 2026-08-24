@@ -2,6 +2,7 @@ import { hkdf } from '@noble/hashes/hkdf'
 import { sha256 } from '@noble/hashes/sha2'
 import { randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
+import type { AccessTier, RoomPolicy } from './types.js'
 
 const ROOM_ID_INFO = 'kithmoot/v1/room-id'
 const ROOM_KEY_INFO = 'kithmoot/v1/room-key'
@@ -31,6 +32,30 @@ export function deriveRoom(secret: Uint8Array): { roomId: string; roomKey: Uint8
 interface JoinPayload {
   s: string
   r: string[]
+  /** The room's access policy. */
+  a?: RoomPolicy
+}
+
+const TIERS: AccessTier[] = ['open', 'ken', 'kith', 'kin']
+
+/**
+ * Parse an access policy out of a URL fragment, which is untrusted input.
+ *
+ * A policy that does not parse is refused rather than silently dropped: a
+ * dropped policy is an open room, and failing open is exactly the mistake
+ * carrying the policy in the capability is meant to prevent.
+ */
+function parsePolicy(raw: unknown): RoomPolicy | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (typeof raw !== 'object') throw new Error('join URL carries a malformed access policy')
+  const policy = raw as RoomPolicy
+  if (!TIERS.includes(policy.tier)) throw new Error('join URL carries an access policy at an unknown tier')
+  if (policy.admitted !== undefined) {
+    if (!Array.isArray(policy.admitted) || !policy.admitted.every((a) => typeof a === 'string')) {
+      throw new Error('join URL carries a malformed access policy')
+    }
+  }
+  return policy.admitted ? { tier: policy.tier, admitted: [...policy.admitted] } : { tier: policy.tier }
 }
 
 /**
@@ -41,26 +66,49 @@ interface JoinPayload {
  * Encoding uses @scure/base and TextEncoder/TextDecoder rather than a
  * Node-only global: this library ships to a browser PWA as well as to Node,
  * and Node-only globals do not exist there.
+ *
+ * The access policy rides here too. It is deliberately NOT a room descriptor
+ * event on a relay: the URL is the capability, so everyone who joins holds
+ * the same policy bytes and agreement is structural, with nothing to fetch
+ * before a member can check another member's tier and no durable artefact of
+ * the room on any relay. The cost is that the policy cannot change mid-room -
+ * a new rule is a new link. See `docs/decisions.md`.
  */
-export function encodeJoinUrl(base: string, secret: Uint8Array, relays: string[]): string {
+export function encodeJoinUrl(
+  base: string,
+  secret: Uint8Array,
+  relays: string[],
+  policy?: RoomPolicy,
+): string {
   if (secret.length !== 32) throw new Error('room secret must be 32 bytes')
   const payload: JoinPayload = { s: base64urlnopad.encode(secret), r: relays }
+  if (policy) payload.a = policy
   const encoded = base64urlnopad.encode(utf8Encoder.encode(JSON.stringify(payload)))
   return `${base}#${encoded}`
 }
 
-export function decodeJoinUrl(url: string): { secret: Uint8Array; relays: string[] } {
+export function decodeJoinUrl(url: string): {
+  secret: Uint8Array
+  relays: string[]
+  policy?: RoomPolicy
+} {
   const hash = new URL(url).hash.slice(1)
   if (!hash) throw new Error('join URL has no fragment')
-  let secret: Uint8Array
-  let relays: string[]
+  let payload: JoinPayload
   try {
-    const payload = JSON.parse(utf8Decoder.decode(base64urlnopad.decode(hash))) as JoinPayload
-    secret = base64urlnopad.decode(payload.s)
-    relays = payload.r ?? []
+    payload = JSON.parse(utf8Decoder.decode(base64urlnopad.decode(hash))) as JoinPayload
   } catch {
     throw new Error('join URL fragment is not valid')
   }
+
+  let secret: Uint8Array
+  try {
+    secret = base64urlnopad.decode(payload.s)
+  } catch {
+    throw new Error('join URL carries a malformed secret')
+  }
   if (secret.length !== 32) throw new Error('join URL carries a malformed secret')
-  return { secret, relays }
+
+  const policy = parsePolicy(payload.a)
+  return policy ? { secret, relays: payload.r ?? [], policy } : { secret, relays: payload.r ?? [] }
 }

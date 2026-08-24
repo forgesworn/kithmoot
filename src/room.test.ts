@@ -66,6 +66,30 @@ describe('join URLs', () => {
     expect(serverVisible).not.toContain(base64urlnopad.encode(secret))
   })
 
+  it('round-trips the room access policy, so two members cannot disagree about it', () => {
+    // The policy travels with the capability rather than being a per-client
+    // constructor argument: everyone who joins holds the same fragment, so
+    // agreement is structural and needs no relay round trip.
+    const policy = { tier: 'kith' as const, admitted: ['d'.repeat(64)] }
+    const url = encodeJoinUrl('https://kithmoot.com/j', secret, relays, policy)
+    expect(decodeJoinUrl(url).policy).toEqual(policy)
+  })
+
+  it('leaves the policy undefined when the link does not set one', () => {
+    const url = encodeJoinUrl('https://kithmoot.com/j', secret, relays)
+    expect(decodeJoinUrl(url).policy).toBeUndefined()
+  })
+
+  it('refuses a fragment carrying a policy at an unknown tier', () => {
+    const url = encodeJoinUrl(
+      'https://kithmoot.com/j',
+      secret,
+      relays,
+      { tier: 'archon' } as unknown as { tier: 'kith' },
+    )
+    expect(() => decodeJoinUrl(url)).toThrow(/policy/)
+  })
+
   it('throws on a URL with no fragment', () => {
     expect(() => decodeJoinUrl('https://kithmoot.com/j')).toThrow(/fragment/)
   })
@@ -82,6 +106,8 @@ describe('browser compatibility', () => {
     // rather than fail a typecheck (Buffer is typed as a global by @types/node).
     const srcDir = new URL('.', import.meta.url)
     const files = readdirSync(srcDir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+    // Without this the loop body can never run and the guard passes vacuously.
+    expect(files.length, 'the Buffer guard scanned no files at all').toBeGreaterThan(0)
     for (const file of files) {
       const contents = readFileSync(new URL(file, srcDir), 'utf8')
       expect(contents, `${file} must not reference Buffer`).not.toMatch(/\bBuffer\b/)
