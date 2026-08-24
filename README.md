@@ -80,13 +80,15 @@ require a secure context, and a phone reaching your laptop over its LAN IP
 isn't one without TLS. Your browser will warn about the certificate; accept
 it to proceed. The terminal prints a `Network:` URL for the phone to use.
 
-## The nostr-tools pin
+## The nostr-tools version guard
 
-`nostr-tools` is pinned at exactly `2.23.9` — not a range. Versions
-`>=2.23.11` silently kill long-lived subscriptions
+`nostr-tools` versions `>=2.23.11 <2.24.2` silently killed long-lived
+subscriptions
 ([nbd-wtf/nostr-tools#539](https://github.com/nbd-wtf/nostr-tools/issues/539)),
-and a conference room is nothing but long-lived subscriptions. Don't widen
-this pin without checking that issue is closed.
+and a conference room is nothing but long-lived subscriptions. That issue
+is closed, and we now depend on `^2.25.0` with no exact pin. A test in
+`src/nostr-tools-version-guard.test.ts` still fails the build if a future
+install resolves back into the broken range.
 
 ## The acceptance test
 

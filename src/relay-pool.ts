@@ -36,10 +36,10 @@ export class NostrRelayPool implements RelayTransport {
   subscribe(filters: Filter[], onEvent: (event: Event) => void): () => void {
     if (this.#closed) throw new Error('pool is closed')
     const seen = new Set<string>()
-    // subscribeMany in this pinned version only accepts one filter per
-    // relay, so fan each filter out to every relay and let subscribeMap
-    // group them back into a per-relay OR - this is what gives our own
-    // multi-filter subscribe its NIP-01 OR semantics.
+    // subscribeMany only accepts one filter per relay, so fan each filter
+    // out to every relay and let subscribeMap group them back into a
+    // per-relay OR - this is what gives our own multi-filter subscribe its
+    // NIP-01 OR semantics.
     const requests = this.#relays.flatMap((url) => filters.map((filter) => ({ url, filter })))
     const sub = this.#pool.subscribeMap(requests, {
       onevent(event) {
