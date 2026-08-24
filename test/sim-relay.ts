@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
+import type { RelayTransport } from '../src/relay-pool.js'
 
 type Handler = (event: Event) => void
 
@@ -52,5 +53,29 @@ export class SimRelay {
   close(): void {
     this.#closed = true
     this.#subs.clear()
+  }
+}
+
+/** The simulator behind the RelayTransport seam. */
+export class SimTransport implements RelayTransport {
+  #relay: SimRelay
+  #closed = false
+
+  constructor(relay: SimRelay) {
+    this.#relay = relay
+  }
+
+  async publish(event: Event): Promise<void> {
+    if (this.#closed) throw new Error('transport is closed')
+    this.#relay.publish(event)
+  }
+
+  subscribe(filters: Filter[], onEvent: (event: Event) => void): () => void {
+    if (this.#closed) throw new Error('transport is closed')
+    return this.#relay.subscribe(filters, onEvent)
+  }
+
+  close(): void {
+    this.#closed = true
   }
 }
