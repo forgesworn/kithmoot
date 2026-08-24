@@ -1,0 +1,250 @@
+:root {
+  color-scheme: dark;
+  --bg: #101114;
+  --panel: #1a1b1f;
+  --border: #2c2e33;
+  --text: #eee;
+  --muted: #999;
+  --accent: #4ecbff;
+  --accent-dim: #244a5c;
+  --danger: #f88;
+  --ok: #6dd18a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  padding: 1rem;
+  background: var(--bg);
+  color: var(--text);
+  max-width: 820px;
+  margin-inline: auto;
+}
+
+h1 {
+  margin-bottom: 0;
+}
+
+h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-top: 2rem;
+}
+
+.tagline {
+  margin-top: 0.25rem;
+  color: var(--muted);
+}
+
+button {
+  font-size: 1rem;
+  padding: 0.6rem 1rem;
+  margin: 0.25rem 0.5rem 0.25rem 0;
+  background: #2a2a2a;
+  color: var(--text);
+  border: 1px solid #444;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #333;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input[type='text'],
+input:not([type]) {
+  font-family: monospace;
+  padding: 0.5rem;
+  width: 100%;
+  background: #16171a;
+  color: var(--text);
+  border: 1px solid #444;
+  border-radius: 6px;
+}
+
+section {
+  margin: 1rem 0;
+}
+
+details#roomSettings {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+details#roomSettings label {
+  display: block;
+  margin: 0.5rem 0 0.35rem;
+}
+
+.linkBox {
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.linkBox p {
+  margin: 0 0 0.5rem;
+}
+
+.linkBox.pairing {
+  border-color: #a44;
+  background: #1c1010;
+}
+
+.linkBox.pairing strong {
+  color: var(--danger);
+}
+
+#status {
+  min-height: 1.25rem;
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+/* Toggles - the microphone, camera and screen-share controls. An "on" toggle
+   gets the accent colour so the room's own state (who is bringing what) is
+   readable at a glance without reading label text. */
+.toggles {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.toggle[data-on='true'] {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.indicator {
+  font-size: 0.85rem;
+  color: var(--muted);
+  min-height: 1.1rem;
+}
+
+.indicator.mine {
+  color: var(--ok);
+}
+
+#local {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+
+#local video {
+  max-width: 200px;
+}
+
+/* Tile groups - one per participant, however many devices they brought.
+   This is the entire claim of the product, so it gets the most emphatic
+   styling in the sheet: a plain border normally, a highlighted one the
+   instant a second device joins the same person. */
+#room {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.participant {
+  border: 2px solid #4a4;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.participant.linked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.participant h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-family: monospace;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.participant .badge {
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  font-family: system-ui, sans-serif;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #002;
+}
+
+.tracks {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.track {
+  background: #222;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.media {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.media video,
+.media audio {
+  max-width: 100%;
+  border-radius: 4px;
+  background: #000;
+}
+
+video {
+  max-width: 320px;
+  border-radius: 4px;
+  background: #000;
+}
+
+/* Chat */
+#chatLog {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem;
+  height: 220px;
+  overflow-y: auto;
+  background: var(--panel);
+  font-size: 0.9rem;
+}
+
+#chatLog p {
+  margin: 0.15rem 0;
+}
+
+#chatLog .who {
+  color: var(--muted);
+  margin-right: 0.4rem;
+}
+
+#chatForm {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}

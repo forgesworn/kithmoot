@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101114" />
+    <meta name="description" content="A town hall nobody owns." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>KithMoot</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>KithMoot</h1>
+      <p class="tagline">A town hall nobody owns.</p>
+    </header>
+
+    <main>
+      <section id="setup">
+        <button id="create">Start a room</button>
+        <p>or paste a join link:</p>
+        <input id="url" placeholder="https://…#…" />
+        <button id="openUrl">Open</button>
+
+        <details id="roomSettings">
+          <summary>Room settings</summary>
+          <label for="iceServers">
+            STUN / TURN servers, comma-separated. The room carries these to
+            everyone who joins it - nobody has to trust an operator's default.
+          </label>
+          <input id="iceServers" value="stun:stun.l.google.com:19302" />
+        </details>
+      </section>
+
+      <section id="deviceControls" hidden>
+        <p>Bring to this room:</p>
+        <div class="toggles">
+          <button id="toggleMic" class="toggle" data-on="false">Microphone</button>
+          <button id="toggleCamera" class="toggle" data-on="false">Camera</button>
+          <button id="toggleScreen" class="toggle" data-on="false">Screen share</button>
+        </div>
+        <p id="micIndicator" class="indicator"></p>
+        <div id="local"></div>
+        <button id="join" hidden>Join room</button>
+      </section>
+
+      <section id="links" hidden>
+        <div class="linkBox">
+          <p>Room's open. Send the link.</p>
+          <input id="shareUrl" readonly />
+          <button id="copyShare" type="button">Copy</button>
+        </div>
+        <div class="linkBox pairing">
+          <p><strong>This link is you. Only ever send it to your own device.</strong></p>
+          <button id="addDevice">Add a device</button>
+          <input id="pairUrl" readonly hidden />
+          <button id="copyPair" type="button" hidden>Copy</button>
+        </div>
+      </section>
+
+      <p id="status" role="status"></p>
+
+      <section id="roomArea" hidden>
+        <h2>In the room</h2>
+        <div id="room"></div>
+
+        <h2>Chat</h2>
+        <div id="chatLog" aria-live="polite"></div>
+        <form id="chatForm">
+          <input id="chatInput" placeholder="Say something" autocomplete="off" />
+          <button type="submit">Send</button>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
