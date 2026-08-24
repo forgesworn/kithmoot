@@ -114,7 +114,7 @@ export class RoomSession {
       transport: this.#opts.transport,
       roomId: this.roomId,
       roomKey: this.#roomKey,
-      participant: entry.participant,
+      credential,
       deviceSk: this.#opts.deviceSk,
       now: this.#now,
     })

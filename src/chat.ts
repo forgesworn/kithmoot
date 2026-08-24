@@ -3,12 +3,19 @@ import { nip44 } from 'nostr-tools'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
 import { verifyEventUncached } from './verify.js'
+import { verifyDeviceCredential } from './credential.js'
 import type { RelayTransport } from './relay-pool.js'
+import type { DeviceCredential } from './types.js'
 
 export interface ChatMessage {
   id: string
   participant: string
   device: string
+  /** Proof that `device` speaks for `participant` in this room. Carried with
+   *  the message rather than looked up in the roster, because chat is
+   *  durable: a late joiner reads history from senders who have long since
+   *  left the room and are in nobody's roster any more. */
+  credential: DeviceCredential
   text: string
   sentAt: number
 }
@@ -44,10 +51,23 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
 export interface DecodeChatOptions {
   roomId: string
   roomKey: Uint8Array
-  /** Unix seconds. Reserved for callers that want to gate on staleness;
-   *  decoding itself does not currently use it. */
+  /** Unix seconds. Bounds how far into the future a message may claim to
+   *  have been sent - see `MAX_CLOCK_SKEW_SECONDS`. */
   now: number
 }
+
+/**
+ * How far ahead of our own clock a message may claim to have been sent.
+ *
+ * The credential is checked as at `sentAt` rather than as at now, because a
+ * message read out of history was sent under a credential that has since
+ * expired - checking it against the reader's clock would make all history
+ * unverifiable after twelve hours. The sender gains nothing by choosing
+ * `sentAt`: it still has to fall inside a window during which they genuinely
+ * held a credential for the participant they name. This bound is what stops
+ * that window being pushed forward indefinitely.
+ */
+const MAX_CLOCK_SKEW_SECONDS = 300
 
 /**
  * Decode and verify a chat event. Returns null for anything that does not
@@ -69,7 +89,9 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
       typeof msg.participant !== 'string' ||
       typeof msg.device !== 'string' ||
       typeof msg.text !== 'string' ||
-      typeof msg.sentAt !== 'number'
+      typeof msg.sentAt !== 'number' ||
+      typeof msg.credential !== 'object' ||
+      msg.credential === null
     ) {
       return null
     }
@@ -77,6 +99,19 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     // The device that signed this event must be the device the message
     // claims to be from - the same attribution guard the roster uses.
     if (msg.device !== event.pubkey) return null
+    if (msg.sentAt > opts.now + MAX_CLOCK_SKEW_SECONDS) return null
+
+    // And the credential must bind that device to the participant the
+    // message names. Without this, `participant` is a free-text field: any
+    // member can sign a message with their own key, name the victim, and
+    // have it render on the victim's own screen labelled "you".
+    const verdict = verifyDeviceCredential(msg.credential, {
+      roomId: opts.roomId,
+      now: msg.sentAt,
+    })
+    if (!verdict.ok) return null
+    if (verdict.device !== event.pubkey) return null
+    if (verdict.participant !== msg.participant) return null
 
     return msg
   } catch {
@@ -88,7 +123,9 @@ export interface ChatLogOptions {
   transport: RelayTransport
   roomId: string
   roomKey: Uint8Array
-  participant: string
+  /** This device's credential. The participant is read off it rather than
+   *  passed alongside, so the two can never disagree. */
+  credential: DeviceCredential
   deviceSk: Uint8Array
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
@@ -118,8 +155,9 @@ export class ChatLog {
   async send(text: string): Promise<void> {
     const msg: ChatMessage = {
       id: hex(randomBytes(16)),
-      participant: this.#opts.participant,
+      participant: this.#opts.credential.pubkey,
       device: getPublicKey(this.#opts.deviceSk),
+      credential: this.#opts.credential,
       text,
       sentAt: this.#now(),
     }
@@ -159,7 +197,16 @@ export class ChatLog {
     this.#messages.sort(compareMessages)
 
     const snapshot = this.messages()
-    for (const listener of this.#listeners) listener(snapshot)
+    // Guarded: decodeChatEvent is written never to throw precisely because
+    // this runs inside a relay subscription handler, and a throwing caller
+    // callback would undo all of that.
+    for (const listener of this.#listeners) {
+      try {
+        listener(snapshot)
+      } catch {
+        // A caller's render() is not allowed to close the room.
+      }
+    }
   }
 }
 
