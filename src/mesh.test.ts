@@ -182,6 +182,42 @@ describe('Mesh', () => {
     mesh.close()
   })
 
+  it('re-publishing the full track set never drops a track an already-connected peer has, and hands a late-arriving peer everything published so far', () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const localParticipant = device().pub
+    const remoteParticipant = device().pub
+    const remote = device()
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+
+    // A peer already exists before either track is published.
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    const existingPc = factory.instances[0]!
+
+    const camera = {} as MediaStreamTrack
+    const mic = {} as MediaStreamTrack
+    mesh.publish([camera])
+    // A caller publishes its whole current set on every toggle, never just
+    // the delta - re-sending `camera` here must not stop `mic` getting
+    // through to a peer that has had `camera` since the call before.
+    mesh.publish([camera, mic])
+
+    expect(existingPc.tracks).toEqual([camera, mic])
+
+    // A device that arrives AFTER both toggles must still receive
+    // everything published before it joined, not just the latest call.
+    const lateParticipant = device().pub
+    const lateRemote = device()
+    session.setViews([view(remoteParticipant, [remote.pub]), view(lateParticipant, [lateRemote.pub])])
+    const latePc = factory.instances[1]!
+
+    expect(latePc.tracks).toEqual([camera, mic])
+
+    mesh.close()
+  })
+
   it('ignores a signal for a device it does not know about, without throwing', () => {
     const session = new FakeSession()
     const factory = createFakeFactory()

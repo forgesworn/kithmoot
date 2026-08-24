@@ -60,6 +60,11 @@ export class Peer {
   #hasRemoteDescription = false
   #pendingCandidates: RTCIceCandidateInit[] = []
   #closed = false
+  /** Tracks already handed to this connection's `addTrack`, so a repeat
+   *  `start()` call - the mesh re-publishes the participant's whole current
+   *  set on every toggle, not just what changed - never re-adds one. A real
+   *  `RTCPeerConnection` throws if the same track is added twice. */
+  #addedTracks = new Set<MediaStreamTrack>()
 
   constructor(opts: PeerOptions) {
     this.polite = opts.localDevice < opts.remoteDevice
@@ -80,10 +85,18 @@ export class Peer {
     }
   }
 
-  /** Add tracks and make the opening offer. Either side may call this first - in a mesh both sides typically do, which is exactly the glare case perfect negotiation exists to handle. */
+  /** Add tracks and make an offer. Either side may call this first - in a mesh
+   *  both sides typically do, which is exactly the glare case perfect
+   *  negotiation exists to handle. Safe to call again later with an overlapping
+   *  or larger track list - to publish a newly toggled-on track - since only
+   *  tracks this connection has not already been given are actually added. */
   async start(tracks: MediaStreamTrack[]): Promise<void> {
     if (this.#closed) return
-    for (const track of tracks) this.#pc.addTrack(track)
+    for (const track of tracks) {
+      if (this.#addedTracks.has(track)) continue
+      this.#pc.addTrack(track)
+      this.#addedTracks.add(track)
+    }
 
     this.#makingOffer = true
     try {

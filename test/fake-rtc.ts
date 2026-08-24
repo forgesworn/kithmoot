@@ -59,6 +59,11 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
 
   addTrack(track: MediaStreamTrack): void {
     this.calls.push({ method: 'addTrack', args: [track] })
+    // A real RTCPeerConnection throws InvalidAccessError if a track already
+    // has a sender on this connection - this fake must too, or a caller
+    // that never de-duplicates before calling addTrack twice would look fine
+    // in tests and then throw the first time it runs in a real browser.
+    if (this.tracks.includes(track)) throw new Error('track already added to this connection')
     this.tracks.push(track)
   }
 

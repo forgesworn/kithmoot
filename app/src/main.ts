@@ -263,18 +263,6 @@ let micTrack: MediaStreamTrack | undefined
 let cameraTrack: MediaStreamTrack | undefined
 let screenTrack: MediaStreamTrack | undefined
 
-// Tracks already handed to session.publishTracks(), so a later toggle never
-// re-sends one. Mesh.publish() calls addTrack() on every peer connection for
-// everything it is given, and a real RTCPeerConnection throws if the same
-// track is added twice - so every call after the first must carry only what
-// is genuinely new. The one thing this does not cover: a device that joins
-// the mesh after a later toggle only receives what that toggle sent, not
-// everything sent before it (Mesh remembers only the most recent call's
-// list for late joiners). Acceptable for now - the acceptance case decides
-// mic and camera at join time - but worth fixing in Mesh with idempotent,
-// per-peer track bookkeeping before toggles are relied on mid-call.
-const publishedTracks = new Set<MediaStreamTrack>()
-
 const localPreviewEls = new Map<'camera' | 'screen', HTMLVideoElement>()
 // One persistent <div class="media"> per remote device, holding at most one
 // <video> and one <audio>. Kept outside the room grid's own lifecycle and
@@ -461,7 +449,7 @@ async function toggleMic(): Promise<void> {
       micTrack = undefined
       updateUi()
     })
-    if (micTrack) publishNewTracks([micTrack])
+    if (micTrack) publishActiveTracks()
   } else {
     micTrack.enabled = !micTrack.enabled
   }
@@ -485,7 +473,7 @@ async function toggleCamera(): Promise<void> {
         updateUi()
       })
       addLocalPreview('camera', cameraTrack)
-      publishNewTracks([cameraTrack])
+      publishActiveTracks()
     }
   }
   updateUi()
@@ -515,7 +503,7 @@ async function toggleScreen(): Promise<void> {
         updateUi()
       })
       addLocalPreview('screen', screenTrack)
-      publishNewTracks([screenTrack])
+      publishActiveTracks()
     }
   }
   updateUi()
@@ -531,12 +519,13 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
   localPreviewEls.set(kind, video)
 }
 
-function publishNewTracks(tracks: MediaStreamTrack[]): void {
-  if (!session) return
-  const fresh = tracks.filter((t) => !publishedTracks.has(t))
-  if (fresh.length === 0) return
-  for (const t of fresh) publishedTracks.add(t)
-  session.publishTracks(fresh)
+/** Publish this device's whole current set of active tracks. Always the full
+ *  set, never just what changed: `Mesh`/`Peer` keep their own per-peer record
+ *  of what has already been added to which connection, so re-sending a track
+ *  that is already there is a safe no-op, and a device that joins the mesh
+ *  after a later toggle still gets everything published before it arrived. */
+function publishActiveTracks(): void {
+  session?.publishTracks(activeTracks())
 }
 
 function setToggle(id: string, on: boolean): void {
@@ -740,7 +729,7 @@ async function startSession(): Promise<void> {
     const claims = micTrack ? { mic: Math.floor(Date.now() / 1000) } : {}
 
     await s.join(tracks, claims)
-    publishNewTracks(activeTracks())
+    publishActiveTracks()
 
     s.chat.onChange((messages) => renderChat(messages))
     renderChat(s.chat.messages())
