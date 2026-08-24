@@ -4,6 +4,7 @@ import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
 import { verifyEventUncached } from './verify.js'
 import { verifyDeviceCredential } from './credential.js'
+import { hexEquals, normaliseHex } from './hex.js'
 import type { RelayTransport } from './relay-pool.js'
 import type { DeviceCredential } from './types.js'
 
@@ -79,7 +80,8 @@ const MAX_CLOCK_SKEW_SECONDS = 300
 export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMessage | null {
   try {
     if (event.kind !== KINDS.CHAT) return null
-    if (event.tags.find((t) => t[0] === 'd')?.[1] !== opts.roomId) return null
+    const roomTag = event.tags.find((t) => t[0] === 'd')?.[1]
+    if (roomTag === undefined || !hexEquals(roomTag, opts.roomId)) return null
     if (!verifyEventUncached(event)) return null
 
     const msg = JSON.parse(nip44.v2.decrypt(event.content, opts.roomKey)) as ChatMessage
@@ -96,9 +98,15 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
       return null
     }
 
+    // This is a boundary: `device`/`participant` are free-text JSON fields
+    // with nothing forcing lower case. Canonicalise them here, once, same as
+    // `decodeRosterEvent` - see `hex.ts`'s `normaliseHex`.
+    msg.device = normaliseHex(msg.device)
+    msg.participant = normaliseHex(msg.participant)
+
     // The device that signed this event must be the device the message
     // claims to be from - the same attribution guard the roster uses.
-    if (msg.device !== event.pubkey) return null
+    if (!hexEquals(msg.device, event.pubkey)) return null
     if (msg.sentAt > opts.now + MAX_CLOCK_SKEW_SECONDS) return null
 
     // And the credential must bind that device to the participant the
@@ -110,8 +118,8 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
       now: msg.sentAt,
     })
     if (!verdict.ok) return null
-    if (verdict.device !== event.pubkey) return null
-    if (verdict.participant !== msg.participant) return null
+    if (!hexEquals(verdict.device, event.pubkey)) return null
+    if (!hexEquals(verdict.participant, msg.participant)) return null
 
     return msg
   } catch {

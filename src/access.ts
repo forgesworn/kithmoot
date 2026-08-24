@@ -2,7 +2,7 @@ import { schnorr } from '@noble/curves/secp256k1.js'
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { getPublicKey } from 'nostr-tools/pure'
-import { hexEquals } from './hex.js'
+import { hexEquals, normaliseHex } from './hex.js'
 import type { KindredProof, RoomPolicy } from './types.js'
 
 /** Closest first, matching the canonical order in the kindred primitive. */
@@ -28,10 +28,14 @@ export interface IssueKindredProofOptions {
 
 /** Vouch for a participant at a tier, until an expiry. */
 export function issueKindredProof(opts: IssueKindredProofOptions): KindredProof {
-  const sig = schnorr.sign(canonicalMessage(opts.tier, opts.participant, opts.expiresAt), opts.hostSk)
+  // `participant` is a pubkey handed in by the caller - possibly typed or
+  // pasted - so it is canonicalised here, at the point it enters the proof,
+  // rather than left for `evaluateAccess`'s equality checks to paper over.
+  const participant = normaliseHex(opts.participant)
+  const sig = schnorr.sign(canonicalMessage(opts.tier, participant, opts.expiresAt), opts.hostSk)
   return {
     tier: opts.tier,
-    participant: opts.participant,
+    participant,
     issuer: getPublicKey(opts.hostSk),
     sig: bytesToHex(sig),
     expiresAt: opts.expiresAt,

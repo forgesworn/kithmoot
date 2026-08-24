@@ -2,6 +2,7 @@ import { hkdf } from '@noble/hashes/hkdf'
 import { sha256 } from '@noble/hashes/sha2'
 import { randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
+import { normaliseHex } from './hex.js'
 import type { AccessTier, RoomPolicy } from './types.js'
 
 const ROOM_ID_INFO = 'kithmoot/v1/room-id'
@@ -55,7 +56,13 @@ function parsePolicy(raw: unknown): RoomPolicy | undefined {
       throw new Error('join URL carries a malformed access policy')
     }
   }
-  return policy.admitted ? { tier: policy.tier, admitted: [...policy.admitted] } : { tier: policy.tier }
+  // The allow-list is exactly the case this rule was written for: entries a
+  // person typed or pasted into a link. Canonicalise here, at the point they
+  // enter the system off the URL, rather than relying on every reader to
+  // compare them case-insensitively.
+  return policy.admitted
+    ? { tier: policy.tier, admitted: policy.admitted.map(normaliseHex) }
+    : { tier: policy.tier }
 }
 
 /**

@@ -3,7 +3,7 @@ import { nip44 } from 'nostr-tools'
 import { KINDS } from './kinds.js'
 import { verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
-import { hexEquals } from './hex.js'
+import { hexEquals, normaliseHex } from './hex.js'
 import type { RosterEntry } from './types.js'
 
 export interface EncodeRosterOptions {
@@ -57,6 +57,23 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     if (!verifyEventUncached(event)) return null
 
     const entry = JSON.parse(nip44.v2.decrypt(event.content, opts.roomKey)) as RosterEntry
+
+    // This is the boundary: a roster entry's device/participant/proof
+    // fields are attacker- or other-implementation-controlled JSON, with
+    // nothing on the wire forcing lower case. Canonicalise them here, once,
+    // so every later comparison downstream - `Peer`'s politeness tiebreak,
+    // `resolveSingularRoles`' device tiebreak, every Map/Set keyed on a
+    // device or participant string - is correct by construction rather than
+    // needing its own case-insensitive check. See `hex.ts`'s `normaliseHex`.
+    entry.device = normaliseHex(entry.device)
+    entry.participant = normaliseHex(entry.participant)
+    if (entry.proof) {
+      entry.proof = {
+        ...entry.proof,
+        issuer: normaliseHex(entry.proof.issuer),
+        participant: normaliseHex(entry.proof.participant),
+      }
+    }
 
     // The device that signed this event must be the device the credential names.
     if (!hexEquals(entry.device, event.pubkey)) return null

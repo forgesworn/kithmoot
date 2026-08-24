@@ -40,6 +40,33 @@ describe('resolveSingularRoles', () => {
     expect(a.get('alice')?.mic).toBe('aaa')
   })
 
+  it('BUG: a tie must be broken the same way regardless of which case a device pubkey happens to arrive in', () => {
+    // Two of the same participant's devices, tied on claim time. Both
+    // platforms must pick the same one - two live mics is feedback, none is
+    // silence - but nothing on the wire forces every device pubkey to be
+    // lower case, and the tiebreak is `<`, which `hexEquals` cannot help
+    // with: it needs the same total order on both sides, not just to agree
+    // when two strings name the same device.
+    const deviceLower = 'b'.repeat(64)
+    const deviceUpper = 'B'.repeat(64) // the same device pubkey, differently cased
+    const other = 'a'.repeat(64)
+
+    const withLowerCase = resolveSingularRoles([
+      entry('alice', other, { mic: 100 }),
+      entry('alice', deviceLower, { mic: 100 }),
+    ])
+    const withUpperCase = resolveSingularRoles([
+      entry('alice', other, { mic: 100 }),
+      entry('alice', deviceUpper, { mic: 100 }),
+    ])
+
+    // Whichever device wins the tie when the other device's pubkey is
+    // spelled in lower case must also win it when that same pubkey is
+    // spelled in upper case, so every client arrives at the same mic
+    // holder rather than each platform electing a different device.
+    expect(withUpperCase.get('alice')?.mic).toBe(withLowerCase.get('alice')?.mic)
+  })
+
   it('resolves mic and monitor independently', () => {
     const result = resolveSingularRoles([
       entry('alice', 'phone', { mic: 200, monitor: 100 }),

@@ -1,7 +1,7 @@
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { KINDS } from './kinds.js'
-import { hexEquals } from './hex.js'
+import { hexEquals, normaliseHex } from './hex.js'
 import type { TrackAdvert } from './types.js'
 
 export interface SignalBody {
@@ -80,7 +80,10 @@ export function unwrapSignal(
     const addressed = inner.tags.find((t) => t[0] === 'p')?.[1]
     if (addressed === undefined || !hexEquals(addressed, getPublicKey(opts.recipientSk))) return null
 
-    return { from: inner.pubkey, body }
+    // `from` is a device pubkey entering the system off the wire - the
+    // `Mesh` peer map it gets looked up in is keyed by the same normalised
+    // form roster decode produces, so this must match. See `normaliseHex`.
+    return { from: normaliseHex(inner.pubkey), body }
   } catch {
     return null
   }

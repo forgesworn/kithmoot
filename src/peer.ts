@@ -1,3 +1,4 @@
+import { normaliseHex } from './hex.js'
 import type { SignalBody } from './signal.js'
 
 /**
@@ -67,7 +68,13 @@ export class Peer {
   #addedTracks = new Set<MediaStreamTrack>()
 
   constructor(opts: PeerOptions) {
-    this.polite = opts.localDevice < opts.remoteDevice
+    // Normalised here, once, because this decides politeness and the two
+    // sides of a connection MUST land on opposite answers - see the class
+    // doc comment. `hexEquals` protects an equality check from a case
+    // difference; it does nothing for this `<`, which is why the tiebreak is
+    // normalised at the one place a device pubkey enters this class rather
+    // than trusted to already be canonical by the time it gets here.
+    this.polite = normaliseHex(opts.localDevice) < normaliseHex(opts.remoteDevice)
     this.#onSignal = opts.onSignal
     this.#onTrack = opts.onTrack
     this.#pc = opts.factory()

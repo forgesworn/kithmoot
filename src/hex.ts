@@ -12,3 +12,22 @@
 export function hexEquals(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase()
 }
+
+/**
+ * Canonicalise a hex identifier to lower case.
+ *
+ * `hexEquals` makes an equality check safe regardless of case, but nothing
+ * protects a *lexicographic* comparison the same way: `Peer`'s glare
+ * tiebreak and `resolveSingularRoles`' device tiebreak both order hex
+ * strings with `<`, and two implementations that disagree on which of two
+ * differently-cased spellings of the same identifier sorts first can reach
+ * opposite answers from identical input - the exact deadlock perfect
+ * negotiation exists to prevent. Call this once, at the point a hex
+ * identifier enters the system - a decoded event, a parsed credential or
+ * proof, a pubkey read from storage or a URL - rather than at each
+ * comparison site, so every later equality or ordering check on it is
+ * correct by construction. See `vectors/README.md`.
+ */
+export function normaliseHex(hex: string): string {
+  return hex.toLowerCase()
+}

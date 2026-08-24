@@ -1,3 +1,4 @@
+import { normaliseHex } from './hex.js'
 import type { RosterEntry, SingularRole } from './types.js'
 
 const SINGULAR_ROLES: SingularRole[] = ['mic', 'monitor']
@@ -24,10 +25,14 @@ export function resolveSingularRoles(entries: RosterEntry[]): RoleAssignment {
       if (claimedAt === undefined) continue
 
       const current = best.get(entry.participant)
+      // The tiebreak is lexicographic, not equality, so `hexEquals` cannot
+      // help here: normalise both sides of the `<` at the one place a
+      // device pubkey enters this comparison, the same way `Peer`'s glare
+      // tiebreak does - see `hex.ts`'s `normaliseHex`.
       const wins =
         current === undefined ||
         claimedAt > current.claimedAt ||
-        (claimedAt === current.claimedAt && entry.device < current.device)
+        (claimedAt === current.claimedAt && normaliseHex(entry.device) < normaliseHex(current.device))
 
       if (wins) best.set(entry.participant, { device: entry.device, claimedAt })
     }

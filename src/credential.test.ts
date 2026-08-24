@@ -119,4 +119,20 @@ describe('device credentials', () => {
     const result = verifyDeviceCredential(cred, { roomId: ROOM, now: NOW })
     expect(result).toEqual({ ok: false, reason: 'no expiration' })
   })
+
+  it('normalises the returned device to lower case, even when the credential names it in upper case', () => {
+    // The `device` tag is free text set by whoever minted the credential -
+    // nothing forces lower case. Downstream (roster decode, secondary-device
+    // adoption) compares this against a self-derived pubkey, which is always
+    // canonical, so this must be too.
+    const { participantSk, device } = setup()
+    const cred = createDeviceCredential({
+      participantSk,
+      devicePubkey: device.toUpperCase(),
+      roomId: ROOM,
+      expiresAt: NOW + 3600,
+    })
+    const result = verifyDeviceCredential(cred, { roomId: ROOM, now: NOW })
+    expect(result).toEqual({ ok: true, participant: expect.any(String), device })
+  })
 })

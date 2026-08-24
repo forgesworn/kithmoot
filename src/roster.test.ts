@@ -114,4 +114,20 @@ describe('roster events', () => {
     expect(() => decodeRosterEvent(event, { roomId, roomKey, now: NOW })).not.toThrow()
     expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
+
+  it('normalises device and participant to lower case, even when the entry itself names them in upper case', () => {
+    // Nothing on the wire stops a publisher writing its own device/participant
+    // fields in upper-case hex - the signature only binds the event, not the
+    // case of a string inside its encrypted JSON content. This is the
+    // boundary: everything downstream (`Peer`'s tiebreak, `resolveSingularRoles`,
+    // every Map/Set keyed on a device string) must see one canonical spelling.
+    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const shouted: RosterEntry = { ...entry, device: entry.device.toUpperCase(), participant: entry.participant.toUpperCase() }
+    const event = encodeRosterEvent(shouted, { roomId, roomKey, deviceSk })
+
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+
+    expect(decoded?.device).toBe(entry.device.toLowerCase())
+    expect(decoded?.participant).toBe(entry.participant.toLowerCase())
+  })
 })

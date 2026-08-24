@@ -1,7 +1,7 @@
 import { finalizeEvent } from 'nostr-tools/pure'
 import { KINDS } from './kinds.js'
 import { verifyEventUncached } from './verify.js'
-import { hexEquals } from './hex.js'
+import { hexEquals, normaliseHex } from './hex.js'
 import type { DeviceCredential } from './types.js'
 
 export interface CreateCredentialOptions {
@@ -72,5 +72,10 @@ export function verifyDeviceCredential(
   // `verify.ts` for why that matters.
   if (!verifyEventUncached(cred)) return { ok: false, reason: 'bad signature' }
 
-  return { ok: true, participant: cred.pubkey, device }
+  // A credential is one of the places a device/participant pubkey enters
+  // the system - the `device` tag in particular is free text set by
+  // whoever minted the credential. Canonicalise both here so every caller
+  // (roster decode, secondary-device adoption) compares against something
+  // already lower-case, rather than each having to know to.
+  return { ok: true, participant: normaliseHex(cred.pubkey), device: normaliseHex(device) }
 }

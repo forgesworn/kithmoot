@@ -5,6 +5,7 @@ import { bytesToHex, randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
+import { normaliseHex } from './hex.js'
 import type { RelayTransport } from './relay-pool.js'
 import type { DeviceCredential } from './types.js'
 
@@ -108,7 +109,11 @@ export function decodePairingRequest(
     if (body.device !== event.pubkey) return null
     if (body.proof !== pairingProof(opts.code, opts.roomId, body.device)) return null
 
-    return { device: body.device }
+    // A device pubkey entering the system off the wire, minted straight
+    // into a device credential by `hostPairing` below - canonicalise it
+    // here so that credential's `device` tag is never a case away from
+    // what everything else calls this device.
+    return { device: normaliseHex(body.device) }
   } catch {
     return null
   }
