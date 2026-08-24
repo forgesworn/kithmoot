@@ -1,0 +1,25 @@
+{
+  "name": "kithmoot",
+  "version": "0.1.0",
+  "description": "Multi-device conference rooms over Nostr - a town hall nobody owns",
+  "author": "TheCryptoDonkey",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:live": "vitest run test/live.test.ts --testTimeout=40000",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "nostr-tools": "2.23.9",
+    "@noble/hashes": "^1.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
