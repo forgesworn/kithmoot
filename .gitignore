@@ -3,3 +3,6 @@ node_modules/
 .claude/
 dist/
 dev-dist/
+test-results/
+playwright-report/
+blob-report/

@@ -20,8 +20,13 @@ import { base64urlnopad } from '@scure/base'
 // up, no stale room UI stuck behind a service worker.
 registerSW({ immediate: true })
 
-// Relays confirmed live for this room kind during stage 1's verification run.
-const RELAYS = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
+// Relays confirmed live for this room kind. relay.damus.io returned 503
+// during the stage 2 acceptance run and was dropped from the default list
+// for that reason - "no relay is load-bearing" already covers a room
+// carrying a dead relay in its hints, but there is no reason to default new
+// rooms to one that is currently flaky. Change this list, not code
+// elsewhere, if a relay in it goes down again.
+const RELAYS = ['wss://nos.lol', 'wss://relay.primal.net']
 
 // The room names its own STUN/TURN, carried in the join URL like the relay
 // hints already are - hardcoding an operator's server here is exactly the
