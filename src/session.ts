@@ -189,7 +189,7 @@ export class RoomSession {
 
   async join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
     if (this.#opts.policy) {
-      const verdict = evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, this.#now())
+      const verdict = evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, this.#now(), this.roomId)
       if (!verdict.admitted) throw new Error(verdict.reason)
     }
 
@@ -363,7 +363,7 @@ export class RoomSession {
     // simply constructed without a policy - skips it entirely. This is where
     // the gate is actually enforced.
     if (this.#opts.policy) {
-      const verdict = evaluateAccess(this.#opts.policy, entry.participant, entry.proof, this.#now())
+      const verdict = evaluateAccess(this.#opts.policy, entry.participant, entry.proof, this.#now(), this.roomId)
       if (!verdict.admitted) return
     }
 

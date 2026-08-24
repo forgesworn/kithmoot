@@ -36,7 +36,7 @@ import { deriveRoom, decodeJoinUrl, encodeJoinUrl } from '../src/room.js'
 import { verifyDeviceCredential } from '../src/credential.js'
 import { decodeRosterEvent } from '../src/roster.js'
 import { unwrapSignal } from '../src/signal.js'
-import { evaluateAccess } from '../src/access.js'
+import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
 import type { RoomPolicy } from '../src/types.js'
 
@@ -289,18 +289,47 @@ describe('kindred proof', () => {
   for (const tier of ['ken', 'kith', 'kin']) {
     it(`${tier}: reproduces the exact proof and its signature verifies`, () => {
       const v = vec('kindredProof', tier)
-      const message = kindredCanonicalMessage(v.input.tier, v.input.participant, v.input.expiresAt)
+      const message = kindredCanonicalMessage(
+        v.input.tier,
+        v.input.participant,
+        v.input.roomId,
+        v.input.nonce,
+        v.input.expiresAt,
+      )
       const hostSk = hexToBytes(v.input.hostSkHex)
       const sig = schnorr.sign(message, hostSk, hexToBytes(v.input.auxRandHex))
       const proof = {
         tier: v.input.tier,
         participant: v.input.participant,
         issuer: getPublicKey(hostSk),
+        room: v.input.roomId,
+        nonce: v.input.nonce,
         sig: bytesToHex(sig),
         expiresAt: v.input.expiresAt,
       }
       expect(proof).toEqual(v.output.proof)
       expect(schnorr.verify(sig, message, hexToBytes(proof.issuer))).toBe(true)
+
+      // And the real implementation, given the same fixed nonce, produces
+      // exactly the same proof - so the vector pins `issueKindredProof`, not
+      // just a message layout the test happens to agree with.
+      expect(
+        issueKindredProof({
+          hostSk,
+          participant: v.input.participant,
+          tier: v.input.tier,
+          roomId: v.input.roomId,
+          nonce: v.input.nonce,
+          expiresAt: v.input.expiresAt,
+        }),
+      ).toMatchObject({
+        tier: proof.tier,
+        participant: proof.participant,
+        issuer: proof.issuer,
+        room: proof.room,
+        nonce: proof.nonce,
+        expiresAt: proof.expiresAt,
+      })
     })
   }
 })
@@ -308,7 +337,13 @@ describe('kindred proof', () => {
 describe('access evaluation', () => {
   for (const v of groups.accessEvaluation) {
     it(`${v.name}: matches the frozen vector`, () => {
-      const result = evaluateAccess(v.input.policy, v.input.participant, v.input.proof ?? undefined, v.input.now)
+      const result = evaluateAccess(
+        v.input.policy,
+        v.input.participant,
+        v.input.proof ?? undefined,
+        v.input.now,
+        v.input.roomId,
+      )
       expect(result).toEqual(v.output.result)
     })
   }

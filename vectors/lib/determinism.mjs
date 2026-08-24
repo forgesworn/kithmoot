@@ -77,6 +77,6 @@ export function finalizeDeterministic(template, secretKey, auxRand) {
  * than imported. If the two ever disagree, `verify.test.ts`'s
  * access-evaluation assertions against the real `evaluateAccess` will fail.
  */
-export function kindredCanonicalMessage(tier, participant, expiresAt) {
-  return sha256(utf8ToBytes(`kithmoot/v1/kindred:${tier}:${participant}:${expiresAt}`))
+export function kindredCanonicalMessage(tier, participant, room, nonce, expiresAt) {
+  return sha256(utf8ToBytes(`kithmoot/v1/kindred:${tier}:${participant}:${room}:${nonce}:${expiresAt}`))
 }

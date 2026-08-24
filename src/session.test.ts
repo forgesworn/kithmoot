@@ -11,6 +11,9 @@ import { decodeRosterEvent } from './roster.js'
 import { PRESENCE_TTL_SECONDS } from './session.js'
 
 const NOW = 1_800_000_000
+/** The room every test in this file joins - a kindred proof is minted for one
+ *  room, so a proof and the session that carries it must name the same one. */
+const ROOM_ID = deriveRoom(new Uint8Array(32).fill(11)).roomId
 const now = () => NOW
 
 function secret() {
@@ -186,7 +189,7 @@ describe('RoomSession access policy', () => {
     const hostSk = generateSecretKey()
     const participantSk = generateSecretKey()
     const participant = getPublicKey(participantSk)
-    const proof = issueKindredProof({ hostSk, participant, tier: 'kith', expiresAt: NOW + 3600 })
+    const proof = issueKindredProof({ hostSk, participant, tier: 'kith', roomId: ROOM_ID, expiresAt: NOW + 3600 })
 
     const session = new RoomSession({
       transport: new SimTransport(relay),
@@ -624,7 +627,7 @@ describe('RoomSession member-side access gating', () => {
     const member = gated(
       relay,
       policy,
-      issueKindredProof({ hostSk, participant: getPublicKey(memberSk), tier: 'kith', expiresAt: NOW + 3600 }),
+      issueKindredProof({ hostSk, participant: getPublicKey(memberSk), tier: 'kith', roomId: ROOM_ID, expiresAt: NOW + 3600 }),
       memberSk,
     )
     await member.join([], {})
@@ -654,8 +657,8 @@ describe('RoomSession member-side access gating', () => {
 
     const aSk = generateSecretKey()
     const bSk = generateSecretKey()
-    const a = gated(relay, policy, issueKindredProof({ hostSk, participant: getPublicKey(aSk), tier: 'kith', expiresAt: NOW + 3600 }), aSk)
-    const b = gated(relay, policy, issueKindredProof({ hostSk, participant: getPublicKey(bSk), tier: 'kin', expiresAt: NOW + 3600 }), bSk)
+    const a = gated(relay, policy, issueKindredProof({ hostSk, participant: getPublicKey(aSk), tier: 'kith', roomId: ROOM_ID, expiresAt: NOW + 3600 }), aSk)
+    const b = gated(relay, policy, issueKindredProof({ hostSk, participant: getPublicKey(bSk), tier: 'kin', roomId: ROOM_ID, expiresAt: NOW + 3600 }), bSk)
 
     await a.join([], {})
     await b.join([], {})
@@ -673,7 +676,7 @@ describe('RoomSession member-side access gating', () => {
     const policy = { tier: 'kith' as const, admitted: [getPublicKey(hostSk)] }
 
     const memberSk = generateSecretKey()
-    const member = gated(relay, policy, issueKindredProof({ hostSk, participant: getPublicKey(memberSk), tier: 'kith', expiresAt: NOW + 3600 }), memberSk)
+    const member = gated(relay, policy, issueKindredProof({ hostSk, participant: getPublicKey(memberSk), tier: 'kith', roomId: ROOM_ID, expiresAt: NOW + 3600 }), memberSk)
     await member.join([], {})
 
     // The gatecrasher believes its own policy names a trusted issuer, so its
@@ -687,7 +690,7 @@ describe('RoomSession member-side access gating', () => {
       now,
       announceJitterMs: 0,
       policy: { tier: 'kith', admitted: [getPublicKey(strangerSk)] },
-      proof: issueKindredProof({ hostSk: strangerSk, participant: getPublicKey(crasherSk), tier: 'kith', expiresAt: NOW + 3600 }),
+      proof: issueKindredProof({ hostSk: strangerSk, participant: getPublicKey(crasherSk), tier: 'kith', roomId: ROOM_ID, expiresAt: NOW + 3600 }),
     })
     await crasher.join([], {})
     await settle()

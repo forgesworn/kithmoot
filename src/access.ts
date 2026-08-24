@@ -1,6 +1,6 @@
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { sha256 } from '@noble/hashes/sha2'
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
+import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { getPublicKey } from 'nostr-tools/pure'
 import { hexEquals, normaliseHex } from './hex.js'
 import type { KindredProof, RoomPolicy } from './types.js'
@@ -11,10 +11,23 @@ const TIER_RANK: Record<string, number | undefined> = { kin: 3, kith: 2, ken: 1,
 /**
  * The exact bytes a kindred proof signs over. Every field that changes the
  * proof's meaning is in here, so tampering with any one of them - tier,
- * subject or expiry - invalidates the signature.
+ * subject, room, nonce or expiry - invalidates the signature.
+ *
+ * `room` and `nonce` are covered deliberately: see `KindredProof`. A proof
+ * signed by an implementation that omits them reconstructs a different message
+ * and fails the signature check, which is the right way round - an older proof
+ * is refused rather than silently admitted somewhere it was never meant to go.
  */
-function canonicalMessage(tier: KindredProof['tier'], participant: string, expiresAt: number): Uint8Array {
-  return sha256(new TextEncoder().encode(`kithmoot/v1/kindred:${tier}:${participant}:${expiresAt}`))
+function canonicalMessage(
+  tier: KindredProof['tier'],
+  participant: string,
+  room: string,
+  nonce: string,
+  expiresAt: number,
+): Uint8Array {
+  return sha256(
+    new TextEncoder().encode(`kithmoot/v1/kindred:${tier}:${participant}:${room}:${nonce}:${expiresAt}`),
+  )
 }
 
 export interface IssueKindredProofOptions {
@@ -22,21 +35,31 @@ export interface IssueKindredProofOptions {
   hostSk: Uint8Array
   participant: string
   tier: KindredProof['tier']
+  /** The room this proof admits the participant to. */
+  roomId: string
   /** Unix seconds. */
   expiresAt: number
+  /** 32 bytes, hex. Supply one only to make a proof reproducible - the
+   *  interop vectors do; everything else wants the random default. */
+  nonce?: string
 }
 
-/** Vouch for a participant at a tier, until an expiry. */
+/** Vouch for a participant at a tier, in one room, until an expiry. */
 export function issueKindredProof(opts: IssueKindredProofOptions): KindredProof {
-  // `participant` is a pubkey handed in by the caller - possibly typed or
-  // pasted - so it is canonicalised here, at the point it enters the proof,
-  // rather than left for `evaluateAccess`'s equality checks to paper over.
+  // `participant` and `roomId` are identifiers handed in by the caller -
+  // possibly typed or pasted - so they are canonicalised here, at the point
+  // they enter the proof, rather than left for `evaluateAccess`'s equality
+  // checks to paper over.
   const participant = normaliseHex(opts.participant)
-  const sig = schnorr.sign(canonicalMessage(opts.tier, participant, opts.expiresAt), opts.hostSk)
+  const room = normaliseHex(opts.roomId)
+  const nonce = normaliseHex(opts.nonce ?? bytesToHex(randomBytes(32)))
+  const sig = schnorr.sign(canonicalMessage(opts.tier, participant, room, nonce, opts.expiresAt), opts.hostSk)
   return {
     tier: opts.tier,
     participant,
     issuer: getPublicKey(opts.hostSk),
+    room,
+    nonce,
     sig: bytesToHex(sig),
     expiresAt: opts.expiresAt,
   }
@@ -48,7 +71,7 @@ export function issueKindredProof(opts: IssueKindredProofOptions): KindredProof 
  * `ken` is one-way recognition - pinning someone's key from an authoritative
  * source, with no bond back - so it never satisfies a `kith` gate. `kin` is
  * closer than `kith` and does. Checks run cheapest first and never throw:
- * participant match, expiry, issuer trust, tier, then the schnorr
+ * participant match, room match, expiry, issuer trust, tier, then the schnorr
  * verification last, since it is the most expensive.
  */
 export function evaluateAccess(
@@ -56,6 +79,7 @@ export function evaluateAccess(
   participant: string,
   proof: KindredProof | undefined,
   now: number,
+  roomId: string,
 ): { admitted: boolean; reason: string } {
   if (policy.tier === 'open') return { admitted: true, reason: 'open room' }
   if (!proof) return { admitted: false, reason: 'no kindred proof' }
@@ -64,6 +88,10 @@ export function evaluateAccess(
   // stored in upper-case hex names exactly the same identifier and must not
   // be rejected on case alone.
   if (!hexEquals(proof.participant, participant)) return { admitted: false, reason: 'proof names another participant' }
+  // A proof is a grant in one room, not a bearer token - see `KindredProof`.
+  if (proof.room === undefined || !hexEquals(proof.room, roomId)) {
+    return { admitted: false, reason: 'proof names another room' }
+  }
   if (proof.expiresAt <= now) return { admitted: false, reason: 'expired' }
   if (!policy.admitted?.some((a) => hexEquals(a, proof.issuer))) {
     return { admitted: false, reason: 'untrusted issuer' }
@@ -79,7 +107,7 @@ export function evaluateAccess(
   if (rank < (TIER_RANK[policy.tier] ?? 0)) return { admitted: false, reason: 'tier too low' }
 
   try {
-    const message = canonicalMessage(proof.tier, proof.participant, proof.expiresAt)
+    const message = canonicalMessage(proof.tier, proof.participant, proof.room, proof.nonce, proof.expiresAt)
     if (!schnorr.verify(hexToBytes(proof.sig), message, hexToBytes(proof.issuer))) {
       return { admitted: false, reason: 'bad signature' }
     }

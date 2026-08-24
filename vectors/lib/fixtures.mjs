@@ -19,6 +19,15 @@ export const CREDENTIAL_EXPIRES_AT_EXPIRED = NOW - 3600
 export const SIGNAL_CREATED_AT = 1_799_995_000
 export const KINDRED_EXPIRES_AT = NOW + 3600
 
+/** A kindred proof names the room it admits its holder to, so every proof
+ *  vector is minted for a room - and one negative is minted for a different
+ *  one. See `KindredProof` in `src/types.ts`. */
+export const KINDRED_NONCE_KEN = '11'.repeat(32)
+export const KINDRED_NONCE_KITH = '22'.repeat(32)
+export const KINDRED_NONCE_KIN = '33'.repeat(32)
+export const KINDRED_NONCE_UNTRUSTED = '44'.repeat(32)
+export const KINDRED_NONCE_OTHER_ROOM = '55'.repeat(32)
+
 // --- Room secrets --------------------------------------------------------
 // Two edge cases (all-zero, all-0xff) plus two "typical" secrets used
 // throughout the rest of the vectors so a credential/roster/signal fixture

@@ -26,13 +26,27 @@ export interface RoomPolicy {
 }
 
 /**
- * A signed claim that `issuer` recognises `participant` at `tier`, until
- * `expiresAt`. Never issued for `open`, since open needs no proof.
+ * A signed claim that `issuer` recognises `participant` at `tier` in `room`,
+ * until `expiresAt`. Never issued for `open`, since open needs no proof.
+ *
+ * `room` is what stops a proof being a bearer token: without it, one proof
+ * admits its holder to every room that happens to trust the same issuer, and
+ * an issuer who vouched for a guest at one moot has not vouched for them at
+ * all of them. The cost of that binding is stated plainly: a kindred proof is
+ * a room grant here, not a portable statement about a relationship, so an
+ * issuer mints one per room. In this protocol the party who vouches is the
+ * party who sent the join link, so it already knows the room id.
  */
 export type KindredProof = {
   tier: Exclude<AccessTier, 'open'>
   participant: string
   issuer: string
+  /** The room id this proof is valid in. */
+  room: string
+  /** 32 random bytes, hex, unique to this proof. Signed over, so two proofs
+   *  on identical terms are still distinguishable - which is what a revocation
+   *  list, or an audit, needs to name one of them. */
+  nonce: string
   sig: string
   expiresAt: number
 }

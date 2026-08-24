@@ -115,7 +115,7 @@ directly, with no reimplementation involved.
 | `deviceCredential` | participant secret + device pubkey + roomId + expiry → signed kind-20460 event | `src/credential.ts` |
 | `rosterEvent` | a `RosterEntry` + room key → encrypted kind-20461 event | `src/roster.ts` |
 | `signalWrap` | a `SignalBody` + sender secret + recipient pubkey + ephemeral key → kind-21059 gift wrap | `src/signal.ts` |
-| `kindredProof` | issuer secret + participant + tier + expiry → signed proof, one per tier (`ken`/`kith`/`kin`) | `src/access.ts` |
+| `kindredProof` | issuer secret + participant + tier + room + nonce + expiry → signed proof, one per tier (`ken`/`kith`/`kin`) | `src/access.ts` |
 | `accessEvaluation` | a `RoomPolicy` + participant + proof + now → `{ admitted, reason }` | `src/access.ts` |
 | `turnCredential` | secret + ttl + fixed now → coturn REST `{ username, credential }` | `src/turn.ts` |
 
@@ -212,24 +212,36 @@ Checked in this order; the first match wins.
 | 1 | `policy.tier === 'open'` | `open room` (admitted) |
 | 2 | no proof supplied | `no kindred proof` |
 | 3 | `proof.participant` does not match `participant` (case-insensitive hex) | `proof names another participant` |
-| 4 | `proof.expiresAt <= now` | `expired` |
-| 5 | `proof.issuer` not in `policy.admitted` (case-insensitive hex) | `untrusted issuer` |
-| 6 | `proof.tier` not a recognised kindred tier | `unrecognised tier` |
-| 7 | tier rank below `policy.tier`'s | `tier too low` |
-| 8 | schnorr verification fails | `bad signature` |
+| 4 | `proof.room` missing, or not the room being joined (case-insensitive hex) | `proof names another room` |
+| 5 | `proof.expiresAt <= now` | `expired` |
+| 6 | `proof.issuer` not in `policy.admitted` (case-insensitive hex) | `untrusted issuer` |
+| 7 | `proof.tier` not a recognised kindred tier | `unrecognised tier` |
+| 8 | tier rank below `policy.tier`'s | `tier too low` |
+| 9 | schnorr verification fails | `bad signature` |
 | — | none of the above | `kindred proof accepted` (admitted) |
 
-Row 6 is reachable in TypeScript because a proof's `tier` is only a type
+Row 4 is the room binding. A kindred proof names exactly one room, and both
+`room` and a per-proof `nonce` are inside the signed message, so a proof
+cannot be edited into another room (that is row 9, not row 4) and two proofs
+on identical terms are still distinguishable. The trade is stated plainly in
+`KindredProof`: a kindred proof is a **room grant**, not a portable statement
+about a relationship, so an issuer mints one per room. In this protocol the
+party who vouches is the party who sent the join link, so it already knows
+the room id. An implementation that omits `room` and `nonce` from the signed
+message produces proofs this one refuses, and vice versa - which is the right
+way round, since the failure is a refusal rather than a silent admission.
+
+Row 7 is reachable in TypeScript because a proof's `tier` is only a type
 annotation, not a runtime check, so a signed-but-nonsense tier can still
 reach `evaluateAccess`. An implementation whose proof type is parsed and
 validated *before* it can be constructed (Kotlin's `KindredProof.fromJson`
 returns `null` for an unrecognised tier, so the caller never has a proof
-object to pass at all) cannot reach row 6 the same way and will instead
+object to pass at all) cannot reach row 7 the same way and will instead
 report row 2 (`no kindred proof`) for that wire input. Both fail closed -
 the proof is refused either way - but the reason a caller sees differs by
 implementation for this one case. This is accepted as an inherent
 consequence of stricter parsing, not something to paper over by weakening
-the parse step; row 6 is listed so a third implementation knows this
+the parse step; row 7 is listed so a third implementation knows this
 divergence is documented, not overlooked.
 
 ### `verifyDeviceCredential` (`src/credential.ts`)

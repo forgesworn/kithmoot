@@ -624,20 +624,30 @@ vectors.signalWrap.push({
 //    exact proof (src/access.ts), one per non-open tier.
 // ===========================================================================
 
-function buildKindredProof({ hostSk, participant, tier, expiresAt, auxRandLabel }) {
+function buildKindredProof({ hostSk, participant, tier, room, nonce, expiresAt, auxRandLabel }) {
   const auxRand = seed32(auxRandLabel)
-  const message = kindredCanonicalMessage(tier, participant, expiresAt)
+  const message = kindredCanonicalMessage(tier, participant, room, nonce, expiresAt)
   const sig = schnorr.sign(message, hostSk, auxRand)
   return {
-    proof: { tier, participant, issuer: getPublicKey(hostSk), sig: bytesToHex(sig), expiresAt },
+    proof: { tier, participant, issuer: getPublicKey(hostSk), room, nonce, sig: bytesToHex(sig), expiresAt },
     auxRandHex: bytesToHex(auxRand),
   }
 }
 
-const kenProof = buildKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'ken', expiresAt: fx.KINDRED_EXPIRES_AT, auxRandLabel: 'kindred-ken' })
-const kithProof = buildKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'kith', expiresAt: fx.KINDRED_EXPIRES_AT, auxRandLabel: 'kindred-kith' })
-const kinProof = buildKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'kin', expiresAt: fx.KINDRED_EXPIRES_AT, auxRandLabel: 'kindred-kin' })
-const untrustedKithProof = buildKindredProof({ hostSk: fx.HOST_UNTRUSTED_SK, participant: fx.GUEST, tier: 'kith', expiresAt: fx.KINDRED_EXPIRES_AT, auxRandLabel: 'kindred-untrusted' })
+// Every kindred proof names one room, and it is ROOM_1 throughout - the same
+// room the credential, roster and signal groups above are built against, so a
+// reader can trace one moot through the whole file.
+const KINDRED_ROOM = ROOM_1.roomId
+
+const kenProof = buildKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'ken', room: KINDRED_ROOM, nonce: fx.KINDRED_NONCE_KEN, expiresAt: fx.KINDRED_EXPIRES_AT, auxRandLabel: 'kindred-ken' })
+const kithProof = buildKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'kith', room: KINDRED_ROOM, nonce: fx.KINDRED_NONCE_KITH, expiresAt: fx.KINDRED_EXPIRES_AT, auxRandLabel: 'kindred-kith' })
+const kinProof = buildKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'kin', room: KINDRED_ROOM, nonce: fx.KINDRED_NONCE_KIN, expiresAt: fx.KINDRED_EXPIRES_AT, auxRandLabel: 'kindred-kin' })
+const untrustedKithProof = buildKindredProof({ hostSk: fx.HOST_UNTRUSTED_SK, participant: fx.GUEST, tier: 'kith', room: KINDRED_ROOM, nonce: fx.KINDRED_NONCE_UNTRUSTED, expiresAt: fx.KINDRED_EXPIRES_AT, auxRandLabel: 'kindred-untrusted' })
+// Genuinely signed, by the trusted issuer, at a sufficient tier, unexpired,
+// naming the right participant - and minted for ROOM_2. The only thing wrong
+// with it is the room, which is precisely the replay the binding exists to
+// stop.
+const otherRoomKithProof = buildKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'kith', room: ROOM_2.roomId, nonce: fx.KINDRED_NONCE_OTHER_ROOM, expiresAt: fx.KINDRED_EXPIRES_AT, auxRandLabel: 'kindred-other-room' })
 
 for (const [name, built, tier] of [
   ['ken', kenProof, 'ken'],
@@ -647,8 +657,8 @@ for (const [name, built, tier] of [
   vectors.kindredProof.push({
     name,
     kind: 'positive',
-    note: `A ${tier} proof: the issuer vouches for GUEST at the '${tier}' tier until KINDRED_EXPIRES_AT. Pins the signed message layout, not any admission decision - see the accessEvaluation group for that.`,
-    input: { hostSkHex: bytesToHex(fx.HOST_SK), participant: fx.GUEST, tier, expiresAt: fx.KINDRED_EXPIRES_AT, auxRandHex: built.auxRandHex },
+    note: `A ${tier} proof: the issuer vouches for GUEST at the '${tier}' tier, in ROOM_1, until KINDRED_EXPIRES_AT. The room and the nonce are both inside the signed message - see canonicalMessage in src/access.ts - so a proof cannot be edited into another room, and two proofs on identical terms are still distinguishable. Pins the signed message layout, not any admission decision - see the accessEvaluation group for that.`,
+    input: { hostSkHex: bytesToHex(fx.HOST_SK), participant: fx.GUEST, tier, roomId: KINDRED_ROOM, nonce: built.proof.nonce, expiresAt: fx.KINDRED_EXPIRES_AT, auxRandHex: built.auxRandHex },
     output: { proof: built.proof },
   })
 }
@@ -661,13 +671,13 @@ for (const [name, built, tier] of [
 const KITH_POLICY = { tier: 'kith', admitted: [fx.HOST] }
 const OPEN_POLICY = { tier: 'open' }
 
-function accessVector(name, kind, note, policy, proof) {
+function accessVector(name, kind, note, policy, proof, roomId = KINDRED_ROOM) {
   vectors.accessEvaluation.push({
     name,
     kind,
     note,
-    input: { policy, participant: fx.GUEST, proof: proof ?? null, now: fx.NOW },
-    output: { result: evaluateAccess(policy, fx.GUEST, proof, fx.NOW) },
+    input: { policy, participant: fx.GUEST, proof: proof ?? null, now: fx.NOW, roomId },
+    output: { result: evaluateAccess(policy, fx.GUEST, proof, fx.NOW, roomId) },
   })
 }
 
@@ -714,6 +724,37 @@ accessVector(
 // this group. This is the one negative that fails on nothing BUT the
 // signature: the issuer IS trusted, the tier IS sufficient, the proof is NOT
 // expired, and it names the right participant - only `sig` is garbage.
+// A kindred proof names one room - see `KindredProof` in src/types.ts. This
+// proof is genuine in every other respect, and the reason it is refused is
+// the reason the binding exists: without it, one proof from a trusted issuer
+// admits its holder to every room that trusts that issuer.
+accessVector(
+  'kith-room-rejects-proof-for-another-room',
+  'negative',
+  "A kith proof from the trusted issuer, at a sufficient tier, unexpired, naming the right participant - and minted for a different room. An implementation that does not compare proof.room to the room being joined admits a proof its issuer never granted here ('proof names another room').",
+  KITH_POLICY,
+  otherRoomKithProof.proof,
+)
+
+// The mirror: the room field edited to name this room, which the signature
+// covers - so this is refused on the signature rather than on the room.
+accessVector(
+  'kith-room-rejects-room-edited-into-the-proof',
+  'negative',
+  "The same other-room proof with its `room` field rewritten to name this room. The room is inside the signed message, so rewriting it invalidates the signature ('bad signature') - an implementation that binds the room but leaves it out of canonicalMessage admits this.",
+  KITH_POLICY,
+  { ...otherRoomKithProof.proof, room: KINDRED_ROOM },
+)
+
+accessVector(
+  'kith-room-admits-proof-against-upper-case-room-id',
+  'positive',
+  'The room id handed to evaluateAccess is upper-case hex naming the very room the proof was minted for. Hex identifiers are compared case-insensitively throughout - see the section of this README on that - so this is still admitted.',
+  KITH_POLICY,
+  kithProof.proof,
+  KINDRED_ROOM.toUpperCase(),
+)
+
 accessVector(
   'kith-room-rejects-tampered-signature',
   'negative',
