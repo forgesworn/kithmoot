@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync, readdirSync } from 'node:fs'
+import { bytesToHex } from '@noble/hashes/utils'
+import { base64urlnopad } from '@scure/base'
 import { generateRoomSecret, deriveRoom, encodeJoinUrl, decodeJoinUrl } from './room.js'
 
 describe('deriveRoom', () => {
@@ -17,7 +20,7 @@ describe('deriveRoom', () => {
 
   it('separates the id from the key so the id never reveals the key', () => {
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))
-    const keyHex = Buffer.from(roomKey).toString('hex')
+    const keyHex = bytesToHex(roomKey)
     expect(roomId).not.toBe(keyHex)
   })
 
@@ -37,7 +40,7 @@ describe('generateRoomSecret', () => {
     const a = generateRoomSecret()
     const b = generateRoomSecret()
     expect(a.length).toBe(32)
-    expect(Buffer.from(a).toString('hex')).not.toBe(Buffer.from(b).toString('hex'))
+    expect(bytesToHex(a)).not.toBe(bytesToHex(b))
   })
 })
 
@@ -48,7 +51,7 @@ describe('join URLs', () => {
   it('round-trips the secret and relay hints', () => {
     const url = encodeJoinUrl('https://kithmoot.com/j', secret, relays)
     const decoded = decodeJoinUrl(url)
-    expect(Buffer.from(decoded.secret).toString('hex')).toBe(Buffer.from(secret).toString('hex'))
+    expect(bytesToHex(decoded.secret)).toBe(bytesToHex(secret))
     expect(decoded.relays).toEqual(relays)
   })
 
@@ -60,7 +63,7 @@ describe('join URLs', () => {
     expect(parsed.pathname).toBe('/j')
     // The secret must not be recoverable from anything the server receives.
     const serverVisible = parsed.origin + parsed.pathname + parsed.search
-    expect(serverVisible).not.toContain(Buffer.from(secret).toString('base64url'))
+    expect(serverVisible).not.toContain(base64urlnopad.encode(secret))
   })
 
   it('throws on a URL with no fragment', () => {
@@ -69,5 +72,19 @@ describe('join URLs', () => {
 
   it('throws on a corrupted fragment', () => {
     expect(() => decodeJoinUrl('https://kithmoot.com/j#not-valid-base64!!')).toThrow()
+  })
+})
+
+describe('browser compatibility', () => {
+  it('never references the Node-only Buffer global from src/', () => {
+    // This library ships to a browser PWA as well as to Node. Buffer does not
+    // exist in a browser, so a regression here would silently break the app
+    // rather than fail a typecheck (Buffer is typed as a global by @types/node).
+    const srcDir = new URL('.', import.meta.url)
+    const files = readdirSync(srcDir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+    for (const file of files) {
+      const contents = readFileSync(new URL(file, srcDir), 'utf8')
+      expect(contents, `${file} must not reference Buffer`).not.toMatch(/\bBuffer\b/)
+    }
   })
 })
