@@ -50,4 +50,9 @@ export interface RosterEntry {
   claims: Partial<Record<SingularRole, number>>
   /** Unix seconds; used for staleness. */
   updatedAt: number
+  /** True when this entry was published in answer to another device's
+   *  arrival rather than as an arrival of its own. An answer never provokes
+   *  another answer, which is what stops the room talking to itself for
+   *  ever. Absent on a first announcement. */
+  reply?: boolean
 }

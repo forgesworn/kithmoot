@@ -46,6 +46,11 @@ export interface RoomSessionBaseOptions {
   policy?: RoomPolicy
   /** This participant's kindred proof, checked against `policy` at join. */
   proof?: KindredProof
+  /** Upper bound on the random delay before answering a new arrival, in
+   *  milliseconds. Jitter is what stops twenty devices answering the
+   *  twenty-first in the same instant. Zero makes it deterministic, which
+   *  is what tests want. */
+  announceJitterMs?: number
 }
 
 /**
@@ -73,6 +78,7 @@ export interface SecondaryRoomSessionOptions extends RoomSessionBaseOptions {
 export type RoomSessionOptions = PrimaryRoomSessionOptions | SecondaryRoomSessionOptions
 
 const CREDENTIAL_TTL_SECONDS = 12 * 60 * 60
+const DEFAULT_ANNOUNCE_JITTER_MS = 500
 
 /**
  * A device's presence in one room, grouped with the other devices its
@@ -101,6 +107,13 @@ export class RoomSession {
   #unsub?: () => void
   #mesh?: Mesh
   #chat?: ChatLog
+  /** What this device is currently advertising, so an answer to a new
+   *  arrival carries the same state as the announcement did. */
+  #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>> }
+  /** At most one answer in flight: twenty devices arriving at once must
+   *  produce one re-announce from us, not twenty. */
+  #replyTimer?: ReturnType<typeof setTimeout>
+  #left = false
 
   constructor(opts: RoomSessionOptions) {
     const { roomId, roomKey } = deriveRoom(opts.secret)
@@ -160,21 +173,8 @@ export class RoomSession {
     // which is the only endpoint holding the participant key, can mint one.
     const credential = this.#credential ?? this.issueDeviceCredential(device)
 
-    const entry: RosterEntry = {
-      participant: this.participant,
-      device,
-      credential,
-      tracks,
-      claims,
-      updatedAt: this.#now(),
-    }
-
-    const event = encodeRosterEvent(entry, {
-      roomId: this.roomId,
-      roomKey: this.#roomKey,
-      deviceSk: this.#opts.deviceSk,
-    })
-    await this.#opts.transport.publish(event)
+    this.#self = { credential, tracks, claims }
+    await this.#publishEntry(false)
 
     this.#chat = new ChatLog({
       transport: this.#opts.transport,
@@ -190,12 +190,60 @@ export class RoomSession {
         session: this,
         factory: this.#opts.factory,
         localDevice: device,
-        localParticipant: entry.participant,
+        localParticipant: this.participant,
         deviceSk: this.#opts.deviceSk,
         transport: this.#opts.transport,
         roomId: this.roomId,
       })
     }
+  }
+
+  /**
+   * Re-publish this device's roster entry.
+   *
+   * The roster is an ephemeral kind, so nothing a relay holds is replayed to
+   * a device that subscribes later: the only way a newcomer learns who is
+   * already here is for those devices to say so again. `join()` announces;
+   * this is how a device answers, and callers can use it to advertise a
+   * changed track list too.
+   */
+  async announce(): Promise<void> {
+    await this.#publishEntry(false)
+  }
+
+  async #publishEntry(reply: boolean): Promise<void> {
+    const self = this.#self
+    if (!self || this.#left) return
+
+    const entry: RosterEntry = {
+      participant: this.participant,
+      device: this.device,
+      credential: self.credential,
+      tracks: self.tracks,
+      claims: self.claims,
+      updatedAt: this.#now(),
+      ...(reply ? { reply: true } : {}),
+    }
+    const event = encodeRosterEvent(entry, {
+      roomId: this.roomId,
+      roomKey: this.#roomKey,
+      deviceSk: this.#opts.deviceSk,
+    })
+    await this.#opts.transport.publish(event)
+  }
+
+  /** Schedule one answer to a new arrival, jittered. Coalesced: an answer
+   *  already pending covers every device that arrives before it fires. */
+  #scheduleReply(): void {
+    if (this.#replyTimer !== undefined || this.#left || !this.#self) return
+    const jitter = this.#opts.announceJitterMs ?? DEFAULT_ANNOUNCE_JITTER_MS
+    this.#replyTimer = setTimeout(
+      () => {
+        this.#replyTimer = undefined
+        this.#publishEntry(true).catch(() => {})
+      },
+      Math.floor(Math.random() * jitter),
+    )
   }
 
   /** Publish live media tracks to every remote device's peer connection.
@@ -233,6 +281,14 @@ export class RoomSession {
     if (existing && existing.updatedAt > entry.updatedAt) return
 
     this.#entries.set(entry.device, entry)
+
+    // A device we had not seen before has arrived, so tell it we are here.
+    // Never for our own entry echoing back, never for a device we already
+    // knew, and never in answer to somebody else's answer - each of those
+    // would be an answer to something that was not an arrival, and the last
+    // of them would not terminate.
+    if (!existing && !entry.reply && entry.device !== this.device) this.#scheduleReply()
+
     this.#notify()
   }
 
@@ -281,6 +337,9 @@ export class RoomSession {
   }
 
   leave(): void {
+    this.#left = true
+    if (this.#replyTimer !== undefined) clearTimeout(this.#replyTimer)
+    this.#replyTimer = undefined
     this.#unsub?.()
     this.#mesh?.close()
     this.#chat?.close()

@@ -8,7 +8,16 @@ export const KINDS = {
    *  relay - it travels inside the encrypted roster, so relays never see the
    *  participant pubkey. */
   CREDENTIAL: 20460,
-  /** Roster / presence, encrypted to the room key and published once. */
+  /** Roster / presence, encrypted to the room key.
+   *
+   *  Deliberately EPHEMERAL, and deliberately not a stored or addressable
+   *  kind. Presence is live state: an entry a relay kept is a claim that
+   *  somebody is in a room they left an hour ago, and it leaves a durable
+   *  public record that the room exists at all - which the whole design is
+   *  built to avoid ("nothing about the room is public"). The cost is that a
+   *  device joining later is never sent what it missed, so arriving devices
+   *  announce and devices already present answer; see
+   *  `RoomSession.announce`. */
   ROSTER: 20461,
   /** Ephemeral gift wrap carrying SDP and ICE. Reused from NIP-AC deliberately. */
   SIGNAL_WRAP: 21059,

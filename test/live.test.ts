@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { RoomSession, NostrRelayPool, generateRoomSecret } from '../src/index.js'
+import { createFakeFactory } from './fake-rtc.js'
 
 const RELAYS = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
 
@@ -25,6 +26,23 @@ describe('live relays', () => {
     const phoneSk = generateSecretKey()
     const laptopSk = generateSecretKey()
 
+    // The observer joins LAST. A real relay does not store an ephemeral
+    // kind, so this is the direction that only works because devices
+    // already present answer a new arrival - and the one direction the
+    // suite never used to exercise anywhere.
+    const phoneFactory = createFakeFactory()
+    const phone = new RoomSession({
+      transport: pool(),
+      secret,
+      participantSk,
+      deviceSk: phoneSk,
+      factory: phoneFactory,
+    })
+    const laptop = new RoomSession({ transport: pool(), secret, participantSk, deviceSk: laptopSk })
+    await phone.join([{ trackId: 'cam', role: 'camera' }], { mic: Math.floor(Date.now() / 1000) })
+    await laptop.join([{ trackId: 'scr', role: 'screen' }], {})
+    await settle(2000)
+
     const observer = new RoomSession({
       transport: pool(),
       secret,
@@ -32,12 +50,6 @@ describe('live relays', () => {
       deviceSk: generateSecretKey(),
     })
     await observer.join([], {})
-    await settle(2000)
-
-    const phone = new RoomSession({ transport: pool(), secret, participantSk, deviceSk: phoneSk })
-    const laptop = new RoomSession({ transport: pool(), secret, participantSk, deviceSk: laptopSk })
-    await phone.join([{ trackId: 'cam', role: 'camera' }], { mic: Math.floor(Date.now() / 1000) })
-    await laptop.join([{ trackId: 'scr', role: 'screen' }], {})
 
     await settle()
 
@@ -46,6 +58,10 @@ describe('live relays', () => {
     expect(view!.devices).toHaveLength(2)
     expect(view!.tracks.map((t) => t.role).sort()).toEqual(['camera', 'screen'])
     expect(view!.mic).toBe(getPublicKey(phoneSk))
+
+    // And the phone opened a peer to the observer only - never to the
+    // laptop, which is its own participant's other device.
+    expect(phoneFactory.instances, 'the phone opened a peer to its own other device').toHaveLength(1)
   })
 
   it('does not leak the participant pubkey to relays', async () => {

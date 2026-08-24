@@ -5,6 +5,7 @@ import { createFakeFactory } from '../test/fake-rtc.js'
 import { RoomSession } from './session.js'
 import { issueKindredProof } from './access.js'
 import { createDeviceCredential } from './credential.js'
+import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
 
 const NOW = 1_800_000_000
@@ -12,6 +13,12 @@ const now = () => NOW
 
 function secret() {
   return new Uint8Array(32).fill(11)
+}
+
+/** Lets scheduled re-announces run. Everything in SimRelay is synchronous,
+ *  so a few macrotasks past a zero jitter is enough - no arbitrary sleeps. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
 }
 
 describe('RoomSession', () => {
@@ -29,6 +36,7 @@ describe('RoomSession', () => {
       participantSk,
       deviceSk: phoneSk,
       now,
+      announceJitterMs: 0,
     })
     const laptop = new RoomSession({
       transport: new SimTransport(relay),
@@ -36,6 +44,7 @@ describe('RoomSession', () => {
       participantSk,
       deviceSk: laptopSk,
       now,
+      announceJitterMs: 0,
     })
     const observer = new RoomSession({
       transport: new SimTransport(relay),
@@ -43,11 +52,16 @@ describe('RoomSession', () => {
       participantSk: generateSecretKey(),
       deviceSk: generateSecretKey(),
       now,
+      announceJitterMs: 0,
     })
 
-    await observer.join([], {})
+    // The observer joins LAST, which is the order the README's manual
+    // procedure actually uses and the direction the roster used not to
+    // work in at all.
     await phone.join([{ trackId: 'cam', role: 'camera' }, { trackId: 'mic', role: 'mic' }], { mic: NOW })
     await laptop.join([{ trackId: 'scr', role: 'screen' }], {})
+    await observer.join([], {})
+    await settle()
 
     const views = observer.participants()
     const mine = views.find((v) => v.participant === participant)
@@ -63,16 +77,18 @@ describe('RoomSession', () => {
     const bob = generateSecretKey()
 
     const sessions = [
-      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: alice, deviceSk: generateSecretKey(), now }),
-      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: alice, deviceSk: generateSecretKey(), now }),
-      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: bob, deviceSk: generateSecretKey(), now }),
-      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: bob, deviceSk: generateSecretKey(), now }),
+      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: alice, deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
+      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: alice, deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
+      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: bob, deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
+      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: bob, deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
     ]
     const observerSk = generateSecretKey()
     const observerParticipant = getPublicKey(observerSk)
-    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: observerSk, deviceSk: generateSecretKey(), now })
-    await observer.join([], {})
+    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: observerSk, deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    // Again asserted from the LAST device to arrive, not the first.
     for (const s of sessions) await s.join([], {})
+    await observer.join([], {})
+    await settle()
 
     // Capture the observer's own pubkey before asserting, and filter against
     // that - not a freshly generated key, which would never match anything
@@ -450,5 +466,109 @@ describe('RoomSession device credentials', () => {
     expect(() => phone.issueDeviceCredential(getPublicKey(generateSecretKey()))).toThrow(
       'no participant key',
     )
+  })
+})
+
+describe('RoomSession roster announce and respond', () => {
+  function session(relay: SimRelay) {
+    return new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk: generateSecretKey(),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+  }
+
+  it('lets a session that joins SECOND see the session that joined first', async () => {
+    // The roster rides an ephemeral kind, which relays do not store, and
+    // join() publishes exactly once - so without a response from the devices
+    // already present, a late joiner subscribes to a room that appears
+    // empty and never opens a peer to anyone. The room works in one
+    // direction only, and every existing roster assertion in this suite is
+    // made by the session that joined FIRST, which is why it was invisible.
+    const relay = new SimRelay()
+    const first = session(relay)
+    const second = session(relay)
+
+    await first.join([{ trackId: 'scr', role: 'screen' }], {})
+    await second.join([], {})
+    await settle()
+
+    expect(second.participants()).toHaveLength(2)
+    expect(second.participants().flatMap((v) => v.tracks).map((t) => t.role)).toEqual(['screen'])
+  })
+
+  it('gets every joiner to a complete roster whatever order they arrive in', async () => {
+    const relay = new SimRelay()
+    const sessions = [session(relay), session(relay), session(relay), session(relay)]
+
+    for (const s of sessions) {
+      await s.join([], {})
+      await settle()
+    }
+    await settle()
+
+    for (const s of sessions) expect(s.participants()).toHaveLength(4)
+  })
+
+  it('answers an arrival without touching off a cascade of answers', async () => {
+    const relay = new SimRelay()
+    const rosterEvents = () => relay.published.filter((e) => e.kind === KINDS.ROSTER).length
+
+    const a = session(relay)
+    const b = session(relay)
+    const c = session(relay)
+
+    await a.join([], {})
+    await settle()
+    await b.join([], {})
+    await settle()
+    await c.join([], {})
+    await settle()
+
+    // Three announces, plus one response per device already present when
+    // each later device arrived: 3 + (1 + 2) = 6. A response that itself
+    // provoked responses would not stop here - it would not stop at all.
+    expect(rosterEvents()).toBe(6)
+
+    // And the room is quiet afterwards.
+    const settled = rosterEvents()
+    await settle()
+    expect(rosterEvents()).toBe(settled)
+  })
+
+  it('does not answer a device it already knows about', async () => {
+    const relay = new SimRelay()
+    const a = session(relay)
+    const b = session(relay)
+
+    await a.join([], {})
+    await b.join([], {})
+    await settle()
+    const quiet = relay.published.filter((e) => e.kind === KINDS.ROSTER).length
+
+    // b re-announcing its own presence is not a new arrival to a, so it
+    // must not be answered.
+    await b.announce()
+    await settle()
+
+    expect(relay.published.filter((e) => e.kind === KINDS.ROSTER).length).toBe(quiet + 1)
+  })
+
+  it('stops re-announcing once the session has left', async () => {
+    const relay = new SimRelay()
+    const a = session(relay)
+    const b = session(relay)
+
+    await a.join([], {})
+    await b.join([], {})
+    a.leave()
+    await settle()
+
+    // a scheduled a response to b's arrival and then left; a departed
+    // session must not publish.
+    expect(relay.published.filter((e) => e.kind === KINDS.ROSTER)).toHaveLength(2)
   })
 })
