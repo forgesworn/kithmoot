@@ -205,6 +205,27 @@ describe('roster event', () => {
     expect(result).toBeNull()
     expect(result).toEqual(v.output.result)
   })
+
+  it('tampered-outer-signature: the real implementation returns null rather than throwing', () => {
+    const v = vec('rosterEvent', 'tampered-outer-signature')
+    const result = decodeRosterEvent(v.input.event as Event, {
+      roomId: v.input.decode.roomId,
+      roomKey: hexToBytes(v.input.decode.roomKeyHex),
+      now: v.input.decode.now,
+    })
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.result)
+  })
+
+  it('forged-credential-signature: reproduces the exact event, and the real implementation returns null', () => {
+    const v = vec('rosterEvent', 'forged-credential-signature')
+    const event = rebuildRoster(v)
+    expect(event).toEqual(v.output.event)
+
+    const result = decodeRosterEvent(event, { roomId: v.input.roomId, roomKey: hexToBytes(v.input.roomKeyHex), now: fx.NOW })
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.result)
+  })
 })
 
 /** Rebuilds a signal wrap's inner and outer events exactly as `generate.mjs` did. */
@@ -246,7 +267,7 @@ describe('signal wrap', () => {
     })
   }
 
-  for (const name of ['wrong-recipient', 'wrong-room']) {
+  for (const name of ['wrong-recipient', 'wrong-room', 'tampered-inner-signature']) {
     it(`${name}: the real implementation returns null`, () => {
       const v = vec('signalWrap', name)
       const result = unwrapSignal(v.input.wrap as Event, {

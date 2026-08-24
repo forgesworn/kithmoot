@@ -69,6 +69,20 @@ aux-rand only needs to be unpredictable in a live signer, never in a frozen
 fixture - and it is the only way to get a reproducible signature out of a
 scheme that is deliberately randomised by default.
 
+**A fixed aux-rand and a fixed NIP-44 nonce are still two different roles,
+even when both are just "some fixed bytes" in this file.** Every vector
+below gives each its own distinct value - never the same hex reused for
+both - purely so that a bug which swapped the two roles (signing with what
+should have been the nonce, or encrypting with what should have been the
+aux-rand) would actually change the recorded output and get caught. This
+matters only as a model to read, not as a security property of this frozen
+file: reusing a value here cannot leak anything, because nothing here is
+secret or live. **It would be a real vulnerability in production code** -
+NIP-44 nonce reuse breaks the AEAD's confidentiality guarantee outright, and
+a predictable BIP-340 aux-rand is a foothold for fault/side-channel attacks
+on the signature. Live code must never reuse a nonce across encryptions, and
+must never derive aux-rand from anything an attacker could predict.
+
 Every hand-built vector is then run through the REAL verify/decode function
 from the compiled `src/` implementation before being written out, so a
 vector is only ever recorded once the actual code has accepted it (or
@@ -119,21 +133,49 @@ expected rejection outcome:
   (`wrong room`), one that has expired (`expired`), and one whose `device`
   tag was swapped after signing (`bad signature`).
 - **`rosterEvent`**: the same event decrypted with the wrong room's key
-  (returns `null`), and one signed by a device other than the one its
-  credential names (`null`).
-- **`signalWrap`**: opened by someone other than the intended recipient, and
-  checked against a room the inner body does not name (both `null`).
+  (returns `null`); one signed by a device other than the one its credential
+  names (`null`); the valid event with its own signature corrupted but id,
+  pubkey, tags and content untouched (`tampered-outer-signature`, `null`);
+  and one whose outer signature and device match are both genuine but whose
+  *nested* credential has been tampered with after signing
+  (`forged-credential-signature`, `null`).
+- **`signalWrap`**: opened by someone other than the intended recipient; one
+  checked against a room the inner body does not name; and one whose outer
+  gift wrap decrypts cleanly (a fresh ephemeral key proves nothing about the
+  sender - that is the point of a gift wrap) but whose *inner* event has a
+  corrupted signature (`tampered-inner-signature`) - all `null`.
 - **`accessEvaluation`**: a `ken` proof presented to a `kith`-gated room
-  (`tier too low`), and a well-formed proof from an issuer not on the room's
-  allow-list (`untrusted issuer`).
-- **`joinUrl`**: a fragment that is not valid base64url, one that decodes to
-  a secret of the wrong length, and a policy naming an unrecognised tier -
-  all three must throw, not silently fall back to an open room.
+  (`tier too low`); a well-formed proof from an issuer not on the room's
+  allow-list (`untrusted issuer`); and a proof from a trusted issuer, at a
+  sufficient tier, unexpired, naming the right participant, with nothing
+  wrong except a corrupted signature (`kith-room-rejects-tampered-signature`,
+  `bad signature`).
+- **`joinUrl`**: a fragment that is not valid base64url; one that is valid
+  base64url but decodes to bytes that are not valid JSON at all
+  (`decode-fragment-not-json`); one that decodes to valid JSON of the wrong
+  shape, with no secret field at all (`decode-payload-wrong-shape`); one
+  that decodes to a secret of the wrong length; and a policy naming an
+  unrecognised tier - all five must throw, not silently fall back to an open
+  room.
 
 **These matter as much as the positive vectors.** An implementation that
 accepts every well-formed structure passes every positive vector; only the
 negative ones catch an implementation that accepts *everything*, including
 what it should refuse.
+
+**Signature verification specifically must never be a check an
+implementation can skip and still pass.** A vector set built only from happy
+paths and structural rejections (wrong room, wrong tier, untrusted issuer)
+can be satisfied by an implementation that never calls a verify function at
+all - it would still correctly reject those cases on earlier, cheaper
+checks, and admit everything else. `kith-room-rejects-tampered-signature`,
+`tampered-signature` (`deviceCredential`), `tampered-outer-signature` and
+`forged-credential-signature` (`rosterEvent`), and `tampered-inner-signature`
+(`signalWrap`) exist specifically to close that gap: each one is
+well-formed and passes every *other* check in its group, and fails on
+nothing but a signature. An implementation that skips signature
+verification - anywhere a signature is checked - fails exactly these five
+vectors and nothing else, which is what makes them worth having.
 
 ## Using these vectors from another implementation
 

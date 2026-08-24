@@ -147,6 +147,48 @@ joinUrlPositive('empty-relay-list', 'Edge case: an empty relay list is a valid, 
 }
 
 {
+  // Deliberately weaker than it looks otherwise: `!!!` above fails on the
+  // base64url alphabet before any parsing happens at all, so it never
+  // exercises the JSON.parse step. This fragment is entirely valid
+  // base64url - it decodes cleanly to bytes - but those bytes are not JSON.
+  const url = `https://kithmoot.com/j#${base64urlnopad.encode(new TextEncoder().encode('this is not json'))}`
+  let error
+  try {
+    decodeJoinUrl(url)
+  } catch (e) {
+    error = e.message
+  }
+  vectors.joinUrl.push({
+    name: 'decode-fragment-not-json',
+    kind: 'negative',
+    note: 'A fragment made entirely of valid base64url characters that decodes to bytes which are not valid JSON at all - the alphabet check alone is not enough; the decoded payload must actually parse.',
+    input: { url },
+    output: { throws: true, error },
+  })
+}
+
+{
+  // One step further again: the fragment now decodes to valid, parseable
+  // JSON, but not a join payload - there is no `s` secret field to even
+  // attempt to decode.
+  const payload = { unexpected: true }
+  const url = `https://kithmoot.com/j#${base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))}`
+  let error
+  try {
+    decodeJoinUrl(url)
+  } catch (e) {
+    error = e.message
+  }
+  vectors.joinUrl.push({
+    name: 'decode-payload-wrong-shape',
+    kind: 'negative',
+    note: "A fragment that decodes to valid JSON of the wrong shape - no 's' secret field at all - must be refused, not treated as a room with an empty or undefined secret.",
+    input: { url },
+    output: { throws: true, error },
+  })
+}
+
+{
   const payload = { s: base64urlnopad.encode(seed32('joinurl-short-secret').slice(0, 16)), r: ['wss://relay.example'] }
   const url = `https://kithmoot.com/j#${base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))}`
   let error
@@ -310,8 +352,11 @@ const validRoster = buildRoster({
   roomId: ROOM_1.roomId,
   roomKey: ROOM_1.roomKey,
   deviceSk: fx.DEVICE_A_SK,
-  nonceLabel: 'roster-valid',
-  auxRandLabel: 'roster-valid',
+  // Distinct labels for the NIP-44 nonce and the BIP-340 aux-rand: they are
+  // two different cryptographic roles and must never share a value, even in
+  // a frozen fixture - see the README's note on nonce/aux-rand reuse.
+  nonceLabel: 'roster-valid-nonce',
+  auxRandLabel: 'roster-valid-auxrand',
 })
 
 vectors.rosterEvent.push({
@@ -350,8 +395,8 @@ vectors.rosterEvent.push({
     roomId: ROOM_1.roomId,
     roomKey: ROOM_1.roomKey,
     deviceSk: fx.DEVICE_IMPOSTOR_SK,
-    nonceLabel: 'roster-impostor',
-    auxRandLabel: 'roster-impostor',
+    nonceLabel: 'roster-impostor-nonce',
+    auxRandLabel: 'roster-impostor-auxrand',
   })
   vectors.rosterEvent.push({
     name: 'wrong-signing-device',
@@ -368,6 +413,69 @@ vectors.rosterEvent.push({
     output: {
       event: impostorRoster.event,
       result: decodeRosterEvent(impostorRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
+  // Same class of hole as the accessEvaluation forgery below: nothing else
+  // in decodeRosterEvent re-establishes that DEVICE_A's own key produced
+  // this event. Only `sig` is corrupted here - id, pubkey, tags and content
+  // are exactly the valid event's - so the room match, decryption and the
+  // entry.device === event.pubkey check all still succeed. Skip verifying
+  // the event's own signature, and anyone who relabels an event with
+  // someone else's pubkey (no private key required) is accepted as that
+  // device's genuine announcement.
+  const tamperedOuter = { ...validRoster.event, sig: '00'.repeat(64) }
+  vectors.rosterEvent.push({
+    name: 'tampered-outer-signature',
+    kind: 'negative',
+    note: "The valid roster event above with its own signature corrupted - id, pubkey, tags and content untouched. Decryption, the room match, and the entry.device === event.pubkey check would all still pass; only verifying the event's own signature catches this.",
+    input: { event: tamperedOuter, decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), now: fx.NOW } },
+    output: { result: decodeRosterEvent(tamperedOuter, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }) },
+  })
+}
+
+{
+  // One layer deeper: the OUTER event's signature is genuine here - it
+  // really was signed by DEVICE_IMPOSTOR's own key, matching entry.device -
+  // but the credential nested inside, which is what actually vouches that
+  // PARTICIPANT_A authorised this device, is the valid DEVICE_A credential
+  // with its `device` tag swapped after signing, not something
+  // PARTICIPANT_A ever signed for DEVICE_IMPOSTOR. Room, decrypt, the outer
+  // signature and entry.device === event.pubkey all check out; only
+  // verifying the NESTED credential's own signature catches the forgery.
+  // Skip that inner check (easy to do by mistake: it looks like "just
+  // re-parse the credential fields") and an attacker with no key but their
+  // own gets full standing as PARTICIPANT_A.
+  const forgedCredential = { ...validCredential.event, tags: validCredential.event.tags.map((t) => [...t]) }
+  forgedCredential.tags[1][1] = fx.DEVICE_IMPOSTOR
+
+  const forgedEntry = { ...rosterEntry, device: fx.DEVICE_IMPOSTOR, credential: forgedCredential }
+  const forgedRoster = buildRoster({
+    entry: forgedEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_IMPOSTOR_SK,
+    nonceLabel: 'roster-forged-credential-nonce',
+    auxRandLabel: 'roster-forged-credential-auxrand',
+  })
+
+  vectors.rosterEvent.push({
+    name: 'forged-credential-signature',
+    kind: 'negative',
+    note: "The outer event is genuinely signed by DEVICE_IMPOSTOR, and entry.device matches it, but the nested credential (claiming PARTICIPANT_A authorised DEVICE_IMPOSTOR) is the valid DEVICE_A credential with its device tag swapped after signing - PARTICIPANT_A never signed this. Room, decrypt, the outer signature, and entry.device === event.pubkey all pass; only verifying the nested credential's own signature catches this.",
+    input: {
+      entry: forgedEntry,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_IMPOSTOR_SK),
+      nonceHex: forgedRoster.nonceHex,
+      auxRandHex: forgedRoster.auxRandHex,
+    },
+    output: {
+      event: forgedRoster.event,
+      result: decodeRosterEvent(forgedRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
     },
   })
 }
@@ -401,9 +509,12 @@ const offerWrap = buildSignalWrap({
   recipientPubkey: fx.RECIPIENT,
   ephemeralSk: fx.EPHEMERAL_SK_OFFER,
   createdAt: fx.SIGNAL_CREATED_AT,
+  // Distinct labels for the outer aux-rand and the outer NIP-44 nonce: two
+  // different cryptographic roles, never sharing a value - see the
+  // README's note on nonce/aux-rand reuse.
   innerAuxLabel: 'signal-offer-inner',
-  outerAuxLabel: 'signal-offer-outer',
-  nonceLabel: 'signal-offer-outer',
+  outerAuxLabel: 'signal-offer-outer-aux',
+  nonceLabel: 'signal-offer-outer-nonce',
 })
 
 vectors.signalWrap.push({
@@ -435,8 +546,8 @@ const iceWrap = buildSignalWrap({
   ephemeralSk: fx.EPHEMERAL_SK_ICE,
   createdAt: fx.SIGNAL_CREATED_AT,
   innerAuxLabel: 'signal-ice-inner',
-  outerAuxLabel: 'signal-ice-outer',
-  nonceLabel: 'signal-ice-outer',
+  outerAuxLabel: 'signal-ice-outer-aux',
+  nonceLabel: 'signal-ice-outer-nonce',
 })
 
 vectors.signalWrap.push({
@@ -475,6 +586,38 @@ vectors.signalWrap.push({
   input: { wrap: offerWrap.outer, unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_2.roomId } },
   output: { result: unwrapSignal(offerWrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_2.roomId }) },
 })
+
+{
+  // Same class of hole as GAP 1's opening example, one layer down: the
+  // gift wrap's outer key is ALWAYS attacker-chosen (that is the whole
+  // point of a fresh ephemeral key per wrap) so it proves nothing about
+  // who sent the payload - only the INNER event's signature does, via
+  // `inner.pubkey`. Corrupt only the inner event's `sig`, leaving its id,
+  // pubkey, tags and content untouched, so the outer wrap still decrypts
+  // cleanly and inner.kind/body.roomId/the addressed tag all still check
+  // out. Skip verifying the inner event and this is accepted as a
+  // genuine message `from` whoever's pubkey the attacker typed into the
+  // forged inner event - no private key required, since the outer wrap can
+  // be assembled under any ephemeral key the attacker likes.
+  const tamperedInner = { ...offerWrap.inner, sig: '00'.repeat(64) }
+  const tamperedNonce = seed32('signal-tampered-inner-outer-nonce')
+  const tamperedOuterAux = seed32('signal-tampered-inner-outer-aux')
+  const tamperedConversationKey = nip44.v2.utils.getConversationKey(fx.EPHEMERAL_SK_TAMPERED, fx.RECIPIENT)
+  const tamperedOuterContent = nip44.v2.encrypt(JSON.stringify(tamperedInner), tamperedConversationKey, tamperedNonce)
+  const tamperedOuter = finalizeDeterministic(
+    { kind: KINDS.SIGNAL_WRAP, created_at: fx.SIGNAL_CREATED_AT, tags: [['p', fx.RECIPIENT]], content: tamperedOuterContent },
+    fx.EPHEMERAL_SK_TAMPERED,
+    tamperedOuterAux,
+  )
+
+  vectors.signalWrap.push({
+    name: 'tampered-inner-signature',
+    kind: 'negative',
+    note: "The offer's inner event with its own signature corrupted - id, pubkey, tags and content untouched - re-wrapped under a fresh (but otherwise ordinary) ephemeral key. The outer wrap decrypts fine, and inner.kind, body.roomId, and the addressed 'p' tag all still check out; only verifying the inner event's own signature catches this.",
+    input: { wrap: tamperedOuter, unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_1.roomId } },
+    output: { result: unwrapSignal(tamperedOuter, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId }) },
+  })
+}
 
 // ===========================================================================
 // 6. Kindred proof - issuer secret + participant + tier + expiry -> the
@@ -533,6 +676,23 @@ accessVector('kith-room-admits-kith-proof', 'positive', 'A kith-gated room admit
 accessVector('kith-room-admits-kin-proof', 'positive', 'A kith-gated room also admits a kin proof - kin is closer than kith.', KITH_POLICY, kinProof.proof)
 accessVector('kith-room-rejects-ken-proof', 'negative', "A kith-gated room refuses a ken proof - ken is one-way recognition and never satisfies a kith gate ('tier too low').", KITH_POLICY, kenProof.proof)
 accessVector('kith-room-rejects-untrusted-issuer', 'negative', 'A kith-gated room refuses a well-formed, correctly-signed kith proof from an issuer not on its allow-list.', KITH_POLICY, untrustedKithProof.proof)
+
+// The vector every other accessEvaluation negative above is NOT: both
+// 'kith-room-rejects-ken-proof' and 'kith-room-rejects-untrusted-issuer' are
+// refused before evaluateAccess ever reaches schnorr.verify - one on the
+// tier ladder, one on the allow-list. An implementation that never checks a
+// kindred proof's signature at all - a two-line forgery, since nothing else
+// in the proof needs a real key to produce - passes every other vector in
+// this group. This is the one negative that fails on nothing BUT the
+// signature: the issuer IS trusted, the tier IS sufficient, the proof is NOT
+// expired, and it names the right participant - only `sig` is garbage.
+accessVector(
+  'kith-room-rejects-tampered-signature',
+  'negative',
+  "A kith proof from the trusted issuer, at a sufficient tier, unexpired, naming the right participant - identical to 'kith-room-admits-kith-proof' except its signature is garbage. Every check before the final schnorr verification passes; skip that check, or skip it entirely, and this is indistinguishable from a genuine proof.",
+  KITH_POLICY,
+  { ...kithProof.proof, sig: '00'.repeat(64) },
+)
 
 // ===========================================================================
 // 8. TURN credential - secret + ttl + fixed now -> the exact

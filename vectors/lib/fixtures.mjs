@@ -67,6 +67,9 @@ export const EAVESDROPPER_SK = deriveSecretKey('signal-eavesdropper')
 export const EPHEMERAL_SK_OFFER = deriveSecretKey('signal-ephemeral-offer')
 export const EPHEMERAL_SK_ICE = deriveSecretKey('signal-ephemeral-ice')
 
+/** Wraps a forged inner event - see `signalWrap/tampered-inner-signature`. */
+export const EPHEMERAL_SK_TAMPERED = deriveSecretKey('signal-ephemeral-tampered')
+
 // --- Signalling payloads --------------------------------------------
 export const SDP_FIXTURE =
   'v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host'
