@@ -50,8 +50,17 @@ export function verifyDeviceCredential(
   if (room !== opts.roomId) return { ok: false, reason: 'wrong room' }
 
   const expiration = cred.tags.find((t) => t[0] === 'expiration')?.[1]
-  if (!expiration) return { ok: false, reason: 'no expiration' }
-  if (Number(expiration) <= opts.now) return { ok: false, reason: 'expired' }
+  // A missing tag and a present-but-non-numeric one are the same failure:
+  // there is no usable expiry to check against. Folding them into one
+  // `Number.isFinite` guard matters because `Number(expiration)` on
+  // anything non-numeric is NaN, and every comparison with NaN - including
+  // `NaN <= now` - is false, so the naive check below would treat a
+  // corrupted tag as never expiring: a fail-open default in a security
+  // check, even though the tag sits inside the signed content today and so
+  // is not exploitable while the signature check below still runs.
+  const expiresAt = expiration === undefined ? NaN : Number(expiration)
+  if (!Number.isFinite(expiresAt)) return { ok: false, reason: 'no expiration' }
+  if (expiresAt <= opts.now) return { ok: false, reason: 'expired' }
 
   const device = cred.tags.find((t) => t[0] === 'device')?.[1]
   if (!device) return { ok: false, reason: 'no device' }

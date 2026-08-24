@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
+import { KINDS } from './kinds.js'
 
 const ROOM = 'a'.repeat(64)
 const NOW = 1_800_000_000
@@ -90,5 +91,32 @@ describe('device credentials', () => {
     const stripped = { ...cred, tags: cred.tags.filter((t) => t[0] !== 'expiration') }
     const result = verifyDeviceCredential(stripped, { roomId: ROOM, now: NOW })
     expect(result.ok).toBe(false)
+  })
+
+  it('rejects a credential whose expiration tag is not a number, rather than treating it as never expiring', () => {
+    const { participantSk, device } = setup()
+    // Built (and genuinely signed) directly, rather than via
+    // createDeviceCredential + post-hoc tampering: tampering the tag after
+    // signing would fail on the signature check first and never reach the
+    // expiry comparison this test exists to exercise.
+    const cred = finalizeEvent(
+      {
+        kind: KINDS.CREDENTIAL,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [
+          ['d', ROOM],
+          ['device', device],
+          // `Number('not-a-number')` is NaN, and every comparison with NaN
+          // is false - so a naive `Number(expiration) <= now` treats this
+          // as unexpired forever. That is a fail-open default in a
+          // security check.
+          ['expiration', 'not-a-number'],
+        ],
+        content: '',
+      },
+      participantSk,
+    )
+    const result = verifyDeviceCredential(cred, { roomId: ROOM, now: NOW })
+    expect(result).toEqual({ ok: false, reason: 'no expiration' })
   })
 })
