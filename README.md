@@ -8,98 +8,107 @@ except the relays that already exist. A room is a secret, held by whoever has
 the link. Anyone holding it can join; nobody outside it can even tell the room
 exists.
 
-The idea it is built around: **a person, not a device, is the unit that joins
-a room.** Bring a phone for camera and mic and a laptop for a screen share,
-and everyone else sees one participant with three tracks - not two strangers
-who happen to share a room.
+## The claim
 
-## Stage 1 - what this is, right now
+A person, not a device, is the unit that joins a room. Bring a phone for
+camera and mic and a laptop for a screen share, and everyone else sees **one
+participant** with three tracks — not two strangers who happen to share a
+room.
 
-This is the multi-device proof of concept. It proves the identity and roster
-model over real relays. It does **not** yet move any media.
+Every incumbent gets this wrong, Jitsi included: identity is per-connection,
+so the same person joining from a laptop and a phone shows up as two separate
+tiles, two names, two mute buttons. KithMoot groups by participant instead of
+by connection. That's the whole product; everything else in this repo exists
+to make that one thing true.
 
-**What it does:**
+## What works today
 
-- Derives a room from a 32-byte secret carried in a URL fragment, so the host
-  serving the page never learns which room you're in.
-- Signs each device into the room with a credential from a separate
-  participant key, so relays never see who a device belongs to - only that
-  it's authorised.
-- Publishes presence as a roster event encrypted to the room key (NIP-44), so
-  an outsider holding the wrong secret sees nothing, not even that the room
-  is occupied.
-- Groups every device's roster entry by participant, so a phone and a laptop
-  under one identity appear as **one** participant with the union of their
-  advertised tracks.
-- Arbitrates singular roles (`mic`, `monitor`) deterministically across a
-  participant's devices, so two devices can't both claim the live microphone.
-- Wraps SDP/ICE signalling in a NIP-59-style gift wrap addressed to one peer,
-  so a relay carrying the signal never reads it.
-- Ships a browser demo that makes the multi-device claim visible: local video
-  previews, a live roster, and a pairing link for adding a second device to
-  your own identity.
+- Room creation and join by URL — a room is a 32-byte secret carried in the
+  link's fragment, never seen by whatever's serving the page.
+- Kindred-gated access tiers (`open` / `ken` / `kith` / `kin`), built on the
+  `kindred` primitive. A room can admit anyone with the link, or require
+  proof of anything up to a mutually-verified bond.
+- A participant-grouped roster: every device's presence is grouped by who it
+  belongs to, and singular roles (`mic`, `monitor`) are arbitrated
+  deterministically so two devices under one identity can never both claim
+  the live microphone.
+- Mesh WebRTC — video, voice and screen share, negotiated directly between
+  devices with no media server in the path. SDP/ICE signalling travels
+  wrapped in a NIP-59-style gift wrap addressed to one peer, so a relay
+  carrying it never reads it.
+- Room-key-encrypted chat (NIP-44), durable across a relay restart so it's
+  there for anyone who joins late.
+- An installable PWA — add it to a home screen or dock; a service worker
+  carries the shell offline.
 
-**What it does not do yet:**
+## What does not work yet
 
-- **No media flows.** Nothing streams camera, mic, or screen contents between
-  devices. Stage 1 proves who's in the room and what they're offering, not
-  the call itself. WebRTC negotiation is stage 2.
-- **No kindred-gated access tiers.** The name commits to `open`/`ken`/`kith`/
-  `kin` tiers built on the `kindred` primitive; stage 1 is a flat room with a
-  single secret. That's the first item on the stage 2 plan.
-- **No mesh routing or forwarders.** Every device talks to the relay pool
-  directly. Topology and bandwidth-aware forwarding are stage 2/3 work.
-- **No proper device pairing UX beyond a link.** "Add a device" produces a
-  URL carrying your participant secret. That's honest about the protocol,
-  not yet a polished flow - there's no QR code, no expiry, no revocation.
+Stated plainly, before anyone else finds it:
 
-## Running the tests
+- **No forwarders.** Every device talks to every other device directly,
+  which puts a hard ceiling on room size — mesh is practical to roughly 8
+  people. Past that, the upload arithmetic bites: a legible 1080p screen
+  share to 20 peers needs 30–50 Mbps up, and no domestic connection has
+  that. Forwarding is stage 3.
+- **No end-to-end encryption through a forwarder yet — because there is no
+  forwarder yet.** Pure mesh is already end-to-end via DTLS-SRTP; that
+  property has to be re-earned once media starts passing through something
+  else.
+- **No Android app yet.** Native Kotlin, and the interop proof it needs to
+  ship with, are stage 4.
+- **No published test vectors yet.** Also stage 4.
+- **Kind numbers are provisional** (`src/kinds.ts`) and will change once the
+  spec is written.
+
+## Running it
 
 ```bash
 npm install
-npm test          # 55 tests, in-process relay simulator, no network
+npm test          # 98 tests, in-process relay simulator, no network
+npm run test:live # wire format against real public relays
+npm run test:e2e  # the acceptance test below, automated, over live relays
 npm run typecheck
+npm run demo       # HTTPS dev server for driving the app by hand, phone included
+npm run build      # production PWA build, to app/dist
 ```
 
-A second suite exercises the wire format against real public relays
-(`relay.damus.io`, `nos.lol`, `relay.primal.net`). It's excluded from `npm
-test` because it needs the network and real relays have real weather:
-
-```bash
-npm run test:live
-```
-
-## Running the demo
-
-```bash
-npm run demo
-```
-
-This serves `demo/` over HTTPS with a self-signed certificate (via
-`@vitejs/plugin-basic-ssl`) - `getUserMedia` and `getDisplayMedia` both
+`npm run test:live` and `npm run test:e2e` need the network, and real relays
+have real weather — both are excluded from `npm test` for that reason. `npm
+run demo` serves the app over HTTPS with a self-signed certificate
+(`@vitejs/plugin-basic-ssl`): `getUserMedia` and `getDisplayMedia` both
 require a secure context, and a phone reaching your laptop over its LAN IP
 isn't one without TLS. Your browser will warn about the certificate; accept
-it to proceed. The terminal output prints a `Network:` URL for the phone to
-use.
+it to proceed. The terminal prints a `Network:` URL for the phone to use.
 
-### The acceptance test
+## The nostr-tools pin
 
-This is the whole of stage 1's claim, checked by hand:
+`nostr-tools` is pinned at exactly `2.23.9` — not a range. Versions
+`>=2.23.11` silently kill long-lived subscriptions
+([nbd-wtf/nostr-tools#539](https://github.com/nbd-wtf/nostr-tools/issues/539)),
+and a conference room is nothing but long-lived subscriptions. Don't widen
+this pin without checking that issue is closed.
 
-1. On a **laptop**, open the demo, click **Start a room**, then **Screen
+## The acceptance test
+
+This is the whole of the product's claim, checked by hand and, since stage 2,
+repeated on every run by `npm run test:e2e` against live public relays:
+
+1. On a **laptop**, open the app, click **Start a room**, then **Screen
    share**. Pick a window.
-2. Under "This link is you," click **Add a device**. Copy that link - not the
-   plain room link above it - and send it to your **phone** only.
-3. On the phone, open the pairing link (same LAN; accept the certificate
-   warning) and click **Camera + mic**.
-4. On a **third** browser - a different device, or a private window with a
-   fresh profile - open the plain room link from step 1 and click
-   **Observer**.
+2. Click **Add a device**. Copy that link — not the plain room link above
+   it — and send it to a **phone** only.
+3. On the phone, open the pairing link, then click **Microphone** and
+   **Camera**.
+4. On a **third** browser — a different device, or a private window with a
+   fresh profile — open the plain room link from step 1, and click **Join
+   room**.
 
-Expected, on the observer: **one** participant box, reading "2 devices," with
-three track chips - `camera`, `mic` (marked *live mic*), and `screen` - each
-naming a different device. That box is the product. Everything else on the
-page is scaffolding to show it.
+Expected, on the third browser: **one** tile group, reading "2 devices" with
+a "one person" badge, carrying live screen video from the laptop and live
+camera video and audio from the phone. Muting on the phone mutes you
+everywhere. Nothing echoes, because only one device holds the mic role at a
+time. That tile is the product; everything else on the page is scaffolding
+to show it.
 
 ## Licence
 
