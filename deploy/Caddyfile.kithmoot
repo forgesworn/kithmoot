@@ -1,0 +1,49 @@
+# Caddy vhost for the KithMoot PWA, following this box's existing pattern:
+# one file per site under a conf.d-style include, and a release directory
+# with a `current` symlink flipped by deploy.sh - never build in place.
+#
+# INSTALL:
+#   1. Copy this file to /etc/caddy/conf.d/kithmoot.caddy (adjust the path
+#      to match whatever conf.d-equivalent directory the box's main
+#      /etc/caddy/Caddyfile already imports for its other sites - relay.
+#      trotters.cc and friends. If the main Caddyfile has no such import
+#      yet, add one line to it:
+#        import conf.d/*.caddy
+#      rather than pasting this site's block directly into the main file.
+#   2. Replace kithmoot.CHANGE_ME.example below with the real hostname and
+#      point its DNS A/AAAA record at this box.
+#   3. Run deploy.sh at least once so /srv/kithmoot/current exists before
+#      reloading Caddy - an absent root directory is a startup error, not
+#      a soft 404.
+#   4. caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
+#      (or `caddy reload`, whichever this box already uses for its other
+#      sites - deploy.sh assumes the same one).
+#
+# Caddy issues and renews its own TLS cert for this domain automatically
+# (the same as every other site on the box) - nothing to do here for that.
+
+kithmoot.CHANGE_ME.example {
+	root * /srv/kithmoot/current
+	encode gzip zstd
+	file_server
+
+	# The service worker and the HTML shell that registers it must never be
+	# served stale: a cached sw.js is a cached old version of the app that
+	# can never see the new one, since the old service worker is the thing
+	# deciding whether to fetch a new one. index.html carries the hashed
+	# asset URLs for the current build, so it needs the same treatment.
+	@noCache path /sw.js /index.html /manifest.webmanifest
+	header @noCache Cache-Control "no-cache"
+
+	# Everything under /assets/ is content-hashed by the Vite build
+	# (filename changes when content changes) - safe to cache forever.
+	@immutable path /assets/*
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+	header X-Content-Type-Options "nosniff"
+
+	log {
+		output file /var/log/caddy/kithmoot.log
+		format json
+	}
+}

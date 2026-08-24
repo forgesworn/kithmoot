@@ -1,0 +1,29 @@
+# coturn for the KithMoot default TURN server. See turnserver.conf for the
+# config itself and ../README.md for the end-to-end runbook (DNS, firewall,
+# TLS cert, verification).
+#
+# network_mode: host is not optional here. coturn needs the whole
+# min-port..max-port UDP range (turnserver.conf) reachable on the host's
+# real address - Docker's userland-proxy port mapping does not handle a
+# range of thousands of UDP ports (see turnserver.conf, note range is kept
+# to 300 ports precisely because this box maps them via the host network
+# rather than one -p per port), and NAT-ing them individually would still
+# rewrite the source address coturn hands back to clients in its TURN
+# allocation response, breaking the relay. Host networking also means this
+# container is not isolated from the host's network namespace - accept
+# that trade explicitly, it's what running a TURN server on Docker costs.
+services:
+  coturn:
+    image: coturn/coturn:4.17.2-r0
+    container_name: kithmoot-coturn
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - /etc/letsencrypt/live/turn.CHANGE_ME.example:/etc/coturn/certs:ro
+    command: ["-c", "/etc/coturn/turnserver.conf", "--no-cli"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
