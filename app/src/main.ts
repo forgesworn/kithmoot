@@ -4,8 +4,13 @@ import {
   RoomSession,
   NostrRelayPool,
   generateRoomSecret,
+  deriveRoom,
   encodeJoinUrl,
   decodeJoinUrl,
+  createPairingCode,
+  hostPairing,
+  requestPairing,
+  type DeviceCredential,
   type ParticipantView,
   type TrackAdvert,
   type ChatMessage,
@@ -66,40 +71,85 @@ function setStatus(message: string): void {
 // ---------------------------------------------------------------------------
 // Identity
 //
-// The participant key is the person, not the device. It lives in
-// localStorage, hex-encoded via @noble/hashes - never through
-// atob/btoa/String.fromCharCode, which is a known source of silent binary
-// corruption in browsers. A pairing link (below) is the only thing that ever
-// carries this key to a second device.
+// Two kinds of device, and the difference is the whole security model.
+//
+// A PRIMARY device holds the participant key - the person, not the endpoint.
+// It is generated here and never leaves this browser: no link, no clipboard,
+// no relay.
+//
+// A SECONDARY device holds only its own device key plus a device credential
+// the primary issued for it: scoped to one room, with an expiry. It has no
+// way to sign for the participant outside that room, and no way at all once
+// the credential lapses. Losing a secondary device costs one room for a few
+// hours; losing the participant key would cost the whole Nostr identity for
+// ever, which is why it is never copied anywhere.
+//
+// Both are stored hex-encoded via @noble/hashes - never through
+// atob/btoa/String.fromCharCode, a known source of silent binary corruption
+// in browsers.
 // ---------------------------------------------------------------------------
 
 const PARTICIPANT_STORAGE_KEY = 'kithmoot.participant'
+const DEVICE_STORAGE_KEY = 'kithmoot.device'
+const CREDENTIAL_STORAGE_KEY = 'kithmoot.credential'
 
 function loadParticipantKey(): Uint8Array | undefined {
   const stored = localStorage.getItem(PARTICIPANT_STORAGE_KEY)
   return stored ? hexToBytes(stored) : undefined
 }
 
-function storeParticipantKey(sk: Uint8Array): void {
-  localStorage.setItem(PARTICIPANT_STORAGE_KEY, bytesToHex(sk))
+function loadCredential(): DeviceCredential | undefined {
+  const stored = localStorage.getItem(CREDENTIAL_STORAGE_KEY)
+  if (!stored) return undefined
+  try {
+    return JSON.parse(stored) as DeviceCredential
+  } catch {
+    return undefined
+  }
 }
 
+function storeCredential(credential: DeviceCredential): void {
+  localStorage.setItem(CREDENTIAL_STORAGE_KEY, JSON.stringify(credential))
+}
+
+function forgetCredential(): void {
+  localStorage.removeItem(CREDENTIAL_STORAGE_KEY)
+}
+
+/** This device's own key, kept across loads so a credential issued for it
+ *  still names us next time the page opens. */
+function deviceKey(): Uint8Array {
+  const stored = localStorage.getItem(DEVICE_STORAGE_KEY)
+  if (stored) return hexToBytes(stored)
+  const sk = generateSecretKey()
+  localStorage.setItem(DEVICE_STORAGE_KEY, bytesToHex(sk))
+  return sk
+}
+
+/** The participant key, minting one on first use - but never on a device
+ *  that has been paired as somebody's secondary, which would silently turn
+ *  it back into a separate person. */
 function participantKey(): Uint8Array {
   const existing = loadParticipantKey()
   if (existing) return existing
+  if (loadCredential()) throw new Error('this device is paired to another device and has no participant key')
   const sk = generateSecretKey()
-  storeParticipantKey(sk)
+  localStorage.setItem(PARTICIPANT_STORAGE_KEY, bytesToHex(sk))
   return sk
 }
 
 // ---------------------------------------------------------------------------
 // Room and pairing links
 //
-// A plain join link carries the room secret, the relay hints and the ICE
-// server hints - anyone holding it can join as a new person. A pairing link
-// additionally carries the participant secret, hex-encoded, under a field a
-// plain join link never sets. Opening it makes the opening device the same
-// participant as whoever made the link.
+// A join link carries the room secret, the relay hints and the ICE server
+// hints - anyone holding it can join, as a new person.
+//
+// A pairing link is a join link plus a one-off PAIRING CODE. It does not
+// carry an identity and never has anything secret to the person in it. The
+// device that opens it generates its own keypair, proves it holds the code
+// over the room-key channel, and is issued a room-scoped credential that
+// expires. See `src/pairing.ts` for the exchange and why the code is sent as
+// a hash rather than in the clear.
 //
 // The room secret and relay hints are also handled by the library's own
 // encodeJoinUrl/decodeJoinUrl (src/room.ts), which we still use for those
@@ -107,57 +157,68 @@ function participantKey(): Uint8Array {
 // fragment, under extra JSON keys the library's decoder simply ignores. This
 // is deliberately an app-only extension of the join URL shape, not a
 // library concern: the library's contract is "carry a room secret", not
-// "carry a STUN list or an identity".
+// "carry a STUN list or a pairing code".
 // ---------------------------------------------------------------------------
 
 interface RoomUrlPayload {
   s: string
   r: string[]
   i: string[]
-  p?: string
+  /** A one-off pairing code. Never a key. */
+  c?: string
+}
+
+// Only these schemes reach RTCPeerConnection. The room author is already
+// trusted with the room key so this is a small hole, but a join link should
+// not be able to name anything else at all.
+const ICE_SCHEMES = ['stun:', 'stuns:', 'turn:', 'turns:']
+
+function safeIceUrls(urls: string[]): string[] {
+  return urls.filter((u) => ICE_SCHEMES.some((scheme) => u.toLowerCase().startsWith(scheme)))
 }
 
 function encodePayload(
   secret: Uint8Array,
   relays: string[],
-  iceUrls: string[],
-  participantSk?: Uint8Array,
+  urls: string[],
+  pairingCode?: Uint8Array,
 ): string {
   const payload: RoomUrlPayload = {
     s: base64urlnopad.encode(secret),
     r: relays,
-    i: iceUrls,
+    i: urls,
   }
-  if (participantSk) payload.p = bytesToHex(participantSk)
+  if (pairingCode) payload.c = bytesToHex(pairingCode)
   return base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))
 }
 
-function encodeRoomUrl(base: string, secret: Uint8Array, relays: string[], iceUrls: string[]): string {
-  return `${base}#${encodePayload(secret, relays, iceUrls)}`
+function encodeRoomUrl(base: string, secret: Uint8Array, relays: string[], urls: string[]): string {
+  return `${base}#${encodePayload(secret, relays, urls)}`
 }
 
 function encodePairingUrl(
   base: string,
   secret: Uint8Array,
   relays: string[],
-  iceUrls: string[],
-  participantSk: Uint8Array,
+  urls: string[],
+  pairingCode: Uint8Array,
 ): string {
-  return `${base}#${encodePayload(secret, relays, iceUrls, participantSk)}`
+  return `${base}#${encodePayload(secret, relays, urls, pairingCode)}`
 }
 
-/** Reads the ICE hints and, if present, the paired identity out of a URL
+/** Reads the ICE hints and, if present, the pairing code out of a URL
  *  fragment. Tolerant of a fragment with neither field, or none at all. */
-function decodeExtras(url: string): { iceUrls: string[]; pairedSk?: Uint8Array } {
+function decodeExtras(url: string): { iceUrls: string[]; pairingCode?: Uint8Array } {
   const hash = new URL(url).hash.slice(1)
   if (!hash) return { iceUrls: DEFAULT_ICE_URLS }
   try {
     const payload = JSON.parse(
       new TextDecoder().decode(base64urlnopad.decode(hash)),
     ) as Partial<RoomUrlPayload>
+    const hinted = safeIceUrls(payload.i ?? [])
     return {
-      iceUrls: payload.i?.length ? payload.i : DEFAULT_ICE_URLS,
-      pairedSk: payload.p ? hexToBytes(payload.p) : undefined,
+      iceUrls: hinted.length ? hinted : DEFAULT_ICE_URLS,
+      pairingCode: payload.c ? hexToBytes(payload.c) : undefined,
     }
   } catch {
     return { iceUrls: DEFAULT_ICE_URLS }
@@ -207,8 +268,8 @@ function activeTracks(): MediaStreamTrack[] {
   return [micTrack, cameraTrack, screenTrack].filter((t): t is MediaStreamTrack => t !== undefined)
 }
 
-/** Reads the room (and, if present, its ICE hints and a paired identity)
- *  out of the current URL. */
+/** Reads the room and its ICE hints out of the current URL, and kicks off
+ *  the pairing exchange if the link carried a pairing code. */
 function roomFromLocation(): boolean {
   if (location.hash.length <= 1) return false
 
@@ -219,15 +280,47 @@ function roomFromLocation(): boolean {
   const extras = decodeExtras(location.href)
   iceUrls = extras.iceUrls
 
-  if (extras.pairedSk) {
-    // Adopt the identity, then immediately drop the address bar back to a
-    // plain join link so the participant secret does not sit somewhere it
-    // could be copied and sent on by accident.
-    storeParticipantKey(extras.pairedSk)
+  if (extras.pairingCode) {
+    // Drop the code out of the address bar first: it is single-use and there
+    // is no reason for it to sit somewhere it could be forwarded by accident.
+    const code = extras.pairingCode
     history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), roomSecret, relays, iceUrls))
+    pairWithPrimary(code).catch((err) => setStatus(describeError(err)))
   }
 
   return true
+}
+
+/**
+ * Ask the primary device for a credential and remember it.
+ *
+ * The participant key is not transferred and never has been: what arrives is
+ * a credential for this room that expires, signed by the other device.
+ */
+async function pairWithPrimary(code: Uint8Array): Promise<void> {
+  // Joining before the credential lands would mint a fresh participant key
+  // and put this device in the room as a stranger - the exact thing pairing
+  // exists to avoid. So the button is held until the exchange settles.
+  const joinBtn = $('join') as HTMLButtonElement
+  joinBtn.disabled = true
+  setStatus('Asking your other device to add this one\u2026')
+
+  const { roomId, roomKey } = deriveRoom(roomSecret)
+  const transport = new NostrRelayPool(relays)
+  try {
+    const credential = await requestPairing({
+      transport,
+      roomId,
+      roomKey,
+      code,
+      deviceSk: deviceKey(),
+    })
+    storeCredential(credential)
+    setStatus('This device is now part of that person. Join when ready.')
+  } finally {
+    transport.close()
+    joinBtn.disabled = false
+  }
 }
 
 function parseIceInput(): string[] {
@@ -236,7 +329,8 @@ function parseIceInput(): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-  return parsed.length ? parsed : DEFAULT_ICE_URLS
+  const safe = safeIceUrls(parsed)
+  return safe.length ? safe : DEFAULT_ICE_URLS
 }
 
 function startNewRoom(): void {
@@ -506,10 +600,9 @@ async function startSession(): Promise<void> {
   joinBtn.disabled = true
 
   try {
-    const participantSk = participantKey()
-    meParticipant = getPublicKey(participantSk)
-    const deviceSk = generateSecretKey()
+    const deviceSk = deviceKey()
     myDeviceId = getPublicKey(deviceSk)
+    const credential = loadCredential()
 
     // The design says the room names its own STUN and TURN - never an
     // operator's default baked into the app - so the ICE list comes from
@@ -523,14 +616,25 @@ async function startSession(): Promise<void> {
     const factory: PeerFactory = () =>
       new RTCPeerConnection({ iceServers: iceUrls.map((urls) => ({ urls })) }) as unknown as RTCPeerConnectionLike
 
-    const s = new RoomSession({
-      transport: new NostrRelayPool(relays),
-      secret: roomSecret,
-      participantSk,
-      deviceSk,
-      factory,
-    })
+    // A paired device joins on its credential alone. Only a device that
+    // actually holds the participant key passes one.
+    const s = credential
+      ? new RoomSession({
+          transport: new NostrRelayPool(relays),
+          secret: roomSecret,
+          credential,
+          deviceSk,
+          factory,
+        })
+      : new RoomSession({
+          transport: new NostrRelayPool(relays),
+          secret: roomSecret,
+          participantSk: participantKey(),
+          deviceSk,
+          factory,
+        })
     session = s
+    meParticipant = s.participant
 
     s.onChange((views) => render(views, meParticipant))
     s.onRemoteTrack(({ device, track }) => attachRemoteTrack(device, track))
@@ -552,7 +656,13 @@ async function startSession(): Promise<void> {
     render(s.participants(), meParticipant)
   } catch (err) {
     session = undefined
-    setStatus(describeError(err))
+    const message = describeError(err)
+    if (message.includes('expired')) {
+      forgetCredential()
+      setStatus('This device\u2019s credential has expired. Ask your other device for a new pairing link.')
+    } else {
+      setStatus(message)
+    }
   } finally {
     joinBtn.disabled = false
   }
@@ -570,17 +680,73 @@ $('create').addEventListener('click', () => {
 $('openUrl').addEventListener('click', () => {
   const value = ($('url') as HTMLInputElement).value.trim()
   if (!value) return
-  location.href = value
+  // A join-link box is exactly where somebody pastes a link a stranger sent
+  // them, and `location.href = value` would run a javascript: URL in this
+  // app's own origin - where the participant key lives.
+  let url: URL
+  try {
+    url = new URL(value, location.href)
+  } catch {
+    setStatus('That does not look like a join link.')
+    return
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    setStatus('A join link must be an http or https address.')
+    return
+  }
+  location.href = url.href
   location.reload()
 })
 
+// One pairing host at a time. Open while the link is on screen; closing it
+// retires the code, which is the only thing that link is good for.
+let pairingHost: { close(): void } | undefined
+let pairingTransport: NostrRelayPool | undefined
+
 $('addDevice').addEventListener('click', () => {
-  const sk = participantKey()
+  try {
+    const participantSk = participantKey()
+    pairingHost?.close()
+    pairingTransport?.close()
+
+    const code = createPairingCode()
+    const { roomId, roomKey } = deriveRoom(roomSecret)
+    pairingTransport = new NostrRelayPool(relays)
+    pairingHost = hostPairing({
+      transport: pairingTransport,
+      roomId,
+      roomKey,
+      code,
+      participantSk,
+      deviceSk: deviceKey(),
+      approve: (device) =>
+        confirm(`Add the device ${device.slice(0, 12)}… to this room as you, for the next 12 hours?`),
+      onPaired: (device) => setStatus(`Added ${device.slice(0, 12)}… to this room.`),
+    })
+
+    const pairUrl = $('pairUrl') as HTMLInputElement
+    pairUrl.value = encodePairingUrl(joinLinkBase(), roomSecret, relays, iceUrls, code)
+    pairUrl.hidden = false
+    $('copyPair').hidden = false
+    $('stopPairing').hidden = false
+    pairUrl.select()
+    setStatus('Waiting for your other device. Keep this page open.')
+  } catch (err) {
+    setStatus(describeError(err))
+  }
+})
+
+$('stopPairing').addEventListener('click', () => {
+  pairingHost?.close()
+  pairingTransport?.close()
+  pairingHost = undefined
+  pairingTransport = undefined
   const pairUrl = $('pairUrl') as HTMLInputElement
-  pairUrl.value = encodePairingUrl(joinLinkBase(), roomSecret, relays, iceUrls, sk)
-  pairUrl.hidden = false
-  $('copyPair').hidden = false
-  pairUrl.select()
+  pairUrl.value = ''
+  pairUrl.hidden = true
+  $('copyPair').hidden = true
+  $('stopPairing').hidden = true
+  setStatus('Pairing link retired.')
 })
 
 $('copyShare').addEventListener('click', () => copyInput('shareUrl'))

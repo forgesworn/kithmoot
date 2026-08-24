@@ -1,7 +1,7 @@
 import { getPublicKey } from 'nostr-tools/pure'
 import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
-import { createDeviceCredential } from './credential.js'
+import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 import { encodeRosterEvent, decodeRosterEvent } from './roster.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
@@ -11,7 +11,14 @@ import type { PeerFactory } from './peer.js'
 import type { RemoteTrack } from './mesh.js'
 import { ChatLog } from './chat.js'
 import type { RelayTransport } from './relay-pool.js'
-import type { KindredProof, RoomPolicy, RosterEntry, SingularRole, TrackAdvert } from './types.js'
+import type {
+  DeviceCredential,
+  KindredProof,
+  RoomPolicy,
+  RosterEntry,
+  SingularRole,
+  TrackAdvert,
+} from './types.js'
 
 /** One person, however many devices they brought. */
 export interface ParticipantView {
@@ -24,10 +31,10 @@ export interface ParticipantView {
   monitor?: string
 }
 
-export interface RoomSessionOptions {
+export interface RoomSessionBaseOptions {
   transport: RelayTransport
   secret: Uint8Array
-  participantSk: Uint8Array
+  /** This endpoint's own key. Never the participant's. */
   deviceSk: Uint8Array
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
@@ -41,6 +48,30 @@ export interface RoomSessionOptions {
   proof?: KindredProof
 }
 
+/**
+ * The primary device: the one endpoint that holds the participant key. It
+ * mints its own credential at join and can issue credentials for the
+ * participant's other devices via `issueDeviceCredential`.
+ */
+export interface PrimaryRoomSessionOptions extends RoomSessionBaseOptions {
+  participantSk: Uint8Array
+  credential?: never
+}
+
+/**
+ * A secondary device: its own key plus a room-scoped, expiring credential
+ * issued elsewhere. The participant key is never present, which is what the
+ * design means by "a device never holds the participant key" - a device
+ * compromised here loses one room until the credential expires, not the
+ * person's whole Nostr identity for ever.
+ */
+export interface SecondaryRoomSessionOptions extends RoomSessionBaseOptions {
+  credential: DeviceCredential
+  participantSk?: never
+}
+
+export type RoomSessionOptions = PrimaryRoomSessionOptions | SecondaryRoomSessionOptions
+
 const CREDENTIAL_TTL_SECONDS = 12 * 60 * 60
 
 /**
@@ -53,9 +84,18 @@ const CREDENTIAL_TTL_SECONDS = 12 * 60 * 60
  */
 export class RoomSession {
   readonly roomId: string
+  /** This endpoint's pubkey. */
+  readonly device: string
+  /** The person this endpoint speaks for. On a primary device this is the
+   *  participant key's pubkey; on a secondary it is read off the credential,
+   *  which is the only thing that could have told us. */
+  readonly participant: string
   #roomKey: Uint8Array
   #opts: RoomSessionOptions
   #now: () => number
+  /** Set only on a secondary device: the credential it was handed. A primary
+   *  mints a fresh one at join. */
+  #credential?: DeviceCredential
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
   #unsub?: () => void
@@ -68,16 +108,45 @@ export class RoomSession {
     this.#roomKey = roomKey
     this.#opts = opts
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+    this.device = getPublicKey(opts.deviceSk)
+
+    if (opts.participantSk) {
+      this.participant = getPublicKey(opts.participantSk)
+      return
+    }
+
+    // Fail here rather than at join: a credential for the wrong room, the
+    // wrong device or a lapsed window is a setup mistake, and the session has
+    // no identity to operate under until it is fixed.
+    const verdict = verifyDeviceCredential(opts.credential, { roomId, now: this.#now() })
+    if (!verdict.ok) throw new Error(`device credential rejected: ${verdict.reason}`)
+    if (verdict.device !== this.device) throw new Error('device credential names a different device')
+    this.participant = verdict.participant
+    this.#credential = opts.credential
+  }
+
+  /**
+   * Mint a room-scoped, expiring credential authorising another of this
+   * participant's devices. Only a primary device can: minting requires the
+   * participant key, and a secondary deliberately does not have it.
+   *
+   * This is what a pairing flow transfers - never the participant key
+   * itself. See `pairing.ts`.
+   */
+  issueDeviceCredential(devicePubkey: string, ttlSeconds = CREDENTIAL_TTL_SECONDS): DeviceCredential {
+    const participantSk = this.#opts.participantSk
+    if (!participantSk) throw new Error('this device has no participant key, so it cannot issue credentials')
+    return createDeviceCredential({
+      participantSk,
+      devicePubkey,
+      roomId: this.roomId,
+      expiresAt: this.#now() + ttlSeconds,
+    })
   }
 
   async join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
     if (this.#opts.policy) {
-      const verdict = evaluateAccess(
-        this.#opts.policy,
-        getPublicKey(this.#opts.participantSk),
-        this.#opts.proof,
-        this.#now(),
-      )
+      const verdict = evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, this.#now())
       if (!verdict.admitted) throw new Error(verdict.reason)
     }
 
@@ -86,16 +155,13 @@ export class RoomSession {
       (event) => this.#ingest(event),
     )
 
-    const device = getPublicKey(this.#opts.deviceSk)
-    const credential = createDeviceCredential({
-      participantSk: this.#opts.participantSk,
-      devicePubkey: device,
-      roomId: this.roomId,
-      expiresAt: this.#now() + CREDENTIAL_TTL_SECONDS,
-    })
+    const device = this.device
+    // A secondary device uses the credential it was issued; only a primary,
+    // which is the only endpoint holding the participant key, can mint one.
+    const credential = this.#credential ?? this.issueDeviceCredential(device)
 
     const entry: RosterEntry = {
-      participant: getPublicKey(this.#opts.participantSk),
+      participant: this.participant,
       device,
       credential,
       tracks,
@@ -167,8 +233,21 @@ export class RoomSession {
     if (existing && existing.updatedAt > entry.updatedAt) return
 
     this.#entries.set(entry.device, entry)
+    this.#notify()
+  }
+
+  /** decodeRosterEvent is written never to throw because this runs inside a
+   *  relay subscription handler; a throwing caller callback would undo all of
+   *  that, so listeners are guarded here too. */
+  #notify(): void {
     const views = this.participants()
-    for (const listener of this.#listeners) listener(views)
+    for (const listener of this.#listeners) {
+      try {
+        listener(views)
+      } catch {
+        // A caller's render() is not allowed to close the room.
+      }
+    }
   }
 
   participants(): ParticipantView[] {

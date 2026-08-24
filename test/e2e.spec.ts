@@ -19,6 +19,14 @@ import { test, expect, type Browser, type BrowserContext, type Page } from '@pla
  * join link and a pairing link are told apart by localStorage - two tabs in
  * one context would share it and silently defeat the point of the test.
  *
+ * PAIRING IS A LIVE EXCHANGE: the pairing link carries a one-off code, never
+ * an identity (src/pairing.ts). Page A has to STAY on the page that issued
+ * it, because that page is what listens for B's request and answers it with
+ * a device credential - so "Add a device" is clicked after A has finished
+ * navigating, not before. A also has to accept a confirm() before the
+ * credential is minted, which Playwright dismisses by default; the dialog
+ * handler below is what makes it an approval rather than a refusal.
+ *
  * CLICK ORDER, AND WHY IT DIFFERS FROM THE HUMAN-FACING PROCEDURE:
  * KithMoot's roster event (kind 20461, src/kinds.ts) is in Nostr's
  * "ephemeral" range (20000-29999), which relays are NOT required to store -
@@ -52,7 +60,7 @@ async function newDeviceContext(browser: Browser, baseURL: string): Promise<Brow
  *  plain join URL and, after clicking "Add a device", the pairing URL -
  *  both read straight, so this never needs to guess the URL fragment
  *  format the app happens to use today. */
-async function createRoom(page: Page, baseURL: string): Promise<{ joinUrl: string; pairUrl: string }> {
+async function createRoom(page: Page, baseURL: string): Promise<string> {
   await page.goto(baseURL)
   // #iceServers sits inside a collapsed <details> and already defaults to
   // a public STUN server (app/index.html) - nothing to change here.
@@ -61,13 +69,25 @@ async function createRoom(page: Page, baseURL: string): Promise<{ joinUrl: strin
 
   const joinUrl = await page.locator('#shareUrl').inputValue()
   expect(joinUrl, 'room creation did not produce a join URL').toContain('#')
+  return joinUrl
+}
 
+/** Starts a pairing exchange on the page that will host it. The page must
+ *  stay put afterwards: closing or navigating retires the code. */
+async function offerPairing(page: Page, joinUrl: string): Promise<string> {
+  page.on('dialog', (dialog) => {
+    void dialog.accept()
+  })
   await page.locator('#addDevice').click()
   const pairUrl = await page.locator('#pairUrl').inputValue()
   expect(pairUrl, 'add device did not produce a pairing URL').toContain('#')
   expect(pairUrl, 'pairing URL must differ from the plain join URL').not.toBe(joinUrl)
-
-  return { joinUrl, pairUrl }
+  // The whole point of the rebuild: a pairing link is a room capability plus
+  // a one-off code, and carries nothing secret to the person.
+  expect(pairUrl.length, 'a pairing URL carrying a secret key would be far longer').toBeLessThan(
+    joinUrl.length + 80,
+  )
+  return pairUrl
 }
 
 /** Navigates to a join or pairing URL and enables camera + mic - real
@@ -78,6 +98,10 @@ async function createRoom(page: Page, baseURL: string): Promise<{ joinUrl: strin
 async function prepareDevice(page: Page, url: string): Promise<void> {
   await page.goto(url)
   await expect(page.locator('#deviceControls')).toBeVisible()
+  // A device opening a pairing link holds the join button disabled until the
+  // credential has actually arrived - joining early would mint a fresh
+  // participant key and put it in the room as a stranger.
+  await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
   await page.locator('#toggleCamera').click()
   await page.locator('#toggleMic').click()
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
@@ -104,12 +128,15 @@ test('two devices of one participant render as one tile group to a third person'
     const pageB = await ctxB.newPage()
     const pageC = await ctxC.newPage()
 
-    // A creates the room (no network yet) and produces both links.
-    const { joinUrl, pairUrl } = await createRoom(pageA, url)
+    // A creates the room (no network yet) and produces the join link.
+    const joinUrl = await createRoom(pageA, url)
 
     // Get every device to the "ready, media on, not yet joined" point
-    // before any of them subscribes or publishes.
+    // before any of them subscribes or publishes. A settles on its room
+    // page FIRST, then offers pairing - the offer only lives as long as the
+    // page that made it.
     await prepareDevice(pageA, joinUrl)
+    const pairUrl = await offerPairing(pageA, joinUrl)
     // B: a SEPARATE context (own localStorage) opening the PAIRING url, so
     // it becomes a second device under A's identity - not a new person.
     await prepareDevice(pageB, pairUrl)

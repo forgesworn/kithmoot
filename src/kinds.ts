@@ -19,4 +19,12 @@ export const KINDS = {
    *  event range, not ephemeral) - chat history is the point, so it must
    *  survive a relay restart and be there for late joiners. */
   CHAT: 1460,
+  /** A second device asking to be credentialled for this participant,
+   *  encrypted to the room key. Ephemeral: this is a live handshake between
+   *  two devices that are both present, and a stored one would be a durable
+   *  record that the room exists. */
+  PAIRING_REQUEST: 20463,
+  /** The reply, carrying a room-scoped expiring device credential. Ephemeral
+   *  for the same reason. */
+  PAIRING_GRANT: 20464,
 } as const

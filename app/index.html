@@ -54,10 +54,17 @@
           <button id="copyShare" type="button">Copy</button>
         </div>
         <div class="linkBox pairing">
-          <p><strong>This link is you. Only ever send it to your own device.</strong></p>
+          <p>
+            <strong>Bring another of your own devices into this room.</strong>
+            The link below grants a credential for <em>this room only</em>,
+            expiring after 12 hours. It does not carry your identity, and it
+            cannot be used anywhere else. You will be asked to confirm on this
+            device before anything is issued.
+          </p>
           <button id="addDevice">Add a device</button>
           <input id="pairUrl" readonly hidden />
           <button id="copyPair" type="button" hidden>Copy</button>
+          <button id="stopPairing" type="button" hidden>Stop pairing</button>
         </div>
       </section>
 

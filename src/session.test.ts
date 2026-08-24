@@ -4,6 +4,8 @@ import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
 import { RoomSession } from './session.js'
 import { issueKindredProof } from './access.js'
+import { createDeviceCredential } from './credential.js'
+import { deriveRoom } from './room.js'
 
 const NOW = 1_800_000_000
 const now = () => NOW
@@ -304,5 +306,149 @@ describe('RoomSession chat', () => {
     await a.chat.send('hello')
 
     expect(b.chat.messages().map((m) => m.text)).toEqual(['hello'])
+  })
+})
+
+describe('RoomSession device credentials', () => {
+  it('joins with a pre-issued credential and no participant key at all', async () => {
+    const relay = new SimRelay()
+    // The participant key stays on the laptop. The phone is handed a
+    // room-scoped, expiring credential and nothing else - which is what
+    // "a device never holds the participant key" has to mean in code.
+    const participantSk = generateSecretKey()
+    const participant = getPublicKey(participantSk)
+    const laptopSk = generateSecretKey()
+    const phoneSk = generateSecretKey()
+
+    const { roomId } = deriveRoom(secret())
+    const credential = createDeviceCredential({
+      participantSk,
+      devicePubkey: getPublicKey(phoneSk),
+      roomId,
+      expiresAt: NOW + 3600,
+    })
+
+    const observer = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk: generateSecretKey(),
+      deviceSk: generateSecretKey(),
+      now,
+    })
+    const laptop = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk,
+      deviceSk: laptopSk,
+      now,
+    })
+    const phone = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      credential,
+      deviceSk: phoneSk,
+      now,
+    })
+
+    await observer.join([], {})
+    await laptop.join([{ trackId: 'scr', role: 'screen' }], {})
+    await phone.join([{ trackId: 'cam', role: 'camera' }], {})
+
+    expect(phone.participant).toBe(participant)
+
+    const view = observer.participants().find((v) => v.participant === participant)
+    expect(view!.devices.sort()).toEqual([getPublicKey(laptopSk), getPublicKey(phoneSk)].sort())
+    expect(view!.tracks.map((t) => t.role).sort()).toEqual(['camera', 'screen'])
+  })
+
+  it('refuses a credential that names a different device', () => {
+    const { roomId } = deriveRoom(secret())
+    const credential = createDeviceCredential({
+      participantSk: generateSecretKey(),
+      devicePubkey: getPublicKey(generateSecretKey()),
+      roomId,
+      expiresAt: NOW + 3600,
+    })
+    expect(
+      () =>
+        new RoomSession({
+          transport: new SimTransport(new SimRelay()),
+          secret: secret(),
+          credential,
+          deviceSk: generateSecretKey(),
+          now,
+        }),
+    ).toThrow('names a different device')
+  })
+
+  it('refuses a credential minted for a different room', () => {
+    const phoneSk = generateSecretKey()
+    const credential = createDeviceCredential({
+      participantSk: generateSecretKey(),
+      devicePubkey: getPublicKey(phoneSk),
+      roomId: deriveRoom(new Uint8Array(32).fill(77)).roomId,
+      expiresAt: NOW + 3600,
+    })
+    expect(
+      () =>
+        new RoomSession({
+          transport: new SimTransport(new SimRelay()),
+          secret: secret(),
+          credential,
+          deviceSk: phoneSk,
+          now,
+        }),
+    ).toThrow('wrong room')
+  })
+
+  it('refuses an expired credential', () => {
+    const phoneSk = generateSecretKey()
+    const { roomId } = deriveRoom(secret())
+    const credential = createDeviceCredential({
+      participantSk: generateSecretKey(),
+      devicePubkey: getPublicKey(phoneSk),
+      roomId,
+      expiresAt: NOW - 1,
+    })
+    expect(
+      () =>
+        new RoomSession({
+          transport: new SimTransport(new SimRelay()),
+          secret: secret(),
+          credential,
+          deviceSk: phoneSk,
+          now,
+        }),
+    ).toThrow('expired')
+  })
+
+  it('lets a primary device issue a credential, and refuses to on a secondary', async () => {
+    const relay = new SimRelay()
+    const participantSk = generateSecretKey()
+    const laptopSk = generateSecretKey()
+    const phoneSk = generateSecretKey()
+
+    const laptop = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk,
+      deviceSk: laptopSk,
+      now,
+    })
+    const issued = laptop.issueDeviceCredential(getPublicKey(phoneSk))
+    expect(issued.pubkey).toBe(getPublicKey(participantSk))
+
+    const phone = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      credential: issued,
+      deviceSk: phoneSk,
+      now,
+    })
+    // A device without the participant key cannot mint credentials, which
+    // is the whole point of not shipping the key to it.
+    expect(() => phone.issueDeviceCredential(getPublicKey(generateSecretKey()))).toThrow(
+      'no participant key',
+    )
   })
 })

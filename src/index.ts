@@ -8,7 +8,30 @@ export { wrapSignal, unwrapSignal } from './signal.js'
 export type { SignalBody } from './signal.js'
 export type { RosterEntry, TrackAdvert, TrackRole, SingularRole, DeviceCredential } from './types.js'
 export { RoomSession } from './session.js'
-export type { ParticipantView, RoomSessionOptions } from './session.js'
+export type {
+  ParticipantView,
+  RoomSessionOptions,
+  RoomSessionBaseOptions,
+  PrimaryRoomSessionOptions,
+  SecondaryRoomSessionOptions,
+} from './session.js'
+export {
+  createPairingCode,
+  encodePairingRequest,
+  decodePairingRequest,
+  encodePairingGrant,
+  decodePairingGrant,
+  hostPairing,
+  requestPairing,
+} from './pairing.js'
+export type {
+  EncodePairingRequestOptions,
+  DecodePairingRequestOptions,
+  EncodePairingGrantOptions,
+  DecodePairingGrantOptions,
+  HostPairingOptions,
+  RequestPairingOptions,
+} from './pairing.js'
 export { NostrRelayPool } from './relay-pool.js'
 export type { RelayTransport } from './relay-pool.js'
 export { evaluateAccess, issueKindredProof } from './access.js'
