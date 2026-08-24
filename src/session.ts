@@ -51,6 +51,8 @@ export interface RoomSessionBaseOptions {
    *  twenty-first in the same instant. Zero makes it deterministic, which
    *  is what tests want. */
   announceJitterMs?: number
+  /** Presence timings. Omit for the defaults. */
+  timing?: SessionTiming
 }
 
 /**
@@ -79,6 +81,32 @@ export type RoomSessionOptions = PrimaryRoomSessionOptions | SecondaryRoomSessio
 
 const CREDENTIAL_TTL_SECONDS = 12 * 60 * 60
 const DEFAULT_ANNOUNCE_JITTER_MS = 500
+
+/**
+ * How long a device stays in the roster after its last announcement.
+ *
+ * The roster is an ephemeral kind published as it happens, so presence is
+ * only ever as current as the last thing a device said. Without a lapse an
+ * entry is kept for ever: a laptop closed an hour ago is still listed, still
+ * rendered, and still holds a `Mesh` peer connection that will never connect.
+ * Comfortably more than three heartbeats, so one dropped relay message does
+ * not evict a device that is plainly still here.
+ */
+export const PRESENCE_TTL_SECONDS = 75
+
+/** How often a device restates that it is still here. */
+export const HEARTBEAT_INTERVAL_MS = 20_000
+
+/** How often lapsed entries are swept. */
+export const SWEEP_INTERVAL_MS = 5_000
+
+/** The timings that govern presence. All of them are tunable guesses; none of
+ *  them changes what is correct. Matches the Android client's `SessionTiming`. */
+export interface SessionTiming {
+  heartbeatIntervalMs?: number
+  presenceTtlSeconds?: number
+  sweepIntervalMs?: number
+}
 
 /**
  * A device's presence in one room, grouped with the other devices its
@@ -113,6 +141,8 @@ export class RoomSession {
   /** At most one answer in flight: twenty devices arriving at once must
    *  produce one re-announce from us, not twenty. */
   #replyTimer?: ReturnType<typeof setTimeout>
+  #heartbeatTimer?: ReturnType<typeof setInterval>
+  #sweepTimer?: ReturnType<typeof setInterval>
   #left = false
 
   constructor(opts: RoomSessionOptions) {
@@ -185,6 +215,20 @@ export class RoomSession {
       now: this.#now,
     })
 
+    // Presence is live state, so it has to be restated and it has to lapse -
+    // see `PRESENCE_TTL_SECONDS`. Both timers are unreferenced where the
+    // runtime allows it, because a library keeping a Node process alive after
+    // its caller has finished is a bug in the library.
+    this.#heartbeatTimer = this.#every(
+      this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
+      () => {
+        this.#publishEntry(false).catch(() => {})
+      },
+    )
+    this.#sweepTimer = this.#every(this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS, () => {
+      if (this.#evictLapsed()) this.#notify()
+    })
+
     if (this.#opts.factory) {
       this.#mesh = new Mesh({
         session: this,
@@ -232,6 +276,40 @@ export class RoomSession {
       deviceSk: this.#opts.deviceSk,
     })
     await this.#opts.transport.publish(event)
+  }
+
+  #every(intervalMs: number, run: () => void): ReturnType<typeof setInterval> {
+    const timer = setInterval(run, intervalMs)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    return timer
+  }
+
+  /**
+   * Drop every entry that has lapsed: one that has not been restated inside
+   * the presence window, and one whose credential has expired since it was
+   * ingested - a credential is checked at ingest, and ingest was hours ago.
+   *
+   * Our own entry is never swept: we know perfectly well that we are here,
+   * and evicting ourselves between heartbeats would make the room flicker.
+   */
+  #evictLapsed(): boolean {
+    const now = this.#now()
+    const cutoff = now - (this.#opts.timing?.presenceTtlSeconds ?? PRESENCE_TTL_SECONDS)
+    let changed = false
+
+    for (const [device, entry] of this.#entries) {
+      if (device === this.device) continue
+      const lapsed = entry.updatedAt < cutoff
+      const credentialExpired = !verifyDeviceCredential(entry.credential, { roomId: this.roomId, now }).ok
+      if (!lapsed && !credentialExpired) continue
+      this.#entries.delete(device)
+      // Forgetting a departed device is what lets a genuine rejoin be
+      // answered again later without reopening the announce loop: they are
+      // gone, so the next thing we hear from them really is an arrival.
+      changed = true
+    }
+
+    return changed
   }
 
   /** Schedule one answer to a new arrival, jittered. Coalesced: an answer
@@ -319,6 +397,10 @@ export class RoomSession {
   }
 
   participants(): ParticipantView[] {
+    // Swept on read as well as on a timer, so a caller reading the roster
+    // never sees a device that lapsed since the last sweep. No notification
+    // from here: the caller is reading the fresh answer already.
+    this.#evictLapsed()
     const entries = [...this.#entries.values()]
     const roles = resolveSingularRoles(entries)
     const byParticipant = new Map<string, ParticipantView>()
@@ -349,9 +431,26 @@ export class RoomSession {
   }
 
   leave(): void {
+    // The wire format has no departure message, so the last thing this device
+    // says is an entry claiming nothing and publishing nothing. That releases
+    // a singular role at once rather than making the room wait out the
+    // presence timeout, and a device that is simply switched off is removed
+    // by that timeout anyway - so there is only one path to test.
+    if (this.#self && !this.#left) {
+      this.#self = { ...this.#self, tracks: [], claims: {} }
+      // Flagged the same way an answer is, because a farewell is not an
+      // arrival either: without it, the last thing a leaving device does is
+      // provoke every remaining device into re-announcing at it.
+      this.#publishEntry(true).catch(() => {})
+    }
+
     this.#left = true
     if (this.#replyTimer !== undefined) clearTimeout(this.#replyTimer)
     this.#replyTimer = undefined
+    if (this.#heartbeatTimer !== undefined) clearInterval(this.#heartbeatTimer)
+    this.#heartbeatTimer = undefined
+    if (this.#sweepTimer !== undefined) clearInterval(this.#sweepTimer)
+    this.#sweepTimer = undefined
     this.#unsub?.()
     this.#mesh?.close()
     this.#chat?.close()

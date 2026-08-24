@@ -3,7 +3,7 @@ import { generateSecretKey, getPublicKey, verifiedSymbol, type Event } from 'nos
 import { nip44 } from 'nostr-tools'
 import { deriveRoom } from './room.js'
 import { createDeviceCredential } from './credential.js'
-import { encodeRosterEvent, decodeRosterEvent } from './roster.js'
+import { encodeRosterEvent, decodeRosterEvent, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import type { RosterEntry } from './types.js'
 
 const NOW = 1_800_000_000
@@ -129,5 +129,42 @@ describe('roster events', () => {
 
     expect(decoded?.device).toBe(entry.device.toLowerCase())
     expect(decoded?.participant).toBe(entry.participant.toLowerCase())
+  })
+
+  it('BUG (M4): refuses an entry stamped further into the future than clock skew allows', () => {
+    // `updatedAt` decides which of two entries for one device wins, so an
+    // entry stamped in the year 3000 can never be superseded by a genuine
+    // later one - the device pins itself into the roster for good.
+    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const event = encodeRosterEvent({ ...entry, updatedAt: 9e15 }, { roomId, roomKey, deviceSk })
+
+    expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
+  })
+
+  it('accepts an entry from a device whose clock is a little fast', () => {
+    // Real clocks disagree. The rule has to refuse a pin without refusing a
+    // device that is thirty seconds ahead.
+    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const ahead = NOW + MAX_FUTURE_SKEW_SECONDS - 1
+    const event = encodeRosterEvent({ ...entry, updatedAt: ahead }, { roomId, roomKey, deviceSk })
+
+    expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })?.updatedAt).toBe(ahead)
+  })
+
+  it('BUG (M4): drops a singular-role claim stamped further into the future than clock skew allows', () => {
+    // Most recent claim wins, so a claim stamped in the year 3000 locks the
+    // microphone against that participant's own other devices for ever.
+    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const event = encodeRosterEvent(
+      { ...entry, claims: { mic: 9e15, monitor: NOW } },
+      { roomId, roomKey, deviceSk },
+    )
+
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    // The device stays in the room - a bad claim costs the claim, not the
+    // device's presence - but the claim itself is gone.
+    expect(decoded).not.toBeNull()
+    expect(decoded?.claims.mic).toBeUndefined()
+    expect(decoded?.claims.monitor).toBe(NOW)
   })
 })

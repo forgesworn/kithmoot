@@ -7,6 +7,8 @@ import { issueKindredProof } from './access.js'
 import { createDeviceCredential } from './credential.js'
 import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
+import { decodeRosterEvent } from './roster.js'
+import { PRESENCE_TTL_SECONDS } from './session.js'
 
 const NOW = 1_800_000_000
 const now = () => NOW
@@ -592,9 +594,10 @@ describe('RoomSession roster announce and respond', () => {
     a.leave()
     await settle()
 
-    // a scheduled a response to b's arrival and then left; a departed
-    // session must not publish.
-    expect(relay.published.filter((e) => e.kind === KINDS.ROSTER)).toHaveLength(2)
+    // Two joins plus a's farewell. a had scheduled a response to b's arrival
+    // and then left; a departed session must not publish anything beyond the
+    // farewell itself.
+    expect(relay.published.filter((e) => e.kind === KINDS.ROSTER)).toHaveLength(3)
   })
 })
 
@@ -690,5 +693,101 @@ describe('RoomSession member-side access gating', () => {
     await settle()
 
     expect(member.participants()).toHaveLength(1)
+  })
+})
+
+describe('RoomSession presence lifetime', () => {
+  function room(clock: () => number, relay: SimRelay, timing?: Partial<{ heartbeatIntervalMs: number; presenceTtlSeconds: number; sweepIntervalMs: number }>) {
+    return new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk: generateSecretKey(),
+      deviceSk: generateSecretKey(),
+      now: clock,
+      announceJitterMs: 0,
+      ...(timing ? { timing } : {}),
+    })
+  }
+
+  it('BUG (M3): drops a device that has stopped announcing once its presence lapses', async () => {
+    // Presence is live state. Without eviction a device that closed its
+    // laptop an hour ago is still listed, still shown, and still holds a
+    // `Mesh` peer connection that will never connect.
+    const relay = new SimRelay()
+    let clock = NOW
+    const mine = room(() => clock, relay)
+    const theirs = room(() => clock, relay)
+
+    await mine.join([], {})
+    await theirs.join([], {})
+    await settle()
+    expect(mine.participants()).toHaveLength(2)
+
+    // They go quiet, and time passes.
+    theirs.leave()
+    clock = NOW + PRESENCE_TTL_SECONDS + 1
+
+    expect(mine.participants()).toHaveLength(1)
+    expect(mine.participants()[0]!.participant).toBe(mine.participant)
+    mine.leave()
+  })
+
+  it('BUG (M3): drops a device whose credential has expired since it announced', async () => {
+    const relay = new SimRelay()
+    let clock = NOW
+    const mine = room(() => clock, relay)
+    const theirs = room(() => clock, relay)
+
+    await mine.join([], {})
+    await theirs.join([], {})
+    await settle()
+    expect(mine.participants()).toHaveLength(2)
+
+    // Far enough ahead that the credential minted at join has lapsed, but
+    // with the entry itself refreshed, so it is the credential doing the
+    // work and not the presence timeout.
+    clock = NOW + 13 * 60 * 60
+    await theirs.announce()
+    await settle()
+
+    expect(mine.participants()).toHaveLength(1)
+    mine.leave()
+  })
+
+  it('keeps announcing on a heartbeat, so nobody times it out mid-call', async () => {
+    const relay = new SimRelay()
+    const mine = room(now, relay, { heartbeatIntervalMs: 5, sweepIntervalMs: 5 })
+
+    await mine.join([], {})
+    const afterJoin = relay.published.filter((e) => e.kind === KINDS.ROSTER).length
+
+    await new Promise((r) => setTimeout(r, 40))
+    const afterWaiting = relay.published.filter((e) => e.kind === KINDS.ROSTER).length
+
+    expect(afterWaiting).toBeGreaterThan(afterJoin)
+    mine.leave()
+  })
+
+  it('BUG (M3): says goodbye on leave, so the microphone is released at once', async () => {
+    // The wire format has no departure message, so the last thing a device
+    // says is an entry claiming nothing - which frees a singular role without
+    // waiting out the presence timeout.
+    const relay = new SimRelay()
+    const mine = room(now, relay)
+
+    await mine.join([{ trackId: 'mic', role: 'mic' }], { mic: NOW })
+    await settle()
+    mine.leave()
+    await settle()
+
+    const roster = relay.published.filter((e) => e.kind === KINDS.ROSTER)
+    const farewell = decodeRosterEvent(roster[roster.length - 1]!, {
+      roomId: mine.roomId,
+      roomKey: deriveRoom(secret()).roomKey,
+      now: NOW,
+    })
+    expect(farewell).not.toBeNull()
+    expect(farewell!.claims).toEqual({})
+    expect(farewell!.tracks).toEqual([])
   })
 })

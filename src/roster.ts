@@ -34,6 +34,19 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
   )
 }
 
+/**
+ * How far ahead of our own clock a roster timestamp may be stamped.
+ *
+ * `updatedAt` decides which of two entries for one device wins, and a
+ * singular-role claim time decides which of a participant's devices holds the
+ * microphone. Both are chosen by the device that publishes them, so a device
+ * stamping the year 3000 pins itself into the roster for good and locks the
+ * mic against its owner's other devices - neither can ever be superseded by a
+ * genuine later value. The bound has to be loose enough that real clocks,
+ * which disagree by seconds, are not refused.
+ */
+export const MAX_FUTURE_SKEW_SECONDS = 60
+
 export interface DecodeRosterOptions {
   roomId: string
   roomKey: Uint8Array
@@ -77,6 +90,17 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
 
     // The device that signed this event must be the device the credential names.
     if (!hexEquals(entry.device, event.pubkey)) return null
+
+    // A timestamp beyond clock skew is a pin, not a clock - see
+    // `MAX_FUTURE_SKEW_SECONDS`. The entry goes; a claim only costs the
+    // claim, because a device with one bad claim is still in the room.
+    const horizon = opts.now + MAX_FUTURE_SKEW_SECONDS
+    if (!Number.isFinite(entry.updatedAt) || entry.updatedAt > horizon) return null
+    entry.claims = Object.fromEntries(
+      Object.entries(entry.claims ?? {}).filter(
+        ([, claimedAt]) => typeof claimedAt === 'number' && Number.isFinite(claimedAt) && claimedAt <= horizon,
+      ),
+    )
 
     const verdict = verifyDeviceCredential(entry.credential, {
       roomId: opts.roomId,
