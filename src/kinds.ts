@@ -14,4 +14,9 @@ export const KINDS = {
   SIGNAL_WRAP: 21059,
   /** Inner signalling event, wrapped in SIGNAL_WRAP. Never published bare. */
   SIGNAL: 20462,
+  /** Chat message, encrypted to the room key and published once, exactly
+   *  like the roster. Unlike the roster this is a DURABLE kind (regular
+   *  event range, not ephemeral) - chat history is the point, so it must
+   *  survive a relay restart and be there for late joiners. */
+  CHAT: 1460,
 } as const
