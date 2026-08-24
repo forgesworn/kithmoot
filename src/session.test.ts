@@ -105,13 +105,16 @@ describe('RoomSession', () => {
     const phoneSk = generateSecretKey()
     const laptopSk = generateSecretKey()
 
-    const phone = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk, deviceSk: phoneSk, now })
-    const laptop = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk, deviceSk: laptopSk, now })
-    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now })
+    const phone = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk, deviceSk: phoneSk, now, announceJitterMs: 0 })
+    const laptop = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk, deviceSk: laptopSk, now, announceJitterMs: 0 })
+    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
 
-    await observer.join([], {})
+    // Observer LAST: a mic claim has to survive the re-announce that tells a
+    // late arrival about a device, not just the first announcement.
     await phone.join([], { mic: NOW })
     await laptop.join([], { mic: NOW + 10 })
+    await observer.join([], {})
+    await settle()
 
     const view = observer.participants().find((v) => v.participant === getPublicKey(participantSk))
     expect(view!.mic).toBe(getPublicKey(laptopSk))
@@ -119,32 +122,43 @@ describe('RoomSession', () => {
 
   it('ignores roster events from a different room', async () => {
     const relay = new SimRelay()
-    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now })
-    await observer.join([], {})
-
+    // The other room goes first, so the observer is the late arrival - the
+    // one case where a re-announce could plausibly hand it somebody else's
+    // room.
     const otherRoom = new RoomSession({
       transport: new SimTransport(relay),
       secret: new Uint8Array(32).fill(99),
       participantSk: generateSecretKey(),
       deviceSk: generateSecretKey(),
       now,
+      announceJitterMs: 0,
     })
     await otherRoom.join([], {})
+
+    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    await observer.join([], {})
+    await settle()
 
     expect(observer.participants()).toHaveLength(1)
   })
 
   it('notifies subscribers when the roster changes', async () => {
     const relay = new SimRelay()
-    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now })
+    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
     const counts: number[] = []
     observer.onChange((views) => counts.push(views.length))
     await observer.join([], {})
 
-    const joiner = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now })
+    const joiner = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    const joinerCounts: number[] = []
+    joiner.onChange((views) => joinerCounts.push(views.length))
     await joiner.join([], {})
+    await settle()
 
+    // Both directions: the sitting device is told about the arrival, and the
+    // arriving device is told about the sitting one.
     expect(counts.at(-1)).toBe(2)
+    expect(joinerCounts.at(-1)).toBe(2)
   })
 })
 
@@ -350,6 +364,7 @@ describe('RoomSession device credentials', () => {
       participantSk: generateSecretKey(),
       deviceSk: generateSecretKey(),
       now,
+      announceJitterMs: 0,
     })
     const laptop = new RoomSession({
       transport: new SimTransport(relay),
@@ -357,6 +372,7 @@ describe('RoomSession device credentials', () => {
       participantSk,
       deviceSk: laptopSk,
       now,
+      announceJitterMs: 0,
     })
     const phone = new RoomSession({
       transport: new SimTransport(relay),
@@ -364,13 +380,19 @@ describe('RoomSession device credentials', () => {
       credential,
       deviceSk: phoneSk,
       now,
+      announceJitterMs: 0,
     })
 
-    await observer.join([], {})
+    // Observer LAST again: a credential-only device has to be visible to
+    // someone who was not listening when it announced.
     await laptop.join([{ trackId: 'scr', role: 'screen' }], {})
     await phone.join([{ trackId: 'cam', role: 'camera' }], {})
+    await observer.join([], {})
+    await settle()
 
     expect(phone.participant).toBe(participant)
+    // And the credential-only device sees the room it joined, not an empty one.
+    expect(phone.participants()).toHaveLength(2)
 
     const view = observer.participants().find((v) => v.participant === participant)
     expect(view!.devices.sort()).toEqual([getPublicKey(laptopSk), getPublicKey(phoneSk)].sort())

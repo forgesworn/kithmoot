@@ -9,9 +9,12 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './test',
   testMatch: 'e2e.spec.ts',
-  // Public relays take a few seconds to round-trip a roster event; the
-  // stage-1 live test used similar multi-second settle windows.
-  timeout: 90_000,
+  // Public relays take a few seconds to round-trip a roster event, and the
+  // join-last case waits on three of those in sequence: A's entry, B's, and
+  // then A and B answering C's arrival. The stage-1 live test used similar
+  // multi-second settle windows; this is deliberately generous, because the
+  // answer to a slow relay is patience, not a weaker assertion.
+  timeout: 180_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,
   retries: 0,

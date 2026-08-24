@@ -1,9 +1,11 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { base64urlnopad } from '@scure/base'
 
 /**
  * Automated version of the acceptance test documented in README.md: two
  * devices of one participant must render as ONE tile group to everyone
- * else, not two strangers. Verified once by hand against live public
+ * else, not two strangers - and everyone must see it whatever order they
+ * arrived in. Verified once by hand against live public
  * relays (see .superpowers/sdd progress notes); this test repeats that
  * check on every run so the claim cannot silently regress.
  *
@@ -27,26 +29,68 @@ import { test, expect, type Browser, type BrowserContext, type Page } from '@pla
  * credential is minted, which Playwright dismisses by default; the dialog
  * handler below is what makes it an approval rather than a refusal.
  *
- * CLICK ORDER, AND WHY IT DIFFERS FROM THE HUMAN-FACING PROCEDURE:
+ * TWO CASES, AND WHY BOTH EXIST:
  * KithMoot's roster event (kind 20461, src/kinds.ts) is in Nostr's
- * "ephemeral" range (20000-29999), which relays are NOT required to store -
- * a REQ from a subscriber that only starts listening after the event was
- * published is not guaranteed to see it. The manual, human-facing procedure
- * in README opens the third browser LAST, and that works today against
- * nos.lol/relay.primal.net, which are lenient about this. This test does
- * not rely on that leniency: every context opens its room/pairing/join URL
- * and clicks "Join room" (which is what subscribes) before checking
- * anything, and the third context's subscription is established before it
- * asserts - so the test passes on strict NIP-01 relay behaviour too, not
- * just on today's lenient ones. The end state asserted is identical either
- * way; only the setup ordering changed, to make the test reliable rather
- * than merely lucky.
+ * "ephemeral" range (20000-29999), which relays do not store - a subscriber
+ * that starts listening after the event was published is never sent it. The
+ * protocol answer is announce-and-respond: an arriving device announces, and
+ * the devices already present re-announce so the newcomer learns of them
+ * (see docs/decisions.md).
  *
- * RELAYS: this test creates a room through the real app UI, so it inherits
- * whichever relays app/src/main.ts's own RELAYS constant names - that is
- * the one place to change if a relay goes flaky again (see the comment
- * there), not this file.
+ * The first case has C subscribe FIRST and asserts the end state. That is
+ * ordering-independent coverage of the happy path and worth keeping, but it
+ * is deliberately NOT evidence about the roster: C hears everyone simply
+ * because it was already listening.
+ *
+ * The second case is the evidence. C is the LAST to arrive - A and B are
+ * already in the room and have stopped publishing before C's page even
+ * loads - so the only way C can see them is because they answer its
+ * announcement. It is the human-facing procedure in README, run exactly as
+ * written, and before announce-and-respond existed it could not pass: a
+ * device joining second saw an empty room.
+ *
+ * RELAYS: the first case creates a room through the real app UI, so it
+ * inherits whichever relays app/src/main.ts's own RELAYS constant names -
+ * that is the one place to change if a relay goes flaky again (see the
+ * comment there), not this file.
+ *
+ * The join-last case pins itself to ONE relay, and not for convenience.
+ * Measured on 24 August 2026 by publishing a kind-20461 event and
+ * subscribing strictly afterwards:
+ *
+ *   wss://relay.trotters.cc   accepted, NOT replayed   (strict, NIP-01)
+ *   wss://nos.lol             accepted, REPLAYED       (lenient)
+ *   wss://relay.primal.net    accepted, REPLAYED       (lenient)
+ *
+ * Two of the three defaults store ephemeral events and replay them to a
+ * later subscriber. Against those, a late joiner sees the room whether or
+ * not announce-and-respond exists - so a join-last case run on the default
+ * list asserts nothing about the roster at all. Verified: with the
+ * re-announce disabled at source, that version of this test still passed.
+ * Pinned to the strict relay it fails, which is what makes it evidence.
  */
+
+/** A relay that honours NIP-01's ephemeral semantics - it does not replay a
+ *  kind-20461 to a subscriber that arrived later. Override if this one is
+ *  down; the test needs a strict relay, not this specific one. */
+const STRICT_RELAY = process.env.E2E_STRICT_RELAY ?? 'wss://relay.trotters.cc'
+
+/**
+ * Rewrite the relay hint list inside a join URL's fragment, leaving every
+ * other field exactly as the app wrote it.
+ *
+ * Parsed and re-encoded generically rather than rebuilt from known fields,
+ * so a fragment that grows a new key later still round-trips untouched.
+ */
+function withRelays(url: string, relays: string[]): string {
+  const parsed = new URL(url)
+  const payload = JSON.parse(
+    new TextDecoder().decode(base64urlnopad.decode(parsed.hash.slice(1))),
+  ) as Record<string, unknown>
+  payload.r = relays
+  parsed.hash = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))
+  return parsed.href
+}
 
 async function newDeviceContext(browser: Browser, baseURL: string): Promise<BrowserContext> {
   const context = await browser.newContext()
@@ -113,6 +157,34 @@ async function joinRoom(page: Page): Promise<void> {
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
+/**
+ * The assertion that matters, from the observer's own screen: exactly one
+ * tile group for the paired person, reporting two devices, plus the
+ * observer's own separate tile. If the paired devices ever rendered as two
+ * strangers - or if the observer never learned they were there at all -
+ * this is where it shows up.
+ *
+ * The generous timeout is deliberate: this waits on a real round trip
+ * through public relays, and the fix for a slow relay is patience, never a
+ * weaker assertion or a contrived arrival order.
+ */
+async function expectOnePairedGroupPlusSelf(page: Page): Promise<void> {
+  const room = page.locator('#room')
+  await expect(room.locator('.participant')).toHaveCount(2, { timeout: 60_000 })
+
+  const linked = room.locator('.participant.linked')
+  await expect(linked).toHaveCount(1)
+  await expect(linked.locator('h3')).toContainText('2 devices')
+  await expect(linked.locator('.badge')).toHaveText('one person')
+
+  // The observer's own tile is separate, not folded into the paired one -
+  // proves the grouping is per-participant, not "everyone in the room".
+  const own = room.locator('.participant:not(.linked)')
+  await expect(own).toHaveCount(1)
+  await expect(own.locator('h3')).toContainText('(you)')
+  await expect(own.locator('h3')).toContainText('1 device')
+}
+
 test('two devices of one participant render as one tile group to a third person', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
   const url = baseURL!
@@ -150,25 +222,72 @@ test('two devices of one participant render as one tile group to a third person'
     await joinRoom(pageA)
     await joinRoom(pageB)
 
-    // --- The assertion that matters -----------------------------------
-    // From C's view: exactly one tile group for the paired person,
-    // reporting two devices, plus C's own separate tile. If the paired
-    // devices ever rendered as two strangers instead, this is where it
-    // would show up.
-    const room = pageC.locator('#room')
-    await expect(room.locator('.participant')).toHaveCount(2, { timeout: 60_000 })
+    await expectOnePairedGroupPlusSelf(pageC)
+  } finally {
+    await Promise.all([ctxA.close(), ctxB.close(), ctxC.close()])
+  }
+})
 
-    const linked = room.locator('.participant.linked')
-    await expect(linked).toHaveCount(1)
-    await expect(linked.locator('h3')).toContainText('2 devices')
-    await expect(linked.locator('.badge')).toHaveText('one person')
 
-    // C's own tile is separate, not folded into the paired one - proves
-    // the grouping is per-participant, not "everyone in the room".
-    const own = room.locator('.participant:not(.linked)')
-    await expect(own).toHaveCount(1)
-    await expect(own.locator('h3')).toContainText('(you)')
-    await expect(own.locator('h3')).toContainText('1 device')
+test('a person who joins last still sees everyone already in the room', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+  const url = baseURL!
+
+  const [ctxA, ctxB, ctxC] = await Promise.all([
+    newDeviceContext(browser, url),
+    newDeviceContext(browser, url),
+    newDeviceContext(browser, url),
+  ])
+
+  try {
+    const pageA = await ctxA.newPage()
+    const pageB = await ctxB.newPage()
+
+    // Pin the room to a relay that does not replay ephemeral events, so the
+    // only thing that can tell C about A and B is A and B telling it. See
+    // the measurements in the file comment above.
+    const defaultUrl = await createRoom(pageA, url)
+    // goto() to a URL that differs only in its fragment is a same-document
+    // navigation, so the app's module-level entry point would never re-run
+    // and the patched relay list would be silently ignored. reload() forces
+    // a real document load, which is what re-reads the fragment.
+    await pageA.goto(withRelays(defaultUrl, [STRICT_RELAY]))
+    await pageA.reload()
+    await prepareDevice(pageA, withRelays(defaultUrl, [STRICT_RELAY]))
+
+    // Read the room link back off the app rather than trusting the patch:
+    // this is the URL the app itself now hands out, carrying the relay list
+    // it is actually using.
+    const joinUrl = await pageA.locator('#shareUrl').inputValue()
+    expect(joinUrl, 'the app did not pick up the pinned relay').not.toBe(defaultUrl)
+
+    // README's procedure, run exactly as written from here on. A turns its
+    // media on and JOINS - so its roster entry is published and gone before
+    // anyone else is listening.
+    await joinRoom(pageA)
+
+    // Then A offers pairing, and B - a separate context, so separate
+    // localStorage - takes it up and joins as A's second device.
+    const pairUrl = await offerPairing(pageA, joinUrl)
+    await prepareDevice(pageB, pairUrl)
+    await joinRoom(pageB)
+
+    // Wait for the room to actually settle into its two-device state before
+    // C exists at all. This is a real signal, not a sleep: A can only render
+    // "2 devices" once B's entry has been round-tripped through a relay.
+    await expect(pageA.locator('#room .participant.linked h3')).toContainText('2 devices', {
+      timeout: 60_000,
+    })
+
+    // NOW C arrives. Its page has not loaded until this line, so its
+    // subscription starts strictly after A and B stopped publishing. Nothing
+    // a relay stored can help it - relays do not store this kind - so the
+    // only way C sees them is because they answer its announcement.
+    const pageC = await ctxC.newPage()
+    await prepareDevice(pageC, joinUrl)
+    await joinRoom(pageC)
+
+    await expectOnePairedGroupPlusSelf(pageC)
   } finally {
     await Promise.all([ctxA.close(), ctxB.close(), ctxC.close()])
   }
