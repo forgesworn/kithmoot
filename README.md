@@ -94,14 +94,25 @@ This is the whole of the product's claim, checked by hand and, since stage 2,
 repeated on every run by `npm run test:e2e` against live public relays:
 
 1. On a **laptop**, open the app, click **Start a room**, then **Screen
-   share**. Pick a window.
+   share**. Pick a window, and click **Join room**.
 2. Click **Add a device**. Copy that link — not the plain room link above
-   it — and send it to a **phone** only.
-3. On the phone, open the pairing link, then click **Microphone** and
-   **Camera**.
+   it — and send it to a **phone**. Leave the laptop page open: it is what
+   answers the phone, and closing it retires the link.
+3. On the phone, open the pairing link. The laptop asks you to confirm the
+   new device; say yes. The phone then waits for its credential — **Join
+   room** stays greyed out until it arrives. Once it lights up, click
+   **Microphone**, **Camera**, then **Join room**.
 4. On a **third** browser — a different device, or a private window with a
    fresh profile — open the plain room link from step 1, and click **Join
    room**.
+
+The pairing link grants a credential for **that room only**, expiring after
+twelve hours. It does not carry your identity: the participant key never
+leaves the laptop, so a pairing link that goes astray costs one room for an
+afternoon, not your Nostr identity for ever. Step 4 comes last on purpose —
+the roster rides an ephemeral kind, so the third browser learns who is
+already there because they answer its arrival, not because a relay stored
+anything (see `docs/decisions.md`).
 
 Expected, on the third browser: **one** tile group, reading "2 devices" with
 a "one person" badge, carrying live screen video from the laptop and live
