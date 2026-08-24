@@ -534,7 +534,7 @@ vectors.signalWrap.push({
   output: { inner: offerWrap.inner, outer: offerWrap.outer },
   expected: {
     unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_1.roomId },
-    result: unwrapSignal(offerWrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId }),
+    result: unwrapSignal(offerWrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT }),
   },
 })
 
@@ -567,7 +567,7 @@ vectors.signalWrap.push({
   output: { inner: iceWrap.inner, outer: iceWrap.outer },
   expected: {
     unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_1.roomId },
-    result: unwrapSignal(iceWrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId }),
+    result: unwrapSignal(iceWrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT }),
   },
 })
 
@@ -576,7 +576,7 @@ vectors.signalWrap.push({
   kind: 'negative',
   note: "The offer wrap above, opened by someone other than the intended recipient - the ECDH shared point differs, so the outer NIP-44 payload fails to authenticate and unwrapSignal must return null.",
   input: { wrap: offerWrap.outer, unwrap: { recipientSkHex: bytesToHex(fx.EAVESDROPPER_SK), roomId: ROOM_1.roomId } },
-  output: { result: unwrapSignal(offerWrap.outer, { recipientSk: fx.EAVESDROPPER_SK, roomId: ROOM_1.roomId }) },
+  output: { result: unwrapSignal(offerWrap.outer, { recipientSk: fx.EAVESDROPPER_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT }) },
 })
 
 vectors.signalWrap.push({
@@ -584,7 +584,7 @@ vectors.signalWrap.push({
   kind: 'negative',
   note: "The offer wrap above, unwrapped correctly by the real recipient but checked against a room id the inner body does not name.",
   input: { wrap: offerWrap.outer, unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_2.roomId } },
-  output: { result: unwrapSignal(offerWrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_2.roomId }) },
+  output: { result: unwrapSignal(offerWrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_2.roomId, now: fx.SIGNAL_CREATED_AT }) },
 })
 
 {
@@ -615,7 +615,7 @@ vectors.signalWrap.push({
     kind: 'negative',
     note: "The offer's inner event with its own signature corrupted - id, pubkey, tags and content untouched - re-wrapped under a fresh (but otherwise ordinary) ephemeral key. The outer wrap decrypts fine, and inner.kind, body.roomId, and the addressed 'p' tag all still check out; only verifying the inner event's own signature catches this.",
     input: { wrap: tamperedOuter, unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_1.roomId } },
-    output: { result: unwrapSignal(tamperedOuter, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId }) },
+    output: { result: unwrapSignal(tamperedOuter, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT }) },
   })
 }
 

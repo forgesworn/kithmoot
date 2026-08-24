@@ -24,7 +24,12 @@ the exact accept/reject decision the reference implementation makes for
 them.** They do not pin the whole protocol. In particular, they say nothing
 about:
 
-- **Timing** - jitter windows, retry intervals, pairing timeouts.
+- **Timing** - jitter windows, retry intervals, pairing timeouts. This
+  includes signalling **staleness**: `unwrapSignal` refuses a signal stamped
+  more than `SIGNAL_MAX_AGE_SECONDS` either side of now, but the vectors are
+  stamped with a fixed time, so both suites hand it that fixed time as `now`
+  rather than letting the wall clock expire the whole group. An implementation
+  must apply the rule; the vectors do not pin the number.
 - **Re-announce behaviour** - the arrive/answer roster pattern described in
   `docs/decisions.md`, or what happens when a device drops and rejoins.
 - **Negotiation** - how offers, answers and ICE candidates are sequenced

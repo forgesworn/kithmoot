@@ -194,6 +194,7 @@ export class RoomSession {
         deviceSk: this.#opts.deviceSk,
         transport: this.#opts.transport,
         roomId: this.roomId,
+        now: this.#now,
       })
     }
   }

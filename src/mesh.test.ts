@@ -3,6 +3,7 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
 import type { MeshSession } from './mesh.js'
 import { wrapSignal } from './signal.js'
+import { MAX_SIGNALS_PER_WINDOW } from './signal-guard.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import type { ParticipantView } from './session.js'
@@ -45,6 +46,22 @@ class FakeSession implements MeshSession {
  *  flakiness, unlike a fixed setTimeout wait. */
 async function flush(times = 20): Promise<void> {
   for (let i = 0; i < times; i++) await Promise.resolve()
+}
+
+/**
+ * Two devices whose pubkeys make the local one polite.
+ *
+ * Politeness is a pubkey comparison, so with random keys whether an inbound
+ * offer is applied or deliberately ignored comes out differently run to run.
+ * The polite side always gives way and applies the offer it was sent, which is
+ * what makes an assertion about an inbound signal mean anything.
+ */
+function politePair(): { local: { sk: Uint8Array; pub: string }; remote: { sk: Uint8Array; pub: string } } {
+  for (;;) {
+    const local = device()
+    const remote = device()
+    if (local.pub < remote.pub) return { local, remote }
+  }
 }
 
 const ROOM_ID = 'room-1'
@@ -244,6 +261,96 @@ describe('Mesh', () => {
 
     expect(() => relay.publish(wrap)).not.toThrow()
     expect(factory.instances).toHaveLength(0)
+    mesh.close()
+  })
+
+  it('BUG (I5): a replayed signal is acted on once, however many times a relay delivers it', async () => {
+    // Publishing to every relay means hearing the same wrap from every relay,
+    // and a relay that means harm can send it again an hour later. Re-applying
+    // an old offer forces a renegotiation nobody asked for.
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const { local, remote } = politePair()
+    const remoteParticipant = device().pub
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    await settle()
+    const pc = factory.instances[0]!
+
+    const wrap = wrapSignal(
+      { type: 'offer', roomId: ROOM_ID, sdp: 'remote-offer-sdp' },
+      { senderSk: remote.sk, recipientPubkey: local.pub },
+    )
+    relay.publish(wrap)
+    await settle()
+    relay.publish(wrap)
+    await settle()
+
+    expect(pc.calls.filter((c) => c.method === 'setRemoteDescription')).toHaveLength(1)
+    mesh.close()
+  })
+
+  it('BUG (I5): a stale signal is refused', async () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const { local, remote } = politePair()
+    const remoteParticipant = device().pub
+    // A clock a minute ahead of the sender's is what a replayed wrap looks
+    // like from the inside.
+    const now = () => Math.floor(Date.now() / 1000) + 60
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID, now })
+
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    await settle()
+    const pc = factory.instances[0]!
+
+    relay.publish(
+      wrapSignal(
+        { type: 'offer', roomId: ROOM_ID, sdp: 'remote-offer-sdp' },
+        { senderSk: remote.sk, recipientPubkey: local.pub },
+      ),
+    )
+    await settle()
+
+    expect(pc.calls.filter((c) => c.method === 'setRemoteDescription')).toHaveLength(0)
+    mesh.close()
+  })
+
+  it('BUG (I5): one device cannot flood the mesh with signals', async () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const { local, remote } = politePair()
+    const remoteParticipant = device().pub
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    await settle()
+    const pc = factory.instances[0]!
+
+    // The offer first, so the candidates that follow are applied rather than
+    // buffered - this measures the rate limit, not the buffer bound.
+    relay.publish(
+      wrapSignal(
+        { type: 'offer', roomId: ROOM_ID, sdp: 'remote-offer-sdp' },
+        { senderSk: remote.sk, recipientPubkey: local.pub },
+      ),
+    )
+    for (let i = 0; i < MAX_SIGNALS_PER_WINDOW + 10; i++) {
+      relay.publish(
+        wrapSignal(
+          { type: 'ice', roomId: ROOM_ID, candidate: JSON.stringify({ candidate: `candidate:${i}` }) },
+          { senderSk: remote.sk, recipientPubkey: local.pub },
+        ),
+      )
+    }
+    await settle()
+
+    // The offer used one of the budget, so the candidates get the rest.
+    expect(pc.calls.filter((c) => c.method === 'addIceCandidate')).toHaveLength(MAX_SIGNALS_PER_WINDOW - 1)
     mesh.close()
   })
 

@@ -2,6 +2,7 @@ import type { Event } from 'nostr-tools/pure'
 import { Peer } from './peer.js'
 import type { PeerFactory } from './peer.js'
 import { wrapSignal, unwrapSignal } from './signal.js'
+import { SignalGuard } from './signal-guard.js'
 import { KINDS } from './kinds.js'
 import type { RelayTransport } from './relay-pool.js'
 import type { ParticipantView } from './session.js'
@@ -29,6 +30,10 @@ export interface MeshOptions {
   deviceSk: Uint8Array
   transport: RelayTransport
   roomId: string
+  /** Unix seconds. Defaults to the real clock; the session hands in its own so
+   *  staleness and rate limiting are judged by the same clock as everything
+   *  else in the room. */
+  now?: () => number
 }
 
 export interface RemoteTrack {
@@ -55,6 +60,10 @@ export class Mesh {
   readonly #peers = new Map<string, Peer>()
   readonly #deviceToParticipant = new Map<string, string>()
   readonly #trackListeners = new Set<(t: RemoteTrack) => void>()
+  /** Staleness, deduplication and rate limiting - the three rules §3 of the
+   *  design says signalling reuses from NIP-AC. */
+  readonly #guard = new SignalGuard()
+  readonly #now: () => number
   #tracks: MediaStreamTrack[] = []
   readonly #unsubSession: () => void
   readonly #unsubSignal: () => void
@@ -62,6 +71,7 @@ export class Mesh {
 
   constructor(opts: MeshOptions) {
     this.#opts = opts
+    this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
 
     this.#unsubSignal = opts.transport.subscribe(
       [{ kinds: [KINDS.SIGNAL_WRAP], '#p': [opts.localDevice] }],
@@ -154,8 +164,25 @@ export class Mesh {
    *  currently have a peer for (stale, unknown, or already removed) is
    *  simply ignored. */
   #onSignalEvent(event: Event): void {
-    const unwrapped = unwrapSignal(event, { recipientSk: this.#opts.deviceSk, roomId: this.#opts.roomId })
+    const now = this.#now()
+
+    // Deduplication first, because it is the cheapest check and the most
+    // common case it catches - the same wrap arriving from every relay we
+    // published to - costs a NIP-44 decryption otherwise.
+    if (!this.#guard.admitEvent(event.id)) return
+
+    const unwrapped = unwrapSignal(event, {
+      recipientSk: this.#opts.deviceSk,
+      roomId: this.#opts.roomId,
+      now,
+    })
     if (!unwrapped) return
+
+    // Rate limiting last, and against the *sending device* rather than the
+    // wrap's pubkey: every wrap is signed by a fresh ephemeral key, so the
+    // only stable identity a budget can be held against is the one inside.
+    if (!this.#guard.admitSender(unwrapped.from, now)) return
+
     const peer = this.#peers.get(unwrapped.from)
     if (!peer) return
     peer.handleSignal(unwrapped.body).catch(() => {})

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { wrapSignal, unwrapSignal, type SignalBody } from './signal.js'
+import { wrapSignal, unwrapSignal, SIGNAL_MAX_AGE_SECONDS, type SignalBody } from './signal.js'
 import { KINDS } from './kinds.js'
 
 const ROOM = 'd'.repeat(64)
@@ -68,6 +68,30 @@ describe('gift-wrapped signalling', () => {
     const wrap = { ...wrapSignal(body, { senderSk, recipientPubkey: recipient }), content: 'nope' }
     expect(() => unwrapSignal(wrap, { recipientSk, roomId: ROOM })).not.toThrow()
     expect(unwrapSignal(wrap, { recipientSk, roomId: ROOM })).toBeNull()
+  })
+
+  it('BUG (I5): refuses a signal older than the staleness window', () => {
+    // A hostile or simply buggy relay re-delivering a captured wrap must not
+    // be able to force a renegotiation nobody asked for. Signalling is live
+    // state: an offer that is a minute old describes a connection attempt
+    // that has already been superseded.
+    const { senderSk, recipientSk, recipient } = fixture()
+    const wrap = wrapSignal(body, { senderSk, recipientPubkey: recipient })
+    const sentAt = wrap.created_at
+
+    expect(unwrapSignal(wrap, { recipientSk, roomId: ROOM, now: sentAt })).not.toBeNull()
+    expect(unwrapSignal(wrap, { recipientSk, roomId: ROOM, now: sentAt + SIGNAL_MAX_AGE_SECONDS - 1 })).not.toBeNull()
+    expect(unwrapSignal(wrap, { recipientSk, roomId: ROOM, now: sentAt + SIGNAL_MAX_AGE_SECONDS + 1 })).toBeNull()
+  })
+
+  it('BUG (I5): refuses a signal stamped too far in the future', () => {
+    // The window is symmetric, so a sender cannot mint a wrap that stays
+    // acceptable for ever by stamping it years ahead.
+    const { senderSk, recipientSk, recipient } = fixture()
+    const wrap = wrapSignal(body, { senderSk, recipientPubkey: recipient })
+    const sentAt = wrap.created_at
+
+    expect(unwrapSignal(wrap, { recipientSk, roomId: ROOM, now: sentAt - SIGNAL_MAX_AGE_SECONDS - 1 })).toBeNull()
   })
 
   it('carries an ICE candidate as well as an offer', () => {

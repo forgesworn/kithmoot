@@ -261,6 +261,10 @@ describe('signal wrap', () => {
       const result = unwrapSignal(outer, {
         recipientSk: hexToBytes(v.expected.unwrap.recipientSkHex),
         roomId: v.expected.unwrap.roomId,
+        // The vectors are stamped with a fixed time, and staleness is
+        // deliberately not part of what they pin - see the README. Judging
+        // them by the wall clock would make the whole group expire.
+        now: v.input.createdAt,
       })
       expect(result).toEqual(v.expected.result)
       expect(result).toEqual({ from: fx.SENDER, body: v.input.body })
@@ -273,6 +277,7 @@ describe('signal wrap', () => {
       const result = unwrapSignal(v.input.wrap as Event, {
         recipientSk: hexToBytes(v.input.unwrap.recipientSkHex),
         roomId: v.input.unwrap.roomId,
+        now: (v.input.wrap as Event).created_at,
       })
       expect(result).toBeNull()
       expect(result).toEqual(v.output.result)

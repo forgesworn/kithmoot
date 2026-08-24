@@ -1,6 +1,11 @@
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { KINDS } from './kinds.js'
+import { SIGNAL_MAX_AGE_SECONDS } from './signal-guard.js'
+
+// Re-exported here because this is where the staleness rule is applied, even
+// though it sits with the other two NIP-AC rules in `signal-guard.ts`.
+export { SIGNAL_MAX_AGE_SECONDS }
 import { hexEquals, normaliseHex } from './hex.js'
 import type { TrackAdvert } from './types.js'
 
@@ -54,6 +59,12 @@ export function wrapSignal(body: SignalBody, opts: WrapOptions): Event {
 export interface UnwrapOptions {
   recipientSk: Uint8Array
   roomId: string
+  /** Unix seconds. Defaults to the real clock; injectable so a test - or a
+   *  vector, which is stamped with a fixed time - is not at the mercy of one. */
+  now?: number
+  /** How far either side of `now` a signal may be stamped before it is
+   *  refused. See `SIGNAL_MAX_AGE_SECONDS`. */
+  maxAgeSeconds?: number
 }
 
 /**
@@ -72,6 +83,13 @@ export function unwrapSignal(
 
     if (inner.kind !== KINDS.SIGNAL) return null
     if (!verifyEvent(inner)) return null
+
+    // Staleness, checked on the *inner* event: it is the one the sending
+    // device signed, so its timestamp cannot be restamped by whoever replays
+    // the wrap. See `SIGNAL_MAX_AGE_SECONDS` for why the window is symmetric.
+    const now = opts.now ?? Math.floor(Date.now() / 1000)
+    const maxAge = opts.maxAgeSeconds ?? SIGNAL_MAX_AGE_SECONDS
+    if (Math.abs(now - inner.created_at) > maxAge) return null
 
     const body = JSON.parse(inner.content) as SignalBody
     if (!hexEquals(body.roomId, opts.roomId)) return null
