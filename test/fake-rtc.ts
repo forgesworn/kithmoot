@@ -22,6 +22,14 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
   connectionState: RTCPeerConnectionState = 'new'
   tracks: MediaStreamTrack[] = []
   closed = false
+  /** Make every `addIceCandidate` reject, the way a real connection does for
+   *  a candidate that does not belong to the current description. */
+  rejectIceCandidates = false
+  /** Reject the next `setRemoteDescription` only, then behave normally. */
+  failNextSetRemoteDescription = false
+  /** Set by `block()`: `setRemoteDescription` waits on this, which is what
+   *  makes an interleaving observable at all. */
+  #gated: Promise<void> | null = null
 
   ontrack: ((event: { track: MediaStreamTrack }) => void) | null = null
   onicecandidate: ((event: { candidate: RTCIceCandidateInit | null }) => void) | null = null
@@ -50,11 +58,29 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
 
   async setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
     this.calls.push({ method: 'setRemoteDescription', args: [description] })
+    if (this.#gated) await this.#gated
+    if (this.failNextSetRemoteDescription) {
+      this.failNextSetRemoteDescription = false
+      throw new Error('setRemoteDescription rejected')
+    }
     this.signalingState = description.type === 'offer' ? 'have-remote-offer' : 'stable'
+  }
+
+  /** Hold every `setRemoteDescription` until the returned function is called. */
+  block(): () => void {
+    let release = () => {}
+    this.#gated = new Promise<void>((resolve) => {
+      release = () => {
+        this.#gated = null
+        resolve()
+      }
+    })
+    return release
   }
 
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     this.calls.push({ method: 'addIceCandidate', args: [candidate] })
+    if (this.rejectIceCandidates) throw new Error('candidate does not belong to this description')
   }
 
   addTrack(track: MediaStreamTrack): void {

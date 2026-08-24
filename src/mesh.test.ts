@@ -49,6 +49,12 @@ async function flush(times = 20): Promise<void> {
 
 const ROOM_ID = 'room-1'
 
+/** Let every queued negotiation step run. `Peer` chains its operations, so
+ *  what a synchronous `Mesh` call sets in motion lands a few turns later. */
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0))
+}
+
 describe('Mesh', () => {
   it('creates exactly one peer when the roster gains a remote device', () => {
     const session = new FakeSession()
@@ -182,7 +188,7 @@ describe('Mesh', () => {
     mesh.close()
   })
 
-  it('re-publishing the full track set never drops a track an already-connected peer has, and hands a late-arriving peer everything published so far', () => {
+  it('re-publishing the full track set never drops a track an already-connected peer has, and hands a late-arriving peer everything published so far', async () => {
     const session = new FakeSession()
     const factory = createFakeFactory()
     const relay = new SimRelay()
@@ -203,6 +209,10 @@ describe('Mesh', () => {
     // the delta - re-sending `camera` here must not stop `mic` getting
     // through to a peer that has had `camera` since the call before.
     mesh.publish([camera, mic])
+    // `Peer` queues every negotiation step, so the tracks reach the
+    // connection on a later turn rather than inside `publish` - see
+    // `Peer`'s `#operations`.
+    await settle()
 
     expect(existingPc.tracks).toEqual([camera, mic])
 
@@ -212,6 +222,7 @@ describe('Mesh', () => {
     const lateRemote = device()
     session.setViews([view(remoteParticipant, [remote.pub]), view(lateParticipant, [lateRemote.pub])])
     const latePc = factory.instances[1]!
+    await settle()
 
     expect(latePc.tracks).toEqual([camera, mic])
 

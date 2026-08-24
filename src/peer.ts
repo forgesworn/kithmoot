@@ -27,6 +27,17 @@ export interface PeerFactory {
   (): RTCPeerConnectionLike
 }
 
+/**
+ * How many candidates may be held while waiting for the description they
+ * belong to.
+ *
+ * A remote device that trickles candidates and never sends a description -
+ * hostile, or simply broken - would otherwise grow this array for as long as
+ * the room is open. Generous enough that a real negotiation never touches it:
+ * a dual-stack host with a handful of interfaces gathers a few dozen.
+ */
+export const MAX_PENDING_CANDIDATES = 64
+
 export interface PeerOptions {
   factory: PeerFactory
   localDevice: string
@@ -57,10 +68,21 @@ export class Peer {
   readonly #onSignal: (body: SignalBody) => void
   readonly #onTrack: (track: MediaStreamTrack) => void
   #makingOffer = false
-  #ignoreOffer = false
   #hasRemoteDescription = false
   #pendingCandidates: RTCIceCandidateInit[] = []
   #closed = false
+  /** The operations queue.
+   *
+   *  Every negotiation step - our own offer as much as an inbound signal -
+   *  reads and writes `#makingOffer`, `#ignoreOffer` and
+   *  `#hasRemoteDescription` across `await` points. Signals arrive from a
+   *  relay subscription, which happily delivers an offer and a candidate in
+   *  the same tick, so without a queue two chains interleave and each judges
+   *  collision, politeness and rollback from a state the other is still
+   *  writing. Chaining them makes every step atomic with respect to the
+   *  others, which is what every perfect-negotiation reference implementation
+   *  does and for exactly this reason. */
+  #operations: Promise<unknown> = Promise.resolve()
   /** Tracks already handed to this connection's `addTrack`, so a repeat
    *  `start()` call - the mesh re-publishes the participant's whole current
    *  set on every toggle, not just what changed - never re-adds one. A real
@@ -98,6 +120,10 @@ export class Peer {
    *  or larger track list - to publish a newly toggled-on track - since only
    *  tracks this connection has not already been given are actually added. */
   async start(tracks: MediaStreamTrack[]): Promise<void> {
+    return this.#enqueue(() => this.#start(tracks))
+  }
+
+  async #start(tracks: MediaStreamTrack[]): Promise<void> {
     if (this.#closed) return
     for (const track of tracks) {
       if (this.#addedTracks.has(track)) continue
@@ -115,8 +141,24 @@ export class Peer {
     }
   }
 
-  /** Feed in a signal received from the remote device. */
+  /** Feed in a signal received from the remote device. Queued behind whatever
+   *  this peer is already doing - see `#operations`. */
   async handleSignal(body: SignalBody): Promise<void> {
+    return this.#enqueue(() => this.#handleSignal(body))
+  }
+
+  /** Run `op` once every operation queued before it has settled. A rejection
+   *  is handed to this caller and never poisons the queue for the next one. */
+  #enqueue<T>(op: () => Promise<T>): Promise<T> {
+    const result = this.#operations.then(op, op)
+    this.#operations = result.then(
+      () => {},
+      () => {},
+    )
+    return result
+  }
+
+  async #handleSignal(body: SignalBody): Promise<void> {
     if (this.#closed) return
 
     if (body.type === 'offer') {
@@ -132,22 +174,36 @@ export class Peer {
 
   async #handleOffer(sdp: string | undefined): Promise<void> {
     const collision = this.#makingOffer || this.#pc.signalingState !== 'stable'
-    this.#ignoreOffer = !this.polite && collision
-    if (this.#ignoreOffer) return
+    // A local, not a field: whether we ignored *this* offer governs nothing
+    // beyond this call, and holding it across `await` points was one of the
+    // three pieces of state two interleaved chains used to tear.
+    const ignoreOffer = !this.polite && collision
+    if (ignoreOffer) return
 
     if (collision) {
       // Only the polite side reaches here: give up its own pending offer so
       // the incoming one can be answered instead.
       await this.#pc.setLocalDescription({ type: 'rollback' })
+      // We are renegotiating from `stable` now. Candidates still arriving
+      // belong to the description that has not landed yet, so they go back to
+      // being buffered - applying them against the previous description gets
+      // them rejected, and a rejected host candidate is a call that falls
+      // back to TURN or does not connect at all.
+      this.#hasRemoteDescription = false
     }
 
     await this.#pc.setRemoteDescription({ type: 'offer', sdp })
     this.#hasRemoteDescription = true
-    await this.#drainCandidates()
 
+    // The answer comes first, and only then the buffered candidates. Nothing
+    // to do with a candidate may stand between an offer and its answer: an
+    // answer that is never emitted wedges the connection silently for good,
+    // where a candidate that is never applied costs one path.
     const answer = await this.#pc.createAnswer()
     await this.#pc.setLocalDescription(answer)
     this.#onSignal({ type: 'answer', roomId: '', sdp: answer.sdp })
+
+    await this.#drainCandidates()
   }
 
   async #handleIce(candidateJson: string | undefined): Promise<void> {
@@ -156,8 +212,11 @@ export class Peer {
 
     if (!this.#hasRemoteDescription) {
       // Trickle ICE routinely delivers candidates before the description
-      // they belong to. Hold them rather than drop them.
+      // they belong to. Hold them rather than drop them - but only so many:
+      // see `MAX_PENDING_CANDIDATES`. The oldest goes, because the newest
+      // candidate is the one most likely still to work.
       this.#pendingCandidates.push(candidate)
+      while (this.#pendingCandidates.length > MAX_PENDING_CANDIDATES) this.#pendingCandidates.shift()
       return
     }
 
@@ -170,13 +229,23 @@ export class Peer {
     for (const candidate of pending) await this.#applyCandidate(candidate)
   }
 
+  /**
+   * Never throws.
+   *
+   * A candidate is one possible path to the remote device, and a connection
+   * negotiates several. Losing one costs a path; letting the rejection escape
+   * costs the whole negotiation, because the caller is either the offer
+   * handler - which would then never emit its answer - or a relay
+   * subscription handler that has nowhere to put the error. A candidate for
+   * an offer we deliberately ignored (glare, impolite side) is *expected* to
+   * be rejected, and a stale or malformed one buffered before its
+   * description is the routine case the buffer exists for.
+   */
   async #applyCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     try {
       await this.#pc.addIceCandidate(candidate)
-    } catch (err) {
-      // A candidate for an offer we deliberately ignored (glare, impolite
-      // side) is expected to be rejected; anything else is a real problem.
-      if (!this.#ignoreOffer) throw err
+    } catch {
+      // Deliberately swallowed - see above.
     }
   }
 

@@ -244,6 +244,9 @@ describe('RoomSession media', () => {
 
     const track = {} as MediaStreamTrack
     a.publishTracks([track])
+    // `Peer` queues every negotiation step, so a track handed to a
+    // synchronous `publishTracks` reaches the connection a turn later.
+    await settle()
 
     expect(factoryA.instances[0]!.tracks).toContain(track)
   })
