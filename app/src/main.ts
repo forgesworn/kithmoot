@@ -20,19 +20,35 @@ import { base64urlnopad } from '@scure/base'
 // up, no stale room UI stuck behind a service worker.
 registerSW({ immediate: true })
 
-// Relays confirmed live for this room kind. relay.damus.io returned 503
-// during the stage 2 acceptance run and was dropped from the default list
-// for that reason - "no relay is load-bearing" already covers a room
-// carrying a dead relay in its hints, but there is no reason to default new
-// rooms to one that is currently flaky. Change this list, not code
-// elsewhere, if a relay in it goes down again.
-const RELAYS = ['wss://nos.lol', 'wss://relay.primal.net']
+// Relays confirmed live for this room kind. relay.trotters.cc is the
+// project's own relay, so it goes first; nos.lol and relay.primal.net are
+// third-party fallbacks. relay.damus.io returned 503 during the stage 2
+// acceptance run and was dropped from the default list for that reason -
+// "no relay is load-bearing" already covers a room carrying a dead relay
+// in its hints, but there is no reason to default new rooms to one that is
+// currently flaky. Change this list, not code elsewhere, if a relay in it
+// goes down again.
+const RELAYS = ['wss://relay.trotters.cc', 'wss://nos.lol', 'wss://relay.primal.net']
 
 // The room names its own STUN/TURN, carried in the join URL like the relay
 // hints already are - hardcoding an operator's server here is exactly the
 // kind of central dependency this project exists to avoid. This is only a
 // sensible default for a room that never set its own.
 const DEFAULT_ICE_URLS = ['stun:stun.l.google.com:19302']
+
+// A default TURN server is a convenience, never a requirement - the design
+// this app follows is that no operator is protocol-mandated. STUN alone
+// fails for roughly 20% of real connections (symmetric NAT, CGNAT on
+// mobile networks, corporate firewalls, even two devices on the same
+// Wi-Fi when the router won't hairpin), and a call has no fallback the way
+// a stream falling back to its origin does - it just fails. Once the
+// deploy/coturn server (see deploy/README.md) is running, add its
+// turn: URL here - e.g. add DEFAULT_TURN_URL to DEFAULT_ICE_URLS above -
+// and that becomes the new default for a room that never set its own.
+// Never hardcode TURN credentials here: they are time-limited, minted
+// per-viewer server-side (src/turn.ts, deploy/turn-credentials.md), not a
+// static secret baked into this bundle.
+// const DEFAULT_TURN_URL = 'turn:turn.kithmoot.CHANGE_ME.example:3478'
 
 function $<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T
