@@ -1,0 +1,35 @@
+{
+  "name": "KithMoot",
+  "tagline": "A town hall nobody owns.",
+  "tone": {
+    "personality": ["plain-spoken", "precise about limits", "unceremonious", "warm about people, cold about infrastructure"],
+    "voice": {
+      "do": ["State what it does and what it cannot do", "Use the reader's own words (room, hall, join, share)", "Give numbers when a claim is measurable", "Name the failure mode before someone else finds it"],
+      "dont": ["Sell", "Use exclamation marks or 'Oops!'", "Claim novelty to an expert audience", "Hide a limitation behind a hedge"]
+    },
+    "examples": {
+      "greeting": "Room's open. Send the link.",
+      "success": "Both devices are in. You're one person to everyone else.",
+      "error": "Couldn't reach two people directly. Routing through a forwarder - it can't read your media.",
+      "encouragement": "Your laptop has the better uplink. Want it to carry the room?",
+      "cta": "Start a room."
+    }
+  },
+  "domain": {
+    "primary": "kithmoot.com",
+    "alternates": ["kithmoot.chat", "kithmoot.co.uk"],
+    "defensive": ["kithmoot.org", "kithmoot.app", "kithmoot.cc"]
+  },
+  "handles": {
+    "github": { "name": "kithmoot", "available": true },
+    "npm": { "name": "kithmoot", "available": true },
+    "crates": { "name": "kithmoot", "available": true },
+    "pypi": { "name": "kithmoot", "available": true }
+  },
+  "meta": {
+    "generatedAt": "2026-08-24T08:58:56Z",
+    "generatedBy": "brand-forge v1",
+    "scoringRubric": "holodeck-derived-v1",
+    "score": "62/80 (rises with kindred-gated rooms committed)"
+  }
+}
