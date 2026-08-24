@@ -1,2 +1,5 @@
 export { KINDS } from './kinds.js'
 export { generateRoomSecret, deriveRoom, encodeJoinUrl, decodeJoinUrl } from './room.js'
+export { createDeviceCredential, verifyDeviceCredential } from './credential.js'
+export { encodeRosterEvent, decodeRosterEvent } from './roster.js'
+export type { RosterEntry, TrackAdvert, TrackRole, SingularRole, DeviceCredential } from './types.js'
