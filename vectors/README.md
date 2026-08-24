@@ -177,6 +177,88 @@ nothing but a signature. An implementation that skips signature
 verification - anywhere a signature is checked - fails exactly these five
 vectors and nothing else, which is what makes them worth having.
 
+## Reason strings are normative
+
+**The `reason` string in `accessEvaluation`'s and `deviceCredential`'s output
+is part of the wire contract, not free text a caller can reword.** This was
+not decided up front - the vectors above already assert exact `reason`
+values in several negative cases, which makes the strings de facto part of
+what an implementation is checked against, whether or not that was the
+original intent. It was tested the hard way: the first independent
+implementation (Kotlin/Android) passed every structural and admit/reject
+check and still failed `accessEvaluation/kith-room-rejects-tampered-signature`,
+because it returned `"bad proof signature"` where the reference returns
+`"bad signature"` - correct behaviour, wrong string. A second divergence was
+found on audit, not by a vector: `evaluateAccess`'s expiry rejection was
+`"proof expired"` in Kotlin against `"expired"` here, reachable the moment
+someone writes a vector or test for it. Both were check-order bugs as much
+as spelling ones - see below.
+
+So: **an implementation must reproduce these exact strings**, and must check
+in this exact order, because a caller cannot tell which reason it will see
+from a proof that fails more than one check in a different order.
+
+### `evaluateAccess` (`src/access.ts`)
+
+Checked in this order; the first match wins.
+
+| # | Condition | `reason` |
+|---|---|---|
+| 1 | `policy.tier === 'open'` | `open room` (admitted) |
+| 2 | no proof supplied | `no kindred proof` |
+| 3 | `proof.participant !== participant` | `proof names another participant` |
+| 4 | `proof.expiresAt <= now` | `expired` |
+| 5 | `proof.issuer` not in `policy.admitted` (case-insensitive hex) | `untrusted issuer` |
+| 6 | `proof.tier` not a recognised kindred tier | `unrecognised tier` |
+| 7 | tier rank below `policy.tier`'s | `tier too low` |
+| 8 | schnorr verification fails | `bad signature` |
+| — | none of the above | `kindred proof accepted` (admitted) |
+
+Row 6 is reachable in TypeScript because a proof's `tier` is only a type
+annotation, not a runtime check, so a signed-but-nonsense tier can still
+reach `evaluateAccess`. An implementation whose proof type is parsed and
+validated *before* it can be constructed (Kotlin's `KindredProof.fromJson`
+returns `null` for an unrecognised tier, so the caller never has a proof
+object to pass at all) cannot reach row 6 the same way and will instead
+report row 2 (`no kindred proof`) for that wire input. Both fail closed -
+the proof is refused either way - but the reason a caller sees differs by
+implementation for this one case. This is accepted as an inherent
+consequence of stricter parsing, not something to paper over by weakening
+the parse step; row 6 is listed so a third implementation knows this
+divergence is documented, not overlooked.
+
+### `verifyDeviceCredential` (`src/credential.ts`)
+
+| # | Condition | `reason` |
+|---|---|---|
+| 1 | `event.kind` is not the credential kind | `wrong kind` |
+| 2 | `d` tag does not match the room | `wrong room` |
+| 3 | `expiration` tag missing, or not a finite number | `no expiration` |
+| 4 | `expiresAt <= now` | `expired` |
+| 5 | `device` tag missing | `no device` |
+| 6 | signature verification fails | `bad signature` |
+| — | none of the above | `ok: true` |
+
+Row 3 covers two distinct wire shapes with one reason deliberately: a
+missing tag and a present-but-garbage one both mean "no usable expiry", and
+treating them differently would invite exactly the fail-open bug this
+covers - see the next paragraph.
+
+**A non-numeric `expiration` must never be treated as unexpired.**
+`Number('garbage')` is `NaN`, and every comparison with `NaN`, including
+`NaN <= now`, is `false` - so a naive `Number(expiration) <= now` check
+silently *admits* a credential with a corrupted expiry tag instead of
+refusing it. This was not exploitable in practice at the time it was found,
+because the `expiration` tag sits inside the event's signed content and the
+signature check (row 6 / step "signature last") still catches a tampered
+tag - but it is a fail-open default sitting inside a security check, and
+relying on check *ordering* elsewhere to keep it safe is exactly the kind of
+coupling that breaks quietly when the ordering changes. Both implementations
+must reject a non-finite expiry outright: TypeScript via
+`Number.isFinite(expiresAt)`, Kotlin via `toLongOrNull()` (which already
+returns `null` - and therefore `"no expiration"` - for anything that is not
+a valid integer, with no separate fix needed).
+
 ## Using these vectors from another implementation
 
 1. Read `lib/fixtures.mjs` for the fixed secrets and keypairs, or just take
