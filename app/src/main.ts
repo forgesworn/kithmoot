@@ -56,6 +56,16 @@ const DEFAULT_ICE_URLS = ['stun:stun.l.google.com:19302']
 // static secret baked into this bundle.
 // const DEFAULT_TURN_URL = 'turn:turn.kithmoot.CHANGE_ME.example:3478'
 
+// The minting endpoint for the default TURN server above - see
+// server/turn-credentials.mjs and deploy/turn-credentials.md. Unset for
+// the same reason DEFAULT_TURN_URL is commented out: this repo ships no
+// live default TURN deployment. The two are switched on together, never
+// one without the other - a bare DEFAULT_TURN_URL with no endpoint here
+// has no way to hand a browser a working credential, and this endpoint
+// alone is pointless without a TURN URL to attach the credential to.
+// const TURN_CREDENTIAL_ENDPOINT = '/turn' // same-origin path Caddy proxies to the service, per deploy/Caddyfile.kithmoot
+const TURN_CREDENTIAL_ENDPOINT: string | undefined = undefined
+
 function $<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T
 }
@@ -334,6 +344,70 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
     transport.close()
     joinBtn.disabled = false
   }
+}
+
+/** True when `urls` is exactly the built-in default ICE list, rather than
+ *  one a room's URL or the room-settings field supplied. Compared by
+ *  content, not by reference, so this stays correct even if a future
+ *  change stops returning the DEFAULT_ICE_URLS array itself in the
+ *  "nothing custom was set" case. This is the gate for whether it is this
+ *  app's own default TURN server (and so this app's own credential
+ *  endpoint) that is in play, versus a room naming its own ICE servers -
+ *  see the design principle at the top of deploy/README.md: the room
+ *  names its own STUN/TURN, and an operator's minted credential must
+ *  never be attached to a server the room never asked for. */
+function isDefaultIceUrls(urls: string[]): boolean {
+  return urls.length === DEFAULT_ICE_URLS.length && urls.every((u, i) => u === DEFAULT_ICE_URLS[i])
+}
+
+/** Fetches one TURN credential from the configured minting endpoint. A
+ *  malformed or slow response is treated the same as no endpoint at all -
+ *  callers decide the fallback, this only ever resolves to a usable
+ *  RTCIceServer or undefined, never throws past its own timeout. */
+async function fetchTurnCredential(endpoint: string): Promise<RTCIceServer | undefined> {
+  const controller = new AbortController()
+  // A credential endpoint that's down should fail fast, not hold up
+  // joining until the browser's own connect timeout - see the "never
+  // block joining" note on resolveIceServers below.
+  const timeout = setTimeout(() => controller.abort(), 4000)
+  try {
+    const res = await fetch(endpoint, { signal: controller.signal })
+    if (!res.ok) return undefined
+    const body = (await res.json()) as Partial<{
+      urls: string[]
+      username: string
+      credential: string
+    }>
+    if (!Array.isArray(body.urls) || body.urls.length === 0 || !body.username || !body.credential) {
+      return undefined
+    }
+    return { urls: body.urls, username: body.username, credential: body.credential }
+  } catch {
+    return undefined
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * Turns the room's ICE URL list into the RTCIceServer list a real
+ * RTCPeerConnection gets, fetching a minted TURN credential to attach to
+ * the operator's own default TURN server when one is configured and this
+ * room is actually using that default (see isDefaultIceUrls).
+ *
+ * A failed or unreachable credential endpoint must never block joining: a
+ * room that only has STUN still works for roughly 80% of real connections
+ * (see deploy/README.md), and a call that refuses to start because an
+ * optional convenience server had a bad day is a strictly worse outcome
+ * than one that just falls back to what already worked before this
+ * endpoint existed.
+ */
+async function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
+  const base: RTCIceServer[] = urls.map((iceUrl) => ({ urls: iceUrl }))
+  if (!TURN_CREDENTIAL_ENDPOINT || !isDefaultIceUrls(urls)) return base
+
+  const turnServer = await fetchTurnCredential(TURN_CREDENTIAL_ENDPOINT)
+  return turnServer ? [...base, turnServer] : base
 }
 
 function parseIceInput(): string[] {
@@ -620,14 +694,19 @@ async function startSession(): Promise<void> {
     // The design says the room names its own STUN and TURN - never an
     // operator's default baked into the app - so the ICE list comes from
     // the room's own URL (or the room-settings field when creating one),
-    // never a constant here.
+    // never a constant here. resolveIceServers only ever adds to that list
+    // (a minted credential for this app's own default TURN, if configured
+    // and actually in play - see isDefaultIceUrls) and never blocks
+    // joining if the credential endpoint is absent or unreachable.
+    const resolvedIceServers = await resolveIceServers(iceUrls)
+
     // A real RTCPeerConnection genuinely has everything RTCPeerConnectionLike
     // needs - its on* handlers just carry the full, specific DOM event type
     // rather than the narrow shape Peer actually reads, which is a sound
     // narrowing at runtime but not something TS's structural checker allows
     // for property-typed callbacks without a cast.
     const factory: PeerFactory = () =>
-      new RTCPeerConnection({ iceServers: iceUrls.map((urls) => ({ urls })) }) as unknown as RTCPeerConnectionLike
+      new RTCPeerConnection({ iceServers: resolvedIceServers }) as unknown as RTCPeerConnectionLike
 
     // A paired device joins on its credential alone. Only a device that
     // actually holds the participant key passes one.

@@ -78,14 +78,19 @@ const iceServer = {
 
 **The secret never reaches the browser.** Minting has to happen somewhere
 that holds `TURN_SECRET` - a small server-side endpoint, a serverless
-function, anything that isn't the client bundle. KithMoot ships no such
-endpoint today: this repo's ICE defaults are STUN-only
-(`app/src/main.ts`), and turning on the default TURN server means standing
-up *some* minting step of your own, then putting the resulting `turn:` URL
-(with credentials baked in, or a link to your own minting endpoint) into a
-room's ICE server list the same way any other custom ICE server goes in -
-see `DEFAULT_TURN_URL` in `app/src/main.ts` and the README for where that
-one line lives.
+function, anything that isn't the client bundle. `server/turn-credentials.mjs`
+is that endpoint for this repo's own default TURN server: a small Node HTTP
+service that calls `mintTurnCredential` and returns JSON, which
+`app/src/main.ts` fetches from at join time when `TURN_CREDENTIAL_ENDPOINT`
+is configured (see `deploy/README.md`, "Minting TURN credentials for the
+browser", for install and verification steps, and the honest cost of
+leaving it unauthenticated). A room naming its own custom TURN server
+instead still needs its own minting step of some kind - putting the
+resulting `turn:` URL (with credentials baked in, or a link to its own
+minting endpoint) into that room's ICE server list the same way any other
+custom ICE server goes in, since this endpoint only ever mints credentials
+for this app's own default TURN server, never an arbitrary one a room
+names.
 
 A short TTL is the main defence once a credential is out - it's sent to
 every peer in a room's signalling, and once your process discloses it

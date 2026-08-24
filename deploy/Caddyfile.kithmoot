@@ -25,6 +25,21 @@
 kithmoot.CHANGE_ME.example {
 	root * /srv/kithmoot/current
 	encode gzip zstd
+
+	# TURN credential minting (server/turn-credentials.mjs, installed as
+	# deploy/turn-credentials.service) - reverse-proxied from this same
+	# domain rather than a separate credentials.* subdomain, so the app's
+	# own fetch() to it is same-origin. Still put this domain in the
+	# service's ALLOWED_ORIGINS (see deploy/README.md) - some browsers send
+	# an Origin header even on a same-origin fetch, and that request must
+	# not be the one case this endpoint fails closed on. The service
+	# listens on 127.0.0.1 only - it is never meant to be reachable except
+	# through Caddy. Written before file_server for readability, though
+	# Caddy's automatic directive ordering (reverse_proxy before
+	# file_server) makes this win regardless of position in the file.
+	@turnApi path /turn /healthz
+	reverse_proxy @turnApi 127.0.0.1:8089
+
 	file_server
 
 	# The service worker and the HTML shell that registers it must never be

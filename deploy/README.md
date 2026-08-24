@@ -3,12 +3,15 @@
 This directory is a deploy *kit*, not a deploy. Nothing in it runs on its
 own - you run `deploy/deploy.sh` yourself, by hand, when you mean to.
 
-Two independent things live here:
+Three independent things live here:
 
 1. **The static PWA** (`Caddyfile.kithmoot`, `deploy.sh`) - serving the app
    from a real domain so people other than you can open it.
 2. **A default TURN server** (`coturn/`) - so calls survive the ~20% of
    real-world networks where STUN alone can't connect two peers directly.
+3. **A TURN credential service** (`turn-credentials.service`, in the repo
+   root's `server/`) - the only thing that lets a browser actually use #2;
+   see "Minting TURN credentials for the browser" below.
 
 Read the design principle below before touching the TURN half. It's the
 part that's easy to get backwards.
@@ -146,10 +149,10 @@ Then, on the box:
 1. Edit `~/kithmoot-coturn/turnserver.conf`: replace every `CHANGE_ME`
    (realm/server-name, cert paths, `static-auth-secret`). Generate the
    secret with `openssl rand -hex 32` and keep a copy of it somewhere
-   safe - it's what `mintTurnCredential` (`src/turn.ts`) needs on
-   whatever server-side process mints credentials for the browser (see
-   `deploy/turn-credentials.md` - this repo does not ship that minting
-   endpoint itself, see the note there).
+   safe - the same value goes into `TURN_SECRET` for the credential
+   service below (`server/turn-credentials.mjs`), which is what actually
+   calls `mintTurnCredential` (`src/turn.ts`) on a browser's behalf. See
+   "Minting TURN credentials for the browser" further down.
 2. Edit `docker-compose.yml`: replace `CHANGE_ME` in the cert volume
    mount to match the real TURN hostname.
 3. `cd ~/kithmoot-coturn && docker compose up -d`
@@ -185,13 +188,97 @@ is the single most common cause), then the container logs, then the
 credential (an expired or wrongly-computed one fails silently from the
 browser's point of view - it just never gets a relay candidate).
 
-## What's out of scope here
+## Minting TURN credentials for the browser
 
-This kit does not include a server-side endpoint that mints TURN
-credentials for a live deploy of the app - `src/turn.ts` is the building
-block, not a wired-up HTTP route. Turning the default TURN server on for
-real users means standing up that endpoint (or, for a first cut, minting
-one longer-lived credential by hand and putting the resulting `turn:` URL
-with embedded credentials into a room's ICE list the same way any other
-custom ICE server goes in) before `DEFAULT_TURN_URL` in `app/src/main.ts`
-is worth uncommenting for everyone.
+coturn above only checks credentials - something else has to hand a
+browser a fresh `{username, credential}` pair before it can use the
+server at all. That something is `server/turn-credentials.mjs`: a small
+Node HTTP service, using `mintTurnCredential` (`src/turn.ts`) against the
+same `static-auth-secret` as `turnserver.conf`, that `app/src/main.ts`
+fetches from at join time (see `TURN_CREDENTIAL_ENDPOINT` there) whenever
+a room is using this default TURN server rather than one of its own. A
+failed or unreachable fetch never blocks joining - the room just falls
+back to STUN-only, same as if `DEFAULT_TURN_URL` were never set.
+
+### Generating and placing the secret
+
+```bash
+openssl rand -hex 32
+```
+
+This one value goes in exactly two places, and must match between them:
+
+- `static-auth-secret=` in `deploy/coturn/turnserver.conf` (coturn's copy)
+- `TURN_SECRET` in the credential service's `EnvironmentFile` (its copy)
+
+Nowhere else. It never appears in `app/src/main.ts` or anything shipped to
+a browser - see `deploy/turn-credentials.md` for why a static credential
+in the client bundle is the thing this whole scheme exists to avoid.
+
+### Installing the credential service
+
+Full step-by-step install, including the dedicated user, the
+`EnvironmentFile` layout, and how to verify it, lives in the comment block
+at the top of `deploy/turn-credentials.service` - copy that file to
+`/etc/systemd/system/` and follow it. In short:
+
+```bash
+# on the box, in a checkout of this repo (e.g. /opt/kithmoot)
+npm ci && npm run build:lib   # produces dist/src/turn.js - repeat after every pull
+sudo cp deploy/turn-credentials.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now turn-credentials
+```
+
+`deploy/Caddyfile.kithmoot` reverse-proxies `/turn` and `/healthz` on the
+app's own domain to this service (which listens on `127.0.0.1:8089` only -
+never exposed directly) - re-run the Caddy install step above if it's
+already deployed, so the updated vhost picks up those routes.
+
+### Verifying the credential service end to end
+
+```bash
+curl -s https://kithmoot.example/healthz                                    # -> ok
+curl -s https://kithmoot.example/turn -H 'Origin: https://kithmoot.example' # -> {"urls":[...],"username":"...","credential":"...","ttl":3600}
+```
+
+Then feed that `urls`/`username`/`credential` triple into the trickle-ICE
+tester from the section above and confirm a `relay` candidate still
+appears - the credential service answering with valid JSON is necessary
+but not sufficient; the round trip through actual coturn auth is the real
+test.
+
+Once that's confirmed, uncomment `DEFAULT_TURN_URL` **and**
+`TURN_CREDENTIAL_ENDPOINT` together in `app/src/main.ts` (they're designed
+to be switched on as a pair - see the comment there) and redeploy the PWA.
+
+### The honest cost of an unauthenticated endpoint
+
+As shipped, `GET /turn` mints a credential for anyone who asks - there is
+no login, no per-room token, nothing that ties a request to a real
+participant in a real room. That means **anyone who finds this URL can
+relay their own traffic through this coturn server, at this operator's
+bandwidth cost**, for as long as they keep asking (each credential just
+expires and they ask again). CORS on the service restricts which *browser
+pages* can read the response, and a per-IP rate limiter slows down
+casual, single-source abuse - neither stops a determined caller, who can
+simply script requests with no `Origin` header and rotate source IPs.
+There is no free fix here; pick honestly among:
+
+- **Accept the cost.** For a small deployment this may simply be cheap
+  enough to not matter - watch the bandwidth graph (see "What TURN
+  costs" above) and revisit if it stops being true.
+- **Gate on the room's own kindred policy.** Have the credential endpoint
+  require proof of whatever access tier the room already checks (see
+  `evaluateAccess` / `KindredProof` in `src/access.ts`) before minting -
+  real work, but it means the credential is scoped to people who could
+  already get into the room, not the general internet.
+- **Put a shared token in front of it.** Require a header or query
+  parameter the operator controls (and rotates) before `/turn` will mint
+  anything. Cheaper to build than kindred-gating, but the token itself
+  becomes one more secret to distribute and leak, and doesn't scope
+  access per-room the way kindred does.
+
+None of these ship in this kit today - `server/turn-credentials.mjs` mints
+on request to anyone who can reach it, by design, so the choice above is
+made deliberately rather than defaulted into.
