@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:live": "vitest run test/live.test.ts --testTimeout=40000",
+    "test:live": "vitest run --config vitest.live.config.ts --testTimeout=40000",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
