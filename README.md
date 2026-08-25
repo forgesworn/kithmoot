@@ -8,6 +8,12 @@ except the relays that already exist. A room is a secret, held by whoever has
 the link. Anyone holding it can join; nobody outside it can even tell the room
 exists.
 
+**Live at [kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/).** The app
+is at [`/j`](https://kithmoot.forgesworn.dev/j/); the root is a page explaining
+what this is. `/j` is short on purpose — a join link carries a 32-byte room
+secret plus relay hints in its fragment, and every character in the path costs
+QR density.
+
 ## The claim
 
 A person, not a device, is the unit that joins a room. Bring a phone for
@@ -161,12 +167,19 @@ npm run build      # production PWA build, to app/dist
 ```
 
 `npm run test:live` and `npm run test:e2e` need the network, and real relays
-have real weather — both are excluded from `npm test` for that reason. `npm
-run demo` serves the app over HTTPS with a self-signed certificate
+have real weather — both are excluded from `npm test` for that reason.
+
+`npm run demo` and `vite preview` both serve the app under `/j/` rather than at
+the root, because `base` in `app/vite.config.ts` matches where it is published
+— the asset URLs, the web manifest and the service worker's scope all derive
+from it.
+
+`npm run demo` serves the app over HTTPS with a self-signed certificate
 (`@vitejs/plugin-basic-ssl`): `getUserMedia` and `getDisplayMedia` both
 require a secure context, and a phone reaching your laptop over its LAN IP
 isn't one without TLS. Your browser will warn about the certificate; accept
-it to proceed. The terminal prints a `Network:` URL for the phone to use.
+it to proceed. The terminal prints a `Network:` URL for the phone to use, with
+the `/j/` already on it.
 
 ## The nostr-tools version guard
 
@@ -211,6 +224,32 @@ camera video and audio from the phone. Muting on the phone mutes you
 everywhere. Nothing echoes, because only one device holds the mic role at a
 time. That tile is the product; everything else on the page is scaffolding
 to show it.
+
+## Publishing
+
+`.github/workflows/deploy.yml` runs on every push to `main`: `npm ci`, `npx
+vitest run` (the fast suite — `test:live` and `test:e2e` need real relays and
+stay out of a deploy), `npm run typecheck`, `npm run build`, and then it
+assembles the artefact as `site/` verbatim at the root with `app/dist` under
+`j/`. The deploy job needs the build job, so a failing test stops the deploy.
+Pages is served from GitHub Actions rather than from a branch.
+
+The marketing page is `site/` — plain HTML and one stylesheet, copied as-is,
+with no build step. Its screenshots are real ones from
+`forgesworn/kithmoot-android`, resized and re-encoded; the full-size originals
+are in that repository under `docs/screenshots/`.
+
+`site/CNAME` carries the custom domain, so it lands at the root of the
+published artefact. The DNS record it needs lives outside this repository:
+
+| Name | Type | Target | Proxy |
+|---|---|---|---|
+| `kithmoot` (in `forgesworn.dev`) | `CNAME` | `forgesworn.github.io` | **DNS only** |
+
+It has to be **DNS only** — grey cloud, not proxied. A proxied record puts
+Cloudflare's certificate in front of the name, and GitHub's own certificate
+authority cannot then complete the challenge for the custom domain, so Pages
+never finishes provisioning TLS.
 
 ## Licence
 
