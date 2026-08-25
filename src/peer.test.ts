@@ -191,6 +191,35 @@ describe('Peer', () => {
     expect(pc.closed).toBe(true)
   })
 
+  it('reports every connection state change to its caller, and still closes on a failure', async () => {
+    // The mesh has to know when a connection actually came up, not merely
+    // that it was asked to. Promotion to a forwarder turns on it: the direct
+    // peers a room falls back to must stay open until the forwarder is
+    // genuinely connected, and `connected` is the only honest signal for
+    // that. `Peer` owns `onconnectionstatechange` on the connection, so a
+    // caller cannot simply read it off the connection itself.
+    const factory = createFakeFactory()
+    const states: RTCPeerConnectionState[] = []
+    const peer = new Peer({
+      factory,
+      localDevice: LOW,
+      remoteDevice: HIGH,
+      onSignal: () => {},
+      onTrack: () => {},
+      onConnectionState: (state) => states.push(state),
+    })
+    await peer.start([])
+
+    const pc = factory.instances[0]!
+    pc.connectionState = 'connected'
+    pc.onconnectionstatechange?.()
+    pc.connectionState = 'failed'
+    pc.onconnectionstatechange?.()
+
+    expect(states).toEqual(['connected', 'failed'])
+    expect(pc.closed).toBe(true)
+  })
+
   it('BUG (I3): a buffered candidate that the connection rejects must not prevent the answer', async () => {
     // The routine trickle-ICE case the buffer exists for: a candidate turns up
     // before the description it belongs to, is held, and is stale or malformed

@@ -3,7 +3,7 @@
 This directory is a deploy *kit*, not a deploy. Nothing in it runs on its
 own - you run `deploy/deploy.sh` yourself, by hand, when you mean to.
 
-Three independent things live here:
+Four independent things live here:
 
 1. **The static PWA** (`Caddyfile.kithmoot`, `deploy.sh`) - serving the app
    from a real domain so people other than you can open it.
@@ -12,6 +12,11 @@ Three independent things live here:
 3. **A TURN credential service** (`turn-credentials.service`, in the repo
    root's `server/`) - the only thing that lets a browser actually use #2;
    see "Minting TURN credentials for the browser" below.
+4. **A forwarder** (`forwarder.service`, `server/forwarder.mjs`) - so a room
+   can grow past the ~8-person ceiling a mesh imposes. See "Running a
+   forwarder" below. It is not a TURN server and not an SFU in the usual
+   sense: it is given the room *id* and never the room *key*, so it relays
+   ciphertext it cannot read.
 
 Read the design principle below before touching the TURN half. It's the
 part that's easy to get backwards.
@@ -282,3 +287,173 @@ There is no free fix here; pick honestly among:
 None of these ship in this kit today - `server/turn-credentials.mjs` mints
 on request to anyone who can reach it, by design, so the choice above is
 made deliberately rather than defaulted into.
+
+## Running a forwarder
+
+A mesh call costs every participant `(N-1) x bitrate` of *upload*, and upload
+is the scarce half of a domestic connection:
+
+| Each person sends | Per copy | x 20 peers |
+|---|---|---|
+| Opus voice | ~32 kbps | 0.64 Mbps |
+| Video 180p | ~150 kbps | 3 Mbps |
+| Video 360p | ~600 kbps | 12 Mbps |
+| Screen share, legible 1080p | ~1.5-2.5 Mbps | **30-50 Mbps** |
+
+Against a typical UK domestic uplink of 10-20 Mbps, a mesh runs out somewhere
+around eight people on video - sooner if anybody shares a screen. Past that,
+somebody has to forward: each device sends **one** copy to the forwarder, and
+the forwarder sends everybody theirs.
+
+`server/forwarder.mjs` is that somebody. It is a small Node process anyone can
+run - no inbound port, no TLS certificate, no domain. It works from behind
+NAT, on a home connection, on a Raspberry Pi.
+
+### The claim, and what it rests on
+
+Every other conferencing system answers the same arithmetic by putting a
+server in the media path that can see the media. Jitsi's videobridge does, by
+default. This one cannot, and not as a promise:
+
+- **It is configured with the room id, never the room key.** The room id is
+  public - relays see it on every event. The room key is what decrypts
+  everything, and this process is never given it. `loadConfigFromEnv`
+  **refuses to start** if `KITHMOOT_ROOM_KEY`, `KITHMOOT_ROOM_SECRET`,
+  `KITHMOOT_JOIN_URL` or `KITHMOOT_SECRET` is anywhere in its environment,
+  and refuses a `KITHMOOT_ROOM_ID` that looks like a join URL - because a
+  join URL's fragment carries the room secret.
+- **It cannot read the roster**, which is encrypted to the room key, so it
+  never learns who is in the room, what they are publishing, or which devices
+  belong to one person. It does not subscribe to the roster kind at all.
+- **It cannot read the media.** Once a forwarder is in the path, frames are
+  encrypted end to end under a key derived from the room key
+  (`src/media-crypto.ts`) - inside the DTLS-SRTP the hop already has. The
+  forwarder moves RTP packets from one connection to another and never
+  depacketises, decodes or inspects a payload.
+- **It cannot forge attribution**, because it cannot produce a frame that
+  opens under any member's media key.
+
+`test/forwarder-blindness.test.ts` is where that is proven rather than
+asserted.
+
+### How a client reaches it, given it can't read the room
+
+There is no forwarder-specific protocol and no socket to dial. A forwarder
+holds its own Nostr key and is reached exactly the way any other endpoint in
+a KithMoot room is reached: a gift-wrapped offer on a relay, addressed to its
+pubkey. A wrap is sealed to its *recipient*, not to the room, so the
+forwarder unwraps it with its own secret key - no room key involved. The
+inner signal names a room, which is checked against the one it serves.
+
+So the entry a room descriptor carries is just `{ url, pubkey }`, where `url`
+is a relay to signal over. The forwarder prints that line at startup, ready
+to paste.
+
+The honest consequence: **anyone who knows the room id and this forwarder's
+pubkey can ask it for a connection.** There is no membership check, because
+the only thing that could perform one is the room key. What a stranger gets
+is ciphertext they cannot read; what they cost is bandwidth, and that is what
+the fan-out cap bounds. If that is not acceptable for your deployment, run
+the forwarder for a room whose id you do not publish, or don't run one.
+
+### What a forwarder costs
+
+Like TURN, and unlike STUN, **a forwarder relays every byte it carries**, in
+both directions, for the whole call. Unlike TURN it also *multiplies* them.
+With `N` peers each sending one stream at `B`:
+
+- **in:** `N x B`
+- **out:** `N x (N-1) x B`
+
+At the default cap of 24 peers on 600 kbps video that is roughly 14 Mbps in
+and **330 Mbps out**. That is well past a domestic uplink and firmly into
+what a VPS bills for. Budget on the outbound figure, not the inbound one, and
+watch the bandwidth graph rather than the CPU graph - the process itself does
+almost no work, which is the point.
+
+Two caps bound it, both configurable, both refusing rather than degrading:
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `KITHMOOT_MAX_PEERS` | 24 | Devices connected at once. A device past the cap gets no answer, and falls back to direct mesh - degraded, not broken. |
+| `KITHMOOT_MAX_TRACKS_PER_PEER` | 4 | Tracks one device may fan out. Four is exactly the `TrackRole` set (camera, mic, screen, screen-audio). |
+
+One process serves **one room**. That is deliberate: a fan-out cap is only a
+meaningful promise if nothing else on the process is competing for the same
+uplink, and a process with no cross-room state has no cross-room mistake to
+make. Run several if you want to serve several rooms, and size the box for
+the sum.
+
+### Running it
+
+The one-command version, from a checkout:
+
+```bash
+KITHMOOT_ROOM_ID=<64 hex> \
+KITHMOOT_FORWARDER_SK=$(openssl rand -hex 32) \
+NOSTR_RELAYS=wss://relay.trotters.cc \
+  npx kithmoot-forwarder
+```
+
+That is fine for a look. For anything that has to survive a reboot, generate
+the key **once** and keep it: a room descriptor names a forwarder by pubkey,
+so a key regenerated on each restart silently orphans every room pointing at
+it.
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `KITHMOOT_ROOM_ID` | yes | The room's 64-hex public id. Not the join URL. |
+| `NOSTR_RELAYS` | yes | Comma-separated `ws:`/`wss:` relays. Use the ones the room uses, or it will never see the forwarder answer. |
+| `KITHMOOT_FORWARDER_SK` | yes | This forwarder's own Nostr secret key, 64 hex (`openssl rand -hex 32`). No default, on purpose. |
+| `KITHMOOT_FORWARDER_URL` | no | The relay advertised in the descriptor. Defaults to the first `NOSTR_RELAYS` entry. |
+| `KITHMOOT_MAX_PEERS` | no | Fan-out cap. Default 24. |
+| `KITHMOOT_MAX_TRACKS_PER_PEER` | no | Per-peer track cap. Default 4. |
+| `KITHMOOT_LABEL` | no | A name for people. Never used for logic. |
+
+For a persistent install, `deploy/forwarder.service` is a systemd unit with a
+dedicated user, `Restart=always`, and the usual hardening - full step-by-step
+in the comment block at its top:
+
+```bash
+# on the box, in a checkout of this repo (e.g. /opt/kithmoot)
+npm ci && npm run build:lib   # repeat after every pull
+sudo cp deploy/forwarder.service /etc/systemd/system/kithmoot-forwarder.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now kithmoot-forwarder
+journalctl -u kithmoot-forwarder -n 30
+```
+
+The startup banner states, in plain words, that this process relays
+ciphertext it cannot read, and ends with the one-line JSON to add to the
+room's descriptor:
+
+```
+{"url":"wss://relay.trotters.cc","pubkey":"<64 hex>","label":"trotters box"}
+```
+
+### Pointing a room at it
+
+A room's forwarder list travels in its descriptor, encrypted to the room key
+and published as an ephemeral event, next to its ICE servers. Add the JSON
+above to `forwarders` and publish. `selectForwarder` (`src/forwarder.ts`)
+imposes a total order over the list, so every client in the room independently
+picks the same one without negotiating - and picks `wss:` over `ws:` where a
+forwarder offers both.
+
+Nothing is mandatory. A room that names no forwarder stays a mesh; a room
+whose forwarder is unreachable **falls back to mesh** rather than failing, so
+a dead forwarder is a slower call for a big room and no change at all for a
+small one. Promotion is decided on measured capacity, never on headcount
+(`needsForwarding`): twenty people on audio-only never promote, and two
+people sharing legible 1080p screens might.
+
+### When a forwarder is *not* what you want
+
+A pure mesh is already end-to-end encrypted by DTLS-SRTP, hop to hop, with no
+hop in between. Putting a forwarder in the path adds a machine you have to
+trust with your bandwidth (not your media), and switches on the extra
+per-frame encryption pass that keeps it blind - which costs battery on a
+phone and fights some hardware codec paths (`src/media-crypto.ts` documents
+that honestly). For a five-person call it buys nothing and costs all of that.
+Run one when the arithmetic at the top of this section says you need one, not
+before.

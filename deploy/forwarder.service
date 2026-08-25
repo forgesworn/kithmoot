@@ -1,0 +1,101 @@
+# systemd unit for server/forwarder.mjs - the reference KithMoot forwarder.
+#
+# WHAT THIS PROCESS IS, AND WHAT IT IS NOT:
+#
+#   It is given the room *id* and never the room *key*. It relays ciphertext
+#   it cannot read: it cannot decrypt the roster, so it never learns who is
+#   in the room; it cannot decrypt media, which is sealed end to end under a
+#   key derived from the room key; and it cannot forge attribution, because
+#   it cannot produce a frame that opens under anybody's key.
+#
+#   The process REFUSES TO START if KITHMOOT_ROOM_KEY, KITHMOOT_ROOM_SECRET,
+#   KITHMOOT_JOIN_URL or KITHMOOT_SECRET is present in its environment. Do
+#   not "helpfully" add one to the EnvironmentFile below to give it
+#   "everything it needs" - it does not need one, and the refusal is there
+#   because that mistake would otherwise work perfectly and quietly void the
+#   whole design.
+#
+# INSTALL:
+#   1. Create a dedicated, unprivileged user with no shell and no home:
+#        sudo useradd --system --no-create-home --shell /usr/sbin/nologin kithmoot-fwd
+#   2. Put a checkout of this repo somewhere that user can read, e.g.
+#      /opt/kithmoot, and run `npm ci && npm run build:lib` in it. The
+#      service imports the protocol from dist/ - see the comment at the top
+#      of server/forwarder.mjs - and dist/ is gitignored, so this is a step
+#      to repeat after every pull, not a one-off. Nothing here rebuilds it
+#      automatically; re-run it (and `systemctl restart kithmoot-forwarder`)
+#      after any update.
+#        sudo chown -R kithmoot-fwd:kithmoot-fwd /opt/kithmoot
+#   3. Generate this forwarder's own Nostr key. It must be STABLE: a room
+#      descriptor names a forwarder by pubkey, so a key regenerated on each
+#      restart silently orphans every room pointing here.
+#        openssl rand -hex 32
+#      Write /etc/kithmoot/forwarder.env, owned by that user and readable by
+#      no one else - never put the key in this unit file, which is
+#      world-readable via `systemctl cat`:
+#        KITHMOOT_FORWARDER_SK=<the value from openssl rand above>
+#        KITHMOOT_ROOM_ID=<the room's 64-hex public id - NOT the join URL>
+#        NOSTR_RELAYS=wss://relay.trotters.cc,wss://nos.lol
+#        KITHMOOT_FORWARDER_URL=wss://relay.trotters.cc
+#        KITHMOOT_MAX_PEERS=24
+#        KITHMOOT_MAX_TRACKS_PER_PEER=4
+#        KITHMOOT_LABEL=trotters box
+#      Then:
+#        sudo mkdir -p /etc/kithmoot
+#        sudo mv forwarder.env /etc/kithmoot/forwarder.env
+#        sudo chown kithmoot-fwd:kithmoot-fwd /etc/kithmoot/forwarder.env
+#        sudo chmod 600 /etc/kithmoot/forwarder.env
+#   4. Edit WorkingDirectory below if the checkout isn't at /opt/kithmoot.
+#   5. sudo cp deploy/forwarder.service /etc/systemd/system/kithmoot-forwarder.service
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable --now kithmoot-forwarder
+#   6. Verify: `journalctl -u kithmoot-forwarder -n 30` prints the startup
+#      banner, including the room id, this forwarder's pubkey, and the
+#      one-line JSON to paste into the room descriptor's forwarder list.
+#      Everything is on stderr, so `journalctl -f` is the log.
+#
+# READ deploy/README.md's "Running a forwarder" section before enabling
+# this. A forwarder relays every byte it carries, in both directions, and
+# the bandwidth cost is the whole cost.
+
+[Unit]
+Description=KithMoot forwarder (relays ciphertext it cannot read)
+Documentation=file:///opt/kithmoot/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kithmoot-fwd
+Group=kithmoot-fwd
+WorkingDirectory=/opt/kithmoot
+EnvironmentFile=/etc/kithmoot/forwarder.env
+ExecStart=/usr/bin/node server/forwarder.mjs
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening. This process holds its own Nostr secret key in memory and
+# nothing else of value - no room key, by construction - and it talks to
+# relays and to peers over UDP. It gets nothing beyond what that needs.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryDenyWriteExecute=true
+
+# A forwarder is a bandwidth appliance; the interesting resource limit is the
+# uplink, which systemd cannot bound. These two bound the ways a runaway room
+# could take the box out instead. Raise MemoryMax if KITHMOOT_MAX_PEERS is
+# raised well past its default of 24.
+MemoryMax=1G
+TasksMax=512
+
+[Install]
+WantedBy=multi-user.target

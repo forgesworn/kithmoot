@@ -44,6 +44,17 @@ export interface PeerOptions {
   remoteDevice: string
   onSignal: (body: SignalBody) => void
   onTrack: (track: MediaStreamTrack) => void
+  /**
+   * Every connection state the underlying connection reports, as it reports
+   * it - including the `failed`/`closed` that makes this peer close itself.
+   *
+   * `Peer` owns `onconnectionstatechange` on the connection, so without this
+   * a caller has no way to hear about it. The mesh needs to: promoting a
+   * room to a forwarder means keeping the direct peers open until the
+   * forwarder is *actually* connected, and `connected` is the only honest
+   * signal for that. Optional, because most callers never care.
+   */
+  onConnectionState?: (state: RTCPeerConnectionState) => void
 }
 
 /**
@@ -110,6 +121,9 @@ export class Peer {
 
     this.#pc.onconnectionstatechange = () => {
       const state = this.#pc.connectionState
+      // Reported before the close, so a caller watching for a failure hears
+      // about it rather than inferring it from a peer that has gone quiet.
+      opts.onConnectionState?.(state)
       if (state === 'failed' || state === 'closed') this.close()
     }
   }
