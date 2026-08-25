@@ -6,3 +6,8 @@ dev-dist/
 test-results/
 playwright-report/
 blob-report/
+
+# Local agent scratch and working artefacts
+.superpowers/
+*.bundle
+*.apk

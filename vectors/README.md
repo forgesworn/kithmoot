@@ -257,7 +257,7 @@ Checked in this order; the first match wins.
 | 7 | `proof.tier` not a recognised kindred tier | `unrecognised tier` |
 | 8 | tier rank below `policy.tier`'s | `tier too low` |
 | 9 | schnorr verification fails | `bad signature` |
-| — | none of the above | `kindred proof accepted` (admitted) |
+| - | none of the above | `kindred proof accepted` (admitted) |
 
 Row 4 is the room binding. A kindred proof names exactly one room, and both
 `room` and a per-proof `nonce` are inside the signed message, so a proof
@@ -293,7 +293,7 @@ divergence is documented, not overlooked.
 | 4 | `expiresAt <= now` | `expired` |
 | 5 | `device` tag missing | `no device` |
 | 6 | signature verification fails | `bad signature` |
-| — | none of the above | `ok: true` |
+| - | none of the above | `ok: true` |
 
 Row 3 covers two distinct wire shapes with one reason deliberately: a
 missing tag and a present-but-garbage one both mean "no usable expiry", and
