@@ -6,6 +6,7 @@ import { RoomSession } from './session.js'
 import type { PrimaryRoomSessionOptions } from './session.js'
 import { issueKindredProof } from './access.js'
 import { createDeviceCredential } from './credential.js'
+import { localIdentity } from './identity.js'
 import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
 import { decodeRosterEvent } from './roster.js'
@@ -39,7 +40,7 @@ describe('RoomSession', () => {
     const phone = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: phoneSk,
       now,
       announceJitterMs: 0,
@@ -47,7 +48,7 @@ describe('RoomSession', () => {
     const laptop = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: laptopSk,
       now,
       announceJitterMs: 0,
@@ -55,7 +56,7 @@ describe('RoomSession', () => {
     const observer = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -83,14 +84,14 @@ describe('RoomSession', () => {
     const bob = generateSecretKey()
 
     const sessions = [
-      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: alice, deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
-      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: alice, deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
-      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: bob, deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
-      new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: bob, deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
+      new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(alice), deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
+      new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(alice), deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
+      new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(bob), deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
+      new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(bob), deviceSk: generateSecretKey(), now, announceJitterMs: 0 }),
     ]
     const observerSk = generateSecretKey()
     const observerParticipant = getPublicKey(observerSk)
-    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: observerSk, deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(observerSk), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
     // Again asserted from the LAST device to arrive, not the first.
     for (const s of sessions) await s.join([], {})
     await observer.join([], {})
@@ -111,9 +112,9 @@ describe('RoomSession', () => {
     const phoneSk = generateSecretKey()
     const laptopSk = generateSecretKey()
 
-    const phone = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk, deviceSk: phoneSk, now, announceJitterMs: 0 })
-    const laptop = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk, deviceSk: laptopSk, now, announceJitterMs: 0 })
-    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    const phone = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(participantSk), deviceSk: phoneSk, now, announceJitterMs: 0 })
+    const laptop = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(participantSk), deviceSk: laptopSk, now, announceJitterMs: 0 })
+    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
 
     // Observer LAST: a mic claim has to survive the re-announce that tells a
     // late arrival about a device, not just the first announcement.
@@ -134,14 +135,14 @@ describe('RoomSession', () => {
     const otherRoom = new RoomSession({
       transport: new SimTransport(relay),
       secret: new Uint8Array(32).fill(99),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
     })
     await otherRoom.join([], {})
 
-    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
     await observer.join([], {})
     await settle()
 
@@ -150,12 +151,12 @@ describe('RoomSession', () => {
 
   it('notifies subscribers when the roster changes', async () => {
     const relay = new SimRelay()
-    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
     const counts: number[] = []
     observer.onChange((views) => counts.push(views.length))
     await observer.join([], {})
 
-    const joiner = new RoomSession({ transport: new SimTransport(relay), secret: secret(), participantSk: generateSecretKey(), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    const joiner = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
     const joinerCounts: number[] = []
     joiner.onChange((views) => joinerCounts.push(views.length))
     await joiner.join([], {})
@@ -175,7 +176,7 @@ describe('RoomSession access policy', () => {
     const session = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       policy: { tier: 'kith', admitted: [getPublicKey(hostSk)] },
@@ -195,7 +196,7 @@ describe('RoomSession access policy', () => {
     const session = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: generateSecretKey(),
       now,
       policy: { tier: 'kith', admitted: [getPublicKey(hostSk)] },
@@ -217,7 +218,7 @@ describe('RoomSession media', () => {
     const a = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: generateSecretKey(),
       now,
       factory: factoryA,
@@ -226,7 +227,7 @@ describe('RoomSession media', () => {
     const b = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: generateSecretKey(),
       now,
       factory: createFakeFactory(),
@@ -235,7 +236,7 @@ describe('RoomSession media', () => {
     const stranger = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       factory: createFakeFactory(),
@@ -264,7 +265,7 @@ describe('RoomSession media', () => {
     const local = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       factory,
@@ -275,7 +276,7 @@ describe('RoomSession media', () => {
     const remoteA = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: remoteParticipantSk,
+      identity: localIdentity(remoteParticipantSk),
       deviceSk: generateSecretKey(),
       now,
       factory: createFakeFactory(),
@@ -283,7 +284,7 @@ describe('RoomSession media', () => {
     const remoteB = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: remoteParticipantSk,
+      identity: localIdentity(remoteParticipantSk),
       deviceSk: generateSecretKey(),
       now,
       factory: createFakeFactory(),
@@ -309,7 +310,7 @@ describe('RoomSession media', () => {
     const session = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
     })
@@ -327,14 +328,14 @@ describe('RoomSession chat', () => {
     const a = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
     })
     const b = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
     })
@@ -360,8 +361,8 @@ describe('RoomSession device credentials', () => {
     const phoneSk = generateSecretKey()
 
     const { roomId } = deriveRoom(secret())
-    const credential = createDeviceCredential({
-      participantSk,
+    const credential = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: getPublicKey(phoneSk),
       roomId,
       expiresAt: NOW + 3600,
@@ -370,7 +371,7 @@ describe('RoomSession device credentials', () => {
     const observer = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -378,7 +379,7 @@ describe('RoomSession device credentials', () => {
     const laptop = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: laptopSk,
       now,
       announceJitterMs: 0,
@@ -408,10 +409,10 @@ describe('RoomSession device credentials', () => {
     expect(view!.tracks.map((t) => t.role).sort()).toEqual(['camera', 'screen'])
   })
 
-  it('refuses a credential that names a different device', () => {
+  it('refuses a credential that names a different device', async () => {
     const { roomId } = deriveRoom(secret())
-    const credential = createDeviceCredential({
-      participantSk: generateSecretKey(),
+    const credential = await createDeviceCredential({
+      identity: localIdentity(generateSecretKey()),
       devicePubkey: getPublicKey(generateSecretKey()),
       roomId,
       expiresAt: NOW + 3600,
@@ -428,10 +429,10 @@ describe('RoomSession device credentials', () => {
     ).toThrow('names a different device')
   })
 
-  it('refuses a credential minted for a different room', () => {
+  it('refuses a credential minted for a different room', async () => {
     const phoneSk = generateSecretKey()
-    const credential = createDeviceCredential({
-      participantSk: generateSecretKey(),
+    const credential = await createDeviceCredential({
+      identity: localIdentity(generateSecretKey()),
       devicePubkey: getPublicKey(phoneSk),
       roomId: deriveRoom(new Uint8Array(32).fill(77)).roomId,
       expiresAt: NOW + 3600,
@@ -448,11 +449,11 @@ describe('RoomSession device credentials', () => {
     ).toThrow('wrong room')
   })
 
-  it('refuses an expired credential', () => {
+  it('refuses an expired credential', async () => {
     const phoneSk = generateSecretKey()
     const { roomId } = deriveRoom(secret())
-    const credential = createDeviceCredential({
-      participantSk: generateSecretKey(),
+    const credential = await createDeviceCredential({
+      identity: localIdentity(generateSecretKey()),
       devicePubkey: getPublicKey(phoneSk),
       roomId,
       expiresAt: NOW - 1,
@@ -478,11 +479,11 @@ describe('RoomSession device credentials', () => {
     const laptop = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: laptopSk,
       now,
     })
-    const issued = laptop.issueDeviceCredential(getPublicKey(phoneSk))
+    const issued = await laptop.issueDeviceCredential(getPublicKey(phoneSk))
     expect(issued.pubkey).toBe(getPublicKey(participantSk))
 
     const phone = new RoomSession({
@@ -494,8 +495,8 @@ describe('RoomSession device credentials', () => {
     })
     // A device without the participant key cannot mint credentials, which
     // is the whole point of not shipping the key to it.
-    expect(() => phone.issueDeviceCredential(getPublicKey(generateSecretKey()))).toThrow(
-      'no participant key',
+    await expect(phone.issueDeviceCredential(getPublicKey(generateSecretKey()))).rejects.toThrow(
+      'cannot sign for the participant',
     )
   })
 })
@@ -505,7 +506,7 @@ describe('RoomSession roster announce and respond', () => {
     return new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -610,7 +611,7 @@ describe('RoomSession member-side access gating', () => {
     return new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -640,7 +641,7 @@ describe('RoomSession member-side access gating', () => {
     const gatecrasher = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -686,7 +687,7 @@ describe('RoomSession member-side access gating', () => {
     const crasher = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: crasherSk,
+      identity: localIdentity(crasherSk),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -705,7 +706,7 @@ describe('RoomSession presence lifetime', () => {
     return new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now: clock,
       announceJitterMs: 0,
@@ -814,7 +815,7 @@ describe('RoomSession and forwarders', () => {
     const session = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       factory,
       now,
@@ -840,7 +841,7 @@ describe('RoomSession and forwarders', () => {
       const other = new RoomSession({
         transport: new SimTransport(relay),
         secret: secret(),
-        participantSk: generateSecretKey(),
+        identity: localIdentity(generateSecretKey()),
         deviceSk: generateSecretKey(),
         now,
         announceJitterMs: 0,
@@ -878,7 +879,7 @@ describe('RoomSession and forwarders', () => {
     const publisher = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -901,7 +902,7 @@ describe('RoomSession and forwarders', () => {
     const outsider = new RoomSession({
       transport: new SimTransport(relay),
       secret: new Uint8Array(32).fill(12),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -923,7 +924,7 @@ describe('RoomSession and forwarders', () => {
     const publisher = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,

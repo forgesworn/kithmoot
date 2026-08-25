@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
+import { localIdentity } from './identity.js'
 import { KINDS } from './kinds.js'
 
 const ROOM = 'a'.repeat(64)
@@ -11,16 +12,17 @@ function setup() {
   const deviceSk = generateSecretKey()
   return {
     participantSk,
+    identity: localIdentity(participantSk),
     participant: getPublicKey(participantSk),
     device: getPublicKey(deviceSk),
   }
 }
 
 describe('device credentials', () => {
-  it('accepts a credential signed by the participant for this room', () => {
+  it('accepts a credential signed by the participant for this room', async () => {
     const { participantSk, participant, device } = setup()
-    const cred = createDeviceCredential({
-      participantSk,
+    const cred = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: device,
       roomId: ROOM,
       expiresAt: NOW + 3600,
@@ -29,10 +31,10 @@ describe('device credentials', () => {
     expect(result).toEqual({ ok: true, participant, device })
   })
 
-  it('rejects a credential for a different room', () => {
+  it('rejects a credential for a different room', async () => {
     const { participantSk, device } = setup()
-    const cred = createDeviceCredential({
-      participantSk,
+    const cred = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: device,
       roomId: ROOM,
       expiresAt: NOW + 3600,
@@ -41,10 +43,10 @@ describe('device credentials', () => {
     expect(result).toEqual({ ok: false, reason: 'wrong room' })
   })
 
-  it('rejects an expired credential', () => {
+  it('rejects an expired credential', async () => {
     const { participantSk, device } = setup()
-    const cred = createDeviceCredential({
-      participantSk,
+    const cred = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: device,
       roomId: ROOM,
       expiresAt: NOW - 1,
@@ -53,10 +55,10 @@ describe('device credentials', () => {
     expect(result).toEqual({ ok: false, reason: 'expired' })
   })
 
-  it('rejects a credential whose signature has been tampered with', () => {
+  it('rejects a credential whose signature has been tampered with', async () => {
     const { participantSk, device } = setup()
-    const cred = createDeviceCredential({
-      participantSk,
+    const cred = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: device,
       roomId: ROOM,
       expiresAt: NOW + 3600,
@@ -67,10 +69,10 @@ describe('device credentials', () => {
     expect(result).toEqual({ ok: false, reason: 'bad signature' })
   })
 
-  it('uses the NIP-40 expiration tag, never "expiry"', () => {
+  it('uses the NIP-40 expiration tag, never "expiry"', async () => {
     const { participantSk, device } = setup()
-    const cred = createDeviceCredential({
-      participantSk,
+    const cred = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: device,
       roomId: ROOM,
       expiresAt: NOW + 3600,
@@ -80,10 +82,10 @@ describe('device credentials', () => {
     expect(names).not.toContain('expiry')
   })
 
-  it('rejects a credential with no expiration tag', () => {
+  it('rejects a credential with no expiration tag', async () => {
     const { participantSk, device } = setup()
-    const cred = createDeviceCredential({
-      participantSk,
+    const cred = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: device,
       roomId: ROOM,
       expiresAt: NOW + 3600,
@@ -93,7 +95,7 @@ describe('device credentials', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('rejects a credential whose expiration tag is not a number, rather than treating it as never expiring', () => {
+  it('rejects a credential whose expiration tag is not a number, rather than treating it as never expiring', async () => {
     const { participantSk, device } = setup()
     // Built (and genuinely signed) directly, rather than via
     // createDeviceCredential + post-hoc tampering: tampering the tag after
@@ -120,14 +122,14 @@ describe('device credentials', () => {
     expect(result).toEqual({ ok: false, reason: 'no expiration' })
   })
 
-  it('normalises the returned device to lower case, even when the credential names it in upper case', () => {
+  it('normalises the returned device to lower case, even when the credential names it in upper case', async () => {
     // The `device` tag is free text set by whoever minted the credential -
     // nothing forces lower case. Downstream (roster decode, secondary-device
     // adoption) compares this against a self-derived pubkey, which is always
     // canonical, so this must be too.
     const { participantSk, device } = setup()
-    const cred = createDeviceCredential({
-      participantSk,
+    const cred = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: device.toUpperCase(),
       roomId: ROOM,
       expiresAt: NOW + 3600,

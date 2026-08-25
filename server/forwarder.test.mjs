@@ -15,6 +15,7 @@ import { generateRoomSecret, deriveRoom } from '../dist/src/room.js'
 import { wrapSignal, unwrapSignal } from '../dist/src/signal.js'
 import { encodeRosterEvent, decodeRosterEvent } from '../dist/src/roster.js'
 import { createDeviceCredential } from '../dist/src/credential.js'
+import { localIdentity } from '../dist/src/identity.js'
 import { KINDS } from '../dist/src/kinds.js'
 import { SimRelay, SimTransport } from '../dist/test/sim-relay.js'
 
@@ -179,23 +180,23 @@ function makeDevice(transport) {
 }
 
 describe('loadConfigFromEnv', () => {
-  it('refuses to start without a room id', () => {
+  it('refuses to start without a room id', async () => {
     const env = baseEnv()
     delete env.KITHMOOT_ROOM_ID
     expect(() => loadConfigFromEnv(env)).toThrow(/KITHMOOT_ROOM_ID/)
   })
 
-  it('refuses a join URL where a room id belongs, and says why', () => {
+  it('refuses a join URL where a room id belongs, and says why', async () => {
     expect(() => loadConfigFromEnv(baseEnv({ KITHMOOT_ROOM_ID: 'https://kithmoot.example/#abc' }))).toThrow(
       /never be given the room secret/i,
     )
   })
 
-  it('refuses a room id that is not 32 bytes of hex', () => {
+  it('refuses a room id that is not 32 bytes of hex', async () => {
     expect(() => loadConfigFromEnv(baseEnv({ KITHMOOT_ROOM_ID: 'deadbeef' }))).toThrow(/64 hex/)
   })
 
-  it('accepts a room id in upper case and normalises it', () => {
+  it('accepts a room id in upper case and normalises it', async () => {
     const config = loadConfigFromEnv(baseEnv({ KITHMOOT_ROOM_ID: ROOM_ID.toUpperCase() }))
     expect(config.roomId).toBe(ROOM_ID)
   })
@@ -203,51 +204,51 @@ describe('loadConfigFromEnv', () => {
   // The claim this whole process exists to make, enforced at the only point
   // it can be enforced structurally: refusing to run at all if the room key
   // is anywhere in reach.
-  it('refuses to start if the environment offers it a room key or secret at all', () => {
+  it('refuses to start if the environment offers it a room key or secret at all', async () => {
     for (const name of ['KITHMOOT_ROOM_KEY', 'KITHMOOT_ROOM_SECRET', 'KITHMOOT_JOIN_URL']) {
       expect(() => loadConfigFromEnv(baseEnv({ [name]: 'anything' })), name).toThrow(/room id, never the room key/i)
     }
   })
 
-  it('refuses to start without relays', () => {
+  it('refuses to start without relays', async () => {
     const env = baseEnv()
     delete env.NOSTR_RELAYS
     expect(() => loadConfigFromEnv(env)).toThrow(/NOSTR_RELAYS/)
   })
 
-  it('refuses a relay that is not a WebSocket address', () => {
+  it('refuses a relay that is not a WebSocket address', async () => {
     expect(() => loadConfigFromEnv(baseEnv({ NOSTR_RELAYS: 'https://relay.example' }))).toThrow(/ws:|wss:/)
   })
 
-  it('refuses to start without a forwarder key, and says how to make one', () => {
+  it('refuses to start without a forwarder key, and says how to make one', async () => {
     const env = baseEnv()
     delete env.KITHMOOT_FORWARDER_SK
     expect(() => loadConfigFromEnv(env)).toThrow(/openssl rand -hex 32/)
   })
 
-  it('refuses a forwarder key that is not 32 bytes of hex', () => {
+  it('refuses a forwarder key that is not 32 bytes of hex', async () => {
     expect(() => loadConfigFromEnv(baseEnv({ KITHMOOT_FORWARDER_SK: 'nope' }))).toThrow(/KITHMOOT_FORWARDER_SK/)
   })
 
-  it('derives the forwarder pubkey from the key rather than taking it on trust', () => {
+  it('derives the forwarder pubkey from the key rather than taking it on trust', async () => {
     const config = loadConfigFromEnv(baseEnv())
     expect(config.pubkey).toBe(FORWARDER_PUB)
   })
 
-  it('defaults the advertised url to the first relay and the caps to their constants', () => {
+  it('defaults the advertised url to the first relay and the caps to their constants', async () => {
     const config = loadConfigFromEnv(baseEnv({ NOSTR_RELAYS: 'wss://a.example, wss://b.example' }))
     expect(config.url).toBe('wss://a.example')
     expect(config.maxPeers).toBe(DEFAULT_MAX_PEERS)
     expect(config.maxTracksPerPeer).toBe(DEFAULT_MAX_TRACKS_PER_PEER)
   })
 
-  it('refuses an advertised url that a client could not signal over', () => {
+  it('refuses an advertised url that a client could not signal over', async () => {
     expect(() => loadConfigFromEnv(baseEnv({ KITHMOOT_FORWARDER_URL: 'http://forward.example' }))).toThrow(
       /KITHMOOT_FORWARDER_URL/,
     )
   })
 
-  it('refuses a fan-out cap that is not a positive whole number', () => {
+  it('refuses a fan-out cap that is not a positive whole number', async () => {
     for (const bad of ['0', '-3', '2.5', 'lots']) {
       expect(() => loadConfigFromEnv(baseEnv({ KITHMOOT_MAX_PEERS: bad })), bad).toThrow(/KITHMOOT_MAX_PEERS/)
     }
@@ -255,7 +256,7 @@ describe('loadConfigFromEnv', () => {
 })
 
 describe('forwarderRef', () => {
-  it('is exactly the three fields a room descriptor may carry', () => {
+  it('is exactly the three fields a room descriptor may carry', async () => {
     const config = loadConfigFromEnv(baseEnv({ KITHMOOT_LABEL: 'trotters box' }))
     expect(forwarderRef(config)).toEqual({
       url: 'wss://relay.example',
@@ -264,7 +265,7 @@ describe('forwarderRef', () => {
     })
   })
 
-  it('carries neither the room key nor the forwarder secret key', () => {
+  it('carries neither the room key nor the forwarder secret key', async () => {
     const config = loadConfigFromEnv(baseEnv())
     const serialised = JSON.stringify(forwarderRef(config))
     expect(serialised).not.toContain(bytesToHex(FORWARDER_SK))
@@ -273,7 +274,7 @@ describe('forwarderRef', () => {
 })
 
 describe('the process, run directly', () => {
-  it('refuses to start with a clear message when the room id is unset', () => {
+  it('refuses to start with a clear message when the room id is unset', async () => {
     const env = { ...process.env, NOSTR_RELAYS: 'wss://relay.example' }
     delete env.KITHMOOT_ROOM_ID
     const result = spawnSync(process.execPath, [scriptPath], { env, encoding: 'utf8' })
@@ -281,7 +282,7 @@ describe('the process, run directly', () => {
     expect(result.stderr).toMatch(/KITHMOOT_ROOM_ID/)
   })
 
-  it('refuses to start when handed a room secret', () => {
+  it('refuses to start when handed a room secret', async () => {
     const env = { ...process.env, ...baseEnv({ KITHMOOT_ROOM_SECRET: 'shh' }) }
     const result = spawnSync(process.execPath, [scriptPath], { env, encoding: 'utf8' })
     expect(result.status).not.toBe(0)
@@ -290,12 +291,12 @@ describe('the process, run directly', () => {
 })
 
 describe('joining a room as a forwarder', () => {
-  it('says plainly at startup that it relays ciphertext it cannot read', () => {
+  it('says plainly at startup that it relays ciphertext it cannot read', async () => {
     const { logs } = standUpForwarder()
     expect(logs.join('\n')).toMatch(/ciphertext it cannot read/i)
   })
 
-  it('announces the room id it serves, and never a key', () => {
+  it('announces the room id it serves, and never a key', async () => {
     const { logs, config } = standUpForwarder()
     const joined = logs.join('\n')
     expect(joined).toContain(ROOM_ID)
@@ -309,8 +310,8 @@ describe('joining a room as a forwarder', () => {
     // that it is watching the room's membership.
     const participantSk = generateSecretKey()
     const deviceSk = generateSecretKey()
-    const credential = createDeviceCredential({
-      participantSk,
+    const credential = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: getPublicKey(deviceSk),
       roomId: ROOM_ID,
       expiresAt: Math.floor(Date.now() / 1000) + 3600,
@@ -469,7 +470,7 @@ describe('forwarding frames without decoding them', () => {
 
 /** The claim, at the process boundary. */
 describe('what a forwarder can and cannot see', () => {
-  it('cannot read a roster event for the room it is serving', () => {
+  it('cannot read a roster event for the room it is serving', async () => {
     const { config } = standUpForwarder()
     const participantSk = generateSecretKey()
     const deviceSk = generateSecretKey()
@@ -478,8 +479,8 @@ describe('what a forwarder can and cannot see', () => {
       {
         participant: getPublicKey(participantSk),
         device: getPublicKey(deviceSk),
-        credential: createDeviceCredential({
-          participantSk,
+        credential: await createDeviceCredential({
+          identity: localIdentity(participantSk),
           devicePubkey: getPublicKey(deviceSk),
           roomId: ROOM_ID,
           expiresAt: now + 3600,

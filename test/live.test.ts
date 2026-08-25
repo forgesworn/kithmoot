@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { RoomSession, NostrRelayPool, generateRoomSecret } from '../src/index.js'
 import { createFakeFactory } from './fake-rtc.js'
+import { localIdentity } from '../src/identity.js'
 
 const RELAYS = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
 
@@ -34,11 +35,11 @@ describe('live relays', () => {
     const phone = new RoomSession({
       transport: pool(),
       secret,
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: phoneSk,
       factory: phoneFactory,
     })
-    const laptop = new RoomSession({ transport: pool(), secret, participantSk, deviceSk: laptopSk })
+    const laptop = new RoomSession({ transport: pool(), secret, identity: localIdentity(participantSk), deviceSk: laptopSk })
     await phone.join([{ trackId: 'cam', role: 'camera' }], { mic: Math.floor(Date.now() / 1000) })
     await laptop.join([{ trackId: 'scr', role: 'screen' }], {})
     await settle(2000)
@@ -46,7 +47,7 @@ describe('live relays', () => {
     const observer = new RoomSession({
       transport: pool(),
       secret,
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
     })
     await observer.join([], {})
@@ -73,7 +74,7 @@ describe('live relays', () => {
     const outsider = new RoomSession({
       transport: pool(),
       secret: generateRoomSecret(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
     })
     await outsider.join([], {})
@@ -81,7 +82,7 @@ describe('live relays', () => {
     const member = new RoomSession({
       transport: pool(),
       secret,
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: generateSecretKey(),
     })
     await member.join([], {})

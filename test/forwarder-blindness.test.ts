@@ -26,6 +26,7 @@ import { encodeDescriptorEvent, decodeDescriptorEvent } from '../src/descriptor.
 import { createDeviceCredential } from '../src/credential.js'
 import { KINDS } from '../src/kinds.js'
 import { unwrapSignal, wrapSignal } from '../src/signal.js'
+import { localIdentity } from '../src/identity.js'
 import {
   MEDIA_KEY_INFO,
   SALT_LENGTH,
@@ -95,7 +96,7 @@ function everyKeyTheForwarderHolds(config: { secretKey: Uint8Array; roomId: stri
 // ---------------------------------------------------------------------------
 
 describe('a forwarder is given the room id, never the room key', () => {
-  it('refuses to start at all if the room key is within its reach', () => {
+  it('refuses to start at all if the room key is within its reach', async () => {
     // Structural, not a promise kept by good behaviour: there is no
     // configuration of this process that carries a room key.
     for (const name of ['KITHMOOT_ROOM_KEY', 'KITHMOOT_ROOM_SECRET', 'KITHMOOT_JOIN_URL']) {
@@ -110,7 +111,7 @@ describe('a forwarder is given the room id, never the room key', () => {
     ).toThrow(/never be given the room secret/i)
   })
 
-  it('holds nothing from which the room key can be derived', () => {
+  it('holds nothing from which the room key can be derived', async () => {
     const config = loadConfigFromEnv(forwarderEnv())
     const alice = getPublicKey(generateSecretKey())
     const candidates = everyKeyTheForwarderHolds(config, [alice])
@@ -124,7 +125,7 @@ describe('a forwarder is given the room id, never the room key', () => {
 })
 
 describe("a forwarder's view of the roster is opaque", () => {
-  it('cannot read a roster entry, while a member can read the same one', () => {
+  it('cannot read a roster entry, while a member can read the same one', async () => {
     const config = loadConfigFromEnv(forwarderEnv())
     const participantSk = generateSecretKey()
     const deviceSk = generateSecretKey()
@@ -133,8 +134,8 @@ describe("a forwarder's view of the roster is opaque", () => {
       {
         participant: getPublicKey(participantSk),
         device,
-        credential: createDeviceCredential({
-          participantSk,
+        credential: await createDeviceCredential({
+          identity: localIdentity(participantSk),
           devicePubkey: device,
           roomId: ROOM_ID,
           expiresAt: NOW + 3600,
@@ -156,7 +157,7 @@ describe("a forwarder's view of the roster is opaque", () => {
     expect(read?.tracks).toEqual([{ trackId: 'alice-cam', role: 'camera' }])
   })
 
-  it('learns nothing about the room from the descriptor that names it', () => {
+  it('learns nothing about the room from the descriptor that names it', async () => {
     const config = loadConfigFromEnv(forwarderEnv())
     const participantSk = generateSecretKey()
     const deviceSk = generateSecretKey()
@@ -165,8 +166,8 @@ describe("a forwarder's view of the roster is opaque", () => {
       {
         device,
         participant: getPublicKey(participantSk),
-        credential: createDeviceCredential({
-          participantSk,
+        credential: await createDeviceCredential({
+          identity: localIdentity(participantSk),
           devicePubkey: device,
           roomId: ROOM_ID,
           expiresAt: NOW + 3600,
@@ -218,7 +219,7 @@ describe("a forwarder's view of the roster is opaque", () => {
     const alice = new RoomSession({
       transport: new SimTransport(relay),
       secret: ROOM_SECRET,
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -226,7 +227,7 @@ describe("a forwarder's view of the roster is opaque", () => {
     const bob = new RoomSession({
       transport: new SimTransport(relay),
       secret: ROOM_SECRET,
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       announceJitterMs: 0,
@@ -376,7 +377,7 @@ describe('a forwarder cannot forge attribution for a track it relays', () => {
     return encryptFrame(frame, deriveMediaKey(ROOM_KEY, aliceDevice), frameIv(salt, counter), prefix)
   }
 
-  it("cannot relabel one member's stream as another member's", () => {
+  it("cannot relabel one member's stream as another member's", async () => {
     const sealed = aliceFrame()
     // The forwarder relays Alice's real ciphertext, untouched, but presents
     // it on the track the roster says is Carol's. This is the only
@@ -390,7 +391,7 @@ describe('a forwarder cannot forge attribution for a track it relays', () => {
     expect(decryptFrame(sealed, deriveMediaKey(ROOM_KEY, aliceDevice))).not.toBeNull()
   })
 
-  it('cannot invent media for a member', () => {
+  it('cannot invent media for a member', async () => {
     const config = loadConfigFromEnv(forwarderEnv())
     const invented = new Uint8Array([0x10, 0x02, 0x00, ...Array.from({ length: 32 }, () => 0x41)])
     for (const key of everyKeyTheForwarderHolds(config, [aliceDevice, carolDevice, FORWARDER_PUB])) {
@@ -402,7 +403,7 @@ describe('a forwarder cannot forge attribution for a track it relays', () => {
     }
   })
 
-  it('cannot alter the one part of a frame it can read', () => {
+  it('cannot alter the one part of a frame it can read', async () => {
     const sealed = aliceFrame()
     // The codec header is in the clear so the forwarder can route on frame
     // type - and it is passed as associated data, so changing it breaks the
@@ -435,8 +436,8 @@ describe('a forwarder cannot forge attribution for a track it relays', () => {
       {
         participant: getPublicKey(alicePartSk),
         device: getPublicKey(aliceDevSk),
-        credential: createDeviceCredential({
-          participantSk: config.secretKey,
+        credential: await createDeviceCredential({
+          identity: localIdentity(config.secretKey),
           devicePubkey: FORWARDER_PUB,
           roomId: ROOM_ID,
           expiresAt: NOW + 3600,

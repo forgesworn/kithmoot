@@ -5,17 +5,18 @@ import { deriveRoom } from './room.js'
 import { createDeviceCredential } from './credential.js'
 import { encodeRosterEvent, decodeRosterEvent, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import type { RosterEntry } from './types.js'
+import { localIdentity } from './identity.js'
 
 const NOW = 1_800_000_000
 
-function fixture() {
+async function fixture() {
   const secret = new Uint8Array(32).fill(9)
   const { roomId, roomKey } = deriveRoom(secret)
   const participantSk = generateSecretKey()
   const deviceSk = generateSecretKey()
   const device = getPublicKey(deviceSk)
-  const credential = createDeviceCredential({
-    participantSk,
+  const credential = await createDeviceCredential({
+    identity: localIdentity(participantSk),
     devicePubkey: device,
     roomId,
     expiresAt: NOW + 3600,
@@ -32,8 +33,8 @@ function fixture() {
 }
 
 describe('roster events', () => {
-  it('round-trips an entry through encryption', () => {
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+  it('round-trips an entry through encryption', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
     const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
     // Compared against the wire shape rather than the fixture object: the
@@ -43,8 +44,8 @@ describe('roster events', () => {
     expect(decoded).toEqual(JSON.parse(JSON.stringify(entry)))
   })
 
-  it('hands back a credential that is not pre-marked verified', () => {
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+  it('hands back a credential that is not pre-marked verified', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
     const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
     // A decoded credential carrying a cached verdict would make any later
@@ -52,42 +53,42 @@ describe('roster events', () => {
     expect(decoded!.credential[verifiedSymbol]).toBeUndefined()
   })
 
-  it('leaves no participant pubkey readable on the wire', () => {
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+  it('leaves no participant pubkey readable on the wire', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
     const wire = JSON.stringify(event)
     expect(wire).not.toContain(entry.participant)
   })
 
-  it('tags the event with the room id so it is subscribable', () => {
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+  it('tags the event with the room id so it is subscribable', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
     expect(event.tags).toContainEqual(['d', roomId])
   })
 
-  it('returns null when the room key is wrong', () => {
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+  it('returns null when the room key is wrong', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
     const wrongKey = new Uint8Array(32).fill(1)
     expect(decodeRosterEvent(event, { roomId, roomKey: wrongKey, now: NOW })).toBeNull()
   })
 
-  it('returns null when the credential does not authorise the signing device', () => {
-    const { roomId, roomKey, entry } = fixture()
+  it('returns null when the credential does not authorise the signing device', async () => {
+    const { roomId, roomKey, entry } = await fixture()
     const impostorSk = generateSecretKey()
     // The impostor signs the event, but the credential names a different device.
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk: impostorSk })
     expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('returns null when the credential has expired', () => {
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+  it('returns null when the credential has expired', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
     expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW + 999_999 })).toBeNull()
   })
 
-  it('re-verifies the signature even when the event arrives pre-marked verified', () => {
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+  it('re-verifies the signature even when the event arrives pre-marked verified', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const genuine = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
 
     // Everything the decoder checks after decryption still lines up - the
@@ -108,20 +109,20 @@ describe('roster events', () => {
     expect(decodeRosterEvent(forged, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('returns null for malformed ciphertext rather than throwing', () => {
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+  it('returns null for malformed ciphertext rather than throwing', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = { ...encodeRosterEvent(entry, { roomId, roomKey, deviceSk }), content: 'rubbish' }
     expect(() => decodeRosterEvent(event, { roomId, roomKey, now: NOW })).not.toThrow()
     expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('normalises device and participant to lower case, even when the entry itself names them in upper case', () => {
+  it('normalises device and participant to lower case, even when the entry itself names them in upper case', async () => {
     // Nothing on the wire stops a publisher writing its own device/participant
     // fields in upper-case hex - the signature only binds the event, not the
     // case of a string inside its encrypted JSON content. This is the
     // boundary: everything downstream (`Peer`'s tiebreak, `resolveSingularRoles`,
     // every Map/Set keyed on a device string) must see one canonical spelling.
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const shouted: RosterEntry = { ...entry, device: entry.device.toUpperCase(), participant: entry.participant.toUpperCase() }
     const event = encodeRosterEvent(shouted, { roomId, roomKey, deviceSk })
 
@@ -131,30 +132,30 @@ describe('roster events', () => {
     expect(decoded?.participant).toBe(entry.participant.toLowerCase())
   })
 
-  it('BUG (M4): refuses an entry stamped further into the future than clock skew allows', () => {
+  it('BUG (M4): refuses an entry stamped further into the future than clock skew allows', async () => {
     // `updatedAt` decides which of two entries for one device wins, so an
     // entry stamped in the year 3000 can never be superseded by a genuine
     // later one - the device pins itself into the roster for good.
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent({ ...entry, updatedAt: 9e15 }, { roomId, roomKey, deviceSk })
 
     expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('accepts an entry from a device whose clock is a little fast', () => {
+  it('accepts an entry from a device whose clock is a little fast', async () => {
     // Real clocks disagree. The rule has to refuse a pin without refusing a
     // device that is thirty seconds ahead.
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const ahead = NOW + MAX_FUTURE_SKEW_SECONDS - 1
     const event = encodeRosterEvent({ ...entry, updatedAt: ahead }, { roomId, roomKey, deviceSk })
 
     expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })?.updatedAt).toBe(ahead)
   })
 
-  it('BUG (M4): drops a singular-role claim stamped further into the future than clock skew allows', () => {
+  it('BUG (M4): drops a singular-role claim stamped further into the future than clock skew allows', async () => {
     // Most recent claim wins, so a claim stamped in the year 3000 locks the
     // microphone against that participant's own other devices for ever.
-    const { roomId, roomKey, deviceSk, entry } = fixture()
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent(
       { ...entry, claims: { mic: 9e15, monitor: NOW } },
       { roomId, roomKey, deviceSk },

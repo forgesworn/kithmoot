@@ -6,6 +6,7 @@ import { KINDS } from './kinds.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
 import { normaliseHex } from './hex.js'
+import type { ParticipantIdentity } from './identity.js'
 import type { RelayTransport } from './relay-pool.js'
 import type { DeviceCredential } from './types.js'
 
@@ -196,8 +197,10 @@ export interface HostPairingOptions {
   roomId: string
   roomKey: Uint8Array
   code: Uint8Array
-  /** The participant key. It never leaves this device - it only signs. */
-  participantSk: Uint8Array
+  /** The participant. A locally held key or an external signer - either
+   *  way the secret never reaches this function, which only asks it to
+   *  sign. See `ParticipantIdentity`. */
+  identity: ParticipantIdentity
   /** This device's own key, which signs the grant envelope. */
   deviceSk: Uint8Array
   /** How long the issued credential lives. */
@@ -229,19 +232,29 @@ export function hostPairing(opts: HostPairingOptions): { close(): void } {
       if (!request) return
       if (opts.approve && !opts.approve(request.device)) return
 
-      const credential = createDeviceCredential({
-        participantSk: opts.participantSk,
-        devicePubkey: request.device,
-        roomId: opts.roomId,
-        expiresAt: now() + (opts.ttlSeconds ?? DEFAULT_TTL_SECONDS),
-      })
-      const grant = encodePairingGrant(credential, {
-        roomId: opts.roomId,
-        roomKey: opts.roomKey,
-        deviceSk: opts.deviceSk,
-      })
-      opts.transport.publish(grant).catch(() => {})
-      opts.onPaired?.(request.device)
+      // Minting is asynchronous now that the participant may be an external
+      // signer: an extension prompt or a relay hop to a bunker. The
+      // subscription handler cannot wait for it - a throw here would take
+      // down the room - so the mint runs on its own and a signer that
+      // refuses, or never answers, simply leaves the request unanswered.
+      // The secondary re-sends until it times out, which is the same
+      // recovery a dropped grant already had. See `requestPairing`.
+      void (async () => {
+        const credential = await createDeviceCredential({
+          identity: opts.identity,
+          devicePubkey: request.device,
+          roomId: opts.roomId,
+          expiresAt: now() + (opts.ttlSeconds ?? DEFAULT_TTL_SECONDS),
+          now,
+        })
+        const grant = encodePairingGrant(credential, {
+          roomId: opts.roomId,
+          roomKey: opts.roomKey,
+          deviceSk: opts.deviceSk,
+        })
+        opts.transport.publish(grant).catch(() => {})
+        opts.onPaired?.(request.device)
+      })().catch(() => {})
     },
   )
 

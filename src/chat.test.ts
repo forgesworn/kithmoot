@@ -3,6 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, verifiedSymbol, type Ev
 import { nip44 } from 'nostr-tools'
 import { deriveRoom } from './room.js'
 import { createDeviceCredential } from './credential.js'
+import { localIdentity } from './identity.js'
 import { encodeChatEvent, decodeChatEvent, ChatLog } from './chat.js'
 import type { ChatMessage } from './chat.js'
 import { KINDS } from './kinds.js'
@@ -10,15 +11,15 @@ import { SimRelay, SimTransport } from '../test/sim-relay.js'
 
 const NOW = 1_800_000_000
 
-function fixture() {
+async function fixture() {
   const secret = new Uint8Array(32).fill(7)
   const { roomId, roomKey } = deriveRoom(secret)
   const deviceSk = generateSecretKey()
   const device = getPublicKey(deviceSk)
   const participantSk = generateSecretKey()
   const participant = getPublicKey(participantSk)
-  const credential = createDeviceCredential({
-    participantSk,
+  const credential = await createDeviceCredential({
+    identity: localIdentity(participantSk),
     devicePubkey: device,
     roomId,
     expiresAt: NOW + 3600,
@@ -31,14 +32,14 @@ function fixture() {
     text: 'hello room',
     sentAt: NOW,
   }
-  return { roomId, roomKey, deviceSk, participantSk, credential, msg }
+  return { roomId, roomKey, deviceSk, identity: localIdentity(participantSk), credential, msg }
 }
 
 /** A credential for `deviceSk`, minted by a freshly generated participant. */
-function credentialFor(deviceSk: Uint8Array, roomId: string) {
+async function credentialFor(deviceSk: Uint8Array, roomId: string) {
   const participantSk = generateSecretKey()
   return createDeviceCredential({
-    participantSk,
+    identity: localIdentity(participantSk),
     devicePubkey: getPublicKey(deviceSk),
     roomId,
     expiresAt: NOW + 3600,
@@ -46,8 +47,8 @@ function credentialFor(deviceSk: Uint8Array, roomId: string) {
 }
 
 describe('encodeChatEvent / decodeChatEvent', () => {
-  it('round-trips a message through encryption', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('round-trips a message through encryption', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
     const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
     // Against the wire shape, not the fixture object: the ciphertext is
@@ -56,49 +57,49 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     expect(decoded).toEqual(JSON.parse(JSON.stringify(msg)))
   })
 
-  it('leaves the message text unreadable on the wire', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('leaves the message text unreadable on the wire', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
     const wire = JSON.stringify(event)
     expect(wire).not.toContain(msg.text)
     expect(wire).not.toContain(msg.participant)
   })
 
-  it('tags the event with the room id so it is subscribable', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('tags the event with the room id so it is subscribable', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
     expect(event.tags).toContainEqual(['d', roomId])
   })
 
-  it('is a durable kind, not an ephemeral one', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('is a durable kind, not an ephemeral one', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
     expect(event.kind).toBeGreaterThanOrEqual(1000)
     expect(event.kind).toBeLessThan(10000)
   })
 
-  it('returns null when the room key is wrong', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('returns null when the room key is wrong', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
     const wrongKey = new Uint8Array(32).fill(1)
     expect(decodeChatEvent(event, { roomId, roomKey: wrongKey, now: NOW })).toBeNull()
   })
 
-  it('returns null when the room id does not match', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('returns null when the room id does not match', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
     expect(decodeChatEvent(event, { roomId: 'a-different-room', roomKey, now: NOW })).toBeNull()
   })
 
-  it('returns null for malformed ciphertext rather than throwing', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('returns null for malformed ciphertext rather than throwing', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     const event = { ...encodeChatEvent(msg, { roomId, roomKey, deviceSk }), content: 'rubbish' }
     expect(() => decodeChatEvent(event, { roomId, roomKey, now: NOW })).not.toThrow()
     expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('returns null for a payload that decrypts but is not a chat message', () => {
-    const { roomId, roomKey, deviceSk } = fixture()
+  it('returns null for a payload that decrypts but is not a chat message', async () => {
+    const { roomId, roomKey, deviceSk } = await fixture()
     // Built by hand rather than via encodeChatEvent, which requires a
     // well-formed ChatMessage to construct a valid event in the first
     // place - this proves decodeChatEvent is defensive at runtime, not
@@ -108,8 +109,8 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     expect(decodeChatEvent(notAMessage, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('re-verifies the signature even when the event arrives pre-marked verified', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('re-verifies the signature even when the event arrives pre-marked verified', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     const genuine = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
 
     // The attacker holds the room key, so they can mint ciphertext the room
@@ -127,8 +128,8 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     expect(decodeChatEvent(forged, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('refuses a message attributing itself to a participant the signer cannot speak for', () => {
-    const { roomId, roomKey } = fixture()
+  it('refuses a message attributing itself to a participant the signer cannot speak for', async () => {
+    const { roomId, roomKey } = await fixture()
     // The whole attack: a genuine room member signs with their own device
     // key - so the device check passes - and simply names the victim in the
     // participant field. Nothing binds the two, so the message renders under
@@ -140,8 +141,8 @@ describe('encodeChatEvent / decodeChatEvent', () => {
       id: 'forged',
       participant: victim,
       device: getPublicKey(attackerDeviceSk),
-      credential: createDeviceCredential({
-        participantSk: attackerParticipantSk,
+      credential: await createDeviceCredential({
+        identity: localIdentity(attackerParticipantSk),
         devicePubkey: getPublicKey(attackerDeviceSk),
         roomId,
         expiresAt: NOW + 3600,
@@ -154,8 +155,8 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('still verifies a message whose credential has expired since it was sent', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('still verifies a message whose credential has expired since it was sent', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
     // Chat is durable and credentials expire in hours, so a late joiner
     // reading history is always reading messages signed under credentials
@@ -166,8 +167,8 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     )
   })
 
-  it('refuses a message dated far into the future', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
+  it('refuses a message dated far into the future', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
     // Otherwise the window in which the credential is checked could be
     // pushed forward indefinitely.
     const future = { ...msg, sentAt: NOW + 86_400 }
@@ -175,8 +176,8 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('refuses a message whose credential names a different device', () => {
-    const { roomId, roomKey, msg } = fixture()
+  it('refuses a message whose credential names a different device', async () => {
+    const { roomId, roomKey, msg } = await fixture()
     // The credential is genuine and the participant is genuine - but it
     // authorises somebody else's device, and this event was signed by ours.
     const otherDeviceSk = generateSecretKey()
@@ -185,10 +186,10 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('refuses a credential minted for a different room', () => {
-    const { roomId, roomKey, deviceSk, msg } = fixture()
-    const elsewhere = createDeviceCredential({
-      participantSk: generateSecretKey(),
+  it('refuses a credential minted for a different room', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const elsewhere = await createDeviceCredential({
+      identity: localIdentity(generateSecretKey()),
       devicePubkey: getPublicKey(deviceSk),
       roomId: 'some-other-room',
       expiresAt: NOW + 3600,
@@ -200,8 +201,8 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
 
-  it('returns null when the event claims a device that did not sign it', () => {
-    const { roomId, roomKey, msg } = fixture()
+  it('returns null when the event claims a device that did not sign it', async () => {
+    const { roomId, roomKey, msg } = await fixture()
     const impostorSk = generateSecretKey()
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk: impostorSk })
     expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
@@ -213,7 +214,7 @@ describe('ChatLog', () => {
     const relay = new SimRelay()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))
     const deviceSk = generateSecretKey()
-    const credential = credentialFor(deviceSk, roomId)
+    const credential = await credentialFor(deviceSk, roomId)
     const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
 
     await log.send('hello')
@@ -231,7 +232,7 @@ describe('ChatLog', () => {
     const relay = new SimRelay()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))
     const deviceSk = generateSecretKey()
-    const credential = credentialFor(deviceSk, roomId)
+    const credential = await credentialFor(deviceSk, roomId)
     const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
     const snapshots: number[] = []
     log.onChange((messages) => snapshots.push(messages.length))
@@ -245,7 +246,7 @@ describe('ChatLog', () => {
     const relay = new SimRelay()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))
     const deviceSk = generateSecretKey()
-    const credential = credentialFor(deviceSk, roomId)
+    const credential = await credentialFor(deviceSk, roomId)
     const participant = credential.pubkey
     const device = getPublicKey(deviceSk)
 
@@ -269,7 +270,7 @@ describe('ChatLog', () => {
     const relay = new SimRelay()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))
     const deviceSk = generateSecretKey()
-    const credential = credentialFor(deviceSk, roomId)
+    const credential = await credentialFor(deviceSk, roomId)
     const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
 
     const attackerDeviceSk = generateSecretKey()
@@ -277,7 +278,7 @@ describe('ChatLog', () => {
       id: 'forged',
       participant: credential.pubkey, // the victim, whose log this is
       device: getPublicKey(attackerDeviceSk),
-      credential: credentialFor(attackerDeviceSk, roomId),
+      credential: await credentialFor(attackerDeviceSk, roomId),
       text: 'rendered on the victim\u2019s own screen as \u201cyou\u201d',
       sentAt: NOW,
     }
@@ -290,7 +291,7 @@ describe('ChatLog', () => {
     const relay = new SimRelay()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))
     const deviceSk = generateSecretKey()
-    const credential = credentialFor(deviceSk, roomId)
+    const credential = await credentialFor(deviceSk, roomId)
     const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
     log.onChange(() => {
       throw new Error('a caller render() blew up')

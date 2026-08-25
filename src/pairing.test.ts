@@ -4,6 +4,7 @@ import { bytesToHex } from '@noble/hashes/utils'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { deriveRoom } from './room.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
+import { localIdentity } from './identity.js'
 import {
   createPairingCode,
   encodePairingRequest,
@@ -22,7 +23,7 @@ function room() {
 }
 
 describe('pairing codes and envelopes', () => {
-  it('binds a request to the code and to the requesting device', () => {
+  it('binds a request to the code and to the requesting device', async () => {
     const { roomId, roomKey } = room()
     const code = createPairingCode()
     const phoneSk = generateSecretKey()
@@ -34,7 +35,7 @@ describe('pairing codes and envelopes', () => {
     })
   })
 
-  it('rejects a request that does not know the code', () => {
+  it('rejects a request that does not know the code', async () => {
     const { roomId, roomKey } = room()
     const phoneSk = generateSecretKey()
     const event = encodePairingRequest({
@@ -51,7 +52,7 @@ describe('pairing codes and envelopes', () => {
     expect(decodePairingRequest(event, { code: createPairingCode(), roomId, roomKey })).toBeNull()
   })
 
-  it('rejects a request replayed by another device under the same code', () => {
+  it('rejects a request replayed by another device under the same code', async () => {
     const { roomId, roomKey } = room()
     const code = createPairingCode()
     const phoneSk = generateSecretKey()
@@ -72,7 +73,7 @@ describe('pairing codes and envelopes', () => {
     expect(decodePairingRequest(replayed, { code, roomId, roomKey })).toBeNull()
   })
 
-  it('rejects a request for a different room', () => {
+  it('rejects a request for a different room', async () => {
     const { roomId, roomKey } = room()
     const code = createPairingCode()
     const event = encodePairingRequest({
@@ -85,14 +86,14 @@ describe('pairing codes and envelopes', () => {
     expect(decodePairingRequest(event, { code, roomId, roomKey })).toBeNull()
   })
 
-  it('carries a credential to the requesting device and nothing else', () => {
+  it('carries a credential to the requesting device and nothing else', async () => {
     const { roomId, roomKey } = room()
     const participantSk = generateSecretKey()
     const phoneSk = generateSecretKey()
     const laptopSk = generateSecretKey()
 
-    const credential = createDeviceCredential({
-      participantSk,
+    const credential = await createDeviceCredential({
+      identity: localIdentity(participantSk),
       devicePubkey: getPublicKey(phoneSk),
       roomId,
       expiresAt: NOW + 3600,
@@ -119,10 +120,10 @@ describe('pairing codes and envelopes', () => {
     })
   })
 
-  it('ignores a grant addressed to a different device', () => {
+  it('ignores a grant addressed to a different device', async () => {
     const { roomId, roomKey } = room()
-    const credential = createDeviceCredential({
-      participantSk: generateSecretKey(),
+    const credential = await createDeviceCredential({
+      identity: localIdentity(generateSecretKey()),
       devicePubkey: getPublicKey(generateSecretKey()),
       roomId,
       expiresAt: NOW + 3600,
@@ -148,7 +149,7 @@ describe('the pairing exchange', () => {
       roomId,
       roomKey,
       code,
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: laptopSk,
       now,
     })
@@ -186,7 +187,7 @@ describe('the pairing exchange', () => {
       roomId,
       roomKey,
       code,
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: generateSecretKey(),
       ttlSeconds: 900,
       now,
@@ -223,7 +224,7 @@ describe('the pairing exchange', () => {
       roomId,
       roomKey,
       code: createPairingCode(),
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
     })
@@ -255,7 +256,7 @@ describe('the pairing exchange', () => {
       roomId,
       roomKey,
       code,
-      participantSk: generateSecretKey(),
+      identity: localIdentity(generateSecretKey()),
       deviceSk: generateSecretKey(),
       now,
       approve: (device) => {

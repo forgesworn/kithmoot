@@ -10,6 +10,7 @@ import {
   createPairingCode,
   hostPairing,
   requestPairing,
+  localIdentity,
   type DeviceCredential,
   type RoomPolicy,
   type ParticipantView,
@@ -714,7 +715,7 @@ async function startSession(): Promise<void> {
       : new RoomSession({
           transport: new NostrRelayPool(relays),
           secret: roomSecret,
-          participantSk: participantKey(),
+          identity: localIdentity(participantKey()),
           deviceSk,
           factory,
           policy: roomPolicy,
@@ -803,7 +804,7 @@ $('addDevice').addEventListener('click', () => {
       roomId,
       roomKey,
       code,
-      participantSk,
+      identity: localIdentity(participantSk),
       deviceSk: deviceKey(),
       approve: (device) =>
         confirm(`Add the device ${device.slice(0, 12)}… to this room as you, for the next 12 hours?`),

@@ -2,6 +2,8 @@ import { getPublicKey } from 'nostr-tools/pure'
 import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
+import { normaliseHex } from './hex.js'
+import type { ParticipantIdentity } from './identity.js'
 import { encodeRosterEvent, decodeRosterEvent } from './roster.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
@@ -80,12 +82,17 @@ export interface RoomSessionBaseOptions {
 }
 
 /**
- * The primary device: the one endpoint that holds the participant key. It
+ * The primary device: the one endpoint that can sign for the participant. It
  * mints its own credential at join and can issue credentials for the
  * participant's other devices via `issueDeviceCredential`.
+ *
+ * "Can sign for" rather than "holds the key", because both are primary: a
+ * key generated and held here (`localIdentity`), or an external signer -
+ * an extension, a bunker, a phone - where this app never sees the secret at
+ * all. See `ParticipantIdentity`.
  */
 export interface PrimaryRoomSessionOptions extends RoomSessionBaseOptions {
-  participantSk: Uint8Array
+  identity: ParticipantIdentity
   credential?: never
 }
 
@@ -98,7 +105,7 @@ export interface PrimaryRoomSessionOptions extends RoomSessionBaseOptions {
  */
 export interface SecondaryRoomSessionOptions extends RoomSessionBaseOptions {
   credential: DeviceCredential
-  participantSk?: never
+  identity?: never
 }
 
 export type RoomSessionOptions = PrimaryRoomSessionOptions | SecondaryRoomSessionOptions
@@ -145,7 +152,7 @@ export class RoomSession {
   /** This endpoint's pubkey. */
   readonly device: string
   /** The person this endpoint speaks for. On a primary device this is the
-   *  participant key's pubkey; on a secondary it is read off the credential,
+   *  identity's pubkey; on a secondary it is read off the credential,
    *  which is the only thing that could have told us. */
   readonly participant: string
   #roomKey: Uint8Array
@@ -181,8 +188,12 @@ export class RoomSession {
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.device = getPublicKey(opts.deviceSk)
 
-    if (opts.participantSk) {
-      this.participant = getPublicKey(opts.participantSk)
+    if (opts.identity) {
+      // A pubkey handed over by an external signer is a hex string off a
+      // boundary like any other - canonicalise it here so every later
+      // comparison against a roster entry or a credential is correct by
+      // construction. See `hex.ts`'s `normaliseHex`.
+      this.participant = normaliseHex(opts.identity.pubkey)
       return
     }
 
@@ -198,20 +209,28 @@ export class RoomSession {
 
   /**
    * Mint a room-scoped, expiring credential authorising another of this
-   * participant's devices. Only a primary device can: minting requires the
-   * participant key, and a secondary deliberately does not have it.
+   * participant's devices. Only a primary device can: minting needs a
+   * signature from the participant, and a secondary deliberately cannot
+   * produce one.
+   *
+   * Asynchronous because the signer may be somewhere else entirely - see
+   * `ParticipantIdentity`.
    *
    * This is what a pairing flow transfers - never the participant key
    * itself. See `pairing.ts`.
    */
-  issueDeviceCredential(devicePubkey: string, ttlSeconds = CREDENTIAL_TTL_SECONDS): DeviceCredential {
-    const participantSk = this.#opts.participantSk
-    if (!participantSk) throw new Error('this device has no participant key, so it cannot issue credentials')
+  async issueDeviceCredential(
+    devicePubkey: string,
+    ttlSeconds = CREDENTIAL_TTL_SECONDS,
+  ): Promise<DeviceCredential> {
+    const identity = this.#opts.identity
+    if (!identity) throw new Error('this device cannot sign for the participant, so it cannot issue credentials')
     return createDeviceCredential({
-      participantSk,
+      identity,
       devicePubkey,
       roomId: this.roomId,
       expiresAt: this.#now() + ttlSeconds,
+      now: this.#now,
     })
   }
 
@@ -229,7 +248,7 @@ export class RoomSession {
     const device = this.device
     // A secondary device uses the credential it was issued; only a primary,
     // which is the only endpoint holding the participant key, can mint one.
-    const credential = this.#credential ?? this.issueDeviceCredential(device)
+    const credential = this.#credential ?? (await this.issueDeviceCredential(device))
 
     this.#self = { credential, tracks, claims }
     await this.#publishEntry(false)
