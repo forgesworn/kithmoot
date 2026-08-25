@@ -51,3 +51,30 @@ export type { ForwarderRef, IceServerRef } from './types.js'
 export { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 export type { EncodeDescriptorOptions, DecodeDescriptorOptions } from './descriptor.js'
 export type { RoomDescriptor } from './types.js'
+export {
+  deriveMediaKey,
+  encryptFrame,
+  decryptFrame,
+  frameIv,
+  randomFrameSalt,
+  unencryptedPrefixLength,
+  createFrameEncryptor,
+  createFrameDecryptor,
+  installTransforms,
+  MEDIA_KEY_INFO,
+  IV_LENGTH,
+  SALT_LENGTH,
+  TAG_LENGTH,
+  TRAILER_LENGTH,
+} from './media-crypto.js'
+export type {
+  EncodedFrameLike,
+  FrameSink,
+  FrameTransformer,
+  FrameType,
+  FrameCryptoOptions,
+  FrameEndpointLike,
+  TransformablePeerConnection,
+  InstallTransformsOptions,
+  InstalledTransforms,
+} from './media-crypto.js'
