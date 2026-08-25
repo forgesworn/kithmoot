@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>KithMoot — a town hall nobody owns</title>
+    <title>KithMoot: a town hall nobody owns</title>
     <meta
       name="description"
       content="Conference rooms over Nostr. A person is the unit that joins a room, not a device: bring a phone and a laptop and everyone else sees one participant, not two. No account, no server to run, no operator holding the guest list."
@@ -15,7 +15,7 @@
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="canonical" href="https://kithmoot.forgesworn.dev/" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="KithMoot — a town hall nobody owns" />
+    <meta property="og:title" content="KithMoot: a town hall nobody owns" />
     <meta
       property="og:description"
       content="Conference rooms over Nostr. A person is the unit that joins a room, not a device."
@@ -52,7 +52,7 @@
         <p class="lead">
           Bring a phone for the camera and microphone, and a laptop for the screen share.
           Everyone else in the room sees <strong>one participant</strong> carrying three
-          tracks — not two strangers who happen to share a name.
+          tracks, not two strangers who happen to share a name.
         </p>
         <p>
           Every incumbent gets this wrong, Jitsi included. Identity is per-connection, so the
@@ -80,8 +80,8 @@
 
           <dt>No account</dt>
           <dd>
-            Type a name and you are in. The name is self-asserted — anyone can type any
-            name, including yours — so a short version of your key sits beside it
+            Type a name and you are in. The name is self-asserted. Anyone can type any
+            name, including yours, so a short version of your key sits beside it
             everywhere. If you would rather use a Nostr key you already hold, sign in with
             an extension, a bunker or Amber; the key stays where it is and this page never
             holds it.
@@ -91,7 +91,7 @@
           <dd>
             Rooms ride the public Nostr relays that already exist. Presence and chat are
             encrypted to the room key, so a relay carrying a room cannot read its guest
-            list — by name or by key.
+            list, by name or by key.
           </dd>
         </dl>
       </section>
@@ -99,8 +99,9 @@
       <section id="screens">
         <h2>What it looks like</h2>
         <p class="lead">
-          Screenshots from a Pixel 10 Pro XL running the native Android client. Nothing here
-          is a mockup.
+          The native Android client, as it ships. The start screen is off a Pixel 10 Pro XL;
+          the two room shots are off an Android emulator, so the camera is pointed at its
+          synthetic test scene rather than at anybody's front room. None of it is a mockup.
         </p>
         <div class="shots">
           <figure>
@@ -115,6 +116,38 @@
             <figcaption>
               The front door. Start a room and send the link, or paste one somebody sent
               you.
+            </figcaption>
+          </figure>
+          <figure>
+            <a href="https://github.com/forgesworn/kithmoot-android/blob/main/docs/screenshots/42-api35-share-stopped-camera-mic-live.png">
+              <img
+                src="img/camera-live.webp"
+                width="540"
+                height="1110"
+                alt="A room on Android showing one tile of live camera video, labelled You, with a badge reading Mic on this device."
+                loading="lazy"
+              />
+            </a>
+            <figcaption>
+              In a room with the camera and microphone live, both relays up. The badge names
+              which of your devices is holding the microphone.
+            </figcaption>
+          </figure>
+          <figure>
+            <a href="https://github.com/forgesworn/kithmoot-android/blob/main/docs/screenshots/31-mic-camera-screen-one-participant.png">
+              <img
+                src="img/one-participant.webp"
+                width="540"
+                height="1110"
+                alt="One tile group labelled You, holding a Screen track and a Camera track side by side, with Mic on this device and Sharing badges."
+                loading="lazy"
+              />
+            </a>
+            <figcaption>
+              Camera and screen share running at once. Two video tracks and a microphone,
+              gathered under one participant rather than scattered across three tiles. The
+              Screen track repeats itself because the phone is sharing the app that is
+              drawing it.
             </figcaption>
           </figure>
         </div>
@@ -142,21 +175,21 @@
                 <td class="yes">yes</td>
               </tr>
               <tr>
-                <th scope="row">Android <span class="qualifier">— native app</span></th>
+                <th scope="row">Android <span class="qualifier">(native app)</span></th>
                 <td class="yes">yes</td>
                 <td class="yes">yes</td>
                 <td class="yes">yes</td>
                 <td class="yes">yes</td>
               </tr>
               <tr>
-                <th scope="row">Android <span class="qualifier">— browser / PWA</span></th>
+                <th scope="row">Android <span class="qualifier">(browser / PWA)</span></th>
                 <td class="yes">yes</td>
                 <td class="yes">yes</td>
                 <td class="yes">yes</td>
                 <td class="maybe">unreliable</td>
               </tr>
               <tr>
-                <th scope="row">iOS / iPadOS <span class="qualifier">— Safari or PWA</span></th>
+                <th scope="row">iOS / iPadOS <span class="qualifier">(Safari or PWA)</span></th>
                 <td class="yes">yes</td>
                 <td class="yes">yes</td>
                 <td class="yes">yes</td>
@@ -168,7 +201,7 @@
         <p>
           <strong>There is no iOS app.</strong> The web app loads on iOS and video, voice
           and chat all work, but <code>getDisplayMedia</code> does not exist on iOS Safari,
-          so screen sharing is impossible from an iPhone or iPad in any browser — including
+          so screen sharing is impossible from an iPhone or iPad in any browser, including
           Chrome and Firefox for iOS, which are Safari underneath. Sharing an iOS screen
           needs a native app using ReplayKit, and that is not built.
         </p>
@@ -194,7 +227,7 @@
           </li>
           <li>
             <strong>Android consumes forwarders; it cannot act as one.</strong> It also has
-            no persisted identity yet — leaving a room and rejoining makes you a new
+            no persisted identity yet, so leaving a room and rejoining makes you a new
             participant.
           </li>
           <li>
@@ -212,20 +245,28 @@
       <section id="android">
         <h2>Get the Android app</h2>
         <p class="lead">
-          Package <code>dev.forgesworn.kithmoot</code>. The APK is published on GitHub
-          Releases. If that page is empty, no signed build has been cut yet — build it from
-          source in the meantime.
+          Package <code>dev.forgesworn.kithmoot</code>, version 0.1.0, Android 8.0 and
+          later. About 50&nbsp;MB.
         </p>
         <p class="actions">
-          <a class="button primary" href="https://github.com/forgesworn/kithmoot-android/releases">Releases</a>
+          <a class="button primary" href="apk/kithmoot-latest.apk">Download the APK</a>
           <a class="button" href="https://github.com/forgesworn/kithmoot-android">Build from source</a>
+        </p>
+        <p>
+          <strong>It is a debug build.</strong> There is no release signing key yet, so it
+          carries Android's shared debug key. It installs and runs, but Android treats a
+          debug-signed app and a release-signed one as two different applications: when a
+          properly signed build appears, this one has to be uninstalled first. Android will
+          also warn you about installing outside a store, which is the warning working
+          correctly.
         </p>
         <dl>
           <dt>Obtainium</dt>
           <dd>
             Installs and updates straight from GitHub Releases, with no store in the middle.
-            Add <code>https://github.com/forgesworn/kithmoot-android</code> as a source and
-            it will track new builds on its own.
+            Nothing is published there yet; once it is, adding
+            <code>https://github.com/forgesworn/kithmoot-android</code> as a source will
+            track new builds on its own.
           </dd>
           <dt>Zapstore</dt>
           <dd>
@@ -234,7 +275,7 @@
           </dd>
           <dt>Or skip the app</dt>
           <dd>
-            <a href="j/">The web app</a> is an installable PWA — add it to a home screen or
+            <a href="j/">The web app</a> is an installable PWA. Add it to a home screen or
             a dock and a service worker carries the shell offline. On Android it does video,
             voice and chat; screen sharing is the part a browser cannot be relied on for.
           </dd>
@@ -253,9 +294,8 @@
           <dt>Two independent implementations</dt>
           <dd>
             The Kotlin client was written against those published vectors rather than
-            against the TypeScript source. A protocol implemented once, in one language, by
-            one person, is a product; implemented twice from a published wire contract, it
-            is infrastructure.
+            against the TypeScript source, so anything the contract left ambiguous turned up
+            as a failing vector instead of as a shared assumption nobody had written down.
           </dd>
           <dt>454 tests, plus a live suite</dt>
           <dd>
@@ -271,12 +311,12 @@
       <h2>Source</h2>
       <ul class="links">
         <li>
-          <a href="https://github.com/forgesworn/kithmoot">forgesworn/kithmoot</a> — the
+          <a href="https://github.com/forgesworn/kithmoot">forgesworn/kithmoot</a>: the
           TypeScript reference client, the protocol library and the vectors.
         </li>
         <li>
-          <a href="https://github.com/forgesworn/kithmoot-android">forgesworn/kithmoot-android</a>
-          — the native Kotlin client.
+          <a href="https://github.com/forgesworn/kithmoot-android">forgesworn/kithmoot-android</a>:
+          the native Kotlin client.
         </li>
       </ul>
       <p class="colophon">
