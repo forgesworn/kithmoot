@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
 // @ts-expect-error - plain ESM helper, no types, and none wanted for a fixture
 import { writeScene } from './synthetic-scene.mjs'
@@ -23,9 +23,15 @@ import { writeScene } from './synthetic-scene.mjs'
  * created locally and nothing is ever joined.
  */
 
-const here = dirname(fileURLToPath(import.meta.url))
-const scenePath = resolve(here, '../test-results/synthetic-scene.y4m')
-mkdirSync(dirname(scenePath), { recursive: true })
+// Written to the OS temp directory rather than into `test-results/`, which
+// Playwright empties for itself at the start of a run: a fixture put there
+// is deleted between collection and the first test, and Chromium answers a
+// missing capture file by quietly falling back to its own rolling colour
+// pattern. That is a camera, so most of these still pass, which is the worst
+// possible way for it to go wrong.
+const sceneDir = join(tmpdir(), 'kithmoot-effects')
+mkdirSync(sceneDir, { recursive: true })
+const scenePath = join(sceneDir, 'synthetic-scene.y4m')
 writeFileSync(scenePath, writeScene(640, 480, 12))
 
 // Nothing here waits on a relay, so the 180s in playwright.config.ts - which
