@@ -158,6 +158,7 @@ Stated plainly, before anyone else finds it:
 
 ```bash
 npm install
+npm run build:lib # the forwarder and its tests import the library from dist/
 npm test          # 454 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance test below, automated, over live relays
@@ -165,6 +166,13 @@ npm run typecheck
 npm run demo       # HTTPS dev server for driving the app by hand, phone included
 npm run build      # production PWA build, to app/dist
 ```
+
+`npm run build:lib` comes first on a fresh clone. `server/forwarder.mjs` and
+two of the test files import the library from `dist/`, which is a `tsc` output
+and is not committed; without it `npm test` quietly loads 391 tests instead of
+454, because three suites fail to resolve their imports rather than failing an
+assertion. Once `dist/` exists it stays, which is why this is easy to miss
+locally and impossible to miss in CI.
 
 `npm run test:live` and `npm run test:e2e` need the network, and real relays
 have real weather — both are excluded from `npm test` for that reason.

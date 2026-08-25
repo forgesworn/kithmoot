@@ -36,6 +36,14 @@ jobs:
 
       - run: npm ci
 
+      # The forwarder and its tests import the library from dist/, which is
+      # a tsc output and is not committed. A clean checkout without this step
+      # loads 391 tests instead of 454, because three suites fail to resolve
+      # their imports - and a green-looking local run hides it, since dist/
+      # is already sitting there from `npm run forwarder` or `npm run vectors`.
+      - name: Build the library
+        run: npm run build:lib
+
       # The fast suite only. test:live and test:e2e both need the network and
       # real public relays, which have real weather - a deploy must not fail
       # because somebody else's relay was slow.
