@@ -50,7 +50,7 @@ to make that one thing true.
 - **A native Android app** (`forgesworn/kithmoot-android`) — a second,
   independent implementation, written against the published vectors without
   reading this codebase.
-- **51 published interop vectors** (`vectors/`), which both implementations
+- **53 published interop vectors** (`vectors/`), which both implementations
   are checked against.
 
 ## Which platforms

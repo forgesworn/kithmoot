@@ -35,6 +35,7 @@ import { KINDS } from '../src/kinds.js'
 import { deriveRoom, decodeJoinUrl, encodeJoinUrl } from '../src/room.js'
 import { verifyDeviceCredential } from '../src/credential.js'
 import { decodeRosterEvent } from '../src/roster.js'
+import { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from '../src/display-name.js'
 import { unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
@@ -226,6 +227,41 @@ describe('roster event', () => {
     const result = decodeRosterEvent(event, { roomId: v.input.roomId, roomKey: hexToBytes(v.input.roomKeyHex), now: fx.NOW })
     expect(result).toBeNull()
     expect(result).toEqual(v.output.result)
+  })
+
+  it('display-name: the name survives the round trip and decides nothing', () => {
+    const v = vec('rosterEvent', 'display-name')
+    const result = decodeRosterEvent(v.input.event as Event, {
+      roomId: v.expected.decode.roomId,
+      roomKey: hexToBytes(v.expected.decode.roomKeyHex),
+      now: v.expected.decode.now,
+    })
+    expect(result).toEqual(v.expected.result)
+    expect(result).toEqual(v.output.result)
+    expect(result!.name).toBe('Darren')
+    // A name is a label on a pubkey, never a substitute for one.
+    expect(result!.participant).toBe(fx.PARTICIPANT_A)
+    expect(result!.device).toBe(fx.DEVICE_A)
+    // And it stays inside the ciphertext, where the participant pubkey is.
+    expect(JSON.stringify(v.input.event)).not.toContain('Darren')
+  })
+
+  it('display-name-hostile: the entry is accepted and only the name is defused', () => {
+    const v = vec('rosterEvent', 'display-name-hostile')
+    const result = decodeRosterEvent(v.input.event as Event, {
+      roomId: v.expected.decode.roomId,
+      roomKey: hexToBytes(v.expected.decode.roomKeyHex),
+      now: v.expected.decode.now,
+    })
+    expect(result).toEqual(v.expected.result)
+    expect(result).toEqual(v.output.result)
+    // The person and their credential are genuine; the name was the only
+    // thing at fault, so the name is the only thing changed.
+    expect(result!.participant).toBe(fx.PARTICIPANT_A)
+    expect(result!.name).not.toBe(v.input.rawName)
+    expect(result!.name).toBe(sanitiseDisplayName(v.input.rawName))
+    expect(result!.name).not.toMatch(/\p{C}/u)
+    expect([...result!.name!]).toHaveLength(MAX_DISPLAY_NAME_LENGTH)
   })
 })
 

@@ -481,6 +481,80 @@ vectors.rosterEvent.push({
   })
 }
 
+{
+  // --- Display names ----------------------------------------------------
+  //
+  // A roster entry may carry a `name`: what the person would like to be
+  // called. It is SELF-ASSERTED - anyone can type anything, nothing checks
+  // it - so both vectors below are about what a reader must do with it, and
+  // are recorded as decode-only cases: a frozen event in, a decoded entry
+  // out. Encoding a name is already pinned by `rosterEvent/valid`'s
+  // machinery; what a second implementation can get wrong is accepting a
+  // name it should have defused.
+  //
+  // Decode-only also means these two stay meaningful for an implementation
+  // that does not carry names at all: it decodes the event, ignores the
+  // field, and matches the recorded entry on everything it does model.
+
+  const namedEntry = { ...rosterEntry, name: 'Darren' }
+  const namedRoster = buildRoster({
+    entry: namedEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-named-nonce',
+    auxRandLabel: 'roster-named-auxrand',
+  })
+
+  vectors.rosterEvent.push({
+    name: 'display-name',
+    kind: 'positive',
+    note: "A roster entry carrying an ordinary display name. The name is inside the room-key ciphertext, alongside the participant pubkey and the credential - a relay that could read the guest list by name would be worse than one that could read it by pubkey, not better. The name survives the round trip exactly as typed, and decides nothing: `participant` and the nested credential are still what say who this is.",
+    input: { event: namedRoster.event },
+    output: { result: decodeRosterEvent(namedRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }) },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), now: fx.NOW },
+      result: decodeRosterEvent(namedRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+
+  // Published by a client that sanitises nothing - which is the only kind
+  // worth pinning, because a well-behaved sender proves nothing about a
+  // reader. Everything in this string is a known display-name attack:
+  //
+  //   U+202E RIGHT-TO-LEFT OVERRIDE  reverses the rest of the line, so
+  //                                  "nerrad" renders as "darren"
+  //   \n                             takes a second row in the tile
+  //   U+200B ZERO WIDTH SPACE        hides the join between two parts
+  //   200 further characters         push the pubkey beside it off the row
+  //
+  // A reader must return the name defused, not reject the entry: the
+  // person is genuinely in the room, and their credential is genuine. The
+  // name is the only thing at fault, so the name is the only thing changed.
+  const HOSTILE_NAME = `\u202Enerrad\nadmin\u200B${'x'.repeat(200)}`
+  const hostileEntry = { ...rosterEntry, name: HOSTILE_NAME }
+  const hostileRoster = buildRoster({
+    entry: hostileEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-hostile-name-nonce',
+    auxRandLabel: 'roster-hostile-name-auxrand',
+  })
+
+  vectors.rosterEvent.push({
+    name: 'display-name-hostile',
+    kind: 'positive',
+    note: "A genuine, fully valid roster entry whose display name carries a right-to-left override, a smuggled newline, a zero-width space and 200 characters of padding - published by a client that sanitised nothing. The entry is ACCEPTED (the person and their credential are genuine) and the name is neutralised: every Unicode 'other' character removed, whitespace collapsed, and the result capped at 32 code points. `expected.result.name` is what a reader must end up with.",
+    input: { event: hostileRoster.event, rawName: HOSTILE_NAME },
+    output: { result: decodeRosterEvent(hostileRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }) },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), now: fx.NOW },
+      result: decodeRosterEvent(hostileRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
 // ===========================================================================
 // 5. Signal wrap - SignalBody + sender secret + recipient pubkey + fixed
 //    ephemeral key -> the exact kind-21059 gift wrap (src/signal.ts).

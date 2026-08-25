@@ -130,6 +130,29 @@ and republished as it changes. TURN *credentials* remain minted separately,
 per viewer, via `mintTurnCredential` (the `turnCredential` group). These
 vectors pin what the wire format actually is.
 
+**What the display-name vectors exist to pin.** A roster entry may carry a
+`name`. It is self-asserted - anyone can type anything, and nothing checks
+it - so `display-name` pins that the name travels inside the room-key
+ciphertext (a relay that could read a guest list by name would be worse
+than one that could read it by pubkey, not better) and decides nothing:
+`participant` and the nested credential are still what say who the entry is
+for. `display-name-hostile` is the one that matters. Its name carries a
+right-to-left override, a smuggled newline, a zero-width space and 200
+characters of padding, exactly as a client that sanitised nothing would
+publish it, and a conforming reader must **accept the entry and neutralise
+the name** - the person and their credential are genuine, so refusing the
+whole entry would be the wrong answer. `expected.result.name` records what
+must be left.
+
+Both are recorded as **decode-only** vectors - a frozen event in, a decoded
+entry out - rather than encode-and-decode pairs. That is deliberate: the
+encode path is already pinned by `rosterEvent/valid`, what a second
+implementation can actually get wrong is accepting a name it should have
+defused, and decode-only keeps both vectors meaningful for an
+implementation that does not model display names at all. Such an
+implementation decodes the event, ignores the field, and still matches the
+recorded entry on everything it does model.
+
 **What `roomDescriptor` exists to pin.** A forwarder entry is `url`, optional
 `pubkey`, optional `label`, and nothing else. A forwarder is given the room
 **id**; it is never given the room **key**, which is what lets it route
@@ -152,7 +175,8 @@ positive ones, each with the expected rejection outcome:
 - **`deviceCredential`**: a credential checked against the wrong room
   (`wrong room`), one that has expired (`expired`), and one whose `device`
   tag was swapped after signing (`bad signature`).
-- **`rosterEvent`**: the same event decrypted with the wrong room's key
+- **`rosterEvent`** (the negatives; `display-name` and `display-name-hostile`
+  above are both positives): the same event decrypted with the wrong room's key
   (returns `null`); one signed by a device other than the one its credential
   names (`null`); the valid event with its own signature corrupted but id,
   pubkey, tags and content untouched (`tampered-outer-signature`, `null`);
