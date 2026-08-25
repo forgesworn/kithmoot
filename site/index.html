@@ -6,7 +6,7 @@
     <title>KithMoot: a town hall nobody owns</title>
     <meta
       name="description"
-      content="Conference rooms over Nostr. A person is the unit that joins a room, not a device: bring a phone and a laptop and everyone else sees one participant, not two. No account, no server to run, no operator holding the guest list."
+      content="Conference rooms over Nostr. A person is the unit that joins a room, not a device: bring a phone and a laptop and everyone else sees one participant, not two. No account and no operator holding the guest list. Media goes device to device, and a room names its own relays and TURN servers rather than depending on anyone's."
     />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
@@ -67,8 +67,11 @@
         <dl>
           <dt>Video, voice, chat and screen share</dt>
           <dd>
-            Media is negotiated device to device over WebRTC. There is no media server in
-            the path, and nothing to run.
+            Media is negotiated device to device over WebRTC, with no media server in the
+            path. NAT is the exception: roughly one connection in five cannot be made
+            directly, and needs a TURN relay to complete. A room names its own, the way it
+            names its relays, so nobody is required and no single party can be removed to
+            take the system down.
           </dd>
 
           <dt>Join by URL</dt>

@@ -2,11 +2,23 @@
 
 **A town hall nobody owns.**
 
-KithMoot is a conference room protocol built on Nostr. Rooms have no server: no
-account to register, no operator who can see the guest list, nothing to run
-except the relays that already exist. A room is a secret, held by whoever has
-the link. Anyone holding it can join; nobody outside it can even tell the room
-exists.
+KithMoot is a conference room protocol built on Nostr. There is no account to
+register and no operator who holds the guest list. A room is a secret, held by
+whoever has the link. Anyone holding it can join; nobody outside it can even
+tell the room exists.
+
+**No operator is mandated**, which is not the same as no infrastructure.
+Signalling rides Nostr relays that already exist, and media goes device to
+device with nothing in the middle. But NAT is a fact: two people behind
+symmetric NAT or carrier-grade NAT cannot reach each other directly, and a call
+has no origin to fall back to the way a stream does. Roughly one connection in
+five needs a TURN relay to complete.
+
+So a room names its own STUN and TURN servers, the way it names its relays: a
+plural, swappable list. Self-host coturn, point at somebody else's, or name
+none and accept that some pairs will not connect. Nobody is required, and no
+single party can be removed to take the system down. That is the claim, and it
+is narrower than "nothing to run".
 
 **Live at [kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/).** The app
 is at [`/j`](https://kithmoot.forgesworn.dev/j/); the root is a page explaining
