@@ -21,6 +21,7 @@ import {
 } from '../../src/index.js'
 import type { PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
 import { ProfileBook, type Profile } from './profiles.js'
+import { renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { npubEncode } from 'nostr-tools/nip19'
@@ -1115,6 +1116,11 @@ $('addDevice').addEventListener('click', () => {
     $('copyPair').hidden = false
     $('stopPairing').hidden = false
     pairUrl.select()
+    // Shown immediately, not behind a further click - pairing exists to
+    // walk this link over to the other device, and a QR photographed off
+    // this screen is the whole point of that trip.
+    $('pairQrWrap').hidden = false
+    renderQr($('pairQr') as HTMLCanvasElement, pairUrl.value).catch((err) => setStatus(describeError(err)))
     setStatus('Waiting for your other device. Keep this page open.')
   } catch (err) {
     setStatus(describeError(err))
@@ -1131,11 +1137,21 @@ $('stopPairing').addEventListener('click', () => {
   pairUrl.hidden = true
   $('copyPair').hidden = true
   $('stopPairing').hidden = true
+  $('pairQrWrap').hidden = true
   setStatus('Pairing link retired.')
 })
 
 $('copyShare').addEventListener('click', () => copyInput('shareUrl'))
 $('copyPair').addEventListener('click', () => copyInput('pairUrl'))
+
+// The join link's QR is rendered lazily, on the first open of its
+// disclosure - there is no earlier point at which shareUrl already holds
+// its final value and a render would not go to waste.
+$('shareQrDetails').addEventListener('toggle', () => {
+  if (!($('shareQrDetails') as HTMLDetailsElement).open) return
+  const url = ($('shareUrl') as HTMLInputElement).value
+  renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
+})
 
 $('toggleMic').addEventListener('click', () => {
   toggleMic().catch((err) => setStatus(describeError(err)))

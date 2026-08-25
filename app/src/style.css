@@ -108,6 +108,33 @@ details#roomSettings label {
   color: var(--danger);
 }
 
+/* QR codes - always drawn black-on-white by app/src/qr.ts regardless of the
+   page's own theme, so contrast never depends on which theme a viewer is
+   in. The white background is baked into the canvas itself (the library's
+   own quiet zone), so no extra background is needed here - just enough
+   room to sit clear of the dark panel around it. */
+.qr {
+  display: block;
+  margin: 0.5rem 0;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+#shareQrDetails {
+  margin-top: 0.6rem;
+}
+
+#shareQrDetails summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+#pairQrWrap {
+  margin-top: 0.6rem;
+}
+
 #status {
   min-height: 1.25rem;
   color: var(--danger);

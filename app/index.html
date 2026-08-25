@@ -79,6 +79,11 @@
           <p>Room's open. Send the link.</p>
           <input id="shareUrl" readonly />
           <button id="copyShare" type="button">Copy</button>
+          <details id="shareQrDetails">
+            <summary>Show QR</summary>
+            <canvas id="shareQr" class="qr" role="img" aria-label="QR code for the join link"></canvas>
+            <p class="note">Scan to open this room on another device.</p>
+          </details>
         </div>
         <div class="linkBox pairing">
           <p>
@@ -92,6 +97,10 @@
           <input id="pairUrl" readonly hidden />
           <button id="copyPair" type="button" hidden>Copy</button>
           <button id="stopPairing" type="button" hidden>Stop pairing</button>
+          <div id="pairQrWrap" hidden>
+            <canvas id="pairQr" class="qr" role="img" aria-label="QR code for the pairing link"></canvas>
+            <p class="note">Scan with the camera on the device you're adding.</p>
+          </div>
         </div>
       </section>
 
