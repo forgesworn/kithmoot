@@ -139,8 +139,14 @@ async function offerPairing(page: Page, joinUrl: string): Promise<string> {
  *  --use-fake-device-for-media-stream / --use-fake-ui-for-media-stream
  *  launch flags in playwright.config.ts. Stops short of clicking "Join
  *  room" so the caller controls subscribe/publish ordering. */
-async function prepareDevice(page: Page, url: string): Promise<void> {
+async function prepareDevice(page: Page, url: string, name?: string): Promise<void> {
   await page.goto(url)
+  if (name !== undefined) {
+    // Typed before joining, exactly as a person would: the roster entry
+    // this device publishes carries whatever is in the field at join.
+    await page.locator('#displayName').fill(name)
+    await expect(page.locator('#whoami .name')).toHaveText(name)
+  }
   await expect(page.locator('#deviceControls')).toBeVisible()
   // A device opening a pairing link holds the join button disabled until the
   // credential has actually arrived - joining early would mint a fresh
@@ -185,6 +191,23 @@ async function expectOnePairedGroupPlusSelf(page: Page): Promise<void> {
   await expect(own.locator('h3')).toContainText('1 device')
 }
 
+/**
+ * The observer's own screen again, this time on names. Two people who typed
+ * the SAME name must still be two people on screen - which is only true
+ * because a short pubkey renders beside every name, never instead of one.
+ * A name is self-asserted; nothing checks it, and this is what stops that
+ * mattering.
+ */
+async function expectSameNameStillTwoPeople(page: Page, name: string): Promise<void> {
+  const room = page.locator('#room')
+  const named = room.locator(`.participant h3 .name:text-is("${name}")`)
+  await expect(named).toHaveCount(2, { timeout: 60_000 })
+
+  const keys = await room.locator('.participant h3 .pubkey').allTextContents()
+  expect(keys, 'every tile must show a short pubkey beside the name').toHaveLength(2)
+  expect(new Set(keys).size, 'two people called the same thing must show different keys').toBe(2)
+}
+
 test('two devices of one participant render as one tile group to a third person', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
   const url = baseURL!
@@ -207,13 +230,16 @@ test('two devices of one participant render as one tile group to a third person'
     // before any of them subscribes or publishes. A settles on its room
     // page FIRST, then offers pairing - the offer only lives as long as the
     // page that made it.
-    await prepareDevice(pageA, joinUrl)
+    // Every device types the SAME name, deliberately. A and B are one
+    // person on two devices; C is somebody else entirely who happens to
+    // have typed the same thing - which anybody can.
+    await prepareDevice(pageA, joinUrl, 'Darren')
     const pairUrl = await offerPairing(pageA, joinUrl)
     // B: a SEPARATE context (own localStorage) opening the PAIRING url, so
     // it becomes a second device under A's identity - not a new person.
-    await prepareDevice(pageB, pairUrl)
+    await prepareDevice(pageB, pairUrl, 'Darren')
     // C: a separate person entirely, via the plain join URL.
-    await prepareDevice(pageC, joinUrl)
+    await prepareDevice(pageC, joinUrl, 'Darren')
 
     // C subscribes FIRST, before the paired devices publish anything - see
     // the file-level comment on why this ordering matters for a roster
@@ -223,6 +249,7 @@ test('two devices of one participant render as one tile group to a third person'
     await joinRoom(pageB)
 
     await expectOnePairedGroupPlusSelf(pageC)
+    await expectSameNameStillTwoPeople(pageC, 'Darren')
   } finally {
     await Promise.all([ctxA.close(), ctxB.close(), ctxC.close()])
   }

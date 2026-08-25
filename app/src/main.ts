@@ -478,22 +478,38 @@ function renderIdentity(): void {
   const line = $('whoami')
   line.textContent = ''
 
+  const name = joiningName()
   const participant = currentParticipant()
-  if (!participant) {
-    line.textContent = loadCredential()
-      ? 'This device is paired to another of yours. It joins as that person.'
-      : 'You will get a key of your own the first time you join.'
-    return
-  }
 
   line.append('Joining as ')
-  line.append(identityRun(shownAs(participant, joiningName()), false))
+
+  if (participant) {
+    line.append(identityRun(shownAs(participant, name), false))
+  } else if (name !== undefined) {
+    // No key yet, and deliberately so: minting one here would write a
+    // secret before the person has done anything, and would be the wrong
+    // thing entirely for somebody about to sign in with Nostr instead. The
+    // name is still shown, because it is what they just typed.
+    const el = document.createElement('span')
+    el.className = 'name'
+    el.textContent = name
+    line.append(el)
+  } else {
+    line.append('nobody in particular yet')
+  }
 
   const how = document.createElement('span')
   how.className = 'note inline'
-  how.textContent = nostrSession
-    ? 'Signed in with Nostr. Your key stays in your signer; this page never holds it.'
-    : 'A name only. Anyone can type any name, so the key beside it is what identifies you.'
+  if (loadCredential()) {
+    how.textContent = 'This device is paired to another of yours, so it joins as that person.'
+  } else if (nostrSession) {
+    how.textContent = 'Signed in with Nostr. Your key stays in your signer; this page never holds it.'
+  } else if (participant) {
+    how.textContent = 'A name only. Anyone can type any name, so the key beside it is what identifies you.'
+  } else {
+    how.textContent =
+      'A name only. You get a key of your own the first time you join, and it shows here beside the name.'
+  }
   line.append(how)
 }
 
