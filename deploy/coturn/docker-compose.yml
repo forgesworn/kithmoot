@@ -1,6 +1,7 @@
 # coturn for the KithMoot default TURN server. See turnserver.conf for the
 # config itself and ../README.md for the end-to-end runbook (DNS, firewall,
-# TLS cert, verification).
+# TLS cert, verification). deploy/coturn/install.sh puts this file, the
+# generated config and the .env below onto a box; it is not run by hand.
 #
 # network_mode: host is not optional here. coturn needs the whole
 # min-port..max-port UDP range (turnserver.conf) reachable on the host's
@@ -12,16 +13,45 @@
 # allocation response, breaking the relay. Host networking also means this
 # container is not isolated from the host's network namespace - accept
 # that trade explicitly, it's what running a TURN server on Docker costs.
+#
+# One consequence worth knowing: because there is no published port and so
+# no docker-proxy NAT hop, traffic to coturn arrives on the host's own
+# INPUT chain and ufw governs it normally. Published ports would have
+# bypassed ufw via the DOCKER-USER chain. The ports have to be opened
+# explicitly (install.sh does it) and, equally, closing them in ufw
+# actually closes them.
 services:
   coturn:
     image: coturn/coturn:4.17.2-r0
     container_name: kithmoot-coturn
     restart: unless-stopped
     network_mode: host
+
+    # The image defaults to nobody:nogroup (65534). Running as a dedicated
+    # kithmoot-turn uid instead is what lets the config file holding
+    # static-auth-secret be mode 0600 owned by that user: readable by root
+    # and by this service, and by nothing else on a box with other tenants
+    # on it. Left as nobody, the secret would have to be group-readable by
+    # nogroup, which is every unprivileged stray process on the host.
+    # install.sh writes these two values into .env beside this file.
+    user: "${KITHMOOT_TURN_UID}:${KITHMOOT_TURN_GID}"
+
     volumes:
-      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
-      - /etc/letsencrypt/live/turn.CHANGE_ME.example:/etc/coturn/certs:ro
-    command: ["-c", "/etc/coturn/turnserver.conf", "--no-cli"]
+      # Generated from deploy/coturn/turnserver.conf by install.sh, which
+      # substitutes the public address and splices in the secret. It is not
+      # the repo copy: the repo copy has placeholders and must never hold a
+      # real secret.
+      - /etc/kithmoot/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      # fullchain.pem and privkey.pem, copied out of Caddy's certificate
+      # store by sync-certs.sh on a daily timer. See turnserver.conf.
+      - /etc/kithmoot/certs:/etc/coturn/certs:ro
+
+    # Overrides the image's default command, which appends
+    # --external-ip=$(detect-external-ip). This host is not behind NAT (its
+    # public /32 is on eth0 directly), so an external-ip would have coturn
+    # rewriting addresses that were already right.
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+
     logging:
       driver: json-file
       options:

@@ -19,7 +19,8 @@
     "test:live": "vitest run --config vitest.live.config.ts --testTimeout=40000",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p app/tsconfig.json",
-    "vectors": "npm run build:lib && node vectors/generate.mjs"
+    "vectors": "npm run build:lib && node vectors/generate.mjs",
+    "test:turn": "playwright test --config playwright.turn.config.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",

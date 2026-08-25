@@ -70,7 +70,7 @@ const { username, credential } = mintTurnCredential(
 )
 
 const iceServer = {
-  urls: 'turn:turn.kithmoot.example:3478',
+  urls: 'turn:kithmoot.example:3478',
   username,
   credential,
 }

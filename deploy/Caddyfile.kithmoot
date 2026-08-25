@@ -19,13 +19,35 @@ kithmoot.forgesworn.dev {
 	encode zstd gzip
 
 	# TURN credential minting (server/turn-credentials.mjs, installed as
-	# deploy/turn-credentials.service). Commented out because that service
-	# is not on this box: a live reverse_proxy to a dead port is a 502 for
-	# anyone who finds the path, and the app does not call it either -
-	# TURN_CREDENTIAL_ENDPOINT in app/src/main.ts is undefined. Uncomment
-	# both this and that constant together, or neither.
-	# @turnApi path /turn /healthz
-	# reverse_proxy @turnApi 127.0.0.1:8089
+	# deploy/turn-credentials.service, listening on 127.0.0.1:8089). Live
+	# together with TURN_CREDENTIAL_ENDPOINT in app/src/main.ts: this path
+	# and that constant are switched on as a pair, never one without the
+	# other. A reverse_proxy to a port nothing is listening on is a 502 for
+	# anyone who finds the path, and the constant without this path is an
+	# app that fetches a 404 on every join.
+	#
+	# Only /turn is proxied. /healthz is deliberately not exposed publicly:
+	# it exists for `curl http://127.0.0.1:8089/healthz` on the box, and
+	# publishing it would only advertise the service to anyone scanning.
+	#
+	# The endpoint is not authenticated. Anyone who finds this URL can mint
+	# a credential and relay media through coturn at this box's expense.
+	# The service's own per-IP rate limiter and its ALLOWED_ORIGINS check
+	# are what stand in the way, plus coturn's user-quota, total-quota and
+	# bps-capacity, which cap what a minted credential can actually consume
+	# even when one is obtained. See the security note at the top of
+	# server/turn-credentials.mjs: none of that is a substitute for real
+	# access control, and it is a deliberate, documented trade.
+	# A `handle` block, not a bare matched `reverse_proxy`. Caddy sorts
+	# directives by its own fixed order rather than by their position in the
+	# file, and `handle` sorts ahead of `reverse_proxy` - so the catch-all
+	# `handle { file_server }` below would match /turn first and answer 404,
+	# with this line never reached. Inside a handle block of its own, placed
+	# before the catch-all, it is part of the same mutually exclusive group
+	# and wins on the more specific path.
+	handle /turn {
+		reverse_proxy 127.0.0.1:8089
+	}
 
 	# The APKs live outside the release directories, so a rollback of the
 	# site does not take the downloads with it and a redeploy does not

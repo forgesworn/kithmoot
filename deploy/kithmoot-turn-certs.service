@@ -1,0 +1,23 @@
+# Copies the TURN hostname's certificate out of Caddy's store into a place
+# coturn can read, and restarts coturn if it changed. See
+# deploy/coturn/sync-certs.sh for why this is a copy and not a symlink, and
+# why the restart matters.
+#
+# Oneshot, driven by kithmoot-turn-certs.timer. Runs as root because it reads
+# Caddy's private key, which is mode 0600 caddy:caddy.
+#
+# INSTALL: deploy/coturn/install.sh does this. By hand it is
+#   sudo cp deploy/kithmoot-turn-certs.service deploy/kithmoot-turn-certs.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now kithmoot-turn-certs.timer
+
+[Unit]
+Description=Publish the KithMoot TURN TLS certificate from Caddy's store to coturn
+Documentation=file:///opt/kithmoot/deploy/coturn/sync-certs.sh
+After=caddy.service docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/kithmoot-coturn/sync-certs.sh
+StandardOutput=journal
+StandardError=journal

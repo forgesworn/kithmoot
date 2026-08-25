@@ -91,9 +91,30 @@ describe('GET /turn', () => {
 
     const [expiryStr, name] = body.username.split(':')
     const expiry = Number(expiryStr)
-    expect(name).toBe('kithmoot')
+    // A per-request random label, not the constant mintTurnCredential
+    // defaults to. See mintName in turn-credentials.mjs for why: coturn's
+    // user-quota counts allocations per username, so a shared label makes
+    // that quota either a global cap a busy room trips for everybody, or no
+    // cap at all.
+    expect(name).toMatch(/^km-[0-9a-f]{16}$/)
     expect(expiry).toBeGreaterThan(before)
     expect(expiry).toBeLessThanOrEqual(before + 120 + 1) // +1s test-runtime slack
+  })
+
+  it('gives every request its own username, so one username is one session', async () => {
+    const { baseUrl } = await startServer({ ttlSeconds: 120 })
+
+    // Same second, deliberately: the expiry half of the username is
+    // identical for both, so if the label were the old constant these two
+    // would be the same string and coturn would count their allocations
+    // against one quota.
+    const [first, second] = await Promise.all([
+      fetch(`${baseUrl}/turn`).then((r) => r.json()),
+      fetch(`${baseUrl}/turn`).then((r) => r.json()),
+    ])
+
+    expect(first.username).not.toBe(second.username)
+    expect(first.username.split(':')[0]).toBe(second.username.split(':')[0])
   })
 
   it('mints a credential whose HMAC verifies against the configured secret', async () => {

@@ -34,8 +34,12 @@ Standing up the coturn config in this directory gives KithMoot rooms a
 *sensible default* when nobody's bothered to pick their own - nothing more.
 Anyone can self-host coturn from this same config, point their own room at
 it, or point at somebody else's public TURN server entirely. If you fork
-this project and don't want to run TURN at all, delete `DEFAULT_TURN_URL`
-from `app/src/main.ts` and rooms fall back to STUN-only, same as today.
+this project and don't want to run TURN at all, set
+`TURN_CREDENTIAL_ENDPOINT` back to `undefined` in `app/src/main.ts` and
+rooms fall back to STUN only. There is no TURN URL to remove alongside it:
+the URLs arrive from the credential endpoint, already carrying the
+credential they need, precisely because a `turn:` entry without one makes
+the `RTCPeerConnection` constructor throw.
 
 ## Why TURN matters at all
 
@@ -68,40 +72,48 @@ relay carries **every byte of every media stream it's used for**, in both
 directions, for the whole duration of a call. A single 1080p video track
 is roughly 2-4 Mbps; two people relayed through TURN for camera + mic for
 an hour is on the order of 2-4 GB of relayed traffic. This is why
-`turnserver.conf` sets `user-quota`/`total-quota` - see the comments
-there - and why the coturn container's actual data-plane cost is
-bandwidth, not disk or CPU (coturn itself is a small binary; the box's
-disk headroom here, ~6.6 GB free, is not the constraint).
+`turnserver.conf` sets `user-quota`, `total-quota` and `max-bps` - see the
+comments there, which also explain at length why it deliberately does NOT
+set `bps-capacity` - and why the coturn container's actual data-plane cost
+is bandwidth, not disk or CPU. coturn itself is a small binary and the
+box's disk headroom is not the constraint.
 
-Budget accordingly if this server gets real traffic: DigitalOcean droplets
-come with a bandwidth allowance and overage billing past it. Watch the
-droplet's bandwidth graph after this goes live, not just its disk.
+Concretely, for the deployment this repo runs: one relayed two-person call
+with camera and microphone is on the order of 1 to 2 GB of traffic per
+hour, counted once inbound and once outbound, because a relay sends every
+byte it receives. Only calls that actually need a relay cost anything;
+roughly 80% of connections still complete peer to peer and never touch
+this server. The host's monthly traffic allowance is the real ceiling, and
+it is measured in tens of terabytes, so this is a "watch the graph" cost
+rather than a "budget for it" cost until the app has real users. Watch
+the bandwidth graph after this goes live, not just the disk.
 
 ## Prerequisites
 
-- A subdomain for TURN - e.g. `turn.kithmoot.example` - with DNS A (and
-  AAAA if the box has IPv6) records pointing at the DigitalOcean box.
-  A separate subdomain from wherever the PWA is served, since it needs its
-  own TLS cert and firewall rules.
-- Docker + Docker Compose on the box (for coturn; the PWA itself is static
-  files under Caddy, no container needed).
-- A TLS certificate for the TURN subdomain. The simplest path, since Caddy
-  already runs on this box and already gets certs automatically: give the
-  TURN subdomain its own trivial Caddy site block that does nothing but
-  hold the ACME challenge and let Caddy issue the cert, then point
-  coturn's `cert`/`pkey` in `turnserver.conf` at the resulting files under
-  `/etc/letsencrypt/live/turn.kithmoot.example/` (Caddy's own on-disk
-  cert store is not in that format - use `certbot` directly for this one
-  domain instead, the same way any other certbot-issued cert on this box
-  would be obtained, or add a `tls` directive to a Caddy block for the
-  subdomain and export from there if this box's Caddy build makes that
-  easy; whichever it already does for other services here, match it).
+- **A hostname that resolves to the box.** This deployment reuses
+  `kithmoot.forgesworn.dev`, the same name the PWA is served on, rather
+  than a dedicated `turn.` subdomain. That is a deliberate simplification:
+  the record already exists, and Caddy already holds a Let's Encrypt
+  certificate for it because it serves the site on 443, so TURN over TLS
+  needs no new DNS record and no second certificate to renew. A separate
+  subdomain would be tidier and buys nothing. TURN and HTTPS do not
+  collide: they are different ports on the same address.
+- **Docker and Docker Compose on the box.** coturn runs as a container;
+  the PWA itself is static files under Caddy and needs none.
+- **Node on the box**, for the credential service. No compiler is needed:
+  `deploy/turn-deploy.sh` builds `dist/src/turn.js` on your machine and
+  ships it.
+- **`sudo` for the deploy user.** `install.sh` writes `/etc/kithmoot`,
+  manages systemd units and edits firewall rules. Confirm this before
+  relying on it rather than discovering it half way through.
+
+No certbot. Caddy is the only ACME client on the box, and
+`deploy/coturn/sync-certs.sh` copies the certificate it already holds into
+a directory coturn can read, on a daily timer, restarting coturn only when
+the bytes change. Running certbot alongside would mean two clients
+competing for one name and two chances to let it lapse.
 
 ## Firewall ports
-
-Open these on the box's firewall (`ufw`, or DigitalOcean's cloud firewall,
-or both - check which one is actually enforcing on this box before
-assuming either is a no-op):
 
 | Port(s)         | Protocol | Purpose                                    |
 |-----------------|----------|---------------------------------------------|
@@ -109,10 +121,36 @@ assuming either is a no-op):
 | 5349            | TCP      | TURN over TLS                               |
 | 49152-49452     | UDP      | Relay range (`min-port`/`max-port` in `turnserver.conf`) |
 
-The relay range is not optional to open - it's where the actual media
-flows once an allocation is made. A closed relay range means the TURN
-*handshake* succeeds (port 3478) but every call using it still fails,
-which is a much more confusing failure mode than TURN not running at all.
+`deploy/coturn/install.sh` opens all four in `ufw`, reading the relay
+range out of the rendered config rather than repeating the numbers, so the
+firewall cannot drift from what coturn is actually using.
+
+**The relay range is not optional to open.** It is where the media flows
+once an allocation is made. A closed relay range means the TURN handshake
+on 3478 succeeds and every call using it still fails, which is far more
+confusing than TURN not running at all.
+
+### Check for a second firewall in front of the box
+
+`ufw` is often not the only thing filtering. This deployment sits on a
+Hetzner Cloud instance, and Hetzner Cloud Firewalls are enforced upstream
+of the host: rules added in `ufw` were correct, `ufw status` showed them,
+and packets to 3478 never arrived on `eth0` at all, while 443 arrived
+normally in the same capture. Nothing on the box can see or change that
+firewall; it is edited in the provider's console or with `hcloud`.
+
+The check that settles it in one step, run on the box while probing from
+elsewhere:
+
+```bash
+sudo tcpdump -n -i eth0 'port 3478 or port 5349'
+```
+
+Packets arriving and being dropped is a host firewall problem. **No
+packets arriving at all is an upstream firewall**, and no amount of `ufw`
+will fix it. Do this before debugging coturn: the symptom of a blocked
+port is identical to the symptom of a broken TURN server, and one of them
+is not your fault.
 
 ## Deploying the PWA
 
@@ -140,122 +178,154 @@ ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 \
   deploy@YOUR_BOX 'sudo mkdir -p /var/www/kithmoot/releases && sudo chown -R deploy:deploy /var/www/kithmoot'
 ```
 
-## Deploying coturn
+## Deploying coturn and the credential service
+
+One command, from a checkout on your own machine, never on the box:
 
 ```bash
-scp -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 -r \
-  deploy/coturn deploy@YOUR_BOX:~/kithmoot-coturn
-
-ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 deploy@YOUR_BOX
+DEPLOY_HOST=deploy@YOUR_BOX deploy/turn-deploy.sh
 ```
 
-Then, on the box:
+It builds `dist/src/turn.js`, ships the credential service's tree to
+`/opt/kithmoot-turn` and the coturn files to `/opt/kithmoot-coturn`, then
+runs `deploy/coturn/install.sh` on the box, which does the rest:
 
-1. Edit `~/kithmoot-coturn/turnserver.conf`: replace every `CHANGE_ME`
-   (realm/server-name, cert paths, `static-auth-secret`). Generate the
-   secret with `openssl rand -hex 32` and keep a copy of it somewhere
-   safe - the same value goes into `TURN_SECRET` for the credential
-   service below (`server/turn-credentials.mjs`), which is what actually
-   calls `mintTurnCredential` (`src/turn.ts`) on a browser's behalf. See
-   "Minting TURN credentials for the browser" further down.
-2. Edit `docker-compose.yml`: replace `CHANGE_ME` in the cert volume
-   mount to match the real TURN hostname.
-3. `cd ~/kithmoot-coturn && docker compose up -d`
-4. `docker compose logs -f` - watch for startup errors (a missing cert
-   file is the most likely one at this point).
+1. Creates the unprivileged `kithmoot-turn` user.
+2. Detects the box's public IPv4 from its default route and **refuses to
+   continue if the TURN hostname does not resolve to it**. A client that
+   connects to one address and is handed relay candidates on another
+   simply never connects, and the error points nowhere near the cause.
+3. Generates `/etc/kithmoot/turn-secret` on first run only, mode 0600.
+4. Renders `/etc/kithmoot/coturn/turnserver.conf` from the template in
+   this repo, substituting the address and splicing in the secret. The
+   secret is written with a shell builtin, never passed as an argument to
+   `sed` or anything else, because arguments are visible in `ps` to every
+   user on the box.
+5. Writes `/etc/kithmoot/turn-credentials.env` with the same secret.
+6. Copies the TLS certificate out of Caddy's store.
+7. Opens the firewall ports.
+8. Starts coturn and enables `turn-credentials` and the certificate timer.
+
+Idempotent. Re-running it re-renders the config, re-applies the firewall
+rules and restarts the services. It never regenerates the secret once one
+exists, because that would invalidate every credential already minted and
+break every call in progress.
+
+The container runs as the `kithmoot-turn` uid rather than the image's
+default `nobody`, which is what lets the config holding the shared secret
+be mode 0600 owned by one dedicated user instead of group-readable by
+`nogroup`, which on a shared box is every stray unprivileged process.
+
+### Rotating the secret
+
+Deliberate, and it will drop calls in progress:
+
+```bash
+sudo rm /etc/kithmoot/turn-secret
+DEPLOY_HOST=deploy@YOUR_BOX deploy/turn-deploy.sh
+```
+
+### After changing src/turn.ts or the credential service
+
+Nothing on the box rebuilds itself. Re-run `deploy/turn-deploy.sh`.
 
 ## Verifying TURN actually works
 
-Getting this wrong is easy and silent: a browser can establish a call
-using only STUN-discovered `srflx` (server-reflexive) candidates on your
-own network and look completely healthy, while still failing for the next
-real user on a stricter network, because your test never needed the relay
-candidate at all.
+Getting this wrong is easy and silent. A browser can establish a call
+using only STUN-discovered `srflx` candidates on your own network and look
+completely healthy, while still failing for the next real user on a
+stricter network, because your test never needed the relay candidate at
+all. Two same-machine browsers are worse still: they connect on `host`
+candidates whether or not any TURN server exists anywhere. That is exactly
+how a deployment with no TURN server at all passed every test it had.
 
-Use a trickle-ICE tester against the exact TURN URL and credentials you
-intend to ship - either https://icetest.info or the WebRTC project's own
-[trickle-ice sample](https://webrtc.github.io/samples/src/content/peerconnections/trickle-ice/).
-Enter:
+### Server side
 
-- STUN URL: `stun:turn.kithmoot.example:3478`
-- TURN URL: `turn:turn.kithmoot.example:3478`, plus username/credential
-  from a `mintTurnCredential(...)` call (or a manually-computed pair per
-  `deploy/turn-credentials.md`, for a quick manual check)
-- TURNS URL (optional but worth testing): `turns:turn.kithmoot.example:5349`
+Confirm coturn is listening on the box's public address, not `0.0.0.0`:
 
-**A healthy result shows at least one candidate of type `relay`.** A
-`host` candidate (your own local address) and a `srflx` candidate (what
-STUN found) proving out is not enough - those two prove your network path
-works, not that TURN does. If gathering finishes with only `host` and
-`srflx` candidates and no `relay` one, TURN is not reachable or not
-authenticating: check the firewall ports above first (a closed relay range
-is the single most common cause), then the container logs, then the
-credential (an expired or wrongly-computed one fails silently from the
-browser's point of view - it just never gets a relay candidate).
+```bash
+sudo ss -lntup | grep -E ':3478|:5349'
+```
+
+Then confirm a credential from the endpoint actually authenticates. This
+relays real packets through the running server:
+
+```bash
+cred=$(curl -s http://127.0.0.1:8089/turn -H 'Origin: https://YOUR_HOST')
+U=$(printf '%s' "$cred" | python3 -c 'import sys,json;print(json.load(sys.stdin)["username"])')
+W=$(printf '%s' "$cred" | python3 -c 'import sys,json;print(json.load(sys.stdin)["credential"])')
+sudo docker run --rm --network host --entrypoint turnutils_uclient \
+  coturn/coturn:4.17.2-r0 -y -c -n 4 -u "$U" -w "$W" -p 3478 YOUR_PUBLIC_IP
+```
+
+A healthy run reports `tot_send_msgs` and `tot_recv_msgs` matching with no
+lost packets. Repeat it with a deliberately wrong credential and confirm
+it reports `Cannot complete Allocation` - a test that passes with a bad
+credential is testing nothing.
+
+### End to end, the one that matters
+
+```bash
+npm run test:turn
+```
+
+`test/turn-relay.spec.ts` drives two real browser contexts against the
+live site with `iceTransportPolicy: 'relay'` forced, which makes the
+browser discard host and server-reflexive candidates and gather only relay
+ones. The only route to a connection is then an allocation on the real
+TURN server with a real credential: the same code path a phone behind
+CGNAT takes, minus the CGNAT. It asserts the credential endpoint answered,
+that the selected candidate pair is of type `relay` at **both** ends, and
+that RTP bytes actually arrived, because ICE reaching `connected` while
+carrying no media is precisely the original bug.
+
+It runs against the live deployment by default and starts no local server,
+since `vite preview` does not serve `/turn`. See
+`playwright.turn.config.ts`; override with `TURN_E2E_BASE_URL`.
+
+If it fails, the failure message distinguishes the cases: no credential,
+no `turn:` server in the app's ICE list, a non-`relay` candidate type, or
+a connection carrying no bytes.
+
+A browser trickle-ICE page such as the WebRTC project's
+[trickle-ice sample](https://webrtc.github.io/samples/src/content/peerconnections/trickle-ice/)
+is a reasonable manual spot check, fed a `urls`/`username`/`credential`
+triple from `/turn`. **A healthy result shows at least one candidate of
+type `relay`**; `host` and `srflx` candidates prove your network path
+works, not that TURN does.
 
 ## Minting TURN credentials for the browser
 
-coturn above only checks credentials - something else has to hand a
-browser a fresh `{username, credential}` pair before it can use the
-server at all. That something is `server/turn-credentials.mjs`: a small
-Node HTTP service, using `mintTurnCredential` (`src/turn.ts`) against the
-same `static-auth-secret` as `turnserver.conf`, that `app/src/main.ts`
-fetches from at join time (see `TURN_CREDENTIAL_ENDPOINT` there) whenever
-a room is using this default TURN server rather than one of its own. A
-failed or unreachable fetch never blocks joining - the room just falls
-back to STUN-only, same as if `DEFAULT_TURN_URL` were never set.
+coturn only checks credentials. Something has to hand a browser a fresh
+`{username, credential}` pair first, and that is
+`server/turn-credentials.mjs`: a small Node HTTP service using
+`mintTurnCredential` (`src/turn.ts`) against the same secret as
+`turnserver.conf`, which `app/src/main.ts` fetches at join time (see
+`TURN_CREDENTIAL_ENDPOINT` there) whenever a room is using this default
+TURN server rather than one of its own.
 
-### Generating and placing the secret
+It binds `127.0.0.1:8089` and is never exposed directly.
+`deploy/Caddyfile.kithmoot` reverse-proxies `/turn` to it on the app's own
+domain. `/healthz` is deliberately not proxied: it exists for a `curl` on
+the box, and publishing it would only advertise the service to anyone
+scanning.
 
-```bash
-openssl rand -hex 32
-```
+Every mint gets its own random label (`km-<random>`), so one credential
+username means one browser session. That is what makes coturn's
+`user-quota` a per-session control rather than a global one that a busy
+room trips on everybody's behalf.
 
-This one value goes in exactly two places, and must match between them:
+**A failed or unreachable fetch never blocks joining.** The room falls
+back to STUN only, exactly as before this endpoint existed. A call that
+refuses to start because an optional convenience server had a bad day is a
+strictly worse outcome than one that degrades.
 
-- `static-auth-secret=` in `deploy/coturn/turnserver.conf` (coturn's copy)
-- `TURN_SECRET` in the credential service's `EnvironmentFile` (its copy)
-
-Nowhere else. It never appears in `app/src/main.ts` or anything shipped to
-a browser - see `deploy/turn-credentials.md` for why a static credential
-in the client bundle is the thing this whole scheme exists to avoid.
-
-### Installing the credential service
-
-Full step-by-step install, including the dedicated user, the
-`EnvironmentFile` layout, and how to verify it, lives in the comment block
-at the top of `deploy/turn-credentials.service` - copy that file to
-`/etc/systemd/system/` and follow it. In short:
-
-```bash
-# on the box, in a checkout of this repo (e.g. /opt/kithmoot)
-npm ci && npm run build:lib   # produces dist/src/turn.js - repeat after every pull
-sudo cp deploy/turn-credentials.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now turn-credentials
-```
-
-`deploy/Caddyfile.kithmoot` reverse-proxies `/turn` and `/healthz` on the
-app's own domain to this service (which listens on `127.0.0.1:8089` only -
-never exposed directly) - re-run the Caddy install step above if it's
-already deployed, so the updated vhost picks up those routes.
-
-### Verifying the credential service end to end
-
-```bash
-curl -s https://kithmoot.example/healthz                                    # -> ok
-curl -s https://kithmoot.example/turn -H 'Origin: https://kithmoot.example' # -> {"urls":[...],"username":"...","credential":"...","ttl":3600}
-```
-
-Then feed that `urls`/`username`/`credential` triple into the trickle-ICE
-tester from the section above and confirm a `relay` candidate still
-appears - the credential service answering with valid JSON is necessary
-but not sufficient; the round trip through actual coturn auth is the real
-test.
-
-Once that's confirmed, uncomment `DEFAULT_TURN_URL` **and**
-`TURN_CREDENTIAL_ENDPOINT` together in `app/src/main.ts` (they're designed
-to be switched on as a pair - see the comment there) and redeploy the PWA.
+The secret exists in exactly two places on the box, and must match:
+`static-auth-secret` in coturn's rendered config, and `TURN_SECRET` in the
+credential service's `EnvironmentFile`. `install.sh` writes both from one
+generated value. It never appears in anything shipped to a browser - see
+`deploy/turn-credentials.md` for why a static credential in the client
+bundle is the thing this whole scheme exists to avoid.
 
 ### The honest cost of an unauthenticated endpoint
 

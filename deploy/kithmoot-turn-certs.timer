@@ -1,0 +1,22 @@
+# Daily check for a renewed TURN certificate. See
+# kithmoot-turn-certs.service and deploy/coturn/sync-certs.sh.
+#
+# Daily rather than hourly because Caddy renews at 30 days remaining, so a
+# day's lag on picking up a new certificate is a rounding error, and the
+# script restarts coturn when it does find one - which drops any call in
+# progress. Once a day at a quiet hour is the right frequency for something
+# with that side effect.
+#
+# Persistent=true so a renewal that lands while the box is down is still
+# picked up on the next boot rather than waited out for another day.
+
+[Unit]
+Description=Daily publish of the KithMoot TURN TLS certificate
+
+[Timer]
+OnCalendar=*-*-* 04:17:00
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

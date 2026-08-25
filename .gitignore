@@ -8,6 +8,8 @@ playwright-report/
 blob-report/
 
 # Local agent scratch and working artefacts
+# Reports belong in kithmoot-private, not here - see the history of this file.
+EFFECTS-REPORT.md
 .superpowers/
 *.bundle
 *.apk

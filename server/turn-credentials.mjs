@@ -25,6 +25,7 @@
 // actually gating access. See deploy/README.md for the honest options.
 
 import { createServer } from 'node:http'
+import { randomBytes } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 // Imported from the built library, not src/turn.ts directly - this file has
 // no TypeScript build step of its own, and re-deriving the HMAC here would
@@ -156,6 +157,27 @@ function clientIp(req) {
   return req.socket.remoteAddress ?? 'unknown'
 }
 
+/**
+ * A fresh label for each minted credential.
+ *
+ * mintTurnCredential defaults this to the constant "kithmoot", which makes
+ * every credential minted in the same second literally the same username -
+ * and coturn's `user-quota` counts allocations per username. A shared
+ * username means the quota is either a global cap that a busy room trips on
+ * behalf of everybody, or (set high enough to avoid that) no cap at all.
+ * A random label per request makes one username mean one browser session,
+ * which is the unit `user-quota` should be counting, and gives coturn's logs
+ * something to attribute an allocation to.
+ *
+ * It carries no authority: coturn never looks at it beyond the HMAC, so this
+ * is a label, not an identifier, and it deliberately says nothing about who
+ * asked. Eight random bytes is far more than enough to keep two concurrent
+ * sessions apart.
+ */
+function mintName() {
+  return `km-${randomBytes(8).toString('hex')}`
+}
+
 function sendJson(res, status, body, extraHeaders = {}) {
   res.writeHead(status, { 'content-type': 'application/json', ...extraHeaders })
   res.end(JSON.stringify(body))
@@ -223,7 +245,7 @@ function handleRequest(req, res, config, rateLimiter) {
   }
 
   const now = Math.floor(Date.now() / 1000)
-  const { username, credential } = mintTurnCredential(config.secret, config.ttlSeconds, now)
+  const { username, credential } = mintTurnCredential(config.secret, config.ttlSeconds, now, mintName())
   const body = { urls: config.urls, username, credential, ttl: config.ttlSeconds }
 
   if (req.method === 'HEAD') {
