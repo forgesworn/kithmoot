@@ -20,7 +20,9 @@ export default defineConfig({
   retries: 0,
   reporter: 'list',
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? 'https://localhost:4173',
+    // Carries the `/j/` sub-path the app is published under (see the `base`
+    // in app/vite.config.ts) - `vite preview` serves nothing at the root.
+    baseURL: process.env.E2E_BASE_URL ?? 'https://localhost:4173/j/',
     // app/vite.config.ts's basicSsl() plugin runs under `vite preview` too,
     // so the app is only ever reachable here over a self-signed cert.
     // Irrelevant to getUserMedia's secure-context check either way -
@@ -54,7 +56,7 @@ export default defineConfig({
     ? undefined
     : {
         command: 'npm run build && npx vite preview --config app/vite.config.ts --port 4173 --strictPort',
-        url: 'https://localhost:4173',
+        url: 'https://localhost:4173/j/',
         ignoreHTTPSErrors: true,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

@@ -11,6 +11,15 @@ export default defineConfig({
   // config behaves the same whether Vite is invoked from the repo root
   // (`npm run dev`) or from inside app/ directly.
   root: here,
+  // The app is published under https://kithmoot.forgesworn.dev/j/, not at the
+  // root - the root is the marketing page. A join link carries a 32-byte
+  // secret plus relay hints in its fragment, so every character in the path
+  // costs QR density; `/j` is the shortest path that still leaves room at the
+  // root for something else. Setting this rewrites the asset URLs, the
+  // manifest and the service worker's scope together - and the scope matters
+  // as much as the assets, because a service worker registered at `/` would
+  // otherwise answer navigations to the marketing page out of its own cache.
+  base: '/j/',
   build: {
     // Written outside app/ so `dist/` at the repo root is unambiguous
     // between the library build (tsc, ./dist) and this one - callers

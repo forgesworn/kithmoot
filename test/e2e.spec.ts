@@ -94,7 +94,9 @@ function withRelays(url: string, relays: string[]): string {
 
 async function newDeviceContext(browser: Browser, baseURL: string): Promise<BrowserContext> {
   const context = await browser.newContext()
-  await context.grantPermissions(['camera', 'microphone'], { origin: baseURL })
+  // grantPermissions keys on an origin, and baseURL carries the app's `/j/`
+  // sub-path - hand it the origin alone.
+  await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL).origin })
   return context
 }
 
