@@ -35,6 +35,7 @@ import { KINDS } from '../src/kinds.js'
 import { deriveRoom, decodeJoinUrl, encodeJoinUrl } from '../src/room.js'
 import { verifyDeviceCredential } from '../src/credential.js'
 import { decodeRosterEvent } from '../src/roster.js'
+import { sanitiseAssistOffer } from '../src/peer-assist.js'
 import { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from '../src/display-name.js'
 import { unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
@@ -262,6 +263,40 @@ describe('roster event', () => {
     expect(result!.name).toBe(sanitiseDisplayName(v.input.rawName))
     expect(result!.name).not.toMatch(/\p{C}/u)
     expect([...result!.name!]).toHaveLength(MAX_DISPLAY_NAME_LENGTH)
+  })
+
+  it('assist-offer: the offer survives the round trip and stays inside the ciphertext', () => {
+    const v = vec('rosterEvent', 'assist-offer')
+    const result = decodeRosterEvent(v.input.event as Event, {
+      roomId: v.expected.decode.roomId,
+      roomKey: hexToBytes(v.expected.decode.roomKeyHex),
+      now: v.expected.decode.now,
+    })
+    expect(result).toEqual(v.expected.result)
+    expect(result).toEqual(v.output.result)
+    expect(result!.assist).toEqual(sanitiseAssistOffer(result!.assist))
+    expect(result!.assist!.reachability).toBe('public')
+    // A relay that could read which members were publicly reachable, and how
+    // much uplink they had, would be reading a map of the room.
+    expect(JSON.stringify(v.input.event)).not.toContain('uplinkBps')
+    expect(JSON.stringify(v.input.event)).not.toContain('public')
+  })
+
+  it('assist-offer-hostile: the entry is accepted and the offer is dropped whole', () => {
+    const v = vec('rosterEvent', 'assist-offer-hostile')
+    const result = decodeRosterEvent(v.input.event as Event, {
+      roomId: v.expected.decode.roomId,
+      roomKey: hexToBytes(v.expected.decode.roomKeyHex),
+      now: v.expected.decode.now,
+    })
+    expect(result).toEqual(v.expected.result)
+    expect(result).toEqual(v.output.result)
+    // The person is genuinely here and their credential is genuine.
+    expect(result!.participant).toBe(fx.PARTICIPANT_A)
+    // Dropped, not repaired. A mended number is still one the publisher
+    // chose, and it would go on to decide who carries this room.
+    expect(result!.assist).toBeUndefined()
+    expect(sanitiseAssistOffer(v.input.rawAssist)).toBeUndefined()
   })
 })
 

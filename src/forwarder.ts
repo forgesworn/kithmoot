@@ -1,23 +1,13 @@
 import { hexEquals, normaliseHex } from './hex.js'
-import type { ForwarderRef } from './types.js'
+import type { CapacityEstimate, ForwarderRef } from './types.js'
 
 export type { ForwarderRef } from './types.js'
-
-/**
- * A local, measured view of what this device is being asked to send.
- *
- * `peers` is the number of OTHER devices being sent to, so mesh cost is
- * `peers x perPeerBps` directly - the `(N-1)` is already applied by the
- * caller counting the room minus itself.
- */
-export interface CapacityEstimate {
-  /** Measured upload capacity, bits per second. */
-  uplinkBps: number
-  /** How many other devices this one is sending to. */
-  peers: number
-  /** Measured or configured send bitrate per peer, bits per second. */
-  perPeerBps: number
-}
+// `CapacityEstimate` lives in `types.ts` because it now rides the wire: a
+// device that offers to relay for the room advertises one, so every other
+// client can work out its spare uplink for itself rather than being told a
+// number it cannot check. Re-exported here because this is where it is used
+// and where callers already import it from.
+export type { CapacityEstimate } from './types.js'
 
 /**
  * How much of the measured uplink a mesh may claim before a forwarder is

@@ -5,6 +5,7 @@ import { verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
+import { sanitiseAssistOffer } from './peer-assist.js'
 import type { RosterEntry } from './types.js'
 
 export interface EncodeRosterOptions {
@@ -28,7 +29,16 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
   // is obliged to have done so. `name: undefined` is dropped by
   // JSON.stringify, so an entry that never carried one produces exactly the
   // bytes it did before names existed.
-  const plaintext = JSON.stringify({ ...entry, name: sanitiseDisplayName(entry.name) })
+  // The assist offer is sanitised on the way out for the same reason the name
+  // is: this implementation never publishes something another client has to
+  // defuse. Both fields are `undefined` when absent, which JSON.stringify
+  // drops, so an entry that carries neither produces exactly the bytes it did
+  // before either existed.
+  const plaintext = JSON.stringify({
+    ...entry,
+    name: sanitiseDisplayName(entry.name),
+    assist: sanitiseAssistOffer(entry.assist),
+  })
   const content = nip44.v2.encrypt(plaintext, opts.roomKey)
   return finalizeEvent(
     {
@@ -96,6 +106,18 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     const name = sanitiseDisplayName(entry.name)
     if (name === undefined) delete entry.name
     else entry.name = name
+    // The third boundary, and the one with arithmetic behind it: an assist
+    // offer is a claim about somebody else's uplink, published by a client
+    // that owes us nothing, and it feeds straight into the sums that decide
+    // who carries this room. A NaN uplink or a fan-out claim of a thousand
+    // is defused here rather than believed. The entry survives - the person
+    // is genuinely in the room - and only the offer is dropped, exactly as a
+    // hostile display name costs the name and not the person. See
+    // `sanitiseAssistOffer`.
+    const assist = sanitiseAssistOffer(entry.assist)
+    if (assist === undefined) delete entry.assist
+    else entry.assist = assist
+
     if (entry.proof) {
       entry.proof = {
         ...entry.proof,

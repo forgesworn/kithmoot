@@ -1,4 +1,5 @@
 import type { Event } from 'nostr-tools/pure'
+import type { Reachability } from './reachability.js'
 
 /** A device credential is an ordinary signed Nostr event, never published bare. */
 export type DeviceCredential = Event
@@ -51,6 +52,75 @@ export type KindredProof = {
   expiresAt: number
 }
 
+/**
+ * A local, measured view of what this device is being asked to send.
+ *
+ * `peers` is the number of OTHER devices being sent to, so mesh cost is
+ * `peers x perPeerBps` directly - the `(N-1)` is already applied by the
+ * caller counting the room minus itself.
+ *
+ * This rides the wire inside an `AssistOffer`, which is why it lives here
+ * rather than in `forwarder.ts` where it is used. Putting the estimate on the
+ * wire rather than a derived "spare bandwidth" figure is deliberate: every
+ * client then computes spare capacity with the same function from the same
+ * numbers, so a deterministic selection stays deterministic even when two
+ * clients disagree about what headroom to leave.
+ */
+export interface CapacityEstimate {
+  /** Measured upload capacity, bits per second. */
+  uplinkBps: number
+  /** How many other devices this one is sending to. */
+  peers: number
+  /** Measured or configured send bitrate per peer, bits per second. */
+  perPeerBps: number
+}
+
+/**
+ * An offer to carry other people's media.
+ *
+ * This is what turns the room from something we host into something the
+ * people in it host. A member that is publicly reachable can absorb the pairs
+ * who cannot reach each other, using plain WebRTC and nobody's TURN server -
+ * and unlike a fixed relay, there are more of these the more people arrive.
+ *
+ * **It is a claim, exactly as a display name is.** Nothing here is checked,
+ * and nothing here can be: a device can advertise a gigabit uplink it does
+ * not have, or `public` reachability from behind a NAT. The mitigation is not
+ * a trust system, it is that a relay which cannot do the job shows up as a
+ * connection that will not come up, and gets replaced - see
+ * `selectAssistant`'s `exclude`. What a lie can cost is one failed attempt
+ * and a fallback, which is the same thing an honest volunteer closing their
+ * laptop costs.
+ *
+ * Note what a volunteer is not: it is not a forwarder. A forwarder is given
+ * the room id and never the room key, so it cannot read what it carries. A
+ * volunteer is a member of the room and holds the key - and has to be
+ * directly connected to both ends of a pair to carry them, which is how it
+ * receives their media as an ordinary participant anyway. **Relaying gives it
+ * nothing it did not already have.** What it still cannot do is present one
+ * member's media as another's, because `deriveMediaKey(roomKey, sender)`
+ * binds a frame to whoever sent it. See `peer-relay.ts`.
+ */
+export interface AssistOffer {
+  /**
+   * How reachable this device measured itself to be - see
+   * `classifyReachability`. Only `public` is any use as a relay, and it is
+   * carried rather than assumed so a reader can see why a device was passed
+   * over.
+   */
+  reachability: Reachability
+  /** What this device's uplink is, and what it is already spending on its
+   *  own call. Spare capacity is derived from this by every client
+   *  identically - see `spareUplinkBps`. */
+  capacity: CapacityEstimate
+  /** How many pairs it is already relaying for. */
+  relaying: number
+  /** The most pairs it is willing to relay for, whatever its spare uplink
+   *  works out to. Clamped to `MAX_ASSISTED_PAIRS` on the way in, so a device
+   *  cannot volunteer itself into carrying the whole room. */
+  maxRelayed: number
+}
+
 export interface RosterEntry {
   /** The person. */
   participant: string
@@ -82,6 +152,17 @@ export interface RosterEntry {
   claims: Partial<Record<SingularRole, number>>
   /** Unix seconds; used for staleness. */
   updatedAt: number
+  /**
+   * This device's offer to relay for others, when it is making one.
+   *
+   * Absent whenever it is not, which is the default and which keeps the wire
+   * byte-identical for a client that does not implement peer assist at all.
+   * Consent is not optional here: relaying spends somebody else's bandwidth
+   * and battery, so this field only ever appears because a person turned it
+   * on, and it disappears again the moment they turn it off - see
+   * `RoomSession.setAssist`.
+   */
+  assist?: AssistOffer
   /** True when this entry is not an arrival: an answer to somebody else's
    *  arrival, or the empty entry a device publishes as it leaves. Neither
    *  provokes an answer, which is what stops the room talking to itself for

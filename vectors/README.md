@@ -153,6 +153,38 @@ implementation that does not model display names at all. Such an
 implementation decodes the event, ignores the field, and still matches the
 recorded entry on everything it does model.
 
+**What the assist vectors exist to pin.** A roster entry may also carry an
+`assist`: an offer to relay other people's media, so a room's spare uplink
+comes from the people in it rather than from a server anybody pays for. Like a
+display name it is entirely self-asserted - a device can advertise a gigabit
+uplink it does not have - but unlike a display name it feeds arithmetic, and
+that arithmetic decides which member of the room carries a pair that cannot
+connect directly. `assist-offer` pins that the offer travels inside the
+room-key ciphertext (a relay that could read which members were publicly
+reachable, and how much bandwidth they had, would be reading a map of the
+room) and survives the round trip exactly as published.
+
+`assist-offer-hostile` is the one that matters. Its offer has a null uplink, a
+negative peer count, a fractional load, a claim to carry five thousand pairs,
+and a reachability that is not one of the four measured answers. A conforming
+reader must **accept the entry and drop the offer whole** - the person and
+their credential are genuine, so refusing the entry would be the wrong answer,
+and repairing the offer would be worse than dropping it, because a mended
+number is still a number the publisher chose wearing a measurement's clothes.
+`expected.result` carries no `assist` field at all.
+
+The mitigation for a lie that *does* survive sanitising - a plausible uplink
+that is not real - is deliberately not a trust system. A relay that cannot do
+the job shows up as a connection that will not come up and is replaced by the
+next volunteer, then a forwarder, then TURN. Nothing anywhere believes the
+number; it only orders a list.
+
+Both assist vectors are recorded **decode-only**, for the same reasons the
+display-name pair are: the encode path is already pinned by
+`rosterEvent/valid`, what a second implementation can get wrong is believing
+an offer it should have dropped, and decode-only keeps them meaningful for an
+implementation that does not model peer assist at all.
+
 **What `roomDescriptor` exists to pin.** A forwarder entry is `url`, optional
 `pubkey`, optional `label`, and nothing else. A forwarder is given the room
 **id**; it is never given the room **key**, which is what lets it route
@@ -175,8 +207,8 @@ positive ones, each with the expected rejection outcome:
 - **`deviceCredential`**: a credential checked against the wrong room
   (`wrong room`), one that has expired (`expired`), and one whose `device`
   tag was swapped after signing (`bad signature`).
-- **`rosterEvent`** (the negatives; `display-name` and `display-name-hostile`
-  above are both positives): the same event decrypted with the wrong room's key
+- **`rosterEvent`** (the negatives; `display-name`, `display-name-hostile`,
+  `assist-offer` and `assist-offer-hostile` above are all positives): the same event decrypted with the wrong room's key
   (returns `null`); one signed by a device other than the one its credential
   names (`null`); the valid event with its own signature corrupted but id,
   pubkey, tags and content untouched (`tampered-outer-signature`, `null`);

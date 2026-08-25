@@ -555,6 +555,101 @@ vectors.rosterEvent.push({
   })
 }
 
+{
+  // --- Assist offers -----------------------------------------------------
+  //
+  // A roster entry may carry an `assist`: an offer to relay other people's
+  // media, so a room's spare uplink comes from the people in it rather than
+  // from a server anybody pays for. Like a display name it is entirely
+  // SELF-ASSERTED - a device can advertise a gigabit uplink it does not have,
+  // or claim to be publicly reachable from behind a NAT - so both vectors
+  // below are about what a READER must do with one.
+  //
+  // Unlike a display name, it feeds arithmetic: the numbers here decide which
+  // member of the room carries a pair that cannot connect directly. A NaN
+  // uplink or a fan-out claim of five thousand would otherwise flow straight
+  // into that sum on every client in the room.
+  //
+  // Recorded decode-only (a frozen event in, a decoded entry out) for the
+  // same reason the display-name vectors are: an implementation that does not
+  // carry assist offers at all still decodes the event, ignores the field,
+  // and matches the recorded entry on everything it does model.
+
+  const assistOffer = {
+    reachability: 'public',
+    capacity: { uplinkBps: 100000000, peers: 4, perPeerBps: 600000 },
+    relaying: 1,
+    maxRelayed: 3,
+  }
+  const assistEntry = { ...rosterEntry, assist: assistOffer }
+  const assistRoster = buildRoster({
+    entry: assistEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-assist-nonce',
+    auxRandLabel: 'roster-assist-auxrand',
+  })
+
+  vectors.rosterEvent.push({
+    name: 'assist-offer',
+    kind: 'positive',
+    note: "A roster entry carrying an offer to relay for the room: measured reachability, the uplink estimate every client derives spare capacity from, and how many pairs this device is already carrying. It is inside the room-key ciphertext with everything else - a relay that could read which members were publicly reachable and how much bandwidth they had would be reading a map of the room. The offer survives the round trip exactly as published, and decides nothing on its own: what it feeds is a selection every client computes independently from the same roster.",
+    input: { event: assistRoster.event },
+    output: { result: decodeRosterEvent(assistRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }) },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), now: fx.NOW },
+      result: decodeRosterEvent(assistRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+
+  // Published by a client that sanitises nothing, which is the only kind
+  // worth pinning. Every value here is a known way to break the sum that
+  // decides who carries a room:
+  //
+  //   uplinkBps: null          NaN once coerced; every comparison against it
+  //                            is false, so the device looks like it has
+  //                            neither capacity nor a shortage of it
+  //   peers: -3                a negative spend, which is spare capacity
+  //                            invented out of nothing
+  //   relaying: 0.5            a fractional load, so a fan-out cap counted in
+  //                            whole pairs never quite reaches
+  //   maxRelayed: 5000         a claim to carry the entire room
+  //   reachability: 'amazing'  not one of the four measured answers
+  //
+  // The entry is ACCEPTED - the person is genuinely in the room and their
+  // credential is genuine - and the offer is DROPPED WHOLE rather than
+  // repaired. A half-mended offer is a number somebody made up wearing a
+  // measurement's clothes; absent is honest.
+  const HOSTILE_OFFER = {
+    reachability: 'amazing',
+    capacity: { uplinkBps: null, peers: -3, perPeerBps: 600000 },
+    relaying: 0.5,
+    maxRelayed: 5000,
+  }
+  const hostileAssistEntry = { ...rosterEntry, assist: HOSTILE_OFFER }
+  const hostileAssistRoster = buildRoster({
+    entry: hostileAssistEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-assist-hostile-nonce',
+    auxRandLabel: 'roster-assist-hostile-auxrand',
+  })
+
+  vectors.rosterEvent.push({
+    name: 'assist-offer-hostile',
+    kind: 'positive',
+    note: "A genuine, fully valid roster entry whose assist offer is nonsense: a null uplink, a negative peer count, a fractional load, a claim to carry five thousand pairs, and a reachability that is not one of the four measured answers. The entry is ACCEPTED and the offer is dropped whole - `expected.result` carries no `assist` field at all. Repairing it would be worse than dropping it: a mended number is still a number the publisher chose, and it would go on to decide who carries this room.",
+    input: { event: hostileAssistRoster.event, rawAssist: HOSTILE_OFFER },
+    output: { result: decodeRosterEvent(hostileAssistRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }) },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), now: fx.NOW },
+      result: decodeRosterEvent(hostileAssistRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
 // ===========================================================================
 // 5. Signal wrap - SignalBody + sender secret + recipient pubkey + fixed
 //    ephemeral key -> the exact kind-21059 gift wrap (src/signal.ts).
