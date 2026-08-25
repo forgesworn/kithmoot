@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KithMoot — a town hall nobody owns</title>
+    <meta
+      name="description"
+      content="Conference rooms over Nostr. A person is the unit that joins a room, not a device: bring a phone and a laptop and everyone else sees one participant, not two. No account, no server to run, no operator holding the guest list."
+    />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <link rel="canonical" href="https://kithmoot.forgesworn.dev/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="KithMoot — a town hall nobody owns" />
+    <meta
+      property="og:description"
+      content="Conference rooms over Nostr. A person is the unit that joins a room, not a device."
+    />
+    <meta property="og:url" content="https://kithmoot.forgesworn.dev/" />
+    <meta property="og:image" content="https://kithmoot.forgesworn.dev/pwa-512x512.png" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <a class="skip" href="#claim">Skip to the claim</a>
+
+    <header class="hero">
+      <svg class="mark" viewBox="0 0 512 512" role="img" aria-label="Six people in a ring">
+        <circle cx="256" cy="106" r="40" />
+        <circle cx="385.9" cy="181" r="40" />
+        <circle cx="385.9" cy="331" r="40" />
+        <circle cx="256" cy="406" r="40" />
+        <circle cx="126.1" cy="331" r="40" />
+        <circle cx="126.1" cy="181" r="40" />
+      </svg>
+      <h1>KithMoot</h1>
+      <p class="tagline">A town hall nobody owns.</p>
+      <p class="actions">
+        <a class="button primary" href="j/">Start a room</a>
+        <a class="button" href="#android">Get the Android app</a>
+      </p>
+      <p class="under">Opens in a browser. Nothing to install, no account, no room to book.</p>
+    </header>
+
+    <main>
+      <section id="claim" class="claim">
+        <h2>A person is the unit that joins a room. Not a device.</h2>
+        <p class="lead">
+          Bring a phone for the camera and microphone, and a laptop for the screen share.
+          Everyone else in the room sees <strong>one participant</strong> carrying three
+          tracks — not two strangers who happen to share a name.
+        </p>
+        <p>
+          Every incumbent gets this wrong, Jitsi included. Identity is per-connection, so the
+          same person joining from a laptop and a phone arrives as two tiles, two names and
+          two mute buttons. KithMoot groups by participant instead of by connection. That is
+          the whole product; everything else exists to make that one thing true.
+        </p>
+      </section>
+
+      <section id="what">
+        <h2>What it does</h2>
+        <dl>
+          <dt>Video, voice, chat and screen share</dt>
+          <dd>
+            Media is negotiated device to device over WebRTC. There is no media server in
+            the path, and nothing to run.
+          </dd>
+
+          <dt>Join by URL</dt>
+          <dd>
+            A room is a 32-byte secret carried in the link's fragment. Fragments are never
+            sent to a server, so whatever serves this page has never seen a room key.
+            Anyone holding the link can walk in; nobody outside it can tell the room exists.
+          </dd>
+
+          <dt>No account</dt>
+          <dd>
+            Type a name and you are in. The name is self-asserted — anyone can type any
+            name, including yours — so a short version of your key sits beside it
+            everywhere. If you would rather use a Nostr key you already hold, sign in with
+            an extension, a bunker or Amber; the key stays where it is and this page never
+            holds it.
+          </dd>
+
+          <dt>No operator</dt>
+          <dd>
+            Rooms ride the public Nostr relays that already exist. Presence and chat are
+            encrypted to the room key, so a relay carrying a room cannot read its guest
+            list — by name or by key.
+          </dd>
+        </dl>
+      </section>
+
+      <section id="screens">
+        <h2>What it looks like</h2>
+        <p class="lead">
+          Screenshots from a Pixel 10 Pro XL running the native Android client. Nothing here
+          is a mockup.
+        </p>
+        <div class="shots">
+          <figure>
+            <a href="https://github.com/forgesworn/kithmoot-android/blob/main/docs/screenshots/56-real-start-screen.png">
+              <img
+                src="img/start.webp"
+                width="540"
+                height="1202"
+                alt="The KithMoot start screen: a Start a room button, and a field for pasting a join link."
+              />
+            </a>
+            <figcaption>
+              The front door. Start a room and send the link, or paste one somebody sent
+              you.
+            </figcaption>
+          </figure>
+          <figure>
+            <a href="https://github.com/forgesworn/kithmoot-android/blob/main/docs/screenshots/65-real-mic-and-camera-live.png">
+              <img
+                src="img/camera-live.webp"
+                width="540"
+                height="1202"
+                alt="A room with live camera video and a badge reading Mic on this device."
+              />
+            </a>
+            <figcaption>
+              In a room, camera and microphone live, two of two relays up. The badge names
+              which of your devices is holding the microphone.
+            </figcaption>
+          </figure>
+          <figure>
+            <a href="https://github.com/forgesworn/kithmoot-android/blob/main/docs/screenshots/70-real-entire-screen-share-live.png">
+              <img
+                src="img/one-participant.webp"
+                width="540"
+                height="1202"
+                alt="One tile group labelled You, holding a Screen track and a Camera track side by side, with Mic on this device and Sharing badges."
+              />
+            </a>
+            <figcaption>
+              Camera and screen share running at once. Two video tracks and a microphone,
+              gathered under a single participant rather than scattered across three tiles.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="platforms">
+        <h2>Which platforms</h2>
+        <div class="scroller">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col"><span class="visually-hidden">Platform</span></th>
+                <th scope="col">Video</th>
+                <th scope="col">Voice</th>
+                <th scope="col">Chat</th>
+                <th scope="col">Screen share</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Desktop browser <span class="qualifier">(Chrome, Firefox, Safari)</span></th>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+              </tr>
+              <tr>
+                <th scope="row">Android <span class="qualifier">— native app</span></th>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+              </tr>
+              <tr>
+                <th scope="row">Android <span class="qualifier">— browser / PWA</span></th>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+                <td class="maybe">unreliable</td>
+              </tr>
+              <tr>
+                <th scope="row">iOS / iPadOS <span class="qualifier">— Safari or PWA</span></th>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+                <td class="yes">yes</td>
+                <td class="no">no</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          <strong>There is no iOS app.</strong> The web app loads on iOS and video, voice
+          and chat all work, but <code>getDisplayMedia</code> does not exist on iOS Safari,
+          so screen sharing is impossible from an iPhone or iPad in any browser — including
+          Chrome and Firefox for iOS, which are Safari underneath. Sharing an iOS screen
+          needs a native app using ReplayKit, and that is not built.
+        </p>
+        <p>
+          This is also why the Android client is native rather than a browser tab: mobile
+          browsers cannot reliably share a screen, and screen sharing is half the point.
+        </p>
+      </section>
+
+      <section id="limits">
+        <h2>What does not work yet</h2>
+        <p class="lead">Stated plainly, before anyone else finds it.</p>
+        <ul class="limits">
+          <li><strong>No iOS app.</strong> See above. It is the largest gap.</li>
+          <li>
+            <strong>Forwarder trees are two levels deep.</strong> Enough for a room of about
+            21; beyond that nobody has measured anything.
+          </li>
+          <li>
+            <strong>No browser-as-forwarder.</strong> It needs WebRTC Encoded Transform,
+            which is solid in Chrome and patchy in Safari, so it stays opportunistic and
+            never load-bearing. The reference forwarder is a small Node process.
+          </li>
+          <li>
+            <strong>Android consumes forwarders; it cannot act as one.</strong> It also has
+            no persisted identity yet — leaving a room and rejoining makes you a new
+            participant.
+          </li>
+          <li>
+            <strong>Encrypted media costs an extra encode and decode pass</strong>, and
+            interacts badly with some hardware codec paths. It is only needed once a
+            forwarder is in the path; pure mesh is already end-to-end via DTLS-SRTP.
+          </li>
+          <li>
+            <strong>Kind numbers are provisional</strong> and will change once the spec is
+            written.
+          </li>
+        </ul>
+      </section>
+
+      <section id="android">
+        <h2>Get the Android app</h2>
+        <p class="lead">
+          Package <code>dev.forgesworn.kithmoot</code>. The APK is published on GitHub
+          Releases. If that page is empty, no signed build has been cut yet — build it from
+          source in the meantime.
+        </p>
+        <p class="actions">
+          <a class="button primary" href="https://github.com/forgesworn/kithmoot-android/releases">Releases</a>
+          <a class="button" href="https://github.com/forgesworn/kithmoot-android">Build from source</a>
+        </p>
+        <dl>
+          <dt>Obtainium</dt>
+          <dd>
+            Installs and updates straight from GitHub Releases, with no store in the middle.
+            Add <code>https://github.com/forgesworn/kithmoot-android</code> as a source and
+            it will track new builds on its own.
+          </dd>
+          <dt>Zapstore</dt>
+          <dd>
+            The Nostr app store, and the other route once builds are signed and published
+            there.
+          </dd>
+          <dt>Or skip the app</dt>
+          <dd>
+            <a href="j/">The web app</a> is an installable PWA — add it to a home screen or
+            a dock and a service worker carries the shell offline. On Android it does video,
+            voice and chat; screen sharing is the part a browser cannot be relied on for.
+          </dd>
+        </dl>
+      </section>
+
+      <section id="checked">
+        <h2>How it is checked</h2>
+        <dl>
+          <dt>53 published interop vectors</dt>
+          <dd>
+            Room derivation, join URLs, device credentials, roster events, signal wrapping,
+            kindred proofs, access evaluation, TURN credentials and room descriptors. Both
+            implementations are checked against them.
+          </dd>
+          <dt>Two independent implementations</dt>
+          <dd>
+            The Kotlin client was written against those published vectors rather than
+            against the TypeScript source. A protocol implemented once, in one language, by
+            one person, is a product; implemented twice from a published wire contract, it
+            is infrastructure.
+          </dd>
+          <dt>454 tests, plus a live suite</dt>
+          <dd>
+            The fast suite runs against an in-process relay simulator with no network. A
+            separate live suite checks the wire format against real public relays, and an
+            end-to-end acceptance test drives three browsers through the whole claim.
+          </dd>
+        </dl>
+      </section>
+    </main>
+
+    <footer>
+      <h2>Source</h2>
+      <ul class="links">
+        <li>
+          <a href="https://github.com/forgesworn/kithmoot">forgesworn/kithmoot</a> — the
+          TypeScript reference client, the protocol library and the vectors.
+        </li>
+        <li>
+          <a href="https://github.com/forgesworn/kithmoot-android">forgesworn/kithmoot-android</a>
+          — the native Kotlin client.
+        </li>
+      </ul>
+      <p class="colophon">
+        Built on <a href="https://nostr.com/">Nostr</a>. MIT licence. Made by
+        <a href="https://forgesworn.dev/">Forgesworn</a>.
+      </p>
+    </footer>
+  </body>
+</html>

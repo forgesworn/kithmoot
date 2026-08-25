@@ -1,0 +1,376 @@
+/* KithMoot marketing page.
+ *
+ * One stylesheet, no build step - the whole site is `site/`, copied verbatim
+ * into the published artefact. Two palettes, both fully specified: nothing
+ * here is grey text on a grey field, at either end of the switch. */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #ffffff;
+  --surface: #eef2f6;
+  --border: #b3bcc7;
+  --text: #0e1013;
+  /* Secondary text still clears 10:1 on the page background. There is no
+   * "muted" grey anywhere: quieter copy is quieter by size, not by fading. */
+  --text-2: #333a43;
+  --accent: #005b78;
+  --accent-ink: #ffffff;
+  --yes: #0b5c2c;
+  --maybe: #7a4300;
+  --no: #99150d;
+
+  --measure: 48rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101114;
+    --surface: #1a1c21;
+    --border: #3a3f48;
+    --text: #f4f6f8;
+    --text-2: #ccd3dc;
+    --accent: #4ecbff;
+    --accent-ink: #06131a;
+    --yes: #63d68c;
+    --maybe: #ffc14d;
+    --no: #ff9a90;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0 1.25rem 4rem;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Sized for reading across a room, not for fitting more in. */
+  font-size: clamp(1.125rem, 0.95rem + 0.55vw, 1.375rem);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 0.09em;
+  text-underline-offset: 0.18em;
+}
+
+a:hover {
+  text-decoration-thickness: 0.16em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.06em 0.34em;
+  overflow-wrap: anywhere;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+
+.skip:focus {
+  position: static;
+  display: inline-block;
+  padding: 0.5rem 1rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- hero ---- */
+
+.hero {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: clamp(3rem, 9vw, 6rem) 0 clamp(2rem, 6vw, 4rem);
+  text-align: left;
+}
+
+.mark {
+  display: block;
+  width: clamp(3rem, 8vw, 4.5rem);
+  height: auto;
+  fill: var(--accent);
+  margin-bottom: 1.25rem;
+}
+
+h1 {
+  font-size: clamp(3rem, 12vw, 5.5rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.tagline {
+  font-size: clamp(1.5rem, 5vw, 2.25rem);
+  line-height: 1.2;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0.6rem 0 0;
+}
+
+.under {
+  color: var(--text-2);
+  margin: 0;
+  font-size: 0.95em;
+}
+
+/* ---- buttons ---- */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin: 2rem 0 1rem;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--accent);
+  background: transparent;
+}
+
+.button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.button:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 0.12em;
+}
+
+/* ---- sections ---- */
+
+main,
+footer {
+  max-width: var(--measure);
+  margin: 0 auto;
+}
+
+section,
+footer {
+  padding-top: clamp(2.5rem, 7vw, 4.5rem);
+}
+
+section + section,
+footer {
+  border-top: 2px solid var(--border);
+  margin-top: clamp(2.5rem, 7vw, 4.5rem);
+}
+
+h2 {
+  font-size: clamp(1.6rem, 4.5vw, 2.4rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0 0 1.1rem;
+}
+
+.lead {
+  font-size: 1.12em;
+}
+
+.claim h2 {
+  color: var(--accent);
+}
+
+/* ---- definition lists ---- */
+
+dl {
+  margin: 1.5rem 0 0;
+}
+
+dt {
+  font-weight: 700;
+  font-size: 1.06em;
+  margin-top: 1.75rem;
+}
+
+dd {
+  margin: 0.4rem 0 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--border);
+  color: var(--text-2);
+}
+
+/* ---- screenshots ---- */
+
+.shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: clamp(1.5rem, 4vw, 2.5rem);
+  margin-top: 2rem;
+}
+
+.shots figure {
+  /* A single column on a phone must not render a phone screenshot at the
+   * full reading measure - it would be taller than the viewport twice over. */
+  max-width: 20rem;
+  margin: 0 auto;
+}
+
+.shots a {
+  display: block;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid var(--border);
+  background: var(--surface);
+}
+
+.shots img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Three phones side by side need more than the reading measure. Gated on a
+ * viewport wide enough that the wider grid still fits inside the body's own
+ * padding, so this can never produce a horizontal scrollbar. */
+@media (min-width: 64rem) {
+  .shots {
+    width: 60rem;
+    margin-inline: calc((100% - 60rem) / 2);
+  }
+}
+
+figcaption {
+  margin-top: 0.9rem;
+  font-size: 0.95em;
+  color: var(--text-2);
+}
+
+/* ---- platform table ---- */
+
+.scroller {
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 34rem;
+  font-size: 0.95em;
+}
+
+th,
+td {
+  padding: 0.85rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+tbody tr:last-child th,
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+thead th {
+  background: var(--surface);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+tbody th {
+  font-weight: 700;
+}
+
+.qualifier {
+  font-weight: 400;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+td {
+  font-weight: 700;
+}
+
+td.yes {
+  color: var(--yes);
+}
+
+td.maybe {
+  color: var(--maybe);
+}
+
+td.no {
+  color: var(--no);
+}
+
+/* ---- lists ---- */
+
+.limits,
+.links {
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0 0;
+}
+
+.limits li,
+.links li {
+  padding-left: 1rem;
+  border-left: 3px solid var(--border);
+  margin-bottom: 1.25rem;
+  color: var(--text-2);
+}
+
+.limits strong,
+.links a {
+  color: var(--text);
+}
+
+.links a {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ---- footer ---- */
+
+footer {
+  padding-bottom: 2rem;
+}
+
+.colophon {
+  margin-top: 2rem;
+  color: var(--text-2);
+}
