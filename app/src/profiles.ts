@@ -45,8 +45,6 @@ export class ProfileBook {
   #unsubs = new Set<() => void>()
   /** Pubkeys we have asked about, whether or not an answer came back. */
   readonly #asked = new Set<string>()
-  /** Pubkeys we have finished waiting for. */
-  readonly #settled = new Set<string>()
   readonly #found = new Map<string, { profile: Profile; createdAt: number }>()
   #closed = false
 
@@ -68,24 +66,18 @@ export class ProfileBook {
     this.#unsubs.add(unsub)
 
     // A profile that never arrives is an answer too - "this key has never
-    // published one" - and the UI has to be able to say so rather than
-    // showing a spinner for ever.
+    // published one" - so the lookup is closed rather than left open for
+    // the life of the room. Nothing re-renders: a tile that never gained a
+    // name or a chip already looks exactly right.
     const timer = setTimeout(() => {
-      for (const pubkey of fresh) this.#settled.add(pubkey)
       this.#unsubs.delete(unsub)
       unsub()
-      if (!this.#closed) this.#opts.onChange()
     }, LOOKUP_TIMEOUT_MS)
     ;(timer as unknown as { unref?: () => void }).unref?.()
   }
 
   get(pubkey: string): Profile | undefined {
     return this.#found.get(pubkey)?.profile
-  }
-
-  /** True once the answer is known either way - a profile, or none. */
-  settled(pubkey: string): boolean {
-    return this.#found.has(pubkey) || this.#settled.has(pubkey)
   }
 
   close(): void {
@@ -117,7 +109,6 @@ export class ProfileBook {
         picture: safePicture(content.picture),
       }
       this.#found.set(event.pubkey, { profile, createdAt: event.created_at })
-      this.#settled.add(event.pubkey)
       if (!this.#closed) this.#opts.onChange()
     } catch {
       // A malformed profile is a missing profile, not a broken room.
