@@ -1,64 +1,130 @@
-# Caddy vhost for the KithMoot PWA, following this box's existing pattern:
-# one file per site under a conf.d-style include, and a release directory
-# with a `current` symlink flipped by deploy.sh - never build in place.
+# kithmoot.forgesworn.dev - the page at the root, the PWA at /j, the APKs at
+# /apk. Served from /var/www/kithmoot/current on the shared "stall" box.
 #
-# INSTALL:
-#   1. Copy this file to /etc/caddy/conf.d/kithmoot.caddy (adjust the path
-#      to match whatever conf.d-equivalent directory the box's main
-#      /etc/caddy/Caddyfile already imports for its other sites - relay.
-#      trotters.cc and friends. If the main Caddyfile has no such import
-#      yet, add one line to it:
-#        import conf.d/*.caddy
-#      rather than pasting this site's block directly into the main file.
-#   2. Replace kithmoot.CHANGE_ME.example below with the real hostname and
-#      point its DNS A/AAAA record at this box.
-#   3. Run deploy.sh at least once so /srv/kithmoot/current exists before
-#      reloading Caddy - an absent root directory is a startup error, not
-#      a soft 404.
-#   4. caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
-#      (or `caddy reload`, whichever this box already uses for its other
-#      sites - deploy.sh assumes the same one).
+# Install: additive conf.d drop-in, imported by the main Caddyfile's
+# `import /etc/caddy/conf.d/*.Caddyfile`. Copy this to
+# /etc/caddy/conf.d/kithmoot.forgesworn.dev.Caddyfile - the .Caddyfile
+# suffix is what the glob matches - and never touch another tenant's
+# directory, unit or vhost. Validate, then reload:
+#   sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+#   sudo systemctl reload caddy
 #
-# Caddy issues and renews its own TLS cert for this domain automatically
-# (the same as every other site on the box) - nothing to do here for that.
-
-kithmoot.CHANGE_ME.example {
-	root * /srv/kithmoot/current
-	encode gzip zstd
+# Run deploy/deploy.sh at least once first, so /var/www/kithmoot/current
+# exists: an absent root is a startup error, not a soft 404.
+#
+# Auto-TLS: the A record is grey-cloud (DNS-only) to this origin, so Caddy
+# issues and renews the Let's Encrypt certificate itself.
+kithmoot.forgesworn.dev {
+	root * /var/www/kithmoot/current
+	encode zstd gzip
 
 	# TURN credential minting (server/turn-credentials.mjs, installed as
-	# deploy/turn-credentials.service) - reverse-proxied from this same
-	# domain rather than a separate credentials.* subdomain, so the app's
-	# own fetch() to it is same-origin. Still put this domain in the
-	# service's ALLOWED_ORIGINS (see deploy/README.md) - some browsers send
-	# an Origin header even on a same-origin fetch, and that request must
-	# not be the one case this endpoint fails closed on. The service
-	# listens on 127.0.0.1 only - it is never meant to be reachable except
-	# through Caddy. Written before file_server for readability, though
-	# Caddy's automatic directive ordering (reverse_proxy before
-	# file_server) makes this win regardless of position in the file.
-	@turnApi path /turn /healthz
-	reverse_proxy @turnApi 127.0.0.1:8089
+	# deploy/turn-credentials.service). Commented out because that service
+	# is not on this box: a live reverse_proxy to a dead port is a 502 for
+	# anyone who finds the path, and the app does not call it either -
+	# TURN_CREDENTIAL_ENDPOINT in app/src/main.ts is undefined. Uncomment
+	# both this and that constant together, or neither.
+	# @turnApi path /turn /healthz
+	# reverse_proxy @turnApi 127.0.0.1:8089
 
-	file_server
+	# The APKs live outside the release directories, so a rollback of the
+	# site does not take the downloads with it and a redeploy does not
+	# re-upload 50 MB.
+	handle /apk/* {
+		root * /var/www/kithmoot
+		# No `browse`: the page links a stable filename, and a directory
+		# listing is Caddy-generated HTML with inline style and script that
+		# the strict CSP below would break anyway.
+		file_server
+	}
 
-	# The service worker and the HTML shell that registers it must never be
-	# served stale: a cached sw.js is a cached old version of the app that
-	# can never see the new one, since the old service worker is the thing
-	# deciding whether to fetch a new one. index.html carries the hashed
-	# asset URLs for the current build, so it needs the same treatment.
-	@noCache path /sw.js /index.html /manifest.webmanifest
-	header @noCache Cache-Control "no-cache"
+	handle {
+		file_server
+	}
 
-	# Everything under /assets/ is content-hashed by the Vite build
-	# (filename changes when content changes) - safe to cache forever.
-	@immutable path /assets/*
+	# --- headers -------------------------------------------------------
+	#
+	# Content-Security-Policy and Permissions-Policy are set by two blocks
+	# with *disjoint* matchers, never by a base block that a later one
+	# overrides. A base `header` block containing `-Server` or a `?` set is
+	# deferred by Caddy to response-write time, so it runs after every
+	# matched block regardless of where it sits in this file - and would
+	# quietly put the marketing page's `default-src 'none'` back on the app,
+	# which loads as a blank page with the camera disabled. Disjoint
+	# matchers make that failure impossible rather than merely unlikely.
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		?Cache-Control "no-cache"
+	}
+
+	@app path /j /j/*
+	header @app {
+		# KithMoot is a WebRTC application. camera, microphone and
+		# display-capture have to be granted to this origin or getUserMedia
+		# and getDisplayMedia fail before any of the rest of it matters -
+		# and they fail quietly, which is the worst kind.
+		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+		# Derived from what app/src/main.ts actually does, and no wider:
+		#
+		#   script-src 'self'  - one bundled module, no inline script.
+		#   style-src ... 'unsafe-inline' - signet-login builds its signer
+		#     picker by creating a <style> element and setting cssText
+		#     (node_modules/signet-login/dist/modal.js). Without this the
+		#     sign-in modal renders unstyled. Nothing in this repo needs it.
+		#   img-src ... https: - a kind-0 profile picture is an arbitrary
+		#     URL belonging to whoever published it (app/src/profiles.ts).
+		#   connect-src ... wss: - relays. A room carries its own relay
+		#     list in the join link, so no fixed list can be right here.
+		#     https: is for the TURN credential endpoint above.
+		#   media-src ... blob: mediastream: - remote tracks are attached
+		#     by srcObject, which CSP does not police, but the QR canvas
+		#     and any future recording path do go through URLs.
+		#   worker-src 'self' - the service worker at /j/sw.js.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+	}
+
+	# Everything that is not the app: the marketing page, which is HTML, CSS
+	# and three WebP images with no script of any kind, and the APK
+	# downloads, which are bytes.
+	@notApp not path /j /j/*
+	header @notApp {
+		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+		Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+	}
+
+	# --- caching -------------------------------------------------------
+
+	# Everything under /j/assets/ is content-hashed by the Vite build, so
+	# the filename changes whenever the bytes do.
+	@immutable path /j/assets/*
 	header @immutable Cache-Control "public, max-age=31536000, immutable"
 
-	header X-Content-Type-Options "nosniff"
+	# A cached sw.js is a cached old version of the whole app that can
+	# never see the new one, because the old worker is the thing that
+	# decides whether to fetch a replacement. index.html carries the hashed
+	# asset URLs for the current build and needs the same treatment.
+	@noCache path /j/sw.js /j/index.html /j/ /j /j/manifest.webmanifest
+	header @noCache Cache-Control "no-cache, no-store, must-revalidate"
 
+	# An APK filename carries its version, so a given file never changes.
+	@apk path /apk/*.apk
+	header @apk Cache-Control "public, max-age=604800"
+
+	# No access logs, matching every other conf.d drop-in on this box
+	# (cambium, flock, farrier-kit, heartwood, meatchat) and matching what
+	# the page claims: a relay carrying a room cannot read its guest list,
+	# and the host serving the page keeps no record of who asked for it.
+	#
+	# It also avoids a trap. `sudo caddy validate` runs as root and creates
+	# any log file the config names, owned by root; the caddy user then
+	# cannot open it and every subsequent reload fails with a permission
+	# error on a file nobody remembers creating.
 	log {
-		output file /var/log/caddy/kithmoot.log
-		format json
+		output discard
 	}
 }
