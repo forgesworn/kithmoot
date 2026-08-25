@@ -38,6 +38,8 @@ to make that one thing true.
   carrying it never reads it.
 - Room-key-encrypted chat (NIP-44), durable across a relay restart so it's
   there for anyone who joins late.
+- **Names, and optionally a real Nostr identity.** Type a name and join, or
+  sign in with a key you already have. See below.
 - An installable PWA — add it to a home screen or dock; a service worker
   carries the shell offline.
 - **Forwarders**, so a room can outgrow the mesh. The room names them the way
@@ -52,6 +54,63 @@ to make that one thing true.
   reading this codebase.
 - **53 published interop vectors** (`vectors/`), which both implementations
   are checked against.
+
+## Names, and who you are
+
+Two ways in, one participant model.
+
+**Type a name.** The default, and the whole of it: the app generates a
+participant key, you type what people should call you, and you join. The
+name is **self-asserted** — anyone can type any name, including yours — so
+it never stands alone. A short pubkey renders beside it everywhere, on
+tiles and in chat, and the full npub is on the element's title. Two people
+who both typed "Darren" are visibly two people.
+
+**Sign in with Nostr.** Optional, behind a disclosure so it never gets in
+the way. Uses [`signet-login`](https://www.npmjs.com/package/signet-login)
+for the whole picker — NIP-07 extensions, NIP-46/NostrConnect, bunker URIs,
+Amber on Android, and an nsec fallback — and the participant key becomes
+your real Nostr identity, held wherever it already lives.
+
+**This is a security improvement, not only a feature.** On the signer path
+there is **no participant secret in `localStorage` at all**. The reason it
+works is that the participant key signs exactly one thing: a device
+credential, one small event per room. Everything else already runs on other
+keys — the device key signs the roster and the gift-wrapped signalling, the
+room key encrypts the roster and the chat. So the whole surface an identity
+has to cover is a pubkey and an async `signEvent`, which is
+`ParticipantIdentity` in `src/identity.ts`. A locally generated key and an
+external signer both satisfy it, and nothing else in the protocol can tell
+which it has.
+
+A signer that can prove who you are but cannot sign afterwards (an
+auth-only session) is refused with a reason, because a room needs that one
+signature per join.
+
+### What a name is worth, stated plainly
+
+- **A typed name is a claim.** Nothing checks it. That is the point of the
+  zero-friction path, and it is why the pubkey is always beside it.
+- **A `nostr` chip means the key has a published kind-0 profile.** That is
+  the only signal that exists — nothing on the wire distinguishes a real
+  Nostr key from one this browser generated a moment ago, and nothing
+  could.
+- **A kind-0 name is also self-asserted.** It says "the holder of this key
+  calls themselves Darren", which is the same kind of claim as a typed
+  name; the difference is that the key is persistent and has a history.
+  It is never labelled "verified", because it is not.
+- **Names are sanitised at both ends.** `sanitiseDisplayName`
+  (`src/display-name.ts`) strips every Unicode "other" character —
+  controls, bidirectional overrides, zero-width padding — collapses
+  whitespace, and caps the result at 32 code points. Applied on encode so
+  this client never publishes a hostile name, and on decode because no
+  other client is obliged to have bothered. Markup is deliberately kept as
+  literal text: what makes it safe is that a name never reaches
+  `innerHTML`, and there is a guard test for that rather than a filter
+  pretending to be one.
+- **A name is inside the ciphertext.** It rides in the room-key-encrypted
+  roster alongside the participant pubkey, so a relay carrying a room
+  cannot read its guest list by name any more than it can by key.
 
 ## Which platforms
 
@@ -93,7 +152,7 @@ Stated plainly, before anyone else finds it:
 
 ```bash
 npm install
-npm test          # 98 tests, in-process relay simulator, no network
+npm test          # 454 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance test below, automated, over live relays
 npm run typecheck
@@ -139,7 +198,8 @@ repeated on every run by `npm run test:e2e` against live public relays:
 
 The pairing link grants a credential for **that room only**, expiring after
 twelve hours. It does not carry your identity: the participant key never
-leaves the laptop, so a pairing link that goes astray costs one room for an
+leaves the laptop — and if you signed in with Nostr it was never on the
+laptop either — so a pairing link that goes astray costs one room for an
 afternoon, not your Nostr identity for ever. Step 4 comes last on purpose —
 the roster rides an ephemeral kind, so the third browser learns who is
 already there because they answer its arrival, not because a relay stored
