@@ -242,7 +242,12 @@ directory and flips a `current` symlink at it. A rollback is one symlink
 change; nothing is ever built in place, and nothing is deleted without
 `--prune`.
 
+`DEPLOY_HOST` has no default and the script refuses to run without it. That is
+deliberate: this repository is public, so the box's address is not written down
+in it, and there is no host to deploy to by accident.
+
 ```bash
+export DEPLOY_HOST=deploy@your-box   # required; no default
 deploy/deploy.sh                  # build, ship, flip the symlink
 deploy/deploy.sh --install-caddy  # also install the vhost, validate, reload
 deploy/deploy.sh --dry-run        # build and assemble, touch nothing remote

@@ -9,8 +9,11 @@ set -euo pipefail
 # Usage:
 #   deploy/deploy.sh [--install-caddy] [--reload-caddy] [--prune N] [--dry-run]
 #
-# Env overrides:
-#   DEPLOY_HOST      deploy@62.238.98.53
+# Env:
+#   DEPLOY_HOST      required, e.g. deploy@your-box. No default on purpose:
+#                    this is a public repository, and a hardcoded host is both
+#                    somebody's server address and a way to deploy to the wrong
+#                    box by forgetting to set it.
 #   DEPLOY_KEY       ~/.ssh/id_ed25519
 #   DEPLOY_ROOT      /var/www/kithmoot
 #   ANDROID_REPO     ../kithmoot-android
@@ -36,7 +39,13 @@ set -euo pipefail
 # identical release and re-flips the symlink at it. Nothing here overwrites a
 # previous release in place, and nothing is deleted without --prune.
 
-DEPLOY_HOST="${DEPLOY_HOST:-deploy@62.238.98.53}"
+DEPLOY_HOST="${DEPLOY_HOST:-}"
+if [ -z "$DEPLOY_HOST" ]; then
+  echo "deploy.sh: DEPLOY_HOST is not set." >&2
+  echo "  Set it to the box you mean to deploy to, e.g." >&2
+  echo "    DEPLOY_HOST=deploy@your-box deploy/deploy.sh" >&2
+  exit 2
+fi
 DEPLOY_KEY="${DEPLOY_KEY:-$HOME/.ssh/id_ed25519}"
 DEPLOY_ROOT="${DEPLOY_ROOT:-/var/www/kithmoot}"
 

@@ -118,35 +118,35 @@ which is a much more confusing failure mode than TURN not running at all.
 
 ```bash
 # from a checkout of this repo, on your own machine - never on the box
-DEPLOY_HOST=deploy@144.126.230.165 \
-DEPLOY_KEY=~/.ssh/id_rsa_thecryptodonkey \
+DEPLOY_HOST=deploy@YOUR_BOX \
+DEPLOY_KEY=~/.ssh/id_ed25519 \
   deploy/deploy.sh --reload-caddy
 ```
 
 This builds `app/dist` locally, rsyncs it to a new timestamped release
-directory under `/srv/kithmoot/releases/` on the box, and atomically flips
-`/srv/kithmoot/current` to point at it. See the comments at the top of
+directory under `/var/www/kithmoot/releases/` on the box, and atomically flips
+`/var/www/kithmoot/current` to point at it. See the comments at the top of
 `deploy.sh` for the full sequence, the `--prune` flag, and why it's safe
 to re-run.
 
 Before the first deploy, install the vhost (see the comment block at the
 top of `Caddyfile.kithmoot` for the exact steps - it needs a real hostname
 substituted in, and to be wired into whatever this box's Caddy already
-uses to include per-site config files) and make sure `/srv/kithmoot/`
+uses to include per-site config files) and make sure `/var/www/kithmoot/`
 exists and is writable by the `deploy` user:
 
 ```bash
-ssh -o IdentitiesOnly=yes -i ~/.ssh/id_rsa_thecryptodonkey \
-  deploy@144.126.230.165 'sudo mkdir -p /srv/kithmoot/releases && sudo chown -R deploy:deploy /srv/kithmoot'
+ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 \
+  deploy@YOUR_BOX 'sudo mkdir -p /var/www/kithmoot/releases && sudo chown -R deploy:deploy /var/www/kithmoot'
 ```
 
 ## Deploying coturn
 
 ```bash
-scp -o IdentitiesOnly=yes -i ~/.ssh/id_rsa_thecryptodonkey -r \
-  deploy/coturn deploy@144.126.230.165:~/kithmoot-coturn
+scp -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 -r \
+  deploy/coturn deploy@YOUR_BOX:~/kithmoot-coturn
 
-ssh -o IdentitiesOnly=yes -i ~/.ssh/id_rsa_thecryptodonkey deploy@144.126.230.165
+ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 deploy@YOUR_BOX
 ```
 
 Then, on the box:
