@@ -1,195 +1,154 @@
-# KithMoot on the web — build and deploy report
+# KithMoot on the web: Hetzner and Caddy
 
 25 August 2026. Repository `forgesworn/kithmoot`, branch `main`.
 
 ## Status
 
-Built, pushed, deployed. The workflow ran green and GitHub Pages published the
-artefact. The site is live on the temporary Pages URL and is **waiting on one
-DNS change** before it answers on `kithmoot.forgesworn.dev`.
+**Live at <https://kithmoot.forgesworn.dev/>**, with the app at `/j` and the
+APK at `/apk`. Deployed, verified from outside, and driven in a browser.
+Nothing is blocked.
 
-| | |
-|---|---|
-| Live now | <https://forgesworn.github.io/kithmoot/> (marketing page only — see below) |
-| Live once DNS lands | <https://kithmoot.forgesworn.dev/> and `/j` |
-| Pages source | GitHub Actions (`build_type: workflow`), enabled via `gh api` |
-| Custom domain in Pages settings | **not set yet** — blocked on DNS |
+The delivery mechanism changed mid-task from GitHub Pages to the Hetzner box.
+The marketing page, the `/j` sub-path and the Vite `base` all carried over
+unchanged; only the delivery was rebuilt.
 
 ## Commits
 
 | SHA | |
 |---|---|
-| `feac4cf` | `feat: serve the app from /j so the root can carry a page about it` |
-| `3c39457` | `feat: a page at the root explaining what this is` |
-| `fc6caee` | `ci: publish the page and the app to GitHub Pages on every push to main` |
-| `43e928c` | `docs: the live URL, the sub-path, and the DNS record it needs` |
-| `5ec6a90` | `fix: build the library before the tests, or CI runs 391 of 454` |
+| `ea53e2b` | `feat: serve the site from the Hetzner box behind Caddy` |
+| `e93db7f` | `ci: drop the GitHub Pages workflow and CNAME` |
+| `3819281` | `docs: how the site is published, and what is easy to get wrong in it` |
 
-All pushed to `origin/main`. No `Co-Authored-By` lines.
+Pushed to `origin/main` as a fast-forward on top of `282ea7e`. The GitHub Pages
+site was deleted through the API, so there is no second, drifting copy.
 
-## What was built
-
-**`site/`** — the marketing page. Plain HTML and one stylesheet, copied into
-the artefact verbatim; no framework, no build step. Two fully specified
-palettes rather than a dark theme with a light fallback, body type at
-`clamp(1.125rem, 0.95rem + 0.55vw, 1.375rem)` and an `h1` at up to 88px, and
-no grey text on a grey field at either end of the switch. Every URL in it is
-relative, so it renders correctly from a sub-path as well as from the root.
-
-The screenshots are real, from the Pixel 10 Pro XL series in
-`kithmoot-android/docs/screenshots/`: `56-real-start-screen`,
-`65-real-mic-and-camera-live` and `70-real-entire-screen-share-live`. Resized
-to 540px wide and re-encoded to WebP — 130–670 KB of PNG became 26–37 KB — and
-each links back to its full-size original in that repository. Nothing on the
-page is a mockup.
-
-Content follows the brief's order: name and tagline, the claim, what it does,
-the screenshots, the platform table copied from `README.md` verbatim including
-the iOS `getDisplayMedia` paragraph, what does not work yet, the Android
-download routes (Releases, Obtainium, Zapstore), how it is checked, and the
-source links with the MIT licence and the Nostr line.
-
-**`base: '/j/'` in `app/vite.config.ts`** — moves the asset URLs, the web
-manifest and the service worker's scope together. The scope matters as much as
-the assets: a worker registered at `/` would have answered navigations to the
-marketing page out of the app's own precache.
-
-A hand-written `<link rel="manifest" href="/manifest.webmanifest">` came out of
-`app/index.html` with it. vite-plugin-pwa injects its own, base-aware, in both
-dev and build; the hand-written one was absolute and Vite left it alone,
-because the file is generated rather than sitting in `public/`. Under a base it
-pointed at a 404 — and won, because a browser takes the first manifest link it
-finds.
-
-`playwright.config.ts` and `test/e2e.spec.ts` follow the app to the sub-path.
-`vite preview` now serves nothing at the root, and `grantPermissions` keys on
-an origin, so it gets `new URL(baseURL).origin`.
-
-**`.github/workflows/deploy.yml`** — on push to `main` and on
-`workflow_dispatch`: `npm ci`, `npm run build:lib`, `npx vitest run`,
-`npm run typecheck`, `npm run build`, assemble, `configure-pages@v5`,
-`upload-pages-artifact@v3`, then a separate `deploy` job with
-`needs: build` running `deploy-pages@v4`. Permissions are `contents: read`,
-`pages: write`, `id-token: write`; concurrency group `pages` with
-`cancel-in-progress: false`.
-
-The assemble step copies `site/.` to `_site/` (dotfiles included, so `CNAME`
-and `.nojekyll` come with it) and `app/dist/.` to `_site/j/`, then asserts
-`_site/CNAME`, `_site/index.html`, `_site/j/index.html` and — the one that
-matters — `grep -q 'src="/j/assets/' _site/j/index.html`. A wrong base path is
-invisible until the page is live and blank, which is the worst place to find
-it.
-
-## The bug CI found
-
-The first run failed, and correctly did not deploy.
-
-`server/forwarder.mjs`, `server/forwarder.test.mjs`,
-`server/turn-credentials.test.mjs` and `test/forwarder-blindness.test.ts`
-import the library from `dist/`, which is a `tsc` output (`npm run build:lib`)
-and is gitignored. On a clean checkout nothing resolves there, so three suites
-fail to *load* rather than failing an assertion — vitest reports
-`Test Files 3 failed | 24 passed` and `Tests 391 passed (391)`, which reads
-green enough to skim past.
-
-It never shows locally because `dist/` is already sitting there from an earlier
-`npm run forwarder` or `npm run vectors`, and nothing removes it. Reproduced
-by hand:
+## What is on the box
 
 ```
-rm -rf dist && npx vitest run   ->  391 passed, 3 files failed to load
-npm run build:lib && npx vitest run  ->  454 passed (27 files)
+/var/www/kithmoot/
+  releases/<ts>/            site/ at the root, app/dist under j/
+  current -> releases/<ts>  what Caddy's root points at
+  apk/                      kithmoot-0.1.0-debug.apk, kithmoot-latest.apk -> it
 ```
 
-Fixed by a `Build the library` step ahead of `Test` in the workflow, and
-documented in `README.md` so a fresh clone is not bitten by it.
+`/etc/caddy/conf.d/kithmoot.forgesworn.dev.Caddyfile`, an additive drop-in
+picked up by the main Caddyfile's `import /etc/caddy/conf.d/*.Caddyfile`. The
+committed `deploy/Caddyfile.kithmoot` is byte-identical to what is installed.
+No other tenant's directory, unit or vhost was touched, and cambium,
+lite.mysignet.app and hang-on-fren all still answer 200.
+
+`deploy/deploy.sh` builds, assembles, rsyncs a timestamped release, flips the
+`current` symlink atomically, ships the APK, and optionally installs the vhost,
+reloads Caddy and prunes old releases. `--prune` never removes whatever
+`current` points at. Re-running it is safe and was done four times.
+
+## Three failures worth recording
+
+**1. The reload failed on a root-owned log file.** `sudo caddy validate` runs
+as root and creates any log file the config names, owned by `root:root`. Caddy
+itself runs as `caddy`, could not open it, and every reload then failed. It
+failed *atomically*, so the old config stayed live and no other tenant was
+affected. Fixed by dropping the file log entirely for `log { output discard }`,
+which is what every other conf.d drop-in on the box already does and what the
+page's own claims imply. The stray root-owned file was removed.
+
+**2. Everything 403'd.** `mktemp -d` creates the staging directory 0700 and
+`rsync -a` carried that faithfully to the box, where Caddy runs as its own user.
+`--chmod=D755,F644` looked like the fix but macOS ships openrsync, which
+rejects it as an invalid argument, and the script aborted mid-deploy leaving
+`current` pointed at the previous release. Fixed by setting the modes on the
+staging tree before rsync, which is portable and also makes the result
+independent of the operator's umask.
+
+**3. The one that would have broken everything silently.** The app was being
+served the marketing page's `default-src 'none'` and `camera=()` despite a
+`header @app` block setting the right values. A base `header` block containing
+`-Server` or a `?` set is *deferred* by Caddy to response-write time, so it
+runs after every matched block regardless of file order, and its `set`
+overwrote the app's. Confirmed by reading `caddy adapt`'s JSON. Fixed by giving
+the two policies disjoint matchers, `/j /j/*` and `not path /j /j/*`, so no
+ordering or deferral can make one clobber the other.
+
+## The CSP, and where each part comes from
+
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:;
+connect-src 'self' wss: https:; worker-src 'self'; font-src 'self';
+object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+```
+
+- `connect-src wss:`: relays. A room carries its own relay list in the join
+  link, so no fixed list can be right. `https:` is for the TURN credential
+  endpoint when it is turned on.
+- `img-src https:`: a kind-0 profile picture is an arbitrary URL belonging to
+  whoever published it (`app/src/profiles.ts`).
+- `style-src 'unsafe-inline'`: `signet-login` builds its signer picker by
+  creating a `<style>` element and setting `cssText`. Nothing in this repo
+  needs it, and it is the only relaxation that is not self-evident.
+- `worker-src 'self'`: the service worker at `/j/sw.js`.
+
+Permissions-Policy on `/j/*` is
+`camera=(self), microphone=(self), display-capture=(self)` with everything else
+denied. Everywhere else denies all three.
+
+The TURN reverse-proxy route is commented out: the service is not on this box,
+and a live `reverse_proxy` to a dead port is a 502 for anyone who finds the
+path. `TURN_CREDENTIAL_ENDPOINT` in `app/src/main.ts` is `undefined` to match.
 
 ## Verification
 
 | Check | Result |
 |---|---|
-| `npx vitest run` locally | **454 passed**, 27 files |
-| `npx vitest run` in CI (run 32836773864) | **454 passed**, 27 files |
+| `npx vitest run` | **454 passed**, 27 files |
 | `npm run typecheck` | clean |
-| `npm ci --dry-run` | lockfile in sync |
-| `yamllint` on the workflow | clean (default rules, 100-col line length) |
-| Workflow run | `build` 40s green, `deploy` 10s green |
+| `caddy validate` (whole box config) | Valid configuration |
+| `bash -n deploy/deploy.sh` | clean |
+| Certificate | Let's Encrypt, `CN=kithmoot.forgesworn.dev`, valid to 23 Nov 2026 |
+| Other tenants after reload | cambium, lite.mysignet.app, hang-on-fren all 200 |
 
-The artefact was assembled exactly as the workflow does it and served from
-`python3 -m http.server`, then driven in a real browser:
+From outside: `/` 200, `/style.css` 200, all three images 200, `/j` 308 to
+`/j/`, `/j/` 200, `/j/sw.js` 200, `/j/manifest.webmanifest` 200,
+`/apk/kithmoot-latest.apk` 200 with `content-length: 51894033`.
 
-- `/` 200, `/style.css` 200, `/img/*.webp` 200, `/j` 301 → `/j/` 200, all app
-  assets 200. Zero failed requests, zero console errors.
-- **The app genuinely works from `/j/`.** Typed a name, clicked *Start a room*,
-  and it produced a join link on `http://127.0.0.1:8787/j/#…` — 240 characters,
-  216 of them fragment. The QR canvas rendered (320×320, non-blank). Opening
-  that join link in a fresh page resolved the room: `#setup` hidden, device
-  controls and *Join room* visible.
-- **The service worker is confined to the app.** Registered scope is
-  `/j/`, the manifest resolves at `/j/manifest.webmanifest` with `scope: "/j/"`
-  and `start_url: "."`, and after the worker was installed and active,
-  navigating to `/` still returned the marketing page with
-  `navigator.serviceWorker.controller === null`.
-- Screenshots taken and read: the page at 1280px in light and dark, at 390px on
-  a phone, the app in a room at `/j/`, and the live deployment.
-- No horizontal overflow at 390px (`scrollWidth === clientWidth === 390`). The
-  platform table scrolls inside its own `overflow-x: auto` container, as
-  intended.
+Headers confirmed by `curl -I` on both paths: `/` gets `default-src 'none'` and
+`camera=()`; `/j/` gets the application policy above. Hashed assets under
+`/j/assets/` are `public, max-age=31536000, immutable`; `/j/`, `/j/index.html`,
+`/j/sw.js` and the manifest are `no-cache, no-store, must-revalidate`.
 
-Live check against the deployed artefact: `https://forgesworn.github.io/kithmoot/`
-renders correctly — dark palette applied, all three screenshots loaded at their
-natural 540px, zero failed requests.
+Driven in a real browser against the live URL:
 
-## What the user has to do
+- **The marketing page**: zero CSP violations, zero console errors, zero failed
+  requests. All three screenshots load at their natural 540px once scrolled to
+  (they are `loading="lazy"`, which is why a full-page capture shows the lower
+  two blank).
+- **The app genuinely works.** `featurePolicy.allowsFeature` returns true for
+  camera, microphone and display-capture. The service worker registers with
+  scope `https://kithmoot.forgesworn.dev/j/` and the manifest reports
+  `scope: "/j/"`. Started a room, which produced a 250-character join link on
+  `https://kithmoot.forgesworn.dev/j/`, clicked **Join room**, and the roster
+  rendered `Darren fdde889f9eed… (you) · 1 device`. Three relay sockets opened,
+  to `wss://relay.trotters.cc`, `wss://nos.lol` and `wss://relay.primal.net`,
+  which is the only thing that actually proves `connect-src wss:`. Sent a chat
+  message and it round-tripped through the relays and back into the log. Zero
+  CSP violations throughout.
 
-### 1. The DNS record
+Screenshots taken and read: the live page at 1280px full-length, the screenshot
+strip, the live app in a joined room, and the chat.
 
-`kithmoot.forgesworn.dev` **already exists** and points at the Hetzner box
-(`62.238.98.53`, `static.53.98.238.62.clients.your-server.de`, ports 80 and 443
-open, no certificate for this hostname). It has to be **changed**, not added.
+## Notes for the user
 
-| Field | Value |
-|---|---|
-| Zone | `forgesworn.dev` |
-| Name | `kithmoot` |
-| Type | `CNAME` |
-| Target | `forgesworn.github.io` |
-| Proxy status | **DNS only — grey cloud** |
-| TTL | Auto |
-
-**Grey cloud, not orange.** A proxied record puts Cloudflare's certificate in
-front of the name, GitHub's certificate authority cannot then complete the
-challenge for the custom domain, and Pages never finishes provisioning TLS.
-The apex `forgesworn.dev` is already set up this way — four A records straight
-to the GitHub Pages IPs, unproxied — so this matches what is already there.
-
-Nothing was changed in DNS, and the DO server was not touched.
-
-### 2. Set the custom domain on the repository
-
-The `CNAME` file is in the artefact as asked, and it lands at the root of the
-published site — but it does **not** set the custom domain when the Pages
-source is GitHub Actions. `gh api repos/forgesworn/kithmoot/pages` still
-reports `cname: null` after a successful deploy. The domain has to be set on
-the repository itself, and GitHub verifies DNS at the moment it is set.
-
-So this was deliberately left undone: setting it now, while DNS still points at
-Hetzner, would either be rejected or would take the site off the working
-`github.io` URL without putting anything in its place. Once the DNS record
-above has propagated:
-
-```sh
-gh api -X PUT repos/forgesworn/kithmoot/pages -f cname=kithmoot.forgesworn.dev
-gh api -X PUT repos/forgesworn/kithmoot/pages -F https_enforced=true
-```
-
-or Settings → Pages → Custom domain in the browser. No redeploy is needed.
-
-## Known limitation until then
-
-`https://forgesworn.github.io/kithmoot/` serves the marketing page correctly,
-but **the app at `/kithmoot/j/` is blank there**: its assets are absolute at
-`/j/assets/…`, which is the org root on `github.io`, so they 404. That is
-expected — `base: '/j/'` is set for the custom domain, which serves this
-repository from the root. It resolves itself the moment the custom domain is
-live, and no code change is wanted for it.
+- **The APK is a debug build**, `kithmoot-0.1.0-debug.apk`, 49&nbsp;MB, signed
+  with Android's shared debug key because `app/build.gradle.kts` has no release
+  `signingConfig`. There is no release variant under
+  `app/build/outputs/apk/`. The page says all of this plainly, including that a
+  future release-signed build cannot update over it.
+- **Two untracked files sit in the repo root**: `COPY-REPORT.md` and
+  `kithmoot-PRE-REWRITE-backup.bundle` (627&nbsp;KB), left by the copy and
+  imagery pass. I did not commit or delete them. Worth removing or ignoring
+  before someone runs `git add -A`.
+- The copy and imagery pass reverted `deploy/deploy.sh` and
+  `deploy/Caddyfile.kithmoot` in the working tree at 11:43 while this work was
+  in progress. Both were rewritten and the vhost was restored from the box, so
+  the repository and the running config now agree exactly.
