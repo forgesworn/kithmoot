@@ -1,0 +1,80 @@
+# Publishes the marketing page and the app to GitHub Pages.
+#
+# The artefact is site/ verbatim at the root, with the built PWA under /j/.
+# `/j` is deliberately short: a join link carries a 32-byte room secret plus
+# relay hints in its fragment, and every character in the path costs QR
+# density. app/vite.config.ts's `base` has to agree with the directory name
+# used here, or the app ships asset URLs that 404.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never two deploys at once, but let an in-flight one finish rather than
+# publishing a half-built site.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # The fast suite only. test:live and test:e2e both need the network and
+      # real public relays, which have real weather - a deploy must not fail
+      # because somebody else's relay was slow.
+      - name: Test
+        run: npx vitest run
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build the app
+        run: npm run build
+
+      - name: Assemble the artefact
+        run: |
+          mkdir -p _site
+          cp -R site/. _site/
+          mkdir -p _site/j
+          cp -R app/dist/. _site/j/
+          test -f _site/CNAME
+          test -f _site/index.html
+          test -f _site/j/index.html
+          # A wrong base path is invisible until the page is live and blank,
+          # so fail here instead: every asset the app references must be
+          # under /j/.
+          grep -q 'src="/j/assets/' _site/j/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    # Only ever runs if build succeeded, so a failing test stops the deploy.
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
