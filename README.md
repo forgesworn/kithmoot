@@ -235,30 +235,58 @@ to show it.
 
 ## Publishing
 
-`.github/workflows/deploy.yml` runs on every push to `main`: `npm ci`, `npx
-vitest run` (the fast suite; `test:live` and `test:e2e` need real relays and
-stay out of a deploy), `npm run typecheck`, `npm run build`, and then it
-assembles the artefact as `site/` verbatim at the root with `app/dist` under
-`j/`. The deploy job needs the build job, so a failing test stops the deploy.
-Pages is served from GitHub Actions rather than from a branch.
+Live at [kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/), served by
+Caddy from a Hetzner box. `deploy/deploy.sh` builds the app, assembles `site/`
+at the root with `app/dist` under `j/`, rsyncs it into a timestamped release
+directory and flips a `current` symlink at it. A rollback is one symlink
+change; nothing is ever built in place, and nothing is deleted without
+`--prune`.
 
-The marketing page is `site/`: plain HTML and one stylesheet, copied as-is,
-with no build step. Its screenshots come from `forgesworn/kithmoot-android`,
-resized and re-encoded; the full-size originals are in that repository under
-`docs/screenshots/`. Two of the three are emulator captures, so the camera
-view is the emulator's synthetic test scene rather than a real place.
+```bash
+deploy/deploy.sh                  # build, ship, flip the symlink
+deploy/deploy.sh --install-caddy  # also install the vhost, validate, reload
+deploy/deploy.sh --dry-run        # build and assemble, touch nothing remote
+deploy/deploy.sh --prune 5        # keep the five most recent releases
+```
 
-`site/CNAME` carries the custom domain, so it lands at the root of the
-published artefact. The DNS record it needs lives outside this repository:
+The published layout:
 
-| Name | Type | Target | Proxy |
-|---|---|---|---|
-| `kithmoot` (in `forgesworn.dev`) | `CNAME` | `forgesworn.github.io` | **DNS only** |
+```
+/var/www/kithmoot/
+  releases/<ts>/            one deploy: site/ at the root, app/dist under j/
+  current -> releases/<ts>  what Caddy's root points at
+  apk/                      outside the releases, so a rollback of the site
+                            does not take the downloads with it
+```
 
-It has to be **DNS only**, grey cloud rather than proxied. A proxied record
-puts Cloudflare's certificate in front of the name, and GitHub's own certificate
-authority cannot then complete the challenge for the custom domain, so Pages
-never finishes provisioning TLS.
+`deploy/Caddyfile.kithmoot` is the vhost, installed as an additive drop-in at
+`/etc/caddy/conf.d/kithmoot.forgesworn.dev.Caddyfile`. It never touches another
+tenant's directory, unit or vhost, and `--install-caddy` validates the whole
+config before reloading, because a broken drop-in would take every site on the
+box down with it.
+
+Two things in there are load-bearing and easy to get quietly wrong:
+
+- **The app's headers are set by a matcher, not by overriding a base block.**
+  A base `header` block containing `-Server` or a `?` set is deferred by Caddy
+  to response-write time, so it runs *after* every matched block whatever the
+  file order says. `Content-Security-Policy` and `Permissions-Policy` are
+  therefore set by two blocks with disjoint matchers, `/j /j/*` and everything
+  else. Get this wrong and the app inherits the marketing page's
+  `default-src 'none'` and `camera=()`: it loads as a blank page with the
+  camera disabled, and nothing in the server logs says so.
+- **The app's CSP is derived from what `app/src/main.ts` does**, not copied
+  from another site. It needs `connect-src wss:` for relays a join link names,
+  `img-src https:` for kind-0 profile pictures, and `style-src 'unsafe-inline'`
+  because `signet-login` builds its signer picker with a `<style>` element.
+
+DNS is a plain `A` record for `kithmoot` in `forgesworn.dev`, grey cloud rather
+than proxied, so Caddy issues and renews the Let's Encrypt certificate itself.
+
+The APKs are served from `/apk/`, with `kithmoot-latest.apk` symlinked at the
+newest so the page never needs editing when a build lands. `deploy.sh` picks up
+whatever is under `kithmoot-android/app/build/outputs/apk/` and skips cleanly
+when there is nothing there. No APK is committed to this repository.
 
 ## Licence
 
