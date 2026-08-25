@@ -36,4 +36,20 @@ export const KINDS = {
   /** The reply, carrying a room-scoped expiring device credential. Ephemeral
    *  for the same reason. */
   PAIRING_GRANT: 20464,
+  /** Room descriptor: the room's mutable config - its forwarders and its ICE
+   *  servers - encrypted to the room key.
+   *
+   *  Ephemeral, for the same reason the roster is: a stored descriptor is a
+   *  durable public record that the room exists at all, which the whole
+   *  design is built to avoid. The cost is the same too - a device joining
+   *  later is never sent what it missed - and it is paid the same way, by
+   *  members answering an arrival.
+   *
+   *  This is deliberately NOT where the access policy lives. The policy
+   *  rides the join URL so that agreement about who may enter is structural
+   *  and nothing has to say who may replace it; see `docs/decisions.md`.
+   *  Forwarders and TURN are different config on different terms: they have
+   *  to change while a call is running, and getting them wrong costs
+   *  bandwidth rather than admission. */
+  DESCRIPTOR: 20465,
 } as const

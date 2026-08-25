@@ -111,3 +111,35 @@ export interface IceServerRef {
   username?: string
   credential?: string
 }
+
+/**
+ * The room's mutable configuration: where to forward, and which ICE servers
+ * to use. Encrypted to the room key and published as an ephemeral event, so
+ * a relay sees the room id and nothing else.
+ *
+ * It carries a device credential for the same reason a roster entry does:
+ * without one, anybody who ever held the room key - a guest who left, a
+ * screenshot of the link - could still repoint the room's forwarder list.
+ * With one, that ability expires when the credential does.
+ *
+ * Last valid writer wins, ordered on `updatedAt`. That is honest rather than
+ * ideal: any member can publish a descriptor naming its own forwarder. What
+ * stops that mattering is that media through a forwarder is encrypted under
+ * a key derived from the room key, which no forwarder is ever given - so the
+ * worst a member can do by winning this race is choose whose bandwidth pays.
+ */
+export interface RoomDescriptor {
+  /** The device that published this descriptor. */
+  device: string
+  /** The participant that device speaks for. */
+  participant: string
+  /** Proof that `device` speaks for `participant` in this room. */
+  credential: DeviceCredential
+  /** Forwarders this room may promote to. Order is not authoritative -
+   *  `selectForwarder` imposes its own total order so every client agrees. */
+  forwarders: ForwarderRef[]
+  /** STUN/TURN servers offered to every member. */
+  iceServers: IceServerRef[]
+  /** Unix seconds. */
+  updatedAt: number
+}

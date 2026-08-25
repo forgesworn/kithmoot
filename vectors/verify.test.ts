@@ -38,6 +38,7 @@ import { decodeRosterEvent } from '../src/roster.js'
 import { unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
+import { decodeDescriptorEvent } from '../src/descriptor.js'
 import type { RoomPolicy } from '../src/types.js'
 
 interface Vector {
@@ -76,7 +77,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -347,6 +348,83 @@ describe('access evaluation', () => {
       expect(result).toEqual(v.output.result)
     })
   }
+})
+
+/** Rebuilds a room descriptor event exactly as `generate.mjs` did. */
+function rebuildDescriptor(v: Vector): Event {
+  const content = nip44.v2.encrypt(
+    JSON.stringify(v.input.descriptor),
+    hexToBytes(v.input.roomKeyHex),
+    hexToBytes(v.input.nonceHex),
+  )
+  return finalizeDeterministic(
+    { kind: KINDS.DESCRIPTOR, created_at: v.input.descriptor.updatedAt, tags: [['d', v.input.roomId]], content },
+    hexToBytes(v.input.deviceSkHex),
+    hexToBytes(v.input.auxRandHex),
+  ) as Event
+}
+
+describe('room descriptor', () => {
+  for (const name of ['no-forwarders', 'one-forwarder', 'several-forwarders']) {
+    it(`${name}: reproduces the exact event, and the real implementation decodes it back`, () => {
+      const v = vec('roomDescriptor', name)
+      const event = rebuildDescriptor(v)
+      expect(event).toEqual(v.output.event)
+
+      const result = decodeDescriptorEvent(event, {
+        roomId: v.input.roomId,
+        roomKey: hexToBytes(v.input.roomKeyHex),
+        now: v.expected.decode.now,
+      })
+      expect(result).toEqual(v.expected.result)
+      expect(result!.forwarders).toEqual(v.input.descriptor.forwarders)
+    })
+  }
+
+  it('forwarder-extra-fields-stripped: a forwarder entry never carries the room key out of a decode', () => {
+    const v = vec('roomDescriptor', 'forwarder-extra-fields-stripped')
+    const event = rebuildDescriptor(v)
+    expect(event).toEqual(v.output.event)
+
+    const result = decodeDescriptorEvent(event, {
+      roomId: v.input.roomId,
+      roomKey: hexToBytes(v.input.roomKeyHex),
+      now: v.expected.decode.now,
+    })
+    expect(result).toEqual(v.expected.result)
+
+    // The plaintext really did carry the room key - this is not a vector
+    // that would pass on an implementation that simply never had one to leak.
+    expect(JSON.stringify(v.input.descriptor)).toContain(v.input.roomKeyHex)
+    // And it is gone, along with every other field a forwarder reference is
+    // not allowed to have.
+    expect(JSON.stringify(result!.forwarders)).not.toContain(v.input.roomKeyHex)
+    expect(Object.keys(result!.forwarders[0]).sort()).toEqual(['label', 'pubkey', 'url'])
+  })
+
+  it('wrong-room-key: the real implementation returns null rather than throwing', () => {
+    const v = vec('roomDescriptor', 'wrong-room-key')
+    const result = decodeDescriptorEvent(v.input.event as Event, {
+      roomId: v.input.decode.roomId,
+      roomKey: hexToBytes(v.input.decode.roomKeyHex),
+      now: v.input.decode.now,
+    })
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.result)
+  })
+
+  it('wrong-signing-device: reproduces the exact event, and the real implementation returns null', () => {
+    const v = vec('roomDescriptor', 'wrong-signing-device')
+    const event = rebuildDescriptor(v)
+    expect(event).toEqual(v.output.event)
+    expect(
+      decodeDescriptorEvent(event, {
+        roomId: v.input.roomId,
+        roomKey: hexToBytes(v.input.roomKeyHex),
+        now: fx.NOW,
+      }),
+    ).toBeNull()
+  })
 })
 
 describe('TURN credential', () => {

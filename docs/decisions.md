@@ -100,3 +100,52 @@ pubkey and cannot produce the equivalent for their own.
 
 Whoever holds the link can pair - that is what a link is for. What they get
 is one room for a few hours, not the participant's Nostr identity for ever.
+
+## Forwarders and ICE ride a room descriptor event, not the join URL
+
+The access-policy decision above closed by saying the descriptor question
+should be reopened in stage 3, "when forwarders and TURN lists need to change
+while a call is running". Reopened, and answered: **they do, so they get a
+descriptor.**
+
+The two pieces of config are not alike, and the difference is what decides it.
+The access policy has to be *agreed*: if two members disagree about who may
+enter, the one who disagrees hardest wins, so agreement has to be structural
+and the URL - which everybody who joins holds identically - is the only place
+that is free. Forwarders and ICE servers have to be *current*: a forwarder
+that has gone away, or one somebody stood up ten minutes into the call,
+cannot be fixed by sending everybody a new link and asking them to rejoin.
+
+So `KINDS.DESCRIPTOR` (20465), encrypted to the room key, ephemeral for the
+same reason the roster is - a stored descriptor is a durable public record
+that the room exists. A relay sees the room id and nothing else.
+
+**Who may write one.** Any device holding a valid, unexpired credential for
+the room. Last valid writer wins, ordered on `updatedAt` with the roster's
+clock-skew bound so nobody can pin their own list in with a year-3000 stamp.
+
+That is deliberately weaker than naming a host, and the weakness is stated
+rather than hidden: **any member can point the room at a forwarder of their
+choosing.** What stops that mattering is the next decision - media through a
+forwarder is encrypted under a key derived from the room key, and no
+forwarder is ever given the room key. The worst a member wins by winning this
+race is the choice of whose bandwidth pays, not access to anyone's media. A
+host role would narrow it further, but it would have to name a host pubkey in
+the URL, and that is a larger change to the capability model than this config
+is worth.
+
+## A forwarder entry cannot carry the room key, structurally
+
+`ForwarderRef` is `url`, optional `pubkey`, optional `label`. Both
+`encodeDescriptorEvent` and `decodeDescriptorEvent` **project** every entry
+onto exactly those three fields rather than validating them.
+
+The difference matters. A validation - "reject an entry with a `roomKey`
+field" - only works if somebody thought of that field name. A projection
+copies out three named fields and physically cannot carry a fourth, whatever
+it is called, whoever wrote it, and whichever implementation produced it.
+
+The `roomDescriptor/forwarder-extra-fields-stripped` interop vector exists to
+hold a second implementation to this: its plaintext genuinely carries the
+room key inside a forwarder entry, and a decoder that passes the JSON object
+through returns it. That decoder passes every other vector in the file.

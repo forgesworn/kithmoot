@@ -83,3 +83,21 @@ export const EPHEMERAL_SK_TAMPERED = deriveSecretKey('signal-ephemeral-tampered'
 export const SDP_FIXTURE =
   'v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host'
 export const ICE_FIXTURE = 'candidate:1 1 udp 1 10.0.0.1 1 typ host'
+
+// --- Forwarders and ICE ---------------------------------------------------
+// A forwarder is named by a signalling url and, optionally, its own Nostr
+// key. It is never named by anything that could carry the room key - see the
+// `roomDescriptor` group, whose whole job is to pin that.
+export const FORWARDER_A_SK = deriveSecretKey('forwarder-a')
+export const FORWARDER_A = getPublicKey(FORWARDER_A_SK)
+
+export const FORWARDER_B_SK = deriveSecretKey('forwarder-b')
+export const FORWARDER_B = getPublicKey(FORWARDER_B_SK)
+
+export const FORWARDER_URL_A = 'wss://fwd-a.kithmoot.example/fwd'
+export const FORWARDER_URL_B = 'wss://fwd-b.kithmoot.example/fwd'
+export const FORWARDER_URL_LOCAL = 'ws://box-under-the-stairs.local:7788'
+
+/** A STUN-only ICE list: no username, no credential, because TURN
+ *  credentials are minted per viewer with a TTL rather than shared. */
+export const ICE_SERVERS = [{ urls: ['stun:stun.kithmoot.example:3478'] }]

@@ -61,11 +61,12 @@ import { decodeRosterEvent } from '../dist/src/roster.js'
 import { unwrapSignal } from '../dist/src/signal.js'
 import { evaluateAccess } from '../dist/src/access.js'
 import { mintTurnCredential } from '../dist/src/turn.js'
+import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [] }
+const vectors = { roomDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -788,6 +789,178 @@ for (const [name, note, secret, ttlSeconds, now, deviceName] of [
     note,
     input: { secret, ttlSeconds, now, name: deviceName ?? null },
     output: result,
+  })
+}
+
+// ===========================================================================
+// 9. Room descriptor - the room's forwarder and ICE config, encrypted to the
+//    room key (src/descriptor.ts).
+//
+//    The claim these vectors pin is narrow and load-bearing: a forwarder
+//    entry names a url, optionally a pubkey, optionally a label, and NOTHING
+//    ELSE. A forwarder is given the room *id*; it is never given the room
+//    *key*. A second implementation that decodes a descriptor by copying the
+//    JSON object through - rather than projecting each entry onto those three
+//    fields - passes every other vector here and fails
+//    'forwarder-extra-fields-stripped', which is exactly why that vector
+//    exists.
+// ===========================================================================
+
+function buildDescriptor({ descriptor, roomId, roomKey, deviceSk, nonceLabel, auxRandLabel }) {
+  const nonce = seed32(nonceLabel)
+  const auxRand = seed32(auxRandLabel)
+  const content = nip44.v2.encrypt(JSON.stringify(descriptor), roomKey, nonce)
+  const event = finalizeDeterministic({ kind: KINDS.DESCRIPTOR, created_at: descriptor.updatedAt, tags: [['d', roomId]], content }, deviceSk, auxRand)
+  return { event, nonceHex: bytesToHex(nonce), auxRandHex: bytesToHex(auxRand) }
+}
+
+const descriptorBase = {
+  device: fx.DEVICE_A,
+  participant: fx.PARTICIPANT_A,
+  credential: validCredential.event,
+  forwarders: [],
+  iceServers: fx.ICE_SERVERS,
+  updatedAt: fx.NOW,
+}
+
+for (const [name, note, forwarders] of [
+  [
+    'no-forwarders',
+    'A room that names no forwarder at all - the ordinary case for a small mesh. The empty list is explicit on the wire, not an absent field, so a reader never has to guess whether the room has forwarders or the publisher forgot to say.',
+    [],
+  ],
+  [
+    'one-forwarder',
+    "One forwarder, named by url and pubkey. The pubkey is the forwarder's own Nostr key - it identifies the forwarder, and grants it nothing.",
+    [{ url: fx.FORWARDER_URL_A, pubkey: fx.FORWARDER_A, label: 'Community box' }],
+  ],
+  [
+    'several-forwarders',
+    'Three forwarders with different fields present: url+pubkey, url+label, url alone. All three fields except url are optional and an absent one must stay absent, not become an empty string or a null.',
+    [
+      { url: fx.FORWARDER_URL_A, pubkey: fx.FORWARDER_A },
+      { url: fx.FORWARDER_URL_B, label: "Somebody's fat uplink" },
+      { url: fx.FORWARDER_URL_LOCAL },
+    ],
+  ],
+]) {
+  const descriptor = { ...descriptorBase, forwarders }
+  const built = buildDescriptor({
+    descriptor,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: `descriptor-${name}-nonce`,
+    auxRandLabel: `descriptor-${name}-auxrand`,
+  })
+  vectors.roomDescriptor.push({
+    name,
+    kind: 'positive',
+    note,
+    input: {
+      descriptor,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: built.nonceHex,
+      auxRandHex: built.auxRandHex,
+    },
+    output: { event: built.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeDescriptorEvent(built.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
+  // The one that matters. The plaintext here carries a forwarder entry with
+  // two extra fields, one of them holding the room key itself - the exact
+  // mistake a well-meaning implementation makes when it treats the forwarder
+  // list as "config" and serialises whatever the caller handed it. A
+  // conforming decoder projects the entry onto url/pubkey/label and the
+  // extras are gone; a decoder that copies the object through hands its
+  // caller the room key with a forwarder's name on it.
+  const leaky = {
+    ...descriptorBase,
+    forwarders: [
+      {
+        url: fx.FORWARDER_URL_A,
+        pubkey: fx.FORWARDER_A,
+        label: 'Community box',
+        roomKey: bytesToHex(ROOM_1.roomKey),
+        note: 'should never survive decoding',
+      },
+    ],
+  }
+  const built = buildDescriptor({
+    descriptor: leaky,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'descriptor-leaky-nonce',
+    auxRandLabel: 'descriptor-leaky-auxrand',
+  })
+  vectors.roomDescriptor.push({
+    name: 'forwarder-extra-fields-stripped',
+    kind: 'positive',
+    note: 'The descriptor decodes, but the forwarder entry does not survive intact: a conforming decoder projects each entry onto url/pubkey/label, so the roomKey and note fields this one carries are dropped. A decoder that passes the JSON object through instead will return them, and will have handed a forwarder reference the room key.',
+    input: {
+      descriptor: leaky,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: built.nonceHex,
+      auxRandHex: built.auxRandHex,
+    },
+    output: { event: built.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeDescriptorEvent(built.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
+  const oneForwarder = vectors.roomDescriptor.find((v) => v.name === 'one-forwarder')
+  vectors.roomDescriptor.push({
+    name: 'wrong-room-key',
+    kind: 'negative',
+    note: "The one-forwarder descriptor decrypted with room 2's key - NIP-44's MAC check fails and the decoder must return null, not throw. A relay, or a forwarder, holds neither key and so learns nothing from either.",
+    input: { event: oneForwarder.output.event, decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_2.roomKey), now: fx.NOW } },
+    output: { result: decodeDescriptorEvent(oneForwarder.output.event, { roomId: ROOM_1.roomId, roomKey: ROOM_2.roomKey, now: fx.NOW }) },
+  })
+}
+
+{
+  // Repointing the room at your own forwarder while wearing somebody else's
+  // name. Everyone in the room holds the room key, so encrypting a
+  // descriptor proves nothing about who wrote it; only the credential does.
+  const descriptor = { ...descriptorBase, forwarders: [{ url: fx.FORWARDER_URL_LOCAL, pubkey: fx.FORWARDER_B }] }
+  const built = buildDescriptor({
+    descriptor,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_IMPOSTOR_SK,
+    nonceLabel: 'descriptor-impostor-nonce',
+    auxRandLabel: 'descriptor-impostor-auxrand',
+  })
+  vectors.roomDescriptor.push({
+    name: 'wrong-signing-device',
+    kind: 'negative',
+    note: "A descriptor naming DEVICE_A, correctly encrypted to the room key, but signed by a device holding no credential for this room - a member repointing the room at its own forwarder under somebody else's name. Holding the room key is not authority to rewrite the room's config; the credential is.",
+    input: {
+      descriptor,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_IMPOSTOR_SK),
+      nonceHex: built.nonceHex,
+      auxRandHex: built.auxRandHex,
+    },
+    output: {
+      event: built.event,
+      result: decodeDescriptorEvent(built.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
   })
 }
 

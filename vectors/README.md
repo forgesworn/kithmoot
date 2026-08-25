@@ -118,21 +118,36 @@ directly, with no reimplementation involved.
 | `kindredProof` | issuer secret + participant + tier + room + nonce + expiry → signed proof, one per tier (`ken`/`kith`/`kin`) | `src/access.ts` |
 | `accessEvaluation` | a `RoomPolicy` + participant + proof + now → `{ admitted, reason }` | `src/access.ts` |
 | `turnCredential` | secret + ttl + fixed now → coturn REST `{ username, credential }` | `src/turn.ts` |
+| `roomDescriptor` | a `RoomDescriptor` (forwarders + ICE servers) + room key → encrypted kind-20465 event | `src/descriptor.ts` |
 
-**A note on scope:** the brief for this stage described the join URL as
-carrying "secret + relays + ICE list". The current implementation does not
-carry a separate ICE server list in the join URL - the fragment payload is
-`{ s: secret, r: relays, a?: policy }`. TURN/ICE credentials are minted
-separately, per viewer, via `mintTurnCredential` (the `turnCredential`
-group) rather than embedded in the capability link. These vectors pin what
-the wire format actually is.
+**A note on scope:** the brief for stage 1 described the join URL as
+carrying "secret + relays + ICE list". The join URL does not carry an ICE
+server list - the fragment payload is `{ s: secret, r: relays, a?: policy }`,
+and it never will, because ICE servers and forwarders have to change while a
+call is running and the URL cannot. That config lives in the **room
+descriptor** instead (the `roomDescriptor` group), encrypted to the room key
+and republished as it changes. TURN *credentials* remain minted separately,
+per viewer, via `mintTurnCredential` (the `turnCredential` group). These
+vectors pin what the wire format actually is.
+
+**What `roomDescriptor` exists to pin.** A forwarder entry is `url`, optional
+`pubkey`, optional `label`, and nothing else. A forwarder is given the room
+**id**; it is never given the room **key**, which is what lets it route
+ciphertext it can neither read nor forge attribution for. The
+`forwarder-extra-fields-stripped` vector carries a plaintext forwarder entry
+with the room key in an extra field: a conforming decoder projects the entry
+onto those three fields and the extra is gone, while a decoder that passes
+the JSON object straight through returns it - and has just handed a forwarder
+reference the room key. That vector is the one an implementation is most
+likely to fail, and the only one that tests the claim the forwarder design
+rests on.
 
 ### Positive vs negative
 
 Every group with a verify/decode/parse step (`deviceCredential`,
-`rosterEvent`, `signalWrap`, `accessEvaluation`, `joinUrl`) carries at least
-one `kind: "negative"` entry alongside its positive ones, each with the
-expected rejection outcome:
+`rosterEvent`, `signalWrap`, `accessEvaluation`, `joinUrl`,
+`roomDescriptor`) carries at least one `kind: "negative"` entry alongside its
+positive ones, each with the expected rejection outcome:
 
 - **`deviceCredential`**: a credential checked against the wrong room
   (`wrong room`), one that has expired (`expired`), and one whose `device`
