@@ -44,6 +44,7 @@ import { chacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { hkdf } from '@noble/hashes/hkdf'
 import { sha256 } from '@noble/hashes/sha2'
 import { randomBytes } from '@noble/hashes/utils'
+import { normaliseHex } from './hex.js'
 
 /**
  * HKDF info string for the media key.
@@ -60,13 +61,16 @@ export const MEDIA_KEY_INFO = 'kithmoot/v1/media-key'
 /** ChaCha20-Poly1305's nonce width. */
 export const IV_LENGTH = 12
 /**
- * Bytes of per-sender salt inside the IV.
+ * Bytes of per-session salt inside the IV.
  *
- * Every member of the room derives the SAME media key from the same room
- * key - that is what lets everyone decrypt everyone. So an IV that repeats
- * is not a local mistake, it is keystream reuse across the whole room, and
- * two senders both counting from zero would collide on their first frame.
- * Eight random bytes per sender makes a collision in a twenty-person room a
+ * A media key is derived from the room key, which every member holds and
+ * which does not change for the life of the room - so a repeated IV is not a
+ * local mistake, it is keystream reuse under a key the whole room can see
+ * the other side of. Two cases would produce one without this salt: an
+ * unbound room-wide key (see `deriveMediaKey`), where every sender counts
+ * from zero and collides on their first frame; and a single sender rejoining,
+ * which restarts its counter at zero under exactly the key it used before.
+ * Eight random bytes per session makes a collision in a twenty-person room a
  * one-in-ten-quintillion event; four would have made it one in twenty
  * million, which is not a number to bet a room's confidentiality on.
  */
@@ -79,16 +83,89 @@ export const TRAILER_LENGTH = IV_LENGTH + 1
 /** Counter width, in bits, given the remaining IV bytes. */
 const COUNTER_MAX = 2 ** ((IV_LENGTH - SALT_LENGTH) * 8)
 
+const DEVICE_PUBKEY = /^[0-9a-f]{64}$/
+
 /**
- * Derive the media key for a room.
+ * Derive the media key for a room, optionally bound to the device sending.
  *
  * Taken from the room key rather than the room secret so that anything
  * already holding the room key - a joined client - can derive it without
  * keeping the original capability around.
+ *
+ * ## Why a sender's key differs from the room's
+ *
+ * Without `senderDevice` every member of the room encrypts under one key.
+ * That is enough to keep a forwarder from *reading* media, and it is not
+ * enough to keep it from lying about whose media it is: in a mesh,
+ * attribution comes from which peer connection a track arrived on, but
+ * through a forwarder every track arrives on the *same* connection, and it is
+ * the forwarder that says which is whose. A forwarder that cannot produce a
+ * frame can still take Alice's real ciphertext and present it on the track
+ * the roster says is Carol's - and under one room-wide key every frame would
+ * decrypt perfectly. That is a working attribution forgery, in the one place
+ * this design claims not to have one.
+ *
+ * Binding the key to the sending device closes it. A receiver derives the key
+ * for the device it believes a track belongs to; if the forwarder relabelled
+ * it, the tag fails and the frame is dropped. A forwarder can therefore
+ * suppress a track, which it could always do by not relaying it, but it
+ * cannot misattribute one.
+ *
+ * This is domain separation, not a secret: every member holds the room key,
+ * so every member can derive every other member's media key and read
+ * everybody. What differs per sender is *which* key opens a frame, which is
+ * exactly the question attribution asks. See `resolveFrameSender`.
  */
-export function deriveMediaKey(roomKey: Uint8Array): Uint8Array {
+export function deriveMediaKey(roomKey: Uint8Array, senderDevice?: string): Uint8Array {
   if (roomKey.length !== 32) throw new Error('room key must be 32 bytes')
-  return hkdf(sha256, roomKey, undefined, MEDIA_KEY_INFO, 32)
+  if (senderDevice === undefined) return hkdf(sha256, roomKey, undefined, MEDIA_KEY_INFO, 32)
+
+  // Normalised, because a device pubkey reaches here off a decoded roster or
+  // a caller's own store and nothing on the wire forces its case - and unlike
+  // an equality check, an info string that differs by case derives a
+  // different key that simply never decrypts. Refused rather than accepted
+  // when it is not a pubkey at all, for the same reason: a typo would
+  // otherwise produce a perfectly good key nothing can ever open, and that
+  // presents as a black tile rather than as an error.
+  const device = normaliseHex(senderDevice)
+  if (!DEVICE_PUBKEY.test(device)) throw new Error('sender device must be a 32-byte hex pubkey')
+  return hkdf(sha256, roomKey, undefined, `${MEDIA_KEY_INFO}/${device}`, 32)
+}
+
+/**
+ * Work out which of `candidates` actually sent a frame.
+ *
+ * Attribution as a function of the ciphertext and the room key, with nothing
+ * a forwarder controls as an input. A forwarder's claim about whose track it
+ * is relaying is a hint that saves trying every key; this is what makes it
+ * only a hint.
+ *
+ * Returns null when no candidate opens the frame - a frame from a member who
+ * is not in the list, a corrupt one, or a relabelled one - rather than
+ * guessing, because a wrong answer here puts one person's face on another
+ * person's name.
+ *
+ * Linear in the number of candidates, so callers should try the hinted device
+ * first and pin the answer for the rest of the track rather than running this
+ * per frame for a whole room.
+ */
+export function resolveFrameSender(
+  frame: Uint8Array,
+  roomKey: Uint8Array,
+  candidates: readonly string[],
+): string | null {
+  for (const candidate of candidates) {
+    let key: Uint8Array
+    try {
+      key = deriveMediaKey(roomKey, candidate)
+    } catch {
+      // A malformed candidate is one entry that cannot be the answer, not a
+      // reason to abandon the others.
+      continue
+    }
+    if (decryptFrame(frame, key) !== null) return candidate
+  }
+  return null
 }
 
 /** A fresh per-sender salt. One per sender, per session. */

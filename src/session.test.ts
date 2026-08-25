@@ -3,6 +3,7 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
 import { RoomSession } from './session.js'
+import type { PrimaryRoomSessionOptions } from './session.js'
 import { issueKindredProof } from './access.js'
 import { createDeviceCredential } from './credential.js'
 import { KINDS } from './kinds.js'
@@ -792,5 +793,178 @@ describe('RoomSession presence lifetime', () => {
     expect(farewell).not.toBeNull()
     expect(farewell!.claims).toEqual({})
     expect(farewell!.tracks).toEqual([])
+  })
+})
+
+/**
+ * The room's forwarder list, and what the session does with it.
+ *
+ * The descriptor is where a room says which forwarders it may promote to. It
+ * is encrypted to the room key, so a relay - and a forwarder - sees only the
+ * room id, and it is signed by a credentialled device, so a stranger cannot
+ * repoint a room's bandwidth at a machine of their choosing.
+ */
+describe('RoomSession and forwarders', () => {
+  const FORWARDER = getPublicKey(generateSecretKey())
+  const REPLACEMENT = getPublicKey(generateSecretKey())
+
+  function build(opts: Partial<PrimaryRoomSessionOptions> = {}) {
+    const relay = new SimRelay()
+    const factory = createFakeFactory()
+    const session = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk: generateSecretKey(),
+      deviceSk: generateSecretKey(),
+      factory,
+      now,
+      announceJitterMs: 0,
+      // Two peers at 600 kbps against a 1 Mbps uplink is already past it.
+      uplink: () => ({ uplinkBps: 1_000_000, perPeerBps: 600_000 }),
+      ...opts,
+    })
+    return { relay, factory, session }
+  }
+
+  /**
+   * Put `count` other people in the room, each on their own device.
+   *
+   * Two is enough to promote, and that is the point rather than a shortcut:
+   * promotion is decided on capacity, so at 600 kbps each against a 1 Mbps
+   * uplink two people already exceed it. A test that needed a dozen people
+   * would be testing a headcount rule, which is exactly the rule this does
+   * not have.
+   */
+  async function fill(relay: SimRelay, count: number): Promise<void> {
+    for (let i = 0; i < count; i++) {
+      const other = new RoomSession({
+        transport: new SimTransport(relay),
+        secret: secret(),
+        participantSk: generateSecretKey(),
+        deviceSk: generateSecretKey(),
+        now,
+        announceJitterMs: 0,
+      })
+      await other.join([], {})
+    }
+    await settle()
+  }
+
+  it('stays a mesh when the room names no forwarder', async () => {
+    const { relay, session } = build()
+    await session.join([], {})
+    await fill(relay, 2)
+    expect(session.forwarding).toBe('off')
+    session.leave()
+  })
+
+  it('promotes to a forwarder the room descriptor names', async () => {
+    const { relay, session } = build({ forwarders: [{ url: 'wss://forward.example', pubkey: FORWARDER }] })
+    await session.join([], {})
+    await fill(relay, 2)
+    expect(session.forwarding).toBe('trying')
+    expect(session.forwarderDevice).toBe(FORWARDER)
+    session.leave()
+  })
+
+  it('picks up a forwarder list published to the room after it joined', async () => {
+    const { relay, session } = build()
+    await session.join([], {})
+    await fill(relay, 2)
+    expect(session.forwarding).toBe('off')
+
+    // Another member publishes the room's descriptor. Nothing about the room
+    // is public: only the room id is on the wire.
+    const publisher = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk: generateSecretKey(),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    await publisher.join([], {})
+    await publisher.publishDescriptor({ forwarders: [{ url: 'wss://forward.example', pubkey: FORWARDER }] })
+    await settle()
+
+    expect(session.forwarding).toBe('trying')
+    expect(session.forwarderDevice).toBe(FORWARDER)
+    publisher.leave()
+    session.leave()
+  })
+
+  it('ignores a descriptor for a room it is not in', async () => {
+    const { relay, session } = build()
+    await session.join([], {})
+    await fill(relay, 2)
+
+    const outsider = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: new Uint8Array(32).fill(12),
+      participantSk: generateSecretKey(),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    await outsider.join([], {})
+    await outsider.publishDescriptor({ forwarders: [{ url: 'wss://hostile.example', pubkey: FORWARDER }] })
+    await settle()
+
+    expect(session.forwarding).toBe('off')
+    outsider.leave()
+    session.leave()
+  })
+
+  it('takes the newest descriptor, not the last one to arrive', async () => {
+    const { relay, session } = build()
+    await session.join([], {})
+    await fill(relay, 2)
+
+    const publisher = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      participantSk: generateSecretKey(),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    await publisher.join([], {})
+    await publisher.publishDescriptor({
+      forwarders: [{ url: 'wss://forward.example', pubkey: REPLACEMENT }],
+      updatedAt: NOW,
+    })
+    await settle()
+    expect(session.forwarderDevice).toBe(REPLACEMENT)
+
+    // An older descriptor turning up late must not undo it.
+    await publisher.publishDescriptor({
+      forwarders: [{ url: 'wss://forward.example', pubkey: FORWARDER }],
+      updatedAt: NOW - 60,
+    })
+    await settle()
+    expect(session.forwarderDevice).toBe(REPLACEMENT)
+    publisher.leave()
+    session.leave()
+  })
+
+  it('publishes a descriptor that carries the forwarders and no key', async () => {
+    const { relay, session } = build()
+    await session.join([], {})
+    await session.publishDescriptor({ forwarders: [{ url: 'wss://forward.example', pubkey: FORWARDER }] })
+
+    const event = relay.published.find((e) => e.kind === KINDS.DESCRIPTOR)
+    expect(event).toBeDefined()
+    // Only the room id is readable on the wire.
+    expect(event!.tags).toEqual([['d', ROOM_ID]])
+    const { roomKey } = deriveRoom(secret())
+    const raw = JSON.stringify(event)
+    expect(raw).not.toContain(FORWARDER)
+    expect(raw).not.toContain(Array.from(roomKey, (b) => b.toString(16).padStart(2, '0')).join(''))
+    session.leave()
+  })
+
+  it('refuses to publish a descriptor before joining', async () => {
+    const { session } = build()
+    await expect(session.publishDescriptor({ forwarders: [] })).rejects.toThrow(/join/)
   })
 })

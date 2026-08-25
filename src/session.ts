@@ -8,12 +8,16 @@ import { KINDS } from './kinds.js'
 import { evaluateAccess } from './access.js'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
-import type { RemoteTrack } from './mesh.js'
+import type { ForwardingState, RemoteTrack } from './mesh.js'
+import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { ChatLog } from './chat.js'
 import type { RelayTransport } from './relay-pool.js'
 import type {
   DeviceCredential,
+  ForwarderRef,
+  IceServerRef,
   KindredProof,
+  RoomDescriptor,
   RoomPolicy,
   RosterEntry,
   SingularRole,
@@ -53,6 +57,26 @@ export interface RoomSessionBaseOptions {
   announceJitterMs?: number
   /** Presence timings. Omit for the defaults. */
   timing?: SessionTiming
+  /**
+   * This device's measured uplink and per-peer send bitrate, passed straight
+   * to the mesh. Omit it and the room never promotes to a forwarder - see
+   * `MeshOptions.uplink` for why that is the right default.
+   */
+  uplink?: () => { uplinkBps: number; perPeerBps: number } | null
+  /**
+   * Forwarders to start with, before any descriptor has been heard.
+   *
+   * The room's own descriptor supersedes this the moment one arrives. It
+   * exists because the descriptor is an ephemeral kind, exactly like the
+   * roster: a device joining later is never sent what it missed, so a room
+   * that has gone quiet has no forwarder list until somebody restates one.
+   */
+  forwarders?: ForwarderRef[]
+  /** A forwarder pubkey or url to prefer over the deterministic ordering. */
+  preferForwarder?: string
+  /** How long a forwarder has to connect before the room falls back to a
+   *  direct mesh. */
+  forwarderTimeoutMs?: number
 }
 
 /**
@@ -144,6 +168,10 @@ export class RoomSession {
   #heartbeatTimer?: ReturnType<typeof setInterval>
   #sweepTimer?: ReturnType<typeof setInterval>
   #left = false
+  #unsubDescriptor?: () => void
+  /** The newest valid descriptor heard for this room. Last writer wins,
+   *  ordered on `updatedAt` - see `RoomDescriptor`. */
+  #descriptor?: RoomDescriptor
 
   constructor(opts: RoomSessionOptions) {
     const { roomId, roomKey } = deriveRoom(opts.secret)
@@ -239,8 +267,91 @@ export class RoomSession {
         transport: this.#opts.transport,
         roomId: this.roomId,
         now: this.#now,
+        uplink: this.#opts.uplink,
+        forwarders: this.#opts.forwarders,
+        preferForwarder: this.#opts.preferForwarder,
+        forwarderTimeoutMs: this.#opts.forwarderTimeoutMs,
       })
     }
+
+    // Subscribed after the mesh exists, so a descriptor that arrives in the
+    // same tick has somewhere to go. Ephemeral, like the roster: nothing is
+    // replayed to a device that subscribes later, so a room that has gone
+    // quiet has no forwarder list until somebody restates one.
+    this.#unsubDescriptor = this.#opts.transport.subscribe(
+      [{ kinds: [KINDS.DESCRIPTOR], '#d': [this.roomId] }],
+      (event) => this.#ingestDescriptor(event),
+    )
+  }
+
+  /** Whether this room is routing through a forwarder. `off` when media was
+   *  never set up. See `ForwardingState`. */
+  get forwarding(): ForwardingState {
+    return this.#mesh?.forwarding ?? 'off'
+  }
+
+  /** The forwarder currently being used or attempted, if any. */
+  get forwarderDevice(): string | undefined {
+    return this.#mesh?.forwarderDevice
+  }
+
+  /** The room's current configuration, as the newest valid descriptor states
+   *  it. Undefined until one has been heard. */
+  get descriptor(): RoomDescriptor | undefined {
+    return this.#descriptor
+  }
+
+  /**
+   * Publish the room's forwarder and ICE configuration.
+   *
+   * Any member may: the descriptor is signed by a credentialled device and
+   * ordered on `updatedAt`, so the worst a member can do by winning that race
+   * is choose whose bandwidth pays. It cannot cost the room its privacy,
+   * because a forwarder is named by url and pubkey and is never given the
+   * room key - see `RoomDescriptor`.
+   */
+  async publishDescriptor(config: {
+    forwarders?: ForwarderRef[]
+    iceServers?: IceServerRef[]
+    /** Unix seconds. Defaults to now; exposed so a caller can supersede a
+     *  descriptor whose publisher's clock ran ahead. */
+    updatedAt?: number
+  }): Promise<void> {
+    const self = this.#self
+    if (!self) throw new Error('join the room before publishing its descriptor')
+
+    const event = encodeDescriptorEvent(
+      {
+        device: this.device,
+        participant: this.participant,
+        credential: self.credential,
+        forwarders: config.forwarders ?? [],
+        iceServers: config.iceServers ?? [],
+        updatedAt: config.updatedAt ?? this.#now(),
+      },
+      { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk },
+    )
+    await this.#opts.transport.publish(event)
+  }
+
+  /** Never throws - this runs inside a relay subscription handler.
+   *  `decodeDescriptorEvent` returns null for anything that does not check
+   *  out: wrong room, wrong key, bad signature, an uncredentialled publisher,
+   *  a timestamp past clock skew. */
+  #ingestDescriptor(event: Event): void {
+    const descriptor = decodeDescriptorEvent(event, {
+      roomId: this.roomId,
+      roomKey: this.#roomKey,
+      now: this.#now(),
+    })
+    if (!descriptor) return
+    // Ordered on `updatedAt`, not on arrival: relays deliver out of order,
+    // and a stale descriptor turning up late must not repoint a room that has
+    // already moved on.
+    if (this.#descriptor && this.#descriptor.updatedAt > descriptor.updatedAt) return
+
+    this.#descriptor = descriptor
+    this.#mesh?.setForwarders(descriptor.forwarders)
   }
 
   /**
@@ -452,6 +563,8 @@ export class RoomSession {
     if (this.#sweepTimer !== undefined) clearInterval(this.#sweepTimer)
     this.#sweepTimer = undefined
     this.#unsub?.()
+    this.#unsubDescriptor?.()
+    this.#unsubDescriptor = undefined
     this.#mesh?.close()
     this.#chat?.close()
     this.#listeners.clear()

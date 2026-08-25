@@ -39,8 +39,8 @@ export type { IssueKindredProofOptions } from './access.js'
 export type { AccessTier, RoomPolicy, KindredProof } from './types.js'
 export { Peer } from './peer.js'
 export type { RTCPeerConnectionLike, PeerFactory, PeerOptions } from './peer.js'
-export { Mesh } from './mesh.js'
-export type { MeshOptions, MeshSession, RemoteTrack } from './mesh.js'
+export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS } from './mesh.js'
+export type { MeshOptions, MeshSession, RemoteTrack, ForwardingState } from './mesh.js'
 export { encodeChatEvent, decodeChatEvent, ChatLog } from './chat.js'
 export type { ChatMessage, ChatLogOptions, EncodeChatOptions, DecodeChatOptions } from './chat.js'
 export { mintTurnCredential } from './turn.js'
@@ -57,6 +57,7 @@ export {
   decryptFrame,
   frameIv,
   randomFrameSalt,
+  resolveFrameSender,
   unencryptedPrefixLength,
   createFrameEncryptor,
   createFrameDecryptor,

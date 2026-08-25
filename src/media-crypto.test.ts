@@ -14,6 +14,7 @@ import {
   frameIv,
   installTransforms,
   randomFrameSalt,
+  resolveFrameSender,
   unencryptedPrefixLength,
   type EncodedFrameLike,
   type FrameSink,
@@ -50,6 +51,80 @@ describe('deriveMediaKey', () => {
 
   it('refuses a room key that is not 32 bytes', () => {
     expect(() => deriveMediaKey(new Uint8Array(16))).toThrow()
+  })
+})
+
+describe('deriveMediaKey, bound to a sender', () => {
+  const ALICE = 'a'.repeat(64)
+  const CAROL = 'c'.repeat(64)
+
+  it('gives each sender a different key from the same room key', () => {
+    expect(deriveMediaKey(roomKey, ALICE)).not.toEqual(deriveMediaKey(roomKey, CAROL))
+    expect(deriveMediaKey(roomKey, ALICE)).not.toEqual(deriveMediaKey(roomKey))
+  })
+
+  it('is deterministic, and case-insensitive in the device pubkey', () => {
+    expect(deriveMediaKey(roomKey, ALICE)).toEqual(deriveMediaKey(roomKey, ALICE.toUpperCase()))
+  })
+
+  it('is derivable by every member, because it needs only the room key', () => {
+    // Not a secret between two devices: everybody in the room holds the room
+    // key, so everybody can open everybody's media. The binding is about
+    // *which* sender a frame came from, not about who may read it.
+    const asAlice = deriveMediaKey(roomKey, ALICE)
+    const asAnybodyElse = deriveMediaKey(deriveRoom(ROOM_SECRET).roomKey, ALICE)
+    expect(asAlice).toEqual(asAnybodyElse)
+  })
+
+  it('refuses a device that is not a 32-byte pubkey', () => {
+    // A typo would otherwise derive a perfectly good key that nothing can
+    // ever decrypt with, which presents as a black tile and no error.
+    for (const bad of ['', 'deadbeef', `${ALICE}ff`, 'z'.repeat(64)]) {
+      expect(() => deriveMediaKey(roomKey, bad), bad).toThrow()
+    }
+  })
+
+  // This is what stops a forwarder relabelling one member's stream as
+  // another's. It cannot produce media, but without this it could take
+  // Alice's real ciphertext and present it on the track the roster says is
+  // Carol's - and every frame would decrypt perfectly.
+  it("means one sender's frames do not open under another sender's key", () => {
+    const frame = new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2, 1])
+    const sealed = encryptFrame(frame, deriveMediaKey(roomKey, ALICE), frameIv(SALT, 0), 1)
+    expect(decryptFrame(sealed, deriveMediaKey(roomKey, ALICE))).toEqual(frame)
+    expect(decryptFrame(sealed, deriveMediaKey(roomKey, CAROL))).toBeNull()
+    expect(decryptFrame(sealed, deriveMediaKey(roomKey))).toBeNull()
+  })
+})
+
+describe('resolveFrameSender', () => {
+  const ALICE = 'a'.repeat(64)
+  const BOB = 'b'.repeat(64)
+  const CAROL = 'c'.repeat(64)
+  const frame = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])
+
+  it('names the device whose key actually opens the frame', () => {
+    const sealed = encryptFrame(frame, deriveMediaKey(roomKey, BOB), frameIv(SALT, 0), 1)
+    expect(resolveFrameSender(sealed, roomKey, [ALICE, BOB, CAROL])).toBe(BOB)
+  })
+
+  it('returns null when no candidate opens it, rather than guessing', () => {
+    const sealed = encryptFrame(frame, deriveMediaKey(roomKey, BOB), frameIv(SALT, 0), 1)
+    expect(resolveFrameSender(sealed, roomKey, [ALICE, CAROL])).toBeNull()
+  })
+
+  it('ignores a malformed candidate rather than throwing on it', () => {
+    const sealed = encryptFrame(frame, deriveMediaKey(roomKey, BOB), frameIv(SALT, 0), 1)
+    expect(resolveFrameSender(sealed, roomKey, ['not-a-pubkey', BOB])).toBe(BOB)
+  })
+
+  it('answers from the ciphertext alone, so a claimed sender carries no weight', () => {
+    // The forwarder's word about who sent a track is a hint at best. This is
+    // the check that makes it only a hint: it is a function of the bytes and
+    // the room key, and nothing a forwarder controls is an input to it.
+    const sealed = encryptFrame(frame, deriveMediaKey(roomKey, ALICE), frameIv(SALT, 0), 1)
+    expect(resolveFrameSender(sealed, roomKey, [CAROL, ALICE])).toBe(ALICE)
+    expect(resolveFrameSender(sealed, roomKey, [CAROL])).toBeNull()
   })
 })
 
