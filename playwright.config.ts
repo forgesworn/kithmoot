@@ -8,7 +8,11 @@ import { defineConfig, devices } from '@playwright/test'
 // run should pay for or be flaky because of.
 export default defineConfig({
   testDir: './test',
-  testMatch: 'e2e.spec.ts',
+  // Two specs, and they are very different animals. e2e.spec.ts drives real
+  // public relays and inherits real relay weather. effects.spec.ts needs no
+  // network at all: it points Chromium's fake camera at a generated scene
+  // and measures the pixels that come back out.
+  testMatch: ['e2e.spec.ts', 'effects.spec.ts'],
   // Public relays take a few seconds to round-trip a roster event, and the
   // join-last case waits on three of those in sequence: A's entry, B's, and
   // then A and B answering C's arrival. The stage-1 live test used similar

@@ -69,6 +69,59 @@
           <button id="toggleScreen" class="toggle" data-on="false">Screen share</button>
         </div>
         <p id="micIndicator" class="indicator"></p>
+
+        <div id="effects">
+          <details id="cameraEffects" hidden>
+            <summary>Background <span id="effectMode" class="chip">blur</span></summary>
+            <div class="segmented" id="effectModes" role="radiogroup" aria-label="Background">
+              <button type="button" class="seg" data-mode="off">Off</button>
+              <button type="button" class="seg" data-mode="blur">Blur</button>
+              <button type="button" class="seg" data-mode="replace">Replace</button>
+            </div>
+            <div class="effectRow" id="strengthRow">
+              <label for="blurStrength">Strength</label>
+              <input id="blurStrength" type="range" min="0" max="100" step="1" value="60" />
+            </div>
+            <div class="segmented" id="backgroundChoices" role="radiogroup" aria-label="Picture" hidden></div>
+            <div class="effectRow">
+              <button id="switchCamera" type="button" hidden>Switch camera</button>
+            </div>
+            <p id="effectStatus" class="indicator"></p>
+            <p class="note">
+              Blur is on the first time you turn the camera on. It is a guess
+              about where you end and the room begins, so edges, low light and
+              quick movement all leak pieces of the room for a frame at a time.
+              It costs battery, and on a slow machine it costs frame rate.
+              It makes a room harder to read. It is not a guarantee that
+              nobody can see it.
+            </p>
+          </details>
+
+          <details id="voiceEffects" hidden>
+            <summary>Voice <span id="voiceMode" class="chip">off</span></summary>
+            <div class="segmented" id="voicePresets" role="radiogroup" aria-label="Voice masking">
+              <button type="button" class="seg" data-preset="off">Off</button>
+              <button type="button" class="seg" data-preset="lower">Lower</button>
+              <button type="button" class="seg" data-preset="higher">Higher</button>
+              <button type="button" class="seg" data-preset="neutral">Neutral</button>
+            </div>
+            <div class="effectRow">
+              <button id="voicePreview" type="button">Hear yourself</button>
+              <audio id="voicePreviewAudio" controls hidden></audio>
+            </div>
+            <p id="voiceStatus" class="indicator"></p>
+            <p class="note warn">
+              This is voice masking, not anonymity. It shifts your pitch and
+              moves the resonances of your voice separately from it, which is
+              enough that someone who knows your voice will not place it
+              straight away. It will not stop anyone holding a recording of
+              you who wants to match it, and it does not survive a forensic
+              comparison. Do not lean on it where being identified would
+              matter.
+            </p>
+          </details>
+        </div>
+
         <div id="local"></div>
         <button id="join" hidden>Join room</button>
       </section>

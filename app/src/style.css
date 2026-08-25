@@ -15,6 +15,15 @@
   box-sizing: border-box;
 }
 
+/* A class that sets `display` beats the user agent's own `[hidden]` rule,
+   which the segmented controls below fell straight into: `hidden` was set,
+   the element stayed on screen, and a background picker appeared while the
+   mode was blur. This app hides things with the `hidden` attribute
+   throughout, so the rule is made to win once, here. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   font-family: system-ui, sans-serif;
   margin: 0;
@@ -364,4 +373,100 @@ video {
   display: inline-flex;
   align-items: baseline;
   gap: 0.3rem;
+}
+
+/* Effects - background blur and voice masking
+ *
+ * Folded into disclosures directly under the toggles they belong to, and
+ * only shown once that toggle is on: a background control with no camera
+ * running is a control for nothing. The limits under each one are body text
+ * rather than a tooltip, because both of these features are easy to mistake
+ * for a guarantee and the sentence that says otherwise has to be as easy to
+ * read as the button that turns it on. */
+#effects {
+  margin: 0.5rem 0;
+}
+
+#effects details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+  background: var(--panel);
+}
+
+#effects summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+#effects .chip {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  margin-left: 0.35rem;
+}
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.6rem 0 0.4rem;
+}
+
+.seg {
+  font-size: 0.85rem;
+  padding: 0.35rem 0.7rem;
+  margin: 0;
+}
+
+.seg[aria-checked='true'] {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.effectRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.4rem 0;
+}
+
+.effectRow label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+#blurStrength {
+  flex: 1 1 140px;
+  min-width: 120px;
+  accent-color: var(--accent);
+}
+
+#voicePreviewAudio {
+  max-width: 100%;
+  height: 2rem;
+}
+
+/* The one state that has to be read rather than glanced at: an effect the
+   user believes is on but which failed, so the room is being published. */
+#effectStatus.broken,
+#voiceStatus.broken {
+  color: var(--danger);
+}
+
+#effectStatus.working,
+#voiceStatus.working {
+  color: var(--muted);
+}
+
+.note.warn {
+  border-left: 2px solid var(--accent-dim);
+  padding-left: 0.6rem;
 }

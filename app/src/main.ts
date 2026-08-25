@@ -20,6 +20,15 @@ import {
   type ChatMessage,
 } from '../../src/index.js'
 import type { PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
+import {
+  BLUR_ON_BY_DEFAULT,
+  DEFAULT_BLUR_STRENGTH,
+  type EffectMode,
+  type VideoEffectState,
+} from '../../src/video-effects.js'
+import { DEFAULT_VOICE_PRESET, type VoicePreset } from '../../src/voice-effects.js'
+import { BACKGROUNDS, CameraPipeline, type BackgroundChoice } from './video-pipeline.js'
+import { MicPipeline, type MicState } from './voice-pipeline.js'
 import { ProfileBook, type Profile } from './profiles.js'
 import { renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
@@ -54,24 +63,35 @@ const DEFAULT_ICE_URLS = ['stun:stun.l.google.com:19302']
 // fails for roughly 20% of real connections (symmetric NAT, CGNAT on
 // mobile networks, corporate firewalls, even two devices on the same
 // Wi-Fi when the router won't hairpin), and a call has no fallback the way
-// a stream falling back to its origin does - it just fails. Once the
-// deploy/coturn server (see deploy/README.md) is running, add its
-// turn: URL here - e.g. add DEFAULT_TURN_URL to DEFAULT_ICE_URLS above -
-// and that becomes the new default for a room that never set its own.
-// Never hardcode TURN credentials here: they are time-limited, minted
-// per-viewer server-side (src/turn.ts, deploy/turn-credentials.md), not a
-// static secret baked into this bundle.
-// const DEFAULT_TURN_URL = 'turn:turn.kithmoot.CHANGE_ME.example:3478'
+// a stream falling back to its origin does - it just fails.
+//
+// The default TURN server's URLs are deliberately NOT listed in
+// DEFAULT_ICE_URLS above. They arrive from the minting endpoint below,
+// already carrying the credential they need, and resolveIceServers appends
+// them. This is not a stylistic choice: a turn: entry with no username and
+// credential makes the RTCPeerConnection constructor throw
+// InvalidAccessError outright, so a bare turn: URL in that list would not
+// degrade to STUN, it would stop the app dead before a single candidate
+// was gathered. A turn: URL and its credential are one thing and travel
+// together.
+//
+// Never hardcode TURN credentials here either: they are time-limited,
+// minted per-viewer server-side (src/turn.ts, deploy/turn-credentials.md),
+// not a static secret baked into this bundle.
 
-// The minting endpoint for the default TURN server above - see
-// server/turn-credentials.mjs and deploy/turn-credentials.md. Unset for
-// the same reason DEFAULT_TURN_URL is commented out: this repo ships no
-// live default TURN deployment. The two are switched on together, never
-// one without the other - a bare DEFAULT_TURN_URL with no endpoint here
-// has no way to hand a browser a working credential, and this endpoint
-// alone is pointless without a TURN URL to attach the credential to.
-// const TURN_CREDENTIAL_ENDPOINT = '/turn' // same-origin path Caddy proxies to the service, per deploy/Caddyfile.kithmoot
-const TURN_CREDENTIAL_ENDPOINT: string | undefined = undefined
+// The minting endpoint for this app's own default TURN server - see
+// server/turn-credentials.mjs and deploy/turn-credentials.md. A same-origin
+// path, reverse-proxied to the service by the vhost in
+// deploy/Caddyfile.kithmoot, so it needs no CORS preflight in the normal
+// case and no second hostname.
+//
+// Only ever consulted for a room still on the defaults (see
+// isDefaultIceUrls): a room that named its own ICE servers gets those and
+// nothing else, because attaching this operator's credential to a server
+// the room never asked for would be handing it out to somebody else's
+// infrastructure. And if this endpoint is down, joining still works - see
+// resolveIceServers, which falls back to plain STUN rather than failing.
+const TURN_CREDENTIAL_ENDPOINT: string | undefined = '/turn'
 
 function $<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T
@@ -514,9 +534,19 @@ function renderIdentity(): void {
   line.append(how)
 }
 
+// The published tracks. Neither the microphone nor the camera track is the
+// device: both are the far end of an effect pipeline, so turning blur or
+// masking on and off never replaces a track the mesh has already published
+// and never renegotiates. See app/src/video-pipeline.ts for why that
+// matters more than it sounds like it does.
 let micTrack: MediaStreamTrack | undefined
 let cameraTrack: MediaStreamTrack | undefined
 let screenTrack: MediaStreamTrack | undefined
+
+let camera: CameraPipeline | undefined
+let mic: MicPipeline | undefined
+let backgroundId = BACKGROUNDS[0]?.id ?? ''
+let videoInputs: MediaDeviceInfo[] = []
 
 const localPreviewEls = new Map<'camera' | 'screen', HTMLVideoElement>()
 // One persistent <div class="media"> per remote device, holding at most one
@@ -698,13 +728,22 @@ function copyInput(id: string): void {
 
 async function toggleMic(): Promise<void> {
   if (!micTrack) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    micTrack = stream.getAudioTracks()[0]
-    micTrack?.addEventListener('ended', () => {
+    const pipeline = new MicPipeline({ onStateChange: renderVoiceState })
+    try {
+      micTrack = await pipeline.start()
+    } catch (err) {
+      pipeline.stop()
+      throw err
+    }
+    mic = pipeline
+    micTrack.addEventListener('ended', () => {
+      mic?.stop()
+      mic = undefined
       micTrack = undefined
       updateUi()
     })
-    if (micTrack) publishActiveTracks()
+    publishActiveTracks()
+    renderVoiceState(pipeline.state)
   } else {
     micTrack.enabled = !micTrack.enabled
   }
@@ -712,27 +751,184 @@ async function toggleMic(): Promise<void> {
 }
 
 async function toggleCamera(): Promise<void> {
-  if (cameraTrack) {
-    cameraTrack.stop()
+  if (camera) {
+    camera.stop()
+    camera = undefined
     cameraTrack = undefined
     localPreviewEls.get('camera')?.remove()
     localPreviewEls.delete('camera')
   } else {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-    cameraTrack = stream.getVideoTracks()[0]
-    if (cameraTrack) {
-      cameraTrack.addEventListener('ended', () => {
+    const pipeline = new CameraPipeline({
+      onStateChange: renderEffectState,
+      onSourceEnded: () => {
+        camera?.stop()
+        camera = undefined
         cameraTrack = undefined
         localPreviewEls.get('camera')?.remove()
         localPreviewEls.delete('camera')
         updateUi()
-      })
-      addLocalPreview('camera', cameraTrack)
-      publishActiveTracks()
+      },
+    })
+    try {
+      cameraTrack = await pipeline.start()
+    } catch (err) {
+      pipeline.stop()
+      throw err
     }
+    camera = pipeline
+    // The preview shows the CANVAS, not the camera, so what you see is what
+    // the room gets - including whatever the effect is or is not managing to
+    // do about the wall behind you.
+    addLocalPreview('camera', cameraTrack)
+    publishActiveTracks()
+    renderEffectState(pipeline.status)
+    listVideoInputs().catch(() => {
+      // A browser that will not enumerate devices without a prior grant just
+      // means no switch button. Not worth a status line.
+    })
   }
   updateUi()
 }
+
+// ---------------------------------------------------------------------------
+// Effect controls
+//
+// Both of these features are easy to mistake for a promise. The camera one
+// is a guess that leaks at the edges; the voice one defeats casual
+// recognition and nothing more. So the controls report what is actually
+// happening rather than what was selected - above all when an effect the
+// user believes is on has failed, which is the one state where somebody
+// could be publishing a room they think is hidden.
+// ---------------------------------------------------------------------------
+
+function revealEffects(id: string, show: boolean): void {
+  const details = $(id) as HTMLDetailsElement
+  if (show && details.hidden) details.open = true
+  details.hidden = !show
+}
+
+function markSegmented(containerId: string, attribute: string, value: string): void {
+  for (const button of $(containerId).querySelectorAll<HTMLButtonElement>('button')) {
+    button.setAttribute('aria-checked', String(button.dataset[attribute] === value))
+  }
+}
+
+function renderEffectState(state: VideoEffectState): void {
+  $('effectMode').textContent = state.mode
+  markSegmented('effectModes', 'mode', state.mode)
+  // Strength is a blur radius, so it belongs to blur and to nothing else.
+  $('strengthRow').hidden = state.mode !== 'blur'
+  $('backgroundChoices').hidden = state.mode !== 'replace'
+
+  const line = $('effectStatus')
+  line.classList.remove('broken', 'working')
+  if (state.mode === 'off') {
+    line.textContent = 'The room behind you is going out as it is.'
+    line.classList.add('working')
+  } else if (state.status === 'degraded') {
+    line.textContent = `Background effects are off: ${state.error ?? 'the model would not load'}. Your camera is showing the room.`
+    line.classList.add('broken')
+  } else if (state.status === 'loading' || state.status === 'idle') {
+    line.textContent = 'Loading the background model. Everything is blurred until it arrives.'
+    line.classList.add('working')
+  } else {
+    line.textContent = 'Running.'
+    line.classList.add('working')
+  }
+}
+
+function renderVoiceState(state: MicState): void {
+  $('voiceMode').textContent = state.preset
+  markSegmented('voicePresets', 'preset', state.preset)
+  const line = $('voiceStatus')
+  line.classList.remove('broken', 'working')
+  if (state.status === 'degraded') {
+    line.textContent = `Voice masking is off: ${state.error ?? 'the audio worklet would not load'}. Your own voice is going out.`
+    line.classList.add('broken')
+    return
+  }
+  line.classList.add('working')
+  line.textContent =
+    state.preset === 'off'
+      ? 'Your own voice, with nothing added to it.'
+      : `Adds ${state.addedLatencyMs.toFixed(0)}ms of delay on top of the ${state.baseLatencyMs.toFixed(0)}ms this browser already costs.`
+}
+
+async function listVideoInputs(): Promise<void> {
+  const devices = await navigator.mediaDevices.enumerateDevices()
+  videoInputs = devices.filter((d) => d.kind === 'videoinput')
+  // One camera is not a choice. A phone reports its front and back as two
+  // devices, so this covers the flip case without a separate control, and a
+  // laptop with one webcam simply never sees the button.
+  $('switchCamera').hidden = videoInputs.length < 2
+}
+
+async function switchCamera(): Promise<void> {
+  if (!camera) return
+  if (videoInputs.length < 2) await listVideoInputs()
+  const current = videoInputs.findIndex((d) => d.deviceId === camera?.deviceId)
+  const next = videoInputs[(current + 1) % videoInputs.length]
+  if (!next) return
+  await camera.useCamera({ deviceId: next.deviceId })
+}
+
+function renderBackgroundChoices(): void {
+  const box = $('backgroundChoices')
+  if (box.childElementCount > 0) return
+  for (const choice of BACKGROUNDS) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'seg'
+    button.dataset.background = choice.id
+    button.textContent = choice.label
+    button.addEventListener('click', () => {
+      chooseBackground(choice).catch((err) => setStatus(describeError(err)))
+    })
+    box.append(button)
+  }
+  markSegmented('backgroundChoices', 'background', backgroundId)
+}
+
+async function chooseBackground(choice: BackgroundChoice): Promise<void> {
+  backgroundId = choice.id
+  markSegmented('backgroundChoices', 'background', backgroundId)
+  await camera?.setBackground(choice)
+}
+
+async function setEffectMode(mode: EffectMode): Promise<void> {
+  if (!camera) return
+  if (mode === 'replace') {
+    const choice = BACKGROUNDS.find((b) => b.id === backgroundId) ?? BACKGROUNDS[0]
+    // Loaded before the mode changes, so there is no frame where replace is
+    // selected with nothing to replace with. If it fails the effect stays on
+    // blur, which shows the room to nobody either way.
+    if (choice) await camera.setBackground(choice)
+  }
+  camera.setMode(mode)
+  renderEffectState(camera.status)
+}
+
+/** Frame counters and rate, published on the effects panel as data
+ *  attributes. A `data-passthrough` above zero while the mode is not `off`
+ *  means an unmodified camera frame was published, which is the failure this
+ *  whole feature exists to prevent - so it is measured and readable rather
+ *  than argued about. */
+function publishEffectStats(): void {
+  const panel = $('effects')
+  if (!camera) {
+    panel.removeAttribute('data-fps')
+    return
+  }
+  const totals = camera.totals
+  const stats = camera.stats
+  panel.dataset.fps = String(stats.fps)
+  panel.dataset.frameCostMs = stats.frameCostMs.toFixed(2)
+  panel.dataset.passthrough = String(totals.passthrough)
+  panel.dataset.blurAll = String(totals['blur-all'])
+  panel.dataset.composite = String(totals.composite)
+}
+
+setInterval(publishEffectStats, 500)
 
 async function toggleScreen(): Promise<void> {
   if (screenTrack) {
@@ -794,6 +990,14 @@ function updateUi(): void {
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  // A background control with no camera running is a control for nothing.
+  // Both open themselves the first time they appear rather than hiding
+  // behind a disclosure: blur is on by default, so the control that turns it
+  // off has to be visible without hunting for it, and the paragraph saying
+  // what neither effect can do is worth as much as the buttons above it.
+  revealEffects('cameraEffects', !!camera)
+  revealEffects('voiceEffects', !!mic)
+  if (camera) renderBackgroundChoices()
   if (session) {
     render(session.participants(), meParticipant)
   } else {
@@ -1163,6 +1367,49 @@ $('toggleScreen').addEventListener('click', () => {
   toggleScreen().catch((err) => setStatus(describeError(err)))
 })
 
+$('effectModes').addEventListener('click', (event) => {
+  const mode = (event.target as HTMLElement).closest('button')?.dataset.mode as EffectMode | undefined
+  if (!mode) return
+  setEffectMode(mode).catch((err) => setStatus(describeError(err)))
+})
+
+$('blurStrength').addEventListener('input', (event) => {
+  camera?.setStrength(Number((event.target as HTMLInputElement).value) / 100)
+})
+
+$('switchCamera').addEventListener('click', () => {
+  switchCamera().catch((err) => setStatus(describeError(err)))
+})
+
+$('voicePresets').addEventListener('click', (event) => {
+  const preset = (event.target as HTMLElement).closest('button')?.dataset.preset as
+    | VoicePreset
+    | undefined
+  if (!preset || !mic) return
+  mic.setPreset(preset)
+})
+
+$('voicePreview').addEventListener('click', () => {
+  const button = $('voicePreview') as HTMLButtonElement
+  const player = $('voicePreviewAudio') as HTMLAudioElement
+  if (!mic) return
+  button.disabled = true
+  button.textContent = 'Listening…'
+  mic
+    .preview()
+    .then((blob) => {
+      if (player.src) URL.revokeObjectURL(player.src)
+      player.src = URL.createObjectURL(blob)
+      player.hidden = false
+      return player.play()
+    })
+    .catch((err) => setStatus(describeError(err)))
+    .finally(() => {
+      button.disabled = false
+      button.textContent = 'Hear yourself'
+    })
+})
+
 $('join').addEventListener('click', () => {
   startSession().catch((err) => setStatus(describeError(err)))
 })
@@ -1175,6 +1422,15 @@ $('chatForm').addEventListener('submit', (event) => {
   input.value = ''
   session.chat.send(text).catch((err) => setStatus(describeError(err)))
 })
+
+// The effect controls start where the constants say they start, rather than
+// where index.html happens to say they do: BLUR_ON_BY_DEFAULT is a product
+// decision and it is meant to be one line to change.
+;($('blurStrength') as HTMLInputElement).value = String(Math.round(DEFAULT_BLUR_STRENGTH * 100))
+markSegmented('effectModes', 'mode', BLUR_ON_BY_DEFAULT ? 'blur' : 'off')
+markSegmented('voicePresets', 'preset', DEFAULT_VOICE_PRESET)
+$('effectMode').textContent = BLUR_ON_BY_DEFAULT ? 'blur' : 'off'
+$('voiceMode').textContent = DEFAULT_VOICE_PRESET
 
 if (roomFromLocation()) showRoomUi()
 

@@ -60,6 +60,10 @@ to make that one thing true.
   sign in with a key you already have. See below.
 - An installable PWA. Add it to a home screen or dock, and a service worker
   carries the shell offline.
+- **Background blur and replacement**, on by default the first time you turn
+  the camera on. Read the honest limits below before trusting it.
+- **Voice masking**: pitch and formants shifted independently, in four
+  presets. It defeats casual recognition and nothing more. Read the limits.
 - **Forwarders**, so a room can outgrow the mesh. The room names them the way
   it names its TURN servers: a plural, swappable list. Promotion happens on
   *measured capacity*, never on headcount: two people sharing legible 1080p
@@ -149,6 +153,72 @@ This is also why the Android client is native rather than a browser tab:
 mobile browsers cannot reliably share a screen, and screen sharing is half
 the point.
 
+## Background blur, and what it is not
+
+Blur is **on by default** the first time you enable your camera, and the
+control to turn it off sits directly under the camera toggle. That default is
+one constant, `BLUR_ON_BY_DEFAULT` in `src/video-effects.ts`. The reasoning:
+the failure mode of blur-on is a slightly soft background and some battery,
+and the failure mode of blur-off is publishing your living room to a room of
+people, which is a thing that has actually happened to this project.
+
+What it does not do:
+
+- **Segmentation is a guess.** It is worst at hair, at held objects, in low
+  light and under fast movement, and every one of those failures publishes a
+  piece of the real room for a frame or two. Treat it as making a room harder
+  to read, not as a guarantee nobody can see it.
+- **It costs CPU and battery.** Measured on an M4 Max in Chromium at
+  640x480 and 30fps: 8.2ms of work per frame and 28% of the renderer's main
+  thread, against 0.3ms and 3% with the effect off. A slower machine will
+  drop frame rate before it drops the effect.
+- **It is a first-use download.** MediaPipe's segmenter is 11.7MB of WASM
+  (3.4MB gzipped) plus a 250KB model. Nothing is fetched until you turn an
+  effect on, and it is served from the same origin as the app rather than
+  from Google's CDN, so enabling blur does not announce you to a third party.
+- **If it fails, the camera passes through unmodified** rather than going
+  black or taking the call down, and the control says so in red. That is
+  deliberate: a broken effect must not end a call. It does mean a failure
+  shows the room, so the message is worded to be acted on.
+
+Background *replacement* offers three bundled abstract images. There are no
+uploads, because a user-supplied picture is a file-handling surface and can
+itself leak - a holiday photo, an office, a name badge.
+
+The risky moment is a camera flip or a device change, where a naive
+implementation publishes a few hundred milliseconds of unblurred frames.
+KithMoot publishes the canvas rather than the camera, so a flip changes only
+what feeds the canvas: the published track is the same object before and
+after, nothing renegotiates, and the effect is told the source is changing
+before it changes. From that instant every frame is blurred whole until the
+new camera produces a mask. `test/effects.spec.ts` swaps the camera four
+times and asserts that not one frame took the unmodified route.
+
+## Voice masking, and what it is not
+
+**It is masking, not anonymity.** It shifts your pitch and moves the
+resonances of your voice separately from it, which is enough that someone who
+knows your voice will not place it straight away.
+
+It will **not** stop anyone holding a recording of your voice who wants to
+match it, and it does not survive a forensic comparison. Do not lean on it
+where being identified would matter. The words "anonymous" and
+"unidentifiable" appear nowhere in the interface, deliberately.
+
+Four presets - off, lower, higher, neutral - rather than free sliders, so the
+result is predictable and every option stays intelligible on a bad line.
+"Hear yourself" records three seconds of the outgoing audio and plays it
+back, so you hear what the room hears rather than what your own skull tells
+you.
+
+Measured added latency, at 48kHz: **0ms on off** (a real bypass, not the
+vocoder configured to do nothing) and **16ms on every other preset**
+(15.5ms to 18.5ms by onset measurement, against a 16.0ms algorithmic
+figure). The budget was 50ms. Formant shifting is what makes this more than
+a chipmunk: a pitch shift alone is undone by shifting back, whereas moving
+the excitation and the envelope by different factors is not a
+one-parameter inverse.
+
 ## What does not work yet
 
 Stated plainly, before anyone else finds it:
@@ -165,6 +235,13 @@ Stated plainly, before anyone else finds it:
   the path; pure mesh is already end-to-end via DTLS-SRTP.
 - **Kind numbers are provisional** (`src/kinds.ts`) and will change once the
   spec is written.
+- **No background effects or voice masking on Android yet.** The web app has
+  both; the native client does not. The Android client is the one most likely
+  to be used somewhere sensitive, so this is the gap that matters most.
+- **No face blurring, and no redaction of other people in shot.** The
+  segmenter finds one person and treats everything else as background, so a
+  second person behind you is blurred rather than hidden.
+- **No user-uploaded backgrounds**, on purpose. See above.
 
 ## Running it
 

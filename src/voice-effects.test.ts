@@ -368,6 +368,35 @@ describe('VoiceMasker, real-time shape', () => {
     expect(ms).toBeLessThan(50)
   })
 
+  it('actually delays the sound by what it says it does', () => {
+    // Measured rather than asserted: the reported figure is what the UI
+    // shows a user, so it has to be the delay the sound really picks up and
+    // not the constant the module happens to hold.
+    const input = new Float32Array(SAMPLE_RATE)
+    for (let i = SAMPLE_RATE / 2; i < input.length; i += 1) {
+      input[i] = 0.5 * Math.sin((2 * Math.PI * 300 * i) / SAMPLE_RATE)
+    }
+    const onset = (signal: Float32Array): number => {
+      const window = 256
+      let energy = 0
+      for (let i = 0; i < signal.length; i += 1) {
+        energy += signal[i]! * signal[i]!
+        if (i >= window) energy -= signal[i - window]! * signal[i - window]!
+        if (Math.sqrt(energy / Math.min(i + 1, window)) > 0.02) return i
+      }
+      return -1
+    }
+    const reference = onset(input)
+    for (const name of ['lower', 'higher', 'neutral'] as const) {
+      const delayed = onset(run(input, VOICE_PRESETS[name])) - reference
+      const claimed = latencySamples(VOICE_PRESETS[name])
+      // Within a window's worth of the claim, which is as precisely as an
+      // energy detector can place an onset at all.
+      expect(Math.abs(delayed - claimed)).toBeLessThan(256)
+      expect((delayed / SAMPLE_RATE) * 1000).toBeLessThan(50)
+    }
+  })
+
   it('gives the same answer whatever block size it is fed', () => {
     const input = vowel(150, 800, 0.4)
     const a = run(input, VOICE_PRESETS.neutral, 128)
