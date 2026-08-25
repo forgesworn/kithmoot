@@ -40,23 +40,52 @@ to make that one thing true.
   there for anyone who joins late.
 - An installable PWA — add it to a home screen or dock; a service worker
   carries the shell offline.
+- **Forwarders**, so a room can outgrow the mesh. The room names them the way
+  it names its TURN servers: a plural, swappable list. Promotion happens on
+  *measured capacity*, never on headcount — two people sharing legible 1080p
+  screens can need a forwarder while twenty on audio-only do not.
+- **Media a forwarder cannot read.** A forwarder is given the room *id* and
+  never the room *key*. Media is encrypted under a separately derived key, so
+  it routes ciphertext it cannot decrypt and cannot forge attribution for.
+- **A native Android app** (`forgesworn/kithmoot-android`) — a second,
+  independent implementation, written against the published vectors without
+  reading this codebase.
+- **51 published interop vectors** (`vectors/`), which both implementations
+  are checked against.
+
+## Which platforms
+
+| | Video | Voice | Chat | Screen share |
+|---|---|---|---|---|
+| **Desktop browser** (Chrome, Firefox, Safari) | yes | yes | yes | yes |
+| **Android** — native app | yes | yes | yes | yes |
+| **Android** — browser / PWA | yes | yes | yes | unreliable |
+| **iOS / iPadOS** — Safari or PWA | yes | yes | yes | **no** |
+
+**There is no iOS app.** The web app loads on iOS and video, voice and chat
+work, but **`getDisplayMedia` does not exist on iOS Safari**, so screen
+sharing is impossible from an iPhone or iPad in any browser — including
+Chrome and Firefox for iOS, which are Safari underneath. Sharing an iOS
+screen needs a native app using ReplayKit, which is not built.
+
+This is also why the Android client is native rather than a browser tab:
+mobile browsers cannot reliably share a screen, and screen sharing is half
+the point.
 
 ## What does not work yet
 
 Stated plainly, before anyone else finds it:
 
-- **No forwarders.** Every device talks to every other device directly,
-  which puts a hard ceiling on room size — mesh is practical to roughly 8
-  people. Past that, the upload arithmetic bites: a legible 1080p screen
-  share to 20 peers needs 30–50 Mbps up, and no domestic connection has
-  that. Forwarding is stage 3.
-- **No end-to-end encryption through a forwarder yet — because there is no
-  forwarder yet.** Pure mesh is already end-to-end via DTLS-SRTP; that
-  property has to be re-earned once media starts passing through something
-  else.
-- **No Android app yet.** Native Kotlin, and the interop proof it needs to
-  ship with, are stage 4.
-- **No published test vectors yet.** Also stage 4.
+- **No iOS app.** See above — and it is the largest gap.
+- **Forwarder trees are two levels deep.** Enough for a room of about 21;
+  beyond that nobody has measured anything.
+- **No browser-as-forwarder.** It needs WebRTC Encoded Transform, which is
+  solid in Chrome and patchy in Safari, so it stays opportunistic and never
+  load-bearing. The reference forwarder is a small Node process.
+- **Android consumes forwarders, it cannot act as one.**
+- **Encrypted media costs an extra encode/decode pass** and interacts badly
+  with some hardware codec paths. It is only *needed* once a forwarder is in
+  the path — pure mesh is already end-to-end via DTLS-SRTP.
 - **Kind numbers are provisional** (`src/kinds.ts`) and will change once the
   spec is written.
 

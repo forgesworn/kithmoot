@@ -489,7 +489,10 @@ async function toggleScreen(): Promise<void> {
     // Absent on iOS Safari and unreliable on Android Chrome - which is
     // exactly why the mobile app is native rather than a browser tab.
     if (!navigator.mediaDevices.getDisplayMedia) {
-      throw new Error('This browser cannot share a screen. Use a desktop browser instead.')
+      throw new Error(
+        'This browser cannot share a screen. iOS has no way to do it from any browser - ' +
+          'use a desktop browser, or the Android app.',
+      )
     }
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: true })
     screenTrack = stream.getVideoTracks()[0]
