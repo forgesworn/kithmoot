@@ -23,8 +23,49 @@ export interface RTCPeerConnectionLike {
   onconnectionstatechange: (() => void) | null
 }
 
+/**
+ * How a connection is being routed, worst case first in cost to everybody
+ * else.
+ *
+ * The order is the order the mesh tries them in, and it is the whole point of
+ * stage 6: most pairs connect directly and cost nobody anything, so a room
+ * that starts at TURN has put a server it pays for in the path of a
+ * connection that never needed one.
+ */
+export type RouteTier =
+  /** Peer to peer. Always tried first. */
+  | 'direct'
+  /** Through a member of the room who volunteered to carry it. */
+  | 'assist'
+  /** Through a forwarder the room descriptor names. */
+  | 'forwarder'
+  /** Through a TURN server. The floor, not the default. */
+  | 'turn'
+
+/** What the mesh is about to open a connection for. */
+export interface PeerContext {
+  tier: RouteTier
+  /** The endpoint being connected to. Not necessarily the device whose media
+   *  will arrive on it - at `assist` that is a volunteer carrying somebody
+   *  else's. */
+  remoteDevice: string
+}
+
+/**
+ * Builds a connection.
+ *
+ * The context is what lets an app give a `direct` connection STUN only and a
+ * `turn` connection the TURN credentials, which is how the selection order is
+ * actually enforced: ICE will happily relay through a TURN server that is in
+ * the list, so keeping it out of the list until the last rung is the only way
+ * to make the earlier rungs mean anything.
+ *
+ * Optional, so a factory written before any of this existed still satisfies
+ * the type and simply ignores it - at the cost of every rung looking the
+ * same to ICE.
+ */
 export interface PeerFactory {
-  (): RTCPeerConnectionLike
+  (context?: PeerContext): RTCPeerConnectionLike
 }
 
 /**
@@ -44,6 +85,9 @@ export interface PeerOptions {
   remoteDevice: string
   onSignal: (body: SignalBody) => void
   onTrack: (track: MediaStreamTrack) => void
+  /** Passed to the factory, so a caller can vary the ICE configuration by
+   *  rung. Omitted for a plain direct connection. */
+  context?: PeerContext
   /**
    * Every connection state the underlying connection reports, as it reports
    * it - including the `failed`/`closed` that makes this peer close itself.
@@ -110,7 +154,7 @@ export class Peer {
     this.polite = normaliseHex(opts.localDevice) < normaliseHex(opts.remoteDevice)
     this.#onSignal = opts.onSignal
     this.#onTrack = opts.onTrack
-    this.#pc = opts.factory()
+    this.#pc = opts.factory(opts.context ?? { tier: 'direct', remoteDevice: opts.remoteDevice })
 
     this.#pc.ontrack = (event) => this.#onTrack(event.track)
 

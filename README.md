@@ -12,10 +12,17 @@ Signalling rides Nostr relays that already exist, and media goes device to
 device with nothing in the middle. But NAT is a fact: two people behind
 symmetric NAT or carrier-grade NAT cannot reach each other directly, and a call
 has no origin to fall back to the way a stream does. Roughly one connection in
-five needs a TURN relay to complete.
+five cannot be made directly.
 
-So a room names its own STUN and TURN servers, the way it names its relays: a
-plural, swappable list. Self-host coturn, point at somebody else's, or name
+What a symmetric-NAT client *can* always do is connect outbound to a peer with
+a public address. So a pair that cannot reach each other is offered, in order:
+a member of the room who volunteered to carry them, then a forwarder the room
+names, then TURN. Most of that one-in-five is somebody in the room being
+publicly reachable and willing, and only what is left over reaches a server
+anybody pays for.
+
+A room still names its own STUN and TURN servers, the way it names its relays:
+a plural, swappable list. Self-host coturn, point at somebody else's, or name
 none and accept that some pairs will not connect. Nobody is required, and no
 single party can be removed to take the system down. That is the claim, and it
 is narrower than "nothing to run".
@@ -71,10 +78,17 @@ to make that one thing true.
 - **Media a forwarder cannot read.** A forwarder is given the room *id* and
   never the room *key*. Media is encrypted under a separately derived key, so
   it routes ciphertext it cannot decrypt and cannot forge attribution for.
+- **Peer assist**, so a room's spare uplink comes from the people in it. A
+  member that measures itself publicly reachable can offer to carry the pairs
+  that cannot connect directly, and the room tries that before any server. It
+  is opt in, revocable mid-call, never suggested on a phone or on battery or
+  on a metered connection, and capped so volunteering cannot ruin the
+  volunteer's own call. A fixed relay has fixed capacity; a room whose members
+  carry it gets more capable as more people arrive.
 - **A native Android app** (`forgesworn/kithmoot-android`), a second
   independent implementation, written against the published vectors without
   reading this codebase.
-- **53 published interop vectors** (`vectors/`), which both implementations
+- **55 published interop vectors** (`vectors/`), which both implementations
   are checked against.
 
 ## Names, and who you are

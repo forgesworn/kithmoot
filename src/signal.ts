@@ -10,11 +10,28 @@ import { hexEquals, normaliseHex } from './hex.js'
 import type { TrackAdvert } from './types.js'
 
 export interface SignalBody {
-  type: 'offer' | 'answer' | 'ice'
+  /**
+   * `assist` is not a negotiation step: it is one member asking another to
+   * carry a pair it cannot reach directly, and the answer to that request.
+   * It rides the same wrap as the rest of signalling because it is exactly as
+   * sensitive - it names two devices and says they could not reach each other
+   * - and because a second signalling path would be a second set of
+   * staleness, dedup and rate-limit rules to get right.
+   */
+  type: 'offer' | 'answer' | 'ice' | 'assist'
   roomId: string
   sdp?: string
   candidate?: string
   trackHints?: TrackAdvert[]
+  /** For an `assist` signal: the far end of the pair being asked about. The
+   *  sender is the near end, so the pair is fully named without a second
+   *  field, and neither end can ask about a pair it is not part of. */
+  assist?: string
+  /** For an `assist` signal: present on the reply and absent on the request.
+   *  A refusal is an ordinary answer - a volunteer with no slots left - and
+   *  saying so at once is what lets the asker fall to the next rung rather
+   *  than waiting out a timeout. */
+  accept?: boolean
 }
 
 export interface WrapOptions {

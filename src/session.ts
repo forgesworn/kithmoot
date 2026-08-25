@@ -11,11 +11,13 @@ import { KINDS } from './kinds.js'
 import { evaluateAccess } from './access.js'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
-import type { ForwardingState, RemoteTrack } from './mesh.js'
+import type { ForwardingState, RemoteTrack, RouteView } from './mesh.js'
+import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { ChatLog } from './chat.js'
 import type { RelayTransport } from './relay-pool.js'
 import type {
+  AssistOffer,
   DeviceCredential,
   ForwarderRef,
   IceServerRef,
@@ -43,6 +45,15 @@ export interface ParticipantView {
   name?: string
   devices: string[]
   tracks: Array<TrackAdvert & { device: string }>
+  /**
+   * Offers this person's devices have made to relay for the room.
+   *
+   * Absent when none of them is offering, which is the ordinary case and
+   * which keeps `ParticipantView` the shape it has always been for callers
+   * that do not care. Self-asserted like everything else a device publishes:
+   * see `AssistOffer`.
+   */
+  assist?: Array<AssistOffer & { device: string }>
   /** The single device holding the microphone, if any. */
   mic?: string
   /** The single device playing the room's audio, if any. */
@@ -100,6 +111,32 @@ export interface RoomSessionBaseOptions {
   /** How long a forwarder has to connect before the room falls back to a
    *  direct mesh. */
   forwarderTimeoutMs?: number
+  /** How long one rung of the route ladder gets. See
+   *  `DEFAULT_ROUTE_TIMEOUT_MS`. */
+  routeTimeoutMs?: number
+  /**
+   * This device's standing offer to relay for the room, consulted on every
+   * publish.
+   *
+   * A function rather than a value because the offer moves: the load figure
+   * changes as pairs come and go, and the whole thing becomes null the
+   * instant somebody revokes. Consulted on every heartbeat, so a stale offer
+   * is at most one heartbeat old; `setAssist` shortens that to nothing when
+   * it matters.
+   *
+   * Omit it and this device never offers, which is the right default: nothing
+   * should spend a person's bandwidth because a library thought it a good
+   * idea. See `assistDecision`.
+   */
+  assist?: () => AssistOffer | null
+  /** This device's relay registry, when it is volunteering. Handed straight
+   *  to the mesh - see `MeshOptions.relay`. */
+  relay?: PeerRelay
+  /** Called when this device takes on, or stops carrying, a pair. */
+  onRelayStart?: (pair: RelayPair) => void
+  onRelayStop?: (pair: RelayPair) => void
+  /** Called when a remote device's route changes rung. */
+  onRoute?: (device: string, route: RouteView) => void
 }
 
 /**
@@ -192,6 +229,9 @@ export class RoomSession {
   #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>> }
   /** This participant's own name, sanitised once at construction. */
   readonly #name?: string
+  /** Where the current assist offer comes from. Starts as whatever the
+   *  caller passed, and is replaced wholesale by `setAssist`. */
+  #assist?: () => AssistOffer | null
   /** At most one answer in flight: twenty devices arriving at once must
    *  produce one re-announce from us, not twenty. */
   #replyTimer?: ReturnType<typeof setTimeout>
@@ -211,6 +251,7 @@ export class RoomSession {
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.device = getPublicKey(opts.deviceSk)
     this.#name = sanitiseDisplayName(opts.name)
+    this.#assist = opts.assist
 
     if (opts.identity) {
       // A pubkey handed over by an external signer is a hex string off a
@@ -315,6 +356,21 @@ export class RoomSession {
         forwarders: this.#opts.forwarders,
         preferForwarder: this.#opts.preferForwarder,
         forwarderTimeoutMs: this.#opts.forwarderTimeoutMs,
+        routeTimeoutMs: this.#opts.routeTimeoutMs,
+        relay: this.#opts.relay,
+        // Consent, checked at the moment of the request rather than at
+        // construction: a person who has revoked stops carrying people at
+        // once, and one who never opted in is never asked to start.
+        offering: () => {
+          try {
+            return this.#assist?.() != null
+          } catch {
+            return false
+          }
+        },
+        onRelayStart: this.#opts.onRelayStart,
+        onRelayStop: this.#opts.onRelayStop,
+        onRoute: this.#opts.onRoute,
       })
     }
 
@@ -326,6 +382,40 @@ export class RoomSession {
       [{ kinds: [KINDS.DESCRIPTOR], '#d': [this.roomId] }],
       (event) => this.#ingestDescriptor(event),
     )
+  }
+
+  /**
+   * Turn this device's offer to relay on, off, or over to a new source, and
+   * say so at once.
+   *
+   * Revocation is the case that matters and the reason this republishes
+   * immediately rather than waiting for the next heartbeat: somebody who
+   * has decided to stop giving their bandwidth away should stop giving it
+   * away now. It takes nothing else with it - their own call carries on, the
+   * room carries on, and the pairs that were being carried fall to the next
+   * rung the same way they would if the laptop had been closed.
+   *
+   * Passing an offer pins it; passing a function lets the load figure move on
+   * its own; passing null withdraws.
+   */
+  async setAssist(next: (() => AssistOffer | null) | AssistOffer | null): Promise<void> {
+    this.#assist = typeof next === 'function' ? next : () => next
+    // Stops carrying anybody before announcing that we no longer will, so
+    // there is no window in which the room believes an offer this device has
+    // already withdrawn.
+    if (this.#assist() === null) this.#opts.relay?.close()
+    if (this.#self && !this.#left) await this.#publishEntry(true)
+  }
+
+  /** How each remote device is currently being reached. Empty when media was
+   *  never set up. */
+  get routes(): Map<string, RouteView> {
+    return this.#mesh?.routes ?? new Map()
+  }
+
+  /** How many pairs this device is carrying for other people. */
+  get relaying(): number {
+    return this.#mesh?.relaying ?? 0
   }
 
   /** Whether this room is routing through a forwarder. `off` when media was
@@ -415,6 +505,18 @@ export class RoomSession {
     const self = this.#self
     if (!self || this.#left) return
 
+    // Asked fresh every time. The load figure moves as pairs come and go, and
+    // a revoked offer must stop being published on the very next thing this
+    // device says rather than at some later refresh. A caller whose source
+    // throws is treated as not offering, because the safe reading of "I do
+    // not know" is "do not spend their bandwidth".
+    let assist: AssistOffer | null = null
+    try {
+      assist = this.#assist?.() ?? null
+    } catch {
+      assist = null
+    }
+
     const entry: RosterEntry = {
       participant: this.participant,
       device: this.device,
@@ -423,6 +525,7 @@ export class RoomSession {
       claims: self.claims,
       updatedAt: this.#now(),
       ...(this.#name !== undefined ? { name: this.#name } : {}),
+      ...(assist ? { assist } : {}),
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(reply ? { reply: true } : {}),
     }
@@ -580,6 +683,13 @@ export class RoomSession {
       }
       view.devices.push(entry.device)
       for (const track of entry.tracks) view.tracks.push({ ...track, device: entry.device })
+      // Per device, not per person: two of somebody's devices can be in the
+      // same room and only one of them publicly reachable, and it is that one
+      // a pair would be carried by.
+      if (entry.assist) {
+        view.assist = view.assist ?? []
+        view.assist.push({ ...entry.assist, device: entry.device })
+      }
     }
 
     for (const [participant, assigned] of roles) {

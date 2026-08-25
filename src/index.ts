@@ -43,9 +43,48 @@ export { evaluateAccess, issueKindredProof } from './access.js'
 export type { IssueKindredProofOptions } from './access.js'
 export type { AccessTier, RoomPolicy, KindredProof } from './types.js'
 export { Peer } from './peer.js'
-export type { RTCPeerConnectionLike, PeerFactory, PeerOptions } from './peer.js'
-export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS } from './mesh.js'
-export type { MeshOptions, MeshSession, RemoteTrack, ForwardingState } from './mesh.js'
+export type { RTCPeerConnectionLike, PeerFactory, PeerOptions, PeerContext, RouteTier } from './peer.js'
+export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS, DEFAULT_ROUTE_TIMEOUT_MS } from './mesh.js'
+export type { MeshOptions, MeshSession, RemoteTrack, ForwardingState, RouteView } from './mesh.js'
+export {
+  ReachabilityProbe,
+  classifyReachability,
+  isGloballyRoutable,
+  parseIceCandidate,
+} from './reachability.js'
+export type { CandidateLike, CandidateType, ParsedCandidate, Reachability, ReachabilityReport } from './reachability.js'
+export {
+  ASSIST_STREAMS_PER_PAIR,
+  MAX_ASSISTED_PAIRS,
+  assistCostBps,
+  assistDecision,
+  assistPairKey,
+  assistSlots,
+  buildAssistOffer,
+  rankAssistants,
+  sanitiseAssistOffer,
+  selectAssistant,
+  spareUplinkBps,
+} from './peer-assist.js'
+export type {
+  AssistBlock,
+  AssistCandidate,
+  AssistDecision,
+  AssistEnvironment,
+  AssistSelectionOptions,
+  AssistVolunteer,
+} from './peer-assist.js'
+export type { AssistOffer } from './types.js'
+export { DEFAULT_RELAY_QUEUE, FrameRelay, PeerRelay, RelayPair, detectRelayCapability } from './peer-relay.js'
+export type {
+  DetectRelayOptions,
+  EncodedStreamPair,
+  PeerRelayOptions,
+  RelayCapability,
+  RelayMechanism,
+  RelayScope,
+  RelayStats,
+} from './peer-relay.js'
 export { encodeChatEvent, decodeChatEvent, ChatLog } from './chat.js'
 export type { ChatMessage, ChatLogOptions, EncodeChatOptions, DecodeChatOptions } from './chat.js'
 export { mintTurnCredential } from './turn.js'

@@ -2,12 +2,18 @@ import type { Event } from 'nostr-tools/pure'
 import { Peer } from './peer.js'
 import type { PeerFactory } from './peer.js'
 import { wrapSignal, unwrapSignal } from './signal.js'
+import type { SignalBody } from './signal.js'
 import { SignalGuard } from './signal-guard.js'
 import { KINDS } from './kinds.js'
 import type { RelayTransport } from './relay-pool.js'
 import type { ParticipantView } from './session.js'
 import { needsForwarding, selectForwarder } from './forwarder.js'
 import type { CapacityEstimate, ForwarderRef } from './forwarder.js'
+import { selectAssistant } from './peer-assist.js'
+import type { AssistVolunteer } from './peer-assist.js'
+import type { PeerRelay, RelayPair } from './peer-relay.js'
+import type { RouteTier } from './peer.js'
+import type { AssistOffer } from './types.js'
 import { normaliseHex } from './hex.js'
 
 /**
@@ -59,6 +65,77 @@ export interface MeshOptions {
   /** How long a forwarder has to connect before the room gives up on it and
    *  stays a mesh. See `DEFAULT_FORWARDER_TIMEOUT_MS`. */
   forwarderTimeoutMs?: number
+  /**
+   * How long one rung of the route ladder has to connect before the room
+   * tries the next one. See `DEFAULT_ROUTE_TIMEOUT_MS`.
+   */
+  routeTimeoutMs?: number
+  /**
+   * Whether this room may route a failing pair through a member who
+   * volunteered. Defaults to on, because it costs the pair nothing and costs
+   * the volunteer only what they already agreed to give.
+   *
+   * Consent lives at the other end: nobody is relayed through who did not
+   * publish an offer, and nothing here can make them publish one.
+   */
+  assist?: () => boolean
+  /**
+   * This device's own relay registry, when it is volunteering.
+   *
+   * Absent means this device never accepts a request to carry anybody, which
+   * is the default and the only safe one: relaying spends somebody's
+   * bandwidth and battery, so it happens because they said so and for no
+   * other reason. Passing one in is what saying so looks like, and dropping
+   * it - or calling `close()` on it - is what revoking looks like, mid-call,
+   * without anybody's room ending.
+   */
+  relay?: PeerRelay
+  /**
+   * Whether this device is, right now, advertising an offer to relay.
+   *
+   * Checked before every request to carry a pair is accepted, and it is the
+   * consent gate rather than a convenience: `relay` being present says a
+   * person once turned this on, and this says they have not turned it off.
+   * Without it a hostile client could ask a device that never advertised
+   * anything to carry a pair, and be told yes - spending somebody's bandwidth
+   * because they were asked rather than because they offered.
+   *
+   * Absent means "offering", so a caller that manages consent by passing or
+   * withholding `relay` keeps working.
+   */
+  offering?: () => boolean
+  /** Called when this device takes on a pair to carry. The app wires the
+   *  actual frame pumps against its real connections - see `peer-relay.ts` -
+   *  because `RTCPeerConnectionLike` deliberately does not expose senders and
+   *  receivers, and neither should a protocol library. */
+  onRelayStart?: (pair: RelayPair) => void
+  /** Called when this device stops carrying a pair, for any reason. */
+  onRelayStop?: (pair: RelayPair) => void
+  /** Called whenever a remote device's route changes rung. What a UI needs to
+   *  say "connected through Priya" honestly, and to say "we could not connect"
+   *  when the ladder runs out. */
+  onRoute?: (device: string, route: RouteView) => void
+}
+
+/** How one remote device is currently being reached. */
+export interface RouteView {
+  tier: RouteTier
+  /** The endpoint carrying it: the device itself at `direct` and `turn`, the
+   *  volunteer at `assist`, the forwarder at `forwarder`. */
+  endpoint: string
+  /** True once that endpoint's connection has actually reported `connected`.
+   *  Not "we sent an offer" - the only honest signal that a rung worked. */
+  connected: boolean
+  /** True when every rung has been tried and none of them worked. The room
+   *  keeps going without this person's media, and says so. */
+  exhausted: boolean
+}
+
+interface Route extends RouteView {
+  /** Volunteers already tried for this device and found wanting. Both ends of
+   *  the pair accumulate this independently; they converge because the roster
+   *  is the shared input and a volunteer that has gone leaves it. */
+  failed: string[]
 }
 
 export interface RemoteTrack {
@@ -69,17 +146,22 @@ export interface RemoteTrack {
    * How this track reached us.
    *
    * `direct` is attributed by which peer connection it arrived on, which
-   * nothing but the two endpoints controls. `forwarder` is attributed by
-   * matching the track against the roster's own signed, room-key-encrypted
-   * adverts - because through a forwarder every track arrives on the same
-   * connection, and the forwarder chooses which stream carries which id.
+   * nothing but the two endpoints controls. A connection that ICE ended up
+   * relaying through TURN still reads as `direct`, because no member of the
+   * room carried it and none of them could have relabelled it.
+   *
+   * `assist` and `forwarder` are attributed by matching the track against the
+   * roster's own signed, room-key-encrypted adverts - because through either
+   * of them somebody else's media arrives on a connection to a third party,
+   * and it is that third party who chooses which stream carries which id.
    *
    * That match is a *hint*, and the app must not treat it as more than one:
    * what settles attribution is which member's media key opens the frames
-   * (`deriveMediaKey`, `resolveFrameSender`). A forwarder that relabels one
-   * member's stream as another's produces frames that will not decrypt.
+   * (`deriveMediaKey`, `resolveFrameSender`). A relay - ours, a stranger's
+   * laptop, anybody's - that relabels one member's stream as another's
+   * produces frames that will not decrypt.
    */
-  via: 'direct' | 'forwarder'
+  via: 'direct' | 'assist' | 'forwarder'
 }
 
 /** Whether this room is routing through a forwarder, and how confidently. */
@@ -108,6 +190,18 @@ export type ForwardingState =
  * writing the forwarder off.
  */
 export const DEFAULT_FORWARDER_TIMEOUT_MS = 8_000
+
+/**
+ * How long one rung of the route ladder has to connect before the next is
+ * tried.
+ *
+ * ICE reports `failed` on its own for most dead paths, and this is the
+ * backstop for the ones it does not: a candidate pair that stays `checking`
+ * for ever, a volunteer that accepted and then closed its laptop before any
+ * media moved. Long enough for a real negotiation over a slow link, short
+ * enough that nobody sits looking at a blank tile wondering.
+ */
+export const DEFAULT_ROUTE_TIMEOUT_MS = 10_000
 
 /**
  * One `Peer` per remote device, kept in step with the roster.
@@ -139,6 +233,17 @@ export class Mesh {
   readonly #unsubSession: () => void
   readonly #unsubSignal: () => void
   #closed = false
+
+  /** How each remote device is currently reached, and what has been tried. */
+  readonly #routes = new Map<string, Route>()
+  /** Assist offers on the roster right now, by volunteering device. */
+  readonly #volunteers = new Map<string, AssistOffer>()
+  /** One timer per endpoint, bounding how long a rung gets. */
+  readonly #routeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Endpoints being closed deliberately, so their own `closed` state change
+   *  is not mistaken for the rung failing. Same guard as
+   *  `#tearingDownForwarder`, for the same reason. */
+  readonly #closingEndpoints = new Set<string>()
 
   #forwarders: ForwarderRef[]
   #forwarding: ForwardingState = 'off'
@@ -182,6 +287,22 @@ export class Mesh {
     return this.#peers.size
   }
 
+  /** How each remote device is currently being reached. What a UI reads to
+   *  say who is direct, who is being carried by whom, and who could not be
+   *  reached at all. */
+  get routes(): Map<string, RouteView> {
+    const view = new Map<string, RouteView>()
+    for (const [device, route] of this.#routes) {
+      view.set(device, { tier: route.tier, endpoint: route.endpoint, connected: route.connected, exhausted: route.exhausted })
+    }
+    return view
+  }
+
+  /** What this device is carrying for other people, if it volunteered. */
+  get relaying(): number {
+    return this.#opts.relay?.relaying ?? 0
+  }
+
   /**
    * Replace the forwarder list, as a new room descriptor names it.
    *
@@ -215,6 +336,10 @@ export class Mesh {
     this.#unsubSession()
     this.#unsubSignal()
     this.#teardownForwarder()
+    for (const endpoint of [...this.#routeTimers.keys()]) this.#clearRouteTimer(endpoint)
+    this.#opts.relay?.close()
+    this.#routes.clear()
+    this.#volunteers.clear()
     for (const peer of this.#peers.values()) peer.close()
     this.#peers.clear()
     this.#deviceToParticipant.clear()
@@ -257,6 +382,9 @@ export class Mesh {
     this.#deviceToParticipant.clear()
     for (const [device, participant] of wantedDevices) this.#deviceToParticipant.set(device, participant)
 
+    this.#collectVolunteers(views)
+    this.#reconcileRoutes(wantedDevices)
+
     // Decided before any peer is opened or closed, because the answer governs
     // both. `wantedDevices.size` is the `(N-1)` in `(N-1) x bitrate`: the
     // devices this one would have to send its own media to.
@@ -264,19 +392,313 @@ export class Mesh {
 
     const direct = this.#forwarding !== 'up'
 
-    for (const [device, peer] of this.#peers) {
-      if (direct && wantedDevices.has(device)) continue
-      peer.close()
-      this.#peers.delete(device)
+    // The endpoints, not the devices. Usually the same set: most people are
+    // reached at their own address. A device being carried by a volunteer is
+    // reached at the volunteer's, and one on the forwarder rung or out of
+    // rungs is not reached at all, so neither contributes an endpoint.
+    const endpoints = new Set<string>()
+    if (direct) {
+      for (const route of this.#routes.values()) {
+        if (route.tier === 'forwarder' || route.exhausted) continue
+        endpoints.add(route.endpoint)
+      }
+    }
+
+    for (const [endpoint, peer] of [...this.#peers]) {
+      if (endpoints.has(endpoint)) continue
+      this.#closePeer(endpoint, peer)
     }
 
     if (!direct) return
 
-    for (const [device] of wantedDevices) {
-      if (this.#peers.has(device)) continue
-      const peer = this.#createPeer(device)
-      this.#peers.set(device, peer)
+    for (const endpoint of endpoints) {
+      if (this.#peers.has(endpoint)) continue
+      const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
+      this.#peers.set(endpoint, peer)
+      this.#armRouteTimer(endpoint)
       peer.start(this.#tracks).catch(() => {})
+    }
+  }
+
+  /** Every assist offer currently on the roster, minus our own participant's
+   *  devices - we never open a media connection to those, so one of them
+   *  volunteering could not carry anything for us. */
+  #collectVolunteers(views: ParticipantView[]): void {
+    this.#volunteers.clear()
+    if (this.#opts.assist?.() === false) return
+    for (const view of views) {
+      if (view.participant === this.#opts.localParticipant) continue
+      for (const advert of view.assist ?? []) {
+        const device = normaliseHex(advert.device)
+        if (device === this.#opts.localDevice) continue
+        this.#volunteers.set(device, advert)
+      }
+    }
+  }
+
+  /** Keep one route per remote device, and drop a volunteer that has gone. */
+  #reconcileRoutes(wantedDevices: Map<string, string>): void {
+    for (const device of [...this.#routes.keys()]) {
+      if (!wantedDevices.has(device)) {
+        this.#routes.delete(device)
+        // We may have been carrying this device for somebody. Holding the
+        // slot open would cost a slot we could give somebody else.
+        this.#stopRelayingFor(device)
+      }
+    }
+
+    for (const device of wantedDevices.keys()) {
+      if (this.#routes.has(device)) continue
+      this.#routes.set(device, { tier: 'direct', endpoint: device, connected: false, exhausted: false, failed: [] })
+    }
+
+    // A volunteer who closed their laptop mid-sentence is the normal case,
+    // not the edge case. It shows up here first, as an offer that has left
+    // the roster, and it must cost the people they were carrying one rung
+    // rather than their place in the room.
+    for (const [device, route] of [...this.#routes]) {
+      if (route.tier !== 'assist') continue
+      if (wantedDevices.has(route.endpoint) && this.#volunteers.has(route.endpoint)) continue
+      this.#escalate(device)
+    }
+  }
+
+  /** The rung a connection to this endpoint is being opened on. An endpoint
+   *  is always a room device, so its own route says which. */
+  #tierOfEndpoint(endpoint: string): RouteTier {
+    return this.#routes.get(endpoint)?.tier === 'turn' ? 'turn' : 'direct'
+  }
+
+  #closePeer(endpoint: string, peer: Peer): void {
+    this.#peers.delete(endpoint)
+    this.#clearRouteTimer(endpoint)
+    this.#closingEndpoints.add(endpoint)
+    try {
+      peer.close()
+    } finally {
+      this.#closingEndpoints.delete(endpoint)
+    }
+  }
+
+  #armRouteTimer(endpoint: string): void {
+    this.#clearRouteTimer(endpoint)
+    const timeout = this.#opts.routeTimeoutMs ?? DEFAULT_ROUTE_TIMEOUT_MS
+    const timer = setTimeout(() => {
+      this.#routeTimers.delete(endpoint)
+      this.#endpointFailed(endpoint)
+    }, timeout)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    this.#routeTimers.set(endpoint, timer)
+  }
+
+  #clearRouteTimer(endpoint: string): void {
+    const timer = this.#routeTimers.get(endpoint)
+    if (timer !== undefined) clearTimeout(timer)
+    this.#routeTimers.delete(endpoint)
+  }
+
+  /** A rung worked. */
+  #endpointConnected(endpoint: string): void {
+    this.#clearRouteTimer(endpoint)
+    for (const [device, route] of this.#routes) {
+      if (route.endpoint !== endpoint || route.connected) continue
+      route.connected = true
+      this.#announceRoute(device, route)
+    }
+  }
+
+  /** A rung did not work, or stopped working. Everything reached through it
+   *  falls to the next one. */
+  #endpointFailed(endpoint: string): void {
+    if (this.#closed || this.#closingEndpoints.has(endpoint)) return
+    this.#clearRouteTimer(endpoint)
+    // The connection on this rung is finished, whether it said so itself or
+    // simply never came up. It has to go before the next rung is chosen: the
+    // next rung may be the same endpoint over a different ICE configuration -
+    // TURN, most of the time - and a peer left in the map would be mistaken
+    // for that new connection and never replaced.
+    const peer = this.#peers.get(endpoint)
+    if (peer) this.#closePeer(endpoint, peer)
+    // This endpoint may have been carrying pairs for us as well as being one
+    // end of them, so stop counting on it either way.
+    this.#stopRelayingFor(endpoint)
+    for (const [device, route] of [...this.#routes]) {
+      if (route.endpoint !== endpoint) continue
+      this.#escalate(device)
+    }
+    this.#reconcile(this.#opts.session.participants())
+  }
+
+  /**
+   * Move one device down the ladder: direct, then peer assist, then a named
+   * forwarder, then TURN.
+   *
+   * The order is the whole of stage 6. Most pairs connect directly and cost
+   * nobody anything; the ones that do not are carried by somebody who
+   * volunteered before they are carried by a server anybody pays for. TURN
+   * stays as the floor, which is not the same as being the default.
+   */
+  #escalate(device: string): void {
+    const route = this.#routes.get(device)
+    if (!route || route.exhausted) return
+
+    if (route.tier === 'assist' && !route.failed.includes(route.endpoint)) {
+      route.failed.push(route.endpoint)
+    }
+    route.connected = false
+
+    // Peer assist, if anybody is offering and we can actually reach them.
+    if (route.tier === 'direct' || route.tier === 'assist') {
+      const assistant = this.#pickAssistant(device, route)
+      if (assistant) {
+        route.tier = 'assist'
+        route.endpoint = assistant
+        this.#announceRoute(device, route)
+        this.#requestAssist(device, assistant)
+        return
+      }
+    }
+
+    // A forwarder the room descriptor names, if it has one we have not
+    // already burned. This promotes the whole room rather than this one pair:
+    // a forwarder that is in the path is in the path for everybody, and
+    // pretending otherwise would mean two media topologies at once.
+    if (route.tier !== 'forwarder' && route.tier !== 'turn') {
+      const ref = this.#selectUsableForwarder()
+      if (ref) {
+        route.tier = 'forwarder'
+        route.endpoint = normaliseHex(ref.pubkey as string)
+        this.#announceRoute(device, route)
+        if (this.#forwarding !== 'trying' && this.#forwarding !== 'up') this.#promote(ref)
+        return
+      }
+    }
+
+    // TURN. Last, and only ever last.
+    if (route.tier !== 'turn') {
+      route.tier = 'turn'
+      route.endpoint = device
+      this.#announceRoute(device, route)
+      return
+    }
+
+    // Out of rungs. The room keeps going without this person's media, and
+    // says so rather than leaving a tile spinning for ever.
+    route.exhausted = true
+    route.endpoint = device
+    this.#announceRoute(device, route)
+  }
+
+  /**
+   * The volunteer this pair should route through, if there is one.
+   *
+   * Two conditions beyond what `selectAssistant` checks, both of them local:
+   * the volunteer must be somebody we are *already* directly connected to,
+   * because assist reuses that connection rather than opening another; and it
+   * must not be one we have already tried for this device.
+   */
+  #pickAssistant(device: string, route: Route): string | null {
+    const volunteers: AssistVolunteer[] = []
+    for (const [candidate, offer] of this.#volunteers) {
+      if (candidate === device) continue
+      const theirs = this.#routes.get(candidate)
+      if (!theirs || theirs.tier !== 'direct' || !theirs.connected) continue
+      volunteers.push({ device: candidate, offer })
+    }
+    return selectAssistant([this.#opts.localDevice, device], volunteers, { exclude: route.failed })?.device ?? null
+  }
+
+  #announceRoute(device: string, route: Route): void {
+    try {
+      this.#opts.onRoute?.(device, {
+        tier: route.tier,
+        endpoint: route.endpoint,
+        connected: route.connected,
+        exhausted: route.exhausted,
+      })
+    } catch {
+      // A caller's render() is not allowed to take the room down.
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Asking somebody to carry a pair, and being asked
+  // -------------------------------------------------------------------------
+
+  #send(to: string, body: Omit<SignalBody, 'roomId'>): void {
+    const wrap = wrapSignal(
+      { ...body, roomId: this.#opts.roomId } as SignalBody,
+      { senderSk: this.#opts.deviceSk, recipientPubkey: to },
+    )
+    this.#opts.transport.publish(wrap).catch(() => {})
+  }
+
+  #requestAssist(device: string, assistant: string): void {
+    this.#send(assistant, { type: 'assist', assist: device })
+    // The request gets the same budget a connection attempt does. A volunteer
+    // that never answers is a volunteer that has gone, and waiting on it is
+    // indistinguishable to the person watching a blank tile.
+    this.#armRouteTimer(assistant)
+  }
+
+  /**
+   * Somebody has asked this device to carry a pair.
+   *
+   * Refused unless this device volunteered - `relay` is only present because
+   * a person turned it on - and unless both ends are people we are actually
+   * connected to, since a pair we cannot reach is one we cannot carry. A
+   * refusal is answered at once rather than ignored, because the asker's
+   * alternative is waiting out a timeout before trying the next rung.
+   */
+  #handleAssistRequest(from: string, far: string): void {
+    const relay = this.#opts.relay
+    const other = normaliseHex(far)
+    const reachable = (device: string): boolean => this.#routes.get(device)?.connected === true
+
+    const offering = this.#opts.offering?.() ?? true
+    if (!relay || !offering || other === '' || other === from || !reachable(from) || !reachable(other)) {
+      this.#send(from, { type: 'assist', assist: other, accept: false })
+      return
+    }
+
+    const pair = relay.admit(from, other)
+    this.#send(from, { type: 'assist', assist: other, accept: pair !== null })
+    if (!pair) return
+    try {
+      this.#opts.onRelayStart?.(pair)
+    } catch {
+      // Wiring frames is the app's job and its mistakes are its own.
+    }
+  }
+
+  /** The answer to a request we made. */
+  #handleAssistReply(from: string, far: string, accepted: boolean): void {
+    const route = this.#routes.get(normaliseHex(far))
+    if (!route || route.tier !== 'assist' || route.endpoint !== from) return
+    if (accepted) {
+      this.#clearRouteTimer(from)
+      // The connection to this volunteer is already up - that was a condition
+      // of choosing it - so the route is working the moment it says yes.
+      route.connected = true
+      this.#announceRoute(normaliseHex(far), route)
+      return
+    }
+    this.#escalate(normaliseHex(far))
+    this.#reconcile(this.#opts.session.participants())
+  }
+
+  /** Stop carrying anything involving `device`, and say so. */
+  #stopRelayingFor(device: string): void {
+    const relay = this.#opts.relay
+    if (!relay) return
+    for (const pair of relay.pairs) {
+      if (pair.a !== device && pair.b !== device) continue
+      relay.drop(pair.a, pair.b)
+      try {
+        this.#opts.onRelayStop?.(pair)
+      } catch {
+        // As above.
+      }
     }
   }
 
@@ -290,7 +712,13 @@ export class Mesh {
    * can.
    */
   #evaluatePromotion(peers: number): void {
-    const want = this.#needsForwarding(peers)
+    // Two reasons a room wants a forwarder, and they are not the same
+    // question. Capacity is the original one: this device cannot carry
+    // `(N-1) x bitrate`. The other is a pair that has exhausted every rung
+    // above the forwarder, which no capacity measurement will ever show -
+    // so a room whose uplink is fine must not tear down the forwarder that
+    // is the only thing connecting two of its members.
+    const want = this.#needsForwarding(peers) || this.#routesWantForwarder()
 
     if (!want) {
       // The room fits again - fewer people, or a screen share stopped. Give
@@ -312,6 +740,12 @@ export class Mesh {
     if (!ref) return
 
     this.#promote(ref)
+  }
+
+  /** True while any device is on the forwarder rung of the ladder. */
+  #routesWantForwarder(): boolean {
+    for (const route of this.#routes.values()) if (route.tier === 'forwarder') return true
+    return false
   }
 
   #needsForwarding(peers: number): boolean {
@@ -381,6 +815,12 @@ export class Mesh {
     if (this.#forwarderDevice) this.#failedForwarders.add(this.#forwarderDevice)
     this.#teardownForwarder()
     this.#forwarding = 'failed'
+    // Anybody who was on the forwarder rung because their own connection had
+    // failed drops to the last one. Everybody else is back to a direct mesh,
+    // which is what `#reconcile` below restores.
+    for (const [device, route] of [...this.#routes]) {
+      if (route.tier === 'forwarder') this.#escalate(device)
+    }
     // Reopens every direct peer the promotion closed. The room is paying
     // `(N-1) x bitrate` again, which is the degradation - but it is a call.
     this.#reconcile(this.#opts.session.participants())
@@ -408,11 +848,12 @@ export class Mesh {
     this.#forwarderTimer = undefined
   }
 
-  #createPeer(remoteDevice: string, forwarder = false): Peer {
+  #createPeer(remoteDevice: string, forwarder = false, tier: RouteTier = 'direct'): Peer {
     return new Peer({
       factory: this.#opts.factory,
       localDevice: this.#opts.localDevice,
       remoteDevice,
+      context: { tier: forwarder ? 'forwarder' : tier, remoteDevice },
       onSignal: (body) => {
         const wrap = wrapSignal(
           { ...body, roomId: this.#opts.roomId },
@@ -422,20 +863,46 @@ export class Mesh {
       },
       onTrack: (track) => {
         if (forwarder) this.#onForwardedTrack(track)
-        else this.#emitTrack(remoteDevice, track, 'direct')
+        else this.#onEndpointTrack(remoteDevice, track)
       },
-      ...(forwarder
-        ? {
-            onConnectionState: (state: RTCPeerConnectionState) => {
-              if (this.#tearingDownForwarder) return
-              if (state === 'connected') this.#forwarderConnected()
-              else if (state === 'failed' || state === 'closed' || state === 'disconnected') {
-                this.#forwarderFailed()
-              }
-            },
+      onConnectionState: forwarder
+        ? (state: RTCPeerConnectionState) => {
+            if (this.#tearingDownForwarder) return
+            if (state === 'connected') this.#forwarderConnected()
+            else if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+              this.#forwarderFailed()
+            }
           }
-        : {}),
+        : (state: RTCPeerConnectionState) => {
+            if (state === 'connected') this.#endpointConnected(remoteDevice)
+            else if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+              this.#endpointFailed(remoteDevice)
+            }
+          },
     })
+  }
+
+  /**
+   * Attribute a track that arrived on an ordinary endpoint.
+   *
+   * Almost always the endpoint's own media, which is what a direct connection
+   * means. The exception is a volunteer carrying somebody else's: then the
+   * roster - signed by the publishing device, encrypted to the room key,
+   * neither writable nor readable by the volunteer - says whose it is, and
+   * the route says we asked that volunteer to carry exactly that person.
+   * Both have to agree before a track is attributed to anybody but the
+   * endpoint it arrived on.
+   */
+  #onEndpointTrack(endpoint: string, track: MediaStreamTrack): void {
+    const owner = this.#trackOwner.get(track.id)
+    if (owner !== undefined && owner !== endpoint) {
+      const route = this.#routes.get(owner)
+      if (route?.tier === 'assist' && route.endpoint === endpoint) {
+        this.#emitTrack(owner, track, 'assist')
+        return
+      }
+    }
+    this.#emitTrack(endpoint, track, 'direct')
   }
 
   /**
@@ -459,7 +926,7 @@ export class Mesh {
     this.#emitTrack(device, track, 'forwarder')
   }
 
-  #emitTrack(device: string, track: MediaStreamTrack, via: 'direct' | 'forwarder'): void {
+  #emitTrack(device: string, track: MediaStreamTrack, via: 'direct' | 'assist' | 'forwarder'): void {
     const participant = this.#deviceToParticipant.get(device)
     if (!participant) return
     for (const listener of this.#trackListeners) listener({ participant, device, track, via })
@@ -488,6 +955,14 @@ export class Mesh {
     // wrap's pubkey: every wrap is signed by a fresh ephemeral key, so the
     // only stable identity a budget can be held against is the one inside.
     if (!this.#guard.admitSender(unwrapped.from, now)) return
+
+    if (unwrapped.body.type === 'assist') {
+      const far = unwrapped.body.assist
+      if (typeof far !== 'string' || far === '') return
+      if (unwrapped.body.accept === undefined) this.#handleAssistRequest(unwrapped.from, far)
+      else this.#handleAssistReply(unwrapped.from, far, unwrapped.body.accept === true)
+      return
+    }
 
     const peer = this.#peers.get(unwrapped.from)
     if (!peer) return

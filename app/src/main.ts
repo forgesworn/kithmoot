@@ -19,7 +19,12 @@ import {
   type TrackAdvert,
   type ChatMessage,
 } from '../../src/index.js'
-import type { PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
+import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
+import { ReachabilityProbe } from '../../src/reachability.js'
+import { PeerRelay, detectRelayCapability } from '../../src/peer-relay.js'
+import { buildAssistOffer } from '../../src/peer-assist.js'
+import type { AssistEnvironment } from '../../src/peer-assist.js'
+import type { AssistOffer } from '../../src/types.js'
 import {
   BLUR_ON_BY_DEFAULT,
   DEFAULT_BLUR_STRENGTH,
@@ -683,6 +688,11 @@ async function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
   return turnServer ? [...base, turnServer] : base
 }
 
+/** An RTCIceServer's `urls` is a string or a list of them. */
+function toUrlList(urls: string | string[]): string[] {
+  return typeof urls === 'string' ? [urls] : urls
+}
+
 function parseIceInput(): string[] {
   const raw = ($('iceServers') as HTMLInputElement).value
   const parsed = raw
@@ -691,6 +701,95 @@ function parseIceInput(): string[] {
     .filter(Boolean)
   const safe = safeIceUrls(parsed)
   return safe.length ? safe : DEFAULT_ICE_URLS
+}
+
+// ---------------------------------------------------------------------------
+// Peer assist: the room's spare uplink comes from the people in it.
+//
+// Everything below is plumbing and defaults. The control surface - a toggle,
+// a live indicator, honest copy about what it costs - is deliberately not
+// here yet, and until it is this stays OFF: `assistEnabled` starts false and
+// nothing in this file sets it to true. That is not an oversight to be tidied
+// away later. Relaying spends somebody's bandwidth and battery, and the only
+// thing that may turn it on is a person deciding to.
+// ---------------------------------------------------------------------------
+
+/** The person's own choice. Opt in, always - see `assistDecision`. */
+let assistEnabled = false
+
+/** What this device is carrying for other people, if anything. */
+const peerRelay = new PeerRelay()
+
+/** Reachability, measured from the candidates this device actually gathers,
+ *  never guessed from a user agent. Fed by every connection the mesh opens. */
+const reachability = new ReachabilityProbe()
+
+/** Whether this browser can forward encoded frames without decoding them.
+ *  Measured against the objects, not the user agent - see
+ *  `detectRelayCapability`. Chromium can; Safari and Firefox expose only
+ *  `RTCRtpScriptTransform` and have not been measured carrying a frame
+ *  through it, so they are read as unable until somebody has. */
+const relayCapability = detectRelayCapability()
+
+/** True when the platform says this is a phone. `navigator.userAgentData` is
+ *  a proper API rather than a user-agent string parse, and where it is absent
+ *  the honest answer is "we could not tell" - which `assistDecision` reads as
+ *  "do not volunteer this by default". */
+function formFactor(): AssistEnvironment['formFactor'] {
+  const data = (navigator as Navigator & { userAgentData?: { mobile?: boolean } }).userAgentData
+  if (typeof data?.mobile !== 'boolean') return undefined
+  return data.mobile ? 'mobile' : 'desktop'
+}
+
+/** True when the connection is metered or the person has asked for data
+ *  saving. Undefined where the platform will not say. */
+function metered(): boolean | undefined {
+  const connection = (navigator as Navigator & {
+    connection?: { saveData?: boolean; type?: string }
+  }).connection
+  if (!connection) return undefined
+  if (connection.saveData === true) return true
+  if (connection.type === 'cellular') return true
+  return undefined
+}
+
+/** Set from the Battery Status API where it exists. Left undefined where it
+ *  does not, which several browsers have removed on privacy grounds. */
+let onBattery: boolean | undefined
+void (async () => {
+  const getBattery = (navigator as Navigator & {
+    getBattery?: () => Promise<{ charging: boolean; addEventListener(type: string, cb: () => void): void }>
+  }).getBattery
+  if (!getBattery) return
+  try {
+    const battery = await getBattery.call(navigator)
+    const read = (): void => {
+      onBattery = !battery.charging
+    }
+    read()
+    battery.addEventListener('chargingchange', read)
+  } catch {
+    // No answer is a perfectly good answer here - see `assistDecision`.
+  }
+})()
+
+/** A rough, honest estimate of what this device is spending on its own call.
+ *  Nothing here is measured yet, so the uplink figure is deliberately absent
+ *  rather than invented: with no measurement `buildAssistOffer` declines, and
+ *  declining is the right answer to "we do not know". */
+function assistEnvironment(): AssistEnvironment {
+  return {
+    reachability: reachability.reachability,
+    canRelay: relayCapability.canForwardFrames,
+    capacity: { uplinkBps: 0, peers: 0, perPeerBps: 0 },
+    formFactor: formFactor(),
+    onBattery,
+    metered: metered(),
+  }
+}
+
+function currentAssistOffer(): AssistOffer | null {
+  return buildAssistOffer(assistEnvironment(), peerRelay.relaying, assistEnabled)
 }
 
 function startNewRoom(): void {
@@ -1179,8 +1278,28 @@ async function startSession(): Promise<void> {
     // rather than the narrow shape Peer actually reads, which is a sound
     // narrowing at runtime but not something TS's structural checker allows
     // for property-typed callbacks without a cast.
-    const factory: PeerFactory = () =>
-      new RTCPeerConnection({ iceServers: resolvedIceServers }) as unknown as RTCPeerConnectionLike
+    //
+    // The ICE list is split by rung, which is what actually inverts the
+    // selection order. ICE will relay through any TURN server it is given,
+    // happily and immediately, so a connection handed the TURN credentials on
+    // the first attempt has not "tried direct first" in any sense that costs
+    // less - it has simply tried everything at once and taken whatever
+    // connected. Keeping TURN out of the list until the mesh asks for the
+    // TURN rung is the only way the earlier rungs mean anything.
+    const stunOnly = resolvedIceServers.filter(
+      (server) => !toUrlList(server.urls).some((url) => url.toLowerCase().startsWith('turn')),
+    )
+    const factory: PeerFactory = (context?: PeerContext) => {
+      const iceServers = context?.tier === 'turn' ? resolvedIceServers : stunOnly
+      const pc = new RTCPeerConnection({ iceServers })
+      // Every connection contributes to the reachability measurement. It
+      // costs nothing - these candidates were gathered anyway - and it is the
+      // only honest source for whether this device could carry anybody.
+      pc.addEventListener('icecandidate', (event) => {
+        if (event.candidate) reachability.add({ candidate: event.candidate.candidate })
+      })
+      return pc as unknown as RTCPeerConnectionLike
+    }
 
     // A paired device joins on its credential alone. Only a device that
     // actually holds the participant key passes one.
@@ -1194,6 +1313,8 @@ async function startSession(): Promise<void> {
           factory,
           policy: roomPolicy,
           name,
+          assist: currentAssistOffer,
+          relay: peerRelay,
         })
       : new RoomSession({
           transport: new NostrRelayPool(relays),
@@ -1205,6 +1326,8 @@ async function startSession(): Promise<void> {
           factory,
           policy: roomPolicy,
           name,
+          assist: currentAssistOffer,
+          relay: peerRelay,
         })
     session = s
     meParticipant = s.participant

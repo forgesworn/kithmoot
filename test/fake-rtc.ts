@@ -1,4 +1,4 @@
-import type { RTCPeerConnectionLike } from '../src/peer.js'
+import type { PeerContext, RTCPeerConnectionLike } from '../src/peer.js'
 
 export interface RecordedCall {
   method: string
@@ -16,6 +16,10 @@ let sdpCounter = 0
  * browser. Every call is recorded so tests can assert on ordering.
  */
 export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
+  /** What the mesh said this connection was for: which rung of the route
+   *  ladder, and which endpoint. A real factory uses this to decide whether
+   *  to hand ICE the TURN credentials. */
+  context?: PeerContext
   calls: RecordedCall[] = []
   signalingState: RTCSignalingState = 'stable'
   localDescription: RTCSessionDescriptionInit | null = null
@@ -100,13 +104,21 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
 }
 
 /** A `PeerFactory` that hands out fakes and keeps every instance it made, so a test can reach into whichever connection a `Peer` ended up creating. */
-export function createFakeFactory(): (() => FakeRTCPeerConnection) & { instances: FakeRTCPeerConnection[] } {
+export function createFakeFactory(): ((context?: PeerContext) => FakeRTCPeerConnection) & {
+  instances: FakeRTCPeerConnection[]
+  /** The connection most recently opened to `device`, whatever rung it was
+   *  opened on. */
+  to(device: string): FakeRTCPeerConnection | undefined
+} {
   const instances: FakeRTCPeerConnection[] = []
-  const factory = () => {
+  const factory = (context?: PeerContext) => {
     const pc = new FakeRTCPeerConnection()
+    pc.context = context
     instances.push(pc)
     return pc
   }
   factory.instances = instances
+  factory.to = (device: string) =>
+    [...instances].reverse().find((pc) => pc.context?.remoteDevice === device && !pc.closed)
   return factory
 }
