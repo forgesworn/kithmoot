@@ -158,7 +158,7 @@ signalling; the room key encrypts the roster, the chat and the descriptor.
 Nothing else ever needs the participant.
 
 That narrowness is what makes an external signer practical, so
-`ParticipantIdentity` is deliberately that shape and nothing more — a pubkey
+`ParticipantIdentity` is deliberately that shape and nothing more: a pubkey
 and an async `signEvent`. A locally generated key (`localIdentity`) and a
 signer reached over NIP-07, NIP-46 or NIP-55 both satisfy it, and no other
 part of the protocol can tell which it has.
@@ -169,14 +169,14 @@ through `createDeviceCredential`, `RoomSession.issueDeviceCredential` and
 `hostPairing`, all of which became asynchronous rather than blocking. In
 `hostPairing` specifically the mint runs off the subscription handler, so a
 signer that refuses or never answers leaves the request unanswered rather
-than throwing inside a relay callback — the secondary re-sends until it
-times out, which is the recovery a dropped grant already had.
+than throwing inside a relay callback. The secondary re-sends until it times
+out, which is the recovery a dropped grant already had.
 
 **What comes back from a signer is checked against what was asked for.** A
 signer is trusted to hold the key, not to be correct: `createDeviceCredential`
 compares the returned event's signing key, kind, content and tags against the
 template, and verifies the signature, before it will call the result a
-credential. `created_at` is deliberately not compared — some signers stamp
+credential. `created_at` is deliberately not compared: some signers stamp
 their own, it is inside the signature either way, and nothing decides
 anything on it. The `expiration` tag is what bounds a credential, and that is
 compared.
@@ -186,9 +186,9 @@ compared.
 Rendering a participant as `2f74cb07ca1a…` is unusable by people, so a roster
 entry carries a `name`. It is **self-asserted**: anyone can type anything,
 nothing checks it, and there is no way to make it otherwise without inventing
-a registry — which is the thing this project exists not to have.
+a registry, which is the thing this project exists not to have.
 
-Three consequences, and they are all load-bearing:
+Three consequences follow:
 
 **A name never renders alone.** A short pubkey goes beside it everywhere, on
 tiles and in chat. Without that, two people called "Darren" are
@@ -196,8 +196,8 @@ indistinguishable and impersonation is free. With it, impersonation is
 visible, which is the most a system with no registry can offer.
 
 **A name is attacker-controlled text.** `sanitiseDisplayName` strips every
-Unicode "other" character — controls, bidirectional overrides, zero-width
-padding — collapses whitespace and caps the result at 32 code points, on
+Unicode "other" character (controls, bidirectional overrides, zero-width
+padding), collapses whitespace and caps the result at 32 code points, on
 encode *and* on decode. Encode, so this implementation never publishes one;
 decode, because no other implementation is obliged to have bothered.
 
@@ -215,7 +215,7 @@ roster now.
 ## A kind-0 profile is a fact about a key, not a check on a name
 
 Nothing on the wire distinguishes a real Nostr identity from a participant
-key a browser generated a moment ago — the two are the same 32 bytes, and no
+key a browser generated a moment ago. The two are the same 32 bytes, and no
 protocol change could tell them apart without a registry.
 
 What *can* be observed is whether a key has published a kind-0 profile. The
@@ -223,7 +223,7 @@ app looks one up for every participant, and marks a key that has one `nostr`.
 That is a fact about the key, so the label says what it is and no more.
 
 It is deliberately never called "verified". A kind-0 `name` is self-asserted
-in exactly the way a typed name is — it says "the holder of this key calls
-themselves Darren" — and the only difference is that the key is persistent
-and has a history. That is worth something. It is not proof of a person, and
+in exactly the way a typed name is. It says "the holder of this key calls
+themselves Darren", and the only difference is that the key is persistent and
+has a history. That is worth something. It is not proof of a person, and
 the interface does not imply it is.
