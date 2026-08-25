@@ -4,6 +4,7 @@ import { deriveRoom } from './room.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 import { normaliseHex } from './hex.js'
 import type { ParticipantIdentity } from './identity.js'
+import { sanitiseDisplayName } from './display-name.js'
 import { encodeRosterEvent, decodeRosterEvent } from './roster.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
@@ -29,6 +30,17 @@ import type {
 /** One person, however many devices they brought. */
 export interface ParticipantView {
   participant: string
+  /**
+   * What this person calls themselves, sanitised - see
+   * `sanitiseDisplayName`. Undefined when they never typed one, which is a
+   * perfectly ordinary way to be in a room.
+   *
+   * Self-asserted and unverified, whatever it says. Render it beside
+   * `participant`, never instead of it: two people are free to call
+   * themselves the same thing, and one of them may have picked the name on
+   * purpose.
+   */
+  name?: string
   devices: string[]
   tracks: Array<TrackAdvert & { device: string }>
   /** The single device holding the microphone, if any. */
@@ -52,6 +64,15 @@ export interface RoomSessionBaseOptions {
   policy?: RoomPolicy
   /** This participant's kindred proof, checked against `policy` at join. */
   proof?: KindredProof
+  /**
+   * What to call this participant in the room. Sanitised here, so a caller
+   * can pass a field straight off a form without laundering it first, and
+   * sanitised again by every reader - see `sanitiseDisplayName`.
+   *
+   * Omit it and the entry carries no name at all, which is exactly what the
+   * wire looked like before names existed.
+   */
+  name?: string
   /** Upper bound on the random delay before answering a new arrival, in
    *  milliseconds. Jitter is what stops twenty devices answering the
    *  twenty-first in the same instant. Zero makes it deterministic, which
@@ -169,6 +190,8 @@ export class RoomSession {
   /** What this device is currently advertising, so an answer to a new
    *  arrival carries the same state as the announcement did. */
   #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>> }
+  /** This participant's own name, sanitised once at construction. */
+  readonly #name?: string
   /** At most one answer in flight: twenty devices arriving at once must
    *  produce one re-announce from us, not twenty. */
   #replyTimer?: ReturnType<typeof setTimeout>
@@ -187,6 +210,7 @@ export class RoomSession {
     this.#opts = opts
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.device = getPublicKey(opts.deviceSk)
+    this.#name = sanitiseDisplayName(opts.name)
 
     if (opts.identity) {
       // A pubkey handed over by an external signer is a hex string off a
@@ -259,6 +283,7 @@ export class RoomSession {
       roomKey: this.#roomKey,
       credential,
       deviceSk: this.#opts.deviceSk,
+      name: this.#name,
       now: this.#now,
     })
 
@@ -397,6 +422,7 @@ export class RoomSession {
       tracks: self.tracks,
       claims: self.claims,
       updatedAt: this.#now(),
+      ...(this.#name !== undefined ? { name: this.#name } : {}),
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(reply ? { reply: true } : {}),
     }
@@ -534,12 +560,23 @@ export class RoomSession {
     const entries = [...this.#entries.values()]
     const roles = resolveSingularRoles(entries)
     const byParticipant = new Map<string, ParticipantView>()
+    /** When the name currently held for a participant was last restated. */
+    const nameStamp = new Map<string, number>()
 
     for (const entry of entries) {
       let view = byParticipant.get(entry.participant)
       if (!view) {
         view = { participant: entry.participant, devices: [], tracks: [] }
         byParticipant.set(entry.participant, view)
+      }
+      // One name per person, not one per device. A participant's devices
+      // normally agree; when they do not - a name changed on the phone and
+      // not yet on the laptop - the most recently restated entry wins, so
+      // every member of the room settles on the same answer rather than on
+      // whichever entry happened to arrive first.
+      if (entry.name !== undefined && (view.name === undefined || entry.updatedAt >= (nameStamp.get(entry.participant) ?? 0))) {
+        view.name = entry.name
+        nameStamp.set(entry.participant, entry.updatedAt)
       }
       view.devices.push(entry.device)
       for (const track of entry.tracks) view.tracks.push({ ...track, device: entry.device })

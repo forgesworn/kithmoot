@@ -969,3 +969,95 @@ describe('RoomSession and forwarders', () => {
     await expect(session.publishDescriptor({ forwarders: [] })).rejects.toThrow(/join/)
   })
 })
+
+describe('RoomSession display names', () => {
+  function named(relay: SimRelay, name: string | undefined, participantSk = generateSecretKey()) {
+    return new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(participantSk),
+      deviceSk: generateSecretKey(),
+      name,
+      now,
+      announceJitterMs: 0,
+    })
+  }
+
+  it('carries a name to everyone else in the room', async () => {
+    const relay = new SimRelay()
+    const darren = named(relay, 'Darren')
+    const observer = named(relay, 'Observer')
+
+    await darren.join([], {})
+    await observer.join([], {})
+    await settle()
+
+    const view = observer.participants().find((v) => v.participant === darren.participant)
+    expect(view!.name).toBe('Darren')
+  })
+
+  it('leaves a participant with no name unnamed, rather than inventing one', async () => {
+    const relay = new SimRelay()
+    const anonymous = named(relay, undefined)
+    const observer = named(relay, 'Observer')
+
+    await anonymous.join([], {})
+    await observer.join([], {})
+    await settle()
+
+    const view = observer.participants().find((v) => v.participant === anonymous.participant)
+    expect(view!.name).toBeUndefined()
+  })
+
+  it('keeps two participants who typed the same name distinguishable', async () => {
+    const relay = new SimRelay()
+    const one = named(relay, 'Darren')
+    const two = named(relay, 'Darren')
+    const observer = named(relay, 'Observer')
+
+    await one.join([], {})
+    await two.join([], {})
+    await observer.join([], {})
+    await settle()
+
+    const darrens = observer.participants().filter((v) => v.name === 'Darren')
+    expect(darrens).toHaveLength(2)
+    // The name is the same; the identity is not, and that is what a
+    // renderer has to show alongside it.
+    expect(new Set(darrens.map((v) => v.participant)).size).toBe(2)
+    expect(one.participant).not.toBe(two.participant)
+  })
+
+  it('neutralises a name before it ever reaches a caller', async () => {
+    const relay = new SimRelay()
+    // Typed straight into the join field by somebody trying it on.
+    const hostile = named(relay, '‮nerrad\n(you)')
+    const observer = named(relay, 'Observer')
+
+    await hostile.join([], {})
+    await observer.join([], {})
+    await settle()
+
+    const view = observer.participants().find((v) => v.participant === hostile.participant)
+    expect(view!.name).toBe('nerrad (you)')
+    expect(view!.name).not.toMatch(/\p{C}/u)
+  })
+
+  it('shows one name for a person on two devices, not two', async () => {
+    const relay = new SimRelay()
+    const participantSk = generateSecretKey()
+    const phone = named(relay, 'Darren', participantSk)
+    const laptop = named(relay, 'Darren', participantSk)
+    const observer = named(relay, 'Observer')
+
+    await phone.join([], {})
+    await laptop.join([], {})
+    await observer.join([], {})
+    await settle()
+
+    const views = observer.participants().filter((v) => v.participant === getPublicKey(participantSk))
+    expect(views).toHaveLength(1)
+    expect(views[0].name).toBe('Darren')
+    expect(views[0].devices).toHaveLength(2)
+  })
+})

@@ -6,6 +6,7 @@ import { createDeviceCredential } from './credential.js'
 import { encodeRosterEvent, decodeRosterEvent, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import type { RosterEntry } from './types.js'
 import { localIdentity } from './identity.js'
+import { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from './display-name.js'
 
 const NOW = 1_800_000_000
 
@@ -167,5 +168,69 @@ describe('roster events', () => {
     expect(decoded).not.toBeNull()
     expect(decoded?.claims.mic).toBeUndefined()
     expect(decoded?.claims.monitor).toBe(NOW)
+  })
+})
+
+describe('roster display names', () => {
+  it('carries a name through the encrypted round trip', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const named = { ...entry, name: 'Darren' }
+    const event = encodeRosterEvent(named, { roomId, roomKey, deviceSk })
+    expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })!.name).toBe('Darren')
+  })
+
+  it('keeps the name inside the ciphertext, where the participant pubkey already is', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const event = encodeRosterEvent({ ...entry, name: 'Darren' }, { roomId, roomKey, deviceSk })
+    // A relay learning who is in a room by name would be worse than a relay
+    // learning their pubkey, not better.
+    expect(JSON.stringify(event)).not.toContain('Darren')
+  })
+
+  it('has no name at all when none was set, so the wire is unchanged for anyone who never types one', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const withUndefined = encodeRosterEvent({ ...entry, name: undefined }, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(withUndefined, { roomId, roomKey, now: NOW })
+    expect(decoded).not.toHaveProperty('name')
+  })
+
+  it('neutralises a hostile name on the way in, whatever the sender did on the way out', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    // Published by a client that never sanitised anything: an RTL override,
+    // a smuggled newline, a zero-width space, and far too many characters.
+    const hostile = `‮nerrad\nadmin​${'x'.repeat(200)}`
+    const event = encodeRosterEvent(
+      { ...entry, name: hostile } as RosterEntry,
+      { roomId, roomKey, deviceSk },
+    )
+    // Sanitised twice over: encode will not put it on the wire, and decode
+    // will not accept it if some other implementation did.
+    const raw = JSON.parse(nip44.v2.decrypt(event.content, roomKey)) as RosterEntry
+    expect(raw.name).toBe(sanitiseDisplayName(hostile))
+
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })!
+    // The override is gone, the newline became a space, the zero-width
+    // space closed up, and what is left is capped.
+    expect(decoded.name).toBe(`nerrad admin${'x'.repeat(MAX_DISPLAY_NAME_LENGTH - 'nerrad admin'.length)}`)
+    expect(decoded.name).not.toMatch(/\p{C}/u)
+    expect([...decoded.name!].length).toBeLessThanOrEqual(MAX_DISPLAY_NAME_LENGTH)
+  })
+
+  it('drops a name that is not a string, rather than rendering whatever it is', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const event = encodeRosterEvent(
+      { ...entry, name: { toString: () => 'Darren' } } as unknown as RosterEntry,
+      { roomId, roomKey, deviceSk },
+    )
+    expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })).not.toHaveProperty('name')
+  })
+
+  it('never lets a name stand in for the pubkey it is decoded alongside', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const event = encodeRosterEvent({ ...entry, name: 'Darren' }, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })!
+    // The credential still decides who this is. A name is a label on it.
+    expect(decoded.participant).toBe(entry.participant)
+    expect(decoded.device).toBe(entry.device)
   })
 })

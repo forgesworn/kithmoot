@@ -303,3 +303,59 @@ describe('ChatLog', () => {
     expect(seen).toEqual([1])
   })
 })
+
+describe('chat display names', () => {
+  it('carries the sender’s name with the message, so history reads after they leave', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const named = { ...msg, name: 'Darren' }
+    const event = encodeChatEvent(named, { roomId, roomKey, deviceSk })
+    // The roster is ephemeral and chat is durable: a message read out of
+    // history was sent by somebody who may be in nobody's roster now, so
+    // the name has to travel with the message rather than be looked up.
+    expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })!.name).toBe('Darren')
+  })
+
+  it('leaves no name on the wire', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent({ ...msg, name: 'Darren' }, { roomId, roomKey, deviceSk })
+    expect(JSON.stringify(event)).not.toContain('Darren')
+  })
+
+  it('neutralises a hostile name on a message', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent(
+      { ...msg, name: '‮nerrad\nyou' } as ChatMessage,
+      { roomId, roomKey, deviceSk },
+    )
+    const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })!
+    expect(decoded.name).toBe('nerrad you')
+    expect(decoded.name).not.toMatch(/\p{C}/u)
+  })
+
+  it('drops a name that is not a string', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent({ ...msg, name: 7 } as unknown as ChatMessage, { roomId, roomKey, deviceSk })
+    expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).not.toHaveProperty('name')
+  })
+
+  it('sends under the name the log was given, and never lets it stand for the credential', async () => {
+    const { roomId, roomKey, deviceSk, identity, credential } = await fixture()
+    const relay = new SimRelay()
+    const log = new ChatLog({
+      transport: new SimTransport(relay),
+      roomId,
+      roomKey,
+      credential,
+      deviceSk,
+      name: '  Darren  ',
+      now: () => NOW,
+    })
+    await log.send('hello room')
+
+    const sent = log.messages()[0]
+    expect(sent.name).toBe('Darren')
+    // The credential is still what says who sent this.
+    expect(sent.participant).toBe(identity.pubkey)
+    log.close()
+  })
+})

@@ -4,6 +4,7 @@ import { KINDS } from './kinds.js'
 import { verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
 import { hexEquals, normaliseHex } from './hex.js'
+import { sanitiseDisplayName } from './display-name.js'
 import type { RosterEntry } from './types.js'
 
 export interface EncodeRosterOptions {
@@ -21,7 +22,13 @@ export interface EncodeRosterOptions {
  * inside the ciphertext; only the room id is on the wire.
  */
 export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions): Event {
-  const plaintext = JSON.stringify(entry)
+  // The name is sanitised on the way out as well as on the way in. Out, so
+  // this implementation never publishes something another client has to
+  // defuse; in (see `decodeRosterEvent`), because no other implementation
+  // is obliged to have done so. `name: undefined` is dropped by
+  // JSON.stringify, so an entry that never carried one produces exactly the
+  // bytes it did before names existed.
+  const plaintext = JSON.stringify({ ...entry, name: sanitiseDisplayName(entry.name) })
   const content = nip44.v2.encrypt(plaintext, opts.roomKey)
   return finalizeEvent(
     {
@@ -80,6 +87,15 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     // needing its own case-insensitive check. See `hex.ts`'s `normaliseHex`.
     entry.device = normaliseHex(entry.device)
     entry.participant = normaliseHex(entry.participant)
+
+    // The other boundary, and the one that matters: this name was typed by
+    // somebody else, on a client that owes us nothing. A name that survives
+    // this cannot take a second row, hide part of itself, reverse the
+    // direction the line renders in, or run long enough to push a pubkey
+    // off the end of it. See `display-name.ts`.
+    const name = sanitiseDisplayName(entry.name)
+    if (name === undefined) delete entry.name
+    else entry.name = name
     if (entry.proof) {
       entry.proof = {
         ...entry.proof,

@@ -3,6 +3,7 @@ export { generateRoomSecret, deriveRoom, encodeJoinUrl, decodeJoinUrl } from './
 export { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 export type { CreateCredentialOptions, VerifyResult } from './credential.js'
 export { localIdentity } from './identity.js'
+export { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from './display-name.js'
 export type { ParticipantIdentity, UnsignedEvent } from './identity.js'
 export { encodeRosterEvent, decodeRosterEvent } from './roster.js'
 export { resolveSingularRoles } from './roles.js'

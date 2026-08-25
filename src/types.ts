@@ -54,6 +54,19 @@ export type KindredProof = {
 export interface RosterEntry {
   /** The person. */
   participant: string
+  /**
+   * What this person would like to be called.
+   *
+   * Self-asserted, always: anybody can type anything, and nothing here or
+   * anywhere else checks it. It is a label on a pubkey, never a substitute
+   * for one - `sanitiseDisplayName` bounds what it can look like, and every
+   * renderer is required to show a short pubkey beside it so two people
+   * called "Darren" stay apart and an impersonation is visible.
+   *
+   * Absent when nobody typed one, which keeps the wire byte-identical for
+   * anyone who does not use this at all.
+   */
+  name?: string
   /** This endpoint. */
   device: string
   /** Proof that `device` speaks for `participant` in this room. */

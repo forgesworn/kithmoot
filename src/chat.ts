@@ -5,6 +5,7 @@ import { KINDS } from './kinds.js'
 import { verifyEventUncached } from './verify.js'
 import { verifyDeviceCredential } from './credential.js'
 import { hexEquals, normaliseHex } from './hex.js'
+import { sanitiseDisplayName } from './display-name.js'
 import type { RelayTransport } from './relay-pool.js'
 import type { DeviceCredential } from './types.js'
 
@@ -17,6 +18,16 @@ export interface ChatMessage {
    *  durable: a late joiner reads history from senders who have long since
    *  left the room and are in nobody's roster any more. */
   credential: DeviceCredential
+  /**
+   * What the sender calls themselves, sanitised - see `RosterEntry.name`
+   * for what that is and is not worth.
+   *
+   * Carried on the message rather than read off the roster for the same
+   * reason the credential is: chat is durable and the roster is ephemeral,
+   * so a message read out of history was sent by somebody who may be in
+   * nobody's roster now.
+   */
+  name?: string
   text: string
   sentAt: number
 }
@@ -36,7 +47,11 @@ export interface EncodeChatOptions {
  * a DURABLE kind (see `KINDS.CHAT`).
  */
 export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Event {
-  const plaintext = JSON.stringify(msg)
+  // Sanitised on the way out as well as on the way in - see
+  // `encodeRosterEvent` for why both. `name: undefined` is dropped by
+  // JSON.stringify, so a message with no name is byte-identical to one
+  // encoded before names existed.
+  const plaintext = JSON.stringify({ ...msg, name: sanitiseDisplayName(msg.name) })
   const content = nip44.v2.encrypt(plaintext, opts.roomKey)
   return finalizeEvent(
     {
@@ -104,6 +119,11 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     msg.device = normaliseHex(msg.device)
     msg.participant = normaliseHex(msg.participant)
 
+    // Attacker-controlled text off a relay, exactly as in the roster.
+    const name = sanitiseDisplayName(msg.name)
+    if (name === undefined) delete msg.name
+    else msg.name = name
+
     // The device that signed this event must be the device the message
     // claims to be from - the same attribution guard the roster uses.
     if (!hexEquals(msg.device, event.pubkey)) return null
@@ -135,6 +155,9 @@ export interface ChatLogOptions {
    *  passed alongside, so the two can never disagree. */
   credential: DeviceCredential
   deviceSk: Uint8Array
+  /** What to call this sender on every message. Sanitised here, so a
+   *  caller can pass a form field straight in. */
+  name?: string
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
 }
@@ -161,11 +184,13 @@ export class ChatLog {
   }
 
   async send(text: string): Promise<void> {
+    const name = sanitiseDisplayName(this.#opts.name)
     const msg: ChatMessage = {
       id: hex(randomBytes(16)),
       participant: this.#opts.credential.pubkey,
       device: getPublicKey(this.#opts.deviceSk),
       credential: this.#opts.credential,
+      ...(name !== undefined ? { name } : {}),
       text,
       sentAt: this.#now(),
     }
