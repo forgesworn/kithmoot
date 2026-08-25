@@ -1,4 +1,5 @@
 export { KINDS } from './kinds.js'
+export { verifyEventUncached } from './verify.js'
 export { generateRoomSecret, deriveRoom, encodeJoinUrl, decodeJoinUrl } from './room.js'
 export { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 export type { CreateCredentialOptions, VerifyResult } from './credential.js'

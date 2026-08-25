@@ -248,3 +248,93 @@ video {
   gap: 0.5rem;
   margin-top: 0.5rem;
 }
+
+/* Identity
+ *
+ * A name is a claim and a pubkey is not, so they never look the same: the
+ * name reads as text, the key reads as a key, and the key is always there.
+ * The `nostr` chip marks a key with a published profile - a fact about the
+ * key, not a check on the name - so it is quiet rather than a badge of
+ * approval. */
+#identity {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: var(--panel);
+}
+
+#identity label {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+#identity input {
+  font-family: system-ui, sans-serif;
+}
+
+#identity summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+.note {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0.4rem 0;
+}
+
+.note.inline {
+  display: block;
+  width: 100%;
+}
+
+.whoami {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.name {
+  font-family: system-ui, sans-serif;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pubkey {
+  font-family: monospace;
+  font-size: 0.8em;
+  color: var(--muted);
+}
+
+.idkind {
+  padding: 0.05rem 0.35rem;
+  font-size: 0.65rem;
+  font-family: system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+}
+
+.avatar {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--border);
+}
+
+#chatLog .who {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}

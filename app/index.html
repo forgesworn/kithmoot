@@ -19,6 +19,33 @@
     </header>
 
     <main>
+      <section id="identity">
+        <label for="displayName">What should people call you?</label>
+        <input
+          id="displayName"
+          placeholder="A name"
+          maxlength="64"
+          autocomplete="nickname"
+          enterkeyhint="done"
+        />
+        <p class="note">
+          Type anything. Nobody checks it, so it always shows next to a short
+          version of your key - that is the part that tells two people apart.
+        </p>
+        <details id="nostrOption">
+          <summary>Use your Nostr identity instead</summary>
+          <p class="note">
+            Signs you in with a key you already have, held in an extension,
+            a bunker or your phone. Your name and picture come from your
+            profile, and your key stays where it is - this page never holds
+            it.
+          </p>
+          <button id="signIn" type="button">Sign in with Nostr</button>
+          <button id="signOut" type="button" hidden>Sign out</button>
+        </details>
+        <p id="whoami" class="whoami"></p>
+      </section>
+
       <section id="setup">
         <button id="create">Start a room</button>
         <p>or paste a join link:</p>

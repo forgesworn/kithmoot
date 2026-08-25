@@ -11,6 +11,8 @@ import {
   hostPairing,
   requestPairing,
   localIdentity,
+  sanitiseDisplayName,
+  type ParticipantIdentity,
   type DeviceCredential,
   type RoomPolicy,
   type ParticipantView,
@@ -18,7 +20,10 @@ import {
   type ChatMessage,
 } from '../../src/index.js'
 import type { PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
+import { ProfileBook, type Profile } from './profiles.js'
+import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { npubEncode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 
@@ -99,11 +104,30 @@ function setStatus(message: string): void {
 // Both are stored hex-encoded via @noble/hashes - never through
 // atob/btoa/String.fromCharCode, a known source of silent binary corruption
 // in browsers.
+//
+// TWO WAYS TO BE A PARTICIPANT, and they differ in where the key lives.
+//
+// A NAME ONLY (the default): the participant key is generated here and kept
+// in localStorage, as above. Zero friction - type a name and go - and the
+// name is self-asserted, so it is always rendered beside a short pubkey.
+//
+// SIGN IN WITH NOSTR: the participant key is a real Nostr identity held in
+// an external signer - a browser extension, a bunker over NIP-46, Amber on
+// Android - reached through signet-login. This is a security improvement,
+// not only a feature: on this path there is NO participant secret in
+// localStorage at all, so a stolen browser profile yields nothing that can
+// sign for the person.
+//
+// Both satisfy `ParticipantIdentity` (src/identity.ts): a pubkey and an
+// async signEvent. Nothing else in the app has to know which one it has,
+// because the participant key signs exactly one thing - the device
+// credential - and does it once per room.
 // ---------------------------------------------------------------------------
 
 const PARTICIPANT_STORAGE_KEY = 'kithmoot.participant'
 const DEVICE_STORAGE_KEY = 'kithmoot.device'
 const CREDENTIAL_STORAGE_KEY = 'kithmoot.credential'
+const NAME_STORAGE_KEY = 'kithmoot.name'
 
 function loadParticipantKey(): Uint8Array | undefined {
   const stored = localStorage.getItem(PARTICIPANT_STORAGE_KEY)
@@ -148,6 +172,87 @@ function participantKey(): Uint8Array {
   const sk = generateSecretKey()
   localStorage.setItem(PARTICIPANT_STORAGE_KEY, bytesToHex(sk))
   return sk
+}
+
+/** The signed-in Nostr session, when there is one. Held only in memory -
+ *  signet-login persists whatever it needs to reconnect (a bunker URI, a
+ *  client key), and deliberately never an nsec. */
+let nostrSession: SignetSession | undefined
+
+/** What this participant types for themselves. Sanitised on the way in and
+ *  again by every reader - see src/display-name.ts. */
+let typedName = sanitiseDisplayName(localStorage.getItem(NAME_STORAGE_KEY)) ?? ''
+
+function storeName(name: string): void {
+  typedName = sanitiseDisplayName(name) ?? ''
+  if (typedName) localStorage.setItem(NAME_STORAGE_KEY, typedName)
+  else localStorage.removeItem(NAME_STORAGE_KEY)
+}
+
+/**
+ * The name this device joins under.
+ *
+ * A signed-in participant's kind-0 profile name wins when they have one,
+ * because it is the name their whole Nostr identity already goes by; the
+ * typed name is the fallback, including for somebody signed in with no
+ * profile published. Both are self-asserted either way - see
+ * `app/src/profiles.ts`.
+ */
+function joiningName(): string | undefined {
+  if (nostrSession) {
+    const profile = profiles.get(nostrSession.pubkey)
+    if (profile?.name) return profile.name
+  }
+  return typedName || undefined
+}
+
+/**
+ * Who this device signs for.
+ *
+ * The external signer when signed in, otherwise the key in localStorage.
+ * Throws on a paired secondary device, which has neither and does not need
+ * one - it joins on the credential it was issued.
+ */
+function currentIdentity(): ParticipantIdentity {
+  if (nostrSession) return nostrSession.signer
+  return localIdentity(participantKey())
+}
+
+/** The pubkey this device would join as, without minting a key to find out -
+ *  so the identity line can be shown before anything is committed to. */
+function currentParticipant(): string | undefined {
+  if (nostrSession) return nostrSession.pubkey
+  const existing = loadParticipantKey()
+  if (existing) return getPublicKey(existing)
+  return undefined
+}
+
+async function signInWithNostr(): Promise<void> {
+  const session = await login({ appName: 'KithMoot', relayUrls: RELAYS })
+  if (!session) return // cancelled or timed out - leave the page as it was
+
+  // An auth-only session proves who somebody is and then cannot sign
+  // anything else. That is fine for a site that just wants a login; it is
+  // useless here, because the one thing this app needs a participant key
+  // for is signing a device credential per room.
+  if (!session.signer.capabilities.canSignEvents) {
+    await logout(session)
+    throw new Error(
+      'That sign-in can prove who you are but cannot sign anything afterwards, ' +
+        'and a room needs one signature per join. Try an extension or a bunker.',
+    )
+  }
+
+  nostrSession = session
+  profiles.want([session.pubkey])
+  renderIdentity()
+}
+
+async function signOutOfNostr(): Promise<void> {
+  const session = nostrSession
+  nostrSession = undefined
+  renderIdentity()
+  if (session) await logout(session)
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +364,138 @@ let iceUrls: string[] = DEFAULT_ICE_URLS
 let session: RoomSession | undefined
 let meParticipant = ''
 let myDeviceId = ''
+
+// ---------------------------------------------------------------------------
+// How a person is shown
+//
+// Three rules, and they are the whole of it:
+//
+//   1. A name NEVER stands alone. A short pubkey renders beside it, always,
+//      so two people who both typed "Darren" are visibly two people and an
+//      impersonation is visible rather than convincing.
+//   2. A name is text, never markup. Everything below goes in through
+//      `textContent`; nothing here ever touches innerHTML except to empty a
+//      container. See src/display-name.ts.
+//   3. A published Nostr identity is marked as such, and a typed name is
+//      not marked as anything. The anonymous path is the default and the
+//      normal way to use this - it is not a lesser one.
+// ---------------------------------------------------------------------------
+
+const profiles = new ProfileBook({
+  relays: () => relays,
+  onChange: () => {
+    renderIdentity()
+    if (session) {
+      render(session.participants(), meParticipant)
+      renderChat(session.chat.messages())
+    }
+  },
+})
+
+/** Twelve hex characters is enough to read aloud and to tell two keys apart
+ *  at a glance, and short enough to sit on a tile beside a name. */
+function shortKey(pubkey: string): string {
+  return `${pubkey.slice(0, 12)}\u2026`
+}
+
+/** The full npub, for a title attribute - somewhere the whole key is
+ *  available without it taking a row of its own. */
+function npubOf(pubkey: string): string {
+  try {
+    return npubEncode(pubkey)
+  } catch {
+    return pubkey
+  }
+}
+
+interface Shown {
+  /** What to call them, or undefined when nobody typed anything. */
+  name?: string
+  /** Always present. */
+  short: string
+  npub: string
+  picture?: string
+  /** True when this key has a kind-0 profile on a relay - which makes it a
+   *  published Nostr identity, NOT a verified name. See profiles.ts. */
+  nostr: boolean
+}
+
+/** Resolve everything a tile or a chat line needs to show one person. */
+function shownAs(pubkey: string, asserted?: string): Shown {
+  const profile: Profile | undefined = profiles.get(pubkey)
+  return {
+    name: profile?.name ?? asserted,
+    short: shortKey(pubkey),
+    npub: npubOf(pubkey),
+    picture: profile?.picture,
+    nostr: profile !== undefined,
+  }
+}
+
+/** Build the name-and-key run that identifies one person. Deliberately the
+ *  only place that decides what a person looks like, so a tile and a chat
+ *  line can never drift apart on it. */
+function identityRun(shown: Shown, isSelf: boolean): DocumentFragment {
+  const run = document.createDocumentFragment()
+
+  if (shown.name !== undefined) {
+    const name = document.createElement('span')
+    name.className = 'name'
+    // textContent, never innerHTML: this is somebody else's text.
+    name.textContent = shown.name
+    run.append(name)
+  }
+
+  const key = document.createElement('span')
+  key.className = 'pubkey'
+  key.textContent = shown.short
+  key.title = shown.npub
+  run.append(key)
+
+  if (shown.nostr) {
+    const chip = document.createElement('span')
+    chip.className = 'idkind'
+    chip.textContent = 'nostr'
+    chip.title = 'This key has a Nostr profile. The name comes from it - which is still a name they chose, not a checked one.'
+    run.append(chip)
+  }
+
+  if (isSelf) run.append(' (you)')
+  return run
+}
+
+/**
+ * The identity line above the room: who this device would join as, shown
+ * before anything is committed to.
+ */
+function renderIdentity(): void {
+  const input = $('displayName') as HTMLInputElement
+  if (document.activeElement !== input) input.value = typedName
+
+  ;($('signIn') as HTMLButtonElement).hidden = nostrSession !== undefined
+  ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
+
+  const line = $('whoami')
+  line.textContent = ''
+
+  const participant = currentParticipant()
+  if (!participant) {
+    line.textContent = loadCredential()
+      ? 'This device is paired to another of yours. It joins as that person.'
+      : 'You will get a key of your own the first time you join.'
+    return
+  }
+
+  line.append('Joining as ')
+  line.append(identityRun(shownAs(participant, joiningName()), false))
+
+  const how = document.createElement('span')
+  how.className = 'note inline'
+  how.textContent = nostrSession
+    ? 'Signed in with Nostr. Your key stays in your signer; this page never holds it.'
+    : 'A name only. Anyone can type any name, so the key beside it is what identifies you.'
+  line.append(how)
+}
 
 let micTrack: MediaStreamTrack | undefined
 let cameraTrack: MediaStreamTrack | undefined
@@ -566,6 +803,11 @@ function render(views: ParticipantView[], me: string): void {
   const root = $('room')
   root.innerHTML = ''
 
+  // Ask about every key in the room, so anyone with a published Nostr
+  // profile is shown as having one. Cheap to repeat - the book only looks
+  // up a key it has not seen.
+  profiles.want(views.map((v) => v.participant))
+
   for (const view of views) {
     const box = document.createElement('div')
     box.className = 'participant'
@@ -573,9 +815,21 @@ function render(views: ParticipantView[], me: string): void {
     // else in the styling is decoration.
     if (view.devices.length > 1) box.classList.add('linked')
 
+    const shown = shownAs(view.participant, view.name)
+
     const heading = document.createElement('h3')
-    const short = `${view.participant.slice(0, 12)}…`
-    heading.append(view.participant === me ? `${short} (you)` : short)
+    if (shown.picture) {
+      const avatar = document.createElement('img')
+      avatar.className = 'avatar'
+      avatar.src = shown.picture
+      avatar.alt = ''
+      avatar.loading = 'lazy'
+      // A picture that will not load must not leave a broken icon sitting
+      // where a person's face was supposed to be.
+      avatar.addEventListener('error', () => avatar.remove())
+      heading.append(avatar)
+    }
+    heading.append(identityRun(shown, view.participant === me))
     heading.append(` · ${view.devices.length} device${view.devices.length === 1 ? '' : 's'}`)
     if (view.devices.length > 1) {
       const badge = document.createElement('span')
@@ -634,11 +888,17 @@ function trackChips(
 function renderChat(messages: ChatMessage[]): void {
   const log = $('chatLog')
   log.innerHTML = ''
+  profiles.want(messages.map((m) => m.participant))
+
   for (const m of messages) {
     const p = document.createElement('p')
     const who = document.createElement('span')
     who.className = 'who'
-    who.textContent = m.participant === meParticipant ? 'you' : `${m.participant.slice(0, 8)}…`
+    // The same name-and-key run the tiles use. A line of chat is exactly
+    // where a name alone would be most convincing and least checkable, so
+    // the short pubkey is here too - and the name on the message is the
+    // sender's own claim, carried with it (see ChatMessage.name).
+    who.append(identityRun(shownAs(m.participant, m.name), m.participant === meParticipant))
     p.append(who, m.text)
     log.append(p)
   }
@@ -703,6 +963,7 @@ async function startSession(): Promise<void> {
 
     // A paired device joins on its credential alone. Only a device that
     // actually holds the participant key passes one.
+    const name = joiningName()
     const s = credential
       ? new RoomSession({
           transport: new NostrRelayPool(relays),
@@ -711,14 +972,18 @@ async function startSession(): Promise<void> {
           deviceSk,
           factory,
           policy: roomPolicy,
+          name,
         })
       : new RoomSession({
           transport: new NostrRelayPool(relays),
           secret: roomSecret,
-          identity: localIdentity(participantKey()),
+          // A local key or an external signer - the session cannot tell,
+          // and does not need to. See src/identity.ts.
+          identity: currentIdentity(),
           deviceSk,
           factory,
           policy: roomPolicy,
+          name,
         })
     session = s
     meParticipant = s.participant
@@ -739,6 +1004,7 @@ async function startSession(): Promise<void> {
     renderChat(s.chat.messages())
 
     joinBtn.hidden = true
+    $('identity').hidden = true
     $('roomArea').hidden = false
     render(s.participants(), meParticipant)
   } catch (err) {
@@ -758,6 +1024,22 @@ async function startSession(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
+
+$('displayName').addEventListener('input', (event) => {
+  // Stored as typed, sanitised on the way in. The identity line below the
+  // field re-renders as you go, so what other people will see is on screen
+  // before you commit to anything.
+  storeName((event.target as HTMLInputElement).value)
+  renderIdentity()
+})
+
+$('signIn').addEventListener('click', () => {
+  signInWithNostr().catch((err) => setStatus(describeError(err)))
+})
+
+$('signOut').addEventListener('click', () => {
+  signOutOfNostr().catch((err) => setStatus(describeError(err)))
+})
 
 $('create').addEventListener('click', () => {
   startNewRoom()
@@ -792,7 +1074,7 @@ let pairingTransport: NostrRelayPool | undefined
 
 $('addDevice').addEventListener('click', () => {
   try {
-    const participantSk = participantKey()
+    const identity = currentIdentity()
     pairingHost?.close()
     pairingTransport?.close()
 
@@ -804,7 +1086,7 @@ $('addDevice').addEventListener('click', () => {
       roomId,
       roomKey,
       code,
-      identity: localIdentity(participantSk),
+      identity,
       deviceSk: deviceKey(),
       approve: (device) =>
         confirm(`Add the device ${device.slice(0, 12)}… to this room as you, for the next 12 hours?`),
@@ -863,3 +1145,29 @@ $('chatForm').addEventListener('submit', (event) => {
 })
 
 if (roomFromLocation()) showRoomUi()
+
+// Rewrite what is in storage with what a reader would actually see, so a
+// name that arrived there by some other route does not sit in raw form.
+storeName(typedName)
+renderIdentity()
+
+// A signer paired on an earlier visit reconnects itself. Deliberately not
+// awaited before the page is usable: a bunker over a relay can take seconds,
+// and a name-only join must never wait on it. renderIdentity() runs again
+// when it lands.
+restoreSession()
+  .then((session) => {
+    if (!session?.signer.capabilities.canSignEvents) return
+    nostrSession = session
+    profiles.want([session.pubkey])
+    renderIdentity()
+  })
+  .catch(() => {
+    // No stored session, or a signer that is not answering today. Either
+    // way this page still works: type a name and join.
+  })
+
+// The pubkey we would join as, so the identity line is right before the
+// first room is ever opened.
+const known = currentParticipant()
+if (known) profiles.want([known])
