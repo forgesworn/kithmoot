@@ -75,3 +75,39 @@ export interface RosterEntry {
    *  ever. Absent on a first announcement. */
   reply?: boolean
 }
+
+/**
+ * A forwarder the room may promote to when the mesh outgrows the uplink.
+ *
+ * `url` is the signalling endpoint - a `ws:`/`wss:` address the client
+ * connects to. `pubkey` is the forwarder's own Nostr key, when it has one,
+ * so a client can name a preference that survives the operator moving the
+ * host. `label` is for people, never for logic.
+ *
+ * Note what is NOT here, and cannot be: the room key. A forwarder is given
+ * the room *id* and nothing else, so it routes ciphertext it can neither
+ * read nor forge attribution for. `decodeDescriptorEvent` projects every
+ * entry onto exactly these three fields for that reason - see
+ * `descriptor.ts`.
+ */
+export interface ForwarderRef {
+  url: string
+  pubkey?: string
+  label?: string
+}
+
+/**
+ * An ICE server offered to every member of the room.
+ *
+ * Shaped to drop straight into an `RTCPeerConnection`'s `iceServers`.
+ * `username`/`credential` are optional and normally absent: TURN credentials
+ * are minted per viewer with a TTL (see `turn.ts`), and a single shared pair
+ * sitting in a descriptor is exactly the static secret that minting exists to
+ * avoid. They are here only for a self-hosted TURN with a static password,
+ * and that is a downgrade, stated plainly.
+ */
+export interface IceServerRef {
+  urls: string[]
+  username?: string
+  credential?: string
+}
