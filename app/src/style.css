@@ -470,3 +470,36 @@ video {
   border-left: 2px solid var(--accent-dim);
   padding-left: 0.6rem;
 }
+
+/* Peer assist. Bordered like the link boxes, because it is the same kind of
+   thing: a panel about what this device is doing for other people, rather
+   than a control for this device's own call. The border goes green while it
+   is actually carrying somebody - the one state where somebody's bandwidth
+   is being spent on their behalf, which they should be able to see from
+   across the desk without reading a word of it. */
+#assist {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+#assist:has(#assistIndicator.mine) {
+  border-color: var(--ok);
+}
+
+#assistIndicator.mine {
+  color: var(--ok);
+}
+
+#assist summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.9rem;
+  margin-top: 0.4rem;
+}
+
+#toggleAssist:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

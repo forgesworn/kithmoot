@@ -14,8 +14,11 @@ export default defineConfig({
   // and measures the pixels that come back out. relay-capability.spec.ts
   // needs no network either - four peer connections inside one page - and
   // answers the one question feature detection cannot: whether this browser
-  // will actually carry somebody else's encoded frames.
-  testMatch: ['e2e.spec.ts', 'effects.spec.ts', 'relay-capability.spec.ts'],
+  // will actually carry somebody else's encoded frames. peer-assist.spec.ts
+  // is the same kind of animal one level up: it measures which path carried a
+  // pair, what happens when the volunteer shuts its laptop, and what carrying
+  // two pairs costs the person doing it.
+  testMatch: ['e2e.spec.ts', 'effects.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts'],
   // Public relays take a few seconds to round-trip a roster event, and the
   // join-last case waits on three of those in sequence: A's entry, B's, and
   // then A and B answering C's arrival. The stage-1 live test used similar

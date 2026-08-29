@@ -22,8 +22,15 @@ import {
 import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
 import { ReachabilityProbe } from '../../src/reachability.js'
 import { PeerRelay, detectRelayCapability } from '../../src/peer-relay.js'
-import { buildAssistOffer } from '../../src/peer-assist.js'
-import type { AssistEnvironment } from '../../src/peer-assist.js'
+import {
+  ASSIST_STREAMS_PER_PAIR,
+  MAX_ASSISTED_PAIRS,
+  assistDecision,
+  buildAssistOffer,
+} from '../../src/peer-assist.js'
+import type { AssistBlock, AssistEnvironment } from '../../src/peer-assist.js'
+import { UplinkProbe } from '../../src/uplink.js'
+import type { StatLike } from '../../src/uplink.js'
 import type { AssistOffer } from '../../src/types.js'
 import {
   BLUR_ON_BY_DEFAULT,
@@ -706,12 +713,10 @@ function parseIceInput(): string[] {
 // ---------------------------------------------------------------------------
 // Peer assist: the room's spare uplink comes from the people in it.
 //
-// Everything below is plumbing and defaults. The control surface - a toggle,
-// a live indicator, honest copy about what it costs - is deliberately not
-// here yet, and until it is this stays OFF: `assistEnabled` starts false and
-// nothing in this file sets it to true. That is not an oversight to be tidied
-// away later. Relaying spends somebody's bandwidth and battery, and the only
-// thing that may turn it on is a person deciding to.
+// Opt in, never on by default, and never quietly. Relaying spends this
+// person's bandwidth and battery on somebody else's call, so the only thing
+// that turns it on is them deciding to, and the only defaults here are about
+// whether to put the question in front of them at all.
 // ---------------------------------------------------------------------------
 
 /** The person's own choice. Opt in, always - see `assistDecision`. */
@@ -723,6 +728,21 @@ const peerRelay = new PeerRelay()
 /** Reachability, measured from the candidates this device actually gathers,
  *  never guessed from a user agent. Fed by every connection the mesh opens. */
 const reachability = new ReachabilityProbe()
+
+/** What this device has spare, measured from its own connections - see
+ *  `UplinkProbe`. Nothing else in this file invents a bandwidth figure, and
+ *  before this has two samples of something the honest answer is "we have not
+ *  measured", which `assistDecision` reads as a refusal. */
+const uplink = new UplinkProbe()
+
+/** Every connection currently open, so the probe above has something to
+ *  sample. Keyed by rung and remote device, because the mesh opens a fresh
+ *  connection per rung and the old one lingers until it is closed. */
+const openConnections = new Map<string, RTCPeerConnection>()
+
+/** Makes each connection's key its own, so a connection closing can only ever
+ *  forget its own measurement. */
+let connectionSeq = 0
 
 /** Whether this browser can forward encoded frames without decoding them.
  *  Measured against the objects, not the user agent - see
@@ -765,6 +785,7 @@ void (async () => {
     const battery = await getBattery.call(navigator)
     const read = (): void => {
       onBattery = !battery.charging
+      renderAssist()
     }
     read()
     battery.addEventListener('chargingchange', read)
@@ -773,15 +794,11 @@ void (async () => {
   }
 })()
 
-/** A rough, honest estimate of what this device is spending on its own call.
- *  Nothing here is measured yet, so the uplink figure is deliberately absent
- *  rather than invented: with no measurement `buildAssistOffer` declines, and
- *  declining is the right answer to "we do not know". */
 function assistEnvironment(): AssistEnvironment {
   return {
     reachability: reachability.reachability,
     canRelay: relayCapability.canForwardFrames,
-    capacity: { uplinkBps: 0, peers: 0, perPeerBps: 0 },
+    capacity: uplink.capacity(),
     formFactor: formFactor(),
     onBattery,
     metered: metered(),
@@ -790,6 +807,235 @@ function assistEnvironment(): AssistEnvironment {
 
 function currentAssistOffer(): AssistOffer | null {
   return buildAssistOffer(assistEnvironment(), peerRelay.relaying, assistEnabled)
+}
+
+/**
+ * Whether to put the question in front of this person at all.
+ *
+ * A phone on mobile data is the one case where the control is not shown, only
+ * explained. `assistDecision` would still permit it - it is their allowance to
+ * spend, and the library does not get to refuse on their behalf - but offering
+ * somebody a button that bills them by the byte for a stranger's video is not
+ * a question worth asking, and a phone that answers it by accident pays for it.
+ *
+ * Everywhere else the control appears, always off, with whatever is standing
+ * against it written underneath. Where a platform will not say whether it is
+ * metered or on battery, that is a thing to tell somebody rather than a thing
+ * to assume either way.
+ */
+function assistOfferable(): boolean {
+  return !(formFactor() === 'mobile' && metered() === true)
+}
+
+// ---------------------------------------------------------------------------
+// Saying what it costs, in numbers that were measured
+// ---------------------------------------------------------------------------
+
+function bitrate(bps: number): string {
+  if (!Number.isFinite(bps) || bps <= 0) return 'nothing'
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`
+  return `${Math.round(bps / 1000)} kbps`
+}
+
+function quantity(bytes: number): string {
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`
+  if (bytes >= 1_000_000) return `${Math.round(bytes / 1_000_000)} MB`
+  return `${Math.round(bytes / 1000)} kB`
+}
+
+/** What one pair costs this device: the pair's media in, and the same back
+ *  out again to the far end. */
+function costPerPairBps(): number {
+  return uplink.capacity().perPeerBps * ASSIST_STREAMS_PER_PAIR
+}
+
+/** Whoever is in the room, by device, so a carried pair can be named rather
+ *  than shown as two truncated keys. */
+function nameOfDevice(device: string): string {
+  const target = device.toLowerCase()
+  for (const view of session?.participants() ?? []) {
+    if (!view.devices.some((d) => d.toLowerCase() === target)) continue
+    return shownAs(view.participant, view.name).name ?? shortKey(device)
+  }
+  return shortKey(device)
+}
+
+/** The one sentence that has to be true: what this costs, per person, right
+ *  now, from measurements rather than from a table of typical bitrates. */
+function costSentence(): string {
+  const perPair = costPerPairBps()
+  if (perPair <= 0) {
+    return 'Nothing has been measured yet. Once there is media moving, this says what a pair would cost in real numbers rather than in typical ones.'
+  }
+  return (
+    `About ${bitrate(perPair)} of your upload for each pair you carry, and the same again coming in. ` +
+    `Three pairs at full stretch is about ${bitrate(perPair * MAX_ASSISTED_PAIRS)} up.`
+  )
+}
+
+/** Why this device is not being recommended, or cannot help at all, in the
+ *  order somebody would want to hear it. */
+function blockSentence(block: AssistBlock): string {
+  switch (block) {
+    case 'no-relay-support':
+      return 'This browser cannot pass on encoded video without decoding it first, so it cannot carry anybody. Chrome and Edge can. Safari and Firefox have the API but have not been shown to move a frame through it.'
+    case 'not-publicly-reachable':
+      return 'Nobody behind a home router could reach this device directly, measured from the addresses it gathered. An offer would point at a path that does not exist.'
+    case 'no-spare-uplink':
+      return uplink.measured()
+        ? 'Your connection has nothing left over once your own call is paid for.'
+        : 'Your connection has not been measured yet. Join a room, give it a few seconds, and this fills in.'
+    case 'mobile':
+      return formFactor() === undefined
+        ? 'This browser will not say whether it is a phone. If it is, leave this off.'
+        : 'This is a phone. Carrying somebody costs it battery and radio for as long as they need it.'
+    case 'on-battery':
+      return 'Running on battery. Carrying somebody is sustained upload and CPU, and it will show.'
+    case 'metered':
+      return 'This connection is metered, or you have asked for data saving. Somebody is paying by the byte.'
+  }
+}
+
+/**
+ * The control and the indicator.
+ *
+ * Called on every render and on every poll tick, so "you are carrying two
+ * people" is on screen within a second or two of becoming true rather than
+ * whenever something else happened to redraw.
+ */
+function renderAssist(): void {
+  const section = $('assist')
+  const button = $('toggleAssist') as HTMLButtonElement
+  const indicator = $('assistIndicator')
+  const costNote = $('assistCostNote')
+
+  section.hidden = session === undefined
+  costNote.textContent = costSentence()
+
+  if (!assistOfferable()) {
+    // Not a disabled button: a control that cannot be used is still a control
+    // somebody has to work out, and this one is never going to be usable here.
+    button.hidden = true
+    $('assistCost').hidden = true
+    indicator.textContent =
+      'Not offered on a phone on mobile data. Carrying somebody would spend your allowance and your battery on their call.'
+    indicator.classList.remove('mine')
+    return
+  }
+
+  button.hidden = false
+  $('assistCost').hidden = false
+
+  const decision = assistDecision(assistEnvironment(), assistEnabled)
+  const hard = decision.blocks.filter((block) => HARD_ASSIST_BLOCKS.includes(block))
+  const soft = decision.blocks.filter((block) => !HARD_ASSIST_BLOCKS.includes(block))
+
+  button.disabled = hard.length > 0 && !assistEnabled
+  setToggle('toggleAssist', assistEnabled)
+  button.setAttribute('aria-pressed', String(assistEnabled))
+
+  if (hard.length > 0) {
+    indicator.textContent = hard.map(blockSentence).join(' ')
+    indicator.classList.remove('mine')
+    return
+  }
+
+  if (!assistEnabled) {
+    indicator.textContent = soft.length
+      ? soft.map(blockSentence).join(' ')
+      : `Your connection has room to carry other people through it. ${costSentence()}`
+    indicator.classList.remove('mine')
+    return
+  }
+
+  const pairs = peerRelay.pairs
+  if (pairs.length === 0) {
+    indicator.textContent = soft.length
+      ? `Offering to carry. Nobody has needed it yet. ${soft.map(blockSentence).join(' ')}`
+      : 'Offering to carry. Nobody has needed it yet.'
+    indicator.classList.remove('mine')
+    return
+  }
+
+  // Named rather than counted: "carrying Priya and Sam" is a thing somebody
+  // can check against the room in front of them, and a number is not.
+  const carried = pairs.map((pair) => `${nameOfDevice(pair.a)} and ${nameOfDevice(pair.b)}`).join(', ')
+  const stats = peerRelay.stats
+  indicator.textContent =
+    `Carrying ${pairs.length} of ${peerRelay.max}: ${carried}. ` +
+    `About ${bitrate(costPerPairBps() * pairs.length)} up, ${quantity(stats.bytesOut)} passed on so far.`
+  indicator.classList.add('mine')
+}
+
+/** Which blocks no amount of willingness can get past. Mirrors the split
+ *  `assistDecision` makes, which is not exported as a list. */
+const HARD_ASSIST_BLOCKS: readonly AssistBlock[] = ['no-relay-support', 'not-publicly-reachable', 'no-spare-uplink']
+
+/**
+ * Sample every open connection, then say what changed.
+ *
+ * One `getStats()` per connection per tick and nothing else: no probe
+ * traffic, no extra sockets. Two seconds is fast enough that the indicator
+ * tracks a call somebody is watching, and slow enough to be free.
+ */
+async function pollAssist(): Promise<void> {
+  const now = Date.now()
+  for (const [key, pc] of [...openConnections]) {
+    if (pc.connectionState === 'closed') {
+      openConnections.delete(key)
+      uplink.forget(key)
+      continue
+    }
+    try {
+      const stats: StatLike[] = []
+      ;(await pc.getStats()).forEach((stat) => stats.push(stat as StatLike))
+      uplink.update(key, stats, now)
+    } catch {
+      // A connection that will not answer for its own statistics tells us
+      // nothing, which is exactly what it contributes until it does.
+    }
+  }
+
+  // An offer that has gone stale in either direction is the failure this
+  // whole module argues against: advertising a capability that is no longer
+  // there, or sitting on one that is. Either way the roster is republished
+  // and the relay's own gate is brought back into step with it.
+  const offering = currentAssistOffer() !== null
+  if (session && offering !== lastOffering) {
+    lastOffering = offering
+    void session.setAssist(currentAssistOffer).catch(() => {})
+  }
+  renderAssist()
+}
+
+let lastOffering = false
+let assistTimer: ReturnType<typeof setInterval> | undefined
+
+function startAssistPolling(): void {
+  if (assistTimer !== undefined) return
+  assistTimer = setInterval(() => void pollAssist(), 2000)
+}
+
+/**
+ * Turn carrying on or off.
+ *
+ * Off is the case that has to work properly. It stops carrying everybody
+ * before it stops advertising, so there is no window where the room believes
+ * an offer already withdrawn, and the pairs that were being carried fall to
+ * the next rung of their own ladder. Nothing about this device's own call
+ * changes either way.
+ */
+async function toggleAssist(): Promise<void> {
+  if (!assistOfferable()) return
+  assistEnabled = !assistEnabled
+  renderAssist()
+  try {
+    await session?.setAssist(assistEnabled ? currentAssistOffer : null)
+    lastOffering = currentAssistOffer() !== null
+  } catch (err) {
+    setStatus(describeError(err))
+  }
+  renderAssist()
 }
 
 function startNewRoom(): void {
@@ -1120,6 +1366,8 @@ function render(views: ParticipantView[], me: string): void {
     micEl.classList.remove('mine')
   }
 
+  renderAssist()
+
   const root = $('room')
   root.innerHTML = ''
 
@@ -1298,6 +1546,17 @@ async function startSession(): Promise<void> {
       pc.addEventListener('icecandidate', (event) => {
         if (event.candidate) reachability.add({ candidate: event.candidate.candidate })
       })
+      // Registered so the uplink probe has something to sample, under a key
+      // unique to this connection rather than to its rung: the mesh opens a
+      // fresh connection when it escalates, and the one being replaced lives
+      // on until it closes itself.
+      const key = `${context?.tier ?? 'direct'}:${context?.remoteDevice ?? 'unknown'}:${++connectionSeq}`
+      openConnections.set(key, pc)
+      pc.addEventListener('connectionstatechange', () => {
+        if (pc.connectionState !== 'closed' && pc.connectionState !== 'failed') return
+        openConnections.delete(key)
+        uplink.forget(key)
+      })
       return pc as unknown as RTCPeerConnectionLike
     }
 
@@ -1315,6 +1574,10 @@ async function startSession(): Promise<void> {
           name,
           assist: currentAssistOffer,
           relay: peerRelay,
+          // The indicator has to move the moment this device starts or stops
+          // carrying somebody, not on the next poll tick.
+          onRelayStart: () => renderAssist(),
+          onRelayStop: () => renderAssist(),
         })
       : new RoomSession({
           transport: new NostrRelayPool(relays),
@@ -1328,6 +1591,10 @@ async function startSession(): Promise<void> {
           name,
           assist: currentAssistOffer,
           relay: peerRelay,
+          // The indicator has to move the moment this device starts or stops
+          // carrying somebody, not on the next poll tick.
+          onRelayStart: () => renderAssist(),
+          onRelayStop: () => renderAssist(),
         })
     session = s
     meParticipant = s.participant
@@ -1350,6 +1617,10 @@ async function startSession(): Promise<void> {
     joinBtn.hidden = true
     $('identity').hidden = true
     $('roomArea').hidden = false
+    // The offer starts at whatever the person has already chosen, which is
+    // off unless they turned it on before joining.
+    lastOffering = currentAssistOffer() !== null
+    startAssistPolling()
     render(s.participants(), meParticipant)
   } catch (err) {
     session = undefined
@@ -1488,6 +1759,9 @@ $('toggleCamera').addEventListener('click', () => {
 })
 $('toggleScreen').addEventListener('click', () => {
   toggleScreen().catch((err) => setStatus(describeError(err)))
+})
+$('toggleAssist').addEventListener('click', () => {
+  toggleAssist().catch((err) => setStatus(describeError(err)))
 })
 
 $('effectModes').addEventListener('click', (event) => {

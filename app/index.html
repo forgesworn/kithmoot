@@ -158,6 +158,40 @@
 
       <p id="status" role="status"></p>
 
+      <!-- Peer assist. Sits above the room rather than inside a settings
+           disclosure on purpose: while it is on, this device is spending its
+           owner's bandwidth on other people, and that is not something to
+           have to go looking for. -->
+      <section id="assist" hidden>
+        <div class="toggles">
+          <button id="toggleAssist" class="toggle" data-on="false" aria-pressed="false" hidden>
+            Carry the room
+          </button>
+        </div>
+        <p id="assistIndicator" class="indicator" aria-live="polite"></p>
+        <details id="assistCost">
+          <summary>What carrying costs you</summary>
+          <p class="note" id="assistCostNote"></p>
+          <p class="note">
+            Two people who cannot reach each other directly are a pair. This
+            device will carry three pairs at most, and stops being asked once
+            it is full.
+          </p>
+          <p class="note warn">
+            You would be carrying people already in the room with you. You can
+            see and hear them now, and passing their video on gives you nothing
+            you did not already have. What it does not let you do is pass one
+            person off as another: every stream is tagged to whoever sent it,
+            and a relabelled one fails on arrival.
+          </p>
+          <p class="note">
+            Turn it off whenever you like, including mid-call. Anyone you were
+            carrying falls back to another route on their own, and neither your
+            room nor theirs ends.
+          </p>
+        </details>
+      </section>
+
       <section id="roomArea" hidden>
         <h2>In the room</h2>
         <div id="room"></div>
