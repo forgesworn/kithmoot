@@ -15,6 +15,7 @@
     "build:lib": "tsc -p tsconfig.json",
     "demo": "vite --config app/vite.config.ts --host",
     "forwarder": "npm run build:lib && node server/forwarder.mjs",
+    "pretest": "npm run build:lib",
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts --testTimeout=40000",
     "test:e2e": "playwright test",
