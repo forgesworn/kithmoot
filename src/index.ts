@@ -85,6 +85,8 @@ export type {
   RelayScope,
   RelayStats,
 } from './peer-relay.js'
+export { UplinkProbe, summariseStats, MIN_SAMPLE_MS, STALE_AFTER_MS } from './uplink.js'
+export type { StatLike } from './uplink.js'
 export { encodeChatEvent, decodeChatEvent, ChatLog } from './chat.js'
 export type { ChatMessage, ChatLogOptions, EncodeChatOptions, DecodeChatOptions } from './chat.js'
 export { mintTurnCredential } from './turn.js'
