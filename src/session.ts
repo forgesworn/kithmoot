@@ -397,6 +397,10 @@ export class RoomSession {
    *
    * Passing an offer pins it; passing a function lets the load figure move on
    * its own; passing null withdraws.
+   *
+   * Turning it back on is symmetrical, and has to be: somebody who revokes
+   * and changes their mind later would otherwise advertise an offer their own
+   * relay would refuse, which is the one thing worse than not offering.
    */
   async setAssist(next: (() => AssistOffer | null) | AssistOffer | null): Promise<void> {
     this.#assist = typeof next === 'function' ? next : () => next
@@ -404,6 +408,7 @@ export class RoomSession {
     // there is no window in which the room believes an offer this device has
     // already withdrawn.
     if (this.#assist() === null) this.#opts.relay?.close()
+    else this.#opts.relay?.reopen()
     if (this.#self && !this.#left) await this.#publishEntry(true)
   }
 

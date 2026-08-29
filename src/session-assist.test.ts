@@ -238,6 +238,39 @@ describe('revoking mid-call', () => {
     s.leave()
   })
 
+  it('is willing to carry again once it is back on, not just willing to say so', async () => {
+    const relay = new SimRelay()
+    const peerRelay = new PeerRelay()
+    const s = session({ relay, assist: () => offer(), peerRelay })
+    await s.join([], {})
+
+    await s.setAssist(null)
+    expect(peerRelay.admit('a'.repeat(64), 'b'.repeat(64))).toBeNull()
+
+    await s.setAssist(offer())
+    await settle()
+
+    // The advertised offer and the willingness behind it have to come back
+    // together. An offer whose own relay still refuses is the exact failure
+    // the selection rules exist to avoid, reached from the volunteer's side.
+    expect(entries(relay).at(-1)!.assist).toEqual(offer())
+    expect(peerRelay.admit('a'.repeat(64), 'b'.repeat(64))).not.toBeNull()
+    s.leave()
+  })
+
+  it('does not reopen the relay when the new source is not offering either', async () => {
+    const relay = new SimRelay()
+    const peerRelay = new PeerRelay()
+    const s = session({ relay, assist: () => offer(), peerRelay })
+    await s.join([], {})
+
+    await s.setAssist(null)
+    // A source handed over while still refusing is not a change of mind.
+    await s.setAssist(() => null)
+    expect(peerRelay.admit('a'.repeat(64), 'b'.repeat(64))).toBeNull()
+    s.leave()
+  })
+
   it('answers honestly about routes and load before media is ever set up', async () => {
     const relay = new SimRelay()
     const s = session({ relay })

@@ -344,6 +344,25 @@ describe('PeerRelay', () => {
     expect(relay.admit(devices[2]!, devices[3]!)).toBeNull()
   })
 
+  it('carries again for somebody who changes their mind after revoking', () => {
+    const relay = new PeerRelay()
+    const first = relay.admit(devices[0]!, devices[1]!)!
+    relay.close()
+    expect(relay.closed).toBe(true)
+
+    relay.reopen()
+    expect(relay.closed).toBe(false)
+    // Without this, turning assisting back on republishes the offer, wins
+    // selections with it, and then refuses every pair it is asked to carry -
+    // advertising a capability it will not deliver, arrived at from the
+    // inside.
+    expect(relay.admit(devices[2]!, devices[3]!)).not.toBeNull()
+    // What it was carrying before stays gone. Those pairs found another route
+    // when they were dropped, and re-adopting them would take them off it.
+    expect(first.closed).toBe(true)
+    expect(relay.get(devices[0]!, devices[1]!)).toBeNull()
+  })
+
   it('accepts a volunteer who will only carry one pair', () => {
     const relay = new PeerRelay({ maxPairs: 1 })
     expect(relay.admit(devices[0]!, devices[1]!)).not.toBeNull()

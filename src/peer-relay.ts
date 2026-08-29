@@ -532,4 +532,27 @@ export class PeerRelay {
     for (const pair of this.#pairs.values()) pair.close()
     this.#pairs.clear()
   }
+
+  /** True once `close` has been called and until `reopen` is. */
+  get closed(): boolean {
+    return this.#closed
+  }
+
+  /**
+   * Be willing to carry pairs again after a revocation.
+   *
+   * Somebody who turns assisting off mid-call and changes their mind ten
+   * minutes later is an ordinary thing to do, and without this the second
+   * decision does not take: the offer goes back on the wire, this device wins
+   * selections with it, and `admit` refuses every one of them. That is
+   * precisely the "advertising a capability you cannot deliver" failure the
+   * rest of this module is built to avoid, arrived at from the inside.
+   *
+   * Nothing carried before the revocation comes back. Those pairs were
+   * dropped and have found another route by now, and re-adopting them would
+   * take them off a working path.
+   */
+  reopen(): void {
+    this.#closed = false
+  }
 }
