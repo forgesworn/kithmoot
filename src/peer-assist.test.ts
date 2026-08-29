@@ -332,6 +332,15 @@ describe('assistDecision', () => {
     expect(decision.offering).toBe(false)
     expect(decision.blocks).toContain('no-spare-uplink')
   })
+
+  it('refuses a device that has measured nothing at all, rather than reading it as plenty', () => {
+    // Two zeroes used to cancel: no uplink and no per-peer cost compared as
+    // "enough spare for a pair that costs nothing". See `UplinkProbe`, which
+    // reports zero exactly when it has measured nothing.
+    const decision = assistDecision(env({ capacity: { uplinkBps: 0, peers: 0, perPeerBps: 0 } }), true)
+    expect(decision.offering).toBe(false)
+    expect(decision.blocks).toContain('no-spare-uplink')
+  })
 })
 
 describe('buildAssistOffer', () => {

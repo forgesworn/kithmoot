@@ -401,7 +401,18 @@ export function assistDecision(env: AssistEnvironment, enabled?: boolean): Assis
 
   if (!env.canRelay) blocks.push('no-relay-support')
   if (env.reachability !== 'public') blocks.push('not-publicly-reachable')
-  if (spareUplinkBps(env.capacity, env.headroom) < (env.capacity?.perPeerBps ?? 0) * ASSIST_STREAMS_PER_PAIR) {
+
+  // An uplink of zero is not a slow connection, it is an unmeasured one - see
+  // `UplinkProbe`, which reports zero precisely when it has nothing to report.
+  // Either way there is nothing here to give away, and reading "we have not
+  // measured" as "plenty" is exactly how a device wins a selection it cannot
+  // deliver on. The check is separate from the spare-capacity one below
+  // because without it the two zeroes cancel: no uplink and no per-peer cost
+  // compare as "enough spare for a pair that costs nothing".
+  const uplinkBps = Number(env.capacity?.uplinkBps)
+  const spare = spareUplinkBps(env.capacity, env.headroom)
+  const perPair = (Number(env.capacity?.perPeerBps) || 0) * ASSIST_STREAMS_PER_PAIR
+  if (!Number.isFinite(uplinkBps) || uplinkBps <= 0 || spare <= 0 || spare < perPair) {
     blocks.push('no-spare-uplink')
   }
   // Unknown counts as mobile. The failure we are avoiding is volunteering
