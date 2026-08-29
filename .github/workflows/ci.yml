@@ -35,11 +35,15 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Run tests
-        run: npm test
-
+      # The forwarder and TURN-credential suites exercise server/*.mjs, which
+      # import the compiled library from dist/. That is gitignored, so a fresh
+      # checkout has none and those suites fail to load at all rather than
+      # fail an assertion. Build first, as the forwarder script itself does.
       - name: Build library
         run: npm run build:lib
+
+      - name: Run tests
+        run: npm test
 
       - name: Build app
         run: npm run build
