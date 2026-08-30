@@ -1522,6 +1522,20 @@ interface RemoteVideo {
   last: number
   /** Consecutive checks with no new frame. */
   stalled: number
+  /**
+   * Whether this picture has ever moved.
+   *
+   * A picture that has not started is not a picture that has stopped, and
+   * the two must not be treated alike. `ontrack` fires when the answer is
+   * applied, which is seconds before the first frame is decoded on any real
+   * link - DTLS, SRTP and a keyframe all still to come. Judging a
+   * just-arrived element by the stall rule gave it about three seconds to
+   * produce a frame or be taken off screen, and taking it off screen was
+   * what stopped its clock for good (see `parkPicture`). On a slow link, or a
+   * machine busy encoding its own blurred camera, that is how a room where
+   * everything negotiated perfectly ended up with nobody visible in it.
+   */
+  played: boolean
 }
 
 const remoteVideos = new Map<string, RemoteVideo>()
@@ -1531,6 +1545,33 @@ const remoteAudios = new Map<string, HTMLAudioElement>()
  *  screen. Two at a one-second interval: long enough not to flicker on a
  *  dropped frame or a slow moment, short enough that "off" looks off. */
 const STALLED_CHECKS = 2
+
+/**
+ * Where a picture waits while it is off screen.
+ *
+ * Off everybody's screen, and never out of the document - which are not the
+ * same thing, though the code this replaces assumed they were. Chromium runs
+ * the internal pause steps on a media element the moment it leaves the
+ * document, and a paused element's `currentTime` never advances again: not
+ * while it is out, and not when it is put back. So "take it off screen and
+ * put it back when it starts moving again" could never fire. Taking it off
+ * screen was what stopped the clock it was being judged by, and a picture
+ * that went off once was off for the rest of the call.
+ *
+ * Parked here it keeps decoding and keeps advancing, so "is it moving again"
+ * remains a question with an answer. The holder is `display:none`, which
+ * pauses nothing: it is out of the room's layout and - the part that
+ * matters - out of `#room .participant`, which is what "off everybody else's
+ * screen" has to mean.
+ */
+function parkPicture(el: HTMLVideoElement): void {
+  $('parked').append(el)
+}
+
+/** Whether this picture is currently on screen, in its own device's tile. */
+function onScreen(entry: RemoteVideo): boolean {
+  return entry.el.parentElement === entry.container
+}
 
 /**
  * Take a picture off screen when it stops moving, and put it back when it
@@ -1546,18 +1587,18 @@ const STALLED_CHECKS = 2
  * the rest of the call.
  *
  * Whether the picture is actually moving has neither problem, and it is also
- * the thing a person in the room is really asking. `currentTime` advances
- * whether or not the element is in the document, so a picture that comes
- * back is noticed while it is off screen.
+ * the thing a person in the room is really asking. It only answers honestly
+ * for an element that is still in the document, though - see `parkPicture`,
+ * which is why one that goes off screen is parked rather than removed - and
+ * only for one that has started at all, which is why `played` gates the
+ * stall count rather than the clock doing it alone.
  */
 function syncRemoteVideos(): void {
   let changed = false
   for (const [key, entry] of remoteVideos) {
     if (entry.track.readyState === 'ended') {
-      if (entry.el.isConnected) {
-        entry.el.remove()
-        changed = true
-      }
+      if (onScreen(entry)) changed = true
+      entry.el.remove()
       remoteVideos.delete(key)
       continue
     }
@@ -1566,12 +1607,20 @@ function syncRemoteVideos(): void {
     entry.last = now
     if (moving) {
       entry.stalled = 0
-      if (!entry.el.isConnected) {
+      entry.played = true
+      if (!onScreen(entry)) {
         entry.container.append(entry.el)
         changed = true
       }
-    } else if (++entry.stalled >= STALLED_CHECKS && entry.el.isConnected) {
-      entry.el.remove()
+      continue
+    }
+    // Not moving yet is not the same as no longer moving. A picture that has
+    // never had a frame is still arriving, and it is given as long as it
+    // needs: the tile says so meanwhile, and nothing about it is a lie. Only
+    // a picture that ran and stopped is taken off screen.
+    if (!entry.played) continue
+    if (++entry.stalled >= STALLED_CHECKS && onScreen(entry)) {
+      parkPicture(entry.el)
       changed = true
     }
   }
@@ -1606,14 +1655,18 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.playsInline = true
       el.muted = true
       el.dataset.track = track.id
-      remoteVideos.set(key, { el, container, track, last: -1, stalled: 0 })
+      remoteVideos.set(key, { el, container, track, last: -1, stalled: 0, played: false })
       container.append(el)
       track.addEventListener('ended', () => {
         el.remove()
         remoteVideos.delete(key)
         if (session) render(session.participants(), meParticipant)
       })
-    } else if (!el.isConnected) {
+    } else if (!onScreen(existing)) {
+      // Parked, and the far end is publishing this track again - a
+      // renegotiation hands the same track over and `ontrack` fires afresh.
+      // Back on screen, with the stall count reset: if it really is still
+      // frozen, the next two checks say so and park it again.
       container.append(el)
       existing.stalled = 0
     }

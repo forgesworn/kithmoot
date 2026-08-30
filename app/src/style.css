@@ -269,6 +269,13 @@ details#roomSettings label {
   background: #000;
 }
 
+/* Not `hidden`, not `remove()` - see parkPicture in app/src/main.ts. The
+   elements in here are still playing, which is the entire point of them
+   being in the document at all. */
+#parked {
+  display: none;
+}
+
 video {
   max-width: 320px;
   border-radius: 4px;

@@ -206,6 +206,13 @@
           <button type="submit">Send</button>
         </form>
       </section>
+
+      <!-- Where a picture waits while it is off screen. Off the room's
+           layout and out of #room .participant, but still in the document,
+           because Chromium pauses a media element the moment it leaves one
+           and a paused element's clock never starts again. See parkPicture
+           in app/src/main.ts. -->
+      <div id="parked" aria-hidden="true"></div>
     </main>
 
     <script type="module" src="/src/main.ts"></script>

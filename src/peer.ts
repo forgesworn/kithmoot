@@ -235,8 +235,30 @@ export class Peer {
      * connection is idle - a change that arrives mid-negotiation is
      * re-reported when the connection returns to `stable`, so skipping one
      * loses nothing and offering into a half-applied state loses plenty.
+     *
+     * "Idle" is judged HERE, in the event handler, and not inside the
+     * queued operation. `negotiationneeded` is delivered as a queued task,
+     * so it routinely arrives describing a moment that has already passed:
+     * the flag was raised while the connection was `stable`, and by delivery
+     * the connection is `have-local-offer` because our own `addTrack` offer
+     * already went out. Judging that from inside the queue means judging it
+     * against a state that has moved on again - by then the whole glare
+     * dance has run, the connection is back at `stable`, and a stale event
+     * becomes a real, unnecessary offer.
+     *
+     * That offer is not free. It starts a second negotiation on a connection
+     * whose ICE and DTLS are already up, and `connectionState` does not
+     * report `connected` while one is outstanding - so the mesh's route
+     * timer (`DEFAULT_ROUTE_TIMEOUT_MS`) times out a rung that is *carrying
+     * media*, tears the peer down, and escalates towards TURN. Measured in a
+     * browser: two people who both had a camera and a microphone on could
+     * neither see nor hear each other, for the whole call, because both
+     * sides offered at once - and the one-sided case, where only one of them
+     * had anything to send and no glare could happen, worked perfectly.
      */
     this.#pc.onnegotiationneeded = () => {
+      if (this.#closed || this.#makingOffer) return
+      if (this.#pc.signalingState !== 'stable') return
       void this.#enqueue(async () => {
         if (this.#closed || this.#makingOffer) return
         if (this.#pc.signalingState !== 'stable') return
