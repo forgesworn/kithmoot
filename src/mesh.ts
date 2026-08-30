@@ -57,6 +57,9 @@ export interface MeshOptions {
    * room that has measured nothing must not guess.
    */
   uplink?: () => { uplinkBps: number; perPeerBps: number } | null
+  /** Passed to every peer: how long a connection that was up is given to
+   *  come back before it is believed failed. See `PeerOptions.iceRestart`. */
+  iceRestart?: { graceMs?: number; timeoutMs?: number }
   /** Forwarders the room descriptor names. Swappable at runtime; see
    *  `setForwarders`. */
   forwarders?: ForwarderRef[]
@@ -854,6 +857,7 @@ export class Mesh {
       localDevice: this.#opts.localDevice,
       remoteDevice,
       context: { tier: forwarder ? 'forwarder' : tier, remoteDevice },
+      iceRestart: this.#opts.iceRestart,
       onSignal: (body) => {
         const wrap = wrapSignal(
           { ...body, roomId: this.#opts.roomId },
@@ -865,19 +869,24 @@ export class Mesh {
         if (forwarder) this.#onForwardedTrack(track)
         else this.#onEndpointTrack(remoteDevice, track)
       },
+      // A forwarder never offers, so this side has to - even with nothing to
+      // send, which is how a device with its camera and microphone off is
+      // admitted at all.
+      mustOfferFirst: forwarder,
+      // `disconnected` is deliberately not a failure here. The peer owns
+      // it: a connection that was up is given a grace and an ICE restart
+      // before it is reported failed, so a router hiccup does not cost a
+      // pair a volunteer, a forwarder and then TURN. What reaches the mesh
+      // as `failed` has already been given that chance.
       onConnectionState: forwarder
         ? (state: RTCPeerConnectionState) => {
             if (this.#tearingDownForwarder) return
             if (state === 'connected') this.#forwarderConnected()
-            else if (state === 'failed' || state === 'closed' || state === 'disconnected') {
-              this.#forwarderFailed()
-            }
+            else if (state === 'failed' || state === 'closed') this.#forwarderFailed()
           }
         : (state: RTCPeerConnectionState) => {
             if (state === 'connected') this.#endpointConnected(remoteDevice)
-            else if (state === 'failed' || state === 'closed' || state === 'disconnected') {
-              this.#endpointFailed(remoteDevice)
-            }
+            else if (state === 'failed' || state === 'closed') this.#endpointFailed(remoteDevice)
           },
     })
   }

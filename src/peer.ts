@@ -14,6 +14,15 @@ export interface RTCPeerConnectionLike {
   setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void>
   addIceCandidate(candidate: RTCIceCandidateInit): Promise<void>
   addTrack(track: MediaStreamTrack): void
+  /** What this connection is currently sending. Optional alongside
+   *  `removeTrack`: a device that never turns anything off never needs
+   *  either, and a test double is free to model neither. */
+  getSenders?(): readonly { readonly track: MediaStreamTrack | null }[]
+  removeTrack?(sender: { readonly track: MediaStreamTrack | null }): void
+  /** Gather fresh candidates on the connection that exists, rather than
+   *  building a new one. Optional: a double that never models a network
+   *  blip need not have it, and `Peer` then fails the way it always did. */
+  restartIce?(): void
   close(): void
   readonly signalingState: RTCSignalingState
   readonly localDescription: RTCSessionDescriptionInit | null
@@ -21,6 +30,7 @@ export interface RTCPeerConnectionLike {
   ontrack: ((event: { track: MediaStreamTrack }) => void) | null
   onicecandidate: ((event: { candidate: RTCIceCandidateInit | null }) => void) | null
   onconnectionstatechange: (() => void) | null
+  onnegotiationneeded: (() => void) | null
 }
 
 /**
@@ -79,12 +89,39 @@ export interface PeerFactory {
  */
 export const MAX_PENDING_CANDIDATES = 64
 
+/**
+ * How long a connected peer is given to heal a `disconnected` on its own
+ * before ICE is restarted on it.
+ *
+ * Most disconnections are a router hiccup or a phone changing cell and heal
+ * inside a couple of seconds; a restart during that window only adds a
+ * negotiation to a path that was about to come back.
+ */
+export const ICE_RESTART_GRACE_MS = 3_000
+
+/**
+ * How long a restarted connection is given to reach `connected` again before
+ * the peer gives up on it and lets the route ladder take over.
+ */
+export const ICE_RESTART_TIMEOUT_MS = 10_000
+
 export interface PeerOptions {
   factory: PeerFactory
   localDevice: string
   remoteDevice: string
   onSignal: (body: SignalBody) => void
   onTrack: (track: MediaStreamTrack) => void
+  /**
+   * Whether this side has to open the conversation even with nothing to
+   * send.
+   *
+   * False for an ordinary peer: two devices in a room both offer when they
+   * have media, so a device with its camera and microphone off can simply
+   * answer and receive. True for a forwarder, which is a server that only
+   * ever answers - "only an offer is an arrival" (server/forwarder.mjs) -
+   * so a device that stays quiet is a device it never admits.
+   */
+  mustOfferFirst?: boolean
   /** Passed to the factory, so a caller can vary the ICE configuration by
    *  rung. Omitted for a plain direct connection. */
   context?: PeerContext
@@ -99,6 +136,12 @@ export interface PeerOptions {
    * signal for that. Optional, because most callers never care.
    */
   onConnectionState?: (state: RTCPeerConnectionState) => void
+  /**
+   * How a connection that was up is given the chance to come back before it
+   * is reported failed. Defaults to `ICE_RESTART_GRACE_MS` and
+   * `ICE_RESTART_TIMEOUT_MS`; tests shorten them.
+   */
+  iceRestart?: { graceMs?: number; timeoutMs?: number }
 }
 
 /**
@@ -122,6 +165,7 @@ export class Peer {
   readonly #pc: RTCPeerConnectionLike
   readonly #onSignal: (body: SignalBody) => void
   readonly #onTrack: (track: MediaStreamTrack) => void
+  readonly #mustOfferFirst: boolean
   #makingOffer = false
   #hasRemoteDescription = false
   #pendingCandidates: RTCIceCandidateInit[] = []
@@ -143,8 +187,22 @@ export class Peer {
    *  set on every toggle, not just what changed - never re-adds one. A real
    *  `RTCPeerConnection` throws if the same track is added twice. */
   #addedTracks = new Set<MediaStreamTrack>()
+  readonly #opts: PeerOptions
+  readonly #graceMs: number
+  readonly #timeoutMs: number
+  /** Whether this connection has ever reached `connected`. A restart is
+   *  only ever for a path that existed; one that never came up belongs to
+   *  the route ladder. */
+  #everConnected = false
+  /** One restart per episode, an episode ending at the next `connected`. */
+  #restarted = false
+  #graceTimer?: ReturnType<typeof setTimeout>
+  #giveUpTimer?: ReturnType<typeof setTimeout>
 
   constructor(opts: PeerOptions) {
+    this.#opts = opts
+    this.#graceMs = opts.iceRestart?.graceMs ?? ICE_RESTART_GRACE_MS
+    this.#timeoutMs = opts.iceRestart?.timeoutMs ?? ICE_RESTART_TIMEOUT_MS
     // Normalised here, once, because this decides politeness and the two
     // sides of a connection MUST land on opposite answers - see the class
     // doc comment. `hexEquals` protects an equality check from a case
@@ -154,9 +212,37 @@ export class Peer {
     this.polite = normaliseHex(opts.localDevice) < normaliseHex(opts.remoteDevice)
     this.#onSignal = opts.onSignal
     this.#onTrack = opts.onTrack
+    this.#mustOfferFirst = opts.mustOfferFirst ?? false
     this.#pc = opts.factory(opts.context ?? { tier: 'direct', remoteDevice: opts.remoteDevice })
 
     this.#pc.ontrack = (event) => this.#onTrack(event.track)
+
+    /**
+     * The other half of perfect negotiation, and the half this class was
+     * missing.
+     *
+     * `#handleOffer` resolves glare by having the POLITE side roll its own
+     * offer back and answer the incoming one instead. Rolling back does not
+     * discard what that side wanted to send - its tracks are still attached,
+     * still unnegotiated - and the whole design assumes the connection will
+     * say so and be re-offered. Without anybody listening, those tracks were
+     * simply lost for the life of the call: measured in a browser, a person
+     * with a microphone and no camera never saw the other side's video at
+     * all, and two people with cameras sometimes saw nothing, depending
+     * purely on which offer happened to win.
+     *
+     * Queued like every other negotiation step, and skipped unless the
+     * connection is idle - a change that arrives mid-negotiation is
+     * re-reported when the connection returns to `stable`, so skipping one
+     * loses nothing and offering into a half-applied state loses plenty.
+     */
+    this.#pc.onnegotiationneeded = () => {
+      void this.#enqueue(async () => {
+        if (this.#closed || this.#makingOffer) return
+        if (this.#pc.signalingState !== 'stable') return
+        await this.#offer()
+      }).catch(() => {})
+    }
 
     this.#pc.onicecandidate = (event) => {
       if (!event.candidate) return
@@ -165,11 +251,72 @@ export class Peer {
 
     this.#pc.onconnectionstatechange = () => {
       const state = this.#pc.connectionState
+      if (state === 'connected') {
+        // Back, or up for the first time. Either way the episode is over:
+        // the next blip gets its own restart.
+        this.#clearRestartTimers()
+        this.#everConnected = true
+        this.#restarted = false
+      }
+      if (state === 'disconnected') {
+        opts.onConnectionState?.(state)
+        // A phone crossing from Wi-Fi to mobile, a laptop lid, a router
+        // hiccup. Given a moment to heal itself; if it does not, ICE is
+        // restarted on the connection that exists rather than the peer torn
+        // down and the route ladder walked for a path that would have come
+        // back. The route ladder still owns a connection that never came up.
+        if (this.#everConnected && !this.#restarted && this.#pc.restartIce) {
+          this.#clearGraceTimer()
+          this.#graceTimer = this.#after(this.#graceMs, () => {
+            this.#graceTimer = undefined
+            if (this.#pc.connectionState === 'disconnected') this.#restartIce()
+          })
+        }
+        return
+      }
+      if (state === 'failed' && this.#everConnected && !this.#restarted && this.#pc.restartIce) {
+        // One restart before the failure is believed. Not reported: the
+        // caller would escalate on it, and it has not failed yet.
+        this.#restartIce()
+        return
+      }
       // Reported before the close, so a caller watching for a failure hears
       // about it rather than inferring it from a peer that has gone quiet.
       opts.onConnectionState?.(state)
       if (state === 'failed' || state === 'closed') this.close()
     }
+  }
+
+  #restartIce(): void {
+    if (this.#closed) return
+    this.#restarted = true
+    this.#clearRestartTimers()
+    this.#pc.restartIce?.()
+    // The browser raises `negotiationneeded` and the offer that follows
+    // carries the restart. If nothing comes of it, the failure is real.
+    this.#giveUpTimer = this.#after(this.#timeoutMs, () => {
+      this.#giveUpTimer = undefined
+      if (this.#closed || this.#pc.connectionState === 'connected') return
+      this.#opts.onConnectionState?.('failed')
+      this.close()
+    })
+  }
+
+  #after(ms: number, run: () => void): ReturnType<typeof setTimeout> {
+    const timer = setTimeout(run, ms)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    return timer
+  }
+
+  #clearGraceTimer(): void {
+    if (this.#graceTimer !== undefined) clearTimeout(this.#graceTimer)
+    this.#graceTimer = undefined
+  }
+
+  #clearRestartTimers(): void {
+    this.#clearGraceTimer()
+    if (this.#giveUpTimer !== undefined) clearTimeout(this.#giveUpTimer)
+    this.#giveUpTimer = undefined
   }
 
   /** Add tracks and make an offer. Either side may call this first - in a mesh
@@ -189,6 +336,55 @@ export class Peer {
       this.#addedTracks.add(track)
     }
 
+    // Anything dropped from the published set stops being sent. Silence is
+    // not a message: a sender left in place after its track was stopped
+    // tells the far end nothing, so the far end holds the last frame it
+    // decoded and shows it for the rest of the call. Removing the sender is
+    // what makes turning a camera off look off to everybody else; the
+    // re-offer that has to follow comes from `onnegotiationneeded`.
+    if (this.#pc.getSenders && this.#pc.removeTrack) {
+      const published = new Set(tracks)
+      for (const sender of [...this.#pc.getSenders()]) {
+        if (!sender.track || published.has(sender.track)) continue
+        this.#pc.removeTrack(sender)
+        // Forgotten, so the same track coming back is added again rather
+        // than skipped as already-present.
+        this.#addedTracks.delete(sender.track)
+      }
+    }
+
+    // Nothing to send, so nothing to propose. `createOffer()` on a
+    // connection with no transceivers produces an offer with no m-lines:
+    // it negotiates nothing, gathers no candidates, and leaves a connection
+    // that never comes up - which the route ladder then escalates all the
+    // way to TURN before giving up on a pair that was never going to
+    // connect. Somebody with their camera and microphone off is still in the
+    // room and still has to see and hear everybody else, and they do: the
+    // other side has media, so the other side offers, and this one answers.
+    // A forwarder is the exception - it only ever answers, so somebody has
+    // to open that conversation. See `mustOfferFirst`.
+    // No offer is made from here. Adding or removing a track raises
+    // `negotiationneeded`, and that is the single place an offer comes from
+    // - two triggers for the same change means two offers racing each other
+    // through glare, which is how a camera that had just been turned off
+    // stayed on the other person's screen about a third of the time.
+    //
+    // A forwarder is the exception, and only when there is nothing to send:
+    // it never offers and never raises anything, so with no track to add
+    // there is nothing to react to and this side has to speak first.
+    if (this.#mustOfferFirst && this.#addedTracks.size === 0) await this.#offer()
+  }
+
+  /**
+   * Make an offer and send it.
+   *
+   * Shared by `start()` and `onnegotiationneeded`, because the two are the
+   * same act for different reasons: one is "I have something new to send",
+   * the other is "the connection says what it is carrying no longer matches
+   * what it should be".
+   */
+  async #offer(): Promise<void> {
+    if (this.#closed) return
     this.#makingOffer = true
     try {
       const offer = await this.#pc.createOffer()
@@ -310,6 +506,7 @@ export class Peer {
   close(): void {
     if (this.#closed) return
     this.#closed = true
+    this.#clearRestartTimers()
     this.#pc.close()
   }
 }

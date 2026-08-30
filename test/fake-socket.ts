@@ -23,8 +23,25 @@ export class FakeRelayServer {
   rejectPublishes = false
 
   readonly #subscriptions = new Map<string, { socket: FakeWebSocket; subId: string; filters: Filter[] }>()
+  readonly #sockets = new Set<FakeWebSocket>()
 
   constructor(readonly url: string) {}
+
+  /** How many client sockets this relay currently holds open. */
+  get connections(): number {
+    return this.#sockets.size
+  }
+
+  attach(socket: FakeWebSocket): void {
+    this.#sockets.add(socket)
+  }
+
+  /** Close every client socket from the relay's side, the way a relay
+   *  restart or a dropped network does. Subscriptions go with them: a relay
+   *  that has restarted remembers nothing. */
+  disconnectAll(): void {
+    for (const socket of [...this.#sockets]) socket.dropped()
+  }
 
   /** The filter sets this relay has been asked to subscribe with, in order. */
   requestedFilters(): Filter[][] {
@@ -49,6 +66,7 @@ export class FakeRelayServer {
   }
 
   detach(socket: FakeWebSocket): void {
+    this.#sockets.delete(socket)
     for (const [key, sub] of this.#subscriptions) {
       if (sub.socket === socket) this.#subscriptions.delete(key)
     }
@@ -138,6 +156,7 @@ export class FakeWebSocket {
         return
       }
       this.readyState = FakeWebSocket.OPEN
+      this.#server.attach(this)
       this.onopen?.()
     })
   }
@@ -152,6 +171,16 @@ export class FakeWebSocket {
     this.readyState = FakeWebSocket.CLOSED
     this.#server?.detach(this)
     this.onclose?.({ message: 'closed' })
+  }
+
+  /** The relay went away underneath this socket. Unlike `close()` this is
+   *  not the client's doing, which is exactly the case a reconnecting client
+   *  has to notice and recover from. */
+  dropped(): void {
+    if (this.readyState === FakeWebSocket.CLOSED) return
+    this.readyState = FakeWebSocket.CLOSED
+    this.#server?.detach(this)
+    this.onclose?.({ message: 'relay went away' })
   }
 
   /** Relay to client. */

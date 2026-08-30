@@ -305,6 +305,64 @@ describe('RoomSession media', () => {
     expect(received.every((r) => r.participant === remoteParticipant)).toBe(true)
   })
 
+  /**
+   * Regression, and the one that mattered: a call where nobody could see or
+   * hear anybody.
+   *
+   * The mesh does not exist until `join()` builds it, and `onRemoteTrack`
+   * used to forward the subscription straight to it - so a listener that
+   * subscribed FIRST was handed a no-op unsubscribe and silently dropped.
+   * Every test above subscribes after joining and so never saw it; the app
+   * subscribes before, which is the natural order (wire up the handlers, then
+   * go on the network) and the only order with no window for a track to
+   * arrive unheard. Measured in a real browser on 29 August 2026: media
+   * negotiated, frames decoded at 20fps, and not one <video> or <audio>
+   * element ever reached the page.
+   *
+   * Subscribing before join is therefore the case under test, deliberately.
+   */
+  it('delivers remote tracks to a listener that subscribed before join', async () => {
+    const relay = new SimRelay()
+    const factory = createFakeFactory()
+
+    const local = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      factory,
+    })
+
+    // Before join, exactly as app/src/main.ts does it.
+    const received: { participant: string; device: string }[] = []
+    const unsub = local.onRemoteTrack((t) => received.push({ participant: t.participant, device: t.device }))
+
+    const remoteSk = generateSecretKey()
+    const remote = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(remoteSk),
+      deviceSk: generateSecretKey(),
+      now,
+      factory: createFakeFactory(),
+    })
+
+    await local.join([], {})
+    await remote.join([], {})
+
+    expect(factory.instances).toHaveLength(1)
+    factory.instances[0]!.ontrack?.({ track: {} as MediaStreamTrack })
+
+    expect(received).toHaveLength(1)
+    expect(received[0]!.participant).toBe(getPublicKey(remoteSk))
+
+    // And the handle it returned has to be a real one, not the no-op stand-in.
+    unsub()
+    factory.instances[0]!.ontrack?.({ track: {} as MediaStreamTrack })
+    expect(received).toHaveLength(1)
+  })
+
   it('is safe to call publishTracks and onRemoteTrack when no factory was supplied', async () => {
     const relay = new SimRelay()
     const session = new RoomSession({
@@ -794,6 +852,93 @@ describe('RoomSession presence lifetime', () => {
     expect(farewell).not.toBeNull()
     expect(farewell!.claims).toEqual({})
     expect(farewell!.tracks).toEqual([])
+  })
+
+  it('takes a device that says goodbye out of the room at once, not after the presence timeout', async () => {
+    // Jitsi removes a tile the moment somebody hangs up. Waiting out
+    // PRESENCE_TTL_SECONDS is not just slow to look at: every other device
+    // spends that time escalating its route ladder - a volunteer, a
+    // forwarder, then TURN - chasing a device that has gone.
+    const relay = new SimRelay()
+    const a = room(now, relay)
+    const b = room(now, relay)
+    await a.join([{ trackId: 'mic', role: 'mic' }], { mic: NOW })
+    await b.join([], {})
+    await settle()
+    expect(b.participants().map((v) => v.participant)).toContain(a.participant)
+
+    a.leave()
+    await settle()
+
+    expect(b.participants().map((v) => v.participant)).not.toContain(a.participant)
+  })
+
+  it('does not let an entry delivered late, from before the goodbye, bring a departed device back', async () => {
+    // Three relays deliver in three orders. A heartbeat that left the device
+    // before its farewell can arrive at somebody after it, and if that
+    // resurrected the device it would sit in the room for the whole
+    // presence timeout, exactly as if nobody had said goodbye at all.
+    const relay = new SimRelay()
+    const a = room(now, relay)
+    const b = room(now, relay)
+    await a.join([], {})
+    await b.join([], {})
+    await settle()
+    const earlier = relay.published.filter((e) => e.kind === KINDS.ROSTER && e.pubkey === a.device)
+    expect(earlier.length).toBeGreaterThan(0)
+
+    a.leave()
+    await settle()
+    expect(b.participants().map((v) => v.participant)).not.toContain(a.participant)
+
+    for (const stale of earlier) relay.publish(stale)
+    await settle()
+    expect(b.participants().map((v) => v.participant)).not.toContain(a.participant)
+  })
+
+  it('treats a device that left and came back as an arrival, and answers it', async () => {
+    let t = NOW
+    const clock = () => t
+    const relay = new SimRelay()
+    const deviceSk = generateSecretKey()
+    const identity = localIdentity(generateSecretKey())
+    const first = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity,
+      deviceSk,
+      now: clock,
+      announceJitterMs: 0,
+    })
+    const b = room(clock, relay)
+    await first.join([], {})
+    await b.join([], {})
+    await settle()
+    first.leave()
+    await settle()
+    expect(b.participants().map((v) => v.participant)).not.toContain(first.participant)
+
+    // Later, the same device on the same key comes back.
+    t += 30
+    const second = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity,
+      deviceSk,
+      now: clock,
+      announceJitterMs: 0,
+    })
+    const before = relay.published.filter((e) => e.kind === KINDS.ROSTER && e.pubkey === b.device).length
+    await second.join([], {})
+    await settle()
+
+    expect(b.participants().map((v) => v.participant)).toContain(second.participant)
+    // b answered the arrival, so the newcomer learns b is here.
+    const after = relay.published.filter((e) => e.kind === KINDS.ROSTER && e.pubkey === b.device).length
+    expect(after).toBe(before + 1)
+    expect(second.participants().map((v) => v.participant)).toContain(b.participant)
+    second.leave()
+    b.leave()
   })
 })
 

@@ -265,6 +265,24 @@ describe('roster event', () => {
     expect([...result!.name!]).toHaveLength(MAX_DISPLAY_NAME_LENGTH)
   })
 
+  it('farewell: decodes to a departure, and the field is inside the ciphertext', () => {
+    const v = vec('rosterEvent', 'farewell')
+    const result = decodeRosterEvent(v.input.event as Event, {
+      roomId: v.expected.decode.roomId,
+      roomKey: hexToBytes(v.expected.decode.roomKeyHex),
+      now: v.expected.decode.now,
+    })
+    expect(result).toEqual(v.expected.result)
+    expect(result).toEqual(v.output.result)
+    expect(result!.left).toBe(true)
+    expect(result!.reply).toBe(true)
+    expect(result!.tracks).toEqual([])
+    expect(result!.claims).toEqual({})
+    // A relay that could see who was leaving would be watching the room's
+    // door; the flag rides inside the room-key ciphertext like everything.
+    expect(JSON.stringify(v.input.event)).not.toContain('left')
+  })
+
   it('assist-offer: the offer survives the round trip and stays inside the ciphertext', () => {
     const v = vec('rosterEvent', 'assist-offer')
     const result = decodeRosterEvent(v.input.event as Event, {

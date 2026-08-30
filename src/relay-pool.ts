@@ -14,7 +14,21 @@ export interface RelayTransport {
 }
 
 export class NostrRelayPool implements RelayTransport {
-  #pool = new SimplePool()
+  // A conference room is nothing but long-lived subscriptions, and a relay
+  // restart, a laptop lid, or a phone crossing from Wi-Fi to mobile closes
+  // every one of them from the far side. Without `enableReconnect`,
+  // nostr-tools treats that close as final: the subscriptions are torn down,
+  // nothing is re-dialled, and the room silently stops hearing anybody new.
+  // With it, the relay is re-dialled on a backoff and every open
+  // subscription is re-issued on the new socket. `enablePing` is what
+  // notices a socket that is dead but not closed - the usual state after a
+  // sleep - by sending a dummy REQ and expecting its EOSE; a relay that
+  // does not answer is dropped and re-dialled the same way.
+  //
+  // Known limit, stated rather than hidden: nostr-tools gives up on a relay
+  // that refuses the *first* connection, so a relay that is down at join
+  // time is not retried for the session. The others carry the room.
+  #pool = new SimplePool({ enableReconnect: true, enablePing: true })
   #relays: string[]
   #closed = false
 

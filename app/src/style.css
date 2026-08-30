@@ -159,6 +159,22 @@ details#roomSettings label {
   flex-wrap: wrap;
 }
 
+.roomHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.roomHead h2 {
+  margin: 0;
+}
+
+#leave {
+  border-color: #a33;
+  color: #f88;
+}
+
 .toggle[data-on='true'] {
   background: var(--accent-dim);
   border-color: var(--accent);

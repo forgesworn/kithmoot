@@ -387,6 +387,12 @@ describe('a volunteer vanishing mid-call', () => {
 
     h.state(volunteer.pub, 'failed')
     await settle()
+    // A first failure on a connection that was up is a blip until proven
+    // otherwise: the peer restarts ICE and the pair stays on the volunteer.
+    expect(h.mesh.routes.get(remote.pub)?.tier).toBe('assist')
+
+    h.state(volunteer.pub, 'failed')
+    await settle()
 
     // Both the volunteer and the person they were carrying move on.
     expect(h.mesh.routes.get(remote.pub)?.tier).not.toBe('assist')

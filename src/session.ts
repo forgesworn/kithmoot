@@ -221,6 +221,17 @@ export class RoomSession {
   #credential?: DeviceCredential
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
+  /**
+   * Remote-track subscribers, held HERE rather than on the mesh.
+   *
+   * The mesh does not exist until `join()` builds it, so forwarding a
+   * subscription straight through meant a caller who subscribed first got a
+   * no-op and never heard a track again. Wiring up handlers before going on
+   * the network is the natural order and the only one with no window for a
+   * track to arrive unheard, so it is the session that has to remember them.
+   * See the regression test in session.test.ts.
+   */
+  readonly #trackListeners = new Set<(t: RemoteTrack) => void>()
   #unsub?: () => void
   #mesh?: Mesh
   #chat?: ChatLog
@@ -238,6 +249,12 @@ export class RoomSession {
   #heartbeatTimer?: ReturnType<typeof setInterval>
   #sweepTimer?: ReturnType<typeof setInterval>
   #left = false
+  /** Devices that said goodbye, and when. An entry stamped at or before a
+   *  device's farewell is one a slower relay delivered late, and is not a
+   *  return; one stamped after it is a genuine rejoin, and is an arrival
+   *  again. Forgotten once the presence timeout has passed, by which point
+   *  the late entry would have lapsed anyway. */
+  readonly #departed = new Map<string, number>()
   #unsubDescriptor?: () => void
   /** The newest valid descriptor heard for this room. Last writer wins,
    *  ordered on `updatedAt` - see `RoomDescriptor`. */
@@ -371,6 +388,21 @@ export class RoomSession {
         onRelayStart: this.#opts.onRelayStart,
         onRelayStop: this.#opts.onRelayStop,
         onRoute: this.#opts.onRoute,
+      })
+
+      // One subscription on the mesh, fanned out to whoever asked - including
+      // everyone who asked before this mesh existed. Snapshotted so a
+      // listener that unsubscribes while being called cannot disturb the
+      // iteration, and a throwing listener cannot swallow the track for the
+      // ones after it: a tile that fails to render must not silence the room.
+      this.#mesh.onRemoteTrack((t) => {
+        for (const cb of [...this.#trackListeners]) {
+          try {
+            cb(t)
+          } catch {
+            // A subscriber's problem, not the room's.
+          }
+        }
       })
     }
 
@@ -506,7 +538,7 @@ export class RoomSession {
     await this.#publishEntry(false)
   }
 
-  async #publishEntry(reply: boolean): Promise<void> {
+  async #publishEntry(reply: boolean, left = false): Promise<void> {
     const self = this.#self
     if (!self || this.#left) return
 
@@ -533,6 +565,7 @@ export class RoomSession {
       ...(assist ? { assist } : {}),
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(reply ? { reply: true } : {}),
+      ...(left ? { left: true } : {}),
     }
     const event = encodeRosterEvent(entry, {
       roomId: this.roomId,
@@ -572,6 +605,11 @@ export class RoomSession {
       // gone, so the next thing we hear from them really is an arrival.
       changed = true
     }
+    // A farewell only needs remembering for as long as an entry from before
+    // it could still be delivered and still be fresh.
+    for (const [device, leftAt] of this.#departed) {
+      if (leftAt < cutoff) this.#departed.delete(device)
+    }
 
     return changed
   }
@@ -600,9 +638,18 @@ export class RoomSession {
 
   /** Remote media tracks, attributed to the participant they came from -
    *  never the device - which is the whole point of grouping devices into
-   *  one view. A no-op subscription if media was never set up. */
+   *  one view.
+   *
+   *  Safe to call at any point in a session's life, and the sensible moment
+   *  is BEFORE `join()`: the subscription is held here rather than on the
+   *  mesh `join()` builds, so there is no window in which a track can arrive
+   *  with nobody listening. Never fires if no `factory` was supplied, which
+   *  is a session that was never going to carry media. */
   onRemoteTrack(cb: (t: RemoteTrack) => void): () => void {
-    return this.#mesh?.onRemoteTrack(cb) ?? (() => {})
+    this.#trackListeners.add(cb)
+    return () => {
+      this.#trackListeners.delete(cb)
+    }
   }
 
   /** The room's chat log. Only available after a successful `join()` - chat
@@ -633,6 +680,26 @@ export class RoomSession {
 
     const existing = this.#entries.get(entry.device)
     if (existing && existing.updatedAt > entry.updatedAt) return
+
+    if (entry.left) {
+      // A farewell. The device goes now, not when its presence lapses, and
+      // the moment it left is kept so a slower relay delivering something it
+      // said earlier cannot put it back in the room.
+      if (entry.device === this.device) return
+      this.#departed.set(entry.device, entry.updatedAt)
+      if (!existing) return
+      this.#entries.delete(entry.device)
+      this.#notify()
+      return
+    }
+
+    const leftAt = this.#departed.get(entry.device)
+    if (leftAt !== undefined) {
+      // Stamped at or before the farewell: delivered late, not come back.
+      if (entry.updatedAt <= leftAt) return
+      // Stamped after it: they really are back, and this is an arrival.
+      this.#departed.delete(entry.device)
+    }
 
     this.#entries.set(entry.device, entry)
 
@@ -713,17 +780,21 @@ export class RoomSession {
   }
 
   leave(): void {
-    // The wire format has no departure message, so the last thing this device
-    // says is an entry claiming nothing and publishing nothing. That releases
-    // a singular role at once rather than making the room wait out the
-    // presence timeout, and a device that is simply switched off is removed
-    // by that timeout anyway - so there is only one path to test.
+    // The last thing this device says is an entry claiming nothing,
+    // publishing nothing, and marked `left`. That releases a singular role
+    // and takes the tile off everybody's screen at once, rather than making
+    // the room wait out the presence timeout - and, more expensively, making
+    // every other device escalate its route ladder chasing a peer that has
+    // gone. A device that is simply switched off is removed by that timeout
+    // anyway - so there is only one path to test.
     if (this.#self && !this.#left) {
       this.#self = { ...this.#self, tracks: [], claims: {} }
       // Flagged the same way an answer is, because a farewell is not an
       // arrival either: without it, the last thing a leaving device does is
-      // provoke every remaining device into re-announcing at it.
-      this.#publishEntry(true).catch(() => {})
+      // provoke every remaining device into re-announcing at it. And flagged
+      // `left`, so everybody else drops this device now rather than when its
+      // presence lapses - see `RosterEntry.left`.
+      this.#publishEntry(true, true).catch(() => {})
     }
 
     this.#left = true

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
 import { NostrRelayPool } from './relay-pool.js'
@@ -144,6 +144,48 @@ describe('NostrRelayPool', () => {
 
     await expect(pool.publish(evt())).rejects.toThrow(/pool is closed/)
     expect(() => pool.subscribe([{ kinds: [20461] }], () => {})).toThrow(/pool is closed/)
+  })
+
+  it('re-opens its subscriptions when a relay drops the socket', async () => {
+    // A conference room is nothing but long-lived subscriptions, and a relay
+    // restart, a laptop lid, or a phone crossing from Wi-Fi to mobile closes
+    // every one of them from the far side. Nothing tells the person; the
+    // room simply stops hearing anybody new and, after the presence
+    // timeout, everybody else stops hearing them.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    const tick = () => vi.advanceTimersByTimeAsync(0)
+    // Somebody else on the same relay, whose publishes prove whether our
+    // subscription is live there - a pool of one relay, so nothing can be
+    // heard by way of another.
+    const mine = new NostrRelayPool([URL_A])
+    const theirs = new NostrRelayPool([URL_A])
+    try {
+      const seen: string[] = []
+      mine.subscribe([{ kinds: [20461] }], (e) => seen.push(e.id))
+      await tick()
+
+      const before = evt()
+      await theirs.publish(before)
+      await tick()
+      expect(seen).toEqual([before.id])
+
+      a.disconnectAll()
+      await tick()
+      expect(a.connections).toBe(0)
+
+      // nostr-tools waits out a backoff before dialling again; give it
+      // several, not one, so the test pins the behaviour and not the number.
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      const after = evt()
+      await theirs.publish(after)
+      await tick()
+      expect(seen).toEqual([before.id, after.id])
+    } finally {
+      mine.close()
+      theirs.close()
+      vi.useRealTimers()
+    }
   })
 
   it('ignores an event that matches no filter', async () => {

@@ -369,6 +369,12 @@ describe('Mesh', () => {
     const meshA = new Mesh({ session: sessionA, factory: factoryA, localDevice: a.pub, localParticipant: participantA, deviceSk: a.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
     const meshB = new Mesh({ session: sessionB, factory: factoryB, localDevice: b.pub, localParticipant: participantB, deviceSk: b.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
 
+    // Both sides have something to send. A device with nothing to send does
+    // not offer at all - see peer.ts - so a pair of silent meshes would
+    // exchange nothing and prove nothing about the relay.
+    meshA.publish([{} as MediaStreamTrack])
+    meshB.publish([{} as MediaStreamTrack])
+
     const roster = [view(participantA, [a.pub]), view(participantB, [b.pub])]
     sessionA.setViews(roster)
     sessionB.setViews(roster)
@@ -555,6 +561,15 @@ describe('Mesh promotion to a forwarder', () => {
     forwarderPc.connectionState = 'connected'
     forwarderPc.onconnectionstatechange?.()
     await settle()
+    expect(mesh.forwarding).toBe('up')
+    expect(mesh.directPeers).toBe(0)
+
+    forwarderPc.connectionState = 'failed'
+    forwarderPc.onconnectionstatechange?.()
+    await settle()
+    // A first failure on a connection that was up is a blip until proven
+    // otherwise: the peer restarts ICE and the room stays on the forwarder,
+    // rather than six people tearing down and re-meshing for a hiccup.
     expect(mesh.forwarding).toBe('up')
     expect(mesh.directPeers).toBe(0)
 

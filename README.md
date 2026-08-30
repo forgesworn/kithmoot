@@ -65,6 +65,18 @@ to make that one thing true.
   there for anyone who joins late.
 - **Names, and optionally a real Nostr identity.** Type a name and join, or
   sign in with a key you already have. See below.
+- **Leaving is instant, and so is a dropped connection coming back.** A
+  device that hangs up, closes the tab or navigates away says goodbye, and
+  everybody else drops it at once rather than after the presence timeout. A
+  connection that was up and reports `disconnected` is given a few seconds
+  and an ICE restart before anybody gives up on it, the way Jitsi and Signal
+  ride out a Wi-Fi blip, and a relay that drops its socket is re-dialled
+  with every subscription re-issued.
+- **A fresh device key for every room.** A relay learns the device keys in a
+  room from the roster events it carries; one key across every room a
+  browser ever joins would let it follow one person from room to room. The
+  participant key, the one that identifies a person, only ever rides inside
+  the room-key ciphertext.
 - An installable PWA. Add it to a home screen or dock, and a service worker
   carries the shell offline.
 - **Background blur and replacement**, on by default the first time you turn
@@ -262,9 +274,10 @@ Stated plainly, before anyone else finds it:
 ```bash
 npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 454 tests, in-process relay simulator, no network
+npm test          # 713 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
-npm run test:e2e  # the acceptance test below, automated, over live relays
+npm run test:e2e  # the acceptance tests, in a real browser, over live relays
+E2E_RELAYS=local npm run test:e2e  # the same, against test/ws-relay.mjs: what CI runs
 npm run typecheck
 npm run demo       # HTTPS dev server for driving the app by hand, phone included
 npm run build      # production PWA build, to app/dist
@@ -278,7 +291,13 @@ assertion. Once `dist/` exists it stays, which is why this is easy to miss
 locally and impossible to miss in CI.
 
 `npm run test:live` and `npm run test:e2e` need the network, and real relays
-have real weather, so both are excluded from `npm test`.
+have real weather, so both are excluded from `npm test`. The acceptance
+specs also run in CI on every push, against a NIP-01 relay of their own
+(`test/ws-relay.mjs`, started by `playwright.config.ts` when
+`E2E_RELAYS=local`): two or three browser contexts in a room, measured off
+the decoded pixels and the audio energy rather than the DOM. That gate
+exists because the unit suite once passed 685 tests while the shipped app
+negotiated media perfectly and put none of it on screen.
 
 `npm run demo` and `vite preview` both serve the app under `/j/` rather than at
 the root, because `base` in `app/vite.config.ts` matches where it is

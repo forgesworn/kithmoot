@@ -168,6 +168,19 @@ export interface RosterEntry {
    *  provokes an answer, which is what stops the room talking to itself for
    *  ever. Absent on a first announcement. */
   reply?: boolean
+  /**
+   * True on the last entry a device publishes: it has left the room.
+   *
+   * Departure is a fact, not a guess made from an empty track list - a device
+   * with everything switched off looks the same as one on its way out, and
+   * only one of them should vanish. A receiver drops the device at once
+   * rather than waiting out the presence timeout, and remembers when it left
+   * so an entry from before the farewell, delivered late by a slower relay,
+   * cannot bring it back. A client that does not know the field sees an
+   * ordinary answer carrying nothing, and evicts the device on the timeout
+   * as it always did. Absent on every entry that is not a farewell.
+   */
+  left?: boolean
 }
 
 /**

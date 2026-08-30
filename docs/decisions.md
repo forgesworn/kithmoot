@@ -227,3 +227,63 @@ in exactly the way a typed name is. It says "the holder of this key calls
 themselves Darren", and the only difference is that the key is persistent and
 has a history. That is worth something. It is not proof of a person, and
 the interface does not imply it is.
+
+## Departure is a stated fact, not a guess from an empty entry
+
+The wire format had no departure message. A leaving device published an
+entry claiming nothing and publishing nothing, which released a singular
+role at once, and everybody else waited out `PRESENCE_TTL_SECONDS` before
+the tile went. Seventy-five seconds is not only slow to look at: for that
+whole time every other device's mesh was escalating its route ladder - a
+volunteer, then a forwarder, then TURN - chasing a device that had gone.
+
+The fix could have been "an empty entry means gone". It is not, because a
+device that joins with its camera and microphone off publishes exactly the
+same empty entry and is very much in the room. So the farewell carries
+`left: true`, inside the ciphertext with everything else, and only a JSON
+`true` is one. A receiver drops the device at once and remembers when it
+left, so an entry from before the farewell that a slower relay delivers
+afterwards cannot bring it back; an entry stamped after it is a genuine
+rejoin, and is answered as an arrival. A client that does not know the
+field sees an ordinary answer carrying nothing and evicts the device on the
+timeout, as every client did before. The `farewell` interop vector pins the
+shape.
+
+The app says goodbye from its Leave button and on `pagehide`, so a closed
+tab is a departure too. Best effort on the second: one small publish over
+sockets that are already open, and the page is gone whatever happens.
+
+## A connection that was up gets one ICE restart before the ladder moves
+
+A phone crossing from Wi-Fi to mobile, a laptop lid, a router hiccup: ICE
+reports `disconnected`, and a few seconds later `failed`. The mesh used to
+treat both as the rung failing and move the pair down the ladder, which
+costs a volunteer, then a forwarder, then TURN, for a path that would have
+come back on its own. Jitsi and Signal survive the same blip by restarting
+ICE on the connection they have.
+
+So `Peer` owns the blip. A connection that has reached `connected` and
+reports `disconnected` is given `ICE_RESTART_GRACE_MS` to heal, then
+`restartIce()`; one that reports `failed` is restarted at once. Neither is
+reported to the mesh until the restart has had `ICE_RESTART_TIMEOUT_MS` and
+not brought the connection back, at which point the failure is real and the
+ladder takes over. One restart per episode, an episode ending at the next
+`connected`. A connection that never came up gets no restart: the route
+timer and the ladder own that, and are faster.
+
+## Device keys are per room
+
+A relay learns every device pubkey in a room from the roster events it
+carries, because those are signed by the device key. One device key for
+every room a browser ever joins would let a relay follow one person from
+room to room and across time, whatever the ciphertext hid. So the app keeps
+a fresh device key per room, and the credential that names it per room too,
+which costs the protocol nothing: a credential was already minted per room.
+The participant key, the one that identifies a person, only ever rides
+inside the room-key ciphertext and is unaffected.
+
+This is the reasoning behind ForgeSworn Link's rendezvous-tag routing - the
+relay must learn no stable pseudonym - applied to what can be fixed in the
+app without a wire change. The wire-level version, roster and signalling
+addressed by a pair-scoped per-epoch tag rather than by pubkey, belongs to
+the spec.

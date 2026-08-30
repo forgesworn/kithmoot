@@ -38,6 +38,16 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
   ontrack: ((event: { track: MediaStreamTrack }) => void) | null = null
   onicecandidate: ((event: { candidate: RTCIceCandidateInit | null }) => void) | null = null
   onconnectionstatechange: (() => void) | null = null
+  /** A real connection fires this whenever what it is carrying stops
+   *  matching what it should be - after `addTrack`, and after a rollback.
+   *  Nothing here fires it by itself; a test calls it to say "the connection
+   *  noticed", which is the only part `Peer` is responsible for reacting to. */
+  onnegotiationneeded: (() => void) | null = null
+
+  /** One per track handed to `addTrack`, dropped again by `removeTrack` -
+   *  enough of a sender for a caller that only ever asks what it is
+   *  currently sending. */
+  senders: { track: MediaStreamTrack | null }[] = []
 
   async createOffer(): Promise<RTCSessionDescriptionInit> {
     this.calls.push({ method: 'createOffer', args: [] })
@@ -87,6 +97,18 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
     if (this.rejectIceCandidates) throw new Error('candidate does not belong to this description')
   }
 
+  getSenders(): { track: MediaStreamTrack | null }[] {
+    return this.senders
+  }
+
+  removeTrack(sender: { track: MediaStreamTrack | null }): void {
+    this.calls.push({ method: 'removeTrack', args: [sender.track] })
+    const index = this.senders.indexOf(sender as never)
+    if (index >= 0) this.senders.splice(index, 1)
+    if (sender.track) this.tracks = this.tracks.filter((t) => t !== sender.track)
+    this.onnegotiationneeded?.()
+  }
+
   addTrack(track: MediaStreamTrack): void {
     this.calls.push({ method: 'addTrack', args: [track] })
     // A real RTCPeerConnection throws InvalidAccessError if a track already
@@ -95,6 +117,19 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
     // in tests and then throw the first time it runs in a real browser.
     if (this.tracks.includes(track)) throw new Error('track already added to this connection')
     this.tracks.push(track)
+    this.senders.push({ track })
+    // What this connection is carrying no longer matches what it should be,
+    // and a real connection says so. `Peer` has exactly one place that turns
+    // that into an offer, so the fake has to raise it or the tests would be
+    // exercising a trigger the browser does not use.
+    this.onnegotiationneeded?.()
+  }
+
+  /** A real connection gathers fresh candidates and raises
+   *  `negotiationneeded`; here it is only recorded, so a test can say whether
+   *  a restart was asked for. */
+  restartIce(): void {
+    this.calls.push({ method: 'restartIce', args: [] })
   }
 
   close(): void {

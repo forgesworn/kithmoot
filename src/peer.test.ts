@@ -10,6 +10,12 @@ function fakeTrack(): MediaStreamTrack {
   return {} as MediaStreamTrack
 }
 
+/** Lets the peer's operation queue drain. Every negotiation step is queued,
+ *  so anything triggered by a callback lands a few turns later. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 8; i++) await Promise.resolve()
+}
+
 describe('Peer', () => {
   it('decides politeness by comparing device pubkeys, and the two sides disagree', () => {
     const factory = createFakeFactory()
@@ -55,19 +61,146 @@ describe('Peer', () => {
     expect(xSide.polite).toBe(!ySide.polite)
   })
 
-  it('start() creates an offer, sets it locally, and emits it via onSignal', async () => {
+  it('start() attaches the track, and the offer that follows is emitted via onSignal', async () => {
     const factory = createFakeFactory()
     const signals: SignalBody[] = []
     const track = fakeTrack()
     const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: (b) => signals.push(b), onTrack: () => {} })
 
+    // Attaching the track is what makes the connection ask to negotiate, and
+    // that request is what produces the offer - one trigger, not two. The
+    // offer therefore lands a turn after `start()` resolves.
     await peer.start([track])
+    await settle()
 
     const pc = factory.instances[0]!
     expect(pc.tracks).toEqual([track])
     expect(pc.calls.map((c) => c.method)).toEqual(['addTrack', 'createOffer', 'setLocalDescription'])
     expect(signals).toHaveLength(1)
     expect(signals[0]).toMatchObject({ type: 'offer', sdp: pc.localDescription?.sdp })
+  })
+
+  /**
+   * Somebody who joins with their camera and microphone off - which is how
+   * most people join most calls - must not send an offer with nothing in it.
+   *
+   * `createOffer()` on a connection with no transceivers produces an offer
+   * with no m-lines: nothing to negotiate, no ICE, and a connection that
+   * never comes up. Measured in a browser on 29 August 2026, that is exactly
+   * what happened - both sides ended `closed`, the sender's transceivers
+   * `stopped`, and the route ladder escalated a connection that was never
+   * going to work through assist and forwarder to TURN. The room then stayed
+   * broken after the person turned their camera back on, because the peers
+   * had already been closed and were never rebuilt.
+   *
+   * Saying nothing is the right answer: the other side has media, so the
+   * other side offers, and this one answers and receives.
+   */
+  it('does not offer when it has nothing to send', async () => {
+    const factory = createFakeFactory()
+    const signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: (b) => signals.push(b), onTrack: () => {} })
+
+    await peer.start([])
+
+    expect(factory.instances[0]!.calls.map((c) => c.method)).toEqual([])
+    expect(signals, 'an offer with no m-lines negotiates nothing').toEqual([])
+  })
+
+  /**
+   * The other half of perfect negotiation.
+   *
+   * The polite side resolves glare by rolling its own offer back and
+   * answering the incoming one. Its tracks are still attached and still
+   * unnegotiated, and the design assumes the connection will say so and be
+   * re-offered. Nothing was listening, so those tracks were lost for the
+   * life of the call - which in a browser looked like a person with a
+   * microphone and no camera never seeing anybody else's video.
+   */
+  it('offers again when the connection says negotiation is needed', async () => {
+    const factory = createFakeFactory()
+    const signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: (b) => signals.push(b), onTrack: () => {} })
+
+    await peer.start([fakeTrack()])
+    await settle()
+    expect(signals).toHaveLength(1)
+
+    // The answer lands, so the connection is idle again - which is the only
+    // state a fresh offer belongs in.
+    const pc = factory.instances[0]!
+    await peer.handleSignal({ type: 'answer', roomId: 'room', sdp: 'answer-sdp' })
+    expect(pc.signalingState).toBe('stable')
+
+    pc.onnegotiationneeded?.()
+    await settle()
+
+    expect(signals, 'a rolled-back offer is never made again').toHaveLength(2)
+    expect(signals[1]).toMatchObject({ type: 'offer' })
+  })
+
+  it('does not offer into a negotiation that is already under way', async () => {
+    const factory = createFakeFactory()
+    const signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: (b) => signals.push(b), onTrack: () => {} })
+
+    await peer.start([fakeTrack()])
+    await settle()
+    const pc = factory.instances[0]!
+    // Mid-negotiation: the offer is out and its answer has not arrived, so
+    // attaching the track has already left the connection busy.
+    expect(pc.signalingState).toBe('have-local-offer')
+    pc.onnegotiationneeded?.()
+    await settle()
+
+    // A real connection re-reports the change on the way back to `stable`,
+    // so skipping this one loses nothing.
+    expect(signals).toHaveLength(1)
+  })
+
+  /**
+   * Turning a camera off has to actually stop sending it.
+   *
+   * `start()` only ever added tracks, so a device that stopped its camera
+   * left the sender in place and simply went quiet. The far end is not told
+   * anything by silence: its track never ends and never mutes, so the last
+   * frame it decoded stays on screen. Measured in a browser, somebody who
+   * turned their camera off was still sitting on the other person's screen
+   * frozen mid-gesture, and turning it back on arrived as a SECOND picture
+   * beside the stale one.
+   *
+   * Removing the sender is what makes "off" mean off. The re-offer that has
+   * to follow comes from `onnegotiationneeded`.
+   */
+  it('stops sending a track that is no longer published', async () => {
+    const factory = createFakeFactory()
+    const camera = fakeTrack()
+    const mic = fakeTrack()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })
+
+    await peer.start([camera, mic])
+    const pc = factory.instances[0]!
+    expect(pc.tracks).toEqual([camera, mic])
+
+    // The camera goes off: the caller republishes what is left.
+    await peer.start([mic])
+
+    expect(pc.tracks, 'the camera is still being sent').toEqual([mic])
+    expect(pc.calls.filter((c) => c.method === 'removeTrack')).toHaveLength(1)
+  })
+
+  it('re-adds a track that comes back after being turned off', async () => {
+    const factory = createFakeFactory()
+    const camera = fakeTrack()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })
+
+    await peer.start([camera])
+    await peer.start([])
+    // A camera turned back on is a brand new track, but the same one coming
+    // back must work too - `#addedTracks` has to forget what it removed.
+    await peer.start([camera])
+
+    expect(factory.instances[0]!.tracks).toEqual([camera])
   })
 
   it('answers an incoming offer when there is no outgoing offer pending', async () => {
@@ -153,9 +286,12 @@ describe('Peer', () => {
     expect(polite.polite).toBe(true)
     expect(impolite.polite).toBe(false)
 
-    // Both sides offer simultaneously - the mesh scenario that makes glare possible.
-    await polite.start([])
-    await impolite.start([])
+    // Both sides offer simultaneously - the mesh scenario that makes glare
+    // possible. Attaching a track is what asks for the offer, so both have
+    // to settle before either offer exists to deliver.
+    await polite.start([fakeTrack()])
+    await impolite.start([fakeTrack()])
+    await settle()
 
     const offerFromImpolite = signalsFromHigh[0]!
     const offerFromPolite = signalsFromLow[0]!
@@ -215,9 +351,143 @@ describe('Peer', () => {
     pc.onconnectionstatechange?.()
     pc.connectionState = 'failed'
     pc.onconnectionstatechange?.()
+    // One restart is tried first - see below - so the failure that closes
+    // the peer is the one after it.
+    pc.connectionState = 'failed'
+    pc.onconnectionstatechange?.()
 
     expect(states).toEqual(['connected', 'failed'])
     expect(pc.closed).toBe(true)
+  })
+
+  describe('riding out a network blip', () => {
+    // A phone crossing from Wi-Fi to mobile, a laptop lid, a router hiccup:
+    // ICE reports `disconnected`, and a few seconds later `failed`. Jitsi
+    // and Signal survive it by restarting ICE on the connection they have.
+    // Tearing the peer down and walking the route ladder instead costs the
+    // pair a volunteer, then a forwarder, then TURN - for a path that would
+    // have come back on its own.
+    function connected(opts: { graceMs?: number; timeoutMs?: number } = {}) {
+      const factory = createFakeFactory()
+      const states: RTCPeerConnectionState[] = []
+      const peer = new Peer({
+        factory,
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: () => {},
+        onTrack: () => {},
+        onConnectionState: (state) => states.push(state),
+        iceRestart: opts,
+      })
+      const pc = factory.instances[0]!
+      pc.connectionState = 'connected'
+      pc.onconnectionstatechange?.()
+      return { peer, pc, states }
+    }
+    const restarts = (pc: { calls: { method: string }[] }) => pc.calls.filter((c) => c.method === 'restartIce').length
+
+    it('restarts ICE after a grace period when a connected peer reports disconnected', async () => {
+      const { pc, states } = connected({ graceMs: 5, timeoutMs: 1000 })
+      pc.connectionState = 'disconnected'
+      pc.onconnectionstatechange?.()
+      // Not yet: most disconnections heal themselves inside the grace.
+      expect(restarts(pc)).toBe(0)
+      await new Promise((r) => setTimeout(r, 20))
+
+      expect(restarts(pc)).toBe(1)
+      expect(pc.closed).toBe(false)
+      expect(states).toEqual(['connected', 'disconnected'])
+    })
+
+    it('does not restart when the disconnection heals inside the grace', async () => {
+      const { pc } = connected({ graceMs: 20, timeoutMs: 1000 })
+      pc.connectionState = 'disconnected'
+      pc.onconnectionstatechange?.()
+      pc.connectionState = 'connected'
+      pc.onconnectionstatechange?.()
+      await new Promise((r) => setTimeout(r, 40))
+
+      expect(restarts(pc)).toBe(0)
+    })
+
+    it('gives a connected peer that fails one restart before reporting the failure', () => {
+      const { pc, states } = connected({ timeoutMs: 1000 })
+      pc.connectionState = 'failed'
+      pc.onconnectionstatechange?.()
+
+      expect(restarts(pc)).toBe(1)
+      expect(pc.closed).toBe(false)
+      // The caller has not been told it failed, because it has not - yet.
+      expect(states).toEqual(['connected'])
+    })
+
+    it('reports the failure and closes when the restart does not bring it back', async () => {
+      const { pc, states } = connected({ timeoutMs: 5 })
+      pc.connectionState = 'failed'
+      pc.onconnectionstatechange?.()
+      await new Promise((r) => setTimeout(r, 20))
+
+      expect(states).toEqual(['connected', 'failed'])
+      expect(pc.closed).toBe(true)
+      expect(restarts(pc)).toBe(1)
+    })
+
+    it('restarts once per episode: a second failure after a restart is final', () => {
+      const { pc, states } = connected({ timeoutMs: 1000 })
+      pc.connectionState = 'failed'
+      pc.onconnectionstatechange?.()
+      pc.connectionState = 'failed'
+      pc.onconnectionstatechange?.()
+
+      expect(restarts(pc)).toBe(1)
+      expect(states).toEqual(['connected', 'failed'])
+      expect(pc.closed).toBe(true)
+    })
+
+    it('is allowed another restart once the connection has come back', () => {
+      const { pc } = connected({ timeoutMs: 1000 })
+      pc.connectionState = 'failed'
+      pc.onconnectionstatechange?.()
+      pc.connectionState = 'connected'
+      pc.onconnectionstatechange?.()
+      pc.connectionState = 'failed'
+      pc.onconnectionstatechange?.()
+
+      expect(restarts(pc)).toBe(2)
+      expect(pc.closed).toBe(false)
+    })
+
+    it('never restarts a connection that has not come up: the route ladder owns that', () => {
+      const factory = createFakeFactory()
+      const states: RTCPeerConnectionState[] = []
+      new Peer({
+        factory,
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: () => {},
+        onTrack: () => {},
+        onConnectionState: (state) => states.push(state),
+        iceRestart: { timeoutMs: 1000 },
+      })
+      const pc = factory.instances[0]!
+      pc.connectionState = 'failed'
+      pc.onconnectionstatechange?.()
+
+      expect(restarts(pc)).toBe(0)
+      expect(states).toEqual(['failed'])
+      expect(pc.closed).toBe(true)
+    })
+
+    it('fails as it always did on a connection that cannot restart', () => {
+      const { pc, states } = connected({ timeoutMs: 1000 })
+      // Shadow the prototype's method: a double without one.
+      ;(pc as { restartIce?: () => void }).restartIce = undefined
+      pc.connectionState = 'failed'
+      pc.onconnectionstatechange?.()
+
+      expect(states).toEqual(['connected', 'failed'])
+      expect(pc.closed).toBe(true)
+    })
   })
 
   it('BUG (I3): a buffered candidate that the connection rejects must not prevent the answer', async () => {
@@ -279,16 +549,30 @@ describe('Peer', () => {
     const signals: SignalBody[] = []
     const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: (b) => signals.push(b), onTrack: () => {} })
 
-    const offering = peer.start([])
+    const offering = peer.start([fakeTrack()])
     const incoming = peer.handleSignal({ type: 'offer', roomId: 'room', sdp: 'remote-offer-sdp' })
     await Promise.all([offering, incoming])
+    await settle()
 
     const pc = factory.instances[0]!
-    const methods = pc.calls.map((c) => c.method)
-    // Our own offer completes first, then the incoming one is dealt with -
-    // never half of each.
-    expect(methods.slice(0, 2)).toEqual(['createOffer', 'setLocalDescription'])
-    expect(signals[0]).toMatchObject({ type: 'offer' })
+    // Attaching a track is not a negotiation step - what is under test here
+    // is the order of the negotiation itself.
+    const methods = pc.calls.map((c) => c.method).filter((m) => m !== 'addTrack')
+
+    // Each negotiation runs to completion before the next one starts: an
+    // answer is never generated against a description that arrived after the
+    // offer it answers. Which one goes first is not the point and is not
+    // asserted - attaching a track asks the connection to negotiate rather
+    // than offering on the spot, so the arrival is simply dealt with first
+    // and this side's own change is offered after it.
+    for (let i = 0; i < methods.length - 1; i++) {
+      if (methods[i] === 'setRemoteDescription') {
+        expect(methods[i + 1], 'two descriptions applied back to back').not.toBe('setRemoteDescription')
+      }
+    }
+    expect(methods, 'the arrival was never answered').toContain('createAnswer')
+    expect(methods, "this side's own change was never offered").toContain('createOffer')
+    expect(signals.map((sig) => sig.type)).toEqual(['answer', 'offer'])
   })
 
   it('BUG (I7): a rollback clears the remote description, so later candidates are buffered again', async () => {
@@ -307,7 +591,7 @@ describe('Peer', () => {
     // Now both sides re-offer at once. The polite side rolls back - and the
     // incoming description then fails to apply, which leaves the connection
     // renegotiating with no current remote description at all.
-    await peer.start([])
+    await peer.start([fakeTrack()])
     factory.instances[0]!.failNextSetRemoteDescription = true
     await peer.handleSignal({ type: 'offer', roomId: 'room', sdp: 'remote-offer-2' }).catch(() => {})
 

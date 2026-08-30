@@ -556,6 +556,43 @@ vectors.rosterEvent.push({
 }
 
 {
+  // --- Farewell ----------------------------------------------------------
+  //
+  // The last entry a device publishes as it leaves: nothing published,
+  // nothing claimed, flagged as an answer so it provokes no re-announce,
+  // and flagged `left` so every other device drops it NOW rather than when
+  // its presence lapses. Departure is a stated fact rather than a guess from
+  // an empty track list, because a device with everything switched off looks
+  // exactly like one on its way out and only one of them should vanish.
+  //
+  // Recorded decode-only, like the display-name and assist vectors: an
+  // implementation that does not model `left` still decodes this event,
+  // ignores the field, and matches the recorded entry on everything else -
+  // it simply removes the device on the timeout, as every client did before
+  // the field existed.
+  const farewellEntry = { ...rosterEntry, tracks: [], claims: {}, reply: true, left: true }
+  const farewellRoster = buildRoster({
+    entry: farewellEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-farewell-nonce',
+    auxRandLabel: 'roster-farewell-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'farewell',
+    kind: 'positive',
+    note: 'The entry a device publishes as it leaves: empty tracks and claims, `reply: true` so nobody answers it, and `left: true` so every other device removes it at once instead of waiting out the presence timeout. A reader that does not know `left` treats this as an ordinary answer carrying nothing and evicts the device on the timeout. Only a JSON `true` is a farewell; any other value is not one.',
+    input: { event: farewellRoster.event },
+    output: { result: decodeRosterEvent(farewellRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }) },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), now: fx.NOW },
+      result: decodeRosterEvent(farewellRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
   // --- Assist offers -----------------------------------------------------
   //
   // A roster entry may carry an `assist`: an offer to relay other people's

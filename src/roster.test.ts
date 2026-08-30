@@ -194,6 +194,33 @@ describe('roster display names', () => {
     expect(decoded).not.toHaveProperty('name')
   })
 
+  it('carries a farewell as `left: true`, and nothing else on the wire changes', async () => {
+    // Departure is a first-class fact, not a guess made from an empty track
+    // list: a device with everything switched off looks the same as one on
+    // its way out, and only one of them should vanish from the room.
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const farewell: RosterEntry = { ...entry, tracks: [], claims: {}, reply: true, left: true }
+    const event = encodeRosterEvent(farewell, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded?.left).toBe(true)
+    // An entry that is not a farewell has no `left` at all - byte-identical
+    // to what every client published before departures existed.
+    const staying = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+    expect(JSON.parse(nip44.v2.decrypt(staying.content, roomKey))).not.toHaveProperty('left')
+  })
+
+  it('accepts only an honest `true` for `left`; anything else is not a departure', async () => {
+    // A truthy string or a 1 from a looser implementation must not read as
+    // a farewell, because a farewell removes somebody from the room.
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    for (const hostile of ['yes', 1, {}, [], 'true']) {
+      const event = encodeRosterEvent({ ...entry, left: hostile } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+      const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+      expect(decoded, `left=${JSON.stringify(hostile)}`).not.toBeNull()
+      expect(decoded, `left=${JSON.stringify(hostile)}`).not.toHaveProperty('left')
+    }
+  })
+
   it('neutralises a hostile name on the way in, whatever the sender did on the way out', async () => {
     const { roomId, roomKey, deviceSk, entry } = await fixture()
     // Published by a client that never sanitised anything: an RTL override,

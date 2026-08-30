@@ -34,10 +34,14 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
   // defuse. Both fields are `undefined` when absent, which JSON.stringify
   // drops, so an entry that carries neither produces exactly the bytes it did
   // before either existed.
+  // `left` is written only as an honest `true`: a farewell is the one entry
+  // that removes somebody from a room, so it is never published by accident
+  // of a truthy value, and every entry that is not one stays byte-identical.
   const plaintext = JSON.stringify({
     ...entry,
     name: sanitiseDisplayName(entry.name),
     assist: sanitiseAssistOffer(entry.assist),
+    left: entry.left === true ? true : undefined,
   })
   const content = nip44.v2.encrypt(plaintext, opts.roomKey)
   return finalizeEvent(
@@ -117,6 +121,10 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     const assist = sanitiseAssistOffer(entry.assist)
     if (assist === undefined) delete entry.assist
     else entry.assist = assist
+    // A farewell removes somebody from the room, so only an honest `true`
+    // is one. A looser implementation's `1` or `"yes"` is not a departure;
+    // it is an entry like any other, and the timeout deals with it.
+    if (entry.left !== true) delete entry.left
 
     if (entry.proof) {
       entry.proof = {

@@ -1,6 +1,15 @@
 import './style.css'
 import { registerSW } from 'virtual:pwa-register'
 import {
+  browserDeviceStore,
+  deviceKeyFor,
+  forgetCredentialFor,
+  forgetLegacyStorage,
+  isPairedSecondary,
+  loadCredentialFor,
+  storeCredentialFor,
+} from './device-store.js'
+import {
   RoomSession,
   NostrRelayPool,
   generateRoomSecret,
@@ -158,9 +167,21 @@ function setStatus(message: string): void {
 // ---------------------------------------------------------------------------
 
 const PARTICIPANT_STORAGE_KEY = 'kithmoot.participant'
-const DEVICE_STORAGE_KEY = 'kithmoot.device'
-const CREDENTIAL_STORAGE_KEY = 'kithmoot.credential'
 const NAME_STORAGE_KEY = 'kithmoot.name'
+
+// Device keys and device credentials are kept PER ROOM - see
+// `device-store.ts` for why a relay must never see one device key across
+// two rooms. The single shared key this replaces is forgotten on load.
+const deviceStore = browserDeviceStore(localStorage)
+forgetLegacyStorage(deviceStore)
+
+const nowSeconds = () => Math.floor(Date.now() / 1000)
+
+/** The room this page is in, once a link has been read. Everything a device
+ *  keeps is keyed on it; before a room is known there is nothing to keep. */
+function currentRoomId(): string | undefined {
+  return (roomSecret as Uint8Array | undefined) ? deriveRoom(roomSecret).roomId : undefined
+}
 
 function loadParticipantKey(): Uint8Array | undefined {
   const stored = localStorage.getItem(PARTICIPANT_STORAGE_KEY)
@@ -168,31 +189,29 @@ function loadParticipantKey(): Uint8Array | undefined {
 }
 
 function loadCredential(): DeviceCredential | undefined {
-  const stored = localStorage.getItem(CREDENTIAL_STORAGE_KEY)
-  if (!stored) return undefined
-  try {
-    return JSON.parse(stored) as DeviceCredential
-  } catch {
-    return undefined
-  }
+  const roomId = currentRoomId()
+  return roomId ? loadCredentialFor(deviceStore, roomId) : undefined
 }
 
 function storeCredential(credential: DeviceCredential): void {
-  localStorage.setItem(CREDENTIAL_STORAGE_KEY, JSON.stringify(credential))
+  const roomId = currentRoomId()
+  if (!roomId) throw new Error('no room to keep a credential for')
+  storeCredentialFor(deviceStore, roomId, credential)
 }
 
 function forgetCredential(): void {
-  localStorage.removeItem(CREDENTIAL_STORAGE_KEY)
+  const roomId = currentRoomId()
+  if (roomId) forgetCredentialFor(deviceStore, roomId)
 }
 
-/** This device's own key, kept across loads so a credential issued for it
- *  still names us next time the page opens. */
+/** This device's own key for the current room, kept across loads so a
+ *  credential issued for it still names us next time the page opens - and
+ *  different for every room, so a relay cannot follow one browser from room
+ *  to room by the key that signs its roster entries. */
 function deviceKey(): Uint8Array {
-  const stored = localStorage.getItem(DEVICE_STORAGE_KEY)
-  if (stored) return hexToBytes(stored)
-  const sk = generateSecretKey()
-  localStorage.setItem(DEVICE_STORAGE_KEY, bytesToHex(sk))
-  return sk
+  const roomId = currentRoomId()
+  if (!roomId) throw new Error('no room to hold a device key for')
+  return deviceKeyFor(deviceStore, roomId, nowSeconds(), generateSecretKey)
 }
 
 /** The participant key, minting one on first use - but never on a device
@@ -201,7 +220,7 @@ function deviceKey(): Uint8Array {
 function participantKey(): Uint8Array {
   const existing = loadParticipantKey()
   if (existing) return existing
-  if (loadCredential()) throw new Error('this device is paired to another device and has no participant key')
+  if (isPairedSecondary(deviceStore)) throw new Error('this device is paired to another device and has no participant key')
   const sk = generateSecretKey()
   localStorage.setItem(PARTICIPANT_STORAGE_KEY, bytesToHex(sk))
   return sk
@@ -1085,6 +1104,7 @@ async function toggleMic(): Promise<void> {
       mic?.stop()
       mic = undefined
       micTrack = undefined
+      publishActiveTracks()
       updateUi()
     })
     publishActiveTracks()
@@ -1102,6 +1122,13 @@ async function toggleCamera(): Promise<void> {
     cameraTrack = undefined
     localPreviewEls.get('camera')?.remove()
     localPreviewEls.delete('camera')
+    // Turning something off has to be published exactly as loudly as turning
+    // it on. Stopping the track locally is invisible to everybody else: a
+    // sender left in place sends nothing and says nothing, so the far end
+    // holds the last frame it decoded and shows it for the rest of the call.
+    // Somebody who turned their camera off was still sitting on the other
+    // people's screens, frozen. See Peer#start.
+    publishActiveTracks()
   } else {
     const pipeline = new CameraPipeline({
       onStateChange: renderEffectState,
@@ -1111,6 +1138,7 @@ async function toggleCamera(): Promise<void> {
         cameraTrack = undefined
         localPreviewEls.get('camera')?.remove()
         localPreviewEls.delete('camera')
+        publishActiveTracks()
         updateUi()
       },
     })
@@ -1281,6 +1309,9 @@ async function toggleScreen(): Promise<void> {
     screenTrack = undefined
     localPreviewEls.get('screen')?.remove()
     localPreviewEls.delete('screen')
+    // Same as the camera, and worse if it is missed: a screen share nobody
+    // was told had stopped stays frozen on everybody else's display.
+    publishActiveTracks()
   } else {
     // Absent on iOS Safari and unreliable on Android Chrome - which is
     // exactly why the mobile app is native rather than a browser tab.
@@ -1299,6 +1330,7 @@ async function toggleScreen(): Promise<void> {
         screenTrack = undefined
         localPreviewEls.get('screen')?.remove()
         localPreviewEls.delete('screen')
+        publishActiveTracks()
         updateUi()
       })
       addLocalPreview('screen', screenTrack)
@@ -1473,6 +1505,81 @@ function renderChat(messages: ChatMessage[]): void {
   log.scrollTop = log.scrollHeight
 }
 
+/**
+ * Every remote video element, live or not, with what it takes to decide
+ * which of those it currently is.
+ *
+ * Kept here rather than looked up in the DOM because a renegotiation hands
+ * the same track over again and `ontrack` fires afresh: a DOM lookup finds
+ * nothing for an element that has been taken off screen, so it builds a new
+ * one and puts the stale picture back.
+ */
+interface RemoteVideo {
+  el: HTMLVideoElement
+  container: HTMLDivElement
+  track: MediaStreamTrack
+  /** `currentTime` at the last check - a picture that is moving is live. */
+  last: number
+  /** Consecutive checks with no new frame. */
+  stalled: number
+}
+
+const remoteVideos = new Map<string, RemoteVideo>()
+const remoteAudios = new Map<string, HTMLAudioElement>()
+
+/** How many checks a picture may go without a new frame before it comes off
+ *  screen. Two at a one-second interval: long enough not to flicker on a
+ *  dropped frame or a slow moment, short enough that "off" looks off. */
+const STALLED_CHECKS = 2
+
+/**
+ * Take a picture off screen when it stops moving, and put it back when it
+ * starts again.
+ *
+ * The obvious signal - the track's own `muted` flag - is not trustworthy
+ * enough to hang this on. Measured in Chromium: a remote track can arrive
+ * `muted`, decode and paint frames perfectly well, and never fire `unmute`
+ * at all; gate the picture on that flag and a live participant is invisible.
+ * The reverse happens too - a camera switched off before its first frame
+ * leaves a track that was muted on arrival and never unmuted, so no `mute`
+ * ever fires either and a frozen frame sits on everybody else's screen for
+ * the rest of the call.
+ *
+ * Whether the picture is actually moving has neither problem, and it is also
+ * the thing a person in the room is really asking. `currentTime` advances
+ * whether or not the element is in the document, so a picture that comes
+ * back is noticed while it is off screen.
+ */
+function syncRemoteVideos(): void {
+  let changed = false
+  for (const [key, entry] of remoteVideos) {
+    if (entry.track.readyState === 'ended') {
+      if (entry.el.isConnected) {
+        entry.el.remove()
+        changed = true
+      }
+      remoteVideos.delete(key)
+      continue
+    }
+    const now = entry.el.currentTime
+    const moving = now > entry.last + 0.001
+    entry.last = now
+    if (moving) {
+      entry.stalled = 0
+      if (!entry.el.isConnected) {
+        entry.container.append(entry.el)
+        changed = true
+      }
+    } else if (++entry.stalled >= STALLED_CHECKS && entry.el.isConnected) {
+      entry.el.remove()
+      changed = true
+    }
+  }
+  if (changed && session) render(session.participants(), meParticipant)
+}
+
+setInterval(syncRemoteVideos, 1000)
+
 function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
   let mediaEl = deviceMediaEls.get(device)
   if (!mediaEl) {
@@ -1480,20 +1587,60 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
     mediaEl.className = 'media'
     deviceMediaEls.set(device, mediaEl)
   }
+  const container = mediaEl
+  const key = `${device}|${track.id}`
 
-  const tag = track.kind === 'video' ? 'video' : 'audio'
-  let el = mediaEl.querySelector<HTMLMediaElement>(tag)
-  if (!el) {
-    el = document.createElement(tag) as HTMLMediaElement
-    el.autoplay = true
-    if (el instanceof HTMLVideoElement) el.playsInline = true
-    mediaEl.append(el)
+  // One element PER TRACK, not per kind. A device sharing its screen while
+  // its camera is on sends two video tracks, and a room where the second one
+  // lands on top of the first is a room where turning on a screen share
+  // makes your face disappear - which is exactly what it used to do, since
+  // the lookup was by tag and the second `srcObject` assignment simply
+  // replaced the first. Same for audio: a screen share with sound is a
+  // second audio track alongside the mic.
+  if (track.kind === 'video') {
+    const existing = remoteVideos.get(key)
+    const el = existing?.el ?? document.createElement('video')
+    el.srcObject = new MediaStream([track])
+    if (!existing) {
+      el.autoplay = true
+      el.playsInline = true
+      el.muted = true
+      el.dataset.track = track.id
+      remoteVideos.set(key, { el, container, track, last: -1, stalled: 0 })
+      container.append(el)
+      track.addEventListener('ended', () => {
+        el.remove()
+        remoteVideos.delete(key)
+        if (session) render(session.participants(), meParticipant)
+      })
+    } else if (!el.isConnected) {
+      container.append(el)
+      existing.stalled = 0
+    }
+  } else {
+    // Audio is never taken off screen for going quiet. A picture that
+    // outlives its media is a lie about what the room can see; an `<audio>`
+    // element that outlives its media is simply silent - and removing one
+    // costs real sound, because a track with no sink is never decoded and
+    // reports exactly zero energy, which is how a room with no audio
+    // elements at all looked in the first place.
+    let el = remoteAudios.get(key)
+    if (!el) {
+      el = document.createElement('audio')
+      el.autoplay = true
+      el.dataset.track = track.id
+      remoteAudios.set(key, el)
+      container.append(el)
+      track.addEventListener('ended', () => {
+        el?.remove()
+        remoteAudios.delete(key)
+        if (session) render(session.participants(), meParticipant)
+      })
+    } else if (!el.isConnected) {
+      container.append(el)
+    }
+    el.srcObject = new MediaStream([track])
   }
-  el.srcObject = new MediaStream([track])
-
-  track.addEventListener('ended', () => {
-    el?.remove()
-  })
 
   if (session) render(session.participants(), meParticipant)
 }
@@ -1809,6 +1956,36 @@ $('voicePreview').addEventListener('click', () => {
 
 $('join').addEventListener('click', () => {
   startSession().catch((err) => setStatus(describeError(err)))
+})
+
+/**
+ * Hang up.
+ *
+ * The session says goodbye - one roster entry marked `left`, which takes
+ * this device off everybody else's screen now rather than when its presence
+ * lapses - and then the page reloads into the same room link, which is the
+ * join screen. A reload rather than a hand-rolled teardown: the camera,
+ * microphone, screen, effects, assist poll and every tile all go with it,
+ * and a partial teardown that missed one pipeline would leave a camera
+ * light on with nobody watching, which is worse than a flicker.
+ */
+function leaveRoom(): void {
+  const s = session
+  session = undefined
+  s?.leave()
+  location.reload()
+}
+
+$('leave').addEventListener('click', () => {
+  leaveRoom()
+})
+
+// A closed tab, a navigation away, or a phone putting the browser to sleep
+// is a departure too, and a silent one costs everybody else the whole
+// presence timeout. Best effort: the farewell is one small publish over
+// sockets that are already open, and the page is gone whatever happens.
+window.addEventListener('pagehide', () => {
+  session?.leave()
 })
 
 $('chatForm').addEventListener('submit', (event) => {
