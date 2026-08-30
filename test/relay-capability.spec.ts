@@ -45,7 +45,16 @@ interface RelayResult {
   error: string | null
 }
 
-test('a browser that advertises assist can genuinely move somebody else\'s frames', async ({ page }) => {
+test('a browser that advertises assist can genuinely move somebody else\'s frames', async ({ page, context }) => {
+  // Four connections on one machine can only meet on host candidates, and a
+  // page without camera or microphone permission is handed those as mDNS
+  // names rather than addresses (WebRtcHideLocalIpsWithMdns). Resolving an
+  // mDNS name between two connections in one browser depends on the
+  // machine - it stopped working here with a VPN up - so the test would be
+  // measuring the network stack rather than the relay. A page that holds
+  // media permission is given real addresses, which is also what a
+  // volunteer in a call has: it is in the call.
+  await context.grantPermissions(['camera', 'microphone'])
   await page.goto('./')
 
   const result = await page.evaluate<RelayResult>(async () => {
@@ -71,18 +80,33 @@ test('a browser that advertises assist can genuinely move somebody else\'s frame
     }
 
     async function connect(a: RTCPeerConnection, b: RTCPeerConnection): Promise<void> {
-      a.onicecandidate = (e) => {
-        if (e.candidate) void b.addIceCandidate(e.candidate)
+      // A candidate is held until the far side holds the description it
+      // belongs to. On loopback, host candidates gather in microseconds -
+      // before the offer has been applied on the other connection - and an
+      // `addIceCandidate` made then rejects, which `void` used to swallow.
+      // That race was won on 25 Aug and lost since; with it lost, every
+      // connection here sits in `checking` for ever and the test reports
+      // that a browser cannot relay when the truth is the test could not
+      // connect. `Peer` buffers for the same reason (finding I3).
+      const pending = new Map<RTCPeerConnection, RTCIceCandidate[]>([[a, []], [b, []]])
+      const forward = (from: RTCPeerConnection, to: RTCPeerConnection) => (e: RTCPeerConnectionIceEvent) => {
+        if (!e.candidate) return
+        if (to.remoteDescription) void to.addIceCandidate(e.candidate)
+        else pending.get(to)!.push(e.candidate)
       }
-      b.onicecandidate = (e) => {
-        if (e.candidate) void a.addIceCandidate(e.candidate)
+      const drain = async (pc: RTCPeerConnection) => {
+        for (const candidate of pending.get(pc)!.splice(0)) await pc.addIceCandidate(candidate)
       }
+      a.onicecandidate = forward(a, b)
+      b.onicecandidate = forward(b, a)
       const offer = await a.createOffer()
       await a.setLocalDescription(offer)
       await b.setRemoteDescription(offer)
+      await drain(b)
       const answer = await b.createAnswer()
       await b.setLocalDescription(answer)
       await a.setRemoteDescription(answer)
+      await drain(a)
     }
 
     const source = painting('busy')

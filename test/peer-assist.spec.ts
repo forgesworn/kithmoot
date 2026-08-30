@@ -134,14 +134,29 @@ const TOOLKIT = `
     },
 
     async connect(a, b) {
-      a.onicecandidate = (e) => { if (e.candidate) void b.addIceCandidate(e.candidate) }
-      b.onicecandidate = (e) => { if (e.candidate) void a.addIceCandidate(e.candidate) }
+      // A candidate is held until the far side holds the description it
+      // belongs to; an addIceCandidate made before that rejects, and on
+      // loopback host candidates gather faster than an offer is applied.
+      // Peer buffers for the same reason (finding I3).
+      const pending = new Map([[a, []], [b, []]])
+      const forward = (to) => (e) => {
+        if (!e.candidate) return
+        if (to.remoteDescription) void to.addIceCandidate(e.candidate)
+        else pending.get(to).push(e.candidate)
+      }
+      const drain = async (pc) => {
+        for (const candidate of pending.get(pc).splice(0)) await pc.addIceCandidate(candidate)
+      }
+      a.onicecandidate = forward(b)
+      b.onicecandidate = forward(a)
       const offer = await a.createOffer()
       await a.setLocalDescription(offer)
       await b.setRemoteDescription(offer)
+      await drain(b)
       const answer = await b.createAnswer()
       await b.setLocalDescription(answer)
       await a.setRemoteDescription(answer)
+      await drain(a)
       await new Promise((resolve) => {
         if (a.connectionState === 'connected') return resolve()
         a.addEventListener('connectionstatechange', () => {
@@ -240,7 +255,15 @@ const TOOLKIT = `
 `
 
 test.describe('peer assist in a real browser', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, context }) => {
+    // Every connection here meets on host candidates, on one machine. A page
+    // without camera or microphone permission is handed those as mDNS names
+    // rather than addresses, and resolving an mDNS name between two
+    // connections in one browser is a property of the machine, not of peer
+    // assist - it stopped working here with a VPN up. A page that holds
+    // media permission is given real addresses, which is what a volunteer
+    // has anyway: it is in the call. See relay-capability.spec.ts.
+    await context.grantPermissions(['camera', 'microphone'])
     await page.goto('./')
     await page.evaluate(TOOLKIT)
   })

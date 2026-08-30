@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { base64urlnopad } from '@scure/base'
+import { openRoomUrl, pinToTestRelays, testRelays, withRelays } from './relays.js'
 
 /**
  * Automated version of the acceptance test documented in README.md: two
@@ -73,24 +73,7 @@ import { base64urlnopad } from '@scure/base'
 /** A relay that honours NIP-01's ephemeral semantics - it does not replay a
  *  kind-20461 to a subscriber that arrived later. Override if this one is
  *  down; the test needs a strict relay, not this specific one. */
-const STRICT_RELAY = process.env.E2E_STRICT_RELAY ?? 'wss://relay.trotters.cc'
-
-/**
- * Rewrite the relay hint list inside a join URL's fragment, leaving every
- * other field exactly as the app wrote it.
- *
- * Parsed and re-encoded generically rather than rebuilt from known fields,
- * so a fragment that grows a new key later still round-trips untouched.
- */
-function withRelays(url: string, relays: string[]): string {
-  const parsed = new URL(url)
-  const payload = JSON.parse(
-    new TextDecoder().decode(base64urlnopad.decode(parsed.hash.slice(1))),
-  ) as Record<string, unknown>
-  payload.r = relays
-  parsed.hash = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))
-  return parsed.href
-}
+const STRICT_RELAY = process.env.E2E_STRICT_RELAY ?? testRelays()?.[0] ?? 'wss://relay.trotters.cc'
 
 async function newDeviceContext(browser: Browser, baseURL: string): Promise<BrowserContext> {
   const context = await browser.newContext()
@@ -142,7 +125,7 @@ async function offerPairing(page: Page, joinUrl: string): Promise<string> {
  *  launch flags in playwright.config.ts. Stops short of clicking "Join
  *  room" so the caller controls subscribe/publish ordering. */
 async function prepareDevice(page: Page, url: string, name?: string): Promise<void> {
-  await page.goto(url)
+  await openRoomUrl(page, url)
   if (name !== undefined) {
     // Typed before joining, exactly as a person would: the roster entry
     // this device publishes carries whatever is in the field at join.
@@ -226,7 +209,7 @@ test('two devices of one participant render as one tile group to a third person'
     const pageC = await ctxC.newPage()
 
     // A creates the room (no network yet) and produces the join link.
-    const joinUrl = await createRoom(pageA, url)
+    const joinUrl = pinToTestRelays(await createRoom(pageA, url))
 
     // Get every device to the "ready, media on, not yet joined" point
     // before any of them subscribes or publishes. A settles on its room
