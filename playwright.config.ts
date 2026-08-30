@@ -30,6 +30,18 @@ export default defineConfig({
   timeout: 180_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,
+  // One spec at a time, across files as well as within them.
+  //
+  // `fullyParallel: false` only serialises the tests inside a file; the files
+  // themselves still went to one worker per two cores. Each of these specs
+  // drives two or three real browsers, each decoding video and each running
+  // the segmentation pipeline for its own camera, so two specs at once is six
+  // of those on a four-core runner. Oversubscribing it does not buy anything:
+  // measured here, the whole suite took 10.6 minutes on two workers and 4.5
+  // on one, because the contention was the slow part. Whatever is left over
+  // goes to the 90-second polls, which is the difference between a picture
+  // that is late and one that is missing.
+  workers: 1,
   retries: 0,
   reporter: 'list',
   use: {

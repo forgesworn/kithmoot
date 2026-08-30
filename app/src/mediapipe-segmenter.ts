@@ -45,9 +45,89 @@ export interface CreateSegmenterOptions {
   wasmPath: string
   /** The `.tflite` model. */
   modelPath: string
-  /** Tried first; CPU is the fallback. On a machine with no usable WebGL the
-   *  GPU delegate throws at creation time rather than at the first frame. */
+  /**
+   * Which backend to run the model on. Omit and it is chosen by looking at
+   * what WebGL is actually running on - see `preferredDelegate`.
+   *
+   * CPU is still the fallback whichever is chosen first: on a machine with
+   * no usable WebGL at all the GPU delegate throws at creation time rather
+   * than at the first frame.
+   */
   delegate?: 'GPU' | 'CPU'
+}
+
+/**
+ * WebGL implementations with no GPU underneath, by the name they give
+ * themselves.
+ *
+ * SwiftShader is what Chrome falls back to when there is no usable GPU - a
+ * VM, a blocklisted driver, a remote desktop, a CI runner, plenty of Linux
+ * laptops. Mesa's llvmpipe and softpipe are the same thing on the other
+ * side, Microsoft Basic Render Driver is Windows', and anything that calls
+ * itself a software renderer or rasteriser is saying so outright.
+ */
+const SOFTWARE_RENDERERS = [
+  /swiftshader/i,
+  /llvmpipe/i,
+  /softpipe/i,
+  /software/i,
+  /basic render/i,
+]
+
+/** Whether this WebGL renderer name is a software rasteriser pretending to
+ *  be a GPU. Split out from the WebGL poking so it can be tested. */
+export function isSoftwareRenderer(renderer: string): boolean {
+  return SOFTWARE_RENDERERS.some((pattern) => pattern.test(renderer))
+}
+
+/**
+ * The delegate this machine should actually run the model on.
+ *
+ * "GPU first, CPU if that throws" is the obvious rule and it is wrong in the
+ * one case that matters most. A machine with no GPU does not fail to create
+ * the GPU delegate - Chrome hands WebGL to SwiftShader and creation
+ * succeeds. The model then runs on a software rasteriser AND pays a
+ * GPU-to-CPU readback per frame to get the mask back out, through that same
+ * rasteriser.
+ *
+ * Measured on a software-GL machine: 126ms per frame on the "GPU" delegate
+ * against 36ms on CPU - three and a half times slower, and enough to hold
+ * the whole page at 8fps, because the pipeline runs on the main thread. The
+ * page was not slow to look at; it was slow to *use*, which is how it shows
+ * up: a Leave button that takes seven seconds to answer a click.
+ *
+ * So ask what WebGL is running on before believing it is a GPU. When the
+ * answer cannot be had - a browser that hides the renderer string, no WebGL
+ * to ask - the answer is the old one, GPU first, which is right wherever
+ * there is a real GPU and no worse than before wherever there is not.
+ */
+export function preferredDelegate(renderer: string | null): 'GPU' | 'CPU' {
+  if (renderer === null) return 'GPU'
+  return isSoftwareRenderer(renderer) ? 'CPU' : 'GPU'
+}
+
+/**
+ * What WebGL says it is running on, or null if it will not say.
+ *
+ * `WEBGL_debug_renderer_info` is the extension that answers this, and it is
+ * absent in browsers that treat the renderer string as a fingerprinting
+ * surface - Firefox with `privacy.resistFingerprinting`, for one. Absent is
+ * an ordinary answer here, not an error: it means "do what you did before".
+ */
+function webglRenderer(): string | null {
+  try {
+    const canvas = document.createElement('canvas')
+    const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl')) as WebGLRenderingContext | null
+    if (!gl) return null
+    const debug = gl.getExtension('WEBGL_debug_renderer_info')
+    const value = debug
+      ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER)
+    return typeof value === 'string' && value !== '' ? value : null
+  } catch {
+    // A browser that refuses a context at all tells us nothing either way.
+    return null
+  }
 }
 
 /**
@@ -111,7 +191,7 @@ export async function createSegmenter(opts: CreateSegmenterOptions): Promise<Seg
       outputConfidenceMasks: true,
     })) as unknown as MpImageSegmenter
 
-  const first = opts.delegate ?? 'GPU'
+  const first = opts.delegate ?? preferredDelegate(webglRenderer())
   try {
     return new MediaPipeSegmenter(await make(first))
   } catch (err) {
