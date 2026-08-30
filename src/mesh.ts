@@ -1,7 +1,7 @@
 import type { Event } from 'nostr-tools/pure'
 import { Peer } from './peer.js'
 import type { PeerFactory } from './peer.js'
-import { wrapSignal, unwrapSignal } from './signal.js'
+import { wrapSignal, unwrapSignal, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import type { SignalBody } from './signal.js'
 import { SignalGuard } from './signal-guard.js'
 import { KINDS } from './kinds.js'
@@ -207,6 +207,19 @@ export const DEFAULT_FORWARDER_TIMEOUT_MS = 8_000
 export const DEFAULT_ROUTE_TIMEOUT_MS = 10_000
 
 /**
+ * How many signals may wait for a peer that does not exist yet, per device
+ * and across all of them. See `#holdSignal`.
+ *
+ * Generous per device, because what waits is an offer and the candidates
+ * trickling behind it, and mean across them: the devices this ever holds
+ * anything for are the ones the roster is about to name, and a room with
+ * more than a few of those at once is a room being flooded rather than
+ * joined.
+ */
+export const MAX_HELD_SIGNALS_PER_DEVICE = 32
+export const MAX_HELD_SIGNAL_DEVICES = 16
+
+/**
  * One `Peer` per remote device, kept in step with the roster.
  *
  * Devices belonging to our own participant are deliberately excluded: they
@@ -241,6 +254,9 @@ export class Mesh {
   readonly #routes = new Map<string, Route>()
   /** Assist offers on the roster right now, by volunteering device. */
   readonly #volunteers = new Map<string, AssistOffer>()
+  /** Signals that arrived for a device this mesh has no peer for yet, by
+   *  sending device, oldest first. See `#holdSignal`. */
+  readonly #pendingSignals = new Map<string, { body: SignalBody; at: number }[]>()
   /** One timer per endpoint, bounding how long a rung gets. */
   readonly #routeTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Endpoints being closed deliberately, so their own `closed` state change
@@ -343,6 +359,7 @@ export class Mesh {
     this.#opts.relay?.close()
     this.#routes.clear()
     this.#volunteers.clear()
+    this.#pendingSignals.clear()
     for (const peer of this.#peers.values()) peer.close()
     this.#peers.clear()
     this.#deviceToParticipant.clear()
@@ -420,6 +437,10 @@ export class Mesh {
       this.#peers.set(endpoint, peer)
       this.#armRouteTimer(endpoint)
       peer.start(this.#tracks).catch(() => {})
+      // After `start`, never before: the offer waiting here is answered by
+      // the peer, and the answer has to carry our own tracks. Both are
+      // queued on the peer, so this ordering is what puts them in it.
+      this.#drainSignals(endpoint, peer)
     }
   }
 
@@ -795,6 +816,7 @@ export class Mesh {
     const peer = this.#createPeer(device, true)
     this.#forwarderPeer = peer
     peer.start(this.#tracks).catch(() => {})
+    this.#drainSignals(device, peer)
 
     const timeout = this.#opts.forwarderTimeoutMs ?? DEFAULT_FORWARDER_TIMEOUT_MS
     this.#forwarderTimer = setTimeout(() => this.#forwarderFailed(), timeout)
@@ -973,8 +995,77 @@ export class Mesh {
       return
     }
 
-    const peer = this.#peers.get(unwrapped.from)
-    if (!peer) return
+    const peer = this.#peerFor(unwrapped.from)
+    if (!peer) {
+      this.#holdSignal(unwrapped.from, unwrapped.body, now)
+      return
+    }
     peer.handleSignal(unwrapped.body).catch(() => {})
+  }
+
+  /**
+   * The peer a signal from this device belongs to.
+   *
+   * The forwarder is one too. It is deliberately not in `#peers` - it is not
+   * a member of the room and must never be treated as one by anything that
+   * walks that map - but it is still a connection this device opened and
+   * still the far end of a negotiation. Looking only in `#peers` meant the
+   * forwarder's answer to our offer was dropped, and since a forwarder never
+   * offers ("only an offer is an arrival"), that answer was the whole
+   * negotiation.
+   */
+  #peerFor(device: string): Peer | undefined {
+    if (this.#forwarderPeer && this.#forwarderDevice === device) return this.#forwarderPeer
+    return this.#peers.get(device)
+  }
+
+  /**
+   * Hold a signal for a device we have no peer for yet.
+   *
+   * Not the same thing as a signal we do not want. Both ends of a pair learn
+   * about each other from the same roster event, and whichever one reconciles
+   * first opens its connection and offers immediately - into a far end that
+   * is, for a few tens of milliseconds, still building the peer that offer
+   * belongs to. Dropping it there is not a near miss: the offerer has already
+   * set its local description and sits in `have-local-offer` waiting for an
+   * answer nobody will ever send, and nothing re-sends an offer. Measured in
+   * a browser, the pair then sat dead until the route timer gave up on it ten
+   * seconds later and rebuilt it a rung lower - and a route timer that fires
+   * on the *other* side in that same window would tear down the connection
+   * that finally worked. Two people watched a blank tile for ten seconds, and
+   * a third of the time never got a picture at all.
+   *
+   * So the early ones wait. `#reconcile` drains them the moment the peer they
+   * were addressed to exists, which is the whole of the fix: the roster still
+   * decides who this device peers with, and nothing here opens a connection
+   * to anybody it does not already want one with.
+   */
+  #holdSignal(device: string, body: SignalBody, now: number): void {
+    const held = this.#pendingSignals.get(device) ?? []
+    held.push({ body, at: now })
+    // Bounded twice, because both are unbounded otherwise: a device that
+    // never joins would hold its signals for ever, and any sender can name
+    // a device that does not exist.
+    while (held.length > MAX_HELD_SIGNALS_PER_DEVICE) held.shift()
+    this.#pendingSignals.set(device, held)
+    while (this.#pendingSignals.size > MAX_HELD_SIGNAL_DEVICES) {
+      const oldest = this.#pendingSignals.keys().next().value
+      if (oldest === undefined) break
+      this.#pendingSignals.delete(oldest)
+    }
+  }
+
+  /** Hand a new peer whatever arrived for it before it existed, oldest
+   *  first, dropping anything that has since gone stale by the same rule
+   *  `unwrapSignal` applies on the way in. */
+  #drainSignals(device: string, peer: Peer): void {
+    const held = this.#pendingSignals.get(device)
+    if (!held) return
+    this.#pendingSignals.delete(device)
+    const cutoff = this.#now() - SIGNAL_MAX_AGE_SECONDS
+    for (const { body, at } of held) {
+      if (at < cutoff) continue
+      peer.handleSignal(body).catch(() => {})
+    }
   }
 }

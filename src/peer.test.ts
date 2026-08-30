@@ -159,6 +159,63 @@ describe('Peer', () => {
   })
 
   /**
+   * BUG: two people who both turn a camera and a microphone on could
+   * neither see nor hear each other, for the whole call.
+   *
+   * `negotiationneeded` is delivered as a queued task, so it routinely
+   * describes a moment that has already passed: the flag goes up while the
+   * connection is `stable`, and by delivery our own `addTrack` offer has
+   * already moved it to `have-local-offer`. The handler skipped that - but
+   * it skipped it from INSIDE the operations queue, which is a different
+   * question asked at a different time. By the time the queued check ran,
+   * the glare that arrived in between had been resolved: rolled back,
+   * answered, back at `stable`. So the check passed and the stale event
+   * became a real, extra offer.
+   *
+   * That offer is not free. It opens a second negotiation on a connection
+   * whose ICE and DTLS are already up, and `connectionState` does not report
+   * `connected` while one is outstanding - so `Mesh`'s route timer times out
+   * a rung that is carrying media, tears the peer down and escalates towards
+   * TURN, over and over. The one-sided case hid it completely: with only one
+   * side publishing there is no glare, nothing to roll back, and the room
+   * worked perfectly.
+   */
+  it('BUG: a negotiationneeded raised mid-negotiation must not become an offer once the glare is resolved', async () => {
+    const factory = createFakeFactory()
+    const signals: SignalBody[] = []
+    // The polite side: the one that rolls its own offer back and answers.
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: (b) => signals.push(b), onTrack: () => {} })
+
+    await peer.start([fakeTrack()])
+    await settle()
+    const pc = factory.instances[0]!
+    expect(pc.signalingState).toBe('have-local-offer')
+    expect(signals).toHaveLength(1)
+
+    // The glare: the far end offered at the same instant, so this side is
+    // about to roll back and answer instead. Deliberately not awaited yet -
+    // it is queued, and what happens next has to land behind it, which is
+    // the ordering a relay subscription and an event task produce between
+    // them.
+    const glare = peer.handleSignal({ type: 'offer', roomId: 'room', sdp: 'their-offer' })
+
+    // The stale event: raised while the connection is busy with our own
+    // offer, which is exactly when a browser delivers one it queued a moment
+    // earlier. By the time anything queued here runs, the glare above will
+    // have been resolved and the connection will be back at `stable`.
+    pc.onnegotiationneeded?.()
+
+    await glare
+    await settle()
+
+    expect(pc.signalingState).toBe('stable')
+    expect(
+      signals.map((s) => s.type),
+      'the stale negotiationneeded re-opened a negotiation on a connection that had just settled',
+    ).toEqual(['offer', 'answer'])
+  })
+
+  /**
    * Turning a camera off has to actually stop sending it.
    *
    * `start()` only ever added tracks, so a device that stopped its camera

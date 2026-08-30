@@ -3,7 +3,7 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
 import type { MeshSession } from './mesh.js'
 import type { ForwarderRef } from './types.js'
-import { wrapSignal } from './signal.js'
+import { wrapSignal, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import { MAX_SIGNALS_PER_WINDOW } from './signal-guard.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
@@ -262,6 +262,82 @@ describe('Mesh', () => {
 
     expect(() => relay.publish(wrap)).not.toThrow()
     expect(factory.instances).toHaveLength(0)
+    mesh.close()
+  })
+
+  /**
+   * BUG: two people watched a blank tile for ten seconds, and often never got
+   * a picture at all.
+   *
+   * Both ends of a pair learn about each other from the same roster event,
+   * and whichever one reconciles first opens its connection and offers
+   * immediately - into a far end that is, for a few tens of milliseconds,
+   * still building the peer that offer belongs to. Dropping it there is not a
+   * near miss: the offerer has already set its local description and sits in
+   * `have-local-offer` waiting for an answer nobody will send, and nothing
+   * re-sends an offer. Measured in a browser, the pair sat dead until the
+   * route timer gave up ten seconds later and rebuilt it a rung lower - and a
+   * route timer firing on the other side inside that same window tore down
+   * the connection that had finally worked.
+   *
+   * The roster still decides who this device peers with: an offer alone must
+   * open nothing, which is the assertion in the middle.
+   */
+  it('BUG: answers an offer that arrived before the roster named its sender', async () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const { local, remote } = politePair()
+    const remoteParticipant = device().pub
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+
+    // The far end reconciled a few milliseconds sooner and has already
+    // offered.
+    relay.publish(
+      wrapSignal(
+        { type: 'offer', roomId: ROOM_ID, sdp: 'their-offer' },
+        { senderSk: remote.sk, recipientPubkey: local.pub },
+      ),
+    )
+    await settle()
+    expect(factory.instances, 'an offer on its own must not open a connection').toHaveLength(0)
+
+    // And now the roster catches up, which is the only thing that may open one.
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    await settle()
+
+    const pc = factory.instances[0]!
+    const methods = pc.calls.map((c) => c.method)
+    expect(methods, 'the early offer was dropped rather than held').toContain('setRemoteDescription')
+    expect(methods, 'the offer was applied but never answered').toContain('createAnswer')
+    mesh.close()
+  })
+
+  it('holds an early offer only until it goes stale', async () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const { local, remote } = politePair()
+    let clock = 1_800_000_000
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID, now: () => clock })
+
+    relay.publish(
+      wrapSignal(
+        { type: 'offer', roomId: ROOM_ID, sdp: 'their-offer' },
+        { senderSk: remote.sk, recipientPubkey: local.pub },
+      ),
+    )
+    await settle()
+
+    // A device that turns up a full staleness window later is not answering
+    // that offer - it is starting a fresh negotiation, and applying the old
+    // one would force a renegotiation nobody asked for.
+    clock += SIGNAL_MAX_AGE_SECONDS + 1
+    session.setViews([view(device().pub, [remote.pub])])
+    await settle()
+
+    const pc = factory.instances[0]!
+    expect(pc.calls.map((c) => c.method)).not.toContain('setRemoteDescription')
     mesh.close()
   })
 
@@ -662,6 +738,52 @@ describe('Mesh promotion to a forwarder', () => {
     // arrives over it and matches no roster advert is dropped, never
     // attributed to the forwarder itself.
     expect(tracks).not.toContain(FORWARDER)
+    mesh.close()
+  })
+
+  /**
+   * BUG: the forwarder could never finish negotiating.
+   *
+   * The forwarder is deliberately kept out of `#peers` - it is not a member
+   * of the room and nothing that walks that map should treat it as one - but
+   * the signal dispatcher looked only in `#peers`. So the forwarder's answer
+   * to our offer was dropped, and since a forwarder never offers ("only an
+   * offer is an arrival"), that answer was the entire negotiation.
+   */
+  it('BUG: routes the forwarder\'s answer to the forwarder connection', async () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const forwarder = device()
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: device().pub,
+      deviceSk: local.sk,
+      transport: new SimTransport(relay),
+      roomId: ROOM_ID,
+      uplink: TIGHT,
+      forwarders: [{ url: 'wss://forward.example', pubkey: forwarder.pub }],
+    })
+    fill(session, 12)
+    await settle()
+    expect(mesh.forwarding).toBe('trying')
+    const pc = factory.instances[forwarderPcIndex()]!
+
+    relay.publish(
+      wrapSignal(
+        { type: 'answer', roomId: ROOM_ID, sdp: 'forwarder-answer' },
+        { senderSk: forwarder.sk, recipientPubkey: local.pub },
+      ),
+    )
+    await settle()
+
+    expect(
+      pc.calls.filter((c) => c.method === 'setRemoteDescription'),
+      'the forwarder answered and nothing applied it',
+    ).toHaveLength(1)
     mesh.close()
   })
 })
