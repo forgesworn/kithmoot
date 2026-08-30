@@ -93,7 +93,15 @@ kithmoot.forgesworn.dev {
 		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
 		# Derived from what app/src/main.ts actually does, and no wider:
 		#
-		#   script-src 'self'  - one bundled module, no inline script.
+		#   script-src 'self' 'wasm-unsafe-eval' - one bundled module, no
+		#     inline script, and the MediaPipe segmenter is WebAssembly
+		#     served from this origin (app/vite.config.ts). Without
+		#     'wasm-unsafe-eval' Chromium refuses to compile it: the SIMD
+		#     probe fails, the loader asks for the nosimd variant, and the
+		#     effect dies into its passthrough fallback - silently, because
+		#     a broken effect must not end a call. There is no narrower
+		#     grant: 'wasm-unsafe-eval' is CSP's only switch for WASM, and
+		#     the modules it admits still come only from 'self'.
 		#   style-src ... 'unsafe-inline' - signet-login builds its signer
 		#     picker by creating a <style> element and setting cssText
 		#     (node_modules/signet-login/dist/modal.js). Without this the
@@ -107,7 +115,7 @@ kithmoot.forgesworn.dev {
 		#     by srcObject, which CSP does not police, but the QR canvas
 		#     and any future recording path do go through URLs.
 		#   worker-src 'self' - the service worker at /j/sw.js.
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 	}
 
 	# Everything that is not the app: the marketing page, which is HTML, CSS

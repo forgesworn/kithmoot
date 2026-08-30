@@ -25,7 +25,19 @@ const BASE = '/j/'
  * precache, which is the other thing nobody wants 11.7MB of.
  */
 function mediapipeRuntime(): Plugin {
-  const files = ['vision_wasm_internal.js', 'vision_wasm_internal.wasm']
+  // Both variants. FilesetResolver probes for WASM SIMD and asks for the
+  // `nosimd` pair when the probe fails - a browser without SIMD, or a
+  // Content-Security-Policy that blocks the probe's little compile. Shipping
+  // only the SIMD pair turned that into a 404 and a dead segmenter in
+  // production, which is how it went unnoticed: the effect fell back to
+  // passthrough exactly as designed, and nothing red runs in CI against the
+  // deployed origin.
+  const files = [
+    'vision_wasm_internal.js',
+    'vision_wasm_internal.wasm',
+    'vision_wasm_nosimd_internal.js',
+    'vision_wasm_nosimd_internal.wasm',
+  ]
   const from = resolve(here, '../node_modules/@mediapipe/tasks-vision/wasm')
   return {
     name: 'kithmoot-mediapipe-runtime',
