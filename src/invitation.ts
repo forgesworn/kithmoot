@@ -449,6 +449,7 @@ export function hostRoomInvitation(opts: HostRoomInvitationOptions): { close(): 
   if (delegation.length > 0 && !hexEquals(delegation[0]!.room, deriveRoom(opts.roomSecret).roomId)) {
     throw new Error('delegation names another room')
   }
+  const responder = getPublicKey(opts.inviterSk)
   const invitationId = deriveInvitationId(opts.invitation)
   const answered = new Set<string>()
   let closed = false
@@ -482,7 +483,9 @@ export function hostRoomInvitation(opts: HostRoomInvitationOptions): { close(): 
     (event) => {
       if (closed) return
       const request = decodeInvitationRequest(event, { invitation: opts.invitation, now: now() })
-      if (!request || answered.has(request.request)) return
+      // Some relays incorrectly retain and replay ephemeral requests. A newly
+      // admitted delegate must not answer the request that admitted itself.
+      if (!request || hexEquals(request.device, responder) || answered.has(request.request)) return
       answered.add(request.request)
       // A long-running public room must not grow this replay guard without
       // bound. Duplicate requests are harmless after eviction: they only

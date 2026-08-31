@@ -179,8 +179,10 @@ describe('invitation exchange', () => {
       invitation: root.invitation,
       now,
     })
+    const firstRequest = relay.published.find((event) => event.kind === 20466)!
     creator.close()
 
+    let memberAdmissions = 0
     const member = hostRoomInvitation({
       transport: new SimTransport(relay),
       invitation: root.invitation,
@@ -188,7 +190,12 @@ describe('invitation exchange', () => {
       delegation: first.delegate.chain,
       roomSecret: first.secret,
       now,
+      onAdmitted: () => { memberAdmissions += 1 },
     })
+    // Lenient public relays sometimes replay ephemeral requests to a new
+    // subscription. The member must not grant its own original request.
+    await new SimTransport(relay).publish(firstRequest)
+    expect(memberAdmissions).toBe(0)
     const second = await requestRoomAdmission({
       transport: new SimTransport(relay),
       invitation: root.invitation,
@@ -197,6 +204,7 @@ describe('invitation exchange', () => {
     member.close()
 
     expect(bytesToHex(second)).toBe(bytesToHex(roomSecret))
+    expect(memberAdmissions).toBe(1)
     expect(first.delegate.chain).toHaveLength(1)
     expect(
       verifyInvitationDelegation(root.invitation, first.delegate.chain, NOW),
