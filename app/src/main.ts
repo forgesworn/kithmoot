@@ -574,7 +574,13 @@ function serveCurrentInvitation(): void {
       inviterSk: invitationAuthoritySk,
       delegation: invitationDelegation,
       roomSecret,
-      onAdmitted: () => setStatus('Someone used the current room link.'),
+      // A delegated responder may receive recent requests replayed by a
+      // lenient relay, including requests for people already admitted on a
+      // different delegation branch. Serving those again is harmless, but it
+      // must not overwrite this member's own "Invitation accepted" state.
+      ...(invitationDelegation.length === 0
+        ? { onAdmitted: () => setStatus('Someone used the current room link.') }
+        : {}),
       onRetired: () => {
         if (roomInvitationCapability !== invitation) return
         stopInvitationHost()
