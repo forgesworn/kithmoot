@@ -333,32 +333,23 @@ export class RoomSession {
     const credential = this.#credential ?? (await this.issueDeviceCredential(device))
 
     this.#self = { credential, tracks, claims }
-    await this.#publishEntry(false)
 
-    this.#chat = new ChatLog({
-      transport: this.#opts.transport,
-      roomId: this.roomId,
-      roomKey: this.#roomKey,
-      credential,
-      deviceSk: this.#opts.deviceSk,
-      name: this.#name,
-      now: this.#now,
-    })
-
-    // Presence is live state, so it has to be restated and it has to lapse -
-    // see `PRESENCE_TTL_SECONDS`. Both timers are unreferenced where the
-    // runtime allows it, because a library keeping a Node process alive after
-    // its caller has finished is a bug in the library.
-    this.#heartbeatTimer = this.#every(
-      this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
-      () => {
-        this.#publishEntry(false).catch(() => {})
-      },
-    )
-    this.#sweepTimer = this.#every(this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS, () => {
-      if (this.#evictLapsed()) this.#notify()
-    })
-
+    // Listening BEFORE announcing, and the order is load-bearing.
+    //
+    // Everybody already in the room answers an arrival by opening a
+    // connection to it and offering - at once, the instant the announcement
+    // reaches them. The mesh is what hears that offer, and a signal is an
+    // ephemeral event: a relay delivers it to whoever is subscribed when it
+    // arrives and keeps it for nobody. Building the mesh after `#publishEntry`
+    // resolved meant building it after every relay had acknowledged the
+    // announcement, which is a full round trip after the announcement was
+    // already broadcast - and on real relays, comfortably after the first
+    // offer had come and gone. On a real call over public relays the person
+    // who started the room could see and hear whoever joined, and the joiner
+    // saw and heard nothing, because the offer carrying the host's media had
+    // been sent to a subscription that did not yet exist. The CI relay, with
+    // its sub-millisecond round trip, never shows it; the regression test in
+    // session.test.ts acknowledges late the way a real relay pool does.
     if (this.#opts.factory) {
       this.#mesh = new Mesh({
         session: this,
@@ -414,6 +405,46 @@ export class RoomSession {
       [{ kinds: [KINDS.DESCRIPTOR], '#d': [this.roomId] }],
       (event) => this.#ingestDescriptor(event),
     )
+
+    try {
+      await this.#publishEntry(false)
+    } catch (err) {
+      // Nobody heard us, so nothing of ours may stay on the network: a mesh
+      // that never joined must not answer offers, and a subscription with no
+      // session behind it is a leak.
+      this.#unsub?.()
+      this.#unsub = undefined
+      this.#unsubDescriptor?.()
+      this.#unsubDescriptor = undefined
+      this.#mesh?.close()
+      this.#mesh = undefined
+      this.#self = undefined
+      throw err
+    }
+
+    this.#chat = new ChatLog({
+      transport: this.#opts.transport,
+      roomId: this.roomId,
+      roomKey: this.#roomKey,
+      credential,
+      deviceSk: this.#opts.deviceSk,
+      name: this.#name,
+      now: this.#now,
+    })
+
+    // Presence is live state, so it has to be restated and it has to lapse -
+    // see `PRESENCE_TTL_SECONDS`. Both timers are unreferenced where the
+    // runtime allows it, because a library keeping a Node process alive after
+    // its caller has finished is a bug in the library.
+    this.#heartbeatTimer = this.#every(
+      this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
+      () => {
+        this.#publishEntry(false).catch(() => {})
+      },
+    )
+    this.#sweepTimer = this.#every(this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS, () => {
+      if (this.#evictLapsed()) this.#notify()
+    })
   }
 
   /**

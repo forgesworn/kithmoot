@@ -297,7 +297,11 @@ specs also run in CI on every push, against a NIP-01 relay of their own
 `E2E_RELAYS=local`): two or three browser contexts in a room, measured off
 the decoded pixels and the audio energy rather than the DOM. That gate
 exists because the unit suite once passed 685 tests while the shipped app
-negotiated media perfectly and put none of it on screen.
+negotiated media perfectly and put none of it on screen. The relay also
+takes `RELAY_OK_DELAY_MS`, which delivers an event at once and acknowledges
+it late: a slow public relay made deterministic, which is how the case where
+the joiner could not see or hear whoever started the room is pinned down on
+a loopback socket that would otherwise never show it.
 
 `npm run demo` and `vite preview` both serve the app under `/j/` rather than at
 the root, because `base` in `app/vite.config.ts` matches where it is

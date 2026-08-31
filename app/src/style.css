@@ -191,6 +191,9 @@ details#roomSettings label {
   color: var(--ok);
 }
 
+/* The preview strip: where your own picture sits until you join. Once you
+   are in the room the same elements move into your own tile in the grid
+   below - see localMediaEl in app/src/main.ts - and this is empty. */
 #local {
   display: flex;
   gap: 0.5rem;

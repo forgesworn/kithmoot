@@ -580,6 +580,17 @@ let backgroundId = BACKGROUNDS[0]?.id ?? ''
 let videoInputs: MediaDeviceInfo[] = []
 
 const localPreviewEls = new Map<'camera' | 'screen', HTMLVideoElement>()
+// Where this device's own pictures live: one persistent holder, so the
+// element showing your camera is the same element wherever it is shown. It
+// sits in the preview strip under the toggles until you join, and in your
+// own tile in the room from then on - you are in the room with everybody
+// else, so that is where you are shown. Moved, never rebuilt: a fresh
+// <video> would restart the picture, and one taken out of the document is
+// paused by Chromium and stays paused (see parkPicture), so render() only
+// ever reparents this holder within a single synchronous pass.
+const localMediaEl = document.createElement('div')
+localMediaEl.className = 'media mine'
+$('local').append(localMediaEl)
 // One persistent <div class="media"> per remote device, holding at most one
 // <video> and one <audio>. Kept outside the room grid's own lifecycle and
 // re-appended into whichever tile render() builds next, so a live video
@@ -1346,8 +1357,16 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
   video.autoplay = true
   video.muted = true
   video.playsInline = true
-  $('local').append(video)
+  localMediaEl.append(video)
   localPreviewEls.set(kind, video)
+}
+
+/** Which of our own preview elements a track advert corresponds to, if any.
+ *  Audio has no picture, so a mic is always a chip and never a preview. */
+function previewKindOf(role: TrackAdvert['role']): 'camera' | 'screen' | undefined {
+  if (role === 'camera') return 'camera'
+  if (role === 'screen') return 'screen'
+  return undefined
 }
 
 /** Publish this device's whole current set of active tracks. Always the full
@@ -1440,9 +1459,17 @@ function render(views: ParticipantView[], me: string): void {
     box.append(heading)
 
     if (view.participant === me) {
-      // Our own live media is already in the preview strip above; this
-      // tile stays to labels, so the two views of it never disagree.
-      box.append(trackChips(view, () => 'own'))
+      // Our own live media, in our own tile: the same elements that were the
+      // preview before joining, moved here rather than duplicated (see
+      // localMediaEl). A chip only for what has no picture - the mic - and
+      // for a track advertised but not currently previewed.
+      if (localMediaEl.childElementCount > 0) box.append(localMediaEl)
+      box.append(
+        trackChips(view, (track) => {
+          const kind = previewKindOf(track.role)
+          return kind !== undefined && localPreviewEls.has(kind) ? 'live' : 'own'
+        }),
+      )
     } else {
       // Remote media: real video/audio wherever we have it, a waiting chip
       // wherever we do not (still negotiating, or never advertised).
@@ -1461,6 +1488,13 @@ function render(views: ParticipantView[], me: string): void {
 
     root.append(box)
   }
+
+  // Emptying the grid above detached our own holder if it was in a tile. If
+  // no tile of ours was built this time - our entry has not come back from
+  // the relay yet, or lapsed - it goes back to the preview strip in this same
+  // synchronous pass, so it is never out of the document long enough for
+  // the browser to pause the picture in it.
+  if (!localMediaEl.isConnected) $('local').append(localMediaEl)
 }
 
 /** Builds the chip row for a tile. `status` decides whether a track gets a

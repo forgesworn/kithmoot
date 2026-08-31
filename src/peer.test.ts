@@ -372,6 +372,172 @@ describe('Peer', () => {
     expect(signalsFromHigh.filter((s) => s.type === 'answer')).toHaveLength(0)
   })
 
+  describe('an offer that goes unanswered', () => {
+    // The signalling channel is an ephemeral event on a public relay: it
+    // reaches whoever is subscribed when it arrives and nobody later. An
+    // offer sent a moment before the far end is listening is gone, and only
+    // the offerer can tell - by the silence.
+    const offers = (signals: SignalBody[]) => signals.filter((s) => s.type === 'offer')
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+    it('is sent again, unchanged, a bounded number of times', async () => {
+      const factory = createFakeFactory()
+      const signals: SignalBody[] = []
+      const peer = new Peer({
+        factory,
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: (b) => signals.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 5, max: 2 },
+      })
+      await peer.start([fakeTrack()])
+      await settle()
+      expect(offers(signals)).toHaveLength(1)
+
+      await wait(60)
+      // Two more and then no more: a peer that never answers is the route
+      // ladder's problem, not something to be asked for ever.
+      expect(offers(signals)).toHaveLength(3)
+      const sdps = new Set(offers(signals).map((s) => s.sdp))
+      expect(sdps.size, 'a re-sent offer must be the same offer, not a new negotiation').toBe(1)
+      // The same offer, which is to say the one the connection is still
+      // holding - not a fresh createOffer.
+      expect(factory.instances[0]!.calls.filter((c) => c.method === 'createOffer')).toHaveLength(1)
+      peer.close()
+    })
+
+    it('stops being re-sent once it is answered', async () => {
+      const factory = createFakeFactory()
+      const signals: SignalBody[] = []
+      const peer = new Peer({
+        factory,
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: (b) => signals.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 10, max: 2 },
+      })
+      await peer.start([fakeTrack()])
+      await settle()
+      await peer.handleSignal({ type: 'answer', roomId: '', sdp: 'their-answer' })
+
+      await wait(40)
+      expect(offers(signals)).toHaveLength(1)
+      peer.close()
+    })
+
+    it('is not re-sent after the polite side has rolled it back', async () => {
+      const factory = createFakeFactory()
+      const signals: SignalBody[] = []
+      // LOW < HIGH: this side is polite.
+      const peer = new Peer({
+        factory,
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: (b) => signals.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 10, max: 2 },
+      })
+      await peer.start([fakeTrack()])
+      await settle()
+      // Glare: the far end's offer wins, ours is rolled back and answered.
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: 'their-offer' })
+      expect(signals.filter((s) => s.type === 'answer')).toHaveLength(1)
+
+      await wait(40)
+      expect(offers(signals), 'an offer we gave up on came back from a timer').toHaveLength(1)
+      peer.close()
+    })
+
+    it('is not re-sent after close()', async () => {
+      const factory = createFakeFactory()
+      const signals: SignalBody[] = []
+      const peer = new Peer({
+        factory,
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: (b) => signals.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 5, max: 2 },
+      })
+      await peer.start([fakeTrack()])
+      await settle()
+      peer.close()
+
+      await wait(30)
+      expect(offers(signals)).toHaveLength(1)
+    })
+
+    /**
+     * BUG: two people in a room, one of whom could see and hear the other,
+     * and the other of whom could not.
+     *
+     * The impolite side's offer was lost on the way - sent a moment before
+     * the far end was subscribed. The polite side, with media of its own,
+     * offered in turn; the impolite side ignored that, as perfect negotiation
+     * says it must while its own offer is outstanding, and then waited for an
+     * answer to an offer nobody had. Neither side could move. Re-sending is
+     * what breaks it: the polite side hears the offer it should have had,
+     * rolls its own back and answers, and the answer carries its media too.
+     */
+    it('BUG: a lost offer from the impolite side no longer deadlocks the pair', async () => {
+      const factoryPolite = createFakeFactory()
+      const factoryImpolite = createFakeFactory()
+      const fromPolite: SignalBody[] = []
+      const fromImpolite: SignalBody[] = []
+      const polite = new Peer({
+        factory: factoryPolite,
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: (b) => fromPolite.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 10, max: 2 },
+      })
+      const impolite = new Peer({
+        factory: factoryImpolite,
+        localDevice: HIGH,
+        remoteDevice: LOW,
+        onSignal: (b) => fromImpolite.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 10, max: 2 },
+      })
+
+      // The impolite side offers first, and the offer goes nowhere.
+      await impolite.start([fakeTrack()])
+      await settle()
+      expect(offers(fromImpolite)).toHaveLength(1)
+
+      // The polite side, none the wiser, offers - and that one arrives.
+      await polite.start([fakeTrack()])
+      await settle()
+      await impolite.handleSignal(offers(fromPolite)[0]!)
+      // Ignored, as it should be: the impolite side's own offer stands.
+      expect(factoryImpolite.instances[0]!.calls.some((c) => c.method === 'setRemoteDescription')).toBe(false)
+
+      // Now the wire works again, and the re-sent offer gets through.
+      await wait(20)
+      expect(offers(fromImpolite).length).toBeGreaterThan(1)
+      await polite.handleSignal(offers(fromImpolite)[1]!)
+
+      const politePc = factoryPolite.instances[0]!
+      expect(politePc.calls.some((c) => c.method === 'setLocalDescription' && (c.args[0] as { type?: string })?.type === 'rollback')).toBe(true)
+      const answer = fromPolite.find((s) => s.type === 'answer')
+      expect(answer, 'the polite side never answered the re-sent offer').toBeDefined()
+
+      await impolite.handleSignal(answer!)
+      expect(factoryImpolite.instances[0]!.signalingState).toBe('stable')
+      expect(politePc.signalingState).toBe('stable')
+
+      // Answered, so the timer has nothing left to do.
+      const sentSoFar = offers(fromImpolite).length
+      await wait(40)
+      expect(offers(fromImpolite)).toHaveLength(sentSoFar)
+      polite.close()
+      impolite.close()
+    })
+  })
+
   it('closes itself when the underlying connection reports it has failed', async () => {
     const factory = createFakeFactory()
     const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })

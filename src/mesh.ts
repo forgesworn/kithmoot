@@ -60,6 +60,9 @@ export interface MeshOptions {
   /** Passed to every peer: how long a connection that was up is given to
    *  come back before it is believed failed. See `PeerOptions.iceRestart`. */
   iceRestart?: { graceMs?: number; timeoutMs?: number }
+  /** Passed to every peer: how long an offer waits for its answer before it
+   *  is sent again, and how many times. See `PeerOptions.offerRetry`. */
+  offerRetry?: { intervalMs?: number; max?: number }
   /** Forwarders the room descriptor names. Swappable at runtime; see
    *  `setForwarders`. */
   forwarders?: ForwarderRef[]
@@ -880,6 +883,7 @@ export class Mesh {
       remoteDevice,
       context: { tier: forwarder ? 'forwarder' : tier, remoteDevice },
       iceRestart: this.#opts.iceRestart,
+      offerRetry: this.#opts.offerRetry,
       onSignal: (body) => {
         const wrap = wrapSignal(
           { ...body, roomId: this.#opts.roomId },

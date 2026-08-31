@@ -11,6 +11,7 @@ import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
 import { decodeRosterEvent } from './roster.js'
 import { PRESENCE_TTL_SECONDS } from './session.js'
+import type { RelayTransport } from './relay-pool.js'
 
 const NOW = 1_800_000_000
 /** The room every test in this file joins - a kindred proof is minted for one
@@ -361,6 +362,83 @@ describe('RoomSession media', () => {
     unsub()
     factory.instances[0]!.ontrack?.({ track: {} as MediaStreamTrack })
     expect(received).toHaveLength(1)
+  })
+
+  /**
+   * BUG: the person who started the room could see and hear whoever joined,
+   * and the joiner could see and hear nobody.
+   *
+   * Everybody already in a room answers an arrival by opening a connection to
+   * it and offering, the instant the announcement reaches them. The mesh is
+   * what hears that offer, and `join()` used to build it only after
+   * `#publishEntry` resolved - which, on a real relay pool, is after every
+   * relay has acknowledged the announcement: a whole round trip after it was
+   * broadcast. A signal is an ephemeral event, delivered to whoever is
+   * subscribed when it arrives and kept for nobody, so the host's offer - the
+   * one carrying the host's camera and microphone - went to a subscription
+   * that did not exist yet. The joiner's own offer came later and was
+   * answered, which is why the call came up one way.
+   *
+   * `SimTransport` acknowledges synchronously, so the window did not exist in
+   * any unit test. This transport acknowledges the way nostr-tools does: the
+   * relay has the event at once, and the publisher hears about it a turn
+   * later.
+   */
+  it('BUG: hears an offer sent the moment its announcement lands, before the relay has acknowledged it', async () => {
+    const relay = new SimRelay()
+    const lateAck = (inner: RelayTransport): RelayTransport => ({
+      async publish(event) {
+        await inner.publish(event)
+        await new Promise((r) => setTimeout(r, 0))
+      },
+      subscribe: (filters, onEvent) => inner.subscribe(filters, onEvent),
+      close: () => inner.close(),
+    })
+
+    // The real clock on both sides, deliberately: a signal is stamped by
+    // `wrapSignal` with the real time and refused by `unwrapSignal` if it is
+    // more than `SIGNAL_MAX_AGE_SECONDS` from the session's own clock, so a
+    // session on the file's fixed `now` never hears a signal at all.
+
+    // The host: in the room first, with a camera to send.
+    const factoryHost = createFakeFactory()
+    const host = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      factory: factoryHost,
+      announceJitterMs: 0,
+    })
+    await host.join([{ trackId: 'cam', role: 'camera' }], {})
+    host.publishTracks([{} as MediaStreamTrack])
+
+    const factoryJoiner = createFakeFactory()
+    const joiner = new RoomSession({
+      transport: lateAck(new SimTransport(relay)),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      factory: factoryJoiner,
+      announceJitterMs: 0,
+    })
+    await joiner.join([], {})
+    await settle()
+
+    // The host offered the instant it heard the joiner. The joiner must have
+    // heard that offer and answered it - not sat waiting for a roster reply
+    // to open a connection the host had already opened.
+    expect(factoryJoiner.instances, 'the joiner never opened a connection to the host').toHaveLength(1)
+    const joinerMethods = factoryJoiner.instances[0]!.calls.map((c) => c.method)
+    expect(joinerMethods, "the host's offer was sent before the joiner was listening, and lost").toContain('setRemoteDescription')
+    expect(joinerMethods).toContain('createAnswer')
+
+    // And the answer reached the host, which is the whole of "both ways".
+    const hostMethods = factoryHost.instances[0]!.calls.map((c) => c.method)
+    expect(hostMethods, "the joiner's answer never reached the host").toContain('setRemoteDescription')
+
+    host.leave()
+    joiner.leave()
   })
 
   it('is safe to call publishTracks and onRemoteTrack when no factory was supplied', async () => {

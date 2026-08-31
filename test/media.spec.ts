@@ -1,5 +1,7 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { openRoomUrl, pinToTestRelays } from './relays.js'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { openRoomUrl, pinToTestRelays, withRelays } from './relays.js'
 
 /**
  * Can you actually see and hear the other person?
@@ -289,6 +291,13 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     // other projects precisely because only one side was ever asserted.
     await expectToSeeAndHear(pageA, 'Ada')
     await expectToSeeAndHear(pageB, 'Bob')
+
+    // And you are in the room too: your own picture sits in your own tile
+    // in the grid, beside everybody else's, not only in the preview strip
+    // above the toggles. The preview strip is for before you join.
+    const ownTile = pageA.locator('#room .participant', { hasText: '(you)' })
+    await expect(ownTile.locator('video'), "Ada's own picture is not in her tile").toHaveCount(1)
+    await expect(pageA.locator('#local video')).toHaveCount(0)
   } finally {
     await contextA.close()
     await contextB.close()
@@ -541,6 +550,104 @@ test('turning a camera off takes the picture off everybody else screen', async (
   } finally {
     await contextA.close()
     await contextB.close()
+  }
+})
+
+/**
+ * A second copy of test/ws-relay.mjs on its own port, acknowledging late.
+ * See `RELAY_OK_DELAY_MS` there. Resolves once it answers HTTP, which is how
+ * playwright.config.ts waits for the main one too.
+ */
+async function startSlowAckRelay(port: number, okDelayMs: number): Promise<{ url: string; stop(): Promise<void> }> {
+  const script = fileURLToPath(new URL('./ws-relay.mjs', import.meta.url))
+  const child = spawn(process.execPath, [script], {
+    env: { ...process.env, RELAY_PORT: String(port), RELAY_OK_DELAY_MS: String(okDelayMs) },
+    stdio: 'ignore',
+  })
+  const started = Date.now()
+  for (;;) {
+    try {
+      if ((await fetch(`http://127.0.0.1:${port}/`)).ok) break
+    } catch {
+      // Not up yet.
+    }
+    if (Date.now() - started > 15_000) {
+      child.kill()
+      throw new Error('the slow-ack relay did not start')
+    }
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  return {
+    url: `ws://127.0.0.1:${port}`,
+    stop: () =>
+      new Promise<void>((resolve) => {
+        child.once('exit', () => resolve())
+        child.kill()
+      }),
+  }
+}
+
+/**
+ * BUG: the person who started the room could see and hear whoever joined,
+ * and the joiner could see and hear nobody.
+ *
+ * Whoever is already in a room answers an arrival by opening a connection
+ * and offering, the instant the announcement reaches them. The joiner's
+ * `join()` used to build the mesh - the thing that subscribes to signals -
+ * only after every relay had acknowledged the announcement, a full round
+ * trip after it had been broadcast. A signal is ephemeral: a relay delivers
+ * it to whoever is subscribed when it arrives and keeps it for nobody. So
+ * the host's offer, the one carrying the host's camera and microphone, went
+ * to a subscription that did not exist yet. The joiner's own offer came
+ * later and was answered, and the call came up one way.
+ *
+ * The CI relay's round trip is under a millisecond, and this never once
+ * showed on it. So this room is pinned to a relay whose acknowledgement lags
+ * its delivery by nearly half a second - a slow public relay, made
+ * deterministic - and the assertion is made from the joiner's screen, with
+ * a bound: the host's picture has to arrive well inside the route timer.
+ * Arriving after it would mean the first offer was lost and the ladder
+ * rebuilt the pair, which is the bug with a recovery bolted on, not the
+ * absence of the bug.
+ */
+test('whoever starts the room is seen and heard by a joiner, however slow the relay is to acknowledge', async ({
+  browser,
+  baseURL,
+}) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+
+  const relay = await startSlowAckRelay(7778, 400)
+  const contextA = await newDeviceContext(browser, baseURL!)
+  const contextB = await newDeviceContext(browser, baseURL!)
+  try {
+    const pageA = await contextA.newPage()
+    const pageB = await contextB.newPage()
+
+    const url = withRelays(await createRoom(pageA, baseURL!), [relay.url])
+    await joinWithMedia(pageA, url, 'Ada')
+    await joinWithMedia(pageB, url, 'Bob')
+    const joined = Date.now()
+
+    // The direction that was dead: the joiner receiving the host.
+    await expect
+      .poll(async () => (await pageB.evaluate(inbound)).framesDecoded, {
+        message:
+          "Bob is not decoding Ada's video inside the route timer - the host's first offer was lost and nothing " +
+          'made up for it in time',
+        timeout: 8_000,
+      })
+      .toBeGreaterThan(0)
+    test.info().annotations.push({
+      type: 'first frame from the host',
+      description: `${Date.now() - joined}ms after the joiner joined`,
+    })
+
+    await expectToSeeAndHear(pageB, 'Bob (who joined second)')
+    await expectToSeeAndHear(pageA, 'Ada (who started the room)')
+  } finally {
+    await contextA.close()
+    await contextB.close()
+    await relay.stop()
   }
 })
 

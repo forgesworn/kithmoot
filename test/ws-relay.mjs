@@ -28,6 +28,20 @@ import { verifyEvent } from 'nostr-tools/pure'
 
 const port = Number(process.env.RELAY_PORT ?? 7777)
 const host = process.env.RELAY_HOST ?? '127.0.0.1'
+/**
+ * How long to hold the OK for an accepted event, in milliseconds. Zero, the
+ * default, acknowledges at once.
+ *
+ * A real relay delivers an event to its subscribers and acknowledges it to
+ * its publisher at about the same moment, but the publisher only hears the
+ * OK a network round trip later - and nostr-tools does not resolve a publish
+ * until it does. On a loopback socket that round trip is under a millisecond,
+ * which is why no race that lives in it ever shows on this relay. Holding
+ * the OK back, with delivery untouched, is that round trip made large and
+ * deterministic: whatever a client does *after* its publish resolves is
+ * measurably late, and whatever the room does in reply is measurably early.
+ */
+const okDelayMs = Number(process.env.RELAY_OK_DELAY_MS ?? 0)
 
 const isEphemeral = (kind) => kind >= 20000 && kind < 30000
 /** Every non-ephemeral event accepted, newest last. */
@@ -66,12 +80,16 @@ wss.on('connection', (socket) => {
       if (!isEphemeral(event.kind)) {
         if (!stored.some((e) => e.id === event.id)) stored.push(event)
       }
-      send(socket, ['OK', event.id, true, ''])
+      // Delivered first, acknowledged second - and, when asked, late. See
+      // `okDelayMs`.
       for (const [other, subs] of subscriptions) {
         for (const [subId, filters] of subs) {
           if (matchFilters(filters, event)) send(other, ['EVENT', subId, event])
         }
       }
+      const ok = () => send(socket, ['OK', event.id, true, ''])
+      if (okDelayMs > 0) setTimeout(ok, okDelayMs)
+      else ok()
       return
     }
 

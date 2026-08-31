@@ -271,6 +271,44 @@ ladder takes over. One restart per episode, an episode ending at the next
 `connected`. A connection that never came up gets no restart: the route
 timer and the ladder own that, and are faster.
 
+## Signalling is lossy, so a device listens before it announces and an unanswered offer is re-sent
+
+A signal is an ephemeral event on a public relay. It reaches whoever is
+subscribed at the instant it arrives and is kept for nobody; nothing is
+replayed. Perfect negotiation assumes a channel that delivers, and two
+places assumed it here.
+
+The first was the order of `join()`. It announced, waited for every relay
+to acknowledge, and only then built the mesh - which is what subscribes to
+signals. Everybody already in the room answers an arrival by opening a
+connection and offering the instant the announcement reaches them, so the
+first offer was in flight a full relay round trip before the joiner was
+listening for it. On the CI relay that round trip is under a millisecond
+and the window never opens; on three public relays the joiner waits for the
+slowest acknowledgement while the fastest relay has already delivered the
+host's offer to nobody. Seen on a real call: the person who started the
+room could see and hear whoever joined, and the joiner could not see or
+hear them, because the offer carrying the host's media was the one that was
+lost. So the mesh is built, and subscribed, before the announcement goes
+out. The regression test acknowledges late, the way nostr-tools does.
+
+The second is that nothing re-sent an offer. Only the offerer can tell an
+offer was lost, and only by the silence: the far end never knew it was
+sent. If the far end then offers in turn, and the offerer is the impolite
+side, perfect negotiation says to ignore that offer in favour of its own -
+which nobody has - and the pair is stuck until the route timer tears it
+down ten seconds later and rebuilds it a rung lower. So `Peer` re-sends an
+offer that has waited `OFFER_RETRY_MS` with no answer, up to
+`MAX_OFFER_RETRIES` times. What goes out again is the connection's own
+current local description - the same session, the same ICE credentials,
+now carrying every candidate gathered so far - not a fresh offer. To a far
+end that never heard it, it is the offer; to one whose answer was what went
+missing, a renegotiation that changes nothing and prompts the answer again;
+to one with its own offer out, the glare perfect negotiation already
+resolves. The answer clears it, a rollback clears it, and so does `close()`.
+Bounded, because a peer that never answers is a peer that has gone, and
+that is the route ladder's decision.
+
 ## Device keys are per room
 
 A relay learns every device pubkey in a room from the roster events it

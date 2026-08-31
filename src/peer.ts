@@ -105,6 +105,27 @@ export const ICE_RESTART_GRACE_MS = 3_000
  */
 export const ICE_RESTART_TIMEOUT_MS = 10_000
 
+/**
+ * How long an offer waits for its answer before it is sent again.
+ *
+ * Perfect negotiation assumes the signalling channel delivers. This one does
+ * not promise to: a signal is an ephemeral event on a public relay, delivered
+ * to whoever is subscribed at the instant it arrives and kept for nobody. An
+ * offer that lands a moment before the far end is listening is gone, and the
+ * far end has no way to know it was ever sent - so nothing on that side can
+ * ask for it again. The offerer is the only one who knows, and it knows only
+ * by the silence. Long enough that a slow relay round trip is not mistaken
+ * for a lost one; short enough to be over before the route ladder
+ * (`DEFAULT_ROUTE_TIMEOUT_MS`) gives up on a rung that would have worked.
+ */
+export const OFFER_RETRY_MS = 3_000
+
+/**
+ * How many times an unanswered offer is re-sent before the peer stops
+ * asking and leaves the route ladder to decide.
+ */
+export const MAX_OFFER_RETRIES = 2
+
 export interface PeerOptions {
   factory: PeerFactory
   localDevice: string
@@ -142,6 +163,12 @@ export interface PeerOptions {
    * `ICE_RESTART_TIMEOUT_MS`; tests shorten them.
    */
   iceRestart?: { graceMs?: number; timeoutMs?: number }
+  /**
+   * How long an offer waits for its answer before it is sent again, and how
+   * many times. Defaults to `OFFER_RETRY_MS` and `MAX_OFFER_RETRIES`; tests
+   * shorten them.
+   */
+  offerRetry?: { intervalMs?: number; max?: number }
 }
 
 /**
@@ -198,11 +225,20 @@ export class Peer {
   #restarted = false
   #graceTimer?: ReturnType<typeof setTimeout>
   #giveUpTimer?: ReturnType<typeof setTimeout>
+  readonly #retryMs: number
+  readonly #maxRetries: number
+  /** Armed whenever an offer goes out, and cleared by the answer to it. See
+   *  `OFFER_RETRY_MS`. */
+  #retryTimer?: ReturnType<typeof setTimeout>
+  /** How many more times the offer currently outstanding may be re-sent. */
+  #retriesLeft = 0
 
   constructor(opts: PeerOptions) {
     this.#opts = opts
     this.#graceMs = opts.iceRestart?.graceMs ?? ICE_RESTART_GRACE_MS
     this.#timeoutMs = opts.iceRestart?.timeoutMs ?? ICE_RESTART_TIMEOUT_MS
+    this.#retryMs = opts.offerRetry?.intervalMs ?? OFFER_RETRY_MS
+    this.#maxRetries = opts.offerRetry?.max ?? MAX_OFFER_RETRIES
     // Normalised here, once, because this decides politeness and the two
     // sides of a connection MUST land on opposite answers - see the class
     // doc comment. `hexEquals` protects an equality check from a case
@@ -408,6 +444,7 @@ export class Peer {
   async #offer(): Promise<void> {
     if (this.#closed) return
     this.#makingOffer = true
+    this.#clearOfferRetry()
     try {
       const offer = await this.#pc.createOffer()
       await this.#pc.setLocalDescription(offer)
@@ -415,6 +452,61 @@ export class Peer {
     } finally {
       this.#makingOffer = false
     }
+    this.#retriesLeft = this.#maxRetries
+    this.#armOfferRetry()
+  }
+
+  /**
+   * Send the outstanding offer again if nothing has answered it.
+   *
+   * The signalling channel is an ephemeral event on a public relay, and it
+   * delivers to whoever is subscribed at the instant the event arrives -
+   * nobody else, and never later. An offer that lands a moment before the far
+   * end is listening is simply gone, and only the offerer can tell, because
+   * only the offerer is waiting for something. Left alone, it waits for ever:
+   * the far end, when it does have something to send, offers in turn, and if
+   * this side is the impolite one it ignores that offer in favour of its own
+   * - which nobody has. On a real call over public relays that was two people
+   * in a room, one of whom could see and hear the other, and the other of
+   * whom could not: whatever the route ladder eventually built carried media
+   * one way only.
+   *
+   * What is re-sent is the connection's own current local description, not
+   * a fresh offer: the same session, the same ICE credentials, and by now
+   * carrying every candidate gathered so far. To a far end that never heard
+   * it, it is the offer. To one that did and whose answer was what went
+   * missing, it is a renegotiation that changes nothing and prompts the
+   * answer again. To one that has its own offer out, it is the glare that
+   * perfect negotiation already resolves. And to one that is polite and
+   * waiting on ours, it is what it was waiting for.
+   *
+   * Bounded, because a peer that never answers is a peer that has gone, and
+   * that is the route ladder's call rather than this one's.
+   */
+  #armOfferRetry(): void {
+    this.#clearOfferRetry()
+    if (this.#retriesLeft <= 0) return
+    this.#retryTimer = this.#after(this.#retryMs, () => {
+      this.#retryTimer = undefined
+      void this.#enqueue(() => this.#resendOffer()).catch(() => {})
+    })
+  }
+
+  async #resendOffer(): Promise<void> {
+    if (this.#closed || this.#makingOffer) return
+    // Answered, rolled back or superseded since the timer was armed: there
+    // is nothing outstanding to ask about again.
+    if (this.#pc.signalingState !== 'have-local-offer') return
+    const local = this.#pc.localDescription
+    if (!local || local.type !== 'offer') return
+    this.#retriesLeft -= 1
+    this.#onSignal({ type: 'offer', roomId: '', sdp: local.sdp })
+    this.#armOfferRetry()
+  }
+
+  #clearOfferRetry(): void {
+    if (this.#retryTimer !== undefined) clearTimeout(this.#retryTimer)
+    this.#retryTimer = undefined
   }
 
   /** Feed in a signal received from the remote device. Queued behind whatever
@@ -441,6 +533,8 @@ export class Peer {
       await this.#handleOffer(body.sdp)
     } else if (body.type === 'answer') {
       await this.#pc.setRemoteDescription({ type: 'answer', sdp: body.sdp })
+      // The offer has been answered, so it is no longer anything to re-send.
+      this.#clearOfferRetry()
       this.#hasRemoteDescription = true
       await this.#drainCandidates()
     } else if (body.type === 'ice') {
@@ -460,6 +554,8 @@ export class Peer {
       // Only the polite side reaches here: give up its own pending offer so
       // the incoming one can be answered instead.
       await this.#pc.setLocalDescription({ type: 'rollback' })
+      // The offer we gave up on must not come back from a timer.
+      this.#clearOfferRetry()
       // We are renegotiating from `stable` now. Candidates still arriving
       // belong to the description that has not landed yet, so they go back to
       // being buffered - applying them against the previous description gets
@@ -529,6 +625,7 @@ export class Peer {
     if (this.#closed) return
     this.#closed = true
     this.#clearRestartTimers()
+    this.#clearOfferRetry()
     this.#pc.close()
   }
 }
