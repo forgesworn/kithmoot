@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { wrapSignal, unwrapSignal, SIGNAL_MAX_AGE_SECONDS, type SignalBody } from './signal.js'
 import { KINDS } from './kinds.js'
@@ -88,10 +88,17 @@ describe('gift-wrapped signalling', () => {
     // The window is symmetric, so a sender cannot mint a wrap that stays
     // acceptable for ever by stamping it years ahead.
     const { senderSk, recipientSk, recipient } = fixture()
-    const wrap = wrapSignal(body, { senderSk, recipientPubkey: recipient })
-    const sentAt = wrap.created_at
+    // Force two successive clock reads across a Unix-second boundary. The
+    // inner and outer events must still share the one captured timestamp.
+    const clock = vi.spyOn(Date, 'now').mockReturnValueOnce(1_000_999).mockReturnValue(1_001_000)
+    try {
+      const wrap = wrapSignal(body, { senderSk, recipientPubkey: recipient })
+      const sentAt = wrap.created_at
 
-    expect(unwrapSignal(wrap, { recipientSk, roomId: ROOM, now: sentAt - SIGNAL_MAX_AGE_SECONDS - 1 })).toBeNull()
+      expect(unwrapSignal(wrap, { recipientSk, roomId: ROOM, now: sentAt - SIGNAL_MAX_AGE_SECONDS - 1 })).toBeNull()
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   it('carries an ICE candidate as well as an offer', () => {

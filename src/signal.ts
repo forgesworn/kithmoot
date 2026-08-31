@@ -49,10 +49,14 @@ export interface WrapOptions {
  * who sent it - only that someone sent something to the recipient.
  */
 export function wrapSignal(body: SignalBody, opts: WrapOptions): Event {
+  // One captured instant for both layers. Sampling twice can straddle a Unix
+  // second: the outer event then appears newer than the signed inner signal,
+  // which makes boundary staleness checks nondeterministic.
+  const createdAt = Math.floor(Date.now() / 1000)
   const inner = finalizeEvent(
     {
       kind: KINDS.SIGNAL,
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: createdAt,
       tags: [['p', opts.recipientPubkey]],
       content: JSON.stringify(body),
     },
@@ -65,7 +69,7 @@ export function wrapSignal(body: SignalBody, opts: WrapOptions): Event {
   return finalizeEvent(
     {
       kind: KINDS.SIGNAL_WRAP,
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: createdAt,
       tags: [['p', opts.recipientPubkey]],
       content: nip44.v2.encrypt(JSON.stringify(inner), conversationKey),
     },
