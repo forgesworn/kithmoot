@@ -242,6 +242,8 @@ export interface RoomDescriptor {
   participant: string
   /** Proof that `device` speaks for `participant` in this room. */
   credential: DeviceCredential
+  /** The publisher's room admission proof. Required by gated readers. */
+  proof?: KindredProof
   /** Forwarders this room may promote to. Order is not authoritative -
    *  `selectForwarder` imposes its own total order so every client agrees. */
   forwarders: ForwarderRef[]

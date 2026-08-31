@@ -20,13 +20,12 @@ in a room they left an hour ago. Nothing about a stored entry expires on its
 own, and the device that published it may be off, asleep or gone. Replaying
 it is not history, it is a lie about the present.
 
-**A stored entry is a durable public record that the room existed.** The
-design's position is that nothing about a room is public: the id is derived
-from a secret, the roster is encrypted to the room key, and the join URL
-keeps the secret in the fragment so no server ever receives it. An
-addressable event undoes the last part of that - not its contents, but its
-existence, its timing and the device pubkeys involved, kept on a public relay
-indefinitely.
+**A stored entry is a durable public record of room activity.** The room id is
+derived from a secret and the roster is encrypted to the room key, but a relay
+still sees the opaque id, timing, volume and device pubkeys on events it
+carries. An addressable event would preserve that metadata indefinitely.
+Keeping presence ephemeral bounds the record; it does not make metadata
+invisible.
 
 The cost is that a late joiner is never sent what it missed, so the roster
 has to make up for it in the protocol: **arriving devices announce, devices
@@ -39,6 +38,63 @@ answer rather than twenty.
 
 This is the pattern the sibling RelaySwarm project settled on for the same
 question.
+
+## A join link is an invitation, not the room traffic secret
+
+The original v1 fragment carried the 32-byte room secret directly. That made
+joining wonderfully simple, but it also made the link permanent cryptographic
+membership: copying it once was enough to decrypt and publish room traffic for
+as long as that room secret lived. Calling a replacement URL "rotated" could
+not change that fact.
+
+New links are version 2. They carry a random bearer plus a fresh root inviter
+pubkey. A prospective member publishes an ephemeral request encrypted under a
+key derived from the bearer. A current responder answers with the room secret
+in a NIP-44 envelope encrypted to the requester's one-use pubkey. Its event
+signature is authenticated by a delegation chain rooted at the inviter key in
+the link. Possessing the link is enough to be admitted, but it is not enough
+to nominate a responder or passively derive the room traffic key.
+
+The creator answers directly. Every accepted grant also delegates the
+requester's one-use key for this invitation, so that browser or Android device
+quietly answers the next arrival. The chain is bound to both the
+bearer-derived invitation id and the derived room id, so a delegated member
+cannot substitute a different room secret for a newcomer. It is capped at
+sixteen hops, expires no later than twelve hours after the creator-rooted
+grant, and never carries the creator's private key. The
+creator can therefore leave without making itself an admission server, while
+delegation remains bounded rather than silently permanent. A long-lived room
+needs the creator to refresh the public invitation before that horizon or
+before the depth cap is reached.
+
+Rotation uses the missing half of that design: a regular, stored retirement
+event signed by the root inviter. Online delegated responders stop as soon as
+they receive it; an offline responder sees the tombstone from a relay when it
+reconnects and retires rather than intentionally reviving the old link. This
+is cooperative retirement, not cryptographic eviction: anyone already
+admitted holds the room secret and can always disclose it outside KithMoot.
+
+The root inviter's private key and room secret are kept locally for twelve
+hours so the creator can reload or reopen the room without stranding links
+already sent. A joining tab caches its granted room secret and delegated
+responder key only for that tab's session. Legacy v1 links remain accepted
+during migration and retain their old security properties.
+
+**Rotation has a deliberately narrow meaning.** It tombstones the old
+rendezvous, forgets its local inviter key, and starts a fresh one while the
+live room keeps the same traffic key. Cooperative current clients stop
+answering the old link. Anyone already admitted has necessarily learned the
+current room key, so rotation cannot stop a malicious former member sharing
+that key and does not remove them. Member removal requires a room epoch
+change; that remains separate work.
+
+**The metadata is explicit.** A relay sees the invitation id, the one-use
+requester pubkey, each responder event pubkey, timing and event volume. The
+request, response, delegation chain and room secret are encrypted. The HTTP server and ordinary
+link-preview fetchers receive none of the fragment. The messaging platform
+carrying the link still sees it unless that conversation is end-to-end
+encrypted; the fragment is not a defence against the channel a person chose
+to send the capability through.
 
 ## The access policy rides the join URL, not a room descriptor event
 
@@ -67,19 +123,21 @@ the config is small. It stops being acceptable in stage 3, when forwarders
 and TURN lists need to change while a call is running - so the descriptor
 question should be reopened then, for that config, on its own merits.
 
-**Enforcement is member-side.** Every member evaluates every other member's
-tier against the policy before admitting them to its own roster view, using
-the kindred proof carried inside the roster entry's ciphertext. The joiner's
-own check at `join()` is a courtesy that fails fast; it proves nothing to
-anybody else, because a modified client - or one simply constructed without a
-policy - skips it. The design's claim that kith-gating is "cryptographically
-meaningful, not a social-graph guess" is only true because of the member-side
-check, not the self-check.
+**Enforcement is member-side and capability-wide.** Every member evaluates
+every other member's tier before accepting its roster entry, durable chat or
+room descriptor. A signal can only act on a peer created from that admitted
+roster; an assist request performs the membership check directly because it
+acts without creating a peer. The joiner's own check at `join()` is a courtesy
+that fails fast; it proves nothing to anybody else, because a modified client
+can skip it. The gate is meaningful only because every receiving boundary
+checks independently.
 
-Known limitation, unchanged: a kindred proof carries no room binding, so it
-is a bearer token valid in every room that trusts its issuer until it
-expires. Defensible - kindred is a relationship, not a room grant - but it is
-a decision, not an oversight.
+A kindred proof is signed over the participant, room id, tier, expiry and a
+random nonce. It is therefore a room-scoped grant, not a bearer relationship
+statement reusable in another room. Durable chat checks the proof at the
+message's signed send time, just as it checks the device credential then, so
+valid history does not become unverifiable merely because both grants later
+expire.
 
 ## Pairing transfers a credential, never the participant key
 
@@ -87,11 +145,12 @@ A device credential names the device it authorises, so the primary device
 cannot mint one until it knows the second device's pubkey. That makes pairing
 a two-step exchange rather than a link.
 
-The link carries the room secret and a one-off **pairing code**, and nothing
-secret to the person. The secondary generates its own keypair and publishes a
-request on the room-key channel proving it holds the code; the primary
-confirms with the person, then publishes a room-scoped credential that
-expires in twelve hours.
+The link carries the ordinary bearer invitation plus a one-off **pairing
+code**, and nothing secret to the person. The secondary first obtains the
+room secret through the invitation rendezvous, then generates its own keypair
+and publishes a request on the room-key channel proving it holds the code;
+the primary confirms with the person, then publishes a room-scoped credential
+that expires in twelve hours.
 
 The code is sent as `sha256(domain : code : roomId : device)` rather than in
 the clear, because everybody in the room holds the room key and can read the

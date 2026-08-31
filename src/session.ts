@@ -429,6 +429,8 @@ export class RoomSession {
       credential,
       deviceSk: this.#opts.deviceSk,
       name: this.#name,
+      policy: this.#opts.policy,
+      proof: this.#opts.proof,
       now: this.#now,
     })
 
@@ -527,6 +529,7 @@ export class RoomSession {
         device: this.device,
         participant: this.participant,
         credential: self.credential,
+        ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
         forwarders: config.forwarders ?? [],
         iceServers: config.iceServers ?? [],
         updatedAt: config.updatedAt ?? this.#now(),
@@ -545,6 +548,7 @@ export class RoomSession {
       roomId: this.roomId,
       roomKey: this.#roomKey,
       now: this.#now(),
+      policy: this.#opts.policy,
     })
     if (!descriptor) return
     // Ordered on `updatedAt`, not on arrival: relays deliver out of order,

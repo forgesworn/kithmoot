@@ -4,7 +4,15 @@ import { nip44 } from 'nostr-tools'
 import { deriveRoom } from './room.js'
 import { createDeviceCredential } from './credential.js'
 import { localIdentity } from './identity.js'
-import { encodeChatEvent, decodeChatEvent, ChatLog } from './chat.js'
+import {
+  encodeChatEvent,
+  decodeChatEvent,
+  ChatLog,
+  MAX_CHAT_MESSAGES,
+  MAX_CHAT_MESSAGES_PER_MINUTE,
+  MAX_CHAT_TEXT_LENGTH,
+} from './chat.js'
+import { issueKindredProof } from './access.js'
 import type { ChatMessage } from './chat.js'
 import { KINDS } from './kinds.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
@@ -207,6 +215,37 @@ describe('encodeChatEvent / decodeChatEvent', () => {
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk: impostorSk })
     expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
   })
+
+  it('enforces the room gate on durable chat, independently of the roster', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const hostSk = generateSecretKey()
+    const policy = { tier: 'kith' as const, admitted: [getPublicKey(hostSk)] }
+    const unproved = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
+    expect(decodeChatEvent(unproved, { roomId, roomKey, now: NOW, policy })).toBeNull()
+
+    const proof = issueKindredProof({
+      hostSk,
+      participant: msg.participant,
+      tier: 'kith',
+      roomId,
+      expiresAt: NOW + 3600,
+    })
+    const proved = encodeChatEvent({ ...msg, proof }, { roomId, roomKey, deviceSk })
+    expect(decodeChatEvent(proved, { roomId, roomKey, now: NOW, policy })).toMatchObject({
+      participant: msg.participant,
+      text: msg.text,
+      proof,
+    })
+  })
+
+  it('refuses an oversized message at the encrypted protocol boundary', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent(
+      { ...msg, text: 'x'.repeat(MAX_CHAT_TEXT_LENGTH + 1) },
+      { roomId, roomKey, deviceSk },
+    )
+    expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
+  })
 })
 
 describe('ChatLog', () => {
@@ -302,6 +341,56 @@ describe('ChatLog', () => {
     await expect(log.send('hello')).resolves.toBeUndefined()
     expect(seen).toEqual([1])
   })
+
+  it('bounds one device to thirty messages per minute', async () => {
+    const relay = new SimRelay()
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))
+    const deviceSk = generateSecretKey()
+    const credential = await credentialFor(deviceSk, roomId)
+    const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
+    const base = {
+      participant: credential.pubkey,
+      device: getPublicKey(deviceSk),
+      credential,
+      text: 'bounded',
+      sentAt: NOW,
+    }
+    for (let i = 0; i < MAX_CHAT_MESSAGES_PER_MINUTE + 1; i += 1) {
+      relay.publish(encodeChatEvent({ ...base, id: `rate-${i}` }, { roomId, roomKey, deviceSk }))
+    }
+    expect(log.messages()).toHaveLength(MAX_CHAT_MESSAGES_PER_MINUTE)
+  })
+
+  it('rejects oversized sends before publishing and caps retained history', async () => {
+    const relay = new SimRelay()
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))
+    const deviceSk = generateSecretKey()
+    const credential = await createDeviceCredential({
+      identity: localIdentity(generateSecretKey()),
+      devicePubkey: getPublicKey(deviceSk),
+      roomId,
+      expiresAt: NOW + 100_000,
+    })
+    const clock = NOW + 40_000
+    const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => clock })
+    await expect(log.send('x'.repeat(MAX_CHAT_TEXT_LENGTH + 1))).rejects.toThrow(/exceeds/)
+    expect(relay.published).toHaveLength(0)
+
+    const base = {
+      participant: credential.pubkey,
+      device: getPublicKey(deviceSk),
+      credential,
+      text: 'bounded history',
+    }
+    for (let i = 0; i < MAX_CHAT_MESSAGES + 1; i += 1) {
+      relay.publish(encodeChatEvent(
+        { ...base, id: `history-${i}`, sentAt: NOW + i * 61 },
+        { roomId, roomKey, deviceSk },
+      ))
+    }
+    expect(log.messages()).toHaveLength(MAX_CHAT_MESSAGES)
+    expect(log.messages()[0]?.id).toBe('history-1')
+  }, 15_000)
 })
 
 describe('chat display names', () => {

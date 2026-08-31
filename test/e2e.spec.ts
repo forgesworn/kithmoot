@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { base64urlnopad } from '@scure/base'
 import { openRoomUrl, pinToTestRelays, testRelays, withRelays } from './relays.js'
 
 /**
@@ -98,6 +99,13 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
 
   const joinUrl = await page.locator('#shareUrl').inputValue()
   expect(joinUrl, 'room creation did not produce a join URL').toContain('#')
+  const payload = JSON.parse(
+    new TextDecoder().decode(base64urlnopad.decode(new URL(joinUrl).hash.slice(1))),
+  ) as Record<string, unknown>
+  expect(payload.v, 'new room links must use the invitation format').toBe(2)
+  expect(payload.s, 'a share URL must never contain the room traffic secret').toBeUndefined()
+  expect(payload.j, 'the invitation bearer is missing').toEqual(expect.any(String))
+  expect(payload.h, 'the pinned inviter pubkey is missing').toMatch(/^[0-9a-f]{64}$/)
   return joinUrl
 }
 
@@ -192,6 +200,60 @@ async function expectSameNameStillTwoPeople(page: Page, name: string): Promise<v
   expect(keys, 'every tile must show a short pubkey beside the name').toHaveLength(2)
   expect(new Set(keys).size, 'two people called the same thing must show different keys').toBe(2)
 }
+
+test('rotating a share link retires its public capability without moving the room', async ({ page, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+  const first = pinToTestRelays(await createRoom(page, baseURL!))
+  await openRoomUrl(page, first)
+  await expect(page.locator('#deviceControls')).toBeVisible()
+  // A restored creator tab has the same local inviter key and would keep the
+  // old link alive unless rotation is coordinated across tabs.
+  const otherCreatorTab = await page.context().newPage()
+  await openRoomUrl(otherCreatorTab, first)
+  await expect(otherCreatorTab.locator('#rotateShare')).toBeVisible()
+  page.on('dialog', (dialog) => void dialog.accept())
+  await page.locator('#rotateShare').click()
+  await expect(page.locator('#shareUrl')).not.toHaveValue(first, { timeout: 60_000 })
+  const second = await page.locator('#shareUrl').inputValue()
+
+  expect(second).not.toBe(first)
+  await expect(page.locator('#status')).toContainText('Current clients will no longer answer the old link')
+  await expect(page.locator('#deviceControls')).toBeVisible()
+  await expect(page.locator('#join')).toBeVisible()
+  await expect(otherCreatorTab.locator('#status')).toContainText('retired in another tab')
+  await expect(otherCreatorTab.locator('#rotateShare')).toBeHidden()
+})
+
+test('an admitted member keeps the invitation available after the creator leaves', async ({ browser, page, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+  const joinUrl = pinToTestRelays(await createRoom(page, baseURL!))
+  // Re-open the creator on the rewritten relay hints so its responder and
+  // the two independent browsers rendezvous on the same relay.
+  await openRoomUrl(page, joinUrl)
+  await expect(page.locator('#deviceControls')).toBeVisible()
+  const memberContext = await newDeviceContext(browser, baseURL!)
+  const arrivalContext = await newDeviceContext(browser, baseURL!)
+
+  try {
+    const member = await memberContext.newPage()
+    await openRoomUrl(member, joinUrl)
+    await expect(member.locator('#deviceControls')).toBeVisible({ timeout: 60_000 })
+    await expect(member.locator('#status')).toContainText('Invitation accepted')
+
+    // The creator was the original responder. Closing it leaves only the
+    // newly admitted browser on the invitation rendezvous.
+    await page.close()
+
+    const arrival = await arrivalContext.newPage()
+    await openRoomUrl(arrival, joinUrl)
+    await expect(arrival.locator('#deviceControls')).toBeVisible({ timeout: 60_000 })
+    await expect(arrival.locator('#status')).toContainText('Invitation accepted')
+    await expect(arrival.locator('#rotateShare')).toBeHidden()
+  } finally {
+    await memberContext.close()
+    await arrivalContext.close()
+  }
+})
 
 test('two devices of one participant render as one tile group to a third person', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')

@@ -11,7 +11,10 @@ const ROOM_KEY_INFO = 'kithmoot/v1/room-key'
 const utf8Encoder = new TextEncoder()
 const utf8Decoder = new TextDecoder()
 
-/** Generate a fresh 32-byte room secret. This is the capability that grants entry. */
+/** Generate a fresh 32-byte room traffic secret.
+ *
+ * Legacy v1 links carry this directly. New app links exchange it through
+ * `invitation.ts` and never expose it in the URL. */
 export function generateRoomSecret(): Uint8Array {
   return randomBytes(32)
 }
@@ -66,7 +69,7 @@ function parsePolicy(raw: unknown): RoomPolicy | undefined {
 }
 
 /**
- * Build a join URL. The secret and relay hints live in the fragment, which
+ * Build a legacy v1 join URL. The secret and relay hints live in the fragment, which
  * browsers never transmit to the server - the host of kithmoot.com learns
  * nothing about which room you are joining.
  *
@@ -94,6 +97,8 @@ export function encodeJoinUrl(
   return `${base}#${encoded}`
 }
 
+/** Decode a legacy v1 room-secret link. Version 2 invitation links are
+ * resolved by `invitation.ts` plus the app's URL envelope. */
 export function decodeJoinUrl(url: string): {
   secret: Uint8Array
   relays: string[]

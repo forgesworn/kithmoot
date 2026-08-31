@@ -52,4 +52,24 @@ export const KINDS = {
    *  to change while a call is running, and getting them wrong costs
    *  bandwidth rather than admission. */
   DESCRIPTOR: 20465,
+  /** A prospective member proving possession of a room invitation.
+   *
+   * Ephemeral deliberately: it is a live rendezvous with an inviter, not a
+   * request a relay should retain. The public `d` tag is derived from the
+   * bearer capability; the request body is encrypted under a separate key
+   * derived from that capability. */
+  INVITATION_REQUEST: 20466,
+  /** A delegated responder's encrypted response carrying the room traffic
+   * secret and its root-authenticated, room-bound delegation chain. Addressed
+   * to the requester's one-use pubkey; knowing the bearer does not let
+   * somebody nominate a responder or substitute a room. Ephemeral for the
+   * same reason as the request. */
+  INVITATION_GRANT: 20467,
+  /** A durable, creator-authenticated tombstone for one invitation.
+   *
+   * Unlike the live request/grant exchange this MUST be a regular stored
+   * event: a delegated responder that was offline when the creator rotated
+   * the link has to learn that fact before it starts answering the old link
+   * again. The invitation id is unique, so one valid retirement is final. */
+  INVITATION_RETIREMENT: 1461,
 } as const
