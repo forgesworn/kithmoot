@@ -5,7 +5,8 @@ import { verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import { MAX_FUTURE_SKEW_SECONDS } from './roster.js'
-import type { ForwarderRef, IceServerRef, RoomDescriptor } from './types.js'
+import { evaluateAccess } from './access.js'
+import type { ForwarderRef, IceServerRef, RoomDescriptor, RoomPolicy } from './types.js'
 
 export interface EncodeDescriptorOptions {
   roomId: string
@@ -80,6 +81,7 @@ export function encodeDescriptorEvent(descriptor: RoomDescriptor, opts: EncodeDe
     device: normaliseHex(descriptor.device),
     participant: normaliseHex(descriptor.participant),
     credential: descriptor.credential,
+    ...(descriptor.proof ? { proof: descriptor.proof } : {}),
     forwarders: projectList(descriptor.forwarders, projectForwarder),
     iceServers: projectList(descriptor.iceServers, projectIceServer),
     updatedAt: descriptor.updatedAt,
@@ -100,6 +102,7 @@ export interface DecodeDescriptorOptions {
   roomKey: Uint8Array
   /** Unix seconds. */
   now: number
+  policy?: RoomPolicy
 }
 
 /**
@@ -125,6 +128,7 @@ export function decodeDescriptorEvent(event: Event, opts: DecodeDescriptorOption
       device: normaliseHex(raw.device),
       participant: normaliseHex(raw.participant),
       credential: raw.credential,
+      ...(raw.proof ? { proof: raw.proof } : {}),
       forwarders: projectList(raw.forwarders, projectForwarder),
       iceServers: projectList(raw.iceServers, projectIceServer),
       updatedAt: raw.updatedAt as number,
@@ -143,6 +147,11 @@ export function decodeDescriptorEvent(event: Event, opts: DecodeDescriptorOption
     if (!verdict.ok) return null
     if (!hexEquals(verdict.device, event.pubkey)) return null
     if (!hexEquals(verdict.participant, descriptor.participant)) return null
+
+    if (opts.policy) {
+      const access = evaluateAccess(opts.policy, descriptor.participant, descriptor.proof, opts.now, opts.roomId)
+      if (!access.admitted) return null
+    }
 
     return descriptor
   } catch {

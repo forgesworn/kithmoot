@@ -3,9 +3,24 @@
 **A town hall nobody owns.**
 
 KithMoot is a conference room protocol built on Nostr. There is no account to
-register and no operator who holds the guest list. A room is a secret, held by
-whoever has the link. Anyone holding it can join; nobody outside it can even
-tell the room exists.
+register and no operator who holds the guest list. Drop an invitation link in
+a Signal or Telegram group; anybody it reaches can enter in one tap while
+that link is current.
+
+The link is an admission capability, not the room's traffic key. It stays in
+the URL fragment, proves itself over an encrypted relay rendezvous, and pins a
+fresh inviter identity so another link holder cannot substitute a room of
+their own. The room creator can rotate it without changing the live room.
+Relays still see opaque room/rendezvous identifiers, event timing, volume and
+device keys. They do not see room contents, participant identities or names
+from those events. KithMoot reduces metadata; it does not pretend metadata
+does not exist.
+
+The fragment protects the invitation from KithMoot's HTTP server and ordinary
+link-preview fetchers, not from the service carrying the message. In an
+end-to-end encrypted conversation that service cannot read the link; in a
+cloud-hosted group it can. Treat the messaging group's confidentiality as part
+of the invitation's threat model.
 
 **No operator is mandated**, which is not the same as no infrastructure.
 Signalling rides Nostr relays that already exist, and media goes device to
@@ -29,9 +44,8 @@ is narrower than "nothing to run".
 
 **Live at [kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/).** The app
 is at [`/j`](https://kithmoot.forgesworn.dev/j/); the root is a page explaining
-what this is. `/j` is short on purpose: a join link carries a 32-byte room
-secret plus relay hints in its fragment, and every character in the path costs
-QR density.
+what this is. `/j` is short on purpose: invitation and network hints still
+have to fit in a QR code, and every character in the path costs density.
 
 ## The claim
 
@@ -48,8 +62,18 @@ to make that one thing true.
 
 ## What works today
 
-- Room creation and join by URL. A room is a 32-byte secret carried in the
-  link's fragment, never seen by whatever's serving the page.
+- Room creation and one-tap join by URL. New links carry a bearer invitation
+  and a pinned, per-link inviter pubkey in the fragment, never the room
+  traffic secret. A response returns that secret encrypted only to the
+  requesting browser together with a short-lived, creator-rooted delegation.
+  Every admitted web or Android client then answers the same link, so the
+  creator may leave while the remaining room keeps admitting arrivals.
+  Existing v1 room-secret links remain readable during migration.
+- Invitation rotation. The creator publishes a durable signed tombstone so
+  online delegated responders stop answering and offline ones retire the old
+  link when they reconnect; the live room and everybody already in it stay
+  put. Rotation is cooperative link retirement, not member revocation, and
+  the UI says so.
 - Kindred-gated access tiers (`open` / `ken` / `kith` / `kin`), built on the
   `kindred` primitive. A room can admit anyone with the link, or require
   proof of anything up to a mutually-verified bond.
@@ -61,8 +85,11 @@ to make that one thing true.
   devices with no media server in the path. SDP/ICE signalling travels
   wrapped in a NIP-59-style gift wrap addressed to one peer, so a relay
   carrying it never reads it.
-- Room-key-encrypted chat (NIP-44), durable across a relay restart so it's
-  there for anyone who joins late.
+- Room-key-encrypted chat (NIP-44), durable across a relay restart and
+  independently admission-checked. Clients request at most the last 30 days,
+  retain at most 500 messages, cap text at 2,000 characters and accept at
+  most 30 messages per sender per minute. A relay may retain old ciphertext
+  and its public room id longer; client retention is not remote deletion.
 - **Names, and optionally a real Nostr identity.** Type a name and join, or
   sign in with a key you already have. See below.
 - **Leaving is instant, and so is a dropped connection coming back.** A

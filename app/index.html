@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#101114" />
+    <meta name="referrer" content="no-referrer" />
     <meta name="description" content="A town hall nobody owns." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
@@ -128,9 +129,27 @@
 
       <section id="links" hidden>
         <div class="linkBox">
-          <p>Room's open. Send the link.</p>
+          <p><strong>Room's open. Send the link.</strong></p>
+          <p class="note">
+            Anyone who receives or is forwarded this link can enter while it
+            is current. The link is an invitation, not the room's encryption
+            key, and it stays in the URL fragment so the web server and link
+            preview fetcher do not receive it. The messaging service carrying
+            the link can still read it unless that conversation is
+            end-to-end encrypted.
+          </p>
+          <p class="note">
+            Keep the browser that opened the room online: it answers new
+            arrivals without showing you a prompt.
+          </p>
           <input id="shareUrl" readonly />
+          <button id="shareRoom" type="button" hidden>Share</button>
           <button id="copyShare" type="button">Copy</button>
+          <button id="rotateShare" type="button" hidden>Rotate link</button>
+          <p class="note">
+            Rotating stops the old link admitting anybody new. It does not
+            remove somebody who already entered.
+          </p>
           <details id="shareQrDetails">
             <summary>Show QR</summary>
             <canvas id="shareQr" class="qr" role="img" aria-label="QR code for the join link"></canvas>

@@ -992,6 +992,11 @@ export class Mesh {
     if (!this.#guard.admitSender(unwrapped.from, now)) return
 
     if (unwrapped.body.type === 'assist') {
+      // Assist requests act immediately rather than waiting for a Peer, so
+      // they need their own membership check. Ordinary SDP/ICE from an
+      // unknown sender is only held in a bounded queue and can run solely if
+      // an admitted roster entry later creates that sender's peer.
+      if (!this.#deviceToParticipant.has(unwrapped.from)) return
       const far = unwrapped.body.assist
       if (typeof far !== 'string' || far === '') return
       if (unwrapped.body.accept === undefined) this.#handleAssistRequest(unwrapped.from, far)

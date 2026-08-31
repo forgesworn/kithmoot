@@ -10,6 +10,7 @@ import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { selectForwarder } from './forwarder.js'
 import type { RoomDescriptor } from './types.js'
 import { localIdentity } from './identity.js'
+import { issueKindredProof } from './access.js'
 
 const NOW = 1_800_000_000
 
@@ -241,6 +242,27 @@ describe('room descriptor rejection', () => {
   it('refuses the wrong kind', async () => {
     const { roomId, roomKey, event } = await encoded()
     expect(decodeDescriptorEvent({ ...event, kind: KINDS.ROSTER }, { roomId, roomKey, now: NOW })).toBeNull()
+  })
+
+  it('enforces the room gate on descriptor publishers', async () => {
+    const { roomId, roomKey, deviceSk, descriptor } = await fixture()
+    const hostSk = generateSecretKey()
+    const policy = { tier: 'kith' as const, admitted: [getPublicKey(hostSk)] }
+    const unproved = encodeDescriptorEvent(descriptor, { roomId, roomKey, deviceSk })
+    expect(decodeDescriptorEvent(unproved, { roomId, roomKey, now: NOW, policy })).toBeNull()
+
+    const proof = issueKindredProof({
+      hostSk,
+      participant: descriptor.participant,
+      tier: 'kith',
+      roomId,
+      expiresAt: NOW + 3600,
+    })
+    const proved = encodeDescriptorEvent({ ...descriptor, proof }, { roomId, roomKey, deviceSk })
+    expect(decodeDescriptorEvent(proved, { roomId, roomKey, now: NOW, policy })).toMatchObject({
+      participant: descriptor.participant,
+      proof,
+    })
   })
 
   it('never throws on garbage, because it runs inside a subscription handler', async () => {

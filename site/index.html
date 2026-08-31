@@ -76,9 +76,13 @@
 
           <dt>Join by URL</dt>
           <dd>
-            A room is a 32-byte secret carried in the link's fragment. Fragments are never
-            sent to a server, so whatever serves this page has never seen a room key.
-            Anyone holding the link can walk in; nobody outside it can tell the room exists.
+            Drop one link in a Signal or Telegram group and anybody it reaches can enter in
+            one tap. The fragment carries a short-lived admission capability, not the room
+            traffic key, so this server and ordinary link previews never receive either.
+            Every admitted client can answer the next arrival, so the creator may leave
+            without taking the link down. The creator can rotate it for future arrivals
+            without disrupting the live room. The service carrying the message can still
+            see the capability unless that group is end-to-end encrypted.
           </dd>
 
           <dt>No account</dt>
@@ -93,8 +97,10 @@
           <dt>No operator</dt>
           <dd>
             Rooms ride the public Nostr relays that already exist. Presence and chat are
-            encrypted to the room key, so a relay carrying a room cannot read its guest
-            list, by name or by key.
+            encrypted to the room key, so a relay carrying a room cannot read names or
+            contents. It can still observe opaque room and invitation identifiers, device
+            keys, timing and volume. KithMoot reduces that metadata; it does not claim to
+            erase it.
           </dd>
         </dl>
       </section>
@@ -248,7 +254,7 @@
       <section id="android">
         <h2>Get the Android app</h2>
         <p class="lead">
-          Package <code>dev.forgesworn.kithmoot</code>, version 0.1.0, Android 8.0 and
+          Package <code>dev.forgesworn.kithmoot</code>, version 0.2.0, Android 8.0 and
           later. About 50&nbsp;MB.
         </p>
         <p class="actions">
@@ -267,9 +273,8 @@
           <dt>Obtainium</dt>
           <dd>
             Installs and updates straight from GitHub Releases, with no store in the middle.
-            Nothing is published there yet; once it is, adding
-            <code>https://github.com/forgesworn/kithmoot-android</code> as a source will
-            track new builds on its own.
+            Add <code>https://github.com/forgesworn/kithmoot-android</code> as a source to
+            track new pre-release builds on its own.
           </dd>
           <dt>Zapstore</dt>
           <dd>

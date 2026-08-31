@@ -14,16 +14,25 @@ import {
   NostrRelayPool,
   generateRoomSecret,
   deriveRoom,
-  encodeJoinUrl,
   decodeJoinUrl,
+  createRoomInvitation,
+  roomInvitation,
+  deriveInvitationId,
+  hostRoomInvitation,
+  requestRoomAdmissionCapability,
+  encodeInvitationRetirement,
   createPairingCode,
   hostPairing,
   requestPairing,
   localIdentity,
   sanitiseDisplayName,
+  MAX_CHAT_TEXT_LENGTH,
   type ParticipantIdentity,
   type DeviceCredential,
   type RoomPolicy,
+  type RoomInvitation,
+  type InvitationDelegation,
+  type RoomAdmission,
   type ParticipantView,
   type TrackAdvert,
   type ChatMessage,
@@ -310,27 +319,32 @@ async function signOutOfNostr(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Room and pairing links
 //
-// A join link carries the room secret, the relay hints and the ICE server
-// hints - anyone holding it can join, as a new person.
+// A v2 join link carries an invitation bearer, a pinned root inviter pubkey,
+// and the relay/ICE hints. It deliberately does NOT carry the room traffic
+// secret. A holder asks any online delegated member for that secret over the
+// encrypted rendezvous in src/invitation.ts, with no account or prompt.
 //
-// A pairing link is a join link plus a one-off PAIRING CODE. It does not
-// carry an identity and never has anything secret to the person in it. The
-// device that opens it generates its own keypair, proves it holds the code
-// over the room-key channel, and is issued a room-scoped credential that
-// expires. See `src/pairing.ts` for the exchange and why the code is sent as
-// a hash rather than in the clear.
+// A pairing link is an invitation plus a one-off PAIRING CODE. The device
+// first enters through the ordinary invitation rendezvous, then proves it
+// holds the pairing code over the room-key channel and receives a
+// room-scoped credential. See `src/pairing.ts`.
 //
-// The room secret and relay hints are also handled by the library's own
-// encodeJoinUrl/decodeJoinUrl (src/room.ts), which we still use for those
-// two fields - this only adds the ICE and pairing extras on top, in the same
-// fragment, under extra JSON keys the library's decoder simply ignores. This
-// is deliberately an app-only extension of the join URL shape, not a
-// library concern: the library's contract is "carry a room secret", not
-// "carry a STUN list or a pairing code".
+// Legacy v1 links are still accepted during migration. They contain `s`, the
+// traffic secret, and decode through src/room.ts. New links are `v: 2` and
+// contain `j` (bearer) plus `h` (inviter pubkey) instead. The format stays in
+// the fragment, so neither form is sent to this site's HTTP server or a link
+// preview fetcher.
 // ---------------------------------------------------------------------------
 
 interface RoomUrlPayload {
-  s: string
+  /** Version 2 is an invitation. Absence means a legacy room-secret link. */
+  v?: 2
+  /** Legacy v1 room traffic secret. Never emitted for a new room. */
+  s?: string
+  /** Version 2 invitation bearer. */
+  j?: string
+  /** Version 2 inviter pubkey. */
+  h?: string
   r: string[]
   i: string[]
   /** The room's admission rule, in the library's own join-URL field. Carried
@@ -356,34 +370,32 @@ function safeIceUrls(urls: string[]): string[] {
   return urls.filter((u) => ICE_SCHEMES.some((scheme) => u.toLowerCase().startsWith(scheme)))
 }
 
-function encodePayload(
-  secret: Uint8Array,
-  relays: string[],
-  urls: string[],
-  pairingCode?: Uint8Array,
-): string {
-  const payload: RoomUrlPayload = {
-    s: base64urlnopad.encode(secret),
-    r: relays,
-    i: urls,
-  }
+function encodePayload(relays: string[], urls: string[], pairingCode?: Uint8Array): string {
+  const payload: RoomUrlPayload = roomInvitationCapability
+    ? {
+        v: 2,
+        j: base64urlnopad.encode(roomInvitationCapability.bearer),
+        h: roomInvitationCapability.inviter,
+        r: relays,
+        i: urls,
+      }
+    : { s: base64urlnopad.encode(roomSecret), r: relays, i: urls }
   if (roomPolicy) payload.a = roomPolicy
   if (pairingCode) payload.c = bytesToHex(pairingCode)
   return base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))
 }
 
-function encodeRoomUrl(base: string, secret: Uint8Array, relays: string[], urls: string[]): string {
-  return `${base}#${encodePayload(secret, relays, urls)}`
+function encodeRoomUrl(base: string, relays: string[], urls: string[]): string {
+  return `${base}#${encodePayload(relays, urls)}`
 }
 
 function encodePairingUrl(
   base: string,
-  secret: Uint8Array,
   relays: string[],
   urls: string[],
   pairingCode: Uint8Array,
 ): string {
-  return `${base}#${encodePayload(secret, relays, urls, pairingCode)}`
+  return `${base}#${encodePayload(relays, urls, pairingCode)}`
 }
 
 /** Reads the ICE hints and, if present, the pairing code out of a URL
@@ -395,7 +407,9 @@ function decodeExtras(url: string): { iceUrls: string[]; pairingCode?: Uint8Arra
     const payload = JSON.parse(
       new TextDecoder().decode(base64urlnopad.decode(hash)),
     ) as Partial<RoomUrlPayload>
-    const hinted = safeIceUrls(payload.i ?? [])
+    const hinted = safeIceUrls(
+      Array.isArray(payload.i) ? payload.i.filter((value): value is string => typeof value === 'string') : [],
+    )
     return {
       iceUrls: hinted.length ? hinted : DEFAULT_ICE_URLS,
       pairingCode: payload.c ? hexToBytes(payload.c) : undefined,
@@ -410,8 +424,192 @@ function decodeExtras(url: string): { iceUrls: string[]; pairingCode?: Uint8Arra
 // ---------------------------------------------------------------------------
 
 let roomSecret: Uint8Array
+/** Present for every newly created room. Undefined only for a legacy v1
+ * link whose fragment still directly contains the room traffic secret. */
+let roomInvitationCapability: RoomInvitation | undefined
 let relays: string[] = RELAYS
 let iceUrls: string[] = DEFAULT_ICE_URLS
+
+/** The root inviter key on the creator, or this member's delegated responder
+ * key after admission. Only an empty delegation chain may rotate the link. */
+let invitationAuthoritySk: Uint8Array | undefined
+let invitationDelegation: InvitationDelegation[] = []
+let invitationHost: { close(): void } | undefined
+let invitationTransport: NostrRelayPool | undefined
+
+const INVITATION_OWNER_PREFIX = 'kithmoot.invitation-owner.v1.'
+const ADMISSION_CACHE_PREFIX = 'kithmoot.admission.v1.'
+const INVITATION_OWNER_TTL_SECONDS = 12 * 60 * 60
+
+interface StoredInvitationOwner {
+  roomSecret: string
+  inviterSk: string
+  createdAt: number
+}
+
+function ownerStorageKey(invitation: RoomInvitation): string {
+  return INVITATION_OWNER_PREFIX + deriveInvitationId(invitation)
+}
+
+/**
+ * Keep the creator able to answer the link after a reload or reopened tab.
+ *
+ * This is deliberately localStorage rather than putting either secret back
+ * in the URL. It expires after the same twelve-hour horizon as a device
+ * credential, and rotating the link removes it immediately.
+ */
+function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, hostSk: Uint8Array): void {
+  try {
+    const value: StoredInvitationOwner = {
+      roomSecret: bytesToHex(room),
+      inviterSk: bytesToHex(hostSk),
+      createdAt: nowSeconds(),
+    }
+    localStorage.setItem(ownerStorageKey(invitation), JSON.stringify(value))
+  } catch {
+    // Storage may be unavailable in a locked-down browser. The invitation
+    // still works for as long as this page stays open; only reload recovery
+    // is lost.
+  }
+}
+
+function loadInvitationOwner(invitation: RoomInvitation): { roomSecret: Uint8Array; inviterSk: Uint8Array } | undefined {
+  const key = ownerStorageKey(invitation)
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return undefined
+    const value = JSON.parse(raw) as Partial<StoredInvitationOwner>
+    if (
+      typeof value.roomSecret !== 'string' ||
+      typeof value.inviterSk !== 'string' ||
+      typeof value.createdAt !== 'number' ||
+      value.createdAt + INVITATION_OWNER_TTL_SECONDS <= nowSeconds()
+    ) {
+      localStorage.removeItem(key)
+      return undefined
+    }
+    const storedRoomSecret = hexToBytes(value.roomSecret)
+    const storedInviterSk = hexToBytes(value.inviterSk)
+    if (
+      storedRoomSecret.length !== 32 ||
+      storedInviterSk.length !== 32 ||
+      getPublicKey(storedInviterSk) !== invitation.inviter
+    ) {
+      localStorage.removeItem(key)
+      return undefined
+    }
+    return { roomSecret: storedRoomSecret, inviterSk: storedInviterSk }
+  } catch {
+    try {
+      localStorage.removeItem(key)
+    } catch {
+      // Nothing else to recover.
+    }
+    return undefined
+  }
+}
+
+function forgetInvitationOwner(invitation: RoomInvitation): void {
+  try {
+    localStorage.removeItem(ownerStorageKey(invitation))
+  } catch {
+    // An in-memory host can still be retired even when storage is blocked.
+  }
+}
+
+interface StoredAdmission {
+  roomSecret: string
+  delegateSk: string
+  delegation: InvitationDelegation[]
+}
+
+function cacheAdmission(invitation: RoomInvitation, admission: RoomAdmission): void {
+  try {
+    const value: StoredAdmission = {
+      roomSecret: bytesToHex(admission.secret),
+      delegateSk: bytesToHex(admission.delegate.delegateSk),
+      delegation: admission.delegate.chain,
+    }
+    sessionStorage.setItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation), JSON.stringify(value))
+  } catch {
+    // A reload will simply repeat the one-tap admission exchange.
+  }
+}
+
+function loadCachedAdmission(invitation: RoomInvitation): RoomAdmission | undefined {
+  try {
+    const raw = sessionStorage.getItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation))
+    if (!raw) return undefined
+    const value = JSON.parse(raw) as Partial<StoredAdmission>
+    if (
+      typeof value.roomSecret !== 'string' ||
+      typeof value.delegateSk !== 'string' ||
+      !Array.isArray(value.delegation)
+    ) return undefined
+    const secret = hexToBytes(value.roomSecret)
+    const delegateSk = hexToBytes(value.delegateSk)
+    if (secret.length !== 32 || delegateSk.length !== 32) return undefined
+    return { secret, delegate: { delegateSk, chain: value.delegation } }
+  } catch {
+    return undefined
+  }
+}
+
+function stopInvitationHost(): void {
+  invitationHost?.close()
+  invitationTransport?.close()
+  invitationHost = undefined
+  invitationTransport = undefined
+}
+
+function serveCurrentInvitation(): void {
+  stopInvitationHost()
+  const invitation = roomInvitationCapability
+  if (!invitation || !invitationAuthoritySk) return
+  invitationTransport = new NostrRelayPool(relays)
+  try {
+    invitationHost = hostRoomInvitation({
+      transport: invitationTransport,
+      invitation,
+      inviterSk: invitationAuthoritySk,
+      delegation: invitationDelegation,
+      roomSecret,
+      onAdmitted: () => setStatus('Someone used the current room link.'),
+      onRetired: () => {
+        if (roomInvitationCapability !== invitation) return
+        stopInvitationHost()
+        invitationAuthoritySk = undefined
+        invitationDelegation = []
+        const rotate = document.getElementById('rotateShare') as HTMLButtonElement | null
+        if (rotate) rotate.hidden = true
+        setStatus('This invitation was retired by its creator. The live room is unchanged.')
+      },
+    })
+  } catch {
+    // An expired/corrupt cached delegation removes only this browser's
+    // ability to answer newcomers. It still holds a valid room secret and
+    // must be allowed to open the live room it already belongs to.
+    invitationTransport.close()
+    invitationTransport = undefined
+    invitationAuthoritySk = undefined
+    invitationDelegation = []
+  }
+}
+
+// The creator can have the same room open in two tabs. Both restore the
+// inviter key and would otherwise answer the old link after one of them had
+// rotated it. Removing the owner record is broadcast by the browser's
+// `storage` event; every other tab retires that inviter in memory at once.
+window.addEventListener('storage', (event) => {
+  if (event.newValue !== null || !event.key?.startsWith(INVITATION_OWNER_PREFIX)) return
+  const invitation = roomInvitationCapability
+  if (!invitation || event.key !== ownerStorageKey(invitation) || invitationDelegation.length !== 0) return
+  stopInvitationHost()
+  invitationAuthoritySk = undefined
+  const rotate = document.getElementById('rotateShare') as HTMLButtonElement | null
+  if (rotate) rotate.hidden = true
+  setStatus('This copy of the invitation was retired in another tab. The live room is unchanged.')
+})
 
 let session: RoomSession | undefined
 let meParticipant = ''
@@ -605,15 +803,100 @@ function activeTracks(): MediaStreamTrack[] {
   return [micTrack, cameraTrack, screenTrack].filter((t): t is MediaStreamTrack => t !== undefined)
 }
 
-/** Reads the room and its ICE hints out of the current URL, and kicks off
- *  the pairing exchange if the link carried a pairing code. */
-function roomFromLocation(): boolean {
+function fragmentPayload(url: string): Partial<RoomUrlPayload> {
+  const hash = new URL(url).hash.slice(1)
+  if (!hash) throw new Error('join URL has no fragment')
+  try {
+    return JSON.parse(
+      new TextDecoder().decode(base64urlnopad.decode(hash)),
+    ) as Partial<RoomUrlPayload>
+  } catch {
+    throw new Error('join URL fragment is not valid')
+  }
+}
+
+function invitationFromLocation(url: string): RoomInvitation | undefined {
+  const payload = fragmentPayload(url)
+  if (payload.v !== 2) return undefined
+  if (typeof payload.j !== 'string' || typeof payload.h !== 'string') {
+    throw new Error('join URL carries a malformed invitation')
+  }
+  let bearer: Uint8Array
+  try {
+    bearer = base64urlnopad.decode(payload.j)
+  } catch {
+    throw new Error('join URL carries a malformed invitation')
+  }
+  return roomInvitation(bearer, payload.h)
+}
+
+/**
+ * Resolve the room behind the current fragment.
+ *
+ * V2 first checks local creator state, then this tab's admission cache, then
+ * performs the live one-tap rendezvous. Legacy v1 links still decode through
+ * src/room.ts so old links do not break during rollout.
+ */
+async function roomFromLocation(): Promise<boolean> {
   if (location.hash.length <= 1) return false
 
-  const { secret, relays: hinted, policy } = decodeJoinUrl(location.href)
-  roomSecret = secret
-  relays = hinted.length ? hinted : RELAYS
-  roomPolicy = policy
+  const invitation = invitationFromLocation(location.href)
+  if (invitation) {
+    const payload = fragmentPayload(location.href)
+    roomInvitationCapability = invitation
+    relays = Array.isArray(payload.r) && payload.r.every((relay) => typeof relay === 'string') && payload.r.length
+      ? payload.r
+      : RELAYS
+    // Reuse the library's strict policy parser by presenting it a temporary
+    // legacy-shaped fragment. A malformed gate must never silently become an
+    // open room merely because this is a v2 link.
+    if (payload.a !== undefined) {
+      const policyPayload = base64urlnopad.encode(
+        new TextEncoder().encode(JSON.stringify({ s: base64urlnopad.encode(new Uint8Array(32)), r: [], a: payload.a })),
+      )
+      roomPolicy = decodeJoinUrl(`${joinLinkBase()}#${policyPayload}`).policy
+    } else {
+      roomPolicy = undefined
+    }
+
+    const owner = loadInvitationOwner(invitation)
+    if (owner) {
+      roomSecret = owner.roomSecret
+      invitationAuthoritySk = owner.inviterSk
+      invitationDelegation = []
+      serveCurrentInvitation()
+    } else {
+      const cached = loadCachedAdmission(invitation)
+      if (cached) {
+        roomSecret = cached.secret
+        invitationAuthoritySk = cached.delegate.delegateSk
+        invitationDelegation = cached.delegate.chain
+        serveCurrentInvitation()
+      } else {
+        setStatus('Opening the private room…')
+        const transport = new NostrRelayPool(relays)
+        try {
+          const admission = await requestRoomAdmissionCapability({ transport, invitation })
+          roomSecret = admission.secret
+          invitationAuthoritySk = admission.delegate.delegateSk
+          invitationDelegation = admission.delegate.chain
+          cacheAdmission(invitation, admission)
+          setStatus('Invitation accepted. No account was needed.')
+        } finally {
+          transport.close()
+        }
+        serveCurrentInvitation()
+      }
+    }
+  } else {
+    const { secret, relays: hinted, policy } = decodeJoinUrl(location.href)
+    roomSecret = secret
+    relays = hinted.length ? hinted : RELAYS
+    roomPolicy = policy
+    roomInvitationCapability = undefined
+    invitationAuthoritySk = undefined
+    invitationDelegation = []
+  }
 
   const extras = decodeExtras(location.href)
   iceUrls = extras.iceUrls
@@ -622,7 +905,7 @@ function roomFromLocation(): boolean {
     // Drop the code out of the address bar first: it is single-use and there
     // is no reason for it to sit somewhere it could be forwarded by accident.
     const code = extras.pairingCode
-    history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), roomSecret, relays, iceUrls))
+    history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
     pairWithPrimary(code).catch((err) => setStatus(describeError(err)))
   }
 
@@ -1070,9 +1353,15 @@ async function toggleAssist(): Promise<void> {
 
 function startNewRoom(): void {
   roomSecret = generateRoomSecret()
+  const created = createRoomInvitation()
+  roomInvitationCapability = created.invitation
+  invitationAuthoritySk = created.inviterSk
+  invitationDelegation = []
   relays = RELAYS
   iceUrls = parseIceInput()
-  history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), roomSecret, relays, iceUrls))
+  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk)
+  serveCurrentInvitation()
+  history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
 }
 
 function showRoomUi(): void {
@@ -1080,7 +1369,10 @@ function showRoomUi(): void {
   $('deviceControls').hidden = false
   $('join').hidden = false
   $('links').hidden = false
-  ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), roomSecret, relays, iceUrls)
+  ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+  ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
+  ;($('rotateShare') as HTMLButtonElement).hidden =
+    roomInvitationCapability === undefined || invitationAuthoritySk === undefined || invitationDelegation.length !== 0
 }
 
 function copyInput(id: string): void {
@@ -1090,6 +1382,66 @@ function copyInput(id: string): void {
   navigator.clipboard?.writeText(input.value).catch(() => {
     document.execCommand('copy')
   })
+  if (id === 'shareUrl') {
+    setStatus('Room link copied. Anyone it is forwarded to can enter until you rotate it.')
+  }
+}
+
+async function shareRoomLink(): Promise<void> {
+  const url = ($('shareUrl') as HTMLInputElement).value
+  if (!navigator.share) {
+    copyInput('shareUrl')
+    return
+  }
+  try {
+    await navigator.share({
+      title: 'KithMoot',
+      text: 'Join this private KithMoot room. Anyone forwarded this link can enter while it is current.',
+      url,
+    })
+    setStatus('Room invitation shared.')
+  } catch (err) {
+    // Closing the platform share sheet is a choice, not an error.
+    if (!(err instanceof DOMException && err.name === 'AbortError')) throw err
+  }
+}
+
+async function rotateRoomInvitation(): Promise<void> {
+  if (!roomInvitationCapability || !invitationAuthoritySk || invitationDelegation.length !== 0) {
+    throw new Error('Only the browser that opened this room can rotate its invitation.')
+  }
+  const retired = roomInvitationCapability
+  const retiringSk = invitationAuthoritySk
+  const created = createRoomInvitation()
+
+  // Tell every cooperative delegated responder before replacing local
+  // state. The event is durable, so an offline member learns the retirement
+  // when it reconnects instead of resurrecting an old group link.
+  const retirementTransport = new NostrRelayPool(relays)
+  try {
+    await retirementTransport.publish(encodeInvitationRetirement({
+      invitation: retired,
+      inviterSk: retiringSk,
+      now: nowSeconds(),
+    }))
+  } finally {
+    retirementTransport.close()
+  }
+  stopInvitationHost()
+  forgetInvitationOwner(retired)
+  roomInvitationCapability = created.invitation
+  invitationAuthoritySk = created.inviterSk
+  invitationDelegation = []
+  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk)
+  serveCurrentInvitation()
+
+  const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+  history.replaceState(null, '', url)
+  ;($('shareUrl') as HTMLInputElement).value = url
+  if (($('shareQrDetails') as HTMLDetailsElement).open) {
+    renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
+  }
+  setStatus('A fresh link is ready. Current clients will no longer answer the old link. Existing members stay.')
 }
 
 // ---------------------------------------------------------------------------
@@ -1943,7 +2295,7 @@ $('addDevice').addEventListener('click', () => {
     })
 
     const pairUrl = $('pairUrl') as HTMLInputElement
-    pairUrl.value = encodePairingUrl(joinLinkBase(), roomSecret, relays, iceUrls, code)
+    pairUrl.value = encodePairingUrl(joinLinkBase(), relays, iceUrls, code)
     pairUrl.hidden = false
     $('copyPair').hidden = false
     $('stopPairing').hidden = false
@@ -1975,6 +2327,13 @@ $('stopPairing').addEventListener('click', () => {
 
 $('copyShare').addEventListener('click', () => copyInput('shareUrl'))
 $('copyPair').addEventListener('click', () => copyInput('pairUrl'))
+$('shareRoom').addEventListener('click', () => {
+  shareRoomLink().catch((err) => setStatus(describeError(err)))
+})
+$('rotateShare').addEventListener('click', () => {
+  if (!confirm('Replace the room link? This retires it in current KithMoot clients; existing members stay.')) return
+  rotateRoomInvitation().catch((err) => setStatus(describeError(err)))
+})
 
 // The join link's QR is rendered lazily, on the first open of its
 // disclosure - there is no earlier point at which shareUrl already holds
@@ -2073,6 +2432,7 @@ $('leave').addEventListener('click', () => {
 // sockets that are already open, and the page is gone whatever happens.
 window.addEventListener('pagehide', () => {
   session?.leave()
+  stopInvitationHost()
 })
 
 $('chatForm').addEventListener('submit', (event) => {
@@ -2084,6 +2444,8 @@ $('chatForm').addEventListener('submit', (event) => {
   session.chat.send(text).catch((err) => setStatus(describeError(err)))
 })
 
+;($('chatInput') as HTMLInputElement).maxLength = MAX_CHAT_TEXT_LENGTH
+
 // The effect controls start where the constants say they start, rather than
 // where index.html happens to say they do: BLUR_ON_BY_DEFAULT is a product
 // decision and it is meant to be one line to change.
@@ -2093,7 +2455,13 @@ markSegmented('voicePresets', 'preset', DEFAULT_VOICE_PRESET)
 $('effectMode').textContent = BLUR_ON_BY_DEFAULT ? 'blur' : 'off'
 $('voiceMode').textContent = DEFAULT_VOICE_PRESET
 
-if (roomFromLocation()) showRoomUi()
+roomFromLocation()
+  .then((found) => {
+    if (!found) return
+    showRoomUi()
+    renderIdentity()
+  })
+  .catch((err) => setStatus(describeError(err)))
 
 // Rewrite what is in storage with what a reader would actually see, so a
 // name that arrived there by some other route does not sit in raw form.

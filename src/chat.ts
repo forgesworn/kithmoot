@@ -6,8 +6,14 @@ import { verifyEventUncached } from './verify.js'
 import { verifyDeviceCredential } from './credential.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
+import { evaluateAccess } from './access.js'
 import type { RelayTransport } from './relay-pool.js'
-import type { DeviceCredential } from './types.js'
+import type { DeviceCredential, KindredProof, RoomPolicy } from './types.js'
+
+export const MAX_CHAT_TEXT_LENGTH = 2_000
+export const CHAT_RETENTION_SECONDS = 30 * 24 * 60 * 60
+export const MAX_CHAT_MESSAGES = 500
+export const MAX_CHAT_MESSAGES_PER_MINUTE = 30
 
 export interface ChatMessage {
   id: string
@@ -18,6 +24,10 @@ export interface ChatMessage {
    *  durable: a late joiner reads history from senders who have long since
    *  left the room and are in nobody's roster any more. */
   credential: DeviceCredential
+  /** Required in a gated room for the same reason it is carried on a roster
+   * entry: durable chat must remain independently admissible after the live
+   * presence entry has disappeared. */
+  proof?: KindredProof
   /**
    * What the sender calls themselves, sanitised - see `RosterEntry.name`
    * for what that is and is not worth.
@@ -70,6 +80,7 @@ export interface DecodeChatOptions {
   /** Unix seconds. Bounds how far into the future a message may claim to
    *  have been sent - see `MAX_CLOCK_SKEW_SECONDS`. */
   now: number
+  policy?: RoomPolicy
 }
 
 /**
@@ -112,6 +123,9 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     ) {
       return null
     }
+    if (msg.id.length === 0 || msg.id.length > 128) return null
+    if (msg.text.length === 0 || msg.text.length > MAX_CHAT_TEXT_LENGTH) return null
+    if (!Number.isSafeInteger(msg.sentAt)) return null
 
     // This is a boundary: `device`/`participant` are free-text JSON fields
     // with nothing forcing lower case. Canonicalise them here, once, same as
@@ -141,6 +155,11 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     if (!hexEquals(verdict.device, event.pubkey)) return null
     if (!hexEquals(verdict.participant, msg.participant)) return null
 
+    if (opts.policy) {
+      const access = evaluateAccess(opts.policy, msg.participant, msg.proof, msg.sentAt, opts.roomId)
+      if (!access.admitted) return null
+    }
+
     return msg
   } catch {
     return null
@@ -158,6 +177,8 @@ export interface ChatLogOptions {
   /** What to call this sender on every message. Sanitised here, so a
    *  caller can pass a form field straight in. */
   name?: string
+  policy?: RoomPolicy
+  proof?: KindredProof
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
 }
@@ -171,6 +192,7 @@ export class ChatLog {
   readonly #now: () => number
   #messages: ChatMessage[] = []
   readonly #seen = new Set<string>()
+  readonly #senderTimes = new Map<string, number[]>()
   readonly #listeners = new Set<(messages: ChatMessage[]) => void>()
   readonly #unsub: () => void
 
@@ -178,18 +200,23 @@ export class ChatLog {
     this.#opts = opts
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.#unsub = opts.transport.subscribe(
-      [{ kinds: [KINDS.CHAT], '#d': [opts.roomId] }],
+      [{ kinds: [KINDS.CHAT], '#d': [opts.roomId], since: this.#now() - CHAT_RETENTION_SECONDS }],
       (event) => this.#ingest(event),
     )
   }
 
   async send(text: string): Promise<void> {
+    if (text.length === 0) throw new Error('chat message is empty')
+    if (text.length > MAX_CHAT_TEXT_LENGTH) {
+      throw new Error(`chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`)
+    }
     const name = sanitiseDisplayName(this.#opts.name)
     const msg: ChatMessage = {
       id: hex(randomBytes(16)),
       participant: this.#opts.credential.pubkey,
       device: getPublicKey(this.#opts.deviceSk),
       credential: this.#opts.credential,
+      ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(name !== undefined ? { name } : {}),
       text,
       sentAt: this.#now(),
@@ -221,13 +248,32 @@ export class ChatLog {
       roomId: this.#opts.roomId,
       roomKey: this.#opts.roomKey,
       now: this.#now(),
+      policy: this.#opts.policy,
     })
     if (!msg) return
+    if (msg.sentAt < this.#now() - CHAT_RETENTION_SECONDS) return
     if (this.#seen.has(msg.id)) return
+
+    const senderTimes = (this.#senderTimes.get(msg.device) ?? [])
+      .filter((sentAt) => sentAt >= this.#now() - CHAT_RETENTION_SECONDS)
+    if (senderTimes.filter((sentAt) => Math.abs(sentAt - msg.sentAt) < 60).length >= MAX_CHAT_MESSAGES_PER_MINUTE) {
+      return
+    }
+    senderTimes.push(msg.sentAt)
+    this.#senderTimes.set(msg.device, senderTimes)
+    while (this.#senderTimes.size > MAX_CHAT_MESSAGES) {
+      const oldest = this.#senderTimes.keys().next().value
+      if (oldest === undefined) break
+      this.#senderTimes.delete(oldest)
+    }
     this.#seen.add(msg.id)
 
     this.#messages.push(msg)
     this.#messages.sort(compareMessages)
+    while (this.#messages.length > MAX_CHAT_MESSAGES) {
+      const removed = this.#messages.shift()
+      if (removed) this.#seen.delete(removed.id)
+    }
 
     const snapshot = this.messages()
     // Guarded: decodeChatEvent is written never to throw precisely because

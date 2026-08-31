@@ -1,13 +1,12 @@
 import { toCanvas } from 'qrcode'
 
-// A join link and a pairing link both carry the room secret - the pairing
-// link a one-off code on top of that - so the QR for either is rendered
+// A join link carries a bearer invitation, and a pairing link carries a
+// one-off code on top of that, so the QR for either is rendered
 // entirely on this device, into a plain <canvas>. There is no server-side
 // or third-party QR-image service anywhere in this file, and there must
 // never be one added here: handing either link to a remote image API would
-// put the room secret on that service's request log, which is exactly the
-// property "the link never reaches a server" (see README.md) exists to
-// rule out.
+// put its admission capability on that service's request log. The bearer is
+// not the room traffic key, but it still grants entry and must stay local.
 //
 // Rendered black-on-white regardless of the app's own (currently dark-only)
 // theme, at a fixed size generous enough to photograph from a normal

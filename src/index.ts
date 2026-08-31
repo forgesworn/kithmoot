@@ -1,6 +1,38 @@
 export { KINDS } from './kinds.js'
 export { verifyEventUncached } from './verify.js'
 export { generateRoomSecret, deriveRoom, encodeJoinUrl, decodeJoinUrl } from './room.js'
+export {
+  createRoomInvitation,
+  roomInvitation,
+  deriveInvitationId,
+  encodeInvitationRequest,
+  decodeInvitationRequest,
+  encodeInvitationGrant,
+  decodeInvitationGrant,
+  decodeRoomAdmissionGrant,
+  verifyInvitationDelegation,
+  encodeInvitationRetirement,
+  decodeInvitationRetirement,
+  hostRoomInvitation,
+  requestRoomAdmission,
+  requestRoomAdmissionCapability,
+  INVITATION_DELEGATION_TTL_SECONDS,
+  MAX_INVITATION_DELEGATION_DEPTH,
+} from './invitation.js'
+export type {
+  RoomInvitation,
+  RoomInvitationHost,
+  InvitationDelegation,
+  RoomInvitationDelegate,
+  RoomAdmission,
+  EncodeInvitationRequestOptions,
+  DecodeInvitationRequestOptions,
+  EncodeInvitationGrantOptions,
+  DecodeInvitationGrantOptions,
+  EncodeInvitationRetirementOptions,
+  HostRoomInvitationOptions,
+  RequestRoomAdmissionOptions,
+} from './invitation.js'
 export { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 export type { CreateCredentialOptions, VerifyResult } from './credential.js'
 export { localIdentity } from './identity.js'
@@ -87,7 +119,15 @@ export type {
 } from './peer-relay.js'
 export { UplinkProbe, summariseStats, MIN_SAMPLE_MS, STALE_AFTER_MS } from './uplink.js'
 export type { StatLike } from './uplink.js'
-export { encodeChatEvent, decodeChatEvent, ChatLog } from './chat.js'
+export {
+  encodeChatEvent,
+  decodeChatEvent,
+  ChatLog,
+  MAX_CHAT_TEXT_LENGTH,
+  CHAT_RETENTION_SECONDS,
+  MAX_CHAT_MESSAGES,
+  MAX_CHAT_MESSAGES_PER_MINUTE,
+} from './chat.js'
 export type { ChatMessage, ChatLogOptions, EncodeChatOptions, DecodeChatOptions } from './chat.js'
 export { mintTurnCredential } from './turn.js'
 export type { TurnCredential } from './turn.js'
