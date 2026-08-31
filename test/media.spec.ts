@@ -615,6 +615,17 @@ test('whoever starts the room is seen and heard by a joiner, however slow the re
   baseURL,
 }) => {
   test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+  // This case pins the room to a relay on loopback, and Chromium's
+  // local-network-access rules stop a page served from a public https origin
+  // opening a ws:// socket to 127.0.0.1 - the join fails with "every relay
+  // rejected the event" before anything under test has run. A page served
+  // from localhost (the CI and local configuration) is itself loopback and
+  // may. So against a deployed site this case is skipped, and the deployed
+  // build is covered by the ordinary two-person case over public relays.
+  test.skip(
+    !['localhost', '127.0.0.1', '[::1]'].includes(new URL(baseURL ?? 'http://invalid/').hostname),
+    'a public https origin cannot open a ws:// relay on loopback (local network access)',
+  )
 
   const relay = await startSlowAckRelay(7778, 400)
   const contextA = await newDeviceContext(browser, baseURL!)
