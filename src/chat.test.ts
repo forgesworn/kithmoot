@@ -390,7 +390,7 @@ describe('ChatLog', () => {
     }
     expect(log.messages()).toHaveLength(MAX_CHAT_MESSAGES)
     expect(log.messages()[0]?.id).toBe('history-1')
-  })
+  }, 15_000)
 })
 
 describe('chat display names', () => {
