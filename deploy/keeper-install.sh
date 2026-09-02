@@ -32,7 +32,10 @@ cd "$TREE"
 # The tree was shipped without node_modules; only what the built library
 # imports at runtime is installed here. No compiler, nothing to build.
 npm ci --omit=dev --no-audit --no-fund --loglevel=error
-chown -R "$USER_NAME:$USER_NAME" "$TREE"
+# Readable by the service user, owned by whoever deploys: the tree is
+# rsynced over by the deploy user on every deploy, and a tree handed to the
+# service user is one the next deploy cannot write. The service only reads.
+chmod -R a+rX "$TREE"
 
 if [[ ! -s "$ENV_FILE" ]]; then
   echo "==> writing $ENV_FILE"

@@ -58,6 +58,9 @@ echo "==> creating the remote directory"
 remote bash -s <<'REMOTE'
 set -euo pipefail
 sudo install -d -m 0755 -o "$(id -un)" -g "$(id -gn)" /opt/kithmoot-keeper
+# Whatever a previous install left owned by somebody else comes back to the
+# deploy user, so the rsync below can replace it.
+sudo chown -R "$(id -un):$(id -gn)" /opt/kithmoot-keeper
 REMOTE
 
 echo "==> shipping the tree"
