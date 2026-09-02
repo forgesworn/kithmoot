@@ -199,13 +199,33 @@ function honestAttachments(raw: unknown): ChatAttachment[] | undefined {
   return kept.length ? kept : undefined
 }
 
+/**
+ * The id and key a room's traffic rides under in its current epoch. Omitted
+ * in epoch 0, where they are the room id and the room key and the wire is
+ * byte for byte what it was before epochs existed. See `epoch.ts`.
+ */
+export interface EpochRoot {
+  id: string
+  key: Uint8Array
+}
+
 export interface EncodeChatOptions {
+  /** The room this message belongs to: what its credential is checked
+   *  against, whatever epoch it rides in. */
   roomId: string
   roomKey: Uint8Array
   deviceSk: Uint8Array
   /** Which channel of the room this rides in. Omit for the main chat. See
    *  `deriveChannel`. */
   channel?: string
+  /** The epoch to ride in. Omit for epoch 0. */
+  epoch?: EpochRoot
+}
+
+/** The root a channel derives from: the epoch's id and key when there is
+ *  one, the room's otherwise. */
+function rootOf(opts: { roomId: string; roomKey: Uint8Array; epoch?: EpochRoot }): EpochRoot {
+  return opts.epoch ?? { id: opts.roomId, key: opts.roomKey }
 }
 
 /**
@@ -235,7 +255,8 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     speaker: transcript && typeof msg.speaker === 'string' ? normaliseHex(msg.speaker) : undefined,
     attachments: honestAttachments(msg.attachments),
   })
-  const { id, key } = deriveChannel(opts.roomId, opts.roomKey, opts.channel)
+  const root = rootOf(opts)
+  const { id, key } = deriveChannel(root.id, root.key, opts.channel)
   const content = nip44.v2.encrypt(plaintext, key)
   return finalizeEvent(
     {
@@ -260,6 +281,10 @@ export interface DecodeChatOptions {
    *  credential inside is still checked against the ROOM, because that is
    *  what it names - a channel is a place in a room, not a room. */
   channel?: string
+  /** The epoch to read. Omit for epoch 0. A message from another epoch
+   *  does not decode, for the same reason a message on another channel
+   *  does not: it is under another id and another key. */
+  epoch?: EpochRoot
 }
 
 /**
@@ -285,7 +310,8 @@ const MAX_CLOCK_SKEW_SECONDS = 300
 export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMessage | null {
   try {
     if (event.kind !== KINDS.CHAT) return null
-    const { id, key } = deriveChannel(opts.roomId, opts.roomKey, opts.channel)
+    const root = rootOf(opts)
+    const { id, key } = deriveChannel(root.id, root.key, opts.channel)
     const roomTag = event.tags.find((t) => t[0] === 'd')?.[1]
     if (roomTag === undefined || !hexEquals(roomTag, id)) return null
     if (!verifyEventUncached(event)) return null
@@ -400,6 +426,8 @@ export interface ChatLogOptions {
   /** Which channel of the room this log is. Omit for the main chat. See
    *  `deriveChannel`. */
   channel?: string
+  /** The epoch to open in. Omit for epoch 0. `rekey` moves a log on. */
+  epoch?: EpochRoot
 }
 
 /** What `send` may say beyond the text. */
@@ -427,17 +455,38 @@ export class ChatLog {
   readonly #seen = new Set<string>()
   readonly #senderTimes = new Map<string, number[]>()
   readonly #listeners = new Set<(messages: ChatMessage[]) => void>()
-  readonly #unsub: () => void
+  #unsub: () => void
+  /** The epoch this log reads and writes. Undefined is epoch 0. */
+  #epoch?: EpochRoot
 
   constructor(opts: ChatLogOptions) {
     this.#opts = opts
     this.#credential = opts.credential
+    this.#epoch = opts.epoch
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
-    const { id } = deriveChannel(opts.roomId, opts.roomKey, opts.channel)
-    this.#unsub = opts.transport.subscribe(
+    this.#unsub = this.#subscribe()
+  }
+
+  #subscribe(): () => void {
+    const root = rootOf({ roomId: this.#opts.roomId, roomKey: this.#opts.roomKey, epoch: this.#epoch })
+    const { id } = deriveChannel(root.id, root.key, this.#opts.channel)
+    return this.#opts.transport.subscribe(
       [{ kinds: [KINDS.CHAT], '#d': [id], since: this.#now() - CHAT_RETENTION_SECONDS }],
       (event) => this.#ingest(event),
     )
+  }
+
+  /**
+   * Move this log to a new epoch: read and write under the new id and key
+   * from now on, and keep what was already read. History from the epoch
+   * being left stays on screen for whoever was there for it, which is
+   * honest; nothing published under the old key after this is heard, which
+   * is the point. See `epoch.ts`.
+   */
+  rekey(next: EpochRoot): void {
+    this.#unsub()
+    this.#epoch = next
+    this.#unsub = this.#subscribe()
   }
 
   /** The channel this log is, or undefined for the main chat. */
@@ -493,6 +542,7 @@ export class ChatLog {
       roomKey: this.#opts.roomKey,
       deviceSk,
       channel: this.#opts.channel,
+      ...(this.#epoch ? { epoch: this.#epoch } : {}),
     })
     await this.#opts.transport.publish(event)
   }
@@ -535,6 +585,7 @@ export class ChatLog {
       now: this.#now(),
       policy: this.#opts.policy,
       channel: this.#opts.channel,
+      ...(this.#epoch ? { epoch: this.#epoch } : {}),
     })
     if (!msg) return
     if (msg.sentAt < this.#now() - CHAT_RETENTION_SECONDS) return

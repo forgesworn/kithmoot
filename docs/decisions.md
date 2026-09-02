@@ -599,3 +599,101 @@ every Wildbloom event a stranger publishes, and the client's checks (hash,
 size, scheme, URL on the server it names) are all of the event, not of its
 author.
 
+
+## A member is removed by a room epoch, and the key is what removes them
+
+Link rotation retires a rendezvous. It never removed anybody: everybody
+admitted holds the room key, and the room key is the room. A departed
+collaborator, or a leaked agent key, read the room for as long as the room
+lived, and the host of an open weekly town hall had no way to end that. The
+earlier entry on links said as much - "member removal requires a room epoch
+change" - and this is that change.
+
+**An epoch is a fresh secret, and everything derived moves with it.** Epoch
+0 is the room as the link gives it: `deriveRoom(secret)`, byte for byte,
+so a room that is never rekeyed is on the wire exactly what it was. Every
+later epoch is a fresh 32-byte secret expanded under `kithmoot/v1/epoch-id/n`
+and `kithmoot/v1/epoch-key/n` into its own `d` tag root and its own cipher
+key. The roster, the chat and every named channel, the descriptor and the
+media keys all derive from that pair (`deriveEpoch`, `src/epoch.ts`). The
+*room id* does not move: a credential binds to it, a signal names it, a
+forwarder is given it. It is the room's identity; the epoch is its key.
+
+**A rekey is announced by a durable event addressed by the room id.**
+`KINDS.ROOM_REKEY` carries `['d', roomId]` and `['epoch', 'n']`, and is
+signed by the room's authority - the root inviter pinned in the link, which
+for a standing room is the keeper. Durable and addressed by the public id
+because a client has to be able to find the room's current epoch from the
+id alone, before it holds any key, and know it is behind *before* it says
+anything: announcing under a key the room has left would show the new
+arrival - participant, name, tracks - to exactly the people the room
+removed, and let them connect, until the rekey was noticed. So a joiner
+subscribes to rekeys first, and publishes nothing until the epoch has
+settled. A relay sees the id, the number, the authority's key and a size.
+
+**The body is sealed to the epoch being left.** Inside it: the number, the
+participants removed, the admin who asked, and the new secret encrypted
+per remaining device with NIP-44 between the authority key and that
+device's key. A member at epoch n-1 reads the rekey to n and moves; a member
+that missed one cannot read the next, and a member that was removed can
+read exactly the one that removed it and nothing after. A copy is sealed to
+the *device* pubkey rather than the participant's, on purpose: the device
+key is the one every session holds in memory, and a participant key may
+live in an extension or a bunker that signs and does nothing else - the
+identity surface is a pubkey and one `signEvent`, and this does not widen
+it. The participant is what a rekey names; the device credential is how a
+device proves which participant it speaks for when it asks.
+
+**Whoever was not there asks.** A device offline at the rekey, or arriving
+after it, sends `KINDS.EPOCH_REQUEST` to the authority with its device
+credential inside, and is answered with `KINDS.EPOCH_GRANT` sealed to it:
+the current epoch's secret and the removed set, or a refusal. This is
+where removal meets the link. A v2 link still admits its holder to the
+room *secret*, which opens epoch 0 and nothing after; the responder says
+which epoch the room is at (`RoomAdmission.epoch`), and the joiner asks the
+authority, which answers everybody except the removed. A v1 link that
+carried the secret itself is dead after a rekey - it opens a room nobody is
+in - and the keeper prints the current link again.
+
+**What a removed member can and cannot read, stated plainly.** They keep
+what they had: the history of every epoch they were in stays theirs, and
+pretending otherwise would be a lie about copies. They can read the one
+rekey that removed them, so they know, and who asked. They cannot decode
+the roster, the chat, any channel, the descriptor or forwarded media from
+that epoch on; they cannot find the new epoch's events, which ride a
+different `d`; they cannot get back in by announcing, because nobody at the
+new epoch can decode them; and the authority refuses them the epoch on the
+credential that proves who they are. What they *can* do is come back under
+a key the room has never seen, if they still hold the link, because
+removal is by participant and the link is open. That is the honest shape
+of an open room: rotate the link as well when that matters. A member
+admitted after a rekey reads from the epoch they were admitted to; history
+under earlier epochs is theirs who had it.
+
+**Host controls are signed requests to the keeper.** A person is not the
+authority when a box keeper made the room, so `kithmoot-agent create
+--admin <pubkey>` names who may act, and the keeper announces the list on
+the control channel with the authority key's signature over the room id,
+the epoch and the list - that channel is one every member can write to,
+and "I am the admin" is exactly what somebody would forge. A `remove` or
+`close` from a participant on the list is acted on: a chat message is
+signed by a device whose credential binds it to that participant, which is
+what makes it a signed request. `mute` is different in kind and the
+interface says so: media goes device to device, nothing in the middle can
+stop a sender, so it is a request the target's own client honours by
+stopping its tracks, and a client that ignores it has ignored it. Removal
+is what enforces; mute is manners. The keeper cannot be removed, only the
+room closed, which is a final epoch sealed to nobody, the link tombstoned,
+and the keeper gone; its state says closed, so a supervisor's restart does
+not reopen it.
+
+**What this costs.** A joiner that was told nothing about the epoch - a
+responder from before this change, or an independent implementation that
+has not caught up - waits a moment for the relay to replay rekeys before it
+announces. A joiner that the room is ahead of needs the authority online to
+answer, which a keeper always is and a creator's closed laptop is not: the
+join fails with a reason rather than hanging. A room with no authority - a
+legacy secret link - cannot be rekeyed at all, and its sessions never move.
+And a browser that rotated its link forgot the old inviter key, so a room
+it made is at epoch 0 for good; only a keeper rekeys, which is the case the
+weekly town hall needed.

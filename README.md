@@ -142,6 +142,17 @@ to make that one thing true.
   from this device and nothing else. A room can be named when it is
   started, and the name rides in the link, so every device that opens it
   calls it the same thing.
+- **A member can be removed, and the room closed.** Rotation retired a link;
+  it never removed anybody, because everybody admitted held the room key.
+  Now a keeper can move the room to a new **epoch**: a fresh secret, sealed
+  to every remaining device, from which the roster, chat, channels,
+  descriptor and media keys are all derived afresh. A removed member keeps
+  what they already read and decodes nothing after; the keeper refuses them
+  the new epoch on the credential that proves who they are, and everybody
+  else sees "X was removed by Y" in the chat. `kithmoot-agent create --admin
+  <pubkey>` names who may ask, and the app shows those people a Host panel
+  with Remove, Mute and Close room. Mute is a request the other client
+  honours; Remove and Close are enforced by the key. See `docs/decisions.md`.
 - **A stopped speaker does not stop the microphone.** The masking graph is
   clocked by the machine's audio output device; when that device stalls,
   the graph runs and produces nothing, and nobody hears you. The pipeline
@@ -382,7 +393,7 @@ Stated plainly, before anyone else finds it:
 ```bash
 npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 885 tests, in-process relay simulator, no network
+npm test          # 943 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, over live relays
 E2E_RELAYS=local npm run test:e2e  # the same, against test/ws-relay.mjs: what CI runs

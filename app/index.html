@@ -306,6 +306,22 @@
           </form>
         </details>
 
+        <details id="hostPanel" hidden>
+          <summary>Host</summary>
+          <p class="note">
+            You are on this room’s admin list. <strong>Remove</strong> moves the
+            room to a new key that person is not given: they can read nothing
+            from here on, and what they already read stays theirs.
+            <strong>Mute</strong> is a request their own client honours by
+            stopping its camera and microphone; nothing in the middle can
+            force it. <strong>Close</strong> ends the room for everybody.
+          </p>
+          <div id="hostList"></div>
+          <div class="hostRow">
+            <button type="button" id="closeRoom" class="danger">Close room</button>
+          </div>
+        </details>
+
         <details id="transcriptPanel">
           <summary>Transcript <span id="transcriptCount" class="count"></span></summary>
           <p class="note">
