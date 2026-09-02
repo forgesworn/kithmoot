@@ -391,14 +391,27 @@ video {
 
 /* The side channels: the same log as the chat, folded away until wanted. */
 #agentsPanel,
-#transcriptPanel {
+#transcriptPanel,
+#minutesPanel {
   margin-top: 1rem;
 }
 
 #agentsPanel summary,
-#transcriptPanel summary {
+#transcriptPanel summary,
+#minutesPanel summary {
   cursor: pointer;
   font-weight: 600;
+}
+
+/* Minutes are written in paragraphs and headed sections; the line breaks
+   are the structure, so they stay. Taller too, because a set of minutes is
+   several screens of a chat log. */
+#minutesLog {
+  max-height: 420px;
+}
+
+#minutesLog p {
+  white-space: pre-wrap;
 }
 
 .log {

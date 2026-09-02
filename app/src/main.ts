@@ -38,6 +38,7 @@ import {
   type TrackAdvert,
   AGENT_CHANNEL,
   TRANSCRIPT_CHANNEL,
+  MINUTES_CHANNEL,
   CONTROL_CHANNEL,
   encodeControl,
   decodeControl,
@@ -2753,6 +2754,12 @@ async function startSession(): Promise<void> {
     const transcript = s.channel(TRANSCRIPT_CHANNEL)
     transcript.onChange((messages) => renderLog('transcriptLog', 'transcriptCount', messages))
     renderLog('transcriptLog', 'transcriptCount', transcript.messages())
+    // And what a scribe made of the transcript. Asked for with !minutes in
+    // the chat, which goes out as an ordinary message, so any scribe that
+    // is listening sees it.
+    const minutes = s.channel(MINUTES_CHANNEL)
+    minutes.onChange((messages) => renderLog('minutesLog', 'minutesCount', messages))
+    renderLog('minutesLog', 'minutesCount', minutes.messages())
     // Agent hosts say what they can run on the control channel; a person
     // asks on it. Asked once on arrival, so a host that has been quiet for
     // an hour says again.
