@@ -11,6 +11,37 @@ import { openRoomUrl, pinToTestRelays } from './relays.js'
  * came up stays up - measures with exactly the same instruments.
  */
 
+/**
+ * A microphone that is never silent: every audio `getUserMedia` returns a
+ * steady tone from an oscillator, video untouched.
+ *
+ * Chromium's fake microphone is supposed to emit a tone, and on macOS it
+ * sometimes emits silence instead - present, `live`, unmuted, and empty -
+ * at the `getUserMedia` level with no application code anywhere near it.
+ * media.spec.ts gates its sound assertions on measuring that; a spec whose
+ * whole point is that an agent HEARS somebody cannot gate it away, so it
+ * brings its own sound.
+ */
+export const SYNTHETIC_MIC = () => {
+  const native = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+  navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+    if (!constraints?.audio) return native(constraints)
+    const ctx = new AudioContext()
+    await ctx.resume().catch(() => {})
+    const osc = ctx.createOscillator()
+    osc.frequency.value = 440
+    const gain = ctx.createGain()
+    gain.gain.value = 0.3
+    const dest = ctx.createMediaStreamDestination()
+    osc.connect(gain).connect(dest)
+    osc.start()
+    const stream = dest.stream
+    if (constraints.video) for (const t of (await native({ video: constraints.video })).getVideoTracks()) stream.addTrack(t)
+    ;(window as unknown as { __syntheticMic: unknown }).__syntheticMic = { ctx, osc }
+    return stream
+  }
+}
+
 /** Reaches every RTCPeerConnection the app builds without the app having to
  *  expose one. Installed before any page script runs. */
 export const INSTRUMENT = () => {

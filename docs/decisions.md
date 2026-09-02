@@ -487,3 +487,20 @@ messages marked `kind: 'transcript'` naming a `speaker`: the words are the
 text, the speaker is the transcriber's claim beside a key, and a client that
 has never heard of transcripts shows an ordinary message from the
 transcriber, which is honest.
+
+## The masking graph is clocked by the speaker, so a stopped speaker must not stop the microphone
+
+An `AudioContext` renders at the pace of the machine's audio OUTPUT device.
+Measured on a Mac mini whose output had wedged: the context reported
+`running`, the worklet loaded, the destination track was `live`, unmuted
+and enabled, and `currentTime` advanced ten milliseconds in a second and a
+half. The masked microphone track produced no samples, WebRTC sent no audio
+packets, and nobody in the room heard the person, with nothing on their
+screen to say why. Every symptom looked like an application fault.
+
+The raw microphone track is clocked by the input device and carries on. So
+`MicPipeline` watches its own clock, and when it has stopped for two checks
+running it hands the raw track over, says so in red, and the app republishes
+it. Masking is lost; the voice is not. The acceptance harness launches
+Chromium with `--disable-audio-output`, a fake sink with a real-time clock,
+so a test machine's speaker is never what a media assertion measures.

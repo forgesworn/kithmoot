@@ -45,6 +45,12 @@ export default defineConfig({
             // stream is real encoded media, which is what makes the
             // "bytes actually arrived" assertion meaningful.
             '--use-fake-device-for-media-stream',
+            // A fake audio sink with a real-time clock. Without it every
+            // AudioContext is clocked by the machine's output device, and a
+            // device that is asleep or stalled - seen on a Mac mini - leaves
+            // the microphone pipeline producing no samples and WebRTC sending
+            // no audio, which reads exactly like an application bug.
+            '--disable-audio-output',
             '--use-fake-ui-for-media-stream',
           ],
         },

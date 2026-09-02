@@ -222,6 +222,9 @@ export const HEARTBEAT_INTERVAL_MS = 20_000
 /** How often lapsed entries are swept. */
 export const SWEEP_INTERVAL_MS = 5_000
 
+/** How long `leave()` waits for its farewell to be acknowledged. */
+export const FAREWELL_BOUND_MS = 3_000
+
 /** The timings that govern presence. All of them are tunable guesses; none of
  *  them changes what is correct. Matches the Android client's `SessionTiming`. */
 export interface SessionTiming {
@@ -1037,7 +1040,18 @@ export class RoomSession {
       // provoke every remaining device into re-announcing at it. And flagged
       // `left`, so everybody else drops this device now rather than when its
       // presence lapses - see `RosterEntry.left`.
-      farewell = this.#publishEntry(true, true).catch(() => {})
+      //
+      // Bounded, because a relay that never acknowledges must not hold a
+      // caller that is trying to go: measured, a farewell to a relay that
+      // was mid-reconnect kept a test process alive for a quarter of an
+      // hour. Past the bound the goodbye is simply lost, and the room evicts
+      // this device on the timeout as it always did.
+      const publish = this.#publishEntry(true, true).catch(() => {})
+      const bound = new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, FAREWELL_BOUND_MS)
+        ;(timer as unknown as { unref?: () => void }).unref?.()
+      })
+      farewell = Promise.race([publish, bound])
     }
 
     this.#left = true

@@ -38,6 +38,13 @@ export interface MicState {
   error?: string
 }
 
+/** How often the masking graph's clock is checked, and what it must have
+ *  advanced by since the last check to count as running. Two misses in a
+ *  row is a stopped clock; one is a busy moment. */
+const CLOCK_CHECK_MS = 1_000
+const MIN_CLOCK_ADVANCE_S = 0.2
+const STALLED_CHECKS = 2
+
 export class MicPipeline {
   readonly #onStateChange?: (state: MicState) => void
   #context: AudioContext | null = null
@@ -48,6 +55,9 @@ export class MicPipeline {
   #preset: VoicePreset = DEFAULT_VOICE_PRESET
   #status: MicState['status'] = 'idle'
   #error: string | undefined
+  /** The raw microphone, once the masking graph has been seen to stop. */
+  #fallback: MediaStreamTrack | null = null
+  #watchdog: ReturnType<typeof setInterval> | undefined
 
   constructor(opts: MicPipelineOptions = {}) {
     this.#onStateChange = opts.onStateChange
@@ -57,8 +67,10 @@ export class MicPipeline {
     return this.#preset
   }
 
+  /** The track to publish: the masked one while the graph runs, the raw
+   *  microphone once the graph has been seen to stop - see `#watch`. */
   get track(): MediaStreamTrack | undefined {
-    return this.#destination?.stream.getAudioTracks()[0] ?? this.#stream?.getAudioTracks()[0]
+    return this.#fallback ?? this.#destination?.stream.getAudioTracks()[0] ?? this.#stream?.getAudioTracks()[0]
   }
 
   get state(): MicState {
@@ -107,6 +119,7 @@ export class MicPipeline {
       this.#setStatus('ready')
       const track = this.#destination.stream.getAudioTracks()[0]
       if (!track) throw new Error('the audio graph produced no track')
+      this.#watch(context, raw)
       return track
     } catch (err) {
       this.#error = err instanceof Error ? err.message : String(err)
@@ -116,6 +129,44 @@ export class MicPipeline {
     }
   }
 
+  /**
+   * Notice a graph that has stopped rendering, and step out of its way.
+   *
+   * An AudioContext is clocked by the machine's audio OUTPUT device. When
+   * that device is asleep, absent or stalled - measured on a Mac mini whose
+   * output had wedged: `currentTime` advanced ten milliseconds in a second
+   * and a half - the context still reports `running`, the worklet still
+   * loads, and the destination track is `live`, unmuted and enabled, while
+   * producing no samples at all. WebRTC then sends no audio, and nobody
+   * hears the person, with nothing on their screen to say why. The raw
+   * microphone track is clocked by the input device and is unaffected, so
+   * when the clock stops this hands that track over instead, says so in
+   * red, and the app republishes it. Masking is lost; the voice is not.
+   */
+  #watch(context: AudioContext, raw: MediaStreamTrack): void {
+    let last = context.currentTime
+    let stalls = 0
+    this.#watchdog = setInterval(() => {
+      if (this.#context !== context) return
+      const now = context.currentTime
+      const advanced = now - last
+      last = now
+      if (advanced >= MIN_CLOCK_ADVANCE_S) {
+        stalls = 0
+        return
+      }
+      if (++stalls < STALLED_CHECKS) return
+      clearInterval(this.#watchdog)
+      this.#watchdog = undefined
+      this.#error = 'the audio device this browser plays through is not running, so the voice goes out unmasked'
+      this.#node?.disconnect()
+      this.#source?.disconnect()
+      this.#fallback = raw
+      this.#preset = 'off'
+      this.#setStatus('degraded')
+    }, CLOCK_CHECK_MS)
+  }
+
   setPreset(preset: VoicePreset): void {
     this.#preset = preset
     this.#post()
@@ -123,6 +174,9 @@ export class MicPipeline {
   }
 
   stop(): void {
+    if (this.#watchdog !== undefined) clearInterval(this.#watchdog)
+    this.#watchdog = undefined
+    this.#fallback = null
     this.#node?.port.postMessage({ type: 'stop' })
     this.#node?.disconnect()
     this.#source?.disconnect()

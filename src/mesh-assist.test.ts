@@ -719,9 +719,8 @@ describe('the route timeout', () => {
     try {
       const remote = device()
       const h = harness({ routeTimeoutMs: 1_000 })
-      const view = person(remote.pub)
-      view.tracks = [{ trackId: 'cam', role: 'camera', device: remote.pub }]
-      h.session.setViews([view])
+      h.session.setViews([person(remote.pub)])
+      h.mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
       // A candidate pair that sits in `checking` for ever reports nothing at
       // all, which is exactly the case ICE will not tell us about.
       vi.advanceTimersByTime(1_500)
@@ -790,7 +789,7 @@ describe('after the ladder runs out', () => {
 })
 
 describe('a pair with nothing to carry', () => {
-  it('BUG: keeps an idle connection open without walking the ladder, and starts the clock when there is media', async () => {
+  it('BUG: keeps an idle connection open without walking the ladder, and starts the clock when a negotiation does', async () => {
     // Two people with their cameras off, or a person and an agent here to
     // read the chat: neither side offers, so nothing connects, and the
     // mesh used to declare the rung failed, walk to TURN, and give up -
@@ -804,11 +803,17 @@ describe('a pair with nothing to carry', () => {
       expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'direct', exhausted: false })
       expect(h.factory.instances.length).toBe(1)
 
-      // They turn a camera on: now the rung has a budget, and a pair that
-      // then never connects is a pair that failed.
+      // They advertise a camera: still no clock, because advertising is not
+      // sending - they may have chosen not to send it to us.
       const view = person(remote.pub)
       view.tracks = [{ trackId: 'cam', role: 'camera', device: remote.pub }]
       h.session.setViews([view])
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'direct', exhausted: false })
+
+      // They offer: now a negotiation is under way, the rung has a budget,
+      // and a pair that then never connects is a pair that failed.
+      h.relay.publish(wrapSignal({ type: 'offer', roomId: ROOM_ID, sdp: 'v=0 offer', tier: 'direct' }, { senderSk: remote.sk, recipientPubkey: h.local.pub }))
       await vi.advanceTimersByTimeAsync(1_500)
       expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
       h.close()
@@ -928,9 +933,8 @@ describe('the TURN rung gets longer', () => {
     try {
       const remote = device()
       const h = harness({ routeTimeoutMs: 1_000, turnRouteTimeoutMs: 3_000 })
-      const view = person(remote.pub)
-      view.tracks = [{ trackId: 'cam', role: 'camera', device: remote.pub }]
-      h.session.setViews([view])
+      h.session.setViews([person(remote.pub)])
+      h.mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
       await vi.advanceTimersByTimeAsync(1_500)
       expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
       // Past the direct budget, well inside the TURN one: still trying.

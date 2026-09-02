@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { withRelays } from './relays.js'
-import { createRoom, joinWithMedia, newDeviceContext, startRelay } from './browser.js'
+import { SYNTHETIC_MIC, createRoom, joinWithMedia, newDeviceContext, startRelay } from './browser.js'
 import { RoomAgent } from '../src/agent.js'
 import { AgentRuntime } from '../src/node/runtime.js'
 import type { RuntimeEvent } from '../src/node/runtime.js'
@@ -32,6 +32,8 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
 
   const relay = await startRelay(RELAY_PORT)
   const context = await newDeviceContext(browser, baseURL!)
+  // Her microphone is a tone, whatever the fake device is doing today.
+  await context.addInitScript(SYNTHETIC_MIC)
   let agent: RoomAgent | undefined
   let runtime: AgentRuntime | undefined
   try {
@@ -47,9 +49,11 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
     const events: RuntimeEvent[] = []
     runtime.on((e) => events.push(e))
 
-    // Alice sees an agent tile, marked as one.
-    await expect(page.locator('#room .participant')).toHaveCount(2, { timeout: 60_000 })
-    await expect(page.locator('#room .participant .badge.agent')).toHaveCount(1)
+    // Alice sees the agent: a name in the agents row, marked as one, and
+    // no empty tile in the grid for something with nothing on screen.
+    await expect(page.locator('#agentsRow .agentChip', { hasText: 'Ada' })).toHaveCount(1, { timeout: 60_000 })
+    await expect(page.locator('#agentsRow .agentChip .badge.agent')).toHaveCount(1)
+    await expect(page.locator('#room .participant')).toHaveCount(1)
 
     // Chat both ways.
     await runtime.say('hello from the agent')

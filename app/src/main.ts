@@ -1469,9 +1469,40 @@ async function rotateRoomInvitation(): Promise<void> {
 // screen-share, rather than merely lying about it locally.
 // ---------------------------------------------------------------------------
 
+function onMicEnded(): void {
+  mic?.stop()
+  mic = undefined
+  micTrack = undefined
+  publishActiveTracks()
+  updateUi()
+}
+
+/**
+ * Publish whatever the pipeline now says the microphone is.
+ *
+ * The pipeline hands over a different track when its masking graph has
+ * stopped rendering - see `MicPipeline` - and everybody has to be sent the
+ * new one: `publishActiveTracks` removes the old sender and adds the new,
+ * and the roster restates the advert under the new id.
+ */
+function adoptMicTrack(): void {
+  const next = mic?.track
+  if (!next || !micTrack || next === micTrack) return
+  micTrack.removeEventListener('ended', onMicEnded)
+  micTrack = next
+  micTrack.addEventListener('ended', onMicEnded)
+  publishActiveTracks()
+  updateUi()
+}
+
 async function toggleMic(): Promise<void> {
   if (!micTrack) {
-    const pipeline = new MicPipeline({ onStateChange: renderVoiceState })
+    const pipeline = new MicPipeline({
+      onStateChange: (state) => {
+        renderVoiceState(state)
+        adoptMicTrack()
+      },
+    })
     try {
       micTrack = await pipeline.start()
     } catch (err) {
@@ -1479,13 +1510,7 @@ async function toggleMic(): Promise<void> {
       throw err
     }
     mic = pipeline
-    micTrack.addEventListener('ended', () => {
-      mic?.stop()
-      mic = undefined
-      micTrack = undefined
-      publishActiveTracks()
-      updateUi()
-    })
+    micTrack.addEventListener('ended', onMicEnded)
     publishActiveTracks()
     renderVoiceState(pipeline.state)
   } else {

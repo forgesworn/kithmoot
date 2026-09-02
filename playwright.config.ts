@@ -66,6 +66,12 @@ export default defineConfig({
             // Grants camera/mic with synthetic media and no permission
             // prompt - there is no human present to click "Allow".
             '--use-fake-device-for-media-stream',
+            // A fake audio sink with a real-time clock. Without it every
+            // AudioContext is clocked by the machine's output device, and a
+            // device that is asleep or stalled - seen on a Mac mini - leaves
+            // the microphone pipeline producing no samples and WebRTC sending
+            // no audio, which reads exactly like an application bug.
+            '--disable-audio-output',
             '--use-fake-ui-for-media-stream',
             // Remote audio has to be allowed to actually play. A person
             // clicks "Join room" and that gesture is what permits playback;

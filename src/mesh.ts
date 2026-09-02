@@ -526,9 +526,8 @@ export class Mesh {
   }
 
   /**
-   * Whether a connection to this endpoint has anything to carry, in either
-   * direction: tracks of ours it is due, or tracks the roster says the far
-   * end publishes.
+   * Whether this side is about to negotiate with this endpoint: it has
+   * tracks the endpoint is due, so it will offer.
    *
    * A pair with nothing to carry never negotiates - neither side offers,
    * because an offer with no media in it negotiates nothing - and so never
@@ -538,19 +537,31 @@ export class Mesh {
    * every thirty seconds, for as long as they were in the room together.
    * The connection is kept - it costs nothing idle, and it is where the
    * media will go the moment either side has some - but the clock on it
-   * does not start until there is something for it to carry.
+   * does not start until a negotiation does: when this side has something
+   * to send, here, or when the far end's offer arrives, in
+   * `#onSignalEvent`. What the far end ADVERTISES is deliberately not
+   * enough: it may be advertising a camera it is not sending to us - an
+   * agent it has chosen not to be heard by - and a clock started on that
+   * walked the agent's ladder to exhaustion, so that the person's real
+   * offer, when it came, arrived into the churn.
    */
   #needsMedia(endpoint: string): boolean {
-    if (this.#tracksFor(endpoint).length > 0) return true
-    const participant = this.#deviceToParticipant.get(endpoint)
-    const view = this.#views.find((v) => v.participant === participant)
-    return view?.tracks.some((t) => t.device === endpoint) ?? false
+    return this.#tracksFor(endpoint).length > 0
   }
 
   #armRouteTimerIfNeeded(endpoint: string): void {
     if (this.#routeTimers.has(endpoint)) return
     if (this.#routes.get(endpoint)?.connected) return
     if (!this.#needsMedia(endpoint)) return
+    this.#armRouteTimer(endpoint)
+  }
+
+  /** The far end has offered: a negotiation is under way, whatever this
+   *  side has to send, and the rung gets its budget from here. */
+  #armRouteTimerForOffer(endpoint: string): void {
+    if (this.#routeTimers.has(endpoint)) return
+    if (!this.#peers.has(endpoint)) return
+    if (this.#routes.get(endpoint)?.connected) return
     this.#armRouteTimer(endpoint)
   }
 
@@ -1165,6 +1176,7 @@ export class Mesh {
       return
     }
     peer.handleSignal(unwrapped.body).catch(() => {})
+    if (unwrapped.body.type === 'offer') this.#armRouteTimerForOffer(unwrapped.from)
   }
 
   /**
@@ -1251,9 +1263,12 @@ export class Mesh {
     if (!held) return
     this.#pendingSignals.delete(device)
     const cutoff = this.#now() - SIGNAL_MAX_AGE_SECONDS
+    let offered = false
     for (const { body, at } of held) {
       if (at < cutoff) continue
       peer.handleSignal(body).catch(() => {})
+      if (body.type === 'offer') offered = true
     }
+    if (offered) this.#armRouteTimerForOffer(device)
   }
 }
