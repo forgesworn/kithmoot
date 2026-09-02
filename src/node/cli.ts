@@ -221,7 +221,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   const stop = () => {
     log('leaving')
-    void runtime.close().then(() => process.exit(0))
+    // The farewell is the last thing out, and the process waits for it:
+    // exiting first leaves a tile on everybody's screen for the whole
+    // presence timeout. Bounded, because a relay that never answers must
+    // not keep a process that was told to stop alive.
+    const bound = new Promise<void>((resolve) => setTimeout(resolve, 3_000).unref())
+    void Promise.race([runtime.close(), bound]).then(() => process.exit(0))
   }
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)

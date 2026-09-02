@@ -301,6 +301,6 @@ export class AgentRuntime {
     for (const unsub of this.#unsubs) unsub()
     this.#unsubs = []
     this.#listeners.clear()
-    this.agent.leave()
+    await this.agent.leave()
   }
 }

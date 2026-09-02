@@ -992,7 +992,17 @@ export class RoomSession {
     return () => this.#listeners.delete(cb)
   }
 
-  leave(): void {
+  /**
+   * Say goodbye and close everything.
+   *
+   * Resolves once the farewell has been accepted by a relay or refused by
+   * every one of them, and never rejects. A process that exits the instant
+   * `leave()` returns has not said goodbye: the publish is a socket write
+   * that has not happened yet, and the room waits out the presence timeout
+   * for a device that meant to leave politely. Await it before exiting.
+   * Everything else here is immediate.
+   */
+  leave(): Promise<void> {
     // The last thing this device says is an entry claiming nothing,
     // publishing nothing, and marked `left`. That releases a singular role
     // and takes the tile off everybody's screen at once, rather than making
@@ -1000,6 +1010,7 @@ export class RoomSession {
     // every other device escalate its route ladder chasing a peer that has
     // gone. A device that is simply switched off is removed by that timeout
     // anyway - so there is only one path to test.
+    let farewell: Promise<void> = Promise.resolve()
     if (this.#self && !this.#left) {
       this.#self = { ...this.#self, tracks: [], claims: {} }
       // Flagged the same way an answer is, because a farewell is not an
@@ -1007,7 +1018,7 @@ export class RoomSession {
       // provoke every remaining device into re-announcing at it. And flagged
       // `left`, so everybody else drops this device now rather than when its
       // presence lapses - see `RosterEntry.left`.
-      this.#publishEntry(true, true).catch(() => {})
+      farewell = this.#publishEntry(true, true).catch(() => {})
     }
 
     this.#left = true
@@ -1029,5 +1040,6 @@ export class RoomSession {
     this.#listeners.clear()
     this.#entries.clear()
     this.#seenAt.clear()
+    return farewell
   }
 }

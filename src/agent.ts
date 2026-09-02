@@ -355,12 +355,13 @@ export class RoomAgent {
     return this.session.advertise(tracks, claims)
   }
 
-  /** Say goodbye and close everything, hosting included. */
-  leave(): void {
+  /** Say goodbye and close everything, hosting included. Resolves once
+   *  the farewell has gone out; a process should await it before exiting. */
+  async leave(): Promise<void> {
     if (this.#left) return
     this.#left = true
     this.#stopHosting()
-    this.session.leave()
+    await this.session.leave()
     this.#transport.close()
   }
 }
