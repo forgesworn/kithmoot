@@ -891,6 +891,22 @@ export class RoomSession {
     const existing = this.#entries.get(entry.device)
     if (existing && existing.updatedAt > entry.updatedAt) return
 
+    // Stamped before the presence window opened: not presence, whoever
+    // sent it. The roster rides an ephemeral kind that relays are not meant
+    // to keep, and in practice every relay this project has been pointed
+    // at keeps it and replays the last few dozen entries to a new
+    // subscriber - the final heartbeat of every device that ever died
+    // without saying goodbye, minutes or hours old. Judged by when it was
+    // heard, such an entry would be a live device for the whole timeout,
+    // with a peer connection opened to it and a tile on screen. So an
+    // entry is admitted only if the device that stamped it did so inside
+    // the window; from then on it lives by when it is heard (`#seenAt`)
+    // and by whether its media is flowing. The price is stated: a device
+    // whose clock runs more than the window behind ours is never admitted,
+    // where it used to be admitted and evicted five seconds later, for
+    // ever. Refused is honest; flickering was not.
+    if (entry.updatedAt < this.#now() - (this.#opts.timing?.presenceTtlSeconds ?? PRESENCE_TTL_SECONDS)) return
+
     if (entry.left) {
       // A farewell. The device goes now, not when its presence lapses, and
       // the moment it left is kept so a slower relay delivering something it

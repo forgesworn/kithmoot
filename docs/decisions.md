@@ -385,6 +385,23 @@ app without a wire change. The wire-level version, roster and signalling
 addressed by a pair-scoped per-epoch tag rather than by pubkey, belongs to
 the spec.
 
+## Relays keep the roster after all, so an entry older than the window is refused
+
+The roster rides an ephemeral kind on the assumption that relays do not
+keep it. Measured on 2 September 2026: every relay this project points at
+by default stores kind 20461 and replays the last few dozen entries to a
+new subscriber. The design's reasoning stands - a stored roster is a
+durable record of the room, and we still do not *rely* on replay - but the
+consequence had to be handled: a new joiner is handed the final heartbeat
+of every device that ever died without a farewell.
+
+So an entry stamped before the presence window opened is refused at
+ingest, whoever sent it. A live device's entries are never that old - the
+heartbeat is a third of the window - and a replayed one nearly always is.
+The price is a device whose clock runs more than the window behind ours,
+which is never admitted where it used to be admitted and evicted five
+seconds later, for ever. Refused is honest; flickering was not.
+
 ## Presence is judged by this device, and media is presence
 
 Two rules for when a remote device has lapsed, and both used to be wrong in

@@ -1298,41 +1298,80 @@ describe('RoomSession presence is judged by this device, not by the sender', () 
     })
   }
 
-  it('BUG: keeps a device whose clock runs slow, rather than evicting it on arrival', async () => {
-    // A phone two minutes behind stamps every entry two minutes in the
-    // past. Judged on that stamp it had lapsed before it arrived, so it was
-    // evicted at the next sweep, its peer closed, its tile torn down - and
-    // re-admitted as a stranger on its next heartbeat. Video that "kept
-    // dropping" on a clock that was merely wrong.
+  it('BUG: keeps a device whose clock runs a little slow, rather than evicting it between heartbeats', async () => {
+    // A phone a minute behind stamps every entry a minute in the past.
+    // Judged on that stamp against the presence window it lapsed fifteen
+    // seconds after every heartbeat: evicted at the next sweep, its peer
+    // closed, its tile torn down - and re-admitted as a stranger on its
+    // next heartbeat. Video that "kept dropping" on a clock that was
+    // merely wrong. Heard-from time is what presence is judged by now.
     const relay = new SimRelay()
-    const mine = room(() => NOW, relay)
-    const slow = room(() => NOW - PRESENCE_TTL_SECONDS - 60, relay)
+    let clock = NOW
+    const mine = room(() => clock, relay)
+    const slow = room(() => clock - 60, relay)
 
     await mine.join([], {})
     await slow.join([], {})
     await settle()
+    expect(mine.participants().map((v) => v.participant)).toContain(slow.participant)
 
+    // Twenty seconds on, with nothing said: on the old rule this entry was
+    // already eighty seconds old and gone.
+    clock = NOW + 20
     expect(mine.participants().map((v) => v.participant)).toContain(slow.participant)
     mine.leave()
     slow.leave()
+  })
+
+  it('refuses an entry stamped before the presence window, which is what a relay replaying the roster delivers', async () => {
+    // Every relay this project has been pointed at keeps the "ephemeral"
+    // roster kind and replays the last few dozen entries to a new
+    // subscriber: the final heartbeat of every device that died without a
+    // farewell. Admitted, each one is a ghost with a peer connection and a
+    // tile for the whole timeout.
+    const relay = new SimRelay()
+    let clock = NOW
+    const mine = room(() => clock, relay)
+    const ghost = room(() => clock, relay)
+    await ghost.join([], {})
+    const announcement = relay.published.filter((e) => e.kind === KINDS.ROSTER).at(-1)!
+    // The ghost dies. Its farewell goes to a room nobody is in yet, which
+    // is what a crash looks like to whoever joins later; its announcement
+    // sits on the relay.
+    await ghost.leave()
+    clock = NOW + PRESENCE_TTL_SECONDS + 30
+    await mine.join([], {})
+    // The simulator does not replay, so deliver the stored entry again the
+    // way a replaying relay would.
+    relay.publish(announcement)
+    await settle()
+    expect(mine.participants().map((v) => v.participant)).not.toContain(ghost.participant)
+    // And a device this far behind is refused rather than admitted and
+    // evicted every sweep: the same rule, stated as a price.
+    const far = room(() => clock - PRESENCE_TTL_SECONDS - 10, relay)
+    await far.join([], {})
+    await settle()
+    expect(mine.participants().map((v) => v.participant)).not.toContain(far.participant)
+    mine.leave()
+    far.leave()
   })
 
   it('still lapses a slow-clocked device once it really has gone quiet', async () => {
     const relay = new SimRelay()
     let clock = NOW
     const mine = room(() => clock, relay)
-    const slow = room(() => clock - 120, relay)
+    const slow = room(() => clock - 30, relay)
 
     await mine.join([], {})
     await slow.join([], {})
     await settle()
     expect(mine.participants()).toHaveLength(2)
 
-    slow.leave()
-    // The farewell took it out; pretend it never said goodbye instead.
+    // It goes quiet without a goodbye, and the window passes.
     clock = NOW + PRESENCE_TTL_SECONDS + 1
     expect(mine.participants()).toHaveLength(1)
     mine.leave()
+    slow.leave()
   })
 
   it('BUG: keeps a device whose media is still flowing when its heartbeats stop arriving', async () => {
