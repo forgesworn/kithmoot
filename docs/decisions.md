@@ -570,3 +570,32 @@ the one thing every member was handed: a room a person is in on three
 devices is called the same thing on all of them, without a relay storing
 anything about it. It is written only when there is one, so a link to an
 unnamed room is byte-identical to one from before rooms had names.
+
+## The device key signs a dropped file's upload and announcement
+
+A file dropped into the chat has to be put on a Blossom server and
+announced with a kind-1063 event, and both need a signature. There were
+two keys it could be.
+
+**The participant's identity.** That is who is sharing the file, so it is
+the honest author of the announcement, and it is what Wildbloom uses when
+a person uploads through it. But a participant signed in with a hardware
+signer would be asked to press a button twice per file, which turns a drop
+into a ceremony; and a kind-1063 event under a well-known key ties that
+key, on public relays, to a blob on a server, which is more than a room
+member meant to publish by dragging a picture across.
+
+**The device key.** Per room, minted by this browser, already signing every
+roster entry and chat event the room sees. It costs no prompt, and what a
+relay or a Blossom server can tie to it is a room-scoped key that names
+nobody. This is what was chosen. The announcement is still honest inside
+the room, where the message that carries the attachment is signed by the
+same device and bound to the participant by its credential, which is the
+only place the file's provenance matters.
+
+The consequence accepted: a Wildbloom client that resolves the kind-1063
+event sees it authored by a key it does not know. That is the case for
+every Wildbloom event a stranger publishes, and the client's checks (hash,
+size, scheme, URL on the server it names) are all of the event, not of its
+author.
+

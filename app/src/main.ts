@@ -48,10 +48,17 @@ import {
   type ChatMessage,
   type ChatAttachment,
   MAX_CHAT_ATTACHMENTS,
+  MAX_UPLOAD_SOURCE_BYTES,
   fetchAttachment,
   parseRecoveryKey,
+  encryptEnvelope,
+  uploadEnvelope,
+  buildFileEvent,
+  normaliseBlossomServer,
   parseRoomLink,
   type RoomLink,
+  type RelayTransport,
+  type EncryptedEnvelope,
 } from '../../src/index.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
@@ -80,7 +87,7 @@ import { MicPipeline, type MicState } from './voice-pipeline.js'
 import { ProfileBook, type Profile } from './profiles.js'
 import { renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
@@ -143,6 +150,16 @@ const ICE_REFRESH_MS = 40 * 60 * 1000
 // infrastructure. And if this endpoint is down, joining still works - see
 // resolveIceServers, which falls back to plain STUN rather than failing.
 const TURN_CREDENTIAL_ENDPOINT: string | undefined = '/turn'
+
+// Where a file dropped into the chat is put, unless this device has been
+// told otherwise in the Attach panel. Empty on purpose: the same rule as
+// TURN, no operator is protocol-mandated, and Wildbloom itself ships with
+// no default server either - it asks. A Blossom server sees an encrypted
+// blob and the device key that signed the upload, nothing else, but which
+// server sees that is still the person's choice, made once and remembered
+// on this device. An operator hosting this app for a community can name
+// their own here.
+const BLOSSOM_ENDPOINT = ''
 
 function $<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T
@@ -666,6 +683,9 @@ window.addEventListener('storage', (event) => {
 })
 
 let session: RoomSession | undefined
+/** The relay pool the session publishes through, for a file dropped into
+ *  the chat to announce itself on. Set and cleared with `session`. */
+let sessionTransport: RelayTransport | undefined
 let meParticipant = ''
 let myDeviceId = ''
 
@@ -2753,9 +2773,14 @@ async function startSession(): Promise<void> {
     // A paired device joins on its credential alone. Only a device that
     // actually holds the participant key passes one.
     const name = joiningName()
+    // Held here as well as inside the session, because a file dropped into
+    // the chat announces itself with a kind-1063 event on the room's own
+    // relays, through the sockets the room already has open.
+    const transport = new NostrRelayPool(relays)
+    sessionTransport = transport
     const s = credential
       ? new RoomSession({
-          transport: new NostrRelayPool(relays),
+          transport,
           secret: roomSecret,
           credential,
           deviceSk,
@@ -2774,7 +2799,7 @@ async function startSession(): Promise<void> {
           },
         })
       : new RoomSession({
-          transport: new NostrRelayPool(relays),
+          transport,
           secret: roomSecret,
           // A local key or an external signer - the session cannot tell,
           // and does not need to. See src/identity.ts.
@@ -2846,6 +2871,7 @@ async function startSession(): Promise<void> {
     render(s.participants(), meParticipant)
   } catch (err) {
     session = undefined
+    sessionTransport = undefined
     const message = describeError(err)
     if (message.includes('expired')) {
       forgetCredential()
@@ -3084,6 +3110,7 @@ function forgetKnownRoom(room: KnownRoom): void {
 function backToRooms(): void {
   const s = session
   session = undefined
+  sessionTransport = undefined
   s?.leave()
   history.replaceState(null, '', joinLinkBase())
   location.reload()
@@ -3287,6 +3314,7 @@ $('join').addEventListener('click', () => {
 function leaveRoom(): void {
   const s = session
   session = undefined
+  sessionTransport = undefined
   s?.leave()
   location.reload()
 }
@@ -3432,10 +3460,160 @@ function shareFromEvent(event: NostrEvent, keyHex: string): ChatAttachment {
   return share
 }
 
+// ---------------------------------------------------------------------------
+// Dropping a file straight into the chat
+// ---------------------------------------------------------------------------
+
+const BLOSSOM_SERVER_STORAGE_KEY = 'kithmoot.blossom-server'
+
+/** The Blossom server this device sends dropped files to: what the person
+ *  set in the Attach panel, else the app's default, else nothing. */
+function blossomServer(): string {
+  return localStorage.getItem(BLOSSOM_SERVER_STORAGE_KEY) ?? BLOSSOM_ENDPOINT
+}
+
+function storeBlossomServer(value: string): void {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    localStorage.removeItem(BLOSSOM_SERVER_STORAGE_KEY)
+    return
+  }
+  // Refused here, before a byte is sealed: a mistyped server is found out
+  // when it is typed, not when a file has been encrypted for nothing.
+  localStorage.setItem(BLOSSOM_SERVER_STORAGE_KEY, normaliseBlossomServer(trimmed))
+}
+
+/** Something to look at while a file is sealed and sent. Stage by stage
+ *  rather than byte by byte: fetch gives no upload progress, and a stage
+ *  line with the file's name and size says what is being waited for. */
+function dropProgress(stage: string, file: File): void {
+  $('attachStatus').textContent = `${stage} ${file.name} (${formatBytes(file.size)})…`
+}
+
+/**
+ * One dropped file, from bytes on this device to a staged attachment:
+ * sealed here under a fresh key, put on the Blossom server as an opaque
+ * blob, announced with a kind-1063 event on the room's relays, and then
+ * staged exactly as a pasted Wildbloom share is. The device key signs the
+ * upload and the announcement, so a hardware signer is never asked and a
+ * relay learns only that this device shared some encrypted bytes. The key
+ * goes into the staged attachment and nowhere else.
+ */
+async function shareDroppedFile(file: File): Promise<void> {
+  const status = $('attachStatus')
+  const transport = sessionTransport
+  if (!session || !transport) throw new Error('Join the room first.')
+  if (file.size > MAX_UPLOAD_SOURCE_BYTES) {
+    throw new Error(`${file.name} is ${formatBytes(file.size)}; a room sends up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)}.`)
+  }
+  if (file.size === 0) throw new Error(`${file.name} is empty.`)
+  const server = blossomServer()
+  if (!server) {
+    $('attachPanel').hidden = false
+    ;($('attachServer') as HTMLInputElement).focus()
+    throw new Error('Name a Blossom server to put files on, then drop the file again.')
+  }
+  const origin = normaliseBlossomServer(server)
+  const deviceSk = deviceKey()
+
+  dropProgress('Encrypting', file)
+  // Let the line above paint before the main thread is busy sealing.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const source = new Uint8Array(await file.arrayBuffer())
+  let sealed: EncryptedEnvelope
+  try {
+    sealed = encryptEnvelope(source, { name: file.name, type: file.type })
+  } finally {
+    source.fill(0)
+  }
+
+  dropProgress(`Uploading to ${new URL(origin).hostname}:`, file)
+  const descriptor = await uploadEnvelope(origin, sealed.envelope, { sign: (t) => finalizeEvent(t, deviceSk) })
+
+  dropProgress('Announcing', file)
+  const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
+  await transport.publish(event)
+
+  stagedAttachments.push({
+    event: event.id,
+    url: descriptor.url,
+    sha256: descriptor.sha256,
+    key: sealed.key,
+    name: sealed.name,
+    type: sealed.type,
+    size: sealed.envelope.length,
+  })
+  renderStaged()
+  status.textContent = ''
+}
+
+/** Files from a drop or the file input, one after another, stopping at the
+ *  first that fails so the reason is the last thing on the line. */
+async function shareDroppedFiles(files: FileList | File[] | null): Promise<void> {
+  const status = $('attachStatus')
+  const list = Array.from(files ?? [])
+  if (!list.length) return
+  $('attachPanel').hidden = false
+  for (const file of list) {
+    if (stagedAttachments.length >= MAX_CHAT_ATTACHMENTS) {
+      status.textContent = `A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`
+      return
+    }
+    try {
+      await shareDroppedFile(file)
+    } catch (err) {
+      // Shown here, not through setStatus, which also writes to the console.
+      status.textContent = describeError(err)
+      return
+    }
+  }
+  $('attachPanel').hidden = true
+  ;($('chatInput') as HTMLInputElement).focus()
+}
+
+;($('attachServer') as HTMLInputElement).value = blossomServer()
+$('attachServer').addEventListener('change', () => {
+  const input = $('attachServer') as HTMLInputElement
+  try {
+    storeBlossomServer(input.value)
+    input.value = blossomServer()
+    $('attachStatus').textContent = ''
+  } catch (err) {
+    $('attachStatus').textContent = describeError(err)
+  }
+})
+$('attachFile').addEventListener('change', () => {
+  const input = $('attachFile') as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  void shareDroppedFiles(files)
+})
+
+// Drag a file onto the chat form and it goes the same way. The class is
+// only a visual cue that the drop will be taken.
+const chatForm = $('chatForm')
+for (const type of ['dragenter', 'dragover'] as const) {
+  chatForm.addEventListener(type, (event) => {
+    if (!event.dataTransfer?.types.includes('Files')) return
+    event.preventDefault()
+    chatForm.classList.add('dropping')
+  })
+}
+chatForm.addEventListener('dragleave', (event) => {
+  if (event.relatedTarget instanceof Node && chatForm.contains(event.relatedTarget)) return
+  chatForm.classList.remove('dropping')
+})
+chatForm.addEventListener('drop', (event) => {
+  chatForm.classList.remove('dropping')
+  if (!event.dataTransfer?.files.length) return
+  event.preventDefault()
+  void shareDroppedFiles(event.dataTransfer.files)
+})
+
 $('attachToggle').addEventListener('click', () => {
   const panel = $('attachPanel')
   panel.hidden = !panel.hidden
-  if (!panel.hidden) $('attachEvent').focus()
+  if (!panel.hidden) $('attachFile').focus()
 })
 $('attachCancel').addEventListener('click', () => {
   $('attachPanel').hidden = true

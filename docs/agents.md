@@ -318,6 +318,41 @@ An agent sees an attachment the way a person does: the stdio brain passes
 it through whole, key included, because an agent is a member and a member
 holds what the room holds. Whether it fetches is its own call.
 
+### Dropping a file in
+
+Nobody in a town hall wants to open Wildbloom, upload, and paste twice.
+Drop a file on the chat form, or choose one in the Attach panel, and the
+page does what Wildbloom would have done, in the browser, with the same
+format: the file is sealed into an `FSWNENC2` envelope under a fresh
+random key (`encryptEnvelope`, held to Wildbloom's published vectors byte
+for byte), the envelope is put on a Blossom server with a BUD-01 upload
+authorised by a signed kind-24242 event (`uploadEnvelope`), a kind-1063
+event with every tag Wildbloom writes announces it on the room's relays
+(`buildFileEvent`), and the result is staged exactly as a pasted share
+is. Files over 64 MiB are refused before any of that starts. The key is
+in the staged attachment and then in the message, and nowhere else: not
+in a log line, not in an error, not in storage.
+
+Who learns what. The Blossom server learns that some device, identified
+by the key that signed the upload, stored an encrypted blob of a certain
+size. It does not learn the file's name, type, or contents: the envelope
+is uploaded under Wildbloom's fixed name and media type, and its metadata
+is inside the ciphertext. The relays learn that the same device key
+published a kind-1063 event naming a URL and a hash, which is what any
+Wildbloom upload tells them. Neither learns the room, because the device
+key is per room and the room id is not on the event. The key that signs
+both is the device key, never the participant's identity: a person signed
+in with a hardware signer is not asked to press a button per file, and a
+relay that watches kind-1063 events sees a key it cannot tie to a person.
+
+Which Blossom server is the person's choice, set once in the Attach panel
+and remembered on the device. The app ships with no default, for the same
+reason it hardcodes no TURN server and Wildbloom ships with none: no
+operator is protocol-mandated, and where your encrypted bytes go is not a
+decision an app should make for you. An operator hosting the app for a
+community can name their own in `BLOSSOM_ENDPOINT` beside the TURN
+endpoint constant.
+
 ## What is not done
 
 - **WhisperX is not bundled.** `server/whisperx/` is a Python server that
