@@ -1766,8 +1766,8 @@ function setAgentsMayHear(on: boolean): void {
   }
   setToggle('toggleAgentsHear', on)
   $('agentsHearNote').textContent = on
-    ? 'On: agents in this room receive your camera and microphone like anybody else. One that is listening writes what you say into the transcript below. Turn this off for a conversation among people.'
-    : 'Off: anything in this room that says it is an agent is sent none of your camera or microphone. The media never leaves this device for them. Turn this on when you want an agent following along.'
+    ? 'On: agents receive your camera and microphone like anybody else, and a listening one writes what you say into the transcript.'
+    : 'Off: nothing that says it is an agent is sent your camera or microphone. It never leaves this device for them.'
   publishActiveTracks()
 }
 

@@ -312,6 +312,18 @@ video {
   margin-top: 0.5rem;
 }
 
+/* The switch that decides who is sent this device's media, beside the
+   preview of what that media is. */
+.toggles.agentsHear {
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.toggles.agentsHear .note {
+  margin: 0;
+  flex: 1 1 16rem;
+}
+
 /* The side channels: the same log as the chat, folded away until wanted. */
 #agentsPanel,
 #transcriptPanel {

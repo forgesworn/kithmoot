@@ -121,6 +121,13 @@ async function openCamera(page: Page): Promise<void> {
     const video = document.querySelector<HTMLVideoElement>('#local video')
     return !!video && video.videoWidth > 0
   })
+  // On screen, not merely in the document. Chromium does not paint a
+  // MediaStream video that is scrolled out of view, and `drawImage` from an
+  // unpainted element gives a flat frame: the measurement below then reads
+  // zero detail with the effect off and nothing is learned. Whatever the
+  // page puts above the preview, the measurement must not depend on it.
+  await page.locator('#local video').scrollIntoViewIfNeeded()
+  await page.waitForTimeout(300)
 }
 
 /** The frame routes taken since the camera came on. `passthrough` above zero

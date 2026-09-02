@@ -71,16 +71,6 @@
         </div>
         <p id="micIndicator" class="indicator"></p>
 
-        <div class="toggles">
-          <button id="toggleAgentsHear" class="toggle" data-on="false">Agents can hear me</button>
-        </div>
-        <p id="agentsHearNote" class="note">
-          Off: anything in this room that says it is an agent is sent none of
-          your camera or microphone. The media never leaves this device for
-          them. On: agents receive what people do, and one that is listening
-          writes what you say into the transcript below.
-        </p>
-
         <div id="effects">
           <details id="cameraEffects" hidden>
             <summary>Background <span id="effectMode" class="chip">blur</span></summary>
@@ -134,6 +124,13 @@
         </div>
 
         <div id="local"></div>
+        <div class="toggles agentsHear">
+          <button id="toggleAgentsHear" class="toggle" data-on="false">Agents can hear me</button>
+          <span id="agentsHearNote" class="note inline">
+            Off: nothing that says it is an agent is sent your camera or
+            microphone. It never leaves this device for them.
+          </span>
+        </div>
         <button id="join" hidden>Join room</button>
       </section>
 
