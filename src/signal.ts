@@ -27,6 +27,20 @@ export interface SignalBody {
    *  sender is the near end, so the pair is fully named without a second
    *  field, and neither end can ask about a pair it is not part of. */
   assist?: string
+  /**
+   * For an offer: which rung of the route ladder the offerer is on.
+   *
+   * The two ends of a pair walk the ladder on their own clocks. One that
+   * reaches TURN builds a connection with relay candidates and offers on
+   * it; the other, still on the direct rung, answered from a connection
+   * with no relay candidates, then tore it down on its own timer, and the
+   * two chased each other round the ladder without ever meeting. Saying
+   * which rung an offer comes from lets the far end hop to the same rung
+   * before it answers. Optional and additive: a client that does not send
+   * it is answered as before, and one that does not read it behaves as
+   * before.
+   */
+  tier?: 'direct' | 'assist' | 'forwarder' | 'turn'
   /** For an `assist` signal: present on the reply and absent on the request.
    *  A refusal is an ordinary answer - a volunteer with no slots left - and
    *  saying so at once is what lets the asker fall to the next rung rather

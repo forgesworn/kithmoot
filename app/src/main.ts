@@ -1932,6 +1932,28 @@ function render(views: ParticipantView[], me: string): void {
   if (!localMediaEl.isConnected) $('local').append(localMediaEl)
 }
 
+/**
+ * What a chip says while a device's media has not arrived: which rung of
+ * the route ladder the connection to it is on, and whether the ladder has
+ * run out. "connecting…" alone told a person nothing about why, and told
+ * anybody trying to help even less.
+ */
+function connectingWord(device: string): string {
+  const route = session?.routes.get(device)
+  if (!route) return 'connecting…'
+  if (route.exhausted) return 'could not connect, trying again'
+  switch (route.tier) {
+    case 'turn':
+      return 'connecting via TURN…'
+    case 'assist':
+      return `connecting via ${nameOfDevice(route.endpoint)}…`
+    case 'forwarder':
+      return 'connecting via forwarder…'
+    default:
+      return 'connecting…'
+  }
+}
+
 /** Builds the chip row for a tile. `status` decides whether a track gets a
  *  chip at all - 'live' tracks already have a real <video>/<audio> element
  *  in the tile, so a chip would just repeat it. */
@@ -1948,7 +1970,7 @@ function trackChips(
     chip.className = 'track'
     const isLiveMic = view.mic === track.device && track.role === 'mic'
     chip.textContent =
-      state === 'waiting' ? `${track.role} · connecting…` : `${track.role}${isLiveMic ? ' · live mic' : ''}`
+      state === 'waiting' ? `${track.role} · ${connectingWord(track.device)}` : `${track.role}${isLiveMic ? ' · live mic' : ''}`
     chips.append(chip)
   }
   return chips
@@ -2305,6 +2327,10 @@ async function startSession(): Promise<void> {
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
           onRelayStop: () => renderAssist(),
+          // The chips say which rung a connection is on, so they move when it does.
+          onRoute: () => {
+            if (session) render(session.participants(), meParticipant)
+          },
         })
       : new RoomSession({
           transport: new NostrRelayPool(relays),
@@ -2322,6 +2348,10 @@ async function startSession(): Promise<void> {
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
           onRelayStop: () => renderAssist(),
+          // The chips say which rung a connection is on, so they move when it does.
+          onRoute: () => {
+            if (session) render(session.participants(), meParticipant)
+          },
         })
     session = s
     meParticipant = s.participant

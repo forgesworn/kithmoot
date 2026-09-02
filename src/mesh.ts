@@ -1017,8 +1017,11 @@ export class Mesh {
       iceRestart: this.#opts.iceRestart,
       offerRetry: this.#opts.offerRetry,
       onSignal: (body) => {
+        // An offer says which rung it was made on, so the far end can meet
+        // it there - see `SignalBody.tier` and `#followRung`.
+        const rung = !forwarder && body.type === 'offer' ? { tier } : {}
         const wrap = wrapSignal(
-          { ...body, roomId: this.#opts.roomId },
+          { ...body, ...rung, roomId: this.#opts.roomId },
           { senderSk: this.#opts.deviceSk, recipientPubkey: remoteDevice },
         )
         this.#opts.transport.publish(wrap).catch(() => {})
@@ -1136,12 +1139,38 @@ export class Mesh {
       return
     }
 
+    if (unwrapped.body.type === 'offer' && unwrapped.body.tier === 'turn') this.#followRung(unwrapped.from)
+
     const peer = this.#peerFor(unwrapped.from)
     if (!peer) {
       this.#holdSignal(unwrapped.from, unwrapped.body, now)
       return
     }
     peer.handleSignal(unwrapped.body).catch(() => {})
+  }
+
+  /**
+   * The far end has reached TURN and is offering from there. Meet it.
+   *
+   * Only from the direct rung, and only while that rung has not connected:
+   * a pair that is connected directly has no reason to move, and a pair
+   * being carried by a volunteer is reached at the volunteer's address, not
+   * this one. The direct connection is closed first, so the peer opened on
+   * the TURN rung - which is what the offer is answered on - is the only
+   * one this device holds for the far end, exactly as after its own timer
+   * would have escalated it. `#escalate` is deliberately not used: it would
+   * try a volunteer or a forwarder first, and the far end is on neither.
+   */
+  #followRung(device: string): void {
+    const route = this.#routes.get(device)
+    if (!route || route.tier !== 'direct' || route.connected) return
+    const peer = this.#peers.get(device)
+    if (peer) this.#closePeer(device, peer)
+    route.tier = 'turn'
+    route.endpoint = device
+    route.connected = false
+    this.#announceRoute(device, route)
+    this.#reconcile(this.#opts.session.participants())
   }
 
   /**

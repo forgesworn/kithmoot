@@ -834,3 +834,90 @@ describe('a pair with nothing to carry', () => {
     }
   })
 })
+
+describe('meeting the far end on its rung', () => {
+  /** An offer from `remote`, stamped with the rung it was made on. */
+  function offerFrom(remote: { sk: Uint8Array; pub: string }, local: string, tier?: 'direct' | 'turn') {
+    return wrapSignal(
+      { type: 'offer', roomId: ROOM_ID, sdp: 'v=0 offer', ...(tier ? { tier } : {}) },
+      { senderSk: remote.sk, recipientPubkey: local },
+    )
+  }
+
+  it('BUG: hops to TURN when the far end offers from TURN, and answers there', async () => {
+    // Each end walks the ladder on its own clock. Left alone, one reaches
+    // TURN and offers from a connection with relay candidates, the other
+    // answers from one with none, then tears it down on its own timer, and
+    // the two chase each other round the ladder for the rest of the call.
+    const remote = device()
+    const h = harness()
+    h.session.setViews([person(remote.pub)])
+    await settle()
+    expect(h.mesh.routes.get(remote.pub)?.tier).toBe('direct')
+    const direct = h.factory.to(remote.pub)!
+
+    h.relay.publish(offerFrom(remote, h.local.pub, 'turn'))
+    await settle()
+    await settle()
+
+    expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'turn', endpoint: remote.pub, connected: false })
+    expect(direct.closed).toBe(true)
+    const turn = h.factory.to(remote.pub)!
+    expect(turn).not.toBe(direct)
+    expect(turn.context?.tier).toBe('turn')
+    // And the offer was applied to the connection opened on that rung.
+    expect(turn.calls.some((c) => c.method === 'setRemoteDescription')).toBe(true)
+    expect(h.routes.at(-1)).toMatchObject({ device: remote.pub, route: { tier: 'turn' } })
+    h.close()
+  })
+
+  it('stays put when the direct rung is already connected', async () => {
+    const remote = device()
+    const h = harness()
+    h.session.setViews([person(remote.pub)])
+    await settle()
+    h.state(remote.pub, 'connected')
+    const direct = h.factory.to(remote.pub)!
+    h.relay.publish(offerFrom(remote, h.local.pub, 'turn'))
+    await settle()
+    expect(h.mesh.routes.get(remote.pub)?.tier).toBe('direct')
+    expect(h.factory.to(remote.pub)).toBe(direct)
+    h.close()
+  })
+
+  it('treats an offer with no rung on it as it always did', async () => {
+    const remote = device()
+    const h = harness()
+    h.session.setViews([person(remote.pub)])
+    await settle()
+    const direct = h.factory.to(remote.pub)!
+    h.relay.publish(offerFrom(remote, h.local.pub))
+    await settle()
+    expect(h.mesh.routes.get(remote.pub)?.tier).toBe('direct')
+    expect(h.factory.to(remote.pub)).toBe(direct)
+    h.close()
+  })
+
+  it('stamps its own offers with the rung they were made on', async () => {
+    const remote = device()
+    const h = harness()
+    h.session.setViews([person(remote.pub)])
+    h.mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
+    await settle()
+    const offers = h.relay.published
+      .map((e) => unwrap(e, remote.sk))
+      .filter((u): u is NonNullable<typeof u> => u?.body.type === 'offer')
+    expect(offers.length).toBeGreaterThan(0)
+    expect(offers.at(-1)?.body.tier).toBe('direct')
+
+    h.state(remote.pub, 'failed')
+    await settle()
+    h.mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
+    await settle()
+    const later = h.relay.published
+      .map((e) => unwrap(e, remote.sk))
+      .filter((u): u is NonNullable<typeof u> => u?.body.type === 'offer')
+    expect(later.at(-1)?.body.tier).toBe('turn')
+    h.close()
+  })
+})
