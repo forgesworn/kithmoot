@@ -949,3 +949,55 @@ describe('the TURN rung gets longer', () => {
     }
   })
 })
+
+describe('resting longer each time', () => {
+  it('BUG: doubles the rest after each failed retry, up to a cap, and forgets it on a connection', async () => {
+    // A member with no WebRTC stack at all - an agent that only reads the
+    // chat - never answers an offer. Retried every thirty seconds, that is
+    // a fresh connection built and torn down every half minute for as long
+    // as the two share a standing room.
+    vi.useFakeTimers()
+    try {
+      const remote = device()
+      const h = harness({ routeTimeoutMs: 100, turnRouteTimeoutMs: 100, exhaustedRetryMs: 1_000, maxExhaustedRetryMs: 4_000 })
+      h.session.setViews([person(remote.pub)])
+      h.mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
+      const attempts = () => h.factory.instances.length
+      // Exhaust: direct then TURN, 100ms each.
+      await vi.advanceTimersByTimeAsync(250)
+      expect(h.mesh.routes.get(remote.pub)?.exhausted).toBe(true)
+      const first = attempts()
+      // First rest: 1s.
+      await vi.advanceTimersByTimeAsync(1_050)
+      expect(attempts()).toBeGreaterThan(first)
+      await vi.advanceTimersByTimeAsync(250)
+      const second = attempts()
+      // Second rest: 2s - not yet at 1.5s, retried by 2.1s.
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(attempts()).toBe(second)
+      await vi.advanceTimersByTimeAsync(600)
+      expect(attempts()).toBeGreaterThan(second)
+      await vi.advanceTimersByTimeAsync(250)
+      const third = attempts()
+      // Third rest: 4s, the cap; fourth would also be 4s.
+      await vi.advanceTimersByTimeAsync(3_500)
+      expect(attempts()).toBe(third)
+      await vi.advanceTimersByTimeAsync(600)
+      expect(attempts()).toBeGreaterThan(third)
+      // It connects on the next attempt: the count resets, so the next
+      // exhaustion rests 1s again rather than 4s.
+      await vi.advanceTimersByTimeAsync(4_050)
+      h.state(remote.pub, 'connected')
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ connected: true })
+      h.state(remote.pub, 'failed')
+      await vi.advanceTimersByTimeAsync(250)
+      expect(h.mesh.routes.get(remote.pub)?.exhausted).toBe(true)
+      const afterConnect = attempts()
+      await vi.advanceTimersByTimeAsync(1_050)
+      expect(attempts()).toBeGreaterThan(afterConnect)
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

@@ -2139,9 +2139,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       if (m.speaker) {
         const speakerName = session?.participants().find((v) => v.participant === m.speaker)?.name
         who.append(identityRun(shownAs(m.speaker, speakerName), m.speaker === meParticipant))
-        who.append(' said')
+        who.append(' said: ')
       } else {
-        who.append('somebody said')
+        who.append('somebody said: ')
       }
       const by = document.createElement('span')
       by.className = 'who'

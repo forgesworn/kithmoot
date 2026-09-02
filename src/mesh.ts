@@ -81,6 +81,8 @@ export interface MeshOptions {
   /** How long an exhausted route rests before the ladder is retried from
    *  the top. See `EXHAUSTED_RETRY_MS`. */
   exhaustedRetryMs?: number
+  /** The longest that rest grows to. See `MAX_EXHAUSTED_RETRY_MS`. */
+  maxExhaustedRetryMs?: number
   /**
    * Whether this room may route a failing pair through a member who
    * volunteered. Defaults to on, because it costs the pair nothing and costs
@@ -147,6 +149,9 @@ interface Route extends RouteView {
    *  the pair accumulate this independently; they converge because the roster
    *  is the shared input and a volunteer that has gone leaves it. */
   failed: string[]
+  /** How many times the ladder has been retried from the top for this
+   *  device without a connection in between. Sets the rest. */
+  retries: number
 }
 
 export interface RemoteTrack {
@@ -242,6 +247,16 @@ export const DEFAULT_TURN_ROUTE_TIMEOUT_MS = 20_000
  * seconds; short enough that the person watching does not give up first.
  */
 export const EXHAUSTED_RETRY_MS = 30_000
+
+/**
+ * The longest rest between retries. Each retry that fails doubles the rest
+ * from `EXHAUSTED_RETRY_MS` up to this, and a success resets it. A pair
+ * that will never connect - a member with no WebRTC stack at all, which an
+ * agent that only reads the chat is - would otherwise be re-negotiated
+ * every thirty seconds for as long as the two shared a room, which in a
+ * standing room is for ever.
+ */
+export const MAX_EXHAUSTED_RETRY_MS = 10 * 60_000
 
 /**
  * How many signals may wait for a peer that does not exist yet, per device
@@ -595,7 +610,7 @@ export class Mesh {
 
     for (const device of wantedDevices.keys()) {
       if (this.#routes.has(device)) continue
-      this.#routes.set(device, { tier: 'direct', endpoint: device, connected: false, exhausted: false, failed: [] })
+      this.#routes.set(device, { tier: 'direct', endpoint: device, connected: false, exhausted: false, failed: [], retries: 0 })
     }
 
     // A volunteer who closed their laptop mid-sentence is the normal case,
@@ -652,6 +667,8 @@ export class Mesh {
     for (const [device, route] of this.#routes) {
       if (route.endpoint !== endpoint || route.connected) continue
       route.connected = true
+      // A connection resets the rest: whatever was wrong is not wrong now.
+      route.retries = 0
       this.#announceRoute(device, route)
     }
   }
@@ -742,10 +759,13 @@ export class Mesh {
 
   #armRetryTimer(device: string): void {
     this.#clearRetryTimer(device)
+    const base = this.#opts.exhaustedRetryMs ?? EXHAUSTED_RETRY_MS
+    const retries = this.#routes.get(device)?.retries ?? 0
+    const rest = Math.min(base * 2 ** retries, Math.max(base, this.#opts.maxExhaustedRetryMs ?? MAX_EXHAUSTED_RETRY_MS))
     const timer = setTimeout(() => {
       this.#retryTimers.delete(device)
       this.#retryRoute(device)
-    }, this.#opts.exhaustedRetryMs ?? EXHAUSTED_RETRY_MS)
+    }, rest)
     ;(timer as unknown as { unref?: () => void }).unref?.()
     this.#retryTimers.set(device, timer)
   }
@@ -773,6 +793,7 @@ export class Mesh {
     route.connected = false
     route.exhausted = false
     route.failed = []
+    route.retries += 1
     this.#announceRoute(device, route)
     this.#reconcile(this.#opts.session.participants())
   }
