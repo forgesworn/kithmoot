@@ -960,42 +960,63 @@ describe('resting longer each time', () => {
     try {
       const remote = device()
       const h = harness({ routeTimeoutMs: 100, turnRouteTimeoutMs: 100, exhaustedRetryMs: 1_000, maxExhaustedRetryMs: 4_000 })
+      // Every retry from the top, stamped by the (fake) clock, and the
+      // exhaustion before it.
+      const events: Array<{ at: number; what: 'retry' | 'exhausted' }> = []
+      let connectOnRetry = false
+      let seenExhausted = false
+      h.mesh.close()
+      const mesh = new Mesh({
+        session: h.session,
+        factory: h.factory,
+        localDevice: h.local.pub,
+        localParticipant: device().pub,
+        deviceSk: h.local.sk,
+        transport: new SimTransport(h.relay),
+        roomId: ROOM_ID,
+        routeTimeoutMs: 100,
+        turnRouteTimeoutMs: 100,
+        exhaustedRetryMs: 1_000,
+        maxExhaustedRetryMs: 4_000,
+        // A connection that was up gets an ICE restart before it is believed
+        // failed; shortened so the failure below is believed quickly.
+        iceRestart: { graceMs: 50, timeoutMs: 100 },
+        onRoute: (_d, route) => {
+          if (route.exhausted) {
+            seenExhausted = true
+            events.push({ at: Date.now(), what: 'exhausted' })
+          } else if (route.tier === 'direct' && seenExhausted) {
+            events.push({ at: Date.now(), what: 'retry' })
+            // The peer is opened just after this announcement; connect it a
+            // moment later, before its rung times out.
+            if (connectOnRetry) setTimeout(() => h.state(remote.pub, 'connected'), 10)
+          }
+        },
+      })
       h.session.setViews([person(remote.pub)])
-      h.mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
-      const attempts = () => h.factory.instances.length
-      // Exhaust: direct then TURN, 100ms each.
-      await vi.advanceTimersByTimeAsync(250)
-      expect(h.mesh.routes.get(remote.pub)?.exhausted).toBe(true)
-      const first = attempts()
-      // First rest: 1s.
-      await vi.advanceTimersByTimeAsync(1_050)
-      expect(attempts()).toBeGreaterThan(first)
-      await vi.advanceTimersByTimeAsync(250)
-      const second = attempts()
-      // Second rest: 2s - not yet at 1.5s, retried by 2.1s.
-      await vi.advanceTimersByTimeAsync(1_500)
-      expect(attempts()).toBe(second)
-      await vi.advanceTimersByTimeAsync(600)
-      expect(attempts()).toBeGreaterThan(second)
-      await vi.advanceTimersByTimeAsync(250)
-      const third = attempts()
-      // Third rest: 4s, the cap; fourth would also be 4s.
-      await vi.advanceTimersByTimeAsync(3_500)
-      expect(attempts()).toBe(third)
-      await vi.advanceTimersByTimeAsync(600)
-      expect(attempts()).toBeGreaterThan(third)
-      // It connects on the next attempt: the count resets, so the next
-      // exhaustion rests 1s again rather than 4s.
-      await vi.advanceTimersByTimeAsync(4_050)
-      h.state(remote.pub, 'connected')
-      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ connected: true })
+      mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
+
+      await vi.advanceTimersByTimeAsync(20_000)
+      const rests: number[] = []
+      for (let i = 0; i + 1 < events.length; i++) {
+        if (events[i]!.what === 'exhausted' && events[i + 1]!.what === 'retry') rests.push(events[i + 1]!.at - events[i]!.at)
+      }
+      // 1s, 2s, 4s, then the cap.
+      expect(rests.slice(0, 4)).toEqual([1_000, 2_000, 4_000, 4_000])
+
+      // A connection forgets the count: the next rest is 1s again.
+      connectOnRetry = true
+      events.length = 0
+      await vi.advanceTimersByTimeAsync(4_100)
+      expect(mesh.routes.get(remote.pub)?.connected).toBe(true)
+      events.length = 0
       h.state(remote.pub, 'failed')
-      await vi.advanceTimersByTimeAsync(250)
-      expect(h.mesh.routes.get(remote.pub)?.exhausted).toBe(true)
-      const afterConnect = attempts()
-      await vi.advanceTimersByTimeAsync(1_050)
-      expect(attempts()).toBeGreaterThan(afterConnect)
-      h.close()
+      await vi.advanceTimersByTimeAsync(1_500)
+      const after = events.findIndex((e) => e.what === 'exhausted')
+      expect(after).toBeGreaterThanOrEqual(0)
+      expect(events[after + 1]).toMatchObject({ what: 'retry' })
+      expect(events[after + 1]!.at - events[after]!.at).toBe(1_000)
+      mesh.close()
     } finally {
       vi.useRealTimers()
     }
