@@ -38,6 +38,14 @@ export const AGENT_CHANNEL = 'agents'
 export const TRANSCRIPT_CHANNEL = 'transcript'
 
 /**
+ * The channel a scribe writes minutes into: what a call came to, drawn
+ * from the transcript, on request or when the call ends. Reserved beside
+ * `agents` and `transcript`, and like a transcript it is the writer's
+ * claim about what was said - see `docs/agents.md`, "Minutes".
+ */
+export const MINUTES_CHANNEL = 'minutes'
+
+/**
  * What a keeper holds. Enough to reopen the same room, with the same link,
  * after a restart: the traffic secret, the root inviter key that alone can
  * admit people indefinitely, and the bearer the link carries. A process
@@ -328,6 +336,11 @@ export class RoomAgent {
    *  `TRANSCRIPT_CHANNEL`. */
   get transcripts(): ChatLog {
     return this.session.channel(TRANSCRIPT_CHANNEL)
+  }
+
+  /** Where a scribe writes minutes. See `MINUTES_CHANNEL`. */
+  get minutes(): ChatLog {
+    return this.session.channel(MINUTES_CHANNEL)
   }
 
   channel(name: string): ChatLog {

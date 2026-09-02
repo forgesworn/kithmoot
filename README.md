@@ -144,6 +144,12 @@ to make that one thing true.
   catalogue under the agents panel and starts or stops one with a button.
   The agent runs on the host's machine and joins through the room's link
   like anybody else.
+- **Minutes, with nobody typing them.** `kithmoot-agent scribe` sits in a
+  room listening and writes minutes into a `minutes` channel when anybody
+  types `!minutes` or when the call ends: attendees, decisions, actions,
+  open questions, from a local model or Claude, or the transcript grouped
+  by speaker with no model at all. Nothing from anybody whose *Agents can
+  hear me* is off. See `docs/agents.md`.
 - **Agents can hear me**, a switch in every browser, off by default. Off
   means this device's camera and microphone are never handed to a
   connection to anything that says it is an agent: the media does not leave

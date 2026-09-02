@@ -12,12 +12,13 @@ import { parseRoomLink } from '../link.js'
 import { AgentRuntime } from './runtime.js'
 import type { Persona } from './runtime.js'
 import { AnthropicBrain, OllamaBrain, StdioBrain } from './brains.js'
-import type { Brain } from './brains.js'
+import type { Brain, Completer } from './brains.js'
 import { serveMcp } from './mcp.js'
 import { WhisperXTranscriber, FixedTranscriber } from './transcriber.js'
 import type { Transcriber } from './transcriber.js'
 import { createWeriftFactory } from './webrtc.js'
 import { AgentHost, loadCatalogue } from './host.js'
+import { Scribe } from './scribe.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
@@ -41,6 +42,14 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
       "description", "respond", "listen"}. Hosted agents keep their identity and
       memory under --state (default ~/.kithmoot/host).
 
+  kithmoot-agent scribe <link> --name <name> [--brain ollama|anthropic|none] [options]
+      Join listening, transcribe what reaches it, and write minutes into the
+      minutes channel: when anybody types !minutes in the chat, and when a call
+      ends (media had been in the room and none has been for --call-ends-after).
+      A model writes attendees, decisions, actions and open questions; --brain
+      none, the default here, writes the transcript grouped by speaker instead,
+      so it works with no model at all.
+
 Options
   --name <name>            What the room calls this agent (required)
   --relays <a,b>           Relay hints, comma separated (same as repeated --relay)
@@ -60,13 +69,15 @@ Options
   --language <code>        Force the transcription language
   --fake-transcriber       Write "(speech)" for every utterance; for plumbing checks
   --catalogue <dir>        (host) the agents this host can run
+  --call-ends-after <min>  (scribe) minutes without media before the call is over; default 3
   --quiet                  No log lines on stderr
 
 Every option can also come from the environment, for a systemd unit's
 EnvironmentFile: KITHMOOT_NAME, KITHMOOT_BASE, KITHMOOT_STATE,
 KITHMOOT_IDENTITY, KITHMOOT_RELAYS (comma separated), KITHMOOT_ICE (comma
 separated), KITHMOOT_PERSONA, KITHMOOT_MEMORY, KITHMOOT_BRAIN,
-KITHMOOT_MODEL, KITHMOOT_WHISPERX, KITHMOOT_LANGUAGE, KITHMOOT_LINK. A flag
+KITHMOOT_MODEL, KITHMOOT_WHISPERX, KITHMOOT_LANGUAGE,
+KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_LINK. A flag
 wins over the environment. With --state, the room link is also written
 beside the state file as <state>.link, readable by the keeper's user only.
 `
@@ -101,6 +112,7 @@ interface Common {
   whisperx?: string
   language?: string
   fakeTranscriber: boolean
+  callEndsAfter?: string
   quiet: boolean
 }
 
@@ -129,12 +141,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       language: { type: 'string' },
       'fake-transcriber': { type: 'boolean', default: false },
       catalogue: { type: 'string' },
+      'call-ends-after': { type: 'string' },
       quiet: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
   })
   const command = positionals[0]
-  if (values.help || !command || !['create', 'join', 'mcp', 'host'].includes(command)) {
+  if (values.help || !command || !['create', 'join', 'mcp', 'host', 'scribe'].includes(command)) {
     process.stderr.write(USAGE)
     process.exitCode = command ? 2 : 0
     return
@@ -153,15 +166,24 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     turnCredential: values['turn-credential'],
     persona: values.persona ?? env('PERSONA'),
     memory: values.memory ?? env('MEMORY'),
-    brain: command === 'mcp' || command === 'host' ? 'none' : (values.brain ?? env('BRAIN') ?? 'stdio'),
+    // A scribe with no model still works, so none is its default; a joiner
+    // with no brain named is a pipe.
+    brain: command === 'mcp' || command === 'host' ? 'none' : (values.brain ?? env('BRAIN') ?? (command === 'scribe' ? 'none' : 'stdio')),
     model: values.model ?? env('MODEL'),
     ollamaUrl: values['ollama-url'],
     respond: values.respond,
-    listen: values.listen,
+    // A scribe that cannot hear has nothing to write.
+    listen: values.listen || command === 'scribe',
     whisperx: values.whisperx ?? env('WHISPERX'),
     language: values.language ?? env('LANGUAGE'),
     fakeTranscriber: values['fake-transcriber'],
+    callEndsAfter: values['call-ends-after'] ?? env('CALL_ENDS_AFTER'),
     quiet: values.quiet,
+  }
+  // Refused before joining, so a mistyped flag does not leave a ghost in
+  // the roster for the whole presence timeout.
+  if (command === 'scribe' && !['ollama', 'anthropic', 'none'].includes(common.brain)) {
+    fail(`a scribe is written by ollama, anthropic or none, not ${common.brain}`)
   }
   const base = values.base ?? env('BASE')
   const statePath = values.state ?? env('STATE')
@@ -237,6 +259,20 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     return
   }
 
+  if (command === 'scribe') {
+    const completer = makeCompleter(common, log)
+    const after = Number(common.callEndsAfter ?? 3)
+    if (!Number.isFinite(after) || after <= 0) fail('--call-ends-after must be a number of minutes')
+    const scribe = new Scribe(runtime, { completer, callEndsAfterMs: after * 60_000, log })
+    await scribe.start()
+    log(
+      `scribe: minutes on !minutes and ${after} minute${after === 1 ? '' : 's'} after the last media leaves, ${
+        completer ? `written by ${common.brain}` : 'as the transcript grouped by speaker (no model)'
+      }`,
+    )
+    return
+  }
+
   if (command === 'host') {
     const dir = values.catalogue ?? env('CATALOGUE')
     if (!dir) fail('host needs --catalogue <dir>')
@@ -273,6 +309,22 @@ function makeBrain(common: Common, log: (line: string) => void): Brain | undefin
       return undefined
     default:
       return fail(`unknown brain ${common.brain}`)
+  }
+}
+
+/** The model behind a brain, on its own, for the scribe. */
+function makeCompleter(common: Common, log: (line: string) => void): Completer | undefined {
+  switch (common.brain) {
+    case 'ollama':
+      if (!common.model) fail('--brain ollama needs --model')
+      return new OllamaBrain({ model: common.model, url: common.ollamaUrl, log }).completer()
+    case 'anthropic':
+      // Minutes run longer than a turn of chat.
+      return new AnthropicBrain({ model: common.model, maxTokens: 4_000, log }).completer()
+    case 'none':
+      return undefined
+    default:
+      return fail(`a scribe is written by ollama, anthropic or none, not ${common.brain}`)
   }
 }
 

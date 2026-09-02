@@ -88,7 +88,7 @@ room id, so a party holding the id and not the key - a forwarder, a relay -
 cannot find the channel from the room, let alone read it. The main chat is
 the unnamed channel, byte for byte what it always was.
 
-Two names are reserved:
+Three names are reserved:
 
 - **`agents`** is where agents talk to each other. Every member of the room
   can open it, and the browser shows it in a panel under the chat. That is
@@ -101,8 +101,14 @@ Two names are reserved:
   signed by the transcriber like any message it sends. A client that has
   never heard of transcripts shows it as a message from the transcriber,
   which is honest.
+- **`minutes`** is where a scribe writes what a call came to, drawn from
+  the transcript: on request, and when the call ends. Ordinary messages
+  from the scribe, so a client that has never heard of minutes shows them
+  as exactly that. See "Minutes" below.
 
-Neither channel is a secret from the room. They are places in it.
+None of these channels is a secret from the room. They are places in it.
+(A fourth name, `control`, is where agent hosts are asked to run things;
+see "Inviting an agent from the room".)
 
 ## Listening
 
@@ -127,6 +133,55 @@ named. One transcription at a time per speaker, so their words stay in order.
 
 Only what reaches the agent is transcribed. A person with the switch off
 sends it nothing, and there is nothing in the agent that could change that.
+
+## Minutes
+
+A weekly town hall on a room wants minutes, and nobody wants to type them.
+The transcript is what people said; the minutes are what it came to. A
+**scribe** is the step after the transcriber: `kithmoot-agent scribe <link>
+--name Scribe` joins listening, transcribes what reaches it exactly as
+`--listen` does, and writes minutes into the `minutes` channel
+(`src/node/scribe.ts`, `MINUTES_CHANNEL`).
+
+Minutes are written twice over:
+
+- **On request.** Anybody in the room types `!minutes` in the chat. It goes
+  out as an ordinary chat message, so any scribe that is listening sees it;
+  there is no control message for it because there is nobody it would be
+  restricted to: any member holds the room key, and the minutes are the
+  room's.
+- **When the call ends.** Media had been in the room - somebody's roster
+  entry advertised a track - and none has been for a quiet period,
+  `--call-ends-after`, three minutes by default. A connection that drops and
+  comes back inside that period is the same call, and the minutes for a
+  call are written once, however often its media flaps.
+
+Each set covers the transcript since the last set, so asking mid-call and
+then ending the call gives two sets that do not overlap. What the scribe
+writes is fixed in shape (`MINUTES_PROTOCOL`): a heading with the date, why
+they were written and who wrote them; the attendees, from the roster over
+that period; then, from the model, the decisions, the actions and who took
+them on, and the open questions, in that order, in plain prose. The model
+is whatever `--brain` names, the same Ollama or Claude that drives a
+character, with the turn-taking left off (`ModelBrain.completer`). With
+`--brain none`, the default for a scribe, the transcript itself goes out,
+grouped by speaker in the order they first spoke, each line with its time,
+so the feature works with no model installed at all. A set longer than a
+chat message allows is cut at line ends into several, each after the first
+marked with where it sits, sent a second apart so every reader gets them in
+order.
+
+Minutes are the scribe's claim, exactly as a transcript is the
+transcriber's: an ordinary message from the scribe, signed by it, and a
+reader weighs it as they would weigh anything the scribe said. And they are
+made only of the transcript, which is made only of what reached the scribe.
+A person whose **Agents can hear me** is off sends it nothing, so nothing of
+theirs is in the transcript, so nothing of theirs is in the minutes. A call
+in which nobody let the scribe hear them leaves nothing on the channel; a
+person who asks with `!minutes` is told so in the chat.
+
+The browser shows the channel in a panel under the transcript, with a count,
+and the note in it says how to ask.
 
 ## Inviting an agent from the room
 
@@ -195,6 +250,11 @@ node bin/kithmoot-agent.mjs join '<link>' --name Ada --brain ollama --model qwen
 
 # a coding agent as the participant: point an MCP client at this
 node bin/kithmoot-agent.mjs mcp '<link>' --name Ada
+
+# a scribe for the weekly town hall: minutes on !minutes and when the call ends
+python3 server/whisperx/server.py &
+node bin/kithmoot-agent.mjs scribe '<link>' --name Scribe --brain ollama --model qwen3:32b \
+  --language en --call-ends-after 3
 ```
 
 The MCP server offers `room_status`, `describe_room`, `chat_read`,
@@ -213,6 +273,12 @@ in a loop and is woken by the next message on the conversations it named.
   model brain speaking when named and whispering when told, the bound on
   agents talking among themselves, the stdio protocol.
 - `src/node/utterances.test.ts`: the splitter and the arithmetic.
+- `src/node/scribe.test.ts`: with the fixed transcriber and a deterministic
+  model behind the brain seam, utterances become transcript lines,
+  `!minutes` puts minutes on the `minutes` channel, a call that ends puts
+  them there once and a flap does not, long minutes arrive in order across
+  several messages, no model means the transcript grouped by speaker, and a
+  person whose switch is off leaves nothing in either channel.
 - `test/agent.spec.ts`: a real browser and a real Node agent over a real
   relay socket and a real WebRTC stack. The agent is admitted, chats,
   whispers into the panel the person can read, hears nothing until the

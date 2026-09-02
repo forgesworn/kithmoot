@@ -18,6 +18,15 @@ export interface Brain {
   start(runtime: AgentRuntime): Promise<() => Promise<void>>
 }
 
+/**
+ * A model on its own: a prompt in, text out, no turn-taking. What a scribe
+ * (`scribe.ts`) needs from a brain, and all it needs, so the same Ollama or
+ * Claude behind a character can write the minutes without being one.
+ */
+export interface Completer {
+  complete(system: string, user: string): Promise<string>
+}
+
 // ---------------------------------------------------------------------------
 // stdio: the agent as a pipe
 // ---------------------------------------------------------------------------
@@ -228,6 +237,11 @@ export abstract class ModelBrain implements Brain {
   /** Ask the model. `system` is the character and the protocol; `user` is
    *  the room and what is new. Returns the model's reply as text. */
   protected abstract complete(system: string, user: string): Promise<string>
+
+  /** This brain's model with the turn-taking left off. See `Completer`. */
+  completer(): Completer {
+    return { complete: (system, user) => this.complete(system, user) }
+  }
 
   async start(runtime: AgentRuntime): Promise<() => Promise<void>> {
     this.#runtime = runtime
