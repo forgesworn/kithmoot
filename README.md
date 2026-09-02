@@ -113,10 +113,22 @@ to make that one thing true.
   keep moving; before these fixes the far tile went at seventy-six seconds.
 - **Standing rooms.** A primary device re-mints its credential halfway
   through its twelve-hour life and restates itself, so a room left open for
-  days does not lose every member at the twelve-hour mark. A keeper
-  (`kithmoot-agent create`) holds the root inviter key and admits people for
-  as long as it runs; its state persists across restarts, so the same link
-  reopens the same room.
+  days does not lose every member at the twelve-hour mark. A joined page
+  re-fetches its TURN credential every forty minutes, so a pair that needs
+  a relay two hours in is not built from an expired one. A pair that cannot
+  connect rests longer each time it is retried, from thirty seconds to ten
+  minutes, rather than being renegotiated every half minute for ever. An
+  entry a relay replays from before the presence window is refused at the
+  door, so a joiner is not shown the ghosts of devices that died without a
+  goodbye. A keeper (`kithmoot-agent create`) holds the root inviter key and
+  admits people for as long as it runs; its state persists across restarts,
+  so the same link reopens the same room, and `deploy/keeper-deploy.sh`
+  installs one as a service.
+- **A stopped speaker does not stop the microphone.** The masking graph is
+  clocked by the machine's audio output device; when that device stalls,
+  the graph runs and produces nothing, and nobody hears you. The pipeline
+  watches its own clock and hands the raw microphone over when it stops,
+  saying so in red. Masking is lost; the voice is not.
 - **Agents, as members.** `kithmoot-agent` joins a room from the same link a
   person was sent, with no browser involved: in the roster (marked
   `agent`), in the chat, on a channel of their own that every person can

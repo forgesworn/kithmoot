@@ -44,6 +44,25 @@ export interface MicState {
 const CLOCK_CHECK_MS = 1_000
 const MIN_CLOCK_ADVANCE_S = 0.2
 const STALLED_CHECKS = 2
+/** How long starting the audio graph may take before the raw microphone
+ *  goes out instead. */
+const START_BOUND_MS = 4_000
+
+function withinMs<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(what)), ms)
+    work.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
+}
 
 export class MicPipeline {
   readonly #onStateChange?: (state: MicState) => void
@@ -108,8 +127,12 @@ export class MicPipeline {
       this.#setStatus('loading')
       const context = new AudioContext()
       this.#context = context
-      if (context.state === 'suspended') await context.resume()
-      await context.audioWorklet.addModule(`${import.meta.env.BASE_URL}voice-worklet.js`)
+      // Bounded, because on a stalled output device `resume()` never
+      // resolves - and a microphone that never comes on is worse than one
+      // that comes on unmasked. See `#watch` for the same device stalling
+      // after the graph is up.
+      if (context.state === 'suspended') await withinMs(context.resume(), START_BOUND_MS, 'the audio device did not start')
+      await withinMs(context.audioWorklet.addModule(`${import.meta.env.BASE_URL}voice-worklet.js`), START_BOUND_MS, 'the audio worklet did not load')
       this.#node = new AudioWorkletNode(context, WORKLET_NAME)
       this.#source = context.createMediaStreamSource(this.#stream)
       this.#destination = context.createMediaStreamDestination()
