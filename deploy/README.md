@@ -12,17 +12,19 @@ Four independent things live here:
 3. **A TURN credential service** (`turn-credentials.service`, in the repo
    root's `server/`) - the only thing that lets a browser actually use #2;
    see "Minting TURN credentials for the browser" below.
-4. **A forwarder** (`forwarder.service`, `server/forwarder.mjs`) - so a room
-   can grow past the ~8-person ceiling a mesh imposes. See "Running a
-   forwarder" below. It is not a TURN server and not an SFU in the usual
-   sense: it is given the room *id* and never the room *key*, so it relays
-   ciphertext it cannot read.
-5. **A keeper** (`keeper.service`, `keeper-deploy.sh`, `keeper-install.sh`)
-   - one process that holds one standing room open for as long as it runs.
-   See "Running a keeper" below. Unlike the forwarder it *does* hold the
-   room key, because it made the room: it is the room's availability and
-   its admission desk, and the box is trusted with that room exactly as a
-   browser that created one would be.
+4. **A forwarder** (`forwarder@.service`, `forwarder-deploy.sh`,
+   `forwarder-install.sh`, `server/forwarder.mjs`) - so a room can grow past
+   the ~8-person ceiling a mesh imposes. See "Running a forwarder" below.
+   It is not a TURN server and not an SFU in the usual sense: it is given
+   the room *id* and never the room *key*, so it relays ciphertext it
+   cannot read. One instance per room.
+5. **A keeper** (`keeper@.service`, `keeper-deploy.sh`, `keeper-install.sh`)
+   - one process per standing room, holding it open for as long as it runs;
+   a box keeps as many rooms as it has instances. See "Running a keeper"
+   below. Unlike the forwarder it *does* hold the room key, because it made
+   the room: it is the room's availability and its admission desk, and the
+   box is trusted with that room exactly as a browser that created one
+   would be.
 
 Read the design principle below before touching the TURN half. It's the
 part that's easy to get backwards.
@@ -486,17 +488,37 @@ it.
 | `KITHMOOT_MAX_TRACKS_PER_PEER` | no | Per-peer track cap. Default 4. |
 | `KITHMOOT_LABEL` | no | A name for people. Never used for logic. |
 
-For a persistent install, `deploy/forwarder.service` is a systemd unit with a
-dedicated user, `Restart=always`, and the usual hardening - full step-by-step
-in the comment block at its top:
+For a persistent install, `deploy/forwarder@.service` is a systemd template
+with a dedicated user, `Restart=always`, and the usual hardening: one
+instance per room, `kithmoot-forwarder@<name>`, reading
+`/etc/kithmoot/forwarder-<name>.env`. From a checkout on your own machine,
+never on the box:
 
 ```bash
-# on the box, in a checkout of this repo (e.g. /opt/kithmoot)
-npm ci && npm run build:lib   # repeat after every pull
-sudo cp deploy/forwarder.service /etc/systemd/system/kithmoot-forwarder.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now kithmoot-forwarder
-journalctl -u kithmoot-forwarder -n 30
+DEPLOY_HOST=deploy@YOUR_BOX deploy/forwarder-deploy.sh --name townhall --room-id <64 hex>
+```
+
+That ships the same tree the keepers run from (`deploy/keeper-deploy.sh
+--ship-only`, see "Running a keeper" below) and runs
+`deploy/forwarder-install.sh` on the box, which makes the `kithmoot-fwd`
+user, generates this instance's Nostr key once and writes it into the env
+file with a shell builtin (never as an argument, which `ps` would show),
+installs the template, and starts `kithmoot-forwarder@townhall`. The env
+file is written once and then left alone: edit it and `systemctl restart
+kithmoot-forwarder@townhall` to change relays or caps. `--relays`, `--url`,
+`--max-peers`, `--max-tracks` and `--label` set the first-run values, and
+they are flags rather than environment variables on purpose: a
+`NOSTR_RELAYS` left in your shell by some other tool must not quietly
+become the relays this room's forwarder listens on. Give it the room's
+relays; a forwarder on other relays is one the room never hears answer.
+
+The room id is the one thing you bring, and deliberately the only thing:
+`keeper-install.sh` prints it for a room the box keeps, and a member can
+read it off `deriveRoom(secret).roomId`. Neither script has a flag for the
+room key, and both refuse a room id that looks like a join URL.
+
+```bash
+journalctl -u kithmoot-forwarder@townhall -n 30
 ```
 
 The startup banner states, in plain words, that this process relays
@@ -542,27 +564,72 @@ hours from the creator's grant and no longer, because a delegation is
 bounded on purpose (see `docs/decisions.md`). A room meant to stay open for
 days - people and their agents drifting in and out, the odd call - therefore
 wants a creator that is always online. That is a keeper: `kithmoot-agent
-create`, kept running by systemd.
+create`, kept running by systemd, one instance per room.
 
 ```bash
-DEPLOY_HOST=deploy@your-box deploy/keeper-deploy.sh
+DEPLOY_HOST=deploy@YOUR_BOX deploy/keeper-deploy.sh --room standing
 ```
 
-builds the library locally, ships the entry point, `dist/src`, the lockfile
-and the unit to `/opt/kithmoot-keeper`, and runs `keeper-install.sh` there as
-root: a `kithmoot-keeper` system user, `npm ci --omit=dev`, an env file at
-`/etc/kithmoot/keeper.env` (written once, then left alone), the unit, and a
-start. It ends by printing the room link. The room's secret, its inviter
-key and the keeper's participant key live under `/var/lib/kithmoot-keeper`,
-mode 0600, created on first start and reused on every restart, so the same
-link reopens the same room. Back that directory up if the room matters;
-delete it to make a new one. `sudo cat /var/lib/kithmoot-keeper/room.json.link`
-prints the link again.
+builds the library locally, ships the entry points, `dist/src`, the
+lockfile, the units and the install scripts to `/opt/kithmoot-keeper`, and
+runs `keeper-install.sh` there as root: a `kithmoot-keeper` system user,
+`npm ci --omit=dev`, the unit templates, an env file at
+`/etc/kithmoot/keeper-standing.env` (written once, then left alone), and a
+start of `kithmoot-keeper@standing`. `--room townhall` next makes a second
+room with its own env file and its own state, running from the same tree.
+Every running instance is restarted when a new tree lands, so one deploy
+updates every room; each restart is a few seconds in which that room's link
+is not answered. Without `--room` the old one-liner still keeps the room
+named `default`.
+
+The room's secret, its inviter key and the keeper's participant key live
+under `/var/lib/kithmoot-keeper/<room>/`, mode 0600, created on first start
+and reused on every restart, so the same link reopens the same room. Back
+that directory up if the room matters; move it aside to make a new one.
+The install ends by printing the room's public id (what a forwarder is
+given) and the path of the link, not the link itself: a link is a
+capability, and a deploy log is not where one belongs. `sudo cat
+/var/lib/kithmoot-keeper/<room>/room.json.link` on the box prints it.
+
+### Taking over a room that already exists
+
+A room somebody's laptop has been keeping can move to the box without its
+link changing:
+
+```bash
+DEPLOY_HOST=deploy@YOUR_BOX \
+  deploy/keeper-deploy.sh --room standing --state-from ~/.kithmoot/standing-room.json
+```
+
+`--state-from` sends the keeper state that `kithmoot-agent create --state`
+wrote (the room's secret, inviter key and bearer) over ssh on stdin, never
+as an argument, and lands it 0600 under the new instance's state directory
+before the first start. It is refused if the instance already has a room,
+and rejected if it is not a v1 keeper state. The box's keeper gets its own
+participant identity, generated there; only the room moves. With the same
+base and relays the box writes the same link, byte for byte, and the old
+keeper can be stopped, or switched to `join` on that link, once the box's
+is up. Two keepers holding one room for a moment is fine.
+
+### Migrating from the single-room kit
+
+A box installed before instances existed has `kithmoot-keeper.service`,
+state directly under `/var/lib/kithmoot-keeper/` and
+`/etc/kithmoot/keeper.env`. The first run of the new `keeper-install.sh`
+moves that room, unchanged, to the instance `default`: the three state
+files are moved (not copied) into `/var/lib/kithmoot-keeper/default/`, the
+env file becomes `keeper-default.env`, the old unit is stopped, disabled
+and moved aside under `/etc/kithmoot/migrated-<stamp>/`, and
+`kithmoot-keeper@default` is enabled and started. Same room, same link,
+one restart. To reverse it: stop `kithmoot-keeper@default`, move the three
+files back up a level, rename the env file back, copy the unit back out of
+the `migrated-` directory, `daemon-reload`, and `enable --now
+kithmoot-keeper`.
 
 What it costs: nothing to speak of. A keeper with `--brain none` holds relay
 sockets and answers admission requests; it publishes no media and, unless
 started with `--listen`, opens no peer connection that carries any. The unit
-caps it at 512M of memory, which is several times what it uses.
+caps each instance at 512M of memory, which is several times what it uses.
 
 What it means: **the box holds the room key.** A forwarder is blind by
 construction; a keeper is a member, and the operator of the box can read
@@ -570,7 +637,7 @@ that room the way any member can. Run a keeper for a room whose people are
 content with that. It is the same trust a room's creator always had, moved
 to a machine that does not close its lid.
 
-To give the keeper ears or a voice, edit the env file: `KITHMOOT_BRAIN`,
+To give a keeper ears or a voice, edit its env file: `KITHMOOT_BRAIN`,
 `KITHMOOT_MODEL`, `KITHMOOT_PERSONA`, `KITHMOOT_MEMORY`, `KITHMOOT_WHISPERX`
 are all read (see `kithmoot-agent --help`), though the unit as shipped
 passes `--brain none` and a keeper that talks is usually better run as a
