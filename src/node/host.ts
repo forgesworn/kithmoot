@@ -180,7 +180,9 @@ export class AgentHost {
       await mkdir(dir, { recursive: true })
       const identity = join(dir, 'identity.key')
       const participant = await this.#identityAt(identity)
-      const args = [...this.#command.args, 'join', this.#agent.url, '--name', config.name, '--identity', identity, '--brain', config.brain, '--respond', config.respond ?? 'mentions', '--memory', config.memory ?? join(dir, 'memory'), '--quiet']
+      // Not --quiet: what a hosted agent logs is the only account of why it
+      // did or did not speak, and it comes back here on stderr under its name.
+      const args = [...this.#command.args, 'join', this.#agent.url, '--name', config.name, '--identity', identity, '--brain', config.brain, '--respond', config.respond ?? 'mentions', '--memory', config.memory ?? join(dir, 'memory')]
       if (config.persona) args.push('--persona', config.persona)
       if (config.model) args.push('--model', config.model)
       if (config.listen) args.push('--listen')

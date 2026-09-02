@@ -328,6 +328,13 @@ export interface OllamaBrainOptions extends ModelBrainOptions {
   /** A model Ollama has pulled. */
   model: string
   url?: string
+  /**
+   * Whether a model that can reason before answering should. Off by
+   * default: measured here, qwen3:8b took 57 seconds over a one-sentence
+   * answer with thinking on, and a room does not wait a minute for a
+   * reply. The persona is the reasoning; a turn is a sentence.
+   */
+  think?: boolean
   fetch?: typeof fetch
 }
 
@@ -335,12 +342,14 @@ export interface OllamaBrainOptions extends ModelBrainOptions {
 export class OllamaBrain extends ModelBrain {
   readonly #model: string
   readonly #url: string
+  readonly #think: boolean
   readonly #fetch: typeof fetch
 
   constructor(opts: OllamaBrainOptions) {
     super(opts)
     this.#model = opts.model
     this.#url = (opts.url ?? 'http://127.0.0.1:11434').replace(/\/$/, '')
+    this.#think = opts.think ?? false
     this.#fetch = opts.fetch ?? fetch
   }
 
@@ -351,6 +360,7 @@ export class OllamaBrain extends ModelBrain {
       body: JSON.stringify({
         model: this.#model,
         stream: false,
+        think: this.#think,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },
