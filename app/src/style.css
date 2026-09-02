@@ -736,3 +736,118 @@ video {
   border: 1px dashed var(--border);
   border-radius: 999px;
 }
+
+/* Your rooms
+ *
+ * The standing rooms this device has been in, on the front page. A row is
+ * a name with the room's id beside it - two rooms can be called the same
+ * thing, exactly as two people can - then what is new and who is here,
+ * then the two things you can do about it. The unread count takes the
+ * accent, because it is the one number the list exists to show. */
+.roomList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.roomRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  background: var(--panel);
+}
+
+.roomRow .roomMain {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.roomRow .roomTitleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.roomRow .roomName {
+  font-weight: 600;
+}
+
+.roomRow .roomMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: 0.3rem;
+}
+
+.roomRow .unread:not([data-count='0']) {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.roomRow .roomActions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.roomRow .roomActions button {
+  margin: 0;
+}
+
+.hereChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+/* A button that is there without asking for attention: forget, and the way
+   back to the list. */
+button.quiet {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+button.quiet:hover {
+  color: var(--text);
+}
+
+#roomNav {
+  margin: 0.75rem 0 0;
+}
+
+#roomNav button {
+  margin: 0;
+}
+
+label.note {
+  display: block;
+}
+
+#roomName {
+  font-family: system-ui, sans-serif;
+  margin-bottom: 0.5rem;
+}
+
+.roomTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 1.05rem;
+}

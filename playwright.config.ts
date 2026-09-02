@@ -21,7 +21,9 @@ export default defineConfig({
   // for the only question a person in a room actually asks - can I see you,
   // can I hear you - measured off the decoded pixels and the audio energy,
   // and it lives beside e2e.spec.ts because it needs the same real relays.
-  testMatch: ['e2e.spec.ts', 'media.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts'],
+  // rooms.spec.ts is the front page: the rooms this device has been in,
+  // with what is new and who is here read off the relays without joining.
+  testMatch: ['e2e.spec.ts', 'media.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts', 'rooms.spec.ts'],
   // Public relays take a few seconds to round-trip a roster event, and the
   // join-last case waits on three of those in sequence: A's entry, B's, and
   // then A and B answering C's arrival. The stage-1 live test used similar

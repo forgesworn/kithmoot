@@ -307,6 +307,37 @@ describe('ChatLog', () => {
     expect(log.messages().map((m) => m.text)).toEqual(['tie-low', 'tie-high', 'later'])
   })
 
+  it('opened without a credential, reads by the same rules and refuses to send', async () => {
+    // A device that holds the room key can read the room's chat without
+    // being in the room - the rooms list counts what is new that way. It
+    // decodes exactly as a member's log does, and has nothing to sign with.
+    const { roomId, roomKey, deviceSk, credential } = await fixture()
+    const relay = new SimRelay()
+    // A clock that moves, so the two sends do not share a second and fall
+    // to the id tiebreak.
+    let clock = NOW
+    const member = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => clock })
+    const reader = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, now: () => clock })
+    expect(reader.readOnly).toBe(true)
+    expect(member.readOnly).toBe(false)
+    await member.send('one')
+    clock++
+    await member.send('two')
+    expect(reader.messages().map((m) => m.text)).toEqual(['one', 'two'])
+    // A forgery is refused on the reading side exactly as on a member's.
+    const forgerSk = generateSecretKey()
+    const forged = encodeChatEvent(
+      { id: 'forged', participant: credential.pubkey, device: getPublicKey(forgerSk), credential, text: 'not me', sentAt: NOW },
+      { roomId, roomKey, deviceSk: forgerSk },
+    )
+    await new SimTransport(relay).publish(forged)
+    expect(reader.messages().map((m) => m.text)).toEqual(['one', 'two'])
+    await expect(reader.send('three')).rejects.toThrow(/only reads/)
+    expect(() => reader.setCredential(credential)).toThrow(/only reads/)
+    reader.close()
+    member.close()
+  })
+
   it('never admits a forged attribution into the log', async () => {
     const relay = new SimRelay()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))

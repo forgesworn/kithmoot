@@ -27,6 +27,27 @@ describe('room links', () => {
     expect(bytesToHex(link.pairingCode!)).toBe('03'.repeat(16))
   })
 
+  it('carries the room name when there is one, sanitised, and writes nothing when there is not', () => {
+    const { invitation } = createRoomInvitation()
+    const unnamed = encodeRoomLink(BASE, { invitation, relays: [], iceUrls: [] })
+    expect(parseRoomLink(unnamed).name).toBeUndefined()
+    expect(new TextDecoder().decode(base64urlnopad.decode(new URL(unnamed).hash.slice(1)))).not.toContain('"n"')
+
+    const named = encodeRoomLink(BASE, { invitation, relays: [], iceUrls: [], name: '  Weekly\u200b town hall  ' })
+    expect(parseRoomLink(named).name).toBe('Weekly town hall')
+
+    // A name is text a stranger wrote: it gets the display-name treatment
+    // on the way in whatever wrote the link.
+    const hostile = base64urlnopad.encode(
+      new TextEncoder().encode(JSON.stringify({ v: 2, j: base64urlnopad.encode(invitation.bearer), h: invitation.inviter, r: [], i: [], n: 'x'.repeat(100) })),
+    )
+    expect(parseRoomLink(`${BASE}#${hostile}`).name).toHaveLength(32)
+    const notText = base64urlnopad.encode(
+      new TextEncoder().encode(JSON.stringify({ v: 2, j: base64urlnopad.encode(invitation.bearer), h: invitation.inviter, r: [], i: [], n: 7 })),
+    )
+    expect(parseRoomLink(`${BASE}#${notText}`).name).toBeUndefined()
+  })
+
   it('reads a legacy version 1 link the library itself wrote', () => {
     const secret = new Uint8Array(32).fill(5)
     const link = parseRoomLink(encodeJoinUrl(BASE, secret, ['wss://a.example']))

@@ -127,6 +127,17 @@ to make that one thing true.
   admits people for as long as it runs; its state persists across restarts,
   so the same link reopens the same room, and `deploy/keeper-deploy.sh`
   installs one as a service.
+- **Your rooms.** The front page lists the rooms this device has been in,
+  by the name on their link, with how many chat messages are newer than
+  this device last read and who is in the room now, agents marked. The
+  counts are read off the room's relays without joining and without
+  publishing anything, using the key this device already holds: a room it
+  created, for twelve hours; a room it was admitted to, for the tab's
+  session. A room whose key it does not hold says so, and opening it is
+  what gets the key back. Open is opening the link; Forget drops the room
+  from this device and nothing else. A room can be named when it is
+  started, and the name rides in the link, so every device that opens it
+  calls it the same thing.
 - **A stopped speaker does not stop the microphone.** The masking graph is
   clocked by the machine's audio output device; when that device stalls,
   the graph runs and produces nothing, and nobody hears you. The pipeline
@@ -367,7 +378,7 @@ Stated plainly, before anyone else finds it:
 ```bash
 npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 818 tests, in-process relay simulator, no network
+npm test          # 885 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, over live relays
 E2E_RELAYS=local npm run test:e2e  # the same, against test/ws-relay.mjs: what CI runs
