@@ -1,4 +1,5 @@
-# systemd unit for a KithMoot keeper: `kithmoot-agent create`, kept running.
+# systemd template for a KithMoot keeper: `kithmoot-agent create`, kept
+# running. One instance per room: `kithmoot-keeper@<room>`.
 #
 # WHAT THIS PROCESS IS:
 #
@@ -15,26 +16,34 @@
 #   that created a room would be. Run it for a room whose people are happy
 #   with that, and no other.
 #
-# STATE:
+# INSTANCES:
 #
-#   /var/lib/kithmoot-keeper/room.json       the room: secret, inviter key, bearer
-#   /var/lib/kithmoot-keeper/room.json.link  the link to hand to people
-#   /var/lib/kithmoot-keeper/identity.key    the keeper's participant key
+#   The instance name is the room's name on this box, and picks everything
+#   else. `kithmoot-keeper@standing` reads and writes
 #
-#   All three are created on first start, owned by the service user, mode
-#   0600, and reused on every restart, so the same link reopens the same
-#   room. Back the directory up if the room matters; delete it to make a
-#   new room. `deploy/keeper-install.sh` prints the link when the service is
-#   up, and `sudo cat /var/lib/kithmoot-keeper/room.json.link` prints it again.
+#   /etc/kithmoot/keeper-standing.env                 the keeper's name, relays, base
+#   /var/lib/kithmoot-keeper/standing/room.json       the room: secret, inviter key, bearer
+#   /var/lib/kithmoot-keeper/standing/room.json.link  the link to hand to people
+#   /var/lib/kithmoot-keeper/standing/identity.key    the keeper's participant key
 #
-# INSTALL: `DEPLOY_HOST=deploy@your-box deploy/keeper-deploy.sh`, which ships
-# the built tree to /opt/kithmoot-keeper and runs deploy/keeper-install.sh on
-# the box. The env file it writes, /etc/kithmoot/keeper.env, carries the
-# room's name, relays and the base URL of the app; edit it and
-# `systemctl restart kithmoot-keeper` to change them.
+#   The three state files are created on first start, owned by the service
+#   user, mode 0600, and reused on every restart, so the same link reopens
+#   the same room. Back the directory up if the room matters; move it aside
+#   to make a new room. `sudo cat /var/lib/kithmoot-keeper/<room>/room.json.link`
+#   prints the link.
+#
+#   Every instance runs from the same tree, /opt/kithmoot-keeper, so one
+#   deploy updates every room; `deploy/keeper-install.sh` restarts the
+#   running instances after it ships a new tree.
+#
+# INSTALL: `DEPLOY_HOST=deploy@your-box deploy/keeper-deploy.sh --room <room>`,
+# which ships the built tree to /opt/kithmoot-keeper and runs
+# deploy/keeper-install.sh on the box. The env file it writes carries the
+# keeper's name, the relays and the base URL of the app; edit it and
+# `systemctl restart kithmoot-keeper@<room>` to change them.
 
 [Unit]
-Description=KithMoot keeper (holds one standing room open)
+Description=KithMoot keeper for room %i (holds one standing room open)
 Documentation=file:///opt/kithmoot-keeper/docs/agents.md
 After=network-online.target
 Wants=network-online.target
@@ -44,12 +53,12 @@ Type=simple
 User=kithmoot-keeper
 Group=kithmoot-keeper
 WorkingDirectory=/opt/kithmoot-keeper
-EnvironmentFile=/etc/kithmoot/keeper.env
+EnvironmentFile=/etc/kithmoot/keeper-%i.env
 # systemd creates and owns this, and it is the only writable path.
-StateDirectory=kithmoot-keeper
+StateDirectory=kithmoot-keeper/%i
 StateDirectoryMode=0700
-Environment=KITHMOOT_STATE=/var/lib/kithmoot-keeper/room.json
-Environment=KITHMOOT_IDENTITY=/var/lib/kithmoot-keeper/identity.key
+Environment=KITHMOOT_STATE=/var/lib/kithmoot-keeper/%i/room.json
+Environment=KITHMOOT_IDENTITY=/var/lib/kithmoot-keeper/%i/identity.key
 ExecStart=/usr/bin/node bin/kithmoot-agent.mjs create --brain none
 Restart=always
 RestartSec=5

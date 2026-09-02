@@ -1,0 +1,92 @@
+# systemd template for server/forwarder.mjs - the reference KithMoot
+# forwarder. One instance per room: `kithmoot-forwarder@<name>`.
+#
+# WHAT THIS PROCESS IS, AND WHAT IT IS NOT:
+#
+#   It is given the room *id* and never the room *key*. It relays ciphertext
+#   it cannot read: it cannot decrypt the roster, so it never learns who is
+#   in the room; it cannot decrypt media, which is sealed end to end under a
+#   key derived from the room key; and it cannot forge attribution, because
+#   it cannot produce a frame that opens under anybody's key.
+#
+#   The process REFUSES TO START if KITHMOOT_ROOM_KEY, KITHMOOT_ROOM_SECRET,
+#   KITHMOOT_JOIN_URL or KITHMOOT_SECRET is present in its environment. Do
+#   not "helpfully" add one to the EnvironmentFile below to give it
+#   "everything it needs" - it does not need one, and the refusal is there
+#   because that mistake would otherwise work perfectly and quietly void the
+#   whole design.
+#
+# INSTANCES:
+#
+#   The instance name picks the env file: `kithmoot-forwarder@townhall`
+#   reads /etc/kithmoot/forwarder-townhall.env, owned by the service user
+#   and readable by nobody else, carrying this instance's own Nostr key
+#   (KITHMOOT_FORWARDER_SK), the room id it serves (KITHMOOT_ROOM_ID), the
+#   relays, and the caps. The key never goes in this unit file, which is
+#   world-readable via `systemctl cat`. It must be STABLE: a room descriptor
+#   names a forwarder by pubkey, so a key regenerated on each restart
+#   silently orphans every room pointing here.
+#
+#   Every instance runs from the tree deploy/keeper-deploy.sh ships to
+#   /opt/kithmoot-keeper - the same one the keepers run from - so one deploy
+#   updates every forwarder and every keeper on the box.
+#
+# INSTALL: `DEPLOY_HOST=deploy@your-box deploy/forwarder-deploy.sh --name <name> --room-id <64 hex>`,
+# which ships the tree and runs deploy/forwarder-install.sh on the box: the
+# `kithmoot-fwd` user, the env file (written once, key generated there with
+# a shell builtin so it is never an argument `ps` could show), this
+# template, and a start. By hand, the same steps are in that script.
+#
+# VERIFY: `journalctl -u kithmoot-forwarder@<name> -n 30` prints the startup
+# banner, including the room id, this forwarder's pubkey, and the one-line
+# JSON to paste into the room descriptor's forwarder list. Everything is on
+# stderr, so `journalctl -f` is the log.
+#
+# READ deploy/README.md's "Running a forwarder" section before enabling
+# this. A forwarder relays every byte it carries, in both directions, and
+# the bandwidth cost is the whole cost.
+
+[Unit]
+Description=KithMoot forwarder %i (relays ciphertext it cannot read)
+Documentation=file:///opt/kithmoot-keeper/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kithmoot-fwd
+Group=kithmoot-fwd
+WorkingDirectory=/opt/kithmoot-keeper
+EnvironmentFile=/etc/kithmoot/forwarder-%i.env
+ExecStart=/usr/bin/node server/forwarder.mjs
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening. This process holds its own Nostr secret key in memory and
+# nothing else of value - no room key, by construction - and it talks to
+# relays and to peers over UDP. It gets nothing beyond what that needs.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Not MemoryDenyWriteExecute: V8 needs to flip code pages between writable
+# and executable, and traps in SetPermissionsOnExecutableMemoryChunk the
+# moment it tiers up with that on. The keeper and the credential service
+# leave it off for the same reason.
+
+# A forwarder is a bandwidth appliance; the interesting resource limit is the
+# uplink, which systemd cannot bound. These two bound the ways a runaway room
+# could take the box out instead. Raise MemoryMax if KITHMOOT_MAX_PEERS is
+# raised well past its default of 24.
+MemoryMax=1G
+TasksMax=512
+
+[Install]
+WantedBy=multi-user.target
