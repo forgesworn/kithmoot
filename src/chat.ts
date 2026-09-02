@@ -85,6 +85,118 @@ export interface ChatMessage {
    * one. Absent unless `kind` is set.
    */
   speaker?: string
+  /**
+   * Files shared through Wildbloom, riding with the message. Absent on a
+   * message that carries none, so the wire is byte-identical for a client
+   * that has never heard of attachments, and such a client shows the text,
+   * which the sender wrote as the caption. See `ChatAttachment`.
+   */
+  attachments?: ChatAttachment[]
+}
+
+/**
+ * One file shared through Wildbloom.
+ *
+ * Wildbloom uploads only an encrypted envelope and publishes a kind-1063
+ * event naming where it is and what its bytes hash to; the key that opens
+ * it is shown to the uploader once and goes nowhere public. Here it goes
+ * into the chat, inside the room-key ciphertext, which is the one place
+ * every member can read and nobody else can. That is not a weakening of
+ * Wildbloom's model but the case it was designed for: the key travels by a
+ * channel the people concerned already trust, and the room is that channel.
+ *
+ * The hints are what the sender chose to say about the file before anyone
+ * has fetched it, so a reader can decide whether to. They are claims like a
+ * display name is; the envelope's own metadata is what the file turns out
+ * to be.
+ */
+export interface ChatAttachment {
+  /** The kind-1063 event id: where this came from, for anyone who wants to
+   *  check the public record. */
+  event: string
+  /** Where the envelope is served. https only. */
+  url: string
+  /** SHA-256 of the served envelope bytes, the event's `x` tag. Checked
+   *  before the key is ever applied to a download. */
+  sha256: string
+  /** The Wildbloom recovery key, as 64 hex characters. */
+  key: string
+  /** What the sender says the file is called. */
+  name?: string
+  /** What the sender says it is, as a media type. */
+  type?: string
+  /** The envelope's byte count: what a click will download. */
+  size?: number
+}
+
+export const MAX_CHAT_ATTACHMENTS = 4
+export const MAX_ATTACHMENT_URL_LENGTH = 2048
+export const MAX_ATTACHMENT_NAME_LENGTH = 255
+const MAX_ATTACHMENT_TYPE_LENGTH = 128
+const MEDIA_TYPE = /^[\w.+-]+\/[\w.+-]+$/
+const HEX_64 = /^[0-9a-fA-F]{64}$/
+
+/**
+ * The one honest shape of an attachment, or null. Runs on the way out as
+ * well as on the way in, like a display name: the JSON off a relay is
+ * anybody's, and the object handed to `send` is a caller's.
+ */
+export function normaliseAttachment(raw: unknown): ChatAttachment | null {
+  if (!raw || typeof raw !== 'object') return null
+  const a = raw as Record<string, unknown>
+  if (typeof a.event !== 'string' || !HEX_64.test(a.event)) return null
+  if (typeof a.sha256 !== 'string' || !HEX_64.test(a.sha256)) return null
+  if (typeof a.key !== 'string' || !HEX_64.test(a.key)) return null
+  if (typeof a.url !== 'string' || a.url.length === 0 || a.url.length > MAX_ATTACHMENT_URL_LENGTH) return null
+  let url: URL
+  try {
+    url = new URL(a.url)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:') return null
+  const out: ChatAttachment = {
+    event: normaliseHex(a.event),
+    url: a.url,
+    sha256: normaliseHex(a.sha256),
+    key: normaliseHex(a.key),
+  }
+  const name = sanitiseAttachmentName(a.name)
+  if (name !== undefined) out.name = name
+  if (typeof a.type === 'string' && a.type.length <= MAX_ATTACHMENT_TYPE_LENGTH && MEDIA_TYPE.test(a.type)) {
+    out.type = a.type.toLowerCase()
+  }
+  if (typeof a.size === 'number' && Number.isSafeInteger(a.size) && a.size >= 0) out.size = a.size
+  return out
+}
+
+/**
+ * A file name gets the display-name treatment - no invisibles, no second
+ * row, no reversed direction - but a longer leash, because a file name is
+ * allowed to be a sentence and is not standing in for an identity.
+ */
+function sanitiseAttachmentName(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const collapsed = raw
+    .replace(/\s+/gu, ' ')
+    .replace(/\p{C}/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  if (!collapsed) return undefined
+  const characters = [...collapsed]
+  if (characters.length <= MAX_ATTACHMENT_NAME_LENGTH) return collapsed
+  return characters.slice(0, MAX_ATTACHMENT_NAME_LENGTH).join('').trim() || undefined
+}
+
+/** The attachments of a message in their honest shape, or undefined if
+ *  there are none worth carrying. Throws when there are too many: that is
+ *  a caller's mistake, not a relay's, and it should not be papered over. */
+function honestAttachments(raw: unknown): ChatAttachment[] | undefined {
+  if (raw === undefined) return undefined
+  if (!Array.isArray(raw)) return undefined
+  const kept = raw.map(normaliseAttachment).filter((a): a is ChatAttachment => a !== null)
+  if (kept.length > MAX_CHAT_ATTACHMENTS) throw new Error(`a message carries at most ${MAX_CHAT_ATTACHMENTS} attachments`)
+  return kept.length ? kept : undefined
 }
 
 export interface EncodeChatOptions {
@@ -112,12 +224,16 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
   // `kind` and `speaker` are written only in the one honest shape, so a
   // message that is not a transcript is byte-identical to one encoded
   // before transcripts existed.
+  // Attachments likewise: only the honest shape, and none at all rather
+  // than an empty list, so a message without them is byte-identical to one
+  // encoded before attachments existed.
   const transcript = msg.kind === 'transcript'
   const plaintext = JSON.stringify({
     ...msg,
     name: sanitiseDisplayName(msg.name),
     kind: transcript ? 'transcript' : undefined,
     speaker: transcript && typeof msg.speaker === 'string' ? normaliseHex(msg.speaker) : undefined,
+    attachments: honestAttachments(msg.attachments),
   })
   const { id, key } = deriveChannel(opts.roomId, opts.roomKey, opts.channel)
   const content = nip44.v2.encrypt(plaintext, key)
@@ -216,6 +332,22 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
       delete msg.speaker
     }
 
+    // Attachments off a relay: each entry is checked on its own and a bad
+    // one is dropped, because one malformed entry should not silence the
+    // text beside it. The field goes altogether unless something valid is
+    // left. More than the cap is refused outright: no conformant client
+    // sends that, so it is not a message to make the best of.
+    if (msg.attachments !== undefined) {
+      if (!Array.isArray(msg.attachments)) {
+        delete msg.attachments
+      } else {
+        if (msg.attachments.length > MAX_CHAT_ATTACHMENTS) return null
+        const kept = msg.attachments.map(normaliseAttachment).filter((a): a is ChatAttachment => a !== null)
+        if (kept.length) msg.attachments = kept
+        else delete msg.attachments
+      }
+    }
+
     // The device that signed this event must be the device the message
     // claims to be from - the same attribution guard the roster uses.
     if (!hexEquals(msg.device, event.pubkey)) return null
@@ -269,6 +401,9 @@ export interface SendOptions {
   /** Mark the message a transcript of `speaker`'s words. See
    *  `ChatMessage.kind`. */
   transcriptOf?: string
+  /** Files shared through Wildbloom to carry with the text. See
+   *  `ChatAttachment`. The text is the caption and is still required. */
+  attachments?: ChatAttachment[]
 }
 
 /**
@@ -309,6 +444,21 @@ export class ChatLog {
       throw new Error(`chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`)
     }
     const name = sanitiseDisplayName(this.#opts.name)
+    // A caller's attachment that does not check out is a bug in the caller,
+    // and one that would be silently dropped here would be a file the
+    // sender believes went out and nobody received.
+    let attachments: ChatAttachment[] | undefined
+    if (sendOpts.attachments !== undefined) {
+      if (sendOpts.attachments.length > MAX_CHAT_ATTACHMENTS) {
+        throw new Error(`a message carries at most ${MAX_CHAT_ATTACHMENTS} attachments`)
+      }
+      attachments = sendOpts.attachments.map((a) => {
+        const ok = normaliseAttachment(a)
+        if (!ok) throw new Error('attachment is not a Wildbloom share')
+        return ok
+      })
+      if (attachments.length === 0) attachments = undefined
+    }
     const msg: ChatMessage = {
       id: hex(randomBytes(16)),
       participant: this.#credential.pubkey,
@@ -321,6 +471,7 @@ export class ChatLog {
         : {}),
       text,
       sentAt: this.#now(),
+      ...(attachments ? { attachments } : {}),
     }
     const event = encodeChatEvent(msg, {
       roomId: this.#opts.roomId,

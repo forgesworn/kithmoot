@@ -312,6 +312,71 @@ video {
   margin-top: 0.5rem;
 }
 
+/* A file shared through Wildbloom, under the message that carried it.
+   Nothing in it is fetched until the button is pressed. */
+.attachment {
+  display: block;
+  margin: 0.25rem 0 0.35rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.attachment .label {
+  color: var(--muted);
+  margin-right: 0.5rem;
+}
+
+.attachment .why {
+  color: var(--muted);
+  margin-left: 0.5rem;
+  font-style: italic;
+}
+
+.attachment img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 4px;
+  margin: 0.4rem 0;
+}
+
+.attachment a {
+  margin-right: 0.5rem;
+}
+
+.attachPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.attachPanel .attachRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.attachChip {
+  display: inline-block;
+  margin: 0.3rem 0.4rem 0 0;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.attachChip button {
+  margin-left: 0.3rem;
+  font-size: 0.8rem;
+}
+
 /* The switch that decides who is sent this device's media, beside the
    preview of what that media is. */
 .toggles.agentsHear {

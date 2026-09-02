@@ -554,3 +554,110 @@ describe('transcripts', () => {
     log.close()
   })
 })
+
+describe('attachments', () => {
+  const share = (n = 1) => ({
+    event: `${n}`.padStart(2, '0').repeat(32),
+    url: `https://blossom.example/${'ab'.repeat(32)}`,
+    sha256: 'cd'.repeat(32),
+    key: 'ef'.repeat(32),
+    name: `photo-${n}.jpg`,
+    type: 'image/jpeg',
+    size: 65608,
+  })
+
+  it('round-trips attachments, and a message without any is byte-identical to one sent before they existed', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const attachments = [share(1), share(2)]
+    const event = encodeChatEvent({ ...msg, attachments }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded?.attachments).toEqual(attachments)
+    expect(JSON.stringify(event)).not.toContain(attachments[0]!.key)
+
+    const plain = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
+    const empty = encodeChatEvent({ ...msg, attachments: [] }, { roomId, roomKey, deviceSk })
+    const bare = nip44.v2.decrypt(plain.content, roomKey)
+    expect(bare).not.toContain('attachments')
+    expect(nip44.v2.decrypt(empty.content, roomKey)).toBe(bare)
+  })
+
+  it('drops a malformed entry and keeps the rest, and drops the field when nothing valid is left', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const forged = (attachments: unknown) => {
+      const content = nip44.v2.encrypt(JSON.stringify({ ...msg, attachments }), roomKey)
+      return finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: [['d', roomId]], content }, deviceSk)
+    }
+    const good = share(1)
+    const mixed = decodeChatEvent(
+      forged([good, { ...share(2), url: 'http://plain.example/x' }, { ...share(3), key: 'short' }, 'a string']),
+      { roomId, roomKey, now: NOW },
+    )
+    expect(mixed?.attachments).toEqual([good])
+    expect(mixed?.text).toBe('hello room')
+
+    const none = decodeChatEvent(
+      forged([{ url: 'https://x.example/' }, { ...share(4), event: 'zz'.repeat(32) }, null]),
+      { roomId, roomKey, now: NOW },
+    )
+    expect(none).not.toBeNull()
+    expect(none).not.toHaveProperty('attachments')
+
+    // The cap counts entries as sent, not entries that survive: a list of
+    // five is not something a conformant client writes, whatever is in it.
+    expect(decodeChatEvent(forged([good, null, null, null, null]), { roomId, roomKey, now: NOW })).toBeNull()
+
+    for (const notAList of ['nope', 1, {}, true]) {
+      const decoded = decodeChatEvent(forged(notAList), { roomId, roomKey, now: NOW })
+      expect(decoded, JSON.stringify(notAList)).not.toBeNull()
+      expect(decoded).not.toHaveProperty('attachments')
+    }
+  })
+
+  it('refuses more than the cap, on the way out and on the way in', async () => {
+    const { roomId, roomKey, deviceSk, msg, credential } = await fixture()
+    const five = [1, 2, 3, 4, 5].map(share)
+    expect(() => encodeChatEvent({ ...msg, attachments: five }, { roomId, roomKey, deviceSk })).toThrow(/at most 4/)
+    const content = nip44.v2.encrypt(JSON.stringify({ ...msg, attachments: five }), roomKey)
+    const forged = finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: [['d', roomId]], content }, deviceSk)
+    expect(decodeChatEvent(forged, { roomId, roomKey, now: NOW })).toBeNull()
+
+    const log = new ChatLog({ transport: new SimTransport(new SimRelay()), roomId, roomKey, credential, deviceSk, now: () => NOW })
+    await expect(log.send('too many', { attachments: five })).rejects.toThrow(/at most 4/)
+    await expect(log.send('not a share', { attachments: [{ ...share(1), sha256: 'nope' }] })).rejects.toThrow(/not a Wildbloom share/)
+    log.close()
+  })
+
+  it('canonicalises the hex fields and sanitises the hints', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const shouted = {
+      ...share(1),
+      event: 'AB'.repeat(32),
+      sha256: 'CD'.repeat(32),
+      key: 'EF'.repeat(32),
+      name: '  photo‮\n of the\tday.jpg  ',
+      type: 'Image/JPEG',
+      size: 12.5,
+    }
+    const event = encodeChatEvent({ ...msg, attachments: [shouted] }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded?.attachments).toEqual([
+      {
+        event: 'ab'.repeat(32),
+        url: shouted.url,
+        sha256: 'cd'.repeat(32),
+        key: 'ef'.repeat(32),
+        name: 'photo of the day.jpg',
+        type: 'image/jpeg',
+      },
+    ])
+  })
+
+  it('sends attachments through the log with the caption', async () => {
+    const { roomId, roomKey, deviceSk, credential } = await fixture()
+    const relay = new SimRelay()
+    const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
+    await log.send('the whiteboard from this morning', { attachments: [share(1)] })
+    expect(log.messages()[0]).toMatchObject({ text: 'the whiteboard from this morning', attachments: [share(1)] })
+    log.close()
+  })
+})

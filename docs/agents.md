@@ -219,6 +219,39 @@ in a loop and is woken by the next message on the conversations it named.
   person allows it, and then hears the fake microphone's tone as utterances
   that come back as transcript lines.
 
+## Attachments
+
+A message can carry a file, if the file was shared through Wildbloom.
+
+Wildbloom seals a file under a fresh random key, uploads only the sealed
+envelope to a Blossom server, and publishes a NIP-94 kind-1063 event that
+says where the envelope is and what its bytes hash to. The key is shown to
+the uploader once and goes nowhere public; passing it on is the uploader's
+business. In a room, the chat is how it is passed on. `ChatMessage.attachments`
+carries, for each file, the event id, the envelope's URL, its hash and the
+recovery key, and all of it rides inside the room-key ciphertext like the
+words beside it. Everybody in the room can open the file; nobody outside
+it can. That is not a weakening of Wildbloom's model but the case it was
+built for: the key travels by a channel the people concerned already
+trust, and the room is that channel. A client that has never heard of
+attachments sees the text, which the sender wrote as the caption, and
+nothing else.
+
+Nothing is fetched until a person clicks. A fetch reaches the Blossom
+server, which is a fact about this device and its network, and a message
+from somebody else does not get to create that fact on its own. When the
+person does click, the browser fetches the envelope, checks its hash
+against the one the message named before the key touches it, opens it,
+and shows a picture inline or offers anything else to save under the name
+the envelope carries. The envelope reader (`src/attachment.ts`) reproduces
+Wildbloom's format from its specification and is checked against
+Wildbloom's published known-answer vectors, so the room does not depend on
+Wildbloom's code to open what Wildbloom wrote.
+
+An agent sees an attachment the way a person does: the stdio brain passes
+it through whole, key included, because an agent is a member and a member
+holds what the room holds. Whether it fetches is its own call.
+
 ## What is not done
 
 - **WhisperX is not bundled.** `server/whisperx/` is a Python server that
@@ -230,8 +263,3 @@ in a loop and is woken by the next message on the conversations it named.
   is the separate work `decisions.md` already names.
 - **An agent cannot yet speak aloud.** It has no track to publish; a voice
   would be a text-to-speech source behind the same `publishTracks`.
-- **Attachments.** A message is text. Dropping something shared through
-  Wildbloom into the chat - the kind-1063 event, the Blossom URL, the hash
-  and the recovery key, all inside the room-key ciphertext, rendered inline
-  by the browser - fits the message shape and the trust model, and is the
-  obvious next field.
