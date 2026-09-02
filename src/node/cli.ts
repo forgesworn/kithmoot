@@ -34,6 +34,7 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
 Options
   --name <name>            What the room calls this agent (required)
+  --relays <a,b>           Relay hints, comma separated (same as repeated --relay)
   --identity <file>        Participant key, hex, created if missing (kept 0600)
   --nsec <nsec|hex>        Participant key, given directly (prefer --identity)
   --relay <url>            Relay hint; repeatable. Overrides the link's.
@@ -50,7 +51,28 @@ Options
   --language <code>        Force the transcription language
   --fake-transcriber       Write "(speech)" for every utterance; for plumbing checks
   --quiet                  No log lines on stderr
+
+Every option can also come from the environment, for a systemd unit's
+EnvironmentFile: KITHMOOT_NAME, KITHMOOT_BASE, KITHMOOT_STATE,
+KITHMOOT_IDENTITY, KITHMOOT_RELAYS (comma separated), KITHMOOT_ICE (comma
+separated), KITHMOOT_PERSONA, KITHMOOT_MEMORY, KITHMOOT_BRAIN,
+KITHMOOT_MODEL, KITHMOOT_WHISPERX, KITHMOOT_LANGUAGE, KITHMOOT_LINK. A flag
+wins over the environment. With --state, the room link is also written
+beside the state file as <state>.link, readable by the keeper's user only.
 `
+
+/** `KITHMOOT_<NAME>` from the environment, or undefined. */
+function env(name: string): string | undefined {
+  const value = process.env[`KITHMOOT_${name}`]
+  return value === undefined || value === '' ? undefined : value
+}
+
+function envList(name: string): string[] {
+  return (env(name) ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
 
 interface Common {
   name: string
@@ -83,11 +105,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       identity: { type: 'string' },
       nsec: { type: 'string' },
       relay: { type: 'string', multiple: true },
+      relays: { type: 'string' },
       ice: { type: 'string', multiple: true },
       'turn-credential': { type: 'string' },
       persona: { type: 'string' },
       memory: { type: 'string' },
-      brain: { type: 'string', default: 'stdio' },
+      brain: { type: 'string' },
       model: { type: 'string' },
       'ollama-url': { type: 'string' },
       respond: { type: 'string', default: 'mentions' },
@@ -105,28 +128,32 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     process.exitCode = command ? 2 : 0
     return
   }
-  if (!values.name) fail('--name is required')
+  const name = values.name ?? env('NAME')
+  if (!name) fail('--name is required')
   if (values.respond !== 'mentions' && values.respond !== 'always') fail('--respond must be mentions or always')
 
+  const relays = [...(values.relay ?? []), ...(values.relays ? values.relays.split(',') : [])].map((s) => s.trim()).filter(Boolean)
   const common: Common = {
-    name: values.name,
-    identity: values.identity,
+    name,
+    identity: values.identity ?? env('IDENTITY'),
     nsec: values.nsec,
-    relays: values.relay ?? [],
-    ice: values.ice ?? [],
+    relays: relays.length ? relays : envList('RELAYS'),
+    ice: values.ice?.length ? values.ice : envList('ICE'),
     turnCredential: values['turn-credential'],
-    persona: values.persona,
-    memory: values.memory,
-    brain: command === 'mcp' ? 'none' : values.brain,
-    model: values.model,
+    persona: values.persona ?? env('PERSONA'),
+    memory: values.memory ?? env('MEMORY'),
+    brain: command === 'mcp' ? 'none' : (values.brain ?? env('BRAIN') ?? 'stdio'),
+    model: values.model ?? env('MODEL'),
     ollamaUrl: values['ollama-url'],
     respond: values.respond,
     listen: values.listen,
-    whisperx: values.whisperx,
-    language: values.language,
+    whisperx: values.whisperx ?? env('WHISPERX'),
+    language: values.language ?? env('LANGUAGE'),
     fakeTranscriber: values['fake-transcriber'],
     quiet: values.quiet,
   }
+  const base = values.base ?? env('BASE')
+  const statePath = values.state ?? env('STATE')
   const log = common.quiet ? () => {} : (line: string) => process.stderr.write(`[kithmoot-agent] ${line}\n`)
 
   const identity = localIdentity(await participantKey(common))
@@ -135,11 +162,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   let agent: RoomAgent
   if (command === 'create') {
-    if (!values.base) fail('--base is required: where the app is served, e.g. https://kithmoot.forgesworn.dev/j/')
-    const state = values.state ? await loadKeeperState(values.state) : undefined
+    if (!base) fail('--base is required: where the app is served, e.g. https://kithmoot.forgesworn.dev/j/')
+    const state = statePath ? await loadKeeperState(statePath) : undefined
     const factory = common.listen ? await createWeriftFactory({ iceUrls: common.ice, turn }) : undefined
     agent = await RoomAgent.create({
-      base: values.base,
+      base,
       name: common.name,
       identity,
       relays: common.relays.length ? common.relays : undefined,
@@ -147,10 +174,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       factory,
       state,
     })
-    if (values.state && !state && agent.keeperState) await saveKeeperState(values.state, agent.keeperState)
-    log(`room open. link: ${agent.url}`)
+    if (statePath) {
+      if (!state && agent.keeperState) await saveKeeperState(statePath, agent.keeperState)
+      // The link beside the state, so an operator can `cat` it rather than
+      // dig it out of a log. Same mode as the state: it is a capability.
+      await writeFile(`${statePath}.link`, agent.url + '\n', { mode: 0o600 })
+    }
+    log(`room ${agent.roomId.slice(0, 8)} open${state ? ' again' : ''}. link: ${agent.url}`)
   } else {
-    const link = positionals[1]
+    const link = positionals[1] ?? env('LINK')
     if (!link) fail(`${command} needs a link`)
     const parsed = parseRoomLink(link)
     const iceUrls = common.ice.length ? common.ice : parsed.iceUrls

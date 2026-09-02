@@ -1,0 +1,78 @@
+# systemd unit for a KithMoot keeper: `kithmoot-agent create`, kept running.
+#
+# WHAT THIS PROCESS IS:
+#
+#   The creator of one standing room. It holds the room's traffic secret and
+#   the root inviter key, so it can admit whoever presents the link for as
+#   long as it runs, with none of the twelve-hour bound a delegated member
+#   has. It sits in the room as a member marked `agent`, says nothing, and
+#   answers the link. The people and their agents come and go around it;
+#   the room stays open because this does.
+#
+#   Unlike the forwarder, this process DOES hold the room key - it made the
+#   room. It is the room's availability and its admission desk, not a relay,
+#   and the box it runs on is trusted with the room exactly as the browser
+#   that created a room would be. Run it for a room whose people are happy
+#   with that, and no other.
+#
+# STATE:
+#
+#   /var/lib/kithmoot-keeper/room.json       the room: secret, inviter key, bearer
+#   /var/lib/kithmoot-keeper/room.json.link  the link to hand to people
+#   /var/lib/kithmoot-keeper/identity.key    the keeper's participant key
+#
+#   All three are created on first start, owned by the service user, mode
+#   0600, and reused on every restart, so the same link reopens the same
+#   room. Back the directory up if the room matters; delete it to make a
+#   new room. `deploy/keeper-install.sh` prints the link when the service is
+#   up, and `sudo cat /var/lib/kithmoot-keeper/room.json.link` prints it again.
+#
+# INSTALL: `DEPLOY_HOST=deploy@your-box deploy/keeper-deploy.sh`, which ships
+# the built tree to /opt/kithmoot-keeper and runs deploy/keeper-install.sh on
+# the box. The env file it writes, /etc/kithmoot/keeper.env, carries the
+# room's name, relays and the base URL of the app; edit it and
+# `systemctl restart kithmoot-keeper` to change them.
+
+[Unit]
+Description=KithMoot keeper (holds one standing room open)
+Documentation=file:///opt/kithmoot-keeper/docs/agents.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kithmoot-keeper
+Group=kithmoot-keeper
+WorkingDirectory=/opt/kithmoot-keeper
+EnvironmentFile=/etc/kithmoot/keeper.env
+# systemd creates and owns this, and it is the only writable path.
+StateDirectory=kithmoot-keeper
+StateDirectoryMode=0700
+Environment=KITHMOOT_STATE=/var/lib/kithmoot-keeper/room.json
+Environment=KITHMOOT_IDENTITY=/var/lib/kithmoot-keeper/identity.key
+ExecStart=/usr/bin/node bin/kithmoot-agent.mjs create --brain none
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening. This process holds a room key and a Nostr key in memory and
+# writes only under its state directory. It talks to relays over TCP and,
+# only if it is ever started with --listen, to peers over UDP.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Not MemoryDenyWriteExecute: V8 needs to flip code pages between writable
+# and executable, and the credential service - the unit on this box that is
+# known to run - leaves it off for the same reason.
+MemoryMax=512M
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

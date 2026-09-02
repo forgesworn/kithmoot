@@ -17,6 +17,12 @@ Four independent things live here:
    forwarder" below. It is not a TURN server and not an SFU in the usual
    sense: it is given the room *id* and never the room *key*, so it relays
    ciphertext it cannot read.
+5. **A keeper** (`keeper.service`, `keeper-deploy.sh`, `keeper-install.sh`)
+   - one process that holds one standing room open for as long as it runs.
+   See "Running a keeper" below. Unlike the forwarder it *does* hold the
+   room key, because it made the room: it is the room's availability and
+   its admission desk, and the box is trusted with that room exactly as a
+   browser that created one would be.
 
 Read the design principle below before touching the TURN half. It's the
 part that's easy to get backwards.
@@ -527,3 +533,46 @@ phone and fights some hardware codec paths (`src/media-crypto.ts` documents
 that honestly). For a five-person call it buys nothing and costs all of that.
 Run one when the arithmetic at the top of this section says you need one, not
 before.
+
+## Running a keeper
+
+A room admits newcomers for as long as somebody who can answer the link is
+online. The creator's browser can; every admitted member can, for twelve
+hours from the creator's grant and no longer, because a delegation is
+bounded on purpose (see `docs/decisions.md`). A room meant to stay open for
+days - people and their agents drifting in and out, the odd call - therefore
+wants a creator that is always online. That is a keeper: `kithmoot-agent
+create`, kept running by systemd.
+
+```bash
+DEPLOY_HOST=deploy@your-box deploy/keeper-deploy.sh
+```
+
+builds the library locally, ships the entry point, `dist/src`, the lockfile
+and the unit to `/opt/kithmoot-keeper`, and runs `keeper-install.sh` there as
+root: a `kithmoot-keeper` system user, `npm ci --omit=dev`, an env file at
+`/etc/kithmoot/keeper.env` (written once, then left alone), the unit, and a
+start. It ends by printing the room link. The room's secret, its inviter
+key and the keeper's participant key live under `/var/lib/kithmoot-keeper`,
+mode 0600, created on first start and reused on every restart, so the same
+link reopens the same room. Back that directory up if the room matters;
+delete it to make a new one. `sudo cat /var/lib/kithmoot-keeper/room.json.link`
+prints the link again.
+
+What it costs: nothing to speak of. A keeper with `--brain none` holds relay
+sockets and answers admission requests; it publishes no media and, unless
+started with `--listen`, opens no peer connection that carries any. The unit
+caps it at 512M of memory, which is several times what it uses.
+
+What it means: **the box holds the room key.** A forwarder is blind by
+construction; a keeper is a member, and the operator of the box can read
+that room the way any member can. Run a keeper for a room whose people are
+content with that. It is the same trust a room's creator always had, moved
+to a machine that does not close its lid.
+
+To give the keeper ears or a voice, edit the env file: `KITHMOOT_BRAIN`,
+`KITHMOOT_MODEL`, `KITHMOOT_PERSONA`, `KITHMOOT_MEMORY`, `KITHMOOT_WHISPERX`
+are all read (see `kithmoot-agent --help`), though the unit as shipped
+passes `--brain none` and a keeper that talks is usually better run as a
+second, separate agent so the room's availability does not depend on a
+model being reachable.
