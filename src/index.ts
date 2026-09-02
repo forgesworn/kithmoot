@@ -7,6 +7,45 @@ export { RoomAgent, AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, DEFAULT_
 export { CONTROL_CHANNEL, encodeControl, decodeControl } from './control.js'
 export type { ControlMessage, CatalogueEntry, RunningAgent } from './control.js'
 export type { JoinRoomOptions, CreateRoomOptions, KeeperState } from './agent.js'
+export { parseKeeperState, serialiseKeeperState, KEEPER_STATE_VERSION } from './keeper-state.js'
+export type { StoredKeeperState } from './keeper-state.js'
+export {
+  deriveEpoch,
+  generateEpochSecret,
+  encodeRekeyEvent,
+  decodeRekeyEvent,
+  peekRekeyEvent,
+  encodeEpochRequest,
+  decodeEpochRequest,
+  encodeEpochGrant,
+  decodeEpochGrant,
+  hostRoomEpoch,
+  requestRoomEpoch,
+  EpochRefusedError,
+  signAdmins,
+  verifyAdmins,
+  canonicalAdmins,
+  MAX_EPOCH,
+} from './epoch.js'
+export type {
+  RoomEpoch,
+  EpochKeys,
+  RekeyNotice,
+  EpochRefusal,
+  EpochRequest,
+  EpochGrant,
+  EncodeRekeyOptions,
+  DecodeRekeyOptions,
+  PeekRekeyOptions,
+  EncodeEpochRequestOptions,
+  DecodeEpochRequestOptions,
+  EncodeEpochGrantOptions,
+  DecodeEpochGrantOptions,
+  HostRoomEpochOptions,
+  RequestRoomEpochOptions,
+  SignAdminsOptions,
+  VerifyAdminsOptions,
+} from './epoch.js'
 export {
   createRoomInvitation,
   roomInvitation,
@@ -50,7 +89,14 @@ export type { RoleAssignment } from './roles.js'
 export { wrapSignal, unwrapSignal } from './signal.js'
 export type { SignalBody } from './signal.js'
 export type { RosterEntry, TrackAdvert, TrackRole, SingularRole, DeviceCredential } from './types.js'
-export { RoomSession, PRESENCE_TTL_SECONDS, HEARTBEAT_INTERVAL_MS, CREDENTIAL_RENEWAL_FRACTION } from './session.js'
+export {
+  RoomSession,
+  PRESENCE_TTL_SECONDS,
+  HEARTBEAT_INTERVAL_MS,
+  CREDENTIAL_RENEWAL_FRACTION,
+  DEFAULT_EPOCH_SETTLE_MS,
+  DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
+} from './session.js'
 export type {
   ParticipantView,
   PublishOptions,
@@ -145,6 +191,7 @@ export type {
   ChatMessage,
   ChatMessageKind,
   ChatAttachment,
+  EpochRoot,
   ChatLogOptions,
   EncodeChatOptions,
   DecodeChatOptions,

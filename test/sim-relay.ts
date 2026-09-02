@@ -25,15 +25,25 @@ function matches(event: Event, filter: Filter): boolean {
   return true
 }
 
+/** NIP-01: kinds from 20000 are ephemeral and never stored. */
+const EPHEMERAL_FROM = 20_000
+
 /**
  * An in-process relay honouring enough of NIP-01 to run full journeys with no
  * network. Ephemeral kinds are delivered but never replayed, which is what
- * makes it a fair test of signalling.
+ * makes it a fair test of signalling. With `replay`, stored kinds are
+ * replayed to a new subscriber the way a real relay replays them - which is
+ * what a durable rekey event exists for - and ephemeral kinds still are not.
  */
 export class SimRelay {
   readonly published: Event[] = []
   #subs = new Set<Subscription>()
   #closed = false
+  readonly #replay: boolean
+
+  constructor(opts: { replay?: boolean } = {}) {
+    this.#replay = opts.replay === true
+  }
 
   publish(event: Event): void {
     if (this.#closed) throw new Error('relay is closed')
@@ -47,6 +57,12 @@ export class SimRelay {
     if (this.#closed) throw new Error('relay is closed')
     const sub: Subscription = { filters, handler }
     this.#subs.add(sub)
+    if (this.#replay) {
+      for (const event of this.published) {
+        if (event.kind >= EPHEMERAL_FROM) continue
+        if (filters.some((f) => matches(event, f))) handler(event)
+      }
+    }
     return () => this.#subs.delete(sub)
   }
 

@@ -7,6 +7,7 @@ import { generateSecretKey } from 'nostr-tools/pure'
 import { nip19 } from 'nostr-tools'
 import { RoomAgent } from '../agent.js'
 import type { KeeperState } from '../agent.js'
+import { parseKeeperState, serialiseKeeperState } from '../keeper-state.js'
 import { localIdentity } from '../identity.js'
 import { parseRoomLink } from '../link.js'
 import { AgentRuntime } from './runtime.js'
@@ -25,7 +26,8 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
   kithmoot-agent create --base <https://host/j/> --name <name> [--state <file>] [options]
       Make a room and keep it. Prints the link. Holds the root inviter key, so it
       admits newcomers for as long as it runs; --state persists the room across
-      restarts. This is what a room that stays open for days wants.
+      restarts. This is what a room that stays open for days wants. --admin
+      names who may remove members, mute them or close the room from the app.
 
   kithmoot-agent join <link> --name <name> [options]
       Join the room behind a link, as an ordinary member, and answer that link
@@ -52,6 +54,9 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
 Options
   --name <name>            What the room calls this agent (required)
+  --admin <pubkey>         (create) A participant who may act on the room: remove
+                           a member, close it, ask somebody to mute. Repeatable;
+                           hex or npub. The keeper announces the list, signed.
   --relays <a,b>           Relay hints, comma separated (same as repeated --relay)
   --identity <file>        Participant key, hex, created if missing (kept 0600)
   --nsec <nsec|hex>        Participant key, given directly (prefer --identity)
@@ -75,11 +80,17 @@ Options
 Every option can also come from the environment, for a systemd unit's
 EnvironmentFile: KITHMOOT_NAME, KITHMOOT_BASE, KITHMOOT_STATE,
 KITHMOOT_IDENTITY, KITHMOOT_RELAYS (comma separated), KITHMOOT_ICE (comma
-separated), KITHMOOT_PERSONA, KITHMOOT_MEMORY, KITHMOOT_BRAIN,
-KITHMOOT_MODEL, KITHMOOT_WHISPERX, KITHMOOT_LANGUAGE,
-KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_LINK. A flag
-wins over the environment. With --state, the room link is also written
-beside the state file as <state>.link, readable by the keeper's user only.
+separated), KITHMOOT_ADMINS (comma separated), KITHMOOT_PERSONA,
+KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
+KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_LINK. A flag wins over
+the environment. With --state, the room link is also written beside the
+state file as <state>.link, readable by the keeper's user only.
+
+A keeper records the room's epoch and who has been removed in its state, so
+a restart reopens the same room in the same epoch and keeps refusing the
+same people. A closed room is not reopened: delete the state to make a new
+one. After a removal a v1 link that carried the room secret is dead, and the
+keeper prints the current link again.
 `
 
 /** `KITHMOOT_<NAME>` from the environment, or undefined. */
@@ -124,6 +135,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       base: { type: 'string' },
       state: { type: 'string' },
       name: { type: 'string' },
+      admin: { type: 'string', multiple: true },
       identity: { type: 'string' },
       nsec: { type: 'string' },
       relay: { type: 'string', multiple: true },
@@ -197,6 +209,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   if (command === 'create') {
     if (!base) fail('--base is required: where the app is served, e.g. https://kithmoot.forgesworn.dev/j/')
     const state = statePath ? await loadKeeperState(statePath) : undefined
+    if (state?.closed) fail(`${statePath}: this room was closed. Delete the state file to make a new one.`)
+    const admins = [...(values.admin ?? []), ...envList('ADMINS')].map(adminPubkey)
     const factory = common.listen ? await createWeriftFactory({ iceUrls: common.ice, turn }) : undefined
     agent = await RoomAgent.create({
       base,
@@ -206,6 +220,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       iceUrls: common.ice,
       factory,
       state,
+      admins,
+      onState: statePath ? (next) => saveKeeperState(statePath, next) : undefined,
     })
     if (statePath) {
       if (!state && agent.keeperState) await saveKeeperState(statePath, agent.keeperState)
@@ -213,7 +229,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       // dig it out of a log. Same mode as the state: it is a capability.
       await writeFile(`${statePath}.link`, agent.url + '\n', { mode: 0o600 })
     }
-    log(`room ${agent.roomId.slice(0, 8)} open${state ? ' again' : ''}. link: ${agent.url}`)
+    const epoch = agent.session.epoch
+    log(`room ${agent.roomId.slice(0, 8)} open${state ? ' again' : ''}${epoch ? `, epoch ${epoch}` : ''}. link: ${agent.url}`)
+    if (admins.length) log(`admins: ${admins.map((a) => a.slice(0, 8)).join(', ')}`)
+    else log('no admins: only this process can remove a member or close the room')
+    agent.onEpoch((notice) => {
+      const who = notice.removed.map((p) => p.slice(0, 8)).join(', ')
+      log(`epoch ${notice.epoch}${who ? `: removed ${who}` : ''}${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}. link: ${agent.url}`)
+    })
   } else {
     const link = positionals[1] ?? env('LINK')
     if (!link) fail(`${command} needs a link`)
@@ -228,7 +251,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       relays: common.relays.length ? common.relays : undefined,
       factory,
     })
-    log(`joined room ${agent.roomId.slice(0, 8)} as ${agent.participant.slice(0, 8)}${agent.hosting ? ', answering the link' : ''}`)
+    log(`joined room ${agent.roomId.slice(0, 8)} as ${agent.participant.slice(0, 8)}${agent.hosting ? ', answering the link' : ''}${agent.session.epoch ? `, epoch ${agent.session.epoch}` : ''}`)
+    agent.onEpoch((notice) => {
+      const who = notice.removed.map((p) => p.slice(0, 8)).join(', ')
+      log(`epoch ${notice.epoch}${who ? `: removed ${who}` : ''}${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}`)
+    })
   }
 
   const runtime = new AgentRuntime(agent, { persona, memoryDir: common.memory }).start()
@@ -252,6 +279,17 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   }
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)
+  // Removed, or the room closed under this agent: there is nothing left to
+  // be in. A keeper closing its own room ends the same way, and its state
+  // file already says closed, so a supervisor's restart makes no new room.
+  agent.onRemoved((notice) => {
+    log(`removed from the room${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}`)
+    stop()
+  })
+  agent.onClosed((notice) => {
+    log(`the room was closed${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}`)
+    stop()
+  })
 
   if (command === 'mcp') {
     await serveMcp(runtime, { name: `kithmoot:${common.name}` })
@@ -357,33 +395,40 @@ async function loadPersona(common: Common): Promise<Persona> {
   return { name: common.name, system: await readFile(common.persona, 'utf8') }
 }
 
-interface StoredKeeperState {
-  v: 1
-  secret: string
-  inviterSk: string
-  bearer: string
-}
-
 async function loadKeeperState(path: string): Promise<KeeperState | undefined> {
+  let json: string
   try {
-    const stored = JSON.parse(await readFile(path, 'utf8')) as StoredKeeperState
-    if (stored.v !== 1) fail(`${path}: unknown keeper state version`)
-    return { secret: hexToBytes(stored.secret), inviterSk: hexToBytes(stored.inviterSk), bearer: hexToBytes(stored.bearer) }
+    json = await readFile(path, 'utf8')
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw err
   }
+  try {
+    return parseKeeperState(json)
+  } catch (err) {
+    return fail(`${path}: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 async function saveKeeperState(path: string, state: KeeperState): Promise<void> {
-  const stored: StoredKeeperState = {
-    v: 1,
-    secret: bytesToHex(state.secret),
-    inviterSk: bytesToHex(state.inviterSk),
-    bearer: bytesToHex(state.bearer),
-  }
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, JSON.stringify(stored, null, 2) + '\n', { mode: 0o600 })
+  await writeFile(path, serialiseKeeperState(state), { mode: 0o600 })
+}
+
+/** An admin as typed: hex or npub, to lower-case hex. */
+function adminPubkey(raw: string): string {
+  const value = raw.trim()
+  if (value.startsWith('npub1')) {
+    try {
+      const decoded = nip19.decode(value)
+      if (decoded.type === 'npub') return decoded.data
+    } catch {
+      // Falls through to the failure below.
+    }
+    return fail(`--admin ${value}: not an npub`)
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(value)) return fail(`--admin ${value}: not a pubkey (64 hex characters or an npub)`)
+  return value.toLowerCase()
 }
 
 function splitCredential(pair: string): { username: string; credential: string } {

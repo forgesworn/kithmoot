@@ -69,6 +69,16 @@ export interface RoomInvitationDelegate {
 export interface RoomAdmission {
   secret: Uint8Array
   delegate: RoomInvitationDelegate
+  /**
+   * The epoch the responder says the room is at. A hint, not a key: the
+   * secret above opens epoch 0, and a room that has been rekeyed is read
+   * only with the current epoch's secret, which the room's authority hands
+   * to a member on proof of who it is (see `epoch.ts`). A joiner told the
+   * room is ahead asks before it announces; one told nothing waits a
+   * moment for the rekey events themselves. Absent from a responder that
+   * predates epochs.
+   */
+  epoch?: number
 }
 
 function require32(bytes: Uint8Array, what: string): void {
@@ -262,6 +272,8 @@ interface InvitationGrantBody {
   secret: string
   /** Root-to-requester chain. The last hop is minted by this grant's signer. */
   delegation: InvitationDelegation[]
+  /** The epoch the responder is at. See `RoomAdmission.epoch`. */
+  epoch?: number
 }
 
 export interface EncodeInvitationGrantOptions {
@@ -275,6 +287,9 @@ export interface EncodeInvitationGrantOptions {
    * this responder joined. */
   delegation?: InvitationDelegation[]
   delegationTtlSeconds?: number
+  /** The epoch this responder is at, so the requester knows whether the
+   *  secret it is being handed opens the live room or only its history. */
+  epoch?: number
 }
 
 /** Encrypt a room secret only to the requester and authenticate its signer
@@ -304,6 +319,7 @@ export function encodeInvitationGrant(opts: EncodeInvitationGrantOptions): Event
     request: normaliseHex(opts.request),
     secret: base64urlnopad.encode(opts.roomSecret),
     delegation: [...chain, next],
+    ...(opts.epoch !== undefined && Number.isSafeInteger(opts.epoch) && opts.epoch >= 0 ? { epoch: opts.epoch } : {}),
   }
   const conversationKey = nip44.v2.utils.getConversationKey(opts.inviterSk, requester)
   return finalizeEvent(
@@ -359,10 +375,12 @@ export function decodeRoomAdmissionGrant(
     if (authority === null || !hexEquals(authority, requester)) return null
     const issuer = body.delegation.at(-1)?.issuer
     if (issuer === undefined || !hexEquals(issuer, event.pubkey)) return null
-    return {
+    const admission: RoomAdmission = {
       secret,
       delegate: { delegateSk: opts.requesterSk, chain: body.delegation },
     }
+    if (Number.isSafeInteger(body.epoch) && (body.epoch as number) >= 0) admission.epoch = body.epoch
+    return admission
   } catch {
     return null
   }
@@ -389,6 +407,9 @@ export interface HostRoomInvitationOptions {
   onAdmitted?: (device: string) => void
   /** Called when the creator's durable retirement tombstone is heard. */
   onRetired?: () => void
+  /** The epoch this responder is at, asked on every grant because it
+   *  moves. Omit to say nothing, which a joiner treats as unknown. */
+  epoch?: () => number
 }
 
 export interface EncodeInvitationRetirementOptions {
@@ -501,6 +522,7 @@ export function hostRoomInvitation(opts: HostRoomInvitationOptions): { close(): 
           roomSecret: opts.roomSecret,
           now: now(),
           delegation,
+          ...(opts.epoch ? { epoch: opts.epoch() } : {}),
         })
       } catch {
         // Expired or maximum-depth authority is no authority. Subscription

@@ -13,8 +13,22 @@ describe('control messages', () => {
       { op: 'invited' as const, host: HOST, agent: 'ada', name: 'Ada', participant: 'cd'.repeat(32) },
       { op: 'dismissed' as const, host: HOST, agent: 'ada', name: 'Ada', reason: 'exited with 1' },
       { op: 'error' as const, host: HOST, agent: 'ada', message: 'no such agent' },
+      { op: 'admins' as const, host: HOST, admins: ['ab'.repeat(32), 'cd'.repeat(32)], epoch: 2, sig: 'ef'.repeat(64) },
+      { op: 'remove' as const, participant: 'cd'.repeat(32) },
+      { op: 'mute' as const, participant: 'cd'.repeat(32) },
+      { op: 'close' as const },
     ]
     for (const shape of shapes) expect(decodeControl(encodeControl(shape))).toEqual(shape)
+  })
+
+  it('canonicalises an admin list and refuses one it cannot trust the shape of', () => {
+    const decoded = decodeControl(JSON.stringify({ op: 'admins', host: HOST, admins: ['CD'.repeat(32), 'ab'.repeat(32), 'ab'.repeat(32)], epoch: 0, sig: 'EF'.repeat(64) }))
+    expect(decoded).toEqual({ op: 'admins', host: HOST, admins: ['ab'.repeat(32), 'cd'.repeat(32)], epoch: 0, sig: 'ef'.repeat(64) })
+    expect(decodeControl(JSON.stringify({ op: 'admins', host: HOST, admins: ['not a key'], epoch: 0, sig: 'ef'.repeat(64) }))).toBeNull()
+    expect(decodeControl(JSON.stringify({ op: 'admins', host: HOST, admins: [], epoch: -1, sig: 'ef'.repeat(64) }))).toBeNull()
+    expect(decodeControl(JSON.stringify({ op: 'admins', host: HOST, admins: [], epoch: 0, sig: 'short' }))).toBeNull()
+    expect(decodeControl(JSON.stringify({ op: 'remove', participant: 'bob' }))).toBeNull()
+    expect(decodeControl(JSON.stringify({ op: 'mute' }))).toBeNull()
   })
 
   it('reads a person typing into the channel as not a control message', () => {

@@ -864,3 +864,25 @@ label.note {
   flex-wrap: wrap;
   font-size: 1.05rem;
 }
+
+/* The host panel: one row per person, and the room-wide action apart. */
+.hostRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0;
+}
+.hostRow .who {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.hostRow button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+#chatLog p.system,
+.log p.system {
+  color: #b9b3a6;
+  font-style: italic;
+}

@@ -643,3 +643,31 @@ are all read (see `kithmoot-agent --help`), though the unit as shipped
 passes `--brain none` and a keeper that talks is usually better run as a
 second, separate agent so the room's availability does not depend on a
 model being reachable.
+
+### Hosts: who may remove people
+
+A keeper is the room's authority, and the only party that can remove a
+member: it moves the room to a new epoch whose key the removed person is
+not given (`docs/decisions.md`, "A member is removed by a room epoch"). The
+people who may ask it to are named in that instance's env file,
+`/etc/kithmoot/keeper-<room>.env`:
+
+```
+KITHMOOT_ADMINS=<hex pubkey>,<npub1...>
+```
+
+comma separated, hex or npub, the same as repeating `--admin`. Restart
+`kithmoot-keeper@<room>` after editing. The keeper announces the list to the room, signed, and
+anybody on it who signs in to the app with that key sees a Host panel:
+Remove and Mute per person, and Close room. Remove and Close are enforced
+by the key; Mute is a request the other person's client honours. With no
+admins, only the box's operator can act on the room, from code.
+
+The state file gains the epoch, its secret and the removed set, and a
+keeper restarted by systemd reopens the room in the same epoch, still
+refusing the same people. A file written before this reads as epoch 0. A
+closed room's state says so and is not reopened: move
+`/var/lib/kithmoot-keeper/<room>/` aside to make a new room. After a
+removal, `sudo cat /var/lib/kithmoot-keeper/<room>/room.json.link` still
+prints the link: it is the same link, and it still admits people; what
+changed is the key behind it.

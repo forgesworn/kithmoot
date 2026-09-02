@@ -72,4 +72,23 @@ export const KINDS = {
    * the link has to learn that fact before it starts answering the old link
    * again. The invitation id is unique, so one valid retirement is final. */
   INVITATION_RETIREMENT: 1461,
+  /** A room moving to a new epoch: a fresh traffic secret, sealed per
+   * remaining device, with the participants removed at this step named.
+   *
+   * Durable, and addressed by the public room id, so a client can find the
+   * room's current epoch from the id alone and know it is behind before it
+   * says anything under a key that is dead. The body is encrypted to the
+   * previous epoch's key, so a relay sees the room id, the epoch number,
+   * the authority's pubkey and a size, and nothing about who was kept or
+   * removed. Signed only by the room's authority, the root inviter pinned
+   * in the link. See `epoch.ts`. */
+  ROOM_REKEY: 1462,
+  /** A member that missed a rekey - it was offline, or it is arriving now -
+   * asking the authority for the current epoch, proving which participant it
+   * speaks for with its device credential. Encrypted to the authority and
+   * ephemeral: it is a live handshake, not a record. */
+  EPOCH_REQUEST: 20468,
+  /** The authority's answer, sealed to the asking device: the current epoch's
+   * secret and the removed set, or a refusal. Ephemeral for the same reason. */
+  EPOCH_GRANT: 20469,
 } as const

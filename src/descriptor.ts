@@ -12,6 +12,8 @@ export interface EncodeDescriptorOptions {
   roomId: string
   roomKey: Uint8Array
   deviceSk: Uint8Array
+  /** The epoch to publish in. Omit for epoch 0. See `epoch.ts`. */
+  epoch?: { id: string; key: Uint8Array }
 }
 
 /**
@@ -86,23 +88,27 @@ export function encodeDescriptorEvent(descriptor: RoomDescriptor, opts: EncodeDe
     iceServers: projectList(descriptor.iceServers, projectIceServer),
     updatedAt: descriptor.updatedAt,
   }
+  const root = opts.epoch ?? { id: opts.roomId, key: opts.roomKey }
   return finalizeEvent(
     {
       kind: KINDS.DESCRIPTOR,
       created_at: descriptor.updatedAt,
-      tags: [['d', opts.roomId]],
-      content: nip44.v2.encrypt(JSON.stringify(payload), opts.roomKey),
+      tags: [['d', root.id]],
+      content: nip44.v2.encrypt(JSON.stringify(payload), root.key),
     },
     opts.deviceSk,
   )
 }
 
 export interface DecodeDescriptorOptions {
+  /** The room the publisher's credential is checked against. */
   roomId: string
   roomKey: Uint8Array
   /** Unix seconds. */
   now: number
   policy?: RoomPolicy
+  /** The epoch to read. Omit for epoch 0. */
+  epoch?: { id: string; key: Uint8Array }
 }
 
 /**
@@ -116,11 +122,12 @@ export interface DecodeDescriptorOptions {
 export function decodeDescriptorEvent(event: Event, opts: DecodeDescriptorOptions): RoomDescriptor | null {
   try {
     if (event.kind !== KINDS.DESCRIPTOR) return null
+    const root = opts.epoch ?? { id: opts.roomId, key: opts.roomKey }
     const roomTag = event.tags.find((t) => t[0] === 'd')?.[1]
-    if (roomTag === undefined || !hexEquals(roomTag, opts.roomId)) return null
+    if (roomTag === undefined || !hexEquals(roomTag, root.id)) return null
     if (!verifyEventUncached(event)) return null
 
-    const raw = JSON.parse(nip44.v2.decrypt(event.content, opts.roomKey)) as Partial<RoomDescriptor>
+    const raw = JSON.parse(nip44.v2.decrypt(event.content, root.key)) as Partial<RoomDescriptor>
     if (typeof raw.device !== 'string' || typeof raw.participant !== 'string') return null
     if (raw.credential === undefined || raw.credential === null) return null
 

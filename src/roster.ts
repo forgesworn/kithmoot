@@ -12,6 +12,9 @@ export interface EncodeRosterOptions {
   roomId: string
   roomKey: Uint8Array
   deviceSk: Uint8Array
+  /** The epoch to publish in: its id is the `d` tag and its key the cipher.
+   *  Omit for epoch 0, where both are the room's own. See `epoch.ts`. */
+  epoch?: { id: string; key: Uint8Array }
 }
 
 /**
@@ -44,12 +47,13 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
     left: entry.left === true ? true : undefined,
     agent: entry.agent === true ? true : undefined,
   })
-  const content = nip44.v2.encrypt(plaintext, opts.roomKey)
+  const root = opts.epoch ?? { id: opts.roomId, key: opts.roomKey }
+  const content = nip44.v2.encrypt(plaintext, root.key)
   return finalizeEvent(
     {
       kind: KINDS.ROSTER,
       created_at: entry.updatedAt,
-      tags: [['d', opts.roomId]],
+      tags: [['d', root.id]],
       content,
     },
     opts.deviceSk,
@@ -70,10 +74,14 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
 export const MAX_FUTURE_SKEW_SECONDS = 60
 
 export interface DecodeRosterOptions {
+  /** The room the entry's credential is checked against. */
   roomId: string
   roomKey: Uint8Array
   /** Unix seconds. */
   now: number
+  /** The epoch to read. Omit for epoch 0. An entry from another epoch does
+   *  not decode: it is under another `d` tag and another key. */
+  epoch?: { id: string; key: Uint8Array }
 }
 
 /**
@@ -87,11 +95,12 @@ export interface DecodeRosterOptions {
 export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): RosterEntry | null {
   try {
     if (event.kind !== KINDS.ROSTER) return null
+    const root = opts.epoch ?? { id: opts.roomId, key: opts.roomKey }
     const roomTag = event.tags.find((t) => t[0] === 'd')?.[1]
-    if (roomTag === undefined || !hexEquals(roomTag, opts.roomId)) return null
+    if (roomTag === undefined || !hexEquals(roomTag, root.id)) return null
     if (!verifyEventUncached(event)) return null
 
-    const entry = JSON.parse(nip44.v2.decrypt(event.content, opts.roomKey)) as RosterEntry
+    const entry = JSON.parse(nip44.v2.decrypt(event.content, root.key)) as RosterEntry
 
     // This is the boundary: a roster entry's device/participant/proof
     // fields are attacker- or other-implementation-controlled JSON, with

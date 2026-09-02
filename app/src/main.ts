@@ -44,6 +44,8 @@ import {
   CONTROL_CHANNEL,
   encodeControl,
   decodeControl,
+  verifyAdmins,
+  type RekeyNotice,
   type ControlMessage,
   type ChatMessage,
   type ChatAttachment,
@@ -501,6 +503,20 @@ let invitationAuthoritySk: Uint8Array | undefined
 let invitationDelegation: InvitationDelegation[] = []
 let invitationHost: { close(): void } | undefined
 let invitationTransport: NostrRelayPool | undefined
+/**
+ * The epoch the responder that admitted this browser said the room is at.
+ * A hint for the session, which asks the room's authority before it says
+ * anything if the room is ahead of the secret it was handed - see
+ * `RoomAdmission.epoch`. Undefined when nobody said.
+ */
+let expectedEpoch: number | undefined
+
+/** The room's authority: the root inviter pinned in a v2 link. A rekey
+ *  signed by it moves this browser to the new epoch; a legacy secret link
+ *  has none, and stays where it joined. */
+function roomAuthority(): string | undefined {
+  return roomInvitationCapability?.inviter
+}
 
 const INVITATION_OWNER_PREFIX = 'kithmoot.invitation-owner.v1.'
 const ADMISSION_CACHE_PREFIX = 'kithmoot.admission.v1.'
@@ -586,6 +602,8 @@ interface StoredAdmission {
   roomSecret: string
   delegateSk: string
   delegation: InvitationDelegation[]
+  /** What the responder said the room's epoch was. See `RoomAdmission.epoch`. */
+  epoch?: number
 }
 
 function cacheAdmission(invitation: RoomInvitation, admission: RoomAdmission): void {
@@ -594,6 +612,7 @@ function cacheAdmission(invitation: RoomInvitation, admission: RoomAdmission): v
       roomSecret: bytesToHex(admission.secret),
       delegateSk: bytesToHex(admission.delegate.delegateSk),
       delegation: admission.delegate.chain,
+      ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
     }
     sessionStorage.setItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation), JSON.stringify(value))
   } catch {
@@ -614,7 +633,9 @@ function loadCachedAdmission(invitation: RoomInvitation): RoomAdmission | undefi
     const secret = hexToBytes(value.roomSecret)
     const delegateSk = hexToBytes(value.delegateSk)
     if (secret.length !== 32 || delegateSk.length !== 32) return undefined
-    return { secret, delegate: { delegateSk, chain: value.delegation } }
+    const admission: RoomAdmission = { secret, delegate: { delegateSk, chain: value.delegation } }
+    if (Number.isSafeInteger(value.epoch) && (value.epoch as number) >= 0) admission.epoch = value.epoch
+    return admission
   } catch {
     return undefined
   }
@@ -639,6 +660,10 @@ function serveCurrentInvitation(): void {
       inviterSk: invitationAuthoritySk,
       delegation: invitationDelegation,
       roomSecret,
+      // Which epoch a grant from this browser opens. The session knows once
+      // joined; before that, what this browser was itself told, or 0 for a
+      // room this browser made.
+      epoch: () => session?.epoch ?? expectedEpoch ?? 0,
       // A delegated responder may receive recent requests replayed by a
       // lenient relay, including requests for people already admitted on a
       // different delegation branch. Serving those again is harmless, but it
@@ -943,6 +968,9 @@ async function roomFromLocation(): Promise<boolean> {
       roomSecret = owner.roomSecret
       invitationAuthoritySk = owner.inviterSk
       invitationDelegation = []
+      // A room this browser made is at epoch 0: only its authority could
+      // have moved it, and that is this browser, which has not.
+      expectedEpoch = 0
       serveCurrentInvitation()
     } else {
       const cached = loadCachedAdmission(invitation)
@@ -950,6 +978,7 @@ async function roomFromLocation(): Promise<boolean> {
         roomSecret = cached.secret
         invitationAuthoritySk = cached.delegate.delegateSk
         invitationDelegation = cached.delegate.chain
+        expectedEpoch = cached.epoch
         serveCurrentInvitation()
       } else {
         setStatus('Opening the private room…')
@@ -959,6 +988,7 @@ async function roomFromLocation(): Promise<boolean> {
           roomSecret = admission.secret
           invitationAuthoritySk = admission.delegate.delegateSk
           invitationDelegation = admission.delegate.chain
+          expectedEpoch = admission.epoch
           cacheAdmission(invitation, admission)
           setStatus('Invitation accepted. No account was needed.')
         } finally {
@@ -2128,6 +2158,167 @@ function trackChips(
 const catalogues = new Map<string, Extract<ControlMessage, { op: 'catalogue' }> & { at: number }>()
 const controlSeen = new Set<string>()
 
+// ---------------------------------------------------------------------------
+// Host controls
+//
+// A keeper announces who may act on the room, signed by the authority key
+// pinned in the link, because the control channel is one every member can
+// write to and "I am the admin" is exactly what somebody would forge. What
+// an admin can do: ask the keeper to remove somebody (a new epoch that
+// person is not given), ask it to close the room, and ask a person to mute.
+// The first two are enforced by the key; the third is manners, and says so.
+// ---------------------------------------------------------------------------
+
+/** Who may act on this room, as the keeper last announced it. */
+let admins = new Set<string>()
+let adminsAt = 0
+/** The keeper's own participant, from its announcement. Not somebody an
+ *  admin can remove: removing the keeper is closing the room. */
+let keeperParticipant: string | undefined
+
+/** A name and a short key for one person, for a status line. */
+function personLabel(pubkey: string): string {
+  const shown = shownAs(pubkey, session?.participants().find((v) => v.participant === pubkey)?.name)
+  return shown.name !== undefined ? `${shown.name} (${shown.short})` : shown.short
+}
+
+/** Lines the room shows in the chat that nobody sent: an epoch change, a
+ *  removal. Rendered locally, never published, and never mistaken for a
+ *  message because they carry no sender. */
+interface SystemLine {
+  at: number
+  text: string
+}
+const systemLines: SystemLine[] = []
+
+function addSystemLine(text: string): void {
+  systemLines.push({ at: nowSeconds(), text })
+  // An epoch can move while the session is still joining, before its chat
+  // exists; the line is kept, and the first render after join shows it.
+  try {
+    if (session) renderChat(session.chat.messages())
+  } catch {
+    // Not joined yet.
+  }
+}
+
+function onEpochChange(notice: RekeyNotice): void {
+  const by = notice.by ? ` by ${personLabel(notice.by)}` : ''
+  for (const p of notice.removed) addSystemLine(`${personLabel(p)} was removed${by}.`)
+  addSystemLine(
+    `The room moved to epoch ${notice.epoch}.${notice.removed.length ? ' Nothing from here on reaches who was removed; what they already read stays theirs.' : ''}`,
+  )
+  renderHost()
+}
+
+const NOTICE_STORAGE_KEY = 'kithmoot.notice'
+
+/**
+ * Leave because the room said so, and say why on the page that comes back.
+ * The reload is the same one `leaveRoom` does, for the same reason - it is
+ * the only teardown that cannot miss a camera - so the reason rides across
+ * it in session storage rather than in a status line the reload would wipe.
+ */
+function leaveWithNotice(message: string): void {
+  try {
+    sessionStorage.setItem(NOTICE_STORAGE_KEY, message)
+  } catch {
+    // Storage may be unavailable. The room is still left.
+  }
+  leaveRoom()
+}
+
+/** An admin asked this device to stop sending. Honoured, and said so. */
+function muteRequested(by: string): void {
+  const stopped: string[] = []
+  if (micTrack) {
+    micTrack.removeEventListener('ended', onMicEnded)
+    micTrack.stop()
+    mic?.stop()
+    mic = undefined
+    micTrack = undefined
+    stopped.push('microphone')
+  }
+  if (camera) {
+    camera.stop()
+    camera = undefined
+    cameraTrack = undefined
+    localPreviewEls.get('camera')?.remove()
+    localPreviewEls.delete('camera')
+    stopped.push('camera')
+  }
+  if (screenTrack) {
+    screenTrack.stop()
+    screenTrack = undefined
+    localPreviewEls.get('screen')?.remove()
+    localPreviewEls.delete('screen')
+    stopped.push('screen share')
+  }
+  publishActiveTracks()
+  updateUi()
+  const what = stopped.length ? `Your ${stopped.join(', ')} ${stopped.length > 1 ? 'were' : 'was'} turned off.` : 'You were sending nothing.'
+  setStatus(`${personLabel(by)} asked you to mute. ${what}`)
+  addSystemLine(`${personLabel(by)} asked you to mute. ${what}`)
+}
+
+function sendHostControl(message: ControlMessage, said: string): void {
+  session
+    ?.channel(CONTROL_CHANNEL)
+    .send(encodeControl(message))
+    .then(() => setStatus(said))
+    .catch((err) => setStatus(describeError(err)))
+}
+
+/** The Host panel: shown only to a participant on the announced list. */
+function renderHost(): void {
+  const panel = $('hostPanel') as HTMLDetailsElement
+  const isAdmin = session !== undefined && admins.has(meParticipant)
+  panel.hidden = !isAdmin
+  if (!isAdmin) return
+  const list = $('hostList')
+  list.innerHTML = ''
+  for (const view of session!.participants()) {
+    if (view.participant === meParticipant) continue
+    const row = document.createElement('div')
+    row.className = 'hostRow'
+    const who = document.createElement('span')
+    who.className = 'who'
+    who.append(identityRun(shownAs(view.participant, view.name), false))
+    if (view.agent) who.append(' (agent)')
+    row.append(who)
+    const label = personLabel(view.participant)
+    if (view.participant === keeperParticipant) {
+      const note = document.createElement('span')
+      note.className = 'note'
+      note.textContent = 'the keeper'
+      row.append(note)
+      list.append(row)
+      continue
+    }
+    const mute = document.createElement('button')
+    mute.type = 'button'
+    mute.textContent = 'Mute'
+    mute.title = 'Ask their client to turn its camera and microphone off. A request; nothing can force it.'
+    mute.addEventListener('click', () => sendHostControl({ op: 'mute', participant: view.participant }, `Asked ${label} to mute.`))
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'danger'
+    remove.textContent = 'Remove'
+    remove.title = 'Move the room to a new key this person is not given.'
+    remove.addEventListener('click', () => {
+      if (!confirm(`Remove ${label} from the room? They will read nothing from here on. What they already read stays theirs.`)) return
+      sendHostControl({ op: 'remove', participant: view.participant }, `Asked the keeper to remove ${label}.`)
+    })
+    row.append(mute, remove)
+    list.append(row)
+  }
+}
+
+$('closeRoom').addEventListener('click', () => {
+  if (!confirm('Close this room for everybody? The link stops answering and the keeper leaves.')) return
+  sendHostControl({ op: 'close' }, 'Asked the keeper to close the room.')
+})
+
 function ingestControl(messages: ChatMessage[]): void {
   let changed = false
   for (const m of messages) {
@@ -2153,6 +2344,25 @@ function ingestControl(messages: ChatMessage[]): void {
         break
       case 'error':
         if (control.host === m.participant && m.sentAt >= nowSeconds() - 30) setStatus(`Agent host: ${control.message}`)
+        break
+      case 'admins': {
+        // Only a list the room's authority signed, and only the newest.
+        const authority = roomAuthority()
+        if (!authority || !session || control.host !== m.participant) break
+        if (!verifyAdmins({ roomId: session.roomId, epoch: control.epoch, admins: control.admins, sig: control.sig, authority })) break
+        if (m.sentAt < adminsAt) break
+        admins = new Set(control.admins)
+        adminsAt = m.sentAt
+        keeperParticipant = control.host
+        renderHost()
+        break
+      }
+      case 'mute':
+        // For this device, from somebody on the announced list, and recent:
+        // a request replayed from last week is not one.
+        if (control.participant !== meParticipant || !admins.has(m.participant)) break
+        if (m.sentAt < nowSeconds() - 30) break
+        muteRequested(m.participant)
         break
       default:
         break
@@ -2302,7 +2512,7 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
 }
 
 function renderChat(messages: ChatMessage[]): void {
-  renderLog('chatLog', undefined, messages)
+  renderLog('chatLog', undefined, messages, systemLines)
 }
 
 /**
@@ -2310,13 +2520,27 @@ function renderChat(messages: ChatMessage[]): void {
  * transcript. A transcript line names the speaker the transcriber claims,
  * beside a key exactly as a name is, and says who wrote it down.
  */
-function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[]): void {
+function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
   log.innerHTML = ''
   pruneOpenedAttachments(logId, messages)
   profiles.want(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
 
+  // System lines sit in the log where they happened, and look like nothing
+  // anybody sent: no name, no key, because nobody did.
+  let nextSystem = 0
+  const systemUpTo = (at: number): void => {
+    while (nextSystem < system.length && system[nextSystem]!.at <= at) {
+      const p = document.createElement('p')
+      p.className = 'system'
+      p.textContent = system[nextSystem]!.text
+      log.append(p)
+      nextSystem++
+    }
+  }
+
   for (const m of messages) {
+    systemUpTo(m.sentAt)
     const p = document.createElement('p')
     const who = document.createElement('span')
     who.className = 'who'
@@ -2345,6 +2569,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
     log.append(p)
   }
+  systemUpTo(Number.POSITIVE_INFINITY)
   if (countId) $(countId).textContent = messages.length ? `(${messages.length})` : ''
   log.scrollTop = log.scrollHeight
 }
@@ -2789,6 +3014,14 @@ async function startSession(): Promise<void> {
           name,
           assist: currentAssistOffer,
           relay: peerRelay,
+          // Epochs: follow a rekey signed by the room's authority, and ask it
+          // first if the responder said the room is ahead of the secret we
+          // were handed. See src/epoch.ts and docs/decisions.md.
+          authority: roomAuthority(),
+          expectedEpoch,
+          onEpoch: onEpochChange,
+          onRemoved: (notice) => leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`),
+          onClosed: (notice) => leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`),
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
@@ -2810,6 +3043,14 @@ async function startSession(): Promise<void> {
           name,
           assist: currentAssistOffer,
           relay: peerRelay,
+          // Epochs: follow a rekey signed by the room's authority, and ask it
+          // first if the responder said the room is ahead of the secret we
+          // were handed. See src/epoch.ts and docs/decisions.md.
+          authority: roomAuthority(),
+          expectedEpoch,
+          onEpoch: onEpochChange,
+          onRemoved: (notice) => leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`),
+          onClosed: (notice) => leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`),
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
@@ -2825,6 +3066,7 @@ async function startSession(): Promise<void> {
     s.onChange((views) => {
       render(views, meParticipant)
       renderInvites()
+      renderHost()
     })
     s.onRemoteTrack(({ device, track }) => attachRemoteTrack(device, track))
 
@@ -2860,6 +3102,8 @@ async function startSession(): Promise<void> {
     control.onChange((messages) => ingestControl(messages))
     ingestControl(control.messages())
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
+    if (s.epoch > 0) addSystemLine(`This room is in epoch ${s.epoch}.`)
+    renderHost()
 
     joinBtn.hidden = true
     $('identity').hidden = true
@@ -3664,6 +3908,16 @@ roomFromLocation()
     }
     showRoomUi()
     renderIdentity()
+    // Why the last page left, if the room told it to.
+    try {
+      const notice = sessionStorage.getItem(NOTICE_STORAGE_KEY)
+      if (notice) {
+        sessionStorage.removeItem(NOTICE_STORAGE_KEY)
+        setStatus(notice)
+      }
+    } catch {
+      // No storage, no notice.
+    }
   })
   .catch((err) => {
     setStatus(describeError(err))

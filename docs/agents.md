@@ -53,6 +53,26 @@ restart reopens the same room on the same link. This is what a room that is
 meant to stay open for days wants: the keeper is the room's availability, and
 people and their agents drift in and out around it.
 
+The keeper is also the room's authority: the one party that can move the
+room to a new epoch, which is how a member is removed (see "A member is
+removed by a room epoch" in `decisions.md`). `--admin <pubkey>` (repeatable,
+hex or npub, or `KITHMOOT_ADMINS` comma separated) names the participants who
+may ask it to. The keeper announces that list on the `control` channel,
+signed by the authority key, and acts on a `remove` or `close` from anybody
+on it; the app shows those people a Host panel with Remove and Mute per
+person and a Close room button. A removal is a rekey: the keeper seals the
+new secret to every device in its roster except the removed participant's,
+publishes it, and from then on answers epoch requests from everybody except
+the removed. The state file records the epoch, its secret and the removed
+set, so a restart reopens the room in the same epoch, still refusing the
+same people; a file written before epochs reads as epoch 0 with nobody
+removed. A closed room is not reopened: delete the state to make a new one.
+
+`RoomAgent.remove(participant)` and `RoomAgent.closeRoom()` do the same from
+code, and `onEpoch`, `onRemoved` and `onClosed` are how an agent hears it
+happen. A joining agent follows a rekey the way a browser does, and one that
+was removed is told, and leaves.
+
 ## The agent flag, and who gets your media
 
 A roster entry may carry `agent: true` (`RosterEntry.agent`). It is
@@ -267,7 +287,14 @@ in a loop and is woken by the next message on the conversations it named.
 - `src/agent.test.ts`: a keeper makes a room, an agent joins from the link
   and is marked as one, a second agent is admitted by the first after the
   keeper has gone, keeper state reopens the same room, the `agents` channel
-  is readable by a person, a pairing link is refused.
+  is readable by a person, a pairing link is refused; a keeper removes a
+  member on an admin's signed request and not on anybody else's, a removed
+  participant presenting the link again is refused the epoch, a rekeyed
+  room reopens from state in the same epoch, an admin closes the room.
+- `src/epoch.test.ts` and `src/session-epoch.test.ts`: the rekey event
+  (seal, unseal, tamper, wrong recipient, replay of an older epoch), the
+  derivation per epoch, the epoch desk, and two clients where one is
+  removed and can no longer decode the chat while the other still can.
 - `src/node/runtime.test.ts`: the event stream, history versus news, waiting
   for activity, the listening pipeline from a track to a transcript line, a
   model brain speaking when named and whispering when told, the bound on
@@ -360,7 +387,12 @@ endpoint constant.
   transcriber. The interface is one method, so anything that takes a WAV
   works.
 - **A delegate cannot extend its own delegation.** Only the creator can, so
-  a long-lived room wants a keeper. Member removal - a room epoch change -
-  is the separate work `decisions.md` already names.
+  a long-lived room wants a keeper.
+- **Only a keeper rekeys.** A browser that made a room is its authority too,
+  but rotating the link forgets the inviter key, so the app does not offer
+  removal for a room it made itself. A room with a keeper is the case that
+  needed it.
+- **Mute is a request.** Media goes device to device, so an admin's `mute`
+  is honoured by the target's own client or not at all. Removal enforces.
 - **An agent cannot yet speak aloud.** It has no track to publish; a voice
   would be a text-to-speech source behind the same `publishTracks`.

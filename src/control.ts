@@ -50,10 +50,35 @@ export type ControlMessage =
   | { op: 'dismissed'; host: string; agent: string; name: string; reason?: string }
   /** The host: it could not. */
   | { op: 'error'; host: string; agent?: string; message: string }
+  /**
+   * The room's keeper, saying who may act on the room: remove a member,
+   * close it, ask somebody to mute. `sig` is the authority key's signature
+   * over the room id, the epoch and the list (`signAdmins` in `epoch.ts`),
+   * because this channel is one every member can write to and a claim to
+   * be the admin list is exactly what a member would forge. A client checks
+   * it against the inviter pinned in the link and ignores one that fails.
+   * Sent when the keeper starts, on every epoch, and in answer to
+   * `catalogue?`.
+   */
+  | { op: 'admins'; host: string; admins: string[]; epoch: number; sig: string }
+  /** An admin: keeper, remove this participant. Acted on only when the
+   *  sender is on the announced list; the keeper checks. */
+  | { op: 'remove'; participant: string }
+  /** An admin: keeper, close the room. */
+  | { op: 'close' }
+  /**
+   * An admin: this participant, please stop sending. A request the target's
+   * own client honours by stopping its outgoing tracks, and nothing more:
+   * media goes device to device, so nothing in the middle could enforce it,
+   * and a client that ignores this is a client that ignores it. Removal is
+   * what enforces; this is manners.
+   */
+  | { op: 'mute'; participant: string }
 
 const HEX64 = /^[0-9a-f]{64}$/
 const ID = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const MAX_AGENTS = 12
+const MAX_ADMINS = 32
 const MAX_DESCRIPTION = 140
 
 function str(v: unknown, max: number): string | undefined {
@@ -147,6 +172,27 @@ export function decodeControl(text: string): ControlMessage | null {
       if (agentOk) out.agent = agent
       return out
     }
+    case 'admins': {
+      if (!hostOk || !Array.isArray(m.admins) || m.admins.length > MAX_ADMINS) return null
+      if (!m.admins.every((a) => typeof a === 'string' && HEX64.test(a.toLowerCase()))) return null
+      if (!Number.isSafeInteger(m.epoch) || (m.epoch as number) < 0) return null
+      if (typeof m.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(m.sig)) return null
+      return {
+        op: 'admins',
+        host: host!,
+        admins: [...new Set((m.admins as string[]).map((a) => a.toLowerCase()))].sort(),
+        epoch: m.epoch as number,
+        sig: m.sig.toLowerCase(),
+      }
+    }
+    case 'remove':
+    case 'mute': {
+      const participant = typeof m.participant === 'string' ? m.participant.toLowerCase() : undefined
+      if (participant === undefined || !HEX64.test(participant)) return null
+      return { op: m.op, participant }
+    }
+    case 'close':
+      return { op: 'close' }
     default:
       return null
   }
