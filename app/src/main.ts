@@ -2248,6 +2248,126 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
 }
 
 // ---------------------------------------------------------------------------
+// Diagnostics
+// ---------------------------------------------------------------------------
+
+const short = (hex: string | undefined) => (hex ? hex.slice(0, 8) : hex)
+
+/**
+ * What this page knows about its own connections, as text to paste into a
+ * bug report: the browser, who is here and what they advertise, every
+ * route and its rung, every peer connection with its states, its tracks and
+ * the counters that say whether media is moving, and every remote element
+ * with whether it is on screen and advancing.
+ *
+ * Deliberately no addresses: candidate TYPES say whether a pair went
+ * direct or through TURN, which is what a report needs, and a person's IP
+ * is not something a "copy" button should put on their clipboard.
+ */
+async function collectDiagnostics(): Promise<string> {
+  const s = session
+  const pick = (r: Record<string, unknown>, keys: string[]) =>
+    Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]]))
+  const connections = await Promise.all(
+    [...openConnections].map(async ([key, pc]) => {
+      const stats: Record<string, unknown>[] = []
+      try {
+        const report = await pc.getStats()
+        report.forEach((raw) => {
+          const r = raw as unknown as Record<string, unknown>
+          switch (r.type) {
+            case 'inbound-rtp':
+            case 'outbound-rtp':
+              stats.push(pick(r, ['type', 'kind', 'bytesReceived', 'bytesSent', 'packetsReceived', 'packetsSent', 'packetsLost', 'framesDecoded', 'framesEncoded', 'framesReceived', 'framesSent', 'frameWidth', 'frameHeight', 'codecId', 'pliCount', 'nackCount', 'jitterBufferDelay']))
+              break
+            case 'candidate-pair':
+              if (r.nominated === true || r.selected === true) stats.push(pick(r, ['type', 'state', 'localCandidateId', 'remoteCandidateId', 'bytesSent', 'bytesReceived', 'currentRoundTripTime', 'availableOutgoingBitrate']))
+              break
+            case 'local-candidate':
+            case 'remote-candidate':
+              stats.push(pick(r, ['type', 'id', 'candidateType', 'protocol', 'relayProtocol', 'networkType']))
+              break
+            case 'codec':
+              stats.push(pick(r, ['type', 'id', 'mimeType', 'clockRate']))
+              break
+          }
+        })
+      } catch {
+        stats.push({ error: 'getStats failed' })
+      }
+      return {
+        key: key.replace(/:([0-9a-f]{64}):/, (_m, k: string) => `:${k.slice(0, 8)}:`),
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+        iceGatheringState: pc.iceGatheringState,
+        signalingState: pc.signalingState,
+        senders: pc.getSenders().map((sn) => (sn.track ? `${sn.track.kind}:${sn.track.readyState}${sn.track.muted ? ':muted' : ''}${sn.track.enabled ? '' : ':disabled'}` : 'none')),
+        receivers: pc.getReceivers().map((rc) => `${rc.track.kind}:${rc.track.readyState}${rc.track.muted ? ':muted' : ''}`),
+        stats,
+      }
+    }),
+  )
+  const out = {
+    at: new Date().toISOString(),
+    build: document.querySelector('script[src*="/assets/index-"]')?.getAttribute('src') ?? 'dev',
+    ua: navigator.userAgent,
+    visibility: document.visibilityState,
+    me: {
+      participant: short(meParticipant),
+      device: short(myDeviceId),
+      publishing: currentAdverts().map((a) => a.role),
+      agentsMayHear,
+      effect: $('effectMode').textContent,
+    },
+    participants: s?.participants().map((v) => ({
+      name: v.name,
+      participant: short(v.participant),
+      agent: v.agent === true,
+      devices: v.devices.map(short),
+      tracks: v.tracks.map((t) => `${t.role}@${short(t.device)}`),
+      mic: short(v.mic),
+    })),
+    routes: s ? [...s.routes].map(([d, r]) => ({ device: short(d), tier: r.tier, endpoint: short(r.endpoint), connected: r.connected, exhausted: r.exhausted })) : [],
+    connections,
+    pictures: [...remoteVideos].map(([key, v]) => ({
+      device: short(key.split('|')[0]),
+      onScreen: onScreen(v),
+      played: v.played,
+      stalled: v.stalled,
+      currentTime: Number(v.el.currentTime.toFixed(2)),
+      paused: v.el.paused,
+      size: `${v.el.videoWidth}x${v.el.videoHeight}`,
+      track: `${v.track.readyState}${v.track.muted ? ':muted' : ''}`,
+    })),
+    sounds: [...remoteAudios].map(([key, a]) => ({
+      device: short(key.split('|')[0]),
+      inDocument: a.el.isConnected,
+      paused: a.el.paused,
+      currentTime: Number(a.el.currentTime.toFixed(2)),
+      track: `${a.track.readyState}${a.track.muted ? ':muted' : ''}`,
+    })),
+  }
+  return JSON.stringify(out, null, 1)
+}
+
+$('diagnostics').addEventListener('click', () => {
+  collectDiagnostics()
+    .then(async (text) => {
+      const box = $('diagnosticsOut') as HTMLTextAreaElement
+      box.value = text
+      box.hidden = false
+      box.select()
+      try {
+        await navigator.clipboard.writeText(text)
+        setStatus('Diagnostics copied to the clipboard, and shown below.')
+      } catch {
+        setStatus('Diagnostics shown below; copy them from the box.')
+      }
+    })
+    .catch((err) => setStatus(describeError(err)))
+})
+
+// ---------------------------------------------------------------------------
 // Joining
 // ---------------------------------------------------------------------------
 

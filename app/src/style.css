@@ -588,3 +588,26 @@ video {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Diagnostics: what this page knows about its connections, for pasting
+   into a bug report. Short keys, candidate types and counters; never an
+   address. */
+#diagnostics.quiet {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  margin-right: 0.5rem;
+}
+
+#diagnosticsOut {
+  width: 100%;
+  margin: 0.5rem 0;
+  font-family: monospace;
+  font-size: 0.75rem;
+  background: var(--panel);
+  color: var(--fg, #eae6dc);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  box-sizing: border-box;
+}

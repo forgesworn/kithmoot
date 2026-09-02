@@ -221,9 +221,11 @@
       <section id="roomArea" hidden>
         <div class="roomHead">
           <h2>In the room</h2>
+          <button id="diagnostics" type="button" class="quiet" title="Gather what this page knows about its connections, for a bug report">Copy diagnostics</button>
           <button id="leave" type="button">Leave</button>
         </div>
         <div id="room"></div>
+        <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Diagnostics"></textarea>
 
         <h2>Chat</h2>
         <div id="chatLog" aria-live="polite"></div>
