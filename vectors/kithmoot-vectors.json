@@ -53,6 +53,49 @@
         }
       }
     ],
+    "channelDerivation": [
+      {
+        "name": "agents",
+        "kind": "positive",
+        "note": "The `agents` channel of ROOM_1: id = HKDF-SHA256(ikm = roomKey, info = \"kithmoot/v1/channel-id/agents\", 32 bytes) as hex, key = HKDF-SHA256(ikm = roomKey, info = \"kithmoot/v1/channel-key/agents\", 32 bytes). No salt. A chat event on this channel carries the id in its `d` tag and is NIP-44-encrypted under the key; the credential inside is still checked against the ROOM id.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "channel": "agents"
+        },
+        "output": {
+          "id": "f07da1bdc33e83a4d21507bac3a5eaf6b8813b3eaf45dbd9b84c5924198c005b",
+          "keyHex": "9d8e52617e4707232e352b0c1cce989c7396f4e9f9abfaf8055fcd4c0a8a6ea9"
+        }
+      },
+      {
+        "name": "transcript",
+        "kind": "positive",
+        "note": "The `transcript` channel of ROOM_1: id = HKDF-SHA256(ikm = roomKey, info = \"kithmoot/v1/channel-id/transcript\", 32 bytes) as hex, key = HKDF-SHA256(ikm = roomKey, info = \"kithmoot/v1/channel-key/transcript\", 32 bytes). No salt. A chat event on this channel carries the id in its `d` tag and is NIP-44-encrypted under the key; the credential inside is still checked against the ROOM id.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "channel": "transcript"
+        },
+        "output": {
+          "id": "ad25c1ca475a7a5909164e3903bde4fbd72e3e5846029228f739a5b11e44316d",
+          "keyHex": "1a013931809e01e964a7d7e70b7f2c160c0145771eba407ace77b5ad260e6251"
+        }
+      },
+      {
+        "name": "unnamed-is-the-room",
+        "kind": "positive",
+        "note": "No channel name means the main chat: the id is the room id and the key is the room key, unchanged, so every chat event ever published decodes exactly as before channels existed.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+        },
+        "output": {
+          "id": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+        }
+      }
+    ],
     "joinUrl": [
       {
         "name": "basic-no-policy",
@@ -987,6 +1030,213 @@
             "updatedAt": 1800000000,
             "reply": true,
             "left": true
+          }
+        }
+      },
+      {
+        "name": "agent",
+        "kind": "positive",
+        "note": "A roster entry from a device declaring itself an automated participant with `agent: true`. Inside the room-key ciphertext like everything else. A reader keeps the flag; a member may use it to decide what media this device is sent. A reader that does not know the field sees an ordinary entry.",
+        "input": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Al788n1SrZIKd4tqrZUtyhXTtUsU9y9EogkrSY0aAkcbqi7GfG0febrGYKQrAC0FIzFNp07J8zZM7eD9hR1l61NOzc0OEqAB+Brf7T6hG2gVsL3UKMRkbehjMRoUyx+h7JeVNpLwMjd8mCJPXZcOcQ515j8aUQFADyaq8W8IwOD33m1R29/4j28LURVR4N8QrnxrZtFJnikfsjBY1reHSHmGmvhr8rUubk6EQtIqFlol9MuykWtdoVJEXzzs7ZJsjpZqKtAd0t48Va1kBGr8bzC2JhFpD9JK3s3CgPNN65OP80cUdkYURU5k+Tl+A0rZwnrct8xLhpcC/n/ACM8ZF+WPEm0aPQTdBfmFsWSIQcFFGu9Tz1qYiyU7syrutzafc+ZEYEYP1Fwi81Ig4+kM0inDmdELMFZyqIuPtyHpFqvlKNitwl6sIoiEdpplHjk90m/Hmag3I7tKn9EshyumUo/2GRU7VUQQdoBc/DGUBJtHm/uwvWQ+EJ7O4tNxfK76ovf9Zz79GWU3IAONIr8QLNu+sS87bLyvIAdJVA8H1opKbwa8xdgQDlygdqQ5hEV0R3HS60hCjJTasfov6CvHEVKX0ES888lEElcOmnQCCf86Zs9d+/n2/CZ5+hRnt054ZbSvtc5wW/ghmBFugH8engYw7Myeh1YNVS2y0m+VdxI/PsaStIFba5GWlzlTCVZ0Deo5w+mU29t117ShVQFDCScU4fHCdbyzNQrwvRAA+avayOE0FYSvePTY13GonPfFWgjKyRARnjBV7cN0iL9AzBTQMHRr9r617+bcdo6mb6k6E7RudIBlUdW79qQt9O/rIsK+Fz1KKvh25Lq/OI2gIA034xNF6Rj6NPpl1s9ZaDQlseMep3bnnZHoL9ATlQNE/Rb8jGMhOZGOTjS0hMFj6+jS1IhBgqrv7yjkNKh9gSKH6f8PtwvbGQqhpAgJCi2o9ArLXnL7b/GGF+V8PfdTIttOtT6JjJb9CSNCynE37CFHXmmiZN2U/Pboq//MystfbC2P70N8L5JgAveKxWRacMz2lk+rXfZJDyL6h/Pq9L4WT8u9l5isg06BrHnLvwS1rf4/NBh+1sccyepTpC8ez3BD202U2WzYXX+EJMSFShUQ6DOFXNvHYMcY6sqZTyjXguyCEybVJyU5L2nXG10P31bkjoB5/0Tiu55oLOGyPmdU0nFMk+DlTuRsKHkoS2mmfn1xWu13ojqGVC1WdNy3Hi+/JNJjU2ZCjWYFXKCRg06h3gsUELywQRZRMQLiXc6Qt0hq",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "0dd0288bd7df2eecab98fb8765202c7eec0b5c714f2267e6d9be6cf2487e0911",
+            "sig": "a36a7e8cb31c8d61f753252385d4e15405eb0522c2ccb3f81ffa05e31813c057d6a9d7ba9191f6af1806b108c878bf03af7d44cebb8f6906fde51cbddfb77886"
+          }
+        },
+        "output": {
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "agent": true
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "agent": true
+          }
+        }
+      },
+      {
+        "name": "agent-loose-value",
+        "kind": "positive",
+        "note": "A genuine roster entry whose `agent` field is the string \"yes\" rather than the JSON boolean `true`. The entry is ACCEPTED and the field is DROPPED: only an honest `true` declares an agent, because the flag decides what a member sends this device. `expected.result` carries no `agent` at all.",
+        "input": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AhHBoY9hXhTP25Q9ivkdNKlPyJwP+JRx1k1AmgSHK8d7jwJovJTJQRiraQvZK2avYt4mL+xW8eI/XRtnP52Ce5m1BJIvbtIlXpyA3CbY62YgZFT8gJstEVufFk5IXnd6dA1m1LQ4L84JCJ+Iwq779hOVTty/ndd0yRAKZmxdXVXPexP/EXXs2ZyVBZLV/E0IFwJVatCFH9F3Wx9iXC/yhzLjQ3Xw7konf1m/R466utokkK4RZEGc9Qk+fAwCsmKqa3xnxTfYt+AgCl10fYzI6I07Ozy2qD8Pj+eVF+ClEo6ysTW+76Qj4WxUGSYYSCz2UAXSZPIPSRkOtMe49sbqSMAEJic7yhDoLS3hbUFzM9kc7ZCyMLKedxSBS3SgY/iZt5tI6YoJnnZQpknVH3ml4IaxpZxlOgN2Ll6x3Rh2RtFzbvrMMqyejXOiahrBsprbSA6GDml8GQWuxtZYRbEbd8/R+8vvGiD/jmZPxZXJz9JvXRUBSHcoemKzmkfPFtJxjgfgr2v+yiz3aKCDvCl7AUeuS1vB4TGpGJL5bVYKW/bbZJic58ubu/IwVlp+To9ufdDRTpIPp6WztA2YmqB5KVLm7v3aQsTbcn5DUwhvNFNm3uSY1WZPV9ZNbVADGkGc0LwLDIPDyrakSWtpVoXFJ7Xyl1tSX+3Zl6muqP01m6iVcldKNagpq6+PuUYNpBMcCtZ2XAupa/0Ae7xXHtbMN0nipiS5qd7hzG29x82lcsSpcuOzG87VAF914lw2WvWSoRItGoVjIsxcV17+13fbUjC5ruyPpNJbrueRgbCxyvZRZdas/JzpVNQpX7chlyDmsG3WRJwD9tqlXdhgzM1qgt2WwM0HNm5Pr5tJwZTZu256rjE8kT6POTTOdCX8LR3uyVa7Lz3/zG03jQE/oi5nEwIjjw8jBvbnDGMAIP2Ky2BF7ZTRoUw1n2pXQt0aH1e/0zGY6ZXIvIcdzwzidGFH2zNj/du+2XTEwp78j2D3icz3NGe1roZ8ozUp04Wlbyd1HtRAaJlt8nCsAFQJhBIZdBdiOO1B5Tz9aissJVgqcLThxNOF/bUC6piShlHd21YIGjWpC/k+//0O3LIgqEtb+elTjNd9kd4BQOZ+ta0BaT+cDTVoDn0MbcMTbJhvxA4A14kb+XT7eu0538jgnJugU/Ui1a0nKtcTJd6XiiEhtb/h7MTLIUH6DiJNhf42lNDwvSR/mxp9Yp5lTgxTn/WcdE8BIF/q0JLQmfmntdFRCYc7/9kZ3bj7dwCKIhBiZAai9qki",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "42e813b9f25ad3c9e11e8be73701ea05ebe7453272d2b877453740d4cc33716a",
+            "sig": "552555d46c353b6196292dc48b82b5346c97fb8a0c140391c3243e2f72a33b86ce948d288fe5d9e2fb528255b7647f7493a40e90c5758d244aef788e238a4b15"
+          },
+          "rawAgent": "yes"
+        },
+        "output": {
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
           }
         }
       },

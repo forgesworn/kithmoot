@@ -1,5 +1,7 @@
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
+import { hkdf } from '@noble/hashes/hkdf'
+import { sha256 } from '@noble/hashes/sha2'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
 import { verifyEventUncached } from './verify.js'
@@ -14,6 +16,34 @@ export const MAX_CHAT_TEXT_LENGTH = 2_000
 export const CHAT_RETENTION_SECONDS = 30 * 24 * 60 * 60
 export const MAX_CHAT_MESSAGES = 500
 export const MAX_CHAT_MESSAGES_PER_MINUTE = 30
+
+const CHANNEL_ID_INFO = 'kithmoot/v1/channel-id/'
+const CHANNEL_KEY_INFO = 'kithmoot/v1/channel-key/'
+/** Bounds a channel name, which rides only in an HKDF info string and
+ *  never on the wire; long enough for any sensible name. */
+export const MAX_CHANNEL_NAME_LENGTH = 64
+
+/**
+ * The room id and key a named channel lives under.
+ *
+ * Both derived from the room KEY, never the room id, so a party that holds
+ * the id and not the key - a forwarder, a relay - cannot find the channel
+ * from the room, let alone read it. Two separate HKDF expansions for the
+ * same reason `deriveRoom` uses two: publishing the id reveals nothing about
+ * the key. The main chat is the unnamed channel and is untouched by this:
+ * its id is the room id and its key the room key, byte for byte as before.
+ */
+export function deriveChannel(roomId: string, roomKey: Uint8Array, channel?: string): { id: string; key: Uint8Array } {
+  if (channel === undefined) return { id: roomId, key: roomKey }
+  if (channel.length === 0 || channel.length > MAX_CHANNEL_NAME_LENGTH) throw new Error('channel name out of range')
+  const idBytes = hkdf(sha256, roomKey, undefined, CHANNEL_ID_INFO + channel, 32)
+  const key = hkdf(sha256, roomKey, undefined, CHANNEL_KEY_INFO + channel, 32)
+  const id = Array.from(idBytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return { id, key }
+}
+
+/** What a message is, when it is not simply something somebody typed. */
+export type ChatMessageKind = 'transcript'
 
 export interface ChatMessage {
   id: string
@@ -40,12 +70,30 @@ export interface ChatMessage {
   name?: string
   text: string
   sentAt: number
+  /**
+   * `transcript` when `text` is what somebody SAID, written down by the
+   * sender - an agent that was listening - rather than something the sender
+   * typed. Absent on an ordinary message, so the wire is byte-identical for
+   * a client that has never heard of transcripts, and such a client shows
+   * it as an ordinary message from the transcriber, which is honest.
+   */
+  kind?: ChatMessageKind
+  /**
+   * For a transcript: the participant whose words these are. A claim made
+   * by the transcriber, exactly as a display name is a claim made by its
+   * owner, and rendered the same way - beside a pubkey, never instead of
+   * one. Absent unless `kind` is set.
+   */
+  speaker?: string
 }
 
 export interface EncodeChatOptions {
   roomId: string
   roomKey: Uint8Array
   deviceSk: Uint8Array
+  /** Which channel of the room this rides in. Omit for the main chat. See
+   *  `deriveChannel`. */
+  channel?: string
 }
 
 /**
@@ -61,13 +109,23 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
   // `encodeRosterEvent` for why both. `name: undefined` is dropped by
   // JSON.stringify, so a message with no name is byte-identical to one
   // encoded before names existed.
-  const plaintext = JSON.stringify({ ...msg, name: sanitiseDisplayName(msg.name) })
-  const content = nip44.v2.encrypt(plaintext, opts.roomKey)
+  // `kind` and `speaker` are written only in the one honest shape, so a
+  // message that is not a transcript is byte-identical to one encoded
+  // before transcripts existed.
+  const transcript = msg.kind === 'transcript'
+  const plaintext = JSON.stringify({
+    ...msg,
+    name: sanitiseDisplayName(msg.name),
+    kind: transcript ? 'transcript' : undefined,
+    speaker: transcript && typeof msg.speaker === 'string' ? normaliseHex(msg.speaker) : undefined,
+  })
+  const { id, key } = deriveChannel(opts.roomId, opts.roomKey, opts.channel)
+  const content = nip44.v2.encrypt(plaintext, key)
   return finalizeEvent(
     {
       kind: KINDS.CHAT,
       created_at: msg.sentAt,
-      tags: [['d', opts.roomId]],
+      tags: [['d', id]],
       content,
     },
     opts.deviceSk,
@@ -81,6 +139,11 @@ export interface DecodeChatOptions {
    *  have been sent - see `MAX_CLOCK_SKEW_SECONDS`. */
   now: number
   policy?: RoomPolicy
+  /** Which channel to read. Omit for the main chat. A message on another
+   *  channel does not decode: it is under another id and another key. The
+   *  credential inside is still checked against the ROOM, because that is
+   *  what it names - a channel is a place in a room, not a room. */
+  channel?: string
 }
 
 /**
@@ -106,11 +169,12 @@ const MAX_CLOCK_SKEW_SECONDS = 300
 export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMessage | null {
   try {
     if (event.kind !== KINDS.CHAT) return null
+    const { id, key } = deriveChannel(opts.roomId, opts.roomKey, opts.channel)
     const roomTag = event.tags.find((t) => t[0] === 'd')?.[1]
-    if (roomTag === undefined || !hexEquals(roomTag, opts.roomId)) return null
+    if (roomTag === undefined || !hexEquals(roomTag, id)) return null
     if (!verifyEventUncached(event)) return null
 
-    const msg = JSON.parse(nip44.v2.decrypt(event.content, opts.roomKey)) as ChatMessage
+    const msg = JSON.parse(nip44.v2.decrypt(event.content, key)) as ChatMessage
 
     if (
       typeof msg.id !== 'string' ||
@@ -137,6 +201,20 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     const name = sanitiseDisplayName(msg.name)
     if (name === undefined) delete msg.name
     else msg.name = name
+
+    // Only the one honest shape reads as a transcript; anything else is an
+    // ordinary message, which is what it would be to a client that never
+    // heard of transcripts. The speaker is a pubkey off the wire like any
+    // other, canonicalised here so a renderer can match it to a roster
+    // entry without its own case rule.
+    if (msg.kind !== 'transcript') {
+      delete msg.kind
+      delete msg.speaker
+    } else if (typeof msg.speaker === 'string' && /^[0-9a-fA-F]{64}$/.test(msg.speaker)) {
+      msg.speaker = normaliseHex(msg.speaker)
+    } else {
+      delete msg.speaker
+    }
 
     // The device that signed this event must be the device the message
     // claims to be from - the same attribution guard the roster uses.
@@ -181,6 +259,16 @@ export interface ChatLogOptions {
   proof?: KindredProof
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
+  /** Which channel of the room this log is. Omit for the main chat. See
+   *  `deriveChannel`. */
+  channel?: string
+}
+
+/** What `send` may say beyond the text. */
+export interface SendOptions {
+  /** Mark the message a transcript of `speaker`'s words. See
+   *  `ChatMessage.kind`. */
+  transcriptOf?: string
 }
 
 /**
@@ -190,6 +278,9 @@ export interface ChatLogOptions {
 export class ChatLog {
   readonly #opts: ChatLogOptions
   readonly #now: () => number
+  /** The credential every message goes out under. Starts as the one handed
+   *  in and is replaced when the session renews - see `setCredential`. */
+  #credential: DeviceCredential
   #messages: ChatMessage[] = []
   readonly #seen = new Set<string>()
   readonly #senderTimes = new Map<string, number[]>()
@@ -198,14 +289,21 @@ export class ChatLog {
 
   constructor(opts: ChatLogOptions) {
     this.#opts = opts
+    this.#credential = opts.credential
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+    const { id } = deriveChannel(opts.roomId, opts.roomKey, opts.channel)
     this.#unsub = opts.transport.subscribe(
-      [{ kinds: [KINDS.CHAT], '#d': [opts.roomId], since: this.#now() - CHAT_RETENTION_SECONDS }],
+      [{ kinds: [KINDS.CHAT], '#d': [id], since: this.#now() - CHAT_RETENTION_SECONDS }],
       (event) => this.#ingest(event),
     )
   }
 
-  async send(text: string): Promise<void> {
+  /** The channel this log is, or undefined for the main chat. */
+  get channel(): string | undefined {
+    return this.#opts.channel
+  }
+
+  async send(text: string, sendOpts: SendOptions = {}): Promise<void> {
     if (text.length === 0) throw new Error('chat message is empty')
     if (text.length > MAX_CHAT_TEXT_LENGTH) {
       throw new Error(`chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`)
@@ -213,11 +311,14 @@ export class ChatLog {
     const name = sanitiseDisplayName(this.#opts.name)
     const msg: ChatMessage = {
       id: hex(randomBytes(16)),
-      participant: this.#opts.credential.pubkey,
+      participant: this.#credential.pubkey,
       device: getPublicKey(this.#opts.deviceSk),
-      credential: this.#opts.credential,
+      credential: this.#credential,
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(name !== undefined ? { name } : {}),
+      ...(sendOpts.transcriptOf !== undefined
+        ? { kind: 'transcript' as const, speaker: normaliseHex(sendOpts.transcriptOf) }
+        : {}),
       text,
       sentAt: this.#now(),
     }
@@ -225,8 +326,25 @@ export class ChatLog {
       roomId: this.#opts.roomId,
       roomKey: this.#opts.roomKey,
       deviceSk: this.#opts.deviceSk,
+      channel: this.#opts.channel,
     })
     await this.#opts.transport.publish(event)
+  }
+
+  /**
+   * Present a fresh credential on every message from now on.
+   *
+   * A message carries its credential because chat is durable and a reader
+   * checks it as at the message's send time, so a message sent after the
+   * old credential lapsed under the old credential would be refused by
+   * everybody. The session renews before that happens and hands the
+   * replacement here. It must name the same device and participant: a
+   * message signed by one device carrying another's credential is exactly
+   * what `decodeChatEvent` exists to refuse.
+   */
+  setCredential(credential: DeviceCredential): void {
+    if (credential.pubkey !== this.#credential.pubkey) throw new Error('renewed credential names a different participant')
+    this.#credential = credential
   }
 
   messages(): ChatMessage[] {
@@ -249,6 +367,7 @@ export class ChatLog {
       roomKey: this.#opts.roomKey,
       now: this.#now(),
       policy: this.#opts.policy,
+      channel: this.#opts.channel,
     })
     if (!msg) return
     if (msg.sentAt < this.#now() - CHAT_RETENTION_SECONDS) return

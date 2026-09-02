@@ -33,6 +33,7 @@ import * as fx from './lib/fixtures.mjs'
 
 import { KINDS } from '../src/kinds.js'
 import { deriveRoom, decodeJoinUrl, encodeJoinUrl } from '../src/room.js'
+import { deriveChannel } from '../src/chat.js'
 import { verifyDeviceCredential } from '../src/credential.js'
 import { decodeRosterEvent } from '../src/roster.js'
 import { sanitiseAssistOffer } from '../src/peer-assist.js'
@@ -92,6 +93,23 @@ describe('room derivation', () => {
       const { roomId, roomKey } = deriveRoom(hexToBytes(v.input.secretHex))
       expect(roomId).toBe(v.output.roomId)
       expect(bytesToHex(roomKey)).toBe(v.output.roomKeyHex)
+    })
+  }
+})
+
+describe('channel derivation', () => {
+  for (const v of groups.channelDerivation) {
+    it(v.name, () => {
+      const { id, key } = deriveChannel(v.input.roomId, hexToBytes(v.input.roomKeyHex), v.input.channel)
+      expect(id).toBe(v.output.id)
+      expect(bytesToHex(key)).toBe(v.output.keyHex)
+      if (v.input.channel === undefined) {
+        expect(id).toBe(v.input.roomId)
+        expect(bytesToHex(key)).toBe(v.input.roomKeyHex)
+      } else {
+        expect(id).not.toBe(v.input.roomId)
+        expect(bytesToHex(key)).not.toBe(v.input.roomKeyHex)
+      }
     })
   }
 })
@@ -263,6 +281,30 @@ describe('roster event', () => {
     expect(result!.name).toBe(sanitiseDisplayName(v.input.rawName))
     expect(result!.name).not.toMatch(/\p{C}/u)
     expect([...result!.name!]).toHaveLength(MAX_DISPLAY_NAME_LENGTH)
+  })
+
+  it('agent: decodes with the flag kept, inside the ciphertext', () => {
+    const v = vec('rosterEvent', 'agent')
+    const result = decodeRosterEvent(v.input.event as Event, {
+      roomId: v.expected.decode.roomId,
+      roomKey: hexToBytes(v.expected.decode.roomKeyHex),
+      now: v.expected.decode.now,
+    })
+    expect(result).toEqual(v.expected.result)
+    expect(result!.agent).toBe(true)
+    expect(JSON.stringify(v.input.event)).not.toContain('agent')
+  })
+
+  it('agent-loose-value: accepts the entry and drops the flag', () => {
+    const v = vec('rosterEvent', 'agent-loose-value')
+    const result = decodeRosterEvent(v.input.event as Event, {
+      roomId: v.expected.decode.roomId,
+      roomKey: hexToBytes(v.expected.decode.roomKeyHex),
+      now: v.expected.decode.now,
+    })
+    expect(result).toEqual(v.expected.result)
+    expect(result).not.toBeNull()
+    expect(result).not.toHaveProperty('agent')
   })
 
   it('farewell: decodes to a departure, and the field is inside the ciphertext', () => {

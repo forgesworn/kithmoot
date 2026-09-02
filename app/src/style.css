@@ -305,10 +305,57 @@ video {
   margin-right: 0.4rem;
 }
 
-#chatForm {
+#chatForm,
+#agentForm {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
+
+/* The side channels: the same log as the chat, folded away until wanted. */
+#agentsPanel,
+#transcriptPanel {
+  margin-top: 1rem;
+}
+
+#agentsPanel summary,
+#transcriptPanel summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.log {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--panel);
+  font-size: 0.9rem;
+}
+
+.log p {
+  margin: 0.15rem 0;
+}
+
+.log .who {
+  color: var(--muted);
+  margin-right: 0.4rem;
+}
+
+.log p.transcript {
+  font-style: italic;
+}
+
+.count {
+  color: var(--muted);
+  font-weight: normal;
+  font-size: 0.85rem;
+}
+
+.participant .badge.agent {
+  background: #7a6fd0;
+  color: #fff;
 }
 
 /* Identity

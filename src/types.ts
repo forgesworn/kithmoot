@@ -169,6 +169,22 @@ export interface RosterEntry {
    *  ever. Absent on a first announcement. */
   reply?: boolean
   /**
+   * True when this device is an automated participant: an agent that acts
+   * for a person, or for itself, and is in the room to read, write and
+   * listen rather than to be looked at.
+   *
+   * Self-declared, and a claim like everything else here - nothing stops a
+   * person's browser saying it and nothing stops an agent not saying it.
+   * What it is for is consent: a member can choose not to send media to
+   * anything that says it is an agent (see `RoomSession.publishTracks`),
+   * and a room can show which of its members are people. An agent that
+   * hides the flag gets media it was not meant to have, which is the same
+   * betrayal as a person recording a call, and no protocol prevents either.
+   * Absent on every entry that is not one, so the wire is byte-identical
+   * for a client that has never heard of agents.
+   */
+  agent?: boolean
+  /**
    * True on the last entry a device publishes: it has left the room.
    *
    * Departure is a fact, not a guess made from an empty track list - a device

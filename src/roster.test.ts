@@ -261,3 +261,26 @@ describe('roster display names', () => {
     expect(decoded.device).toBe(entry.device)
   })
 })
+
+describe('the agent flag', () => {
+  it('carries `agent: true`, and an entry without it is byte-identical to one from before agents existed', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const event = encodeRosterEvent({ ...entry, agent: true }, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded?.agent).toBe(true)
+    const person = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+    expect(JSON.parse(nip44.v2.decrypt(person.content, roomKey))).not.toHaveProperty('agent')
+  })
+
+  it('accepts only an honest `true`; anything else is a person', async () => {
+    // The flag decides what a member sends this device, so a looser
+    // implementation's `1` or `"yes"` must not read as one.
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    for (const hostile of ['yes', 1, {}, [], 'true', false]) {
+      const event = encodeRosterEvent({ ...entry, agent: hostile } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+      const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+      expect(decoded, `agent=${JSON.stringify(hostile)}`).not.toBeNull()
+      expect(decoded, `agent=${JSON.stringify(hostile)}`).not.toHaveProperty('agent')
+    }
+  })
+})

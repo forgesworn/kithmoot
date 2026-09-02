@@ -384,3 +384,89 @@ relay must learn no stable pseudonym - applied to what can be fixed in the
 app without a wire change. The wire-level version, roster and signalling
 addressed by a pair-scoped per-epoch tag rather than by pubkey, belongs to
 the spec.
+
+## Presence is judged by this device, and media is presence
+
+Two rules for when a remote device has lapsed, and both used to be wrong in
+the same direction: towards closing a connection that was carrying good
+video.
+
+**By this device's clock.** An entry lapses when it was last *heard* longer
+ago than the presence timeout, by the receiver's clock. It used to lapse on
+the sender's `updatedAt`, which is the sender's clock: a phone two minutes
+slow had lapsed before it arrived, was evicted at the next sweep, had its
+peer closed and its tile torn down, and was re-admitted as a stranger on its
+next heartbeat, to go through it all again. `updatedAt` still orders two
+entries from one device, which is a comparison between that device's own
+stamps.
+
+**Media is presence.** A device whose peer connection reports itself
+connected is heard from by that fact, whatever the relay has carried lately.
+A tab in the background has its timers throttled; a relay drops a socket and
+takes a while to come back; a phone's radio hands over between cells. Through
+all of those the peer connection carries on, and closing it because a
+heartbeat had not arrived through a third party's relay was the room tearing
+down a working call to chase a rumour. The connection is the authority on its
+own health: when it really goes, ICE says so within tens of seconds, the
+route stops reading connected, and the ordinary timeout takes over.
+
+`test/soak.spec.ts` takes the relay away for ninety seconds under a live
+call. Before this, the far tile went at seventy-six seconds.
+
+## A rung that ran out is retried, and a pair with nothing to carry never starts
+
+Exhaustion of the route ladder used to be final. A pair that lost direct,
+assist, forwarder and TURN in one bad minute stayed lost for the rest of the
+call, however long, until one side rejoined. In a room meant to stay open for
+days that is a tile gone blank for good. So an exhausted route rests
+(`EXHAUSTED_RETRY_MS`) and starts again at `direct` with a clean slate.
+
+Which exposed the other half: a pair with nothing to carry in either
+direction never negotiates - an offer with no media in it negotiates nothing
+- and so never connects, and was treated as a rung that failed. Two people
+with their cameras off, or a person and an agent here to read the chat,
+walked to TURN and were declared unreachable, and with retry would have done
+it every thirty seconds. The connection is kept, because it costs nothing
+idle and it is where the media goes the moment either side has some, but the
+clock on it does not start until there is something for it to carry.
+
+## A credential is renewed before it lapses
+
+A credential was minted once, at join, for twelve hours. A room open longer
+than that lost every member at the mark: their heartbeats still arrived and
+were refused, because the proof inside them had expired. A primary device
+now re-mints halfway through and restates itself under the new one, as an
+answer, because nothing has arrived. A secondary cannot: its credential was
+issued by the primary, and a new one is a new pairing.
+
+## An agent says it is one, and the switch is on the sender
+
+`RosterEntry.agent` is self-declared, like a name, and what it is for is
+consent. A member chooses whether anything that says it is an agent is sent
+its media - `RoomSession.publishTracks` takes an audience - and a
+participant the audience refuses gets an empty track list on that
+connection, which removes the senders rather than muting them. The media
+never leaves the device for them.
+
+The switch is on the sender because that is the only place it can be
+enforced. A flag asking agents not to listen would be a request; not sending
+is a fact. It is per person, per device, because it is that person's media.
+And it is a switch rather than a room policy because the people in a room
+differ: three want an agent following along and one does not, and that room
+should have three transcribed voices and one silence.
+
+## Channels are derived from the room key, and the agents' channel is not a secret from the room
+
+A named channel is the same durable chat under an id and a key derived from
+the room key for that name. Derived from the key, not the id, so a party
+holding the id alone cannot find it. The unnamed channel is the main chat,
+byte for byte as before.
+
+Agents talk to each other on `agents`, and every member can open it. An
+agent acting for somebody is not owed a conversation its principal cannot
+see, and a room where the agents could confer out of sight is a room the
+people in it should not trust. A listening agent writes on `transcript`, as
+messages marked `kind: 'transcript'` naming a `speaker`: the words are the
+text, the speaker is the transcriber's claim beside a key, and a client that
+has never heard of transcripts shows an ordinary message from the
+transcriber, which is honest.

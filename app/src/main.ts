@@ -34,7 +34,10 @@ import {
   type InvitationDelegation,
   type RoomAdmission,
   type ParticipantView,
+  type SingularRole,
   type TrackAdvert,
+  AGENT_CHANNEL,
+  TRANSCRIPT_CHANNEL,
   type ChatMessage,
 } from '../../src/index.js'
 import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
@@ -1732,8 +1735,73 @@ function previewKindOf(role: TrackAdvert['role']): 'camera' | 'screen' | undefin
  *  of what has already been added to which connection, so re-sending a track
  *  that is already there is a safe no-op, and a device that joins the mesh
  *  after a later toggle still gets everything published before it arrived. */
+const AGENTS_HEAR_STORAGE_KEY = 'kithmoot.agents-hear'
+
+/**
+ * Whether anything in this room that says it is an agent is sent this
+ * device's media.
+ *
+ * Off by default, and remembered. Off means the tracks are never handed to
+ * the connection to an agent - see `RoomSession.publishTracks` - so a
+ * conversation people want to have among themselves is one no agent in the
+ * room can hear, whatever it claims to be for. On is the case a person
+ * chooses when they want an agent following along, and a listening agent
+ * then writes what they say into the transcript channel. Per device, per
+ * person: it is my media, so it is my switch.
+ */
+let agentsMayHear = localStorage.getItem(AGENTS_HEAR_STORAGE_KEY) === 'true'
+
+/** Who this device's media goes to: everybody, unless they say they are an
+ *  agent and the switch above is off. */
+function audience(view: ParticipantView): boolean {
+  return view.agent !== true || agentsMayHear
+}
+
+function setAgentsMayHear(on: boolean): void {
+  agentsMayHear = on
+  try {
+    localStorage.setItem(AGENTS_HEAR_STORAGE_KEY, String(on))
+  } catch {
+    // Storage may be unavailable; the switch still works for this page.
+  }
+  setToggle('toggleAgentsHear', on)
+  $('agentsHearNote').textContent = on
+    ? 'On: agents in this room receive your camera and microphone like anybody else. One that is listening writes what you say into the transcript below. Turn this off for a conversation among people.'
+    : 'Off: anything in this room that says it is an agent is sent none of your camera or microphone. The media never leaves this device for them. Turn this on when you want an agent following along.'
+  publishActiveTracks()
+}
+
+/** When this device last took the microphone, for the singular-role claim.
+ *  Stamped when the mic comes on, so a device that has held it since the
+ *  start is not outranked by its owner's other device toggling later. */
+let micClaimedAt: number | undefined
+
+/**
+ * What this device is publishing, as the roster should advertise it: the
+ * real track ids, which are what a volunteer carrying this device's media
+ * has to match a forwarded track against - see `Mesh.#trackOwner`.
+ */
+function currentAdverts(): TrackAdvert[] {
+  const adverts: TrackAdvert[] = []
+  if (cameraTrack) adverts.push({ trackId: cameraTrack.id, role: 'camera' })
+  if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic' })
+  if (screenTrack) adverts.push({ trackId: screenTrack.id, role: 'screen' })
+  return adverts
+}
+
+function currentClaims(): Partial<Record<SingularRole, number>> {
+  if (!micTrack) return {}
+  micClaimedAt ??= nowSeconds()
+  return { mic: micClaimedAt }
+}
+
+/** Send the live tracks to every peer, and tell the roster what they are.
+ *  Both, every time: the peers carry the media, and the roster is what
+ *  everybody else's tile reads to say "camera" or "connecting". */
 function publishActiveTracks(): void {
-  session?.publishTracks(activeTracks())
+  if (!micTrack) micClaimedAt = undefined
+  session?.publishTracks(activeTracks(), { audience })
+  session?.advertise(currentAdverts(), currentClaims()).catch(() => {})
 }
 
 function setToggle(id: string, on: boolean): void {
@@ -1814,6 +1882,15 @@ function render(views: ParticipantView[], me: string): void {
       badge.textContent = 'one person'
       heading.append(badge)
     }
+    if (view.agent) {
+      // Self-declared, like a name: it says what this participant claims to
+      // be, and it is what the "agents can hear me" switch acts on.
+      const badge = document.createElement('span')
+      badge.className = 'badge agent'
+      badge.textContent = 'agent'
+      badge.title = 'This participant says it is an automated agent'
+      heading.append(badge)
+    }
     box.append(heading)
 
     if (view.participant === me) {
@@ -1878,22 +1955,48 @@ function trackChips(
 }
 
 function renderChat(messages: ChatMessage[]): void {
-  const log = $('chatLog')
+  renderLog('chatLog', undefined, messages)
+}
+
+/**
+ * One conversation into one element: the chat, the agents' channel, the
+ * transcript. A transcript line names the speaker the transcriber claims,
+ * beside a key exactly as a name is, and says who wrote it down.
+ */
+function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[]): void {
+  const log = $(logId)
   log.innerHTML = ''
-  profiles.want(messages.map((m) => m.participant))
+  profiles.want(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
 
   for (const m of messages) {
     const p = document.createElement('p')
     const who = document.createElement('span')
     who.className = 'who'
-    // The same name-and-key run the tiles use. A line of chat is exactly
-    // where a name alone would be most convincing and least checkable, so
-    // the short pubkey is here too - and the name on the message is the
-    // sender's own claim, carried with it (see ChatMessage.name).
-    who.append(identityRun(shownAs(m.participant, m.name), m.participant === meParticipant))
-    p.append(who, m.text)
+    if (m.kind === 'transcript') {
+      p.className = 'transcript'
+      if (m.speaker) {
+        const speakerName = session?.participants().find((v) => v.participant === m.speaker)?.name
+        who.append(identityRun(shownAs(m.speaker, speakerName), m.speaker === meParticipant))
+        who.append(' said')
+      } else {
+        who.append('somebody said')
+      }
+      const by = document.createElement('span')
+      by.className = 'who'
+      by.append(' · heard by ')
+      by.append(identityRun(shownAs(m.participant, m.name), false))
+      p.append(who, m.text, by)
+    } else {
+      // The same name-and-key run the tiles use. A line of chat is exactly
+      // where a name alone would be most convincing and least checkable, so
+      // the short pubkey is here too - and the name on the message is the
+      // sender's own claim, carried with it (see ChatMessage.name).
+      who.append(identityRun(shownAs(m.participant, m.name), m.participant === meParticipant))
+      p.append(who, m.text)
+    }
     log.append(p)
   }
+  if (countId) $(countId).textContent = messages.length ? `(${messages.length})` : ''
   log.scrollTop = log.scrollHeight
 }
 
@@ -1931,7 +2034,7 @@ interface RemoteVideo {
 }
 
 const remoteVideos = new Map<string, RemoteVideo>()
-const remoteAudios = new Map<string, HTMLAudioElement>()
+const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamTrack }>()
 
 /** How many checks a picture may go without a new frame before it comes off
  *  screen. Two at a one-second interval: long enough not to flicker on a
@@ -2041,7 +2144,20 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
   if (track.kind === 'video') {
     const existing = remoteVideos.get(key)
     const el = existing?.el ?? document.createElement('video')
-    el.srcObject = new MediaStream([track])
+    // The same key, a different track object: the mesh rebuilt the
+    // connection to this device - a rung down the ladder, or a fresh one
+    // after a rest - and the far end's track arrived again on it. The
+    // element is kept, so the picture never blinks, but everything that
+    // judges it has to follow the new track: the stall poller reads
+    // `entry.track.readyState`, and the old track ends the moment the old
+    // connection closes. Left pointing at the old one, the poller and the
+    // old track's `ended` both took the element off the screen while it
+    // was showing live frames from the new one, and nothing put it back -
+    // `ontrack` for that track had already fired. That was a picture gone
+    // for the rest of the call, on a connection that was working.
+    const replaced = existing !== undefined && existing.track !== track
+    if (!existing || replaced) el.srcObject = new MediaStream([track])
+    if (existing) existing.track = track
     if (!existing) {
       el.autoplay = true
       el.playsInline = true
@@ -2049,11 +2165,6 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.dataset.track = track.id
       remoteVideos.set(key, { el, container, track, last: -1, stalled: 0, played: false })
       container.append(el)
-      track.addEventListener('ended', () => {
-        el.remove()
-        remoteVideos.delete(key)
-        if (session) render(session.participants(), meParticipant)
-      })
     } else if (!onScreen(existing)) {
       // Parked, and the far end is publishing this track again - a
       // renegotiation hands the same track over and `ontrack` fires afresh.
@@ -2062,6 +2173,22 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       container.append(el)
       existing.stalled = 0
     }
+    if (replaced) {
+      // A new track has never played, whatever the old one did, and the
+      // clock it is judged by starts again.
+      existing!.last = -1
+      existing!.stalled = 0
+      existing!.played = false
+    }
+    track.addEventListener('ended', () => {
+      // Only the track currently on this element may take it down. The
+      // one this listener was registered for may have been replaced since,
+      // in which case its ending is old news about a closed connection.
+      if (remoteVideos.get(key)?.track !== track) return
+      el.remove()
+      remoteVideos.delete(key)
+      if (session) render(session.participants(), meParticipant)
+    })
   } else {
     // Audio is never taken off screen for going quiet. A picture that
     // outlives its media is a lie about what the room can see; an `<audio>`
@@ -2069,22 +2196,30 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
     // costs real sound, because a track with no sink is never decoded and
     // reports exactly zero energy, which is how a room with no audio
     // elements at all looked in the first place.
-    let el = remoteAudios.get(key)
-    if (!el) {
-      el = document.createElement('audio')
+    const existing = remoteAudios.get(key)
+    const el = existing?.el ?? document.createElement('audio')
+    if (!existing) {
       el.autoplay = true
       el.dataset.track = track.id
-      remoteAudios.set(key, el)
+      remoteAudios.set(key, { el, track })
       container.append(el)
-      track.addEventListener('ended', () => {
-        el?.remove()
-        remoteAudios.delete(key)
-        if (session) render(session.participants(), meParticipant)
-      })
     } else if (!el.isConnected) {
       container.append(el)
     }
-    el.srcObject = new MediaStream([track])
+    // Same rule as the picture: a rebuilt connection hands the same track id
+    // over as a new object, and only the track on the element now may end
+    // it. Reassigned only when it changed, so a renegotiation that hands the
+    // same track back does not restart the element mid-word.
+    if (!existing || existing.track !== track) {
+      el.srcObject = new MediaStream([track])
+      if (existing) existing.track = track
+    }
+    track.addEventListener('ended', () => {
+      if (remoteAudios.get(key)?.track !== track) return
+      el.remove()
+      remoteAudios.delete(key)
+      if (session) render(session.participants(), meParticipant)
+    })
   }
 
   if (session) render(session.participants(), meParticipant)
@@ -2194,17 +2329,21 @@ async function startSession(): Promise<void> {
     s.onChange((views) => render(views, meParticipant))
     s.onRemoteTrack(({ device, track }) => attachRemoteTrack(device, track))
 
-    const tracks: TrackAdvert[] = []
-    if (cameraTrack) tracks.push({ trackId: 'cam', role: 'camera' })
-    if (micTrack) tracks.push({ trackId: 'mic', role: 'mic' })
-    if (screenTrack) tracks.push({ trackId: 'scr', role: 'screen' })
-    const claims = micTrack ? { mic: Math.floor(Date.now() / 1000) } : {}
-
-    await s.join(tracks, claims)
-    publishActiveTracks()
+    await s.join(currentAdverts(), currentClaims())
+    s.publishTracks(activeTracks(), { audience })
 
     s.chat.onChange((messages) => renderChat(messages))
     renderChat(s.chat.messages())
+    // The side channels: what the agents say to each other, and what a
+    // listening agent heard. Opened now rather than on demand, because a
+    // relay replays a durable kind to a subscriber but a person opening
+    // the panel an hour in should not have to wait for that.
+    const agents = s.channel(AGENT_CHANNEL)
+    agents.onChange((messages) => renderLog('agentLog', 'agentsCount', messages))
+    renderLog('agentLog', 'agentsCount', agents.messages())
+    const transcript = s.channel(TRANSCRIPT_CHANNEL)
+    transcript.onChange((messages) => renderLog('transcriptLog', 'transcriptCount', messages))
+    renderLog('transcriptLog', 'transcriptCount', transcript.messages())
 
     joinBtn.hidden = true
     $('identity').hidden = true
@@ -2440,6 +2579,22 @@ window.addEventListener('pagehide', () => {
   session?.leave()
   stopInvitationHost()
 })
+
+setToggle('toggleAgentsHear', agentsMayHear)
+$('toggleAgentsHear').addEventListener('click', () => setAgentsMayHear(!agentsMayHear))
+
+$('agentForm').addEventListener('submit', (event) => {
+  event.preventDefault()
+  const input = $('agentInput') as HTMLInputElement
+  const text = input.value.trim()
+  if (!text || !session) return
+  input.value = ''
+  session
+    .channel(AGENT_CHANNEL)
+    .send(text)
+    .catch((err) => setStatus(describeError(err)))
+})
+;($('agentInput') as HTMLInputElement).maxLength = MAX_CHAT_TEXT_LENGTH
 
 $('chatForm').addEventListener('submit', (event) => {
   event.preventDefault()

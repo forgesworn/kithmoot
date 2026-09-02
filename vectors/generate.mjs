@@ -56,6 +56,7 @@ import * as fx from './lib/fixtures.mjs'
 // `vectors` script in package.json, which always runs that first).
 import { KINDS } from '../dist/src/kinds.js'
 import { deriveRoom, encodeJoinUrl, decodeJoinUrl } from '../dist/src/room.js'
+import { deriveChannel } from '../dist/src/chat.js'
 import { verifyDeviceCredential } from '../dist/src/credential.js'
 import { decodeRosterEvent } from '../dist/src/roster.js'
 import { unwrapSignal } from '../dist/src/signal.js'
@@ -66,7 +67,7 @@ import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -589,6 +590,88 @@ vectors.rosterEvent.push({
       decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), now: fx.NOW },
       result: decodeRosterEvent(farewellRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
     },
+  })
+}
+
+{
+  // --- The agent flag ----------------------------------------------------
+  //
+  // A roster entry may say `agent: true`: this device is an automated
+  // participant. Self-declared, like a display name, and what it is FOR is
+  // consent - a member may choose to send its media to nothing that says
+  // this. So only an honest JSON `true` is the flag; a looser
+  // implementation's `1` or `"yes"` is a person, and a reader that does not
+  // know the field at all sees an ordinary entry. Recorded decode-only, like
+  // the farewell: an implementation that ignores the field still matches
+  // the recorded entry on everything else.
+  const agentEntry = { ...rosterEntry, agent: true }
+  const agentRoster = buildRoster({
+    entry: agentEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-agent-nonce',
+    auxRandLabel: 'roster-agent-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'agent',
+    kind: 'positive',
+    note: 'A roster entry from a device declaring itself an automated participant with `agent: true`. Inside the room-key ciphertext like everything else. A reader keeps the flag; a member may use it to decide what media this device is sent. A reader that does not know the field sees an ordinary entry.',
+    input: { event: agentRoster.event },
+    output: { result: decodeRosterEvent(agentRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }) },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), now: fx.NOW },
+      result: decodeRosterEvent(agentRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+
+  const looseAgentEntry = { ...rosterEntry, agent: 'yes' }
+  const looseAgentRoster = buildRoster({
+    entry: looseAgentEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-agent-loose-nonce',
+    auxRandLabel: 'roster-agent-loose-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'agent-loose-value',
+    kind: 'positive',
+    note: 'A genuine roster entry whose `agent` field is the string "yes" rather than the JSON boolean `true`. The entry is ACCEPTED and the field is DROPPED: only an honest `true` declares an agent, because the flag decides what a member sends this device. `expected.result` carries no `agent` at all.',
+    input: { event: looseAgentRoster.event, rawAgent: 'yes' },
+    output: { result: decodeRosterEvent(looseAgentRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }) },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), now: fx.NOW },
+      result: decodeRosterEvent(looseAgentRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
+  // --- Channel derivation --------------------------------------------------
+  //
+  // A named channel is the same room-key chat under an id and a key derived
+  // from the room KEY for that name - never from the room id, so a party
+  // holding the id alone cannot find it. Two HKDF expansions, two info
+  // strings, exactly as `deriveRoom`. The unnamed channel is the main chat:
+  // the room id and the room key themselves, byte for byte.
+  for (const channel of ['agents', 'transcript']) {
+    const { id, key } = deriveChannel(ROOM_1.roomId, ROOM_1.roomKey, channel)
+    vectors.channelDerivation.push({
+      name: channel,
+      kind: 'positive',
+      note: `The \`${channel}\` channel of ROOM_1: id = HKDF-SHA256(ikm = roomKey, info = "kithmoot/v1/channel-id/${channel}", 32 bytes) as hex, key = HKDF-SHA256(ikm = roomKey, info = "kithmoot/v1/channel-key/${channel}", 32 bytes). No salt. A chat event on this channel carries the id in its \`d\` tag and is NIP-44-encrypted under the key; the credential inside is still checked against the ROOM id.`,
+      input: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey), channel },
+      output: { id, keyHex: bytesToHex(key) },
+    })
+  }
+  const main = deriveChannel(ROOM_1.roomId, ROOM_1.roomKey)
+  vectors.channelDerivation.push({
+    name: 'unnamed-is-the-room',
+    kind: 'positive',
+    note: 'No channel name means the main chat: the id is the room id and the key is the room key, unchanged, so every chat event ever published decodes exactly as before channels existed.',
+    input: { roomId: ROOM_1.roomId, roomKeyHex: bytesToHex(ROOM_1.roomKey) },
+    output: { id: main.id, keyHex: bytesToHex(main.key) },
   })
 }
 

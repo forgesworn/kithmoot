@@ -719,11 +719,114 @@ describe('the route timeout', () => {
     try {
       const remote = device()
       const h = harness({ routeTimeoutMs: 1_000 })
-      h.session.setViews([person(remote.pub)])
+      const view = person(remote.pub)
+      view.tracks = [{ trackId: 'cam', role: 'camera', device: remote.pub }]
+      h.session.setViews([view])
       // A candidate pair that sits in `checking` for ever reports nothing at
       // all, which is exactly the case ICE will not tell us about.
       vi.advanceTimersByTime(1_500)
 
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('after the ladder runs out', () => {
+  it('BUG: tries again from the top after a rest, rather than staying dark for the rest of the call', async () => {
+    // Exhaustion used to be final. A pair that lost every rung in one bad
+    // minute - a phone through a dead spot, a router rebooting - was lost
+    // for the rest of the call, however long, until one side rejoined. In a
+    // room that stays open for days, that is a tile gone blank for good.
+    vi.useFakeTimers()
+    try {
+      const remote = device()
+      const h = harness({ exhaustedRetryMs: 1_000 })
+      h.session.setViews([person(remote.pub)])
+      await vi.advanceTimersByTimeAsync(0)
+      h.state(remote.pub, 'failed')
+      await vi.advanceTimersByTimeAsync(0)
+      h.state(remote.pub, 'failed')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'turn', exhausted: true })
+      const before = h.factory.instances.length
+
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'direct', exhausted: false, connected: false })
+      expect(h.routes.at(-1)).toMatchObject({ device: remote.pub, route: { tier: 'direct', exhausted: false } })
+      // A fresh connection, on the first rung, not a revival of the dead one.
+      expect(h.factory.instances.length).toBe(before + 1)
+      expect(h.factory.to(remote.pub)?.context?.tier).toBe('direct')
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not retry a device that left while it was resting', async () => {
+    vi.useFakeTimers()
+    try {
+      const remote = device()
+      const h = harness({ exhaustedRetryMs: 1_000 })
+      h.session.setViews([person(remote.pub)])
+      await vi.advanceTimersByTimeAsync(0)
+      h.state(remote.pub, 'failed')
+      await vi.advanceTimersByTimeAsync(0)
+      h.state(remote.pub, 'failed')
+      await vi.advanceTimersByTimeAsync(0)
+      h.session.setViews([])
+      const before = h.factory.instances.length
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(h.factory.instances.length).toBe(before)
+      expect(h.mesh.routes.has(remote.pub)).toBe(false)
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('a pair with nothing to carry', () => {
+  it('BUG: keeps an idle connection open without walking the ladder, and starts the clock when there is media', async () => {
+    // Two people with their cameras off, or a person and an agent here to
+    // read the chat: neither side offers, so nothing connects, and the
+    // mesh used to declare the rung failed, walk to TURN, and give up -
+    // and, once exhaustion was retried, do it again every rest.
+    vi.useFakeTimers()
+    try {
+      const remote = device()
+      const h = harness({ routeTimeoutMs: 1_000, exhaustedRetryMs: 1_000 })
+      h.session.setViews([person(remote.pub)])
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'direct', exhausted: false })
+      expect(h.factory.instances.length).toBe(1)
+
+      // They turn a camera on: now the rung has a budget, and a pair that
+      // then never connects is a pair that failed.
+      const view = person(remote.pub)
+      view.tracks = [{ trackId: 'cam', role: 'camera', device: remote.pub }]
+      h.session.setViews([view])
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('starts the clock when this side publishes something for the pair', async () => {
+    vi.useFakeTimers()
+    try {
+      const remote = device()
+      const h = harness({ routeTimeoutMs: 1_000 })
+      h.session.setViews([person(remote.pub)])
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('direct')
+      h.mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
+      await vi.advanceTimersByTimeAsync(1_500)
       expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
       h.close()
     } finally {

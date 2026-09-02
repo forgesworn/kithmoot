@@ -49,7 +49,7 @@ const TIERS: AccessTier[] = ['open', 'ken', 'kith', 'kin']
  * dropped policy is an open room, and failing open is exactly the mistake
  * carrying the policy in the capability is meant to prevent.
  */
-function parsePolicy(raw: unknown): RoomPolicy | undefined {
+export function parseRoomPolicy(raw: unknown): RoomPolicy | undefined {
   if (raw === undefined || raw === null) return undefined
   if (typeof raw !== 'object') throw new Error('join URL carries a malformed access policy')
   const policy = raw as RoomPolicy
@@ -121,6 +121,6 @@ export function decodeJoinUrl(url: string): {
   }
   if (secret.length !== 32) throw new Error('join URL carries a malformed secret')
 
-  const policy = parsePolicy(payload.a)
+  const policy = parseRoomPolicy(payload.a)
   return policy ? { secret, relays: payload.r ?? [], policy } : { secret, relays: payload.r ?? [] }
 }

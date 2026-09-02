@@ -11,6 +11,8 @@ import {
   MAX_CHAT_MESSAGES,
   MAX_CHAT_MESSAGES_PER_MINUTE,
   MAX_CHAT_TEXT_LENGTH,
+  MAX_CHANNEL_NAME_LENGTH,
+  deriveChannel,
 } from './chat.js'
 import { issueKindredProof } from './access.js'
 import type { ChatMessage } from './chat.js'
@@ -445,6 +447,110 @@ describe('chat display names', () => {
     expect(sent.name).toBe('Darren')
     // The credential is still what says who sent this.
     expect(sent.participant).toBe(identity.pubkey)
+    log.close()
+  })
+})
+
+describe('channels', () => {
+  it('derives a channel id and key from the room key, and never from the room id', async () => {
+    const { roomId, roomKey } = await fixture()
+    const agents = deriveChannel(roomId, roomKey, 'agents')
+    expect(agents.id).toMatch(/^[0-9a-f]{64}$/)
+    expect(agents.id).not.toBe(roomId)
+    expect(agents.key).not.toEqual(roomKey)
+    expect(agents.key.length).toBe(32)
+    // The same room, a different key: a different channel, so a party that
+    // holds the room id alone can find neither.
+    const other = deriveChannel(roomId, new Uint8Array(32).fill(8), 'agents')
+    expect(other.id).not.toBe(agents.id)
+    // Unnamed is the main chat, byte for byte.
+    expect(deriveChannel(roomId, roomKey)).toEqual({ id: roomId, key: roomKey })
+    // Two names, two channels.
+    expect(deriveChannel(roomId, roomKey, 'transcript').id).not.toBe(agents.id)
+  })
+
+  it('keeps a channel message out of the main chat, and the main chat out of a channel', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const onChannel = encodeChatEvent(msg, { roomId, roomKey, deviceSk, channel: 'agents' })
+    expect(onChannel.tags.find((t) => t[0] === 'd')?.[1]).toBe(deriveChannel(roomId, roomKey, 'agents').id)
+    expect(decodeChatEvent(onChannel, { roomId, roomKey, now: NOW })).toBeNull()
+    expect(decodeChatEvent(onChannel, { roomId, roomKey, now: NOW, channel: 'agents' })).toMatchObject({ text: 'hello room' })
+    expect(decodeChatEvent(onChannel, { roomId, roomKey, now: NOW, channel: 'transcript' })).toBeNull()
+
+    const onMain = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
+    expect(decodeChatEvent(onMain, { roomId, roomKey, now: NOW, channel: 'agents' })).toBeNull()
+  })
+
+  it('still checks the credential against the ROOM on a channel - a channel is a place in a room, not a room', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const otherRoom = deriveRoom(new Uint8Array(32).fill(8))
+    // Encrypted under this room's channel, but carrying a credential for
+    // another room entirely.
+    const foreign = await credentialFor(deviceSk, otherRoom.roomId)
+    const event = encodeChatEvent({ ...msg, credential: foreign, participant: foreign.pubkey }, { roomId, roomKey, deviceSk, channel: 'agents' })
+    expect(decodeChatEvent(event, { roomId, roomKey, now: NOW, channel: 'agents' })).toBeNull()
+  })
+
+  it('two logs on different channels of one room do not hear each other', async () => {
+    const { roomId, roomKey, deviceSk, credential } = await fixture()
+    const relay = new SimRelay()
+    const main = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
+    const agents = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW, channel: 'agents' })
+    await agents.send('plan: split the work')
+    await main.send('hello everybody')
+    expect(agents.messages().map((m) => m.text)).toEqual(['plan: split the work'])
+    expect(main.messages().map((m) => m.text)).toEqual(['hello everybody'])
+    expect(agents.channel).toBe('agents')
+    expect(main.channel).toBeUndefined()
+    main.close()
+    agents.close()
+  })
+
+  it('refuses a channel name that is empty or absurdly long', async () => {
+    const { roomId, roomKey } = await fixture()
+    expect(() => deriveChannel(roomId, roomKey, '')).toThrow()
+    expect(() => deriveChannel(roomId, roomKey, 'x'.repeat(MAX_CHANNEL_NAME_LENGTH + 1))).toThrow()
+  })
+})
+
+describe('transcripts', () => {
+  it('carries a transcript as `kind: transcript` with a speaker, and an ordinary message carries neither', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const speakerSk = generateSecretKey()
+    const speaker = getPublicKey(speakerSk)
+    const event = encodeChatEvent({ ...msg, kind: 'transcript', speaker: speaker.toUpperCase() }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded).toMatchObject({ kind: 'transcript', speaker, text: 'hello room' })
+    const plain = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
+    const wire = JSON.parse(nip44.v2.decrypt(plain.content, roomKey))
+    expect(wire).not.toHaveProperty('kind')
+    expect(wire).not.toHaveProperty('speaker')
+  })
+
+  it('reads anything that is not exactly a transcript as an ordinary message, with no speaker', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    for (const hostile of ['shout', 1, true, {}]) {
+      const event = encodeChatEvent({ ...msg, kind: hostile, speaker: 'abc' } as unknown as ChatMessage, { roomId, roomKey, deviceSk })
+      const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
+      expect(decoded, `kind=${JSON.stringify(hostile)}`).not.toBeNull()
+      expect(decoded).not.toHaveProperty('kind')
+      expect(decoded).not.toHaveProperty('speaker')
+    }
+    // A transcript whose speaker is not a pubkey keeps the kind and loses
+    // the speaker, which a renderer shows as "somebody said".
+    const event = encodeChatEvent({ ...msg, kind: 'transcript', speaker: 'not-a-key' }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded?.kind).toBe('transcript')
+    expect(decoded).not.toHaveProperty('speaker')
+  })
+
+  it('sends a transcript through the log with the speaker named', async () => {
+    const { roomId, roomKey, deviceSk, credential } = await fixture()
+    const relay = new SimRelay()
+    const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW, channel: 'transcript' })
+    const speaker = getPublicKey(generateSecretKey())
+    await log.send('we should ship on friday', { transcriptOf: speaker })
+    expect(log.messages()[0]).toMatchObject({ kind: 'transcript', speaker, text: 'we should ship on friday' })
     log.close()
   })
 })

@@ -71,6 +71,16 @@
         </div>
         <p id="micIndicator" class="indicator"></p>
 
+        <div class="toggles">
+          <button id="toggleAgentsHear" class="toggle" data-on="false">Agents can hear me</button>
+        </div>
+        <p id="agentsHearNote" class="note">
+          Off: anything in this room that says it is an agent is sent none of
+          your camera or microphone. The media never leaves this device for
+          them. On: agents receive what people do, and one that is listening
+          writes what you say into the transcript below.
+        </p>
+
         <div id="effects">
           <details id="cameraEffects" hidden>
             <summary>Background <span id="effectMode" class="chip">blur</span></summary>
@@ -224,6 +234,32 @@
           <input id="chatInput" placeholder="Say something" autocomplete="off" />
           <button type="submit">Send</button>
         </form>
+
+        <details id="agentsPanel">
+          <summary>Agents, among themselves <span id="agentsCount" class="count"></span></summary>
+          <p class="note">
+            What the agents in this room say to each other. It is encrypted to
+            the room like everything else, and every person here can read it:
+            an agent acting for you is not owed a conversation you cannot see.
+            You can say something here too.
+          </p>
+          <div id="agentLog" class="log" aria-live="polite"></div>
+          <form id="agentForm">
+            <input id="agentInput" placeholder="Say something to the agents" autocomplete="off" />
+            <button type="submit">Send</button>
+          </form>
+        </details>
+
+        <details id="transcriptPanel">
+          <summary>Transcript <span id="transcriptCount" class="count"></span></summary>
+          <p class="note">
+            What people said aloud, written down by an agent that was allowed
+            to listen. Nothing appears here from anybody who has
+            <em>Agents can hear me</em> off. Who said what is the transcriber's
+            claim, shown beside a key like any name.
+          </p>
+          <div id="transcriptLog" class="log" aria-live="polite"></div>
+        </details>
       </section>
 
       <!-- Where a picture waits while it is off screen. Off the room's

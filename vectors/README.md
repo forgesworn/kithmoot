@@ -111,6 +111,7 @@ directly, with no reimplementation involved.
 | Group | Covers | Source |
 |---|---|---|
 | `roomDerivation` | secret → `roomId` + `roomKey` via two HKDF info strings | `src/room.ts` |
+| `channelDerivation` | `roomKey` + channel name → the channel's `id` + `key` via two HKDF info strings; no name is the room itself | `src/chat.ts` |
 | `joinUrl` | secret + relays (+ optional access policy) ↔ URL fragment | `src/room.ts` |
 | `deviceCredential` | participant secret + device pubkey + roomId + expiry → signed kind-20460 event | `src/credential.ts` |
 | `rosterEvent` | a `RosterEntry` + room key → encrypted kind-20461 event | `src/roster.ts` |

@@ -42,6 +42,7 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
     name: sanitiseDisplayName(entry.name),
     assist: sanitiseAssistOffer(entry.assist),
     left: entry.left === true ? true : undefined,
+    agent: entry.agent === true ? true : undefined,
   })
   const content = nip44.v2.encrypt(plaintext, opts.roomKey)
   return finalizeEvent(
@@ -125,6 +126,9 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     // is one. A looser implementation's `1` or `"yes"` is not a departure;
     // it is an entry like any other, and the timeout deals with it.
     if (entry.left !== true) delete entry.left
+    // Same rule for the agent flag, for the same reason: it decides what a
+    // member sends this device, so only an honest `true` is one.
+    if (entry.agent !== true) delete entry.agent
 
     if (entry.proof) {
       entry.proof = {

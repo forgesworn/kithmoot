@@ -787,3 +787,80 @@ describe('Mesh promotion to a forwarder', () => {
     mesh.close()
   })
 })
+
+describe('who the tracks are for', () => {
+  function person(pub: string, agent = false): ParticipantView {
+    const v: ParticipantView = { participant: `p-${pub.slice(0, 8)}`, devices: [pub], tracks: [] }
+    if (agent) v.agent = true
+    return v
+  }
+
+  it('sends nothing to a participant the audience rule refuses, now and for anybody who arrives later', async () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const human = device()
+    const agent = device()
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: device().pub,
+      deviceSk: local.sk,
+      transport: new SimTransport(relay),
+      roomId: ROOM_ID,
+    })
+    const track = { id: 'cam', kind: 'video' } as unknown as MediaStreamTrack
+
+    session.setViews([person(human.pub), person(agent.pub, true)])
+    mesh.publish([track], (view) => !view.agent)
+    await flush()
+    expect(factory.to(human.pub)?.tracks).toEqual([track])
+    expect(factory.to(agent.pub)?.tracks).toEqual([])
+
+    // A second agent arrives after the rule was set: judged by the same rule.
+    const later = device()
+    session.setViews([person(human.pub), person(agent.pub, true), person(later.pub, true)])
+    await flush()
+    expect(factory.to(later.pub)?.tracks).toEqual([])
+
+    // The rule is lifted: everybody gets everything.
+    mesh.publish([track])
+    await flush()
+    expect(factory.to(agent.pub)?.tracks).toEqual([track])
+    expect(factory.to(later.pub)?.tracks).toEqual([track])
+
+    // And put back: the sender is removed, not muted.
+    mesh.publish([track], (view) => !view.agent)
+    await flush()
+    expect(factory.to(agent.pub)?.tracks).toEqual([])
+    expect(factory.to(agent.pub)?.calls.some((c) => c.method === 'removeTrack')).toBe(true)
+    expect(factory.to(human.pub)?.tracks).toEqual([track])
+    mesh.close()
+  })
+
+  it('treats a rule that throws as a refusal', async () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const local = device()
+    const remote = device()
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: device().pub,
+      deviceSk: local.sk,
+      transport: new SimTransport(new SimRelay()),
+      roomId: ROOM_ID,
+    })
+    const track = { id: 'cam', kind: 'video' } as unknown as MediaStreamTrack
+    session.setViews([person(remote.pub)])
+    mesh.publish([track], () => {
+      throw new Error('undecided')
+    })
+    await flush()
+    expect(factory.to(remote.pub)?.tracks).toEqual([])
+    mesh.close()
+  })
+})

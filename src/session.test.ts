@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
@@ -1282,5 +1282,302 @@ describe('RoomSession display names', () => {
     expect(views).toHaveLength(1)
     expect(views[0].name).toBe('Darren')
     expect(views[0].devices).toHaveLength(2)
+  })
+})
+
+describe('RoomSession presence is judged by this device, not by the sender', () => {
+  function room(clock: () => number, relay: SimRelay, over: Partial<PrimaryRoomSessionOptions> = {}) {
+    return new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now: clock,
+      announceJitterMs: 0,
+      ...over,
+    })
+  }
+
+  it('BUG: keeps a device whose clock runs slow, rather than evicting it on arrival', async () => {
+    // A phone two minutes behind stamps every entry two minutes in the
+    // past. Judged on that stamp it had lapsed before it arrived, so it was
+    // evicted at the next sweep, its peer closed, its tile torn down - and
+    // re-admitted as a stranger on its next heartbeat. Video that "kept
+    // dropping" on a clock that was merely wrong.
+    const relay = new SimRelay()
+    const mine = room(() => NOW, relay)
+    const slow = room(() => NOW - PRESENCE_TTL_SECONDS - 60, relay)
+
+    await mine.join([], {})
+    await slow.join([], {})
+    await settle()
+
+    expect(mine.participants().map((v) => v.participant)).toContain(slow.participant)
+    mine.leave()
+    slow.leave()
+  })
+
+  it('still lapses a slow-clocked device once it really has gone quiet', async () => {
+    const relay = new SimRelay()
+    let clock = NOW
+    const mine = room(() => clock, relay)
+    const slow = room(() => clock - 120, relay)
+
+    await mine.join([], {})
+    await slow.join([], {})
+    await settle()
+    expect(mine.participants()).toHaveLength(2)
+
+    slow.leave()
+    // The farewell took it out; pretend it never said goodbye instead.
+    clock = NOW + PRESENCE_TTL_SECONDS + 1
+    expect(mine.participants()).toHaveLength(1)
+    mine.leave()
+  })
+
+  it('BUG: keeps a device whose media is still flowing when its heartbeats stop arriving', async () => {
+    // A tab in the background has its timers throttled. A relay drops its
+    // socket. Through both the peer connection carries on - and the room
+    // used to close it anyway, on the strength of a heartbeat that had not
+    // come through a third party's relay, tearing down a working call.
+    const relay = new SimRelay()
+    let clock = NOW
+    const factory = createFakeFactory()
+    const mine = room(() => clock, relay, { factory })
+    const theirs = room(() => clock, relay)
+
+    await mine.join([], {})
+    await theirs.join([{ trackId: 'cam', role: 'camera' }], {})
+    await settle()
+    const pc = factory.to(theirs.device)
+    expect(pc).toBeDefined()
+    pc!.connectionState = 'connected'
+    pc!.onconnectionstatechange?.()
+    expect(mine.routes.get(theirs.device)?.connected).toBe(true)
+
+    // Their heartbeats stop reaching us, but the connection is up.
+    clock = NOW + PRESENCE_TTL_SECONDS + 1
+    expect(mine.participants().map((v) => v.participant)).toContain(theirs.participant)
+    clock = NOW + 3 * PRESENCE_TTL_SECONDS
+    expect(mine.participants().map((v) => v.participant)).toContain(theirs.participant)
+
+    // The connection itself goes. ICE says so, the ladder runs out, and the
+    // ordinary timeout takes over.
+    pc!.connectionState = 'failed'
+    pc!.onconnectionstatechange?.()
+    await settle()
+    const turn = factory.to(theirs.device)
+    expect(turn).toBeDefined()
+    turn!.connectionState = 'failed'
+    turn!.onconnectionstatechange?.()
+    await settle()
+    expect(mine.routes.get(theirs.device)?.connected).toBe(false)
+    clock = NOW + 4 * PRESENCE_TTL_SECONDS + 1
+    expect(mine.participants().map((v) => v.participant)).not.toContain(theirs.participant)
+    mine.leave()
+    theirs.leave()
+  })
+})
+
+describe('RoomSession credential renewal', () => {
+  it('BUG: a primary device re-mints its credential before it lapses, so a standing room does not lose it at twelve hours', async () => {
+    // A credential is minted once, at join, and lasts twelve hours. A room
+    // meant to stay open for days used to evict every member at that mark:
+    // heartbeats still arrived and were refused, because the proof inside
+    // them had expired.
+    vi.useFakeTimers()
+    try {
+      const relay = new SimRelay()
+      let clock = NOW
+      const mine = new RoomSession({
+        transport: new SimTransport(relay),
+        secret: secret(),
+        identity: localIdentity(generateSecretKey()),
+        deviceSk: generateSecretKey(),
+        now: () => clock,
+        announceJitterMs: 0,
+        timing: { credentialTtlSeconds: 100, heartbeatIntervalMs: 1_000_000, sweepIntervalMs: 1_000_000 },
+      })
+      await mine.join([], {})
+      const first = mine.credential
+      expect(first).toBeDefined()
+
+      clock = NOW + 50
+      await vi.advanceTimersByTimeAsync(50_000)
+      const second = mine.credential
+      expect(second).toBeDefined()
+      expect(second!.id).not.toBe(first!.id)
+      const expiry = (c: typeof first) => Number(c!.tags.find((t) => t[0] === 'expiration')?.[1])
+      expect(expiry(second)).toBeGreaterThan(expiry(first))
+
+      // And it was restated under the new one, as an answer, not an arrival.
+      const roster = relay.published.filter((e) => e.kind === KINDS.ROSTER)
+      const latest = decodeRosterEvent(roster[roster.length - 1]!, {
+        roomId: mine.roomId,
+        roomKey: deriveRoom(secret()).roomKey,
+        now: clock,
+      })
+      expect(latest?.credential.id).toBe(second!.id)
+      expect(latest?.reply).toBe(true)
+
+      // Chat goes out under the new credential too.
+      await mine.chat.send('still here')
+      const chat = relay.published.filter((e) => e.kind === KINDS.CHAT)
+      expect(chat).toHaveLength(1)
+      mine.leave()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not renew on a secondary device, which cannot sign for its participant', async () => {
+    vi.useFakeTimers()
+    try {
+      const relay = new SimRelay()
+      const participantSk = generateSecretKey()
+      const deviceSk = generateSecretKey()
+      const credential = await createDeviceCredential({
+        identity: localIdentity(participantSk),
+        devicePubkey: getPublicKey(deviceSk),
+        roomId: ROOM_ID,
+        expiresAt: NOW + 100,
+        now,
+      })
+      const secondary = new RoomSession({
+        transport: new SimTransport(relay),
+        secret: secret(),
+        credential,
+        deviceSk,
+        now,
+        announceJitterMs: 0,
+        timing: { credentialTtlSeconds: 100, heartbeatIntervalMs: 1_000_000, sweepIntervalMs: 1_000_000 },
+      })
+      await secondary.join([], {})
+      await vi.advanceTimersByTimeAsync(80_000)
+      expect(secondary.credential?.id).toBe(credential.id)
+      secondary.leave()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('RoomSession.advertise', () => {
+  it('BUG: a track turned on after joining reaches the roster, so everybody else sees it advertised', async () => {
+    const relay = new SimRelay()
+    const mine = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    const theirs = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    await mine.join([], {})
+    await theirs.join([], {})
+    await settle()
+    const view = () => theirs.participants().find((v) => v.participant === mine.participant)
+    expect(view()?.tracks).toEqual([])
+
+    await mine.advertise([{ trackId: 'abc', role: 'camera' }, { trackId: 'def', role: 'mic' }], { mic: NOW })
+    await settle()
+    expect(view()?.tracks.map((t) => t.trackId)).toEqual(['abc', 'def'])
+    expect(view()?.mic).toBe(mine.device)
+
+    // As an answer, so the room does not re-announce at it.
+    const roster = relay.published.filter((e) => e.kind === KINDS.ROSTER)
+    const latest = decodeRosterEvent(roster[roster.length - 1]!, {
+      roomId: mine.roomId,
+      roomKey: deriveRoom(secret()).roomKey,
+      now: NOW,
+    })
+    expect(latest?.reply).toBe(true)
+    mine.leave()
+    theirs.leave()
+  })
+})
+
+describe('agents in the roster', () => {
+  it('shows a device that declares itself an agent as one, on the participant it belongs to', async () => {
+    const relay = new SimRelay()
+    const person = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    const agent = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+      name: 'Ada',
+      agent: true,
+    })
+    await person.join([], {})
+    await agent.join([], {})
+    await settle()
+    const views = person.participants()
+    expect(views.find((v) => v.participant === agent.participant)?.agent).toBe(true)
+    expect(views.find((v) => v.participant === person.participant)?.agent).toBeUndefined()
+    person.leave()
+    agent.leave()
+  })
+
+  it('opens a named channel beside the main chat, which every member can read', async () => {
+    const relay = new SimRelay()
+    const make = (agent?: true) =>
+      new RoomSession({
+        transport: new SimTransport(relay),
+        secret: secret(),
+        identity: localIdentity(generateSecretKey()),
+        deviceSk: generateSecretKey(),
+        now,
+        announceJitterMs: 0,
+        ...(agent ? { agent } : {}),
+      })
+    const person = make()
+    const a = make(true)
+    const b = make(true)
+    await person.join([], {})
+    await a.join([], {})
+    await b.join([], {})
+    await settle()
+    // Opened before anybody speaks: the simulator, like a real relay for an
+    // ephemeral kind, replays nothing, and the point here is who can hear,
+    // not what a late subscriber is sent.
+    b.channel('agents')
+    person.channel('agents')
+
+    await a.channel('agents').send('I will take the research')
+    await b.channel('agents').send('then I will draft')
+    await a.chat.send('hello people')
+    await settle()
+
+    // The agents hear each other on the channel, the main chat is untouched,
+    // and the person can read the channel too.
+    // Sorted: the fixed test clock stamps both the same second, and a tie
+    // breaks on the random message id.
+    const said = (log: { messages(): { text: string }[] }) => log.messages().map((m) => m.text).sort()
+    expect(said(b.channel('agents'))).toEqual(['I will take the research', 'then I will draft'])
+    expect(said(person.chat)).toEqual(['hello people'])
+    expect(said(person.channel('agents'))).toEqual(['I will take the research', 'then I will draft'])
+    // The same log comes back for the same name.
+    expect(person.channel('agents')).toBe(person.channel('agents'))
+    person.leave()
+    a.leave()
+    b.leave()
   })
 })

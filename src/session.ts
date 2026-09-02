@@ -54,6 +54,9 @@ export interface ParticipantView {
    * see `AssistOffer`.
    */
   assist?: Array<AssistOffer & { device: string }>
+  /** True when any of this participant's devices declares itself an
+   *  automated participant - see `RosterEntry.agent`. */
+  agent?: boolean
   /** The single device holding the microphone, if any. */
   mic?: string
   /** The single device playing the room's audio, if any. */
@@ -84,6 +87,9 @@ export interface RoomSessionBaseOptions {
    * wire looked like before names existed.
    */
   name?: string
+  /** Declare this device an automated participant on every entry it
+   *  publishes. See `RosterEntry.agent`. */
+  agent?: boolean
   /** Upper bound on the random delay before answering a new arrival, in
    *  milliseconds. Jitter is what stops twenty devices answering the
    *  twenty-first in the same instant. Zero makes it deterministic, which
@@ -168,8 +174,33 @@ export interface SecondaryRoomSessionOptions extends RoomSessionBaseOptions {
 
 export type RoomSessionOptions = PrimaryRoomSessionOptions | SecondaryRoomSessionOptions
 
+export interface PublishOptions {
+  /** Which remote participants receive the tracks. Omit for everybody.
+   *  See `RoomSession.publishTracks`. */
+  audience?: (participant: ParticipantView) => boolean
+}
+
 const CREDENTIAL_TTL_SECONDS = 12 * 60 * 60
 const DEFAULT_ANNOUNCE_JITTER_MS = 500
+
+/**
+ * How far through its credential's life a primary device mints the next one.
+ *
+ * A credential is minted once, at join, and lasts twelve hours. A room that
+ * stays open longer than that - a standing room with people and their agents
+ * in it for days - used to lose every member at the twelve-hour mark: their
+ * heartbeats still arrived, and were refused, because the credential inside
+ * them had expired. So a device that can sign for its participant re-mints
+ * halfway through, well before anybody's clock could disagree about whether
+ * the old one is still good, and restates itself under the new one. A
+ * secondary device cannot: its credential was issued by the primary, and a
+ * new one is a new pairing.
+ */
+export const CREDENTIAL_RENEWAL_FRACTION = 0.5
+
+/** How long to wait before trying a renewal again after a signer refused or
+ *  a relay was down. Short, because the clock is running on the old one. */
+const CREDENTIAL_RENEWAL_RETRY_MS = 60_000
 
 /**
  * How long a device stays in the roster after its last announcement.
@@ -195,6 +226,9 @@ export interface SessionTiming {
   heartbeatIntervalMs?: number
   presenceTtlSeconds?: number
   sweepIntervalMs?: number
+  /** How long the credential a primary device mints for itself lasts, and
+   *  therefore how often it is renewed. Defaults to twelve hours. */
+  credentialTtlSeconds?: number
 }
 
 /**
@@ -235,6 +269,8 @@ export class RoomSession {
   #unsub?: () => void
   #mesh?: Mesh
   #chat?: ChatLog
+  /** Side channels opened on demand - see `channel()`. */
+  readonly #channels = new Map<string, ChatLog>()
   /** What this device is currently advertising, so an answer to a new
    *  arrival carries the same state as the announcement did. */
   #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>> }
@@ -248,7 +284,23 @@ export class RoomSession {
   #replyTimer?: ReturnType<typeof setTimeout>
   #heartbeatTimer?: ReturnType<typeof setInterval>
   #sweepTimer?: ReturnType<typeof setInterval>
+  #renewalTimer?: ReturnType<typeof setTimeout>
   #left = false
+  /**
+   * When each remote device was last HEARD from, by this device's own clock.
+   *
+   * Presence used to lapse on the sender's `updatedAt`, which is the
+   * sender's clock. A phone whose clock ran a couple of minutes slow was
+   * therefore lapsed the moment it arrived, evicted at the next sweep, its
+   * peer connection closed and its tile torn down - and then re-admitted as
+   * a fresh arrival on its next heartbeat, twenty seconds later, to go
+   * through the whole thing again. Video that "kept dropping", on a clock
+   * that was merely wrong. `updatedAt` still orders two entries from one
+   * device, which is a comparison between that device's own stamps; how
+   * long ago it was last heard is a question about our clock, and is
+   * answered here.
+   */
+  readonly #seenAt = new Map<string, number>()
   /** Devices that said goodbye, and when. An entry stamped at or before a
    *  device's farewell is one a slower relay delivered late, and is not a
    *  return; one stamped after it is a genuine rejoin, and is an arrival
@@ -330,7 +382,7 @@ export class RoomSession {
     const device = this.device
     // A secondary device uses the credential it was issued; only a primary,
     // which is the only endpoint holding the participant key, can mint one.
-    const credential = this.#credential ?? (await this.issueDeviceCredential(device))
+    const credential = this.#credential ?? (await this.issueDeviceCredential(device, this.#credentialTtl()))
 
     this.#self = { credential, tracks, claims }
 
@@ -447,6 +499,51 @@ export class RoomSession {
     this.#sweepTimer = this.#every(this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS, () => {
       if (this.#evictLapsed()) this.#notify()
     })
+    if (this.#opts.identity) this.#scheduleRenewal(this.#credentialTtl() * CREDENTIAL_RENEWAL_FRACTION * 1000)
+  }
+
+  #credentialTtl(): number {
+    return this.#opts.timing?.credentialTtlSeconds ?? CREDENTIAL_TTL_SECONDS
+  }
+
+  #scheduleRenewal(afterMs: number): void {
+    if (this.#renewalTimer !== undefined) clearTimeout(this.#renewalTimer)
+    const timer = setTimeout(() => {
+      this.#renewalTimer = undefined
+      this.#renewCredential().catch(() => {})
+    }, afterMs)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    this.#renewalTimer = timer
+  }
+
+  /**
+   * Mint the next credential and restate this device under it.
+   *
+   * See `CREDENTIAL_RENEWAL_FRACTION`. Restated as an answer rather than an
+   * arrival, because nothing has arrived: everybody already knows this
+   * device, and the entry is only carrying a fresher proof of the same
+   * fact. A signer that refuses, or a relay that is down, costs a retry
+   * rather than the room - the old credential is still good for a while.
+   */
+  async #renewCredential(): Promise<void> {
+    if (this.#left || !this.#self || !this.#opts.identity) return
+    try {
+      const credential = await this.issueDeviceCredential(this.device, this.#credentialTtl())
+      if (this.#left || !this.#self) return
+      this.#self = { ...this.#self, credential }
+      this.#chat?.setCredential(credential)
+      for (const log of this.#channels.values()) log.setCredential(credential)
+      await this.#publishEntry(true)
+      this.#scheduleRenewal(this.#credentialTtl() * CREDENTIAL_RENEWAL_FRACTION * 1000)
+    } catch {
+      this.#scheduleRenewal(Math.min(CREDENTIAL_RENEWAL_RETRY_MS, this.#credentialTtl() * 1000))
+    }
+  }
+
+  /** The credential this device is currently presenting. Fresh from join,
+   *  and renewed on a primary device before it lapses. */
+  get credential(): DeviceCredential | undefined {
+    return this.#self?.credential
   }
 
   /**
@@ -597,6 +694,7 @@ export class RoomSession {
       claims: self.claims,
       updatedAt: this.#now(),
       ...(this.#name !== undefined ? { name: this.#name } : {}),
+      ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(assist ? { assist } : {}),
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(reply ? { reply: true } : {}),
@@ -631,10 +729,26 @@ export class RoomSession {
 
     for (const [device, entry] of this.#entries) {
       if (device === this.device) continue
-      const lapsed = entry.updatedAt < cutoff
+      let lapsed = (this.#seenAt.get(device) ?? entry.updatedAt) < cutoff
+      // Media still flowing from a device is stronger evidence that it is
+      // here than a heartbeat carried by a third party's relay. A tab in the
+      // background has its timers throttled; a relay drops a socket and
+      // takes a while to come back; a phone's radio hands over between
+      // cells. Through every one of those the peer connection carries on,
+      // and closing it because the relay went quiet was the room tearing
+      // down a working call to chase a rumour. So a device whose connection
+      // reports itself up is heard from by that fact. The connection is the
+      // authority on its own health: when it really goes, ICE says so within
+      // a few tens of seconds, the route stops reading connected, and the
+      // ordinary timeout takes over from there.
+      if (lapsed && this.#mesh?.routes.get(device)?.connected) {
+        this.#seenAt.set(device, now)
+        lapsed = false
+      }
       const credentialExpired = !verifyDeviceCredential(entry.credential, { roomId: this.roomId, now }).ok
       if (!lapsed && !credentialExpired) continue
       this.#entries.delete(device)
+      this.#seenAt.delete(device)
       // Forgetting a departed device is what lets a genuine rejoin be
       // answered again later without reopening the announce loop: they are
       // gone, so the next thing we hear from them really is an arrival.
@@ -663,12 +777,40 @@ export class RoomSession {
     )
   }
 
-  /** Publish live media tracks to every remote device's peer connection.
-   *  Own other devices never receive them, because they never get a peer
-   *  connection in the first place - see `Mesh`. A no-op until `join()` has
-   *  set up media, and if no `factory` was supplied at all. */
-  publishTracks(tracks: MediaStreamTrack[]): void {
-    this.#mesh?.publish(tracks)
+  /**
+   * Restate what this device is publishing and claiming, and say so at once.
+   *
+   * The adverts handed to `join()` used to be the adverts for the whole
+   * session: a camera turned on ten minutes in was sent to every peer but
+   * never appeared in the roster, so everybody else's view of this device
+   * said it published nothing, and a volunteer carrying it had no track id
+   * to attribute what it forwarded. Restated as an answer, because nothing
+   * has arrived - everybody already knows this device.
+   */
+  async advertise(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+    if (!this.#self || this.#left) return
+    this.#self = { ...this.#self, tracks, claims }
+    await this.#publishEntry(true)
+  }
+
+  /**
+   * Publish live media tracks to every remote device's peer connection.
+   *
+   * Own other devices never receive them, because they never get a peer
+   * connection in the first place - see `Mesh`. A no-op until `join()` has
+   * set up media, and if no `factory` was supplied at all.
+   *
+   * `audience` is who gets them. Left out, everybody does. Given, it is
+   * asked about every remote participant - now, and again for anybody who
+   * arrives later - and a participant it refuses is sent nothing, which on
+   * that connection means the tracks are removed, not muted: the media
+   * never leaves this device for them. That is what lets a person keep an
+   * agent in the room and still have a conversation it cannot hear. It
+   * holds for media this device sends directly; a forwarder fans out to
+   * everybody it carries for, and this cannot narrow that.
+   */
+  publishTracks(tracks: MediaStreamTrack[], opts: PublishOptions = {}): void {
+    this.#mesh?.publish(tracks, opts.audience)
   }
 
   /** Remote media tracks, attributed to the participant they came from -
@@ -693,6 +835,39 @@ export class RoomSession {
   get chat(): ChatLog {
     if (!this.#chat) throw new Error('join the room before using chat')
     return this.#chat
+  }
+
+  /**
+   * A named side channel of this room: the same durable, room-key-rooted
+   * chat, under an id and a key derived from the room key for that name,
+   * so it rides beside the main conversation rather than in it.
+   *
+   * Every member can open every channel - a channel is a place to talk,
+   * not a secret from the room. What it is for is agents co-ordinating
+   * among themselves without filling the people's chat, and a transcript
+   * that the people can open when they want it and close when they do not.
+   * The people who hold the room key can always read what their agents say
+   * to each other, by design: an agent acting for somebody is not owed a
+   * conversation its principal cannot see. See `deriveChannel`.
+   */
+  channel(name: string): ChatLog {
+    if (!this.#chat) throw new Error('join the room before using a channel')
+    const existing = this.#channels.get(name)
+    if (existing) return existing
+    const log = new ChatLog({
+      transport: this.#opts.transport,
+      roomId: this.roomId,
+      roomKey: this.#roomKey,
+      channel: name,
+      credential: this.#self!.credential,
+      deviceSk: this.#opts.deviceSk,
+      name: this.#name,
+      policy: this.#opts.policy,
+      proof: this.#opts.proof,
+      now: this.#now,
+    })
+    this.#channels.set(name, log)
+    return log
   }
 
   #ingest(event: Event): void {
@@ -724,6 +899,7 @@ export class RoomSession {
       this.#departed.set(entry.device, entry.updatedAt)
       if (!existing) return
       this.#entries.delete(entry.device)
+      this.#seenAt.delete(entry.device)
       this.#notify()
       return
     }
@@ -737,6 +913,7 @@ export class RoomSession {
     }
 
     this.#entries.set(entry.device, entry)
+    if (entry.device !== this.device) this.#seenAt.set(entry.device, this.#now())
 
     // A device we had not seen before has arrived, so tell it we are here.
     // Never for our own entry echoing back, never for a device we already
@@ -789,6 +966,7 @@ export class RoomSession {
         nameStamp.set(entry.participant, entry.updatedAt)
       }
       view.devices.push(entry.device)
+      if (entry.agent === true) view.agent = true
       for (const track of entry.tracks) view.tracks.push({ ...track, device: entry.device })
       // Per device, not per person: two of somebody's devices can be in the
       // same room and only one of them publicly reachable, and it is that one
@@ -839,12 +1017,17 @@ export class RoomSession {
     this.#heartbeatTimer = undefined
     if (this.#sweepTimer !== undefined) clearInterval(this.#sweepTimer)
     this.#sweepTimer = undefined
+    if (this.#renewalTimer !== undefined) clearTimeout(this.#renewalTimer)
+    this.#renewalTimer = undefined
     this.#unsub?.()
     this.#unsubDescriptor?.()
     this.#unsubDescriptor = undefined
     this.#mesh?.close()
     this.#chat?.close()
+    for (const log of this.#channels.values()) log.close()
+    this.#channels.clear()
     this.#listeners.clear()
     this.#entries.clear()
+    this.#seenAt.clear()
   }
 }

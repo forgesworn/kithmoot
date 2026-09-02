@@ -99,6 +99,36 @@ to make that one thing true.
   and an ICE restart before anybody gives up on it, the way Jitsi and Signal
   ride out a Wi-Fi blip, and a relay that drops its socket is re-dialled
   with every subscription re-issued.
+- **A call that came up stays up.** Presence is judged by when this device
+  last *heard* from another, not by the sender's clock, so a phone whose
+  clock runs slow is not evicted on arrival and re-admitted twenty seconds
+  later. A device whose media is still flowing is a device that is here,
+  whatever the relay has carried lately: a backgrounded tab, a relay that
+  drops its socket, a phone crossing between cells no longer close a peer
+  connection that is carrying perfectly good video. A pair that has run out
+  of rungs on the route ladder rests and tries again from the top rather
+  than staying dark for the rest of the call, and a pair with nothing to
+  carry never walks the ladder at all. `test/soak.spec.ts` takes the relay
+  away for ninety seconds under a live call and requires the picture to
+  keep moving; before these fixes the far tile went at seventy-six seconds.
+- **Standing rooms.** A primary device re-mints its credential halfway
+  through its twelve-hour life and restates itself, so a room left open for
+  days does not lose every member at the twelve-hour mark. A keeper
+  (`kithmoot-agent create`) holds the root inviter key and admits people for
+  as long as it runs; its state persists across restarts, so the same link
+  reopens the same room.
+- **Agents, as members.** `kithmoot-agent` joins a room from the same link a
+  person was sent, with no browser involved: in the roster (marked
+  `agent`), in the chat, on a channel of their own that every person can
+  read, and, when a person allows it, on the end of their microphone with
+  WhisperX writing what they said into a transcript channel. Driven by a
+  pipe, by a local model through Ollama, by Claude, or by any MCP client.
+  See `docs/agents.md`.
+- **Agents can hear me**, a switch in every browser, off by default. Off
+  means this device's camera and microphone are never handed to a
+  connection to anything that says it is an agent: the media does not leave
+  the device for them. A conversation people want among themselves is one no
+  agent in the room can hear.
 - **A fresh device key for every room.** A relay learns the device keys in a
   room from the roster events it carries; one key across every room a
   browser ever joins would let it follow one person from room to room. The
@@ -127,7 +157,7 @@ to make that one thing true.
 - **A native Android app** (`forgesworn/kithmoot-android`), a second
   independent implementation, written against the published vectors without
   reading this codebase.
-- **55 published interop vectors** (`vectors/`), which both implementations
+- **61 published interop vectors** (`vectors/`), which both implementations
   are checked against.
 
 ## Names, and who you are
@@ -295,19 +325,30 @@ Stated plainly, before anyone else finds it:
   segmenter finds one person and treats everything else as background, so a
   second person behind you is blurred rather than hidden.
 - **No user-uploaded backgrounds**, on purpose. See above.
+- **The agents' switch cannot narrow a forwarder.** A forwarder fans out to
+  everybody it carries for. Every route the app uses today is direct, so the
+  switch holds; a room that promotes to a forwarder with an agent in it
+  should know that it stops holding there.
+- **WhisperX is not bundled.** `server/whisperx/` is a Python server that
+  needs `pip install whisperx`; the Node side is checked against a fixed
+  transcriber.
+- **An agent cannot speak aloud**, and a message cannot carry an
+  attachment. Both fit the shapes that exist - a text-to-speech track behind
+  `publishTracks`, a field on a chat message - and neither is built.
 
 ## Running it
 
 ```bash
 npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 713 tests, in-process relay simulator, no network
+npm test          # 818 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, over live relays
 E2E_RELAYS=local npm run test:e2e  # the same, against test/ws-relay.mjs: what CI runs
 npm run typecheck
 npm run demo       # HTTPS dev server for driving the app by hand, phone included
 npm run build      # production PWA build, to app/dist
+npm run agent -- --help   # kithmoot-agent: be in a room without a browser
 ```
 
 `npm run build:lib` comes first on a fresh clone. `server/forwarder.mjs` and
@@ -324,7 +365,10 @@ specs also run in CI on every push, against a NIP-01 relay of their own
 `E2E_RELAYS=local`): two or three browser contexts in a room, measured off
 the decoded pixels and the audio energy rather than the DOM. That gate
 exists because the unit suite once passed 685 tests while the shipped app
-negotiated media perfectly and put none of it on screen. The relay also
+negotiated media perfectly and put none of it on screen. `test/soak.spec.ts`
+is the other half of that question - whether a call that came up stays up -
+and `test/agent.spec.ts` puts a Node agent in a browser's room over a real
+relay socket and a real WebRTC stack. The relay also
 takes `RELAY_OK_DELAY_MS`, which delivers an event at once and acknowledges
 it late: a slow public relay made deterministic, which is how the case where
 the joiner could not see or hear whoever started the room is pinned down on

@@ -76,6 +76,9 @@ export interface MeshOptions {
    * tries the next one. See `DEFAULT_ROUTE_TIMEOUT_MS`.
    */
   routeTimeoutMs?: number
+  /** How long an exhausted route rests before the ladder is retried from
+   *  the top. See `EXHAUSTED_RETRY_MS`. */
+  exhaustedRetryMs?: number
   /**
    * Whether this room may route a failing pair through a member who
    * volunteered. Defaults to on, because it costs the pair nothing and costs
@@ -210,6 +213,22 @@ export const DEFAULT_FORWARDER_TIMEOUT_MS = 8_000
 export const DEFAULT_ROUTE_TIMEOUT_MS = 10_000
 
 /**
+ * How long a device whose every rung has failed is left alone before the
+ * ladder is tried again from the top.
+ *
+ * Exhaustion used to be final: a pair that lost direct, assist, forwarder
+ * and TURN in one bad minute - a phone crossing a dead spot, a laptop lid,
+ * a router rebooting - stayed lost for the rest of the call, however long
+ * that was, until one side left and rejoined. In a room meant to stay open
+ * for days that is a tile that has gone blank for good. So a route that has
+ * run out of rungs rests, then starts again at `direct` with a clean slate:
+ * the volunteers it burned may be reachable again, and so may the device.
+ * Long enough that a device that really has gone is not chased every few
+ * seconds; short enough that the person watching does not give up first.
+ */
+export const EXHAUSTED_RETRY_MS = 30_000
+
+/**
  * How many signals may wait for a peer that does not exist yet, per device
  * and across all of them. See `#holdSignal`.
  *
@@ -249,6 +268,11 @@ export class Mesh {
   readonly #guard = new SignalGuard()
   readonly #now: () => number
   #tracks: MediaStreamTrack[] = []
+  /** Who the tracks are for. Absent means everybody. See `publish`. */
+  #audience?: (participant: ParticipantView) => boolean
+  /** The roster as last reconciled, so `#tracksFor` can ask about a
+   *  participant without a round trip through the session. */
+  #views: ParticipantView[] = []
   readonly #unsubSession: () => void
   readonly #unsubSignal: () => void
   #closed = false
@@ -262,6 +286,8 @@ export class Mesh {
   readonly #pendingSignals = new Map<string, { body: SignalBody; at: number }[]>()
   /** One timer per endpoint, bounding how long a rung gets. */
   readonly #routeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** One timer per exhausted device, after which its ladder is retried. */
+  readonly #retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Endpoints being closed deliberately, so their own `closed` state change
    *  is not mistaken for the rung failing. Same guard as
    *  `#tearingDownForwarder`, for the same reason. */
@@ -341,10 +367,38 @@ export class Mesh {
   /** Publish tracks to every current peer - or to the forwarder, when one is
    *  carrying the room. Own devices never receive them, because they never
    *  have a peer connection in the first place. */
-  publish(tracks: MediaStreamTrack[]): void {
+  publish(tracks: MediaStreamTrack[], audience?: (participant: ParticipantView) => boolean): void {
     this.#tracks = tracks
-    for (const peer of this.#peers.values()) peer.start(tracks).catch(() => {})
+    this.#audience = audience
+    for (const [endpoint, peer] of this.#peers) {
+      peer.start(this.#tracksFor(endpoint)).catch(() => {})
+      // A connection that was idle because nobody had anything to send now
+      // has something, and its rung gets its budget from here.
+      this.#armRouteTimerIfNeeded(endpoint)
+    }
     this.#forwarderPeer?.start(tracks).catch(() => {})
+  }
+
+  /**
+   * The tracks this endpoint is sent: everything, unless the caller named
+   * an audience and the participant behind this endpoint is not in it.
+   *
+   * Judged per endpoint rather than per publish, so a participant who
+   * arrives after `publish` was called is judged by the same rule on the
+   * connection opened for them, and one the rule refuses gets an empty
+   * list - which `Peer.start` turns into removed senders, not silent ones.
+   */
+  #tracksFor(endpoint: string): MediaStreamTrack[] {
+    if (!this.#audience) return this.#tracks
+    const participant = this.#deviceToParticipant.get(endpoint)
+    const view = this.#views.find((v) => v.participant === participant)
+    if (!view) return []
+    try {
+      return this.#audience(view) ? this.#tracks : []
+    } catch {
+      // A rule that throws has not said yes.
+      return []
+    }
   }
 
   onRemoteTrack(cb: (t: RemoteTrack) => void): () => void {
@@ -359,6 +413,7 @@ export class Mesh {
     this.#unsubSignal()
     this.#teardownForwarder()
     for (const endpoint of [...this.#routeTimers.keys()]) this.#clearRouteTimer(endpoint)
+    for (const device of [...this.#retryTimers.keys()]) this.#clearRetryTimer(device)
     this.#opts.relay?.close()
     this.#routes.clear()
     this.#volunteers.clear()
@@ -376,6 +431,7 @@ export class Mesh {
   #reconcile(views: ParticipantView[]): void {
     if (this.#closed) return
 
+    this.#views = views
     const wantedDevices = new Map<string, string>() // device -> participant
     this.#trackOwner.clear()
     for (const view of views) {
@@ -435,16 +491,52 @@ export class Mesh {
     if (!direct) return
 
     for (const endpoint of endpoints) {
-      if (this.#peers.has(endpoint)) continue
+      if (this.#peers.has(endpoint)) {
+        // Already open, and perhaps only now with something to carry: a
+        // camera turned on at one end or the other. The rung gets its
+        // budget from that moment, not from when the idle connection was
+        // made.
+        this.#armRouteTimerIfNeeded(endpoint)
+        continue
+      }
       const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
       this.#peers.set(endpoint, peer)
-      this.#armRouteTimer(endpoint)
-      peer.start(this.#tracks).catch(() => {})
+      this.#armRouteTimerIfNeeded(endpoint)
+      peer.start(this.#tracksFor(endpoint)).catch(() => {})
       // After `start`, never before: the offer waiting here is answered by
       // the peer, and the answer has to carry our own tracks. Both are
       // queued on the peer, so this ordering is what puts them in it.
       this.#drainSignals(endpoint, peer)
     }
+  }
+
+  /**
+   * Whether a connection to this endpoint has anything to carry, in either
+   * direction: tracks of ours it is due, or tracks the roster says the far
+   * end publishes.
+   *
+   * A pair with nothing to carry never negotiates - neither side offers,
+   * because an offer with no media in it negotiates nothing - and so never
+   * connects, and used to be treated as a rung that failed. Two people with
+   * their cameras off, or a person and an agent that is here to read the
+   * chat, walked the whole ladder to TURN and were declared unreachable,
+   * every thirty seconds, for as long as they were in the room together.
+   * The connection is kept - it costs nothing idle, and it is where the
+   * media will go the moment either side has some - but the clock on it
+   * does not start until there is something for it to carry.
+   */
+  #needsMedia(endpoint: string): boolean {
+    if (this.#tracksFor(endpoint).length > 0) return true
+    const participant = this.#deviceToParticipant.get(endpoint)
+    const view = this.#views.find((v) => v.participant === participant)
+    return view?.tracks.some((t) => t.device === endpoint) ?? false
+  }
+
+  #armRouteTimerIfNeeded(endpoint: string): void {
+    if (this.#routeTimers.has(endpoint)) return
+    if (this.#routes.get(endpoint)?.connected) return
+    if (!this.#needsMedia(endpoint)) return
+    this.#armRouteTimer(endpoint)
   }
 
   /** Every assist offer currently on the roster, minus our own participant's
@@ -468,6 +560,7 @@ export class Mesh {
     for (const device of [...this.#routes.keys()]) {
       if (!wantedDevices.has(device)) {
         this.#routes.delete(device)
+        this.#clearRetryTimer(device)
         // We may have been carrying this device for somebody. Holding the
         // slot open would cost a slot we could give somebody else.
         this.#stopRelayingFor(device)
@@ -610,10 +703,49 @@ export class Mesh {
     }
 
     // Out of rungs. The room keeps going without this person's media, and
-    // says so rather than leaving a tile spinning for ever.
+    // says so rather than leaving a tile spinning for ever - and then, after
+    // a rest, tries again from the top. See `EXHAUSTED_RETRY_MS`.
     route.exhausted = true
     route.endpoint = device
     this.#announceRoute(device, route)
+    this.#armRetryTimer(device)
+  }
+
+  #armRetryTimer(device: string): void {
+    this.#clearRetryTimer(device)
+    const timer = setTimeout(() => {
+      this.#retryTimers.delete(device)
+      this.#retryRoute(device)
+    }, this.#opts.exhaustedRetryMs ?? EXHAUSTED_RETRY_MS)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    this.#retryTimers.set(device, timer)
+  }
+
+  #clearRetryTimer(device: string): void {
+    const timer = this.#retryTimers.get(device)
+    if (timer !== undefined) clearTimeout(timer)
+    this.#retryTimers.delete(device)
+  }
+
+  /**
+   * Start the ladder again for a device that had run out of rungs.
+   *
+   * A clean slate, deliberately: the volunteers that failed for this pair
+   * are forgotten too, because whatever was wrong a rest ago - their uplink,
+   * ours, the path between - may not be wrong now, and the worst a stale
+   * exclusion can do is skip the one member who could have carried them.
+   */
+  #retryRoute(device: string): void {
+    if (this.#closed) return
+    const route = this.#routes.get(device)
+    if (!route || !route.exhausted) return
+    route.tier = 'direct'
+    route.endpoint = device
+    route.connected = false
+    route.exhausted = false
+    route.failed = []
+    this.#announceRoute(device, route)
+    this.#reconcile(this.#opts.session.participants())
   }
 
   /**

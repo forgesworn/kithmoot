@@ -1,6 +1,10 @@
 export { KINDS } from './kinds.js'
 export { verifyEventUncached } from './verify.js'
-export { generateRoomSecret, deriveRoom, encodeJoinUrl, decodeJoinUrl } from './room.js'
+export { generateRoomSecret, deriveRoom, encodeJoinUrl, decodeJoinUrl, parseRoomPolicy } from './room.js'
+export { parseRoomLink, encodeRoomLink, safeIceUrls } from './link.js'
+export type { RoomLink } from './link.js'
+export { RoomAgent, AGENT_CHANNEL, TRANSCRIPT_CHANNEL, DEFAULT_RELAYS } from './agent.js'
+export type { JoinRoomOptions, CreateRoomOptions, KeeperState } from './agent.js'
 export {
   createRoomInvitation,
   roomInvitation,
@@ -44,9 +48,10 @@ export type { RoleAssignment } from './roles.js'
 export { wrapSignal, unwrapSignal } from './signal.js'
 export type { SignalBody } from './signal.js'
 export type { RosterEntry, TrackAdvert, TrackRole, SingularRole, DeviceCredential } from './types.js'
-export { RoomSession } from './session.js'
+export { RoomSession, PRESENCE_TTL_SECONDS, HEARTBEAT_INTERVAL_MS, CREDENTIAL_RENEWAL_FRACTION } from './session.js'
 export type {
   ParticipantView,
+  PublishOptions,
   RoomSessionOptions,
   RoomSessionBaseOptions,
   PrimaryRoomSessionOptions,
@@ -76,7 +81,7 @@ export type { IssueKindredProofOptions } from './access.js'
 export type { AccessTier, RoomPolicy, KindredProof } from './types.js'
 export { Peer } from './peer.js'
 export type { RTCPeerConnectionLike, PeerFactory, PeerOptions, PeerContext, RouteTier } from './peer.js'
-export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS, DEFAULT_ROUTE_TIMEOUT_MS } from './mesh.js'
+export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS, DEFAULT_ROUTE_TIMEOUT_MS, EXHAUSTED_RETRY_MS } from './mesh.js'
 export type { MeshOptions, MeshSession, RemoteTrack, ForwardingState, RouteView } from './mesh.js'
 export {
   ReachabilityProbe,
@@ -122,13 +127,15 @@ export type { StatLike } from './uplink.js'
 export {
   encodeChatEvent,
   decodeChatEvent,
+  deriveChannel,
   ChatLog,
+  MAX_CHANNEL_NAME_LENGTH,
   MAX_CHAT_TEXT_LENGTH,
   CHAT_RETENTION_SECONDS,
   MAX_CHAT_MESSAGES,
   MAX_CHAT_MESSAGES_PER_MINUTE,
 } from './chat.js'
-export type { ChatMessage, ChatLogOptions, EncodeChatOptions, DecodeChatOptions } from './chat.js'
+export type { ChatMessage, ChatMessageKind, ChatLogOptions, EncodeChatOptions, DecodeChatOptions, SendOptions } from './chat.js'
 export { mintTurnCredential } from './turn.js'
 export type { TurnCredential } from './turn.js'
 export { needsForwarding, selectForwarder, DEFAULT_HEADROOM } from './forwarder.js'
