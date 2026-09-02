@@ -18,6 +18,13 @@
       <p class="tagline">A town hall nobody owns.</p>
     </header>
 
+    <!-- The way back to the list of rooms, shown whenever a room is on
+         screen. Leaving a room to look at the list is leaving it, and says
+         so; the list is the front page with no link on it. -->
+    <nav id="roomNav" hidden>
+      <button id="backToRooms" type="button" class="quiet">Your rooms</button>
+    </nav>
+
     <main>
       <section id="identity">
         <label for="displayName">What should people call you?</label>
@@ -46,7 +53,23 @@
         <p id="whoami" class="whoami"></p>
       </section>
 
+      <section id="rooms" hidden>
+        <h2>Your rooms</h2>
+        <p class="note">
+          The rooms this device has been in. What is new and who is here are
+          read off each room's relays with the key this device already
+          holds, and nothing is published: nobody in the room sees you
+          looking.
+        </p>
+        <ul id="roomList" class="roomList" aria-live="polite"></ul>
+      </section>
+
       <section id="setup">
+        <label for="roomName" class="note">
+          Name the room if it is one you will keep. The name rides in the
+          link, so everybody you send it to calls it the same thing.
+        </label>
+        <input id="roomName" placeholder="Room name (optional)" maxlength="64" autocomplete="off" />
         <button id="create">Start a room</button>
         <p>or paste a join link:</p>
         <input id="url" placeholder="https://…#…" />
@@ -135,6 +158,7 @@
 
       <section id="links" hidden>
         <div class="linkBox">
+          <p id="roomTitle" class="roomTitle" hidden></p>
           <p><strong>Room's open. Send the link.</strong></p>
           <p class="note">
             Anyone who receives or is forwarded this link can enter while it

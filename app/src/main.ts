@@ -9,6 +9,8 @@ import {
   loadCredentialFor,
   storeCredentialFor,
 } from './device-store.js'
+import { forgetRoom, knownRooms, markRead, rememberRoom, roomLabel, type KnownRoom } from './rooms-store.js'
+import { RoomWatch } from './room-watch.js'
 import {
   RoomSession,
   NostrRelayPool,
@@ -47,6 +49,8 @@ import {
   MAX_CHAT_ATTACHMENTS,
   fetchAttachment,
   parseRecoveryKey,
+  parseRoomLink,
+  type RoomLink,
 } from '../../src/index.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
@@ -206,6 +210,25 @@ const nowSeconds = () => Math.floor(Date.now() / 1000)
  *  keeps is keyed on it; before a room is known there is nothing to keep. */
 function currentRoomId(): string | undefined {
   return (roomSecret as Uint8Array | undefined) ? deriveRoom(roomSecret).roomId : undefined
+}
+
+/** Write the room this page is in down as one this device has been in -
+ *  see `app/src/rooms-store.ts`. The link kept is the one this app would
+ *  hand on, which never carries a pairing code. */
+function rememberCurrentRoom(): void {
+  const roomId = currentRoomId()
+  if (!roomId) return
+  try {
+    rememberRoom(deviceStore, {
+      roomId,
+      name: roomName,
+      link: encodeRoomUrl(joinLinkBase(), relays, iceUrls),
+      openedAt: nowSeconds(),
+    })
+  } catch {
+    // Storage may be unavailable. The room still opens; it is only the way
+    // back to it that goes unwritten.
+  }
 }
 
 function loadParticipantKey(): Uint8Array | undefined {
@@ -369,6 +392,9 @@ interface RoomUrlPayload {
   a?: RoomPolicy
   /** A one-off pairing code. Never a key. */
   c?: string
+  /** What the room is called, when whoever made the link named it. A label
+   *  for people, sanitised like a display name - see `RoomLink.name`. */
+  n?: string
 }
 
 // Only these schemes reach RTCPeerConnection. The room author is already
@@ -381,6 +407,10 @@ const ICE_SCHEMES = ['stun:', 'stuns:', 'turn:', 'turns:']
 // see docs/decisions.md. This app has no UI for CREATING a gated room yet;
 // it honours, and passes on, one it is handed.
 let roomPolicy: RoomPolicy | undefined
+
+// What the room is called, off its link. Carried through every fragment this
+// app rebuilds, like the policy, so a rotated or re-shared link keeps it.
+let roomName: string | undefined
 
 function safeIceUrls(urls: string[]): string[] {
   return urls.filter((u) => ICE_SCHEMES.some((scheme) => u.toLowerCase().startsWith(scheme)))
@@ -397,6 +427,7 @@ function encodePayload(relays: string[], urls: string[], pairingCode?: Uint8Arra
       }
     : { s: base64urlnopad.encode(roomSecret), r: relays, i: urls }
   if (roomPolicy) payload.a = roomPolicy
+  if (roomName) payload.n = roomName
   if (pairingCode) payload.c = bytesToHex(pairingCode)
   return base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))
 }
@@ -661,6 +692,7 @@ const profiles = new ProfileBook({
       render(session.participants(), meParticipant)
       renderChat(session.chat.messages())
     }
+    renderRooms()
   },
 })
 
@@ -862,6 +894,10 @@ function invitationFromLocation(url: string): RoomInvitation | undefined {
 async function roomFromLocation(): Promise<boolean> {
   if (location.hash.length <= 1) return false
 
+  // The room's name, when the link says. Text a stranger wrote, so it gets
+  // the display-name treatment before it lands anywhere.
+  roomName = sanitiseDisplayName(fragmentPayload(location.href).n)
+
   const invitation = invitationFromLocation(location.href)
   if (invitation) {
     const payload = fragmentPayload(location.href)
@@ -931,6 +967,9 @@ async function roomFromLocation(): Promise<boolean> {
     pairWithPrimary(code).catch((err) => setStatus(describeError(err)))
   }
 
+  // Admitted, one way or another: this is now a room this device has been
+  // in, and the list on the front page will offer it again.
+  rememberCurrentRoom()
   return true
 }
 
@@ -1381,13 +1420,18 @@ function startNewRoom(): void {
   invitationDelegation = []
   relays = RELAYS
   iceUrls = parseIceInput()
+  roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
   storeInvitationOwner(created.invitation, roomSecret, created.inviterSk)
   serveCurrentInvitation()
   history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
+  rememberCurrentRoom()
 }
 
 function showRoomUi(): void {
   $('setup').hidden = true
+  hideRoomsList()
+  $('roomNav').hidden = false
+  renderRoomTitle()
   $('deviceControls').hidden = false
   $('join').hidden = false
   $('links').hidden = false
@@ -1395,6 +1439,24 @@ function showRoomUi(): void {
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
     roomInvitationCapability === undefined || invitationAuthoritySk === undefined || invitationDelegation.length !== 0
+}
+
+/** What this room is called, and enough of its id to tell it from another
+ *  called the same thing, above the link that opens it. */
+function renderRoomTitle(): void {
+  const title = $('roomTitle')
+  const roomId = currentRoomId()
+  title.textContent = ''
+  title.hidden = roomId === undefined
+  if (!roomId) return
+  const name = document.createElement('span')
+  name.className = 'name'
+  name.textContent = roomLabel({ roomId, name: roomName })
+  const id = document.createElement('span')
+  id.className = 'pubkey'
+  id.textContent = shortKey(roomId)
+  id.title = roomId
+  title.append(name, ' ', id)
 }
 
 function copyInput(id: string): void {
@@ -1460,6 +1522,8 @@ async function rotateRoomInvitation(): Promise<void> {
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   history.replaceState(null, '', url)
   ;($('shareUrl') as HTMLInputElement).value = url
+  // The old link is retired; the one kept for the list is the one that opens the room now.
+  rememberCurrentRoom()
   if (($('shareQrDetails') as HTMLDetailsElement).open) {
     renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
   }
@@ -2741,8 +2805,12 @@ async function startSession(): Promise<void> {
     await s.join(currentAdverts(), currentClaims())
     s.publishTracks(activeTracks(), { audience })
 
-    s.chat.onChange((messages) => renderChat(messages))
+    s.chat.onChange((messages) => {
+      renderChat(messages)
+      noteChatRead(messages)
+    })
     renderChat(s.chat.messages())
+    noteChatRead(s.chat.messages())
     // The side channels: what the agents say to each other, and what a
     // listening agent heard. Opened now rather than on demand, because a
     // relay replays a durable kind to a subscriber but a person opening
@@ -2783,9 +2851,242 @@ async function startSession(): Promise<void> {
   }
 }
 
+/**
+ * The newest message on screen is the newest read, once it has actually
+ * been on screen: a tab in the background is not being read, whatever its
+ * log holds, so it catches up when it comes back. This is what the unread
+ * count on the rooms list is measured against.
+ */
+function noteChatRead(messages: ChatMessage[]): void {
+  if (document.visibilityState !== 'visible') return
+  const roomId = currentRoomId()
+  if (!roomId) return
+  let newest = 0
+  for (const m of messages) if (m.sentAt > newest) newest = m.sentAt
+  if (newest > 0) markRead(deviceStore, roomId, newest)
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !session) return
+  try {
+    noteChatRead(session.chat.messages())
+  } catch {
+    // Not joined yet: there is no chat to have read.
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Your rooms
+//
+// The rooms this device has been in, shown when the app opens with no link
+// on it. Each is watched from outside while the list is on screen - see
+// app/src/room-watch.ts - which needs the room key, and this list holds no
+// keys of its own: it uses whatever the app already keeps. A room this
+// device created has its key here for twelve hours; a room it was admitted
+// to has it for the tab's session; a legacy link carries it. A room whose
+// key this device does not hold right now says so, and opening it is what
+// gets the key back.
+// ---------------------------------------------------------------------------
+
+const roomWatches = new Map<string, { pool: NostrRelayPool; watch: RoomWatch }>()
+let roomsTimer: ReturnType<typeof setInterval> | undefined
+/** Whether the list is what is on screen. Nothing below draws, or keeps a
+ *  relay open, when it is not. */
+let roomsListShown = false
+
+/** The room secret behind a known room, when this device holds it. */
+function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
+  if (link.secret) return link.secret
+  if (!link.invitation) return undefined
+  return loadInvitationOwner(link.invitation)?.roomSecret ?? loadCachedAdmission(link.invitation)?.secret
+}
+
+function watchKnownRoom(room: KnownRoom): void {
+  if (roomWatches.has(room.roomId)) return
+  let link: RoomLink
+  try {
+    link = parseRoomLink(room.link)
+  } catch {
+    return
+  }
+  const secret = secretForKnownRoom(link)
+  if (!secret) return
+  const { roomId, roomKey } = deriveRoom(secret)
+  // A key that does not open this room is not this room's key.
+  if (roomId !== room.roomId) return
+  const pool = new NostrRelayPool(link.relays.length ? link.relays : RELAYS)
+  const watch = new RoomWatch({ transport: pool, roomId, roomKey, policy: link.policy, onChange: renderRooms })
+  roomWatches.set(room.roomId, { pool, watch })
+}
+
+function stopWatching(roomId: string): void {
+  const watched = roomWatches.get(roomId)
+  if (!watched) return
+  watched.watch.close()
+  watched.pool.close()
+  roomWatches.delete(roomId)
+}
+
+function showRoomsList(): void {
+  roomsListShown = true
+  const rooms = knownRooms(deviceStore)
+  for (const room of rooms) watchKnownRoom(room)
+  renderRooms()
+  // Presence lapses by the clock, not by an event, so the list is redrawn
+  // on a timer as well as on every change.
+  if (rooms.length && roomsTimer === undefined) roomsTimer = setInterval(renderRooms, 5000)
+}
+
+/** The list goes away when a room comes on screen, and takes its relay
+ *  connections with it: a page in a room watches nothing else. */
+function hideRoomsList(): void {
+  roomsListShown = false
+  $('rooms').hidden = true
+  if (roomsTimer !== undefined) {
+    clearInterval(roomsTimer)
+    roomsTimer = undefined
+  }
+  for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
+}
+
+function renderRooms(): void {
+  if (!roomsListShown) return
+  const rooms = knownRooms(deviceStore)
+  $('rooms').hidden = rooms.length === 0
+  const list = $('roomList')
+  list.innerHTML = ''
+  for (const room of rooms) list.append(roomRow(room))
+}
+
+function roomRow(room: KnownRoom): HTMLLIElement {
+  const row = document.createElement('li')
+  row.className = 'roomRow'
+  row.dataset.room = room.roomId
+
+  const main = document.createElement('div')
+  main.className = 'roomMain'
+  const heading = document.createElement('div')
+  heading.className = 'roomTitleRow'
+  // A name and the id beside it, for the reason a person's name has a key
+  // beside it: two rooms can be called the same thing.
+  const name = document.createElement('span')
+  name.className = 'roomName'
+  name.textContent = roomLabel(room)
+  const id = document.createElement('span')
+  id.className = 'pubkey'
+  id.textContent = shortKey(room.roomId)
+  id.title = room.roomId
+  heading.append(name, id)
+  main.append(heading, roomMeta(room))
+
+  const actions = document.createElement('div')
+  actions.className = 'roomActions'
+  const open = document.createElement('button')
+  open.type = 'button'
+  open.className = 'open'
+  open.textContent = 'Open'
+  open.addEventListener('click', () => openKnownRoom(room))
+  const forget = document.createElement('button')
+  forget.type = 'button'
+  forget.className = 'forget quiet'
+  forget.textContent = 'Forget'
+  forget.addEventListener('click', () => forgetKnownRoom(room))
+  actions.append(open, forget)
+
+  row.append(main, actions)
+  return row
+}
+
+/** What is new and who is here, or why that cannot be said. */
+function roomMeta(room: KnownRoom): HTMLDivElement {
+  const meta = document.createElement('div')
+  meta.className = 'roomMeta'
+  const watched = roomWatches.get(room.roomId)
+  if (!watched) {
+    const note = document.createElement('span')
+    note.className = 'unknown'
+    note.textContent = 'Open it to catch up: this device does not hold its key right now.'
+    meta.append(note)
+    return meta
+  }
+
+  const unread = watched.watch.unread(room.readAt)
+  const count = document.createElement('span')
+  count.className = 'unread'
+  count.dataset.count = String(unread)
+  count.textContent = unread === 0 ? 'nothing new' : `${unread} unread`
+  meta.append(count)
+
+  const present = watched.watch.present()
+  const here = document.createElement('span')
+  here.className = 'here'
+  here.dataset.count = String(present.length)
+  if (present.length === 0) {
+    // Presence is only what devices say of their own accord, once a
+    // heartbeat: until one has had the chance to, an empty room is not yet
+    // an empty room.
+    here.textContent = watched.watch.settled ? 'nobody here' : 'listening for who is here\u2026'
+    meta.append(here)
+    return meta
+  }
+  const agents = present.filter((p) => p.agent).length
+  const people = present.length - agents
+  here.textContent =
+    [people ? `${people} ${people === 1 ? 'person' : 'people'}` : '', agents ? `${agents} agent${agents === 1 ? '' : 's'}` : '']
+      .filter(Boolean)
+      .join(', ') + ' here:'
+  meta.append(here)
+  profiles.want(present.map((p) => p.participant))
+  for (const p of present) {
+    const chip = document.createElement('span')
+    chip.className = 'hereChip'
+    chip.append(identityRun(shownAs(p.participant, p.name), false))
+    if (p.agent) {
+      const badge = document.createElement('span')
+      badge.className = 'badge agent'
+      badge.textContent = 'agent'
+      badge.title = 'This participant says it is an automated agent'
+      chip.append(badge)
+    }
+    meta.append(chip)
+  }
+  return meta
+}
+
+/** Opening a room from the list is opening its link. */
+function openKnownRoom(room: KnownRoom): void {
+  // A fragment-only change is a same-document navigation, which never
+  // re-runs this module; the reload is what reads the link.
+  try {
+    history.replaceState(null, '', room.link)
+  } catch {
+    location.href = room.link
+  }
+  location.reload()
+}
+
+function forgetKnownRoom(room: KnownRoom): void {
+  if (!confirm(`Forget ${roomLabel(room)} on this device? Its link goes with it; you would need to be sent it again to come back.`)) return
+  stopWatching(room.roomId)
+  forgetRoom(deviceStore, room.roomId)
+  renderRooms()
+}
+
+/** Back to the list: leave the room if in it, and open the app with no
+ *  link on it. A reload for the same reason `leaveRoom` reloads. */
+function backToRooms(): void {
+  const s = session
+  session = undefined
+  s?.leave()
+  history.replaceState(null, '', joinLinkBase())
+  location.reload()
+}
+
 // ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
+
+$('backToRooms').addEventListener('click', backToRooms)
 
 $('displayName').addEventListener('input', (event) => {
   // Stored as typed, sanitised on the way in. The identity line below the
@@ -2994,6 +3295,7 @@ $('leave').addEventListener('click', () => {
 window.addEventListener('pagehide', () => {
   session?.leave()
   stopInvitationHost()
+  for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
 })
 
 setToggle('toggleAgentsHear', agentsMayHear)
@@ -3170,11 +3472,18 @@ $('voiceMode').textContent = DEFAULT_VOICE_PRESET
 
 roomFromLocation()
   .then((found) => {
-    if (!found) return
+    if (!found) {
+      // No link: the front page, with the rooms this device has been in.
+      showRoomsList()
+      return
+    }
     showRoomUi()
     renderIdentity()
   })
-  .catch((err) => setStatus(describeError(err)))
+  .catch((err) => {
+    setStatus(describeError(err))
+    showRoomsList()
+  })
 
 // Rewrite what is in storage with what a reader would actually see, so a
 // name that arrived there by some other route does not sit in raw form.

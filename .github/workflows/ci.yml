@@ -74,7 +74,7 @@ jobs:
       # playwright.config.ts builds the app, serves it, and - because
       # E2E_RELAYS=local - starts the test relay beside it.
       - name: Acceptance tests
-        run: npx playwright test test/media.spec.ts test/e2e.spec.ts test/effects.spec.ts test/relay-capability.spec.ts test/peer-assist.spec.ts
+        run: npx playwright test test/media.spec.ts test/e2e.spec.ts test/effects.spec.ts test/relay-capability.spec.ts test/peer-assist.spec.ts test/rooms.spec.ts
         env:
           E2E_RELAYS: local
 

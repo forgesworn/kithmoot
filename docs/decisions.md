@@ -537,3 +537,36 @@ The envelope is opened by a reader written from Wildbloom's specification
 and held to Wildbloom's published known-answer vectors rather than by
 importing Wildbloom, so the two implementations can be checked against
 each other and neither can drift the format without a test noticing.
+
+## The rooms list holds no key, and never announces
+
+A device that has been in several standing rooms wants to know, from one
+screen, what is new in each and who is there now. Both questions need the
+room key, and neither should cost the room anything.
+
+**No key of its own.** The list stores a room's id, its name, its link, and
+how far this device has read. It does not store the room secret. A version
+2 link is an invitation, the secret arrives over the rendezvous, and where
+it then lives was already decided above: a creator's record for twelve
+hours, a joiner's for the tab's session. The list reads with whatever of
+that it finds and says plainly when it finds nothing. Extending how long a
+joiner holds the secret would be a change to that earlier decision, not to
+this one, and is left for the package that needs it: notifications, which
+have to decode chat with no tab open at all.
+
+**Never announces.** The roster answers arrivals, and a device announcing
+itself to count who is there would be an arrival: a phantom in every room
+on the list, opening peer connections nobody wanted. So the list only
+listens. Presence is what devices say of their own accord, one heartbeat
+apart, and a room fills in over twenty seconds rather than at once; the
+list says it is still listening until that interval has passed, so an
+empty room and a room not yet heard from are not shown the same. The chat
+is read through the library's own log, opened without a credential, so
+what counts as a message is decided in exactly one place.
+
+**A room's name rides in the link.** It is a label for people, sanitised
+like a display name, and it goes where the link goes because the link is
+the one thing every member was handed: a room a person is in on three
+devices is called the same thing on all of them, without a relay storing
+anything about it. It is written only when there is one, so a link to an
+unnamed room is byte-identical to one from before rooms had names.

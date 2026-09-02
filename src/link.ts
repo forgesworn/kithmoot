@@ -2,6 +2,7 @@ import { base64urlnopad } from '@scure/base'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { parseRoomPolicy } from './room.js'
 import { roomInvitation } from './invitation.js'
+import { sanitiseDisplayName } from './display-name.js'
 import type { RoomInvitation } from './invitation.js'
 import type { RoomPolicy } from './types.js'
 
@@ -31,6 +32,16 @@ export interface RoomLink {
   policy?: RoomPolicy
   /** A one-off pairing code, on a link that adds a device. Never a key. */
   pairingCode?: Uint8Array
+  /**
+   * What the room is called, when whoever made the link gave it a name.
+   *
+   * A label for people, on the same terms as a display name: self-asserted,
+   * bounded by `sanitiseDisplayName`, and never load-bearing. It rides in
+   * the link because the link is the one thing every member of a room was
+   * handed, so a room a person is in on three devices is called the same
+   * thing on all of them. Absent when nobody named it.
+   */
+  name?: string
 }
 
 /** The fragment payload as written. Field names are short because the
@@ -44,6 +55,7 @@ interface RoomLinkPayload {
   i?: unknown
   a?: unknown
   c?: string
+  n?: unknown
 }
 
 /** Only these schemes reach an RTCPeerConnection. The room author is
@@ -86,6 +98,10 @@ export function parseRoomLink(url: string): RoomLink {
   }
   const policy = parseRoomPolicy(payload.a)
   if (policy) link.policy = policy
+  // Sanitised on the way in like a display name, because a link is text a
+  // stranger wrote and a room name lands in the same places a name does.
+  const name = sanitiseDisplayName(typeof payload.n === 'string' ? payload.n : undefined)
+  if (name !== undefined) link.name = name
   if (typeof payload.c === 'string') {
     try {
       link.pairingCode = hexToBytes(payload.c)
@@ -127,6 +143,10 @@ export function encodeRoomLink(base: string, link: RoomLink): string {
     : { s: base64urlnopad.encode(link.secret ?? invalid()), r: link.relays, i: link.iceUrls }
   if (link.policy) payload.a = link.policy
   if (link.pairingCode) payload.c = bytesToHex(link.pairingCode)
+  // Written only when there is one, so a link to an unnamed room is
+  // byte-identical to one written before rooms had names.
+  const name = sanitiseDisplayName(link.name)
+  if (name !== undefined) payload.n = name
   return `${base}#${base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))}`
 }
 

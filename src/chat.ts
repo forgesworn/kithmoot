@@ -381,9 +381,15 @@ export interface ChatLogOptions {
   roomId: string
   roomKey: Uint8Array
   /** This device's credential. The participant is read off it rather than
-   *  passed alongside, so the two can never disagree. */
-  credential: DeviceCredential
-  deviceSk: Uint8Array
+   *  passed alongside, so the two can never disagree.
+   *
+   *  Omit it, and `deviceSk` with it, for a log that only reads: a device
+   *  that holds the room key can always read the room's chat, and sometimes
+   *  wants to - to count what is new in a room it is not in right now -
+   *  without publishing anything. Such a log decodes by exactly the rules
+   *  above and refuses `send`. */
+  credential?: DeviceCredential
+  deviceSk?: Uint8Array
   /** What to call this sender on every message. Sanitised here, so a
    *  caller can pass a form field straight in. */
   name?: string
@@ -414,8 +420,9 @@ export class ChatLog {
   readonly #opts: ChatLogOptions
   readonly #now: () => number
   /** The credential every message goes out under. Starts as the one handed
-   *  in and is replaced when the session renews - see `setCredential`. */
-  #credential: DeviceCredential
+   *  in and is replaced when the session renews - see `setCredential`.
+   *  Undefined on a log that only reads. */
+  #credential: DeviceCredential | undefined
   #messages: ChatMessage[] = []
   readonly #seen = new Set<string>()
   readonly #senderTimes = new Map<string, number[]>()
@@ -438,7 +445,15 @@ export class ChatLog {
     return this.#opts.channel
   }
 
+  /** Whether this log can send, or was opened to read only. */
+  get readOnly(): boolean {
+    return this.#credential === undefined || this.#opts.deviceSk === undefined
+  }
+
   async send(text: string, sendOpts: SendOptions = {}): Promise<void> {
+    const credential = this.#credential
+    const deviceSk = this.#opts.deviceSk
+    if (!credential || !deviceSk) throw new Error('this log only reads; it was opened without a credential')
     if (text.length === 0) throw new Error('chat message is empty')
     if (text.length > MAX_CHAT_TEXT_LENGTH) {
       throw new Error(`chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`)
@@ -461,9 +476,9 @@ export class ChatLog {
     }
     const msg: ChatMessage = {
       id: hex(randomBytes(16)),
-      participant: this.#credential.pubkey,
-      device: getPublicKey(this.#opts.deviceSk),
-      credential: this.#credential,
+      participant: credential.pubkey,
+      device: getPublicKey(deviceSk),
+      credential,
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(name !== undefined ? { name } : {}),
       ...(sendOpts.transcriptOf !== undefined
@@ -476,7 +491,7 @@ export class ChatLog {
     const event = encodeChatEvent(msg, {
       roomId: this.#opts.roomId,
       roomKey: this.#opts.roomKey,
-      deviceSk: this.#opts.deviceSk,
+      deviceSk,
       channel: this.#opts.channel,
     })
     await this.#opts.transport.publish(event)
@@ -494,6 +509,7 @@ export class ChatLog {
    * what `decodeChatEvent` exists to refuse.
    */
   setCredential(credential: DeviceCredential): void {
+    if (!this.#credential) throw new Error('this log only reads; it was opened without a credential')
     if (credential.pubkey !== this.#credential.pubkey) throw new Error('renewed credential names a different participant')
     this.#credential = credential
   }
