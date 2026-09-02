@@ -231,8 +231,25 @@
         <div id="chatLog" aria-live="polite"></div>
         <form id="chatForm">
           <input id="chatInput" placeholder="Say something" autocomplete="off" />
+          <button type="button" id="attachToggle" title="Attach a file shared through Wildbloom">Attach</button>
           <button type="submit">Send</button>
         </form>
+        <div id="attachStaged"></div>
+        <div id="attachPanel" class="attachPanel" hidden>
+          <p class="note">
+            A file shared through Wildbloom. Paste its file event (the id
+            Wildbloom showed you, or the signed event JSON) and the recovery
+            key. Both go into the message, encrypted to the room like the
+            words around them, and nobody fetches anything until they choose to.
+          </p>
+          <input id="attachEvent" placeholder="File event: 64-character id, note1, nevent1 or the event JSON" autocomplete="off" spellcheck="false" />
+          <input id="attachKey" type="password" placeholder="Recovery key (wbk1_…)" autocomplete="off" spellcheck="false" />
+          <div class="attachRow">
+            <button type="button" id="attachAdd">Add to message</button>
+            <button type="button" id="attachCancel">Cancel</button>
+            <span id="attachStatus" class="note"></span>
+          </div>
+        </div>
 
         <details id="agentsPanel">
           <summary>Agents, among themselves <span id="agentsCount" class="count"></span></summary>

@@ -90,6 +90,9 @@ to make that one thing true.
   retain at most 500 messages, cap text at 2,000 characters and accept at
   most 30 messages per sender per minute. A relay may retain old ciphertext
   and its public room id longer; client retention is not remote deletion.
+- A file shared through Wildbloom can ride with a chat message: its
+  kind-1063 event id, Blossom URL, hash and recovery key travel inside the
+  room-key ciphertext, and nothing is fetched until a person clicks.
 - **Names, and optionally a real Nostr identity.** Type a name and join, or
   sign in with a key you already have. See below.
 - **Leaving is instant, and so is a dropped connection coming back.** A

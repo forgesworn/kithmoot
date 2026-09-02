@@ -504,3 +504,36 @@ running it hands the raw track over, says so in red, and the app republishes
 it. Masking is lost; the voice is not. The acceptance harness launches
 Chromium with `--disable-audio-output`, a fake sink with a real-time clock,
 so a test machine's speaker is never what a media assertion measures.
+
+## A Wildbloom key rides in the chat, and nothing is fetched unasked
+
+A file shared through Wildbloom is an encrypted envelope on a Blossom server
+plus a kind-1063 event; the key that opens it is shown to the uploader once
+and published nowhere. To put such a file in a room, the key has to reach
+the room, and there were two places it could live.
+
+**Beside the message, in the chat ciphertext.** The chat is already the one
+channel every member can read and nobody else can, so a key there has
+exactly the standing the words around it have. A member who can read
+"here is the whiteboard" can open the whiteboard; somebody who cannot read
+the chat cannot. This is what was chosen.
+
+**Out of band, with only the event id in the chat.** That would keep the key
+off the relays entirely, at the cost of every recipient having to be handed
+it separately, which is the very step the room exists to remove. And it
+buys nothing against a relay: the chat ciphertext already hides the message
+from the relay, and a relay that could read it could read everything else
+too.
+
+Two things follow from putting it in the chat. The message shape gains an
+`attachments` field written only in its one honest shape, so a message
+without files stays byte-identical to one from before files existed and a
+client that never heard of them shows the caption. And nothing is fetched
+until a person clicks: the sender chose to say a file exists, but a fetch is
+a request from this device to a server the sender named, and that is a
+decision the reader makes, not one a message makes for them.
+
+The envelope is opened by a reader written from Wildbloom's specification
+and held to Wildbloom's published known-answer vectors rather than by
+importing Wildbloom, so the two implementations can be checked against
+each other and neither can drift the format without a test noticing.

@@ -43,7 +43,13 @@ import {
   decodeControl,
   type ControlMessage,
   type ChatMessage,
+  type ChatAttachment,
+  MAX_CHAT_ATTACHMENTS,
+  fetchAttachment,
+  parseRecoveryKey,
 } from '../../src/index.js'
+import { verifyEventUncached } from '../../src/verify.js'
+import type { Event as NostrEvent } from 'nostr-tools/pure'
 import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
 import { ReachabilityProbe } from '../../src/reachability.js'
 import { PeerRelay, detectRelayCapability } from '../../src/peer-relay.js'
@@ -70,7 +76,7 @@ import { ProfileBook, type Profile } from './profiles.js'
 import { renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { npubEncode } from 'nostr-tools/nip19'
+import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 
@@ -2116,6 +2122,100 @@ function renderInvites(): void {
   box.hidden = rows === 0
 }
 
+// ---------------------------------------------------------------------------
+// Attachments: files shared through Wildbloom
+// ---------------------------------------------------------------------------
+
+type OpenedAttachment = { url: string; name: string; type: string; size: number } | { error: string }
+
+/** What has been fetched and opened, per log, per message, per attachment.
+ *  An object URL is revoked when its message leaves the log and never
+ *  before, so a re-render costs nothing and never fetches twice. */
+const openedAttachments = new Map<string, OpenedAttachment>()
+
+function attachmentKey(logId: string, messageId: string, index: number): string {
+  return `${logId}/${messageId}/${index}`
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** Drop what was opened for messages no longer in this log. */
+function pruneOpenedAttachments(logId: string, messages: ChatMessage[]): void {
+  const live = new Set<string>()
+  for (const m of messages) (m.attachments ?? []).forEach((_, i) => live.add(attachmentKey(logId, m.id, i)))
+  for (const [key, opened] of openedAttachments) {
+    if (!key.startsWith(`${logId}/`) || live.has(key)) continue
+    if ('url' in opened) URL.revokeObjectURL(opened.url)
+    openedAttachments.delete(key)
+  }
+}
+
+/**
+ * One attachment under a message. Nothing is fetched until the person
+ * clicks: a fetch reaches the Blossom server, and that is a fact about
+ * this device that a message from somebody else must not create on its
+ * own. Once fetched, the envelope is checked against the hash the message
+ * named before the key touches it, then opened here and shown inline if it
+ * is a picture, or offered to save if it is anything else.
+ */
+function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAttachment): HTMLElement {
+  const card = document.createElement('span')
+  card.className = 'attachment'
+  const key = attachmentKey(logId, m.id, index)
+  const render = (): void => {
+    card.innerHTML = ''
+    const label = document.createElement('span')
+    label.className = 'label'
+    label.textContent = `${a.name ?? 'Encrypted file'}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''}`
+    card.append(label)
+    const opened = openedAttachments.get(key)
+    if (opened && 'url' in opened) {
+      if (opened.type.startsWith('image/')) {
+        const img = document.createElement('img')
+        img.src = opened.url
+        img.alt = opened.name
+        card.append(img)
+      }
+      const save = document.createElement('a')
+      save.href = opened.url
+      save.download = opened.name
+      save.textContent = `Save ${opened.name} (${formatBytes(opened.size)})`
+      card.append(save)
+      return
+    }
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = opened ? 'Try again' : 'Show'
+    button.title = 'Fetch the encrypted file from where it is stored, check it, and open it here'
+    button.addEventListener('click', async () => {
+      button.disabled = true
+      button.textContent = 'Fetching\u2026'
+      try {
+        const file = await fetchAttachment(a)
+        const blob = new Blob([file.source.slice().buffer as ArrayBuffer], { type: file.type })
+        openedAttachments.set(key, { url: URL.createObjectURL(blob), name: file.name, type: file.type, size: file.size })
+      } catch (err) {
+        // The reason and nothing else: an error here never carries the key.
+        openedAttachments.set(key, { error: describeError(err) })
+      }
+      render()
+    })
+    card.append(button)
+    if (opened && 'error' in opened) {
+      const why = document.createElement('span')
+      why.className = 'why'
+      why.textContent = opened.error
+      card.append(why)
+    }
+  }
+  render()
+  return card
+}
+
 function renderChat(messages: ChatMessage[]): void {
   renderLog('chatLog', undefined, messages)
 }
@@ -2128,6 +2228,7 @@ function renderChat(messages: ChatMessage[]): void {
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[]): void {
   const log = $(logId)
   log.innerHTML = ''
+  pruneOpenedAttachments(logId, messages)
   profiles.want(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
 
   for (const m of messages) {
@@ -2156,6 +2257,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       who.append(identityRun(shownAs(m.participant, m.name), m.participant === meParticipant))
       p.append(who, m.text)
     }
+    for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
     log.append(p)
   }
   if (countId) $(countId).textContent = messages.length ? `(${messages.length})` : ''
@@ -2913,10 +3015,146 @@ $('agentForm').addEventListener('submit', (event) => {
 $('chatForm').addEventListener('submit', (event) => {
   event.preventDefault()
   const input = $('chatInput') as HTMLInputElement
-  const text = input.value.trim()
-  if (!text || !session) return
+  const typed = input.value.trim()
+  const attachments = stagedAttachments
+  if ((!typed && attachments.length === 0) || !session) return
+  // A file with nothing said about it still gets a caption, because the
+  // caption is all a client that has never heard of attachments will show.
+  const text =
+    typed ||
+    (attachments.length === 1
+      ? `Shared a file${attachments[0]?.name ? `: ${attachments[0].name}` : ''}`
+      : `Shared ${attachments.length} files`)
   input.value = ''
-  session.chat.send(text).catch((err) => setStatus(describeError(err)))
+  stagedAttachments = []
+  renderStaged()
+  session.chat.send(text, attachments.length ? { attachments } : {}).catch((err) => setStatus(describeError(err)))
+})
+
+// ---------------------------------------------------------------------------
+// Attaching a Wildbloom share to a message
+// ---------------------------------------------------------------------------
+
+/** What the next message will carry. Held here, not in the form, so the
+ *  key is in one place until it is in the message and then nowhere. */
+let stagedAttachments: ChatAttachment[] = []
+
+function renderStaged(): void {
+  const box = $('attachStaged')
+  box.innerHTML = ''
+  stagedAttachments.forEach((a, i) => {
+    const chip = document.createElement('span')
+    chip.className = 'attachChip'
+    chip.textContent = `${a.name ?? 'Encrypted file'}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''} `
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.textContent = 'remove'
+    remove.addEventListener('click', () => {
+      stagedAttachments.splice(i, 1)
+      renderStaged()
+    })
+    chip.append(remove)
+    box.append(chip)
+  })
+  $('attachToggle').textContent = stagedAttachments.length ? `Attach (${stagedAttachments.length})` : 'Attach'
+}
+
+/**
+ * The kind-1063 event behind what was pasted: the signed JSON itself, or an
+ * id (hex, note1 or nevent1) looked up on the room's relays. Wildbloom shows
+ * its uploader the id, so that is the common case; the JSON is for when the
+ * event was published somewhere these relays never saw.
+ */
+async function resolveFileEvent(text: string): Promise<NostrEvent> {
+  const value = text.trim()
+  if (value.startsWith('{')) {
+    let event: NostrEvent
+    try {
+      event = JSON.parse(value) as NostrEvent
+    } catch {
+      throw new Error('That is not event JSON.')
+    }
+    if (!verifyEventUncached(event)) throw new Error('That event JSON does not verify.')
+    return event
+  }
+  let id = value.toLowerCase()
+  if (/^(note1|nevent1)/.test(id)) {
+    try {
+      const decoded = nip19Decode(value)
+      id = decoded.type === 'note' ? decoded.data : decoded.type === 'nevent' ? decoded.data.id : ''
+    } catch {
+      id = ''
+    }
+  }
+  if (!/^[0-9a-f]{64}$/.test(id)) throw new Error('Paste the file event id (64 hex characters) or the event JSON.')
+  const transport = new NostrRelayPool(relays)
+  try {
+    return await new Promise<NostrEvent>((resolve, reject) => {
+      let off = (): void => {}
+      const timer = setTimeout(() => {
+        off()
+        reject(new Error('The room\'s relays do not have that event. Paste the event JSON instead.'))
+      }, 8_000)
+      off = transport.subscribe([{ ids: [id] }], (event) => {
+        if (event.id !== id || !verifyEventUncached(event)) return
+        clearTimeout(timer)
+        off()
+        resolve(event)
+      })
+    })
+  } finally {
+    transport.close()
+  }
+}
+
+/** What the chat carries for a file event, once the key is known. The
+ *  event tells where the envelope is and what its bytes hash to; the source
+ *  name and type are inside the envelope and stay there until it is opened. */
+function shareFromEvent(event: NostrEvent, keyHex: string): ChatAttachment {
+  if (event.kind !== 1063) throw new Error('That is not a file event (kind 1063).')
+  const tag = (name: string): string | undefined => event.tags.find((t) => t[0] === name)?.[1]
+  const url = tag('url')
+  const sha256 = tag('x')
+  const size = Number(tag('size'))
+  if (!url || !/^https:\/\//i.test(url)) throw new Error('The file event has no https URL.')
+  if (!sha256 || !/^[0-9a-fA-F]{64}$/.test(sha256)) throw new Error('The file event has no hash.')
+  const share: ChatAttachment = { event: event.id, url, sha256: sha256.toLowerCase(), key: keyHex }
+  if (Number.isSafeInteger(size) && size > 0) share.size = size
+  return share
+}
+
+$('attachToggle').addEventListener('click', () => {
+  const panel = $('attachPanel')
+  panel.hidden = !panel.hidden
+  if (!panel.hidden) $('attachEvent').focus()
+})
+$('attachCancel').addEventListener('click', () => {
+  $('attachPanel').hidden = true
+})
+$('attachAdd').addEventListener('click', async () => {
+  const status = $('attachStatus')
+  const eventInput = $('attachEvent') as HTMLInputElement
+  const keyInput = $('attachKey') as HTMLInputElement
+  if (stagedAttachments.length >= MAX_CHAT_ATTACHMENTS) {
+    status.textContent = `A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`
+    return
+  }
+  status.textContent = 'Checking\u2026'
+  try {
+    const keyHex = parseRecoveryKey(keyInput.value)
+    const event = await resolveFileEvent(eventInput.value)
+    stagedAttachments.push(shareFromEvent(event, keyHex))
+    // The key is in the staged message now and nowhere else on the page.
+    keyInput.value = ''
+    eventInput.value = ''
+    status.textContent = ''
+    renderStaged()
+    $('attachPanel').hidden = true
+    ;($('chatInput') as HTMLInputElement).focus()
+  } catch (err) {
+    // Shown here, not through setStatus, which also writes to the console.
+    status.textContent = describeError(err)
+  }
 })
 
 ;($('chatInput') as HTMLInputElement).maxLength = MAX_CHAT_TEXT_LENGTH

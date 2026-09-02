@@ -1,3 +1,4 @@
+import type { ChatAttachment } from '../chat.js'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type Anthropic from '@anthropic-ai/sdk'
@@ -23,7 +24,17 @@ export interface Brain {
 
 /** What goes out on stdout, one JSON object per line. */
 export type StdioEvent =
-  | { type: Channel; id: string; from: string; name?: string; text: string; sentAt: number; kind?: 'transcript'; speaker?: string }
+  | {
+      type: Channel
+      id: string
+      from: string
+      name?: string
+      text: string
+      sentAt: number
+      kind?: 'transcript'
+      speaker?: string
+      attachments?: ChatAttachment[]
+    }
   | { type: 'roster'; participants: Array<{ participant: string; name?: string; agent: boolean; tracks: string[] }> }
   | { type: 'ready'; participant: string; device: string; room: string; url: string; hosting: boolean }
   | { type: 'error'; message: string }
@@ -152,6 +163,10 @@ export function toStdioEvent(event: RuntimeEvent): StdioEvent {
     sentAt: m.sentAt,
     ...(m.kind ? { kind: m.kind } : {}),
     ...(m.speaker ? { speaker: m.speaker } : {}),
+    // Passed through whole, key included: an agent is a member, and a
+    // member holds what the room holds. Whether it fetches is its own call,
+    // exactly as it is a person's.
+    ...(m.attachments ? { attachments: m.attachments } : {}),
   }
 }
 

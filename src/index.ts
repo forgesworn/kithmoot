@@ -136,8 +136,33 @@ export {
   CHAT_RETENTION_SECONDS,
   MAX_CHAT_MESSAGES,
   MAX_CHAT_MESSAGES_PER_MINUTE,
+  MAX_CHAT_ATTACHMENTS,
+  MAX_ATTACHMENT_URL_LENGTH,
+  MAX_ATTACHMENT_NAME_LENGTH,
+  normaliseAttachment,
 } from './chat.js'
-export type { ChatMessage, ChatMessageKind, ChatLogOptions, EncodeChatOptions, DecodeChatOptions, SendOptions } from './chat.js'
+export type {
+  ChatMessage,
+  ChatMessageKind,
+  ChatAttachment,
+  ChatLogOptions,
+  EncodeChatOptions,
+  DecodeChatOptions,
+  SendOptions,
+} from './chat.js'
+export {
+  decryptEnvelope,
+  fetchAttachment,
+  verifyEnvelopeHash,
+  sha256Hex,
+  parseRecoveryKey,
+  formatRecoveryKey,
+  deriveEnvelopeKey,
+  canonicalEnvelopeName,
+  paddedPlaintextLength,
+  DEFAULT_MAX_ATTACHMENT_BYTES,
+} from './attachment.js'
+export type { DecryptedEnvelope, FetchAttachmentOptions } from './attachment.js'
 export { mintTurnCredential } from './turn.js'
 export type { TurnCredential } from './turn.js'
 export { needsForwarding, selectForwarder, DEFAULT_HEADROOM } from './forwarder.js'
