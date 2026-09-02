@@ -120,7 +120,10 @@ describe('Scribe', () => {
     await r.say(2)
 
     const transcript = r.person.transcripts.messages()
-    expect(transcript.map((m) => m.text)).toEqual(['line 1', 'line 2'])
+    // Sorted: both land in the same second, and a tie breaks on a random
+    // id. The scribe keeps them in the order they arrived, which the
+    // grouped-by-speaker case checks.
+    expect(transcript.map((m) => m.text).sort()).toEqual(['line 1', 'line 2'])
     expect(transcript[0]).toMatchObject({ kind: 'transcript', speaker: r.person.participant, participant: r.agent.participant })
     expect(r.scribe.pending).toBe(2)
     expect(r.minutes()).toEqual([])
