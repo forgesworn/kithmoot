@@ -200,16 +200,23 @@ test('a call connects and carries media with host and reflexive candidates exclu
     // The app must actually have had a TURN server to offer. Asserted
     // separately so a failure below can be read as "relay did not work"
     // rather than "there was nothing to relay through".
-    const offeredA = await pageA.evaluate(
-      () => (window as unknown as { __kithmootIceServers: RTCIceServer[][] }).__kithmootIceServers,
-    )
-    const sawTurn = offeredA.some((list) =>
-      list.some((s) => {
-        const urls = Array.isArray(s.urls) ? s.urls : [s.urls]
-        return urls.some((u) => typeof u === 'string' && u.startsWith('turn'))
-      }),
-    )
-    expect(sawTurn, 'the app never put a turn: server into its ICE configuration').toBe(true)
+    // The TURN rung is the LAST rung: the app tries direct first, and only
+    // hands ICE the TURN credentials once the direct rung has timed out
+    // (DEFAULT_ROUTE_TIMEOUT_MS). Polled, because the tiles above come from
+    // the roster and appear seconds before the ladder has moved.
+    const sawTurn = () =>
+      pageA.evaluate(() => {
+        const offered = (window as unknown as { __kithmootIceServers: RTCIceServer[][] }).__kithmootIceServers
+        return offered.some((list) =>
+          list.some((s) => {
+            const urls = Array.isArray(s.urls) ? s.urls : [s.urls]
+            return urls.some((u) => typeof u === 'string' && u.startsWith('turn'))
+          }),
+        )
+      })
+    await expect
+      .poll(sawTurn, { message: 'the app never put a turn: server into its ICE configuration', timeout: 60_000 })
+      .toBe(true)
 
     // Media takes a moment to start flowing once ICE settles; poll rather
     // than assert on the first reading, because a zero here a second after
