@@ -363,6 +363,19 @@ video {
   flex-wrap: wrap;
 }
 
+/* The chat form while a file is being dragged over it: the drop will be
+   taken, and this is the only thing that says so. */
+#chatForm.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+#attachFile {
+  flex: 1 1 16rem;
+  color: var(--muted);
+}
+
 .attachChip {
   display: inline-block;
   margin: 0.3rem 0.4rem 0 0;

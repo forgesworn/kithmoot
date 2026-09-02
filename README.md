@@ -92,7 +92,11 @@ to make that one thing true.
   and its public room id longer; client retention is not remote deletion.
 - A file shared through Wildbloom can ride with a chat message: its
   kind-1063 event id, Blossom URL, hash and recovery key travel inside the
-  room-key ciphertext, and nothing is fetched until a person clicks.
+  room-key ciphertext, and nothing is fetched until a person clicks. Drop
+  a file on the chat and the browser does the Wildbloom part itself:
+  seals it under a fresh key, puts the envelope on the Blossom server this
+  device names, announces it with a kind-1063 event signed by the device
+  key, and stages it for the next message.
 - **Names, and optionally a real Nostr identity.** Type a name and join, or
   sign in with a key you already have. See below.
 - **Leaving is instant, and so is a dropped connection coming back.** A

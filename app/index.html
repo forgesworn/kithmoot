@@ -255,16 +255,28 @@
         <div id="chatLog" aria-live="polite"></div>
         <form id="chatForm">
           <input id="chatInput" placeholder="Say something" autocomplete="off" />
-          <button type="button" id="attachToggle" title="Attach a file shared through Wildbloom">Attach</button>
+          <button type="button" id="attachToggle" title="Attach a file: drop one here, choose one, or paste a Wildbloom share">Attach</button>
           <button type="submit">Send</button>
         </form>
         <div id="attachStaged"></div>
         <div id="attachPanel" class="attachPanel" hidden>
           <p class="note">
-            A file shared through Wildbloom. Paste its file event (the id
-            Wildbloom showed you, or the signed event JSON) and the recovery
-            key. Both go into the message, encrypted to the room like the
-            words around them, and nobody fetches anything until they choose to.
+            Drop a file on the chat, or choose one. It is encrypted on this
+            device under a fresh key before anything leaves it, the encrypted
+            bytes go to the Blossom server named below, and the key goes into
+            the message, encrypted to the room like the words around it. The
+            server sees an encrypted blob and this device's key; the relays
+            see an announcement that this device shared some encrypted bytes.
+            Nobody fetches anything until they choose to.
+          </p>
+          <div class="attachRow">
+            <input id="attachFile" type="file" multiple aria-label="Choose a file to share" />
+          </div>
+          <input id="attachServer" type="url" placeholder="Blossom server to put files on, e.g. https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Blossom server" />
+          <p class="note">
+            Or a file already shared through Wildbloom: paste its file event
+            (the id Wildbloom showed you, or the signed event JSON) and the
+            recovery key.
           </p>
           <input id="attachEvent" placeholder="File event: 64-character id, note1, nevent1 or the event JSON" autocomplete="off" spellcheck="false" />
           <input id="attachKey" type="password" placeholder="Recovery key (wbk1_…)" autocomplete="off" spellcheck="false" />

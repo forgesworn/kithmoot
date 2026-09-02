@@ -161,8 +161,29 @@ export {
   canonicalEnvelopeName,
   paddedPlaintextLength,
   DEFAULT_MAX_ATTACHMENT_BYTES,
+  encryptEnvelope,
+  uploadEnvelope,
+  buildFileEvent,
+  buildUploadAuthorisation,
+  encodeBlossomAuthorisation,
+  normaliseBlossomServer,
+  ENVELOPE_MEDIA_TYPE,
+  ENVELOPE_FILE_NAME,
+  ENVELOPE_SCHEME,
+  MAX_UPLOAD_SOURCE_BYTES,
+  BLOSSOM_AUTH_KIND,
+  FILE_EVENT_KIND,
+  UPLOAD_AUTHORISATION_LIFETIME_SECONDS,
 } from './attachment.js'
-export type { DecryptedEnvelope, FetchAttachmentOptions } from './attachment.js'
+export type {
+  DecryptedEnvelope,
+  FetchAttachmentOptions,
+  EnvelopeSource,
+  EncryptEnvelopeOptions,
+  EncryptedEnvelope,
+  BlossomDescriptor,
+  UploadEnvelopeOptions,
+} from './attachment.js'
 export { mintTurnCredential } from './turn.js'
 export type { TurnCredential } from './turn.js'
 export { needsForwarding, selectForwarder, DEFAULT_HEADROOM } from './forwarder.js'

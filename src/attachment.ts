@@ -10,14 +10,21 @@
  * room can open the file and nobody outside it can, which is exactly the
  * standing the chat text already has.
  *
- * This module is the reading half. It knows the envelope format well enough
- * to refuse anything that is not exactly what Wildbloom wrote, and it fetches
- * nothing on its own: a fetch reaches the Blossom server, and whether that
- * happens is the person's decision, made by clicking, not the page's. The
- * format is Wildbloom's `FSWNENC2` (and the `FSWNENC1` and legacy `WBLMENC1`
- * it still reads), reproduced here from its specification and checked
- * against its published known-answer vectors, so that a room can open a
- * Wildbloom file without depending on Wildbloom's code.
+ * The reading half knows the envelope format well enough to refuse anything
+ * that is not exactly what Wildbloom wrote, and it fetches nothing on its
+ * own: a fetch reaches the Blossom server, and whether that happens is the
+ * person's decision, made by clicking, not the page's. The format is
+ * Wildbloom's `FSWNENC2` (and the `FSWNENC1` and legacy `WBLMENC1` it still
+ * reads), reproduced here from its specification and checked against its
+ * published known-answer vectors, so that a room can open a Wildbloom file
+ * without depending on Wildbloom's code.
+ *
+ * The writing half is the same format from the other side, so a file
+ * dropped into a room goes out exactly as Wildbloom would have sent it:
+ * sealed under a fresh key, put on a Blossom server as an opaque blob, and
+ * announced by a kind-1063 event any Wildbloom client can read. The upload
+ * is authorised the way Wildbloom authorises it (a signed kind-24242 event
+ * naming the hash and the host), by whatever key the caller signs with.
  *
  * Browser-safe on purpose: no DOM, no Node, only the noble primitives the
  * rest of the protocol already uses.
@@ -25,8 +32,10 @@
 import { gcm } from '@noble/ciphers/aes.js'
 import { hkdf } from '@noble/hashes/hkdf'
 import { sha256 } from '@noble/hashes/sha2'
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
+import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
+import type { Event, EventTemplate } from 'nostr-tools/pure'
 import type { ChatAttachment } from './chat.js'
+import { verifyEventUncached } from './verify.js'
 
 const MAGIC_V2 = 'FSWNENC2'
 const MAGIC_V1 = 'FSWNENC1'
@@ -372,4 +381,385 @@ async function readBounded(response: Response, maxBytes: number): Promise<Uint8A
     offset += chunk.length
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// Writing an envelope
+// ---------------------------------------------------------------------------
+
+/** The media type Wildbloom uploads an envelope under. Its bytes say
+ *  nothing about what is inside, and neither does this. */
+export const ENVELOPE_MEDIA_TYPE = 'application/vnd.forgesworn.encrypted'
+/** The one file name Wildbloom gives every envelope, so a Blossom server
+ *  and a kind-1063 event learn nothing from it. */
+export const ENVELOPE_FILE_NAME = 'wildbloom.wbenc'
+/** The scheme name the kind-1063 event carries in its `encryption` tag. */
+export const ENVELOPE_SCHEME = 'forgesworn-aes-256-gcm-chunked-v2'
+/** The biggest file a room will seal and upload. Well under the format's
+ *  own 256 MiB: a room is for pictures and documents, and everything here
+ *  is held in memory while it is sealed. */
+export const MAX_UPLOAD_SOURCE_BYTES = 64 * 1024 * 1024
+
+export interface EnvelopeSource {
+  /** The file name as the person's device knows it. Normalised the way
+   *  Wildbloom normalises it before it is stored. */
+  name: string
+  /** The media type as the person's device knows it. Lower-cased; empty
+   *  becomes `application/octet-stream`. */
+  type: string
+}
+
+export interface EncryptEnvelopeOptions {
+  /** The 32-byte input key, which is also the recovery key the chat will
+   *  carry. Fresh random when not given, which is what every real envelope
+   *  gets; given only to reproduce a published vector. */
+  key?: Uint8Array
+  /** The 32-byte header salt. Fresh random when not given. Test-only. */
+  salt?: Uint8Array
+  /** The 8-byte nonce prefix. Fresh random when not given. Test-only. */
+  noncePrefix?: Uint8Array
+  /** The padding byte at each absolute plaintext offset. Fresh random when
+   *  not given. Test-only: the published vectors fill their padding with a
+   *  formula so their bytes can be reproduced. */
+  padding?: (offset: number) => number
+  /** Refuse a source larger than this. Defaults to
+   *  `MAX_UPLOAD_SOURCE_BYTES`, and can never exceed the format's own. */
+  maxSourceBytes?: number
+}
+
+export interface EncryptedEnvelope {
+  /** The envelope bytes, ready to upload. */
+  envelope: Uint8Array
+  /** SHA-256 of `envelope`, hex: the `x` tag and the Blossom address. */
+  sha256: string
+  /** The recovery key, as the 64 hex characters the chat carries. This is
+   *  the only copy; it exists here and in whatever the caller puts it in. */
+  key: string
+  /** The source name exactly as the envelope stores it. */
+  name: string
+  /** The source media type exactly as the envelope stores it. */
+  type: string
+  /** The source byte count. */
+  size: number
+}
+
+/** `crypto.getRandomValues` refuses more than 64 KiB at a time. */
+function fillRandom(target: Uint8Array): void {
+  for (let offset = 0; offset < target.length; offset += 65536) {
+    const n = Math.min(65536, target.length - offset)
+    target.set(randomBytes(n), offset)
+  }
+}
+
+function fixedBytes(value: Uint8Array | undefined, length: number, what: string): Uint8Array {
+  if (value === undefined) return randomBytes(length)
+  if (value.length !== length) throw new Error(`The ${what} must be ${length} bytes.`)
+  return value
+}
+
+/**
+ * Seal a file into an `FSWNENC2` envelope exactly as Wildbloom's writer
+ * does: canonical metadata, the padding bucket, 1 MiB records under a key
+ * derived from a fresh input key and a fresh salt, every record bound to
+ * the header by its tag. Given a vector's key, salt, nonce prefix and
+ * padding rule it reproduces the vector's bytes; given nothing it produces
+ * an envelope nobody has seen before, with the key that opens it.
+ */
+export function encryptEnvelope(
+  source: Uint8Array,
+  meta: EnvelopeSource,
+  opts: EncryptEnvelopeOptions = {},
+): EncryptedEnvelope {
+  const maxSource = Math.min(opts.maxSourceBytes ?? MAX_UPLOAD_SOURCE_BYTES, MAX_SOURCE_BYTES)
+  if (source.length === 0) throw new Error('The file is empty.')
+  if (source.length > maxSource) {
+    throw new Error(`The file is larger than ${Math.floor(maxSource / (1024 * 1024))} MiB, which is as much as a room will send.`)
+  }
+  const name = canonicalEnvelopeName(meta.name)
+  const type = canonicalEnvelopeType(meta.type)
+  // JSON.stringify writes the minimal escaping profile the specification
+  // requires, and key order is the order given here.
+  const metadata = new TextEncoder().encode(JSON.stringify({ name, size: source.length, type }))
+  if (metadata.length > MAX_METADATA_BYTES) throw new Error('The file name is too long to store.')
+  const prefix = new Uint8Array(4 + metadata.length)
+  new DataView(prefix.buffer).setUint32(0, metadata.length, false)
+  prefix.set(metadata, 4)
+
+  const plaintextLength = paddedPlaintextLength(prefix.length + source.length)
+  const recordCount = Math.ceil(plaintextLength / CHUNK_BYTES)
+  const inputKey = fixedBytes(opts.key, 32, 'key')
+  const salt = fixedBytes(opts.salt, SALT_BYTES, 'salt')
+  const noncePrefix = fixedBytes(opts.noncePrefix, 8, 'nonce prefix')
+
+  const header = new Uint8Array(HEADER_BYTES_V2)
+  header.set(new TextEncoder().encode(MAGIC_V2))
+  const view = new DataView(header.buffer)
+  view.setUint32(8, CHUNK_BYTES, false)
+  view.setUint32(12, recordCount, false)
+  header.set(noncePrefix, 16)
+  header.set(salt, 24)
+
+  const key = deriveEnvelopeKey(inputKey, salt)
+  const envelope = new Uint8Array(HEADER_BYTES_V2 + plaintextLength + recordCount * TAG_BYTES)
+  envelope.set(header)
+  let written = HEADER_BYTES_V2
+  const paddingStart = prefix.length + source.length
+  for (let counter = 0; counter < recordCount; counter += 1) {
+    const offset = counter * CHUNK_BYTES
+    const length = Math.min(CHUNK_BYTES, plaintextLength - offset)
+    const plaintext = new Uint8Array(length)
+    // Three regions of the logical plaintext may land in this record: the
+    // metadata prefix, the source, the padding. Each is copied for the part
+    // of it that overlaps this record, which may be none.
+    const prefixEnd = Math.min(offset + length, prefix.length)
+    if (prefixEnd > offset) plaintext.set(prefix.subarray(offset, prefixEnd), 0)
+    const sourceStart = Math.max(offset, prefix.length)
+    const sourceEnd = Math.min(offset + length, paddingStart)
+    if (sourceEnd > sourceStart) {
+      plaintext.set(source.subarray(sourceStart - prefix.length, sourceEnd - prefix.length), sourceStart - offset)
+    }
+    const padStart = Math.max(offset, paddingStart)
+    if (offset + length > padStart) {
+      const pad = plaintext.subarray(padStart - offset)
+      if (opts.padding) {
+        for (let i = 0; i < pad.length; i += 1) pad[i] = opts.padding(padStart + i) & 0xff
+      } else {
+        fillRandom(pad)
+      }
+    }
+    const sealed = gcm(key, nonceFor(noncePrefix, counter), aadFor(header, counter)).encrypt(plaintext)
+    plaintext.fill(0)
+    envelope.set(sealed, written)
+    written += sealed.length
+  }
+  key.fill(0)
+  return { envelope, sha256: sha256Hex(envelope), key: bytesToHex(inputKey), name, type, size: source.length }
+}
+
+// ---------------------------------------------------------------------------
+// The Blossom upload
+// ---------------------------------------------------------------------------
+
+/** BUD-01's authorisation event kind. */
+export const BLOSSOM_AUTH_KIND = 24242
+/** NIP-94's file metadata kind. */
+export const FILE_EVENT_KIND = 1063
+/** How long an upload authorisation is good for. Wildbloom's own figure;
+ *  BUD-01 servers refuse one that is not short-lived. */
+export const UPLOAD_AUTHORISATION_LIFETIME_SECONDS = 90
+const MAX_DESCRIPTOR_BYTES = 64 * 1024
+
+/**
+ * A Blossom server as an https origin and nothing else: no path, query,
+ * fragment or credentials, because the authorisation names a host and the
+ * upload goes to `/upload` under it. Throws on anything else, so a
+ * mistyped setting is refused before a byte is sealed.
+ */
+export function normaliseBlossomServer(value: string): string {
+  let url: URL
+  try {
+    url = new URL(value.trim())
+  } catch {
+    throw new Error('The Blossom server must be an https URL.')
+  }
+  if (url.protocol !== 'https:') throw new Error('The Blossom server must be an https URL.')
+  if (url.username || url.password) throw new Error('The Blossom server must not carry credentials.')
+  if (url.pathname !== '/' || url.search || url.hash) {
+    throw new Error('The Blossom server must be an origin only, without a path, query or fragment.')
+  }
+  return url.origin
+}
+
+/**
+ * The unsigned kind-24242 event that authorises one upload of one blob to
+ * one host, built the way Wildbloom builds it, so a server that takes
+ * Wildbloom's uploads takes these. `created_at` sits a second in the past
+ * because BUD-01 requires it to be, and a strict clock would refuse "now".
+ */
+export function buildUploadAuthorisation(
+  sha256: string,
+  server: string,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): EventTemplate {
+  const hash = sha256.toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('The blob hash must be 64 hex characters.')
+  const hostname = new URL(normaliseBlossomServer(server)).hostname.toLowerCase()
+  const createdAt = Math.max(0, nowSeconds - 1)
+  return {
+    kind: BLOSSOM_AUTH_KIND,
+    created_at: createdAt,
+    tags: [
+      ['t', 'upload'],
+      ['expiration', String(createdAt + UPLOAD_AUTHORISATION_LIFETIME_SECONDS)],
+      ['server', hostname],
+      ['x', hash],
+    ],
+    content: `Upload blob ${hash} to ${hostname}`,
+  }
+}
+
+/** The `Authorization` header value for a signed authorisation: `Nostr`
+ *  and the event JSON in standard base64 with padding, which is what
+ *  BUD-01 asks for and what strict servers check. */
+export function encodeBlossomAuthorisation(event: Event): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(event))
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return `Nostr ${btoa(binary)}`
+}
+
+/** What a Blossom server says about a blob it has taken. */
+export interface BlossomDescriptor {
+  /** Where the blob is served, on the server it was sent to. */
+  url: string
+  sha256: string
+  size: number
+  type?: string
+}
+
+export interface UploadEnvelopeOptions {
+  /** Signs the authorisation. Whatever key signs it is the key the server
+   *  sees, and the only thing it learns about who uploaded. */
+  sign: (template: EventTemplate) => Promise<Event> | Event
+  /** Injectable, for tests and for a runtime with its own fetch. */
+  fetch?: typeof fetch
+  /** Unix seconds. Injectable for tests. */
+  now?: () => number
+  signal?: AbortSignal
+}
+
+function sameTemplate(template: EventTemplate, event: Event): boolean {
+  return (
+    event.kind === template.kind &&
+    event.created_at === template.created_at &&
+    event.content === template.content &&
+    JSON.stringify(event.tags) === JSON.stringify(template.tags)
+  )
+}
+
+function safeReason(value: string | null): string {
+  if (!value) return ''
+  return value.replace(CONTROLS_ALL, ' ').trim().slice(0, 200)
+}
+
+/**
+ * Put an envelope on a Blossom server (BUD-01: `PUT /upload`, the signed
+ * authorisation in the `Authorization` header, the hash in `X-SHA-256`)
+ * and return where it landed. The descriptor the server answers with is
+ * held to the bytes that were sent: the same hash, the same size, a URL on
+ * the same origin naming that hash. Anything else is a server that stored
+ * something other than what it was given, and is refused.
+ *
+ * Errors are one plain line each and never carry the key, which this
+ * function is never given.
+ */
+export async function uploadEnvelope(
+  server: string,
+  envelope: Uint8Array,
+  opts: UploadEnvelopeOptions,
+): Promise<BlossomDescriptor> {
+  const origin = normaliseBlossomServer(server)
+  const doFetch = opts.fetch ?? globalThis.fetch
+  const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+  const hash = sha256Hex(envelope)
+  const template = buildUploadAuthorisation(hash, origin, now())
+  const signed = await opts.sign(template)
+  if (!sameTemplate(template, signed) || !verifyEventUncached(signed)) {
+    throw new Error('The signer did not sign the upload authorisation as written.')
+  }
+  let response: Response
+  try {
+    response = await doFetch(`${origin}/upload`, {
+      method: 'PUT',
+      headers: {
+        Authorization: encodeBlossomAuthorisation(signed),
+        'Content-Type': ENVELOPE_MEDIA_TYPE,
+        'X-SHA-256': hash,
+      },
+      body: envelope.slice().buffer as ArrayBuffer,
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
+      cache: 'no-store',
+      redirect: 'error',
+      signal: opts.signal,
+    })
+  } catch (err) {
+    if (opts.signal?.aborted) throw new Error('The upload was cancelled.')
+    throw new Error(`Could not reach ${new URL(origin).hostname}.`)
+  }
+  if (response.status !== 200 && response.status !== 201) {
+    const reason = safeReason(response.headers.get('X-Reason'))
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`The server refused the upload authorisation (${response.status}${reason ? `: ${reason}` : ''}).`)
+    }
+    if (response.status === 413) throw new Error('The server will not take a file this big (413).')
+    throw new Error(`The server answered ${response.status}${reason ? `: ${reason}` : ''}.`)
+  }
+  const text = await response.text()
+  if (text.length > MAX_DESCRIPTOR_BYTES) throw new Error('The server answered with more than a blob descriptor.')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('The server did not answer with a blob descriptor.')
+  }
+  return checkDescriptor(parsed, origin, hash, envelope.length)
+}
+
+function checkDescriptor(value: unknown, origin: string, hash: string, size: number): BlossomDescriptor {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('The server did not answer with a blob descriptor.')
+  }
+  const d = value as Record<string, unknown>
+  if (typeof d.sha256 !== 'string' || d.sha256.toLowerCase() !== hash) {
+    throw new Error('The server stored different bytes from the ones it was sent.')
+  }
+  if (typeof d.size !== 'number' || d.size !== size) throw new Error('The server stored a different size from the one it was sent.')
+  if (typeof d.url !== 'string') throw new Error('The server did not say where the blob is.')
+  let url: URL
+  try {
+    url = new URL(d.url)
+  } catch {
+    throw new Error('The server did not say where the blob is.')
+  }
+  if (url.origin !== origin || url.search || url.hash) throw new Error('The server put the blob somewhere other than itself.')
+  const leaf = url.pathname.split('/').filter(Boolean).at(-1) ?? ''
+  if (!new RegExp(`^${hash}(?:\\.[a-z0-9]{1,10})?$`).test(leaf)) {
+    throw new Error('The server did not address the blob by its hash.')
+  }
+  const out: BlossomDescriptor = { url: url.toString(), sha256: hash, size }
+  if (typeof d.type === 'string' && d.type.length <= 255 && !CONTROLS.test(d.type)) out.type = d.type.toLowerCase()
+  return out
+}
+
+/**
+ * The unsigned kind-1063 (NIP-94) event that announces an uploaded
+ * envelope, with every tag Wildbloom writes, so a Wildbloom client
+ * resolves it as one of its own: `url`, `m`, `x` and `ox` (the same hash,
+ * since the envelope is what was uploaded and nothing transformed it),
+ * `size`, `encryption` and `alt`. The content is Wildbloom's fixed
+ * envelope name. Nothing here says what the file is.
+ */
+export function buildFileEvent(
+  descriptor: { url: string; sha256: string; size: number },
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): EventTemplate {
+  const hash = descriptor.sha256.toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error('The blob hash must be 64 hex characters.')
+  if (!/^https:\/\//i.test(descriptor.url)) throw new Error('The blob URL must be https.')
+  if (!Number.isSafeInteger(descriptor.size) || descriptor.size <= 0) throw new Error('The blob size must be a positive integer.')
+  return {
+    kind: FILE_EVENT_KIND,
+    created_at: nowSeconds,
+    tags: [
+      ['url', descriptor.url],
+      ['m', ENVELOPE_MEDIA_TYPE],
+      ['x', hash],
+      ['ox', hash],
+      ['size', String(descriptor.size)],
+      ['encryption', ENVELOPE_SCHEME],
+      ['alt', 'Encrypted Wildbloom file'],
+    ],
+    content: ENVELOPE_FILE_NAME,
+  }
 }
