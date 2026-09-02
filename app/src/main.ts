@@ -38,6 +38,10 @@ import {
   type TrackAdvert,
   AGENT_CHANNEL,
   TRANSCRIPT_CHANNEL,
+  CONTROL_CHANNEL,
+  encodeControl,
+  decodeControl,
+  type ControlMessage,
   type ChatMessage,
 } from '../../src/index.js'
 import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
@@ -1976,6 +1980,89 @@ function trackChips(
   return chips
 }
 
+/** The newest catalogue from every host, by host participant. */
+const catalogues = new Map<string, Extract<ControlMessage, { op: 'catalogue' }> & { at: number }>()
+const controlSeen = new Set<string>()
+
+function ingestControl(messages: ChatMessage[]): void {
+  let changed = false
+  for (const m of messages) {
+    if (controlSeen.has(m.id)) continue
+    controlSeen.add(m.id)
+    const control = decodeControl(m.text)
+    if (!control) continue
+    switch (control.op) {
+      case 'catalogue': {
+        // Sent by the host it names, or it is somebody else's claim.
+        if (control.host !== m.participant) break
+        const have = catalogues.get(control.host)
+        if (have && have.at > m.sentAt) break
+        catalogues.set(control.host, { ...control, at: m.sentAt })
+        changed = true
+        break
+      }
+      case 'invited':
+        if (control.host === m.participant && m.sentAt >= nowSeconds() - 30) setStatus(`${control.name} is joining.`)
+        break
+      case 'dismissed':
+        if (control.host === m.participant && m.sentAt >= nowSeconds() - 30) setStatus(`${control.name} has left${control.reason ? ` (${control.reason})` : ''}.`)
+        break
+      case 'error':
+        if (control.host === m.participant && m.sentAt >= nowSeconds() - 30) setStatus(`Agent host: ${control.message}`)
+        break
+      default:
+        break
+    }
+  }
+  if (changed) renderInvites()
+}
+
+/** Which hosts are actually here. A catalogue from a host that has left is
+ *  a menu for a kitchen that has closed. */
+function renderInvites(): void {
+  const box = $('inviteAgents')
+  const list = $('inviteList')
+  list.innerHTML = ''
+  const present = new Set(session?.participants().map((v) => v.participant) ?? [])
+  let rows = 0
+  for (const [host, catalogue] of catalogues) {
+    if (!present.has(host)) continue
+    for (const entry of catalogue.agents) {
+      const row = document.createElement('div')
+      row.className = 'inviteRow'
+      const running = catalogue.running.find((r) => r.id === entry.id)
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = running ? `Dismiss ${entry.name}` : `Invite ${entry.name}`
+      button.addEventListener('click', () => {
+        button.disabled = true
+        session
+          ?.channel(CONTROL_CHANNEL)
+          .send(encodeControl({ op: running ? 'dismiss' : 'invite', host, agent: entry.id }))
+          .then(() => setStatus(running ? `Asked ${catalogue.name} to stop ${entry.name}.` : `Asked ${catalogue.name} to start ${entry.name}.`))
+          .catch((err) => setStatus(describeError(err)))
+          .finally(() => {
+            button.disabled = false
+          })
+      })
+      row.append(button)
+      const desc = document.createElement('span')
+      desc.className = 'desc'
+      desc.textContent = `${entry.description ?? ''}${entry.listens ? ' Listens, when allowed.' : ''} · via ${catalogue.name}`
+      row.append(desc)
+      if (running) {
+        const tag = document.createElement('span')
+        tag.className = 'running'
+        tag.textContent = 'in the room'
+        row.append(tag)
+      }
+      list.append(row)
+      rows++
+    }
+  }
+  box.hidden = rows === 0
+}
+
 function renderChat(messages: ChatMessage[]): void {
   renderLog('chatLog', undefined, messages)
 }
@@ -2476,7 +2563,10 @@ async function startSession(): Promise<void> {
     session = s
     meParticipant = s.participant
 
-    s.onChange((views) => render(views, meParticipant))
+    s.onChange((views) => {
+      render(views, meParticipant)
+      renderInvites()
+    })
     s.onRemoteTrack(({ device, track }) => attachRemoteTrack(device, track))
 
     await s.join(currentAdverts(), currentClaims())
@@ -2494,6 +2584,13 @@ async function startSession(): Promise<void> {
     const transcript = s.channel(TRANSCRIPT_CHANNEL)
     transcript.onChange((messages) => renderLog('transcriptLog', 'transcriptCount', messages))
     renderLog('transcriptLog', 'transcriptCount', transcript.messages())
+    // Agent hosts say what they can run on the control channel; a person
+    // asks on it. Asked once on arrival, so a host that has been quiet for
+    // an hour says again.
+    const control = s.channel(CONTROL_CHANNEL)
+    control.onChange((messages) => ingestControl(messages))
+    ingestControl(control.messages())
+    control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
 
     joinBtn.hidden = true
     $('identity').hidden = true

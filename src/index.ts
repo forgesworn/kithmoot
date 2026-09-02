@@ -4,6 +4,8 @@ export { generateRoomSecret, deriveRoom, encodeJoinUrl, decodeJoinUrl, parseRoom
 export { parseRoomLink, encodeRoomLink, safeIceUrls } from './link.js'
 export type { RoomLink } from './link.js'
 export { RoomAgent, AGENT_CHANNEL, TRANSCRIPT_CHANNEL, DEFAULT_RELAYS } from './agent.js'
+export { CONTROL_CHANNEL, encodeControl, decodeControl } from './control.js'
+export type { ControlMessage, CatalogueEntry, RunningAgent } from './control.js'
 export type { JoinRoomOptions, CreateRoomOptions, KeeperState } from './agent.js'
 export {
   createRoomInvitation,

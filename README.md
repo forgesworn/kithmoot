@@ -124,6 +124,11 @@ to make that one thing true.
   WhisperX writing what they said into a transcript channel. Driven by a
   pipe, by a local model through Ollama, by Claude, or by any MCP client.
   See `docs/agents.md`.
+- **Invite an agent with one click.** An agent host (`kithmoot-agent host`)
+  sits in the room with a catalogue of personas; every person sees the
+  catalogue under the agents panel and starts or stops one with a button.
+  The agent runs on the host's machine and joins through the room's link
+  like anybody else.
 - **Agents can hear me**, a switch in every browser, off by default. Off
   means this device's camera and microphone are never handed to a
   connection to anything that says it is an agent: the media does not leave

@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { nip19 } from 'nostr-tools'
@@ -16,6 +17,7 @@ import { serveMcp } from './mcp.js'
 import { WhisperXTranscriber, FixedTranscriber } from './transcriber.js'
 import type { Transcriber } from './transcriber.js'
 import { createWeriftFactory } from './webrtc.js'
+import { AgentHost, loadCatalogue } from './host.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
@@ -31,6 +33,13 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
   kithmoot-agent mcp <link> --name <name> [options]
       Join, and serve the room as an MCP server over stdio, so an MCP client is
       the participant. Logs go to stderr.
+
+  kithmoot-agent host <link> --catalogue <dir> [--name <name>] [--state <dir>]
+      Join as an agent host: say what agents the catalogue can run, and start
+      one into the room when somebody in it clicks "Invite". Each <dir>/<id>.json
+      is one agent: {"name", "brain": ollama|anthropic|none, "model", "persona",
+      "description", "respond", "listen"}. Hosted agents keep their identity and
+      memory under --state (default ~/.kithmoot/host).
 
 Options
   --name <name>            What the room calls this agent (required)
@@ -50,6 +59,7 @@ Options
   --whisperx <url>         WhisperX server, default http://127.0.0.1:8765
   --language <code>        Force the transcription language
   --fake-transcriber       Write "(speech)" for every utterance; for plumbing checks
+  --catalogue <dir>        (host) the agents this host can run
   --quiet                  No log lines on stderr
 
 Every option can also come from the environment, for a systemd unit's
@@ -118,17 +128,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       whisperx: { type: 'string' },
       language: { type: 'string' },
       'fake-transcriber': { type: 'boolean', default: false },
+      catalogue: { type: 'string' },
       quiet: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
   })
   const command = positionals[0]
-  if (values.help || !command || !['create', 'join', 'mcp'].includes(command)) {
+  if (values.help || !command || !['create', 'join', 'mcp', 'host'].includes(command)) {
     process.stderr.write(USAGE)
     process.exitCode = command ? 2 : 0
     return
   }
-  const name = values.name ?? env('NAME')
+  const name = values.name ?? env('NAME') ?? (command === 'host' ? 'Agent host' : undefined)
   if (!name) fail('--name is required')
   if (values.respond !== 'mentions' && values.respond !== 'always') fail('--respond must be mentions or always')
 
@@ -142,7 +153,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     turnCredential: values['turn-credential'],
     persona: values.persona ?? env('PERSONA'),
     memory: values.memory ?? env('MEMORY'),
-    brain: command === 'mcp' ? 'none' : (values.brain ?? env('BRAIN') ?? 'stdio'),
+    brain: command === 'mcp' || command === 'host' ? 'none' : (values.brain ?? env('BRAIN') ?? 'stdio'),
     model: values.model ?? env('MODEL'),
     ollamaUrl: values['ollama-url'],
     respond: values.respond,
@@ -218,6 +229,24 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   if (command === 'mcp') {
     await serveMcp(runtime, { name: `kithmoot:${common.name}` })
     log('mcp server ready on stdio')
+    return
+  }
+
+  if (command === 'host') {
+    const dir = values.catalogue ?? env('CATALOGUE')
+    if (!dir) fail('host needs --catalogue <dir>')
+    const catalogue = await loadCatalogue(dir)
+    if (catalogue.length === 0) fail(`${dir}: no <id>.json agents in it`)
+    const host = new AgentHost({
+      agent,
+      catalogue,
+      stateDir: statePath ?? join(homedir(), '.kithmoot', 'host'),
+      log,
+    })
+    await host.start()
+    log(`hosting ${catalogue.map((c) => c.name).join(', ')}`)
+    process.once('SIGINT', () => void host.stop())
+    process.once('SIGTERM', () => void host.stop())
     return
   }
 

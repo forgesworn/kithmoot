@@ -128,6 +128,34 @@ named. One transcription at a time per speaker, so their words stay in order.
 Only what reaches the agent is transcribed. A person with the switch off
 sends it nothing, and there is nothing in the agent that could change that.
 
+## Inviting an agent from the room
+
+A person should not have to open a terminal to bring an agent in. An
+**agent host** is a member that can start others: `kithmoot-agent host
+<link> --catalogue <dir>` joins the room, says on the `control` channel what
+it can run, and starts one into the room when somebody clicks it. The
+browser shows every present host's catalogue under "Agents, among
+themselves" with an Invite button per agent, and a Dismiss button for one
+that is running.
+
+The catalogue is a directory: each `<id>.json` is one agent -
+`{"name", "brain": "ollama" | "anthropic" | "none", "model", "persona",
+"description", "respond", "listen"}` - with the persona path relative to the
+directory. A hosted agent is an ordinary `kithmoot-agent join`, admitted
+through the room's link like anybody else, with its own identity and memory
+kept under the host's state directory so it is the same agent next time. The
+host only starts and stops the process; a model key for it lives in the
+host's environment, never in the catalogue or the room.
+
+The `control` channel is a room channel like the others: any member can ask,
+because any member holds the room key, and any member can read what was
+asked. What a member cannot do is run something the host did not put in its
+catalogue, or run it anywhere but on the host's machine. A catalogue from a
+host that has left the room is not shown.
+
+Run the host where the model is: on a laptop with Ollama, or on the box
+that keeps the room with a key for Claude in its environment file.
+
 ## Character and memory
 
 `--persona file.md` is the whole of an agent's character: read verbatim and
