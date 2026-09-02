@@ -102,8 +102,13 @@ export const ICE_RESTART_GRACE_MS = 3_000
 /**
  * How long a restarted connection is given to reach `connected` again before
  * the peer gives up on it and lets the route ladder take over.
+ *
+ * The restart's offer and answer each cross a public relay, a second or two
+ * apiece on a slow one, before ICE can begin, and a connection that was up
+ * through TURN needs a fresh allocation on top. Ten seconds was the budget
+ * and was tight on real relays; fifteen leaves the ladder its say.
  */
-export const ICE_RESTART_TIMEOUT_MS = 10_000
+export const ICE_RESTART_TIMEOUT_MS = 15_000
 
 /**
  * How long an offer waits for its answer before it is sent again.

@@ -170,13 +170,13 @@
             cannot be used anywhere else. You will be asked to confirm on this
             device before anything is issued.
           </p>
-          <button id="addDevice">Add a device</button>
+          <button id="addDevice">Add my phone or another device</button>
           <input id="pairUrl" readonly hidden />
           <button id="copyPair" type="button" hidden>Copy</button>
           <button id="stopPairing" type="button" hidden>Stop pairing</button>
           <div id="pairQrWrap" hidden>
             <canvas id="pairQr" class="qr" role="img" aria-label="QR code for the pairing link"></canvas>
-            <p class="note">Scan with the camera on the device you're adding.</p>
+            <p class="note">Scan this with the camera on the device you are adding, or send it the link above. This device will then ask you to approve it, once.</p>
           </div>
         </div>
       </section>
@@ -223,6 +223,7 @@
           <button id="diagnostics" type="button" class="quiet" title="Gather what this page knows about its connections, for a bug report">Copy diagnostics</button>
           <button id="leave" type="button">Leave</button>
         </div>
+        <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
         <div id="room"></div>
         <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Diagnostics"></textarea>
 

@@ -120,6 +120,8 @@ export interface RoomSessionBaseOptions {
   /** How long one rung of the route ladder gets. See
    *  `DEFAULT_ROUTE_TIMEOUT_MS`. */
   routeTimeoutMs?: number
+  /** How long the TURN rung gets. See `DEFAULT_TURN_ROUTE_TIMEOUT_MS`. */
+  turnRouteTimeoutMs?: number
   /**
    * This device's standing offer to relay for the room, consulted on every
    * publish.
@@ -417,6 +419,7 @@ export class RoomSession {
         preferForwarder: this.#opts.preferForwarder,
         forwarderTimeoutMs: this.#opts.forwarderTimeoutMs,
         routeTimeoutMs: this.#opts.routeTimeoutMs,
+        turnRouteTimeoutMs: this.#opts.turnRouteTimeoutMs,
         relay: this.#opts.relay,
         // Consent, checked at the moment of the request rather than at
         // construction: a person who has revoked stops carrying people at

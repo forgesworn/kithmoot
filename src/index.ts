@@ -83,7 +83,7 @@ export type { IssueKindredProofOptions } from './access.js'
 export type { AccessTier, RoomPolicy, KindredProof } from './types.js'
 export { Peer } from './peer.js'
 export type { RTCPeerConnectionLike, PeerFactory, PeerOptions, PeerContext, RouteTier } from './peer.js'
-export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS, DEFAULT_ROUTE_TIMEOUT_MS, EXHAUSTED_RETRY_MS } from './mesh.js'
+export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS, DEFAULT_ROUTE_TIMEOUT_MS, DEFAULT_TURN_ROUTE_TIMEOUT_MS, EXHAUSTED_RETRY_MS } from './mesh.js'
 export type { MeshOptions, MeshSession, RemoteTrack, ForwardingState, RouteView } from './mesh.js'
 export {
   ReachabilityProbe,

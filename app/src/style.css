@@ -637,3 +637,24 @@ video {
   color: var(--accent);
   font-size: 0.85rem;
 }
+
+/* Agents with nothing on screen: a row of names above the grid, not empty
+   tiles in it. */
+.agentsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 0 0.75rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.agentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+}

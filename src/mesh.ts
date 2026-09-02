@@ -76,6 +76,8 @@ export interface MeshOptions {
    * tries the next one. See `DEFAULT_ROUTE_TIMEOUT_MS`.
    */
   routeTimeoutMs?: number
+  /** How long the TURN rung gets. See `DEFAULT_TURN_ROUTE_TIMEOUT_MS`. */
+  turnRouteTimeoutMs?: number
   /** How long an exhausted route rests before the ladder is retried from
    *  the top. See `EXHAUSTED_RETRY_MS`. */
   exhaustedRetryMs?: number
@@ -211,6 +213,19 @@ export const DEFAULT_FORWARDER_TIMEOUT_MS = 8_000
  * enough that nobody sits looking at a blank tile wondering.
  */
 export const DEFAULT_ROUTE_TIMEOUT_MS = 10_000
+
+/**
+ * How long the TURN rung gets, which is longer than the others.
+ *
+ * It is the last rung, so nothing is waiting behind it; and it is the slow
+ * one: the far end has to be told over a public relay, allocate on the TURN
+ * server, and trickle relay candidates back over the relay again before a
+ * single check can run. Measured on real relays that took five seconds on a
+ * good day. Ten was the budget for every rung, and a TURN rung that timed
+ * out was a pair declared unreachable that would have connected in the next
+ * breath.
+ */
+export const DEFAULT_TURN_ROUTE_TIMEOUT_MS = 20_000
 
 /**
  * How long a device whose every rung has failed is left alone before the
@@ -602,7 +617,10 @@ export class Mesh {
 
   #armRouteTimer(endpoint: string): void {
     this.#clearRouteTimer(endpoint)
-    const timeout = this.#opts.routeTimeoutMs ?? DEFAULT_ROUTE_TIMEOUT_MS
+    const timeout =
+      this.#routes.get(endpoint)?.tier === 'turn'
+        ? (this.#opts.turnRouteTimeoutMs ?? DEFAULT_TURN_ROUTE_TIMEOUT_MS)
+        : (this.#opts.routeTimeoutMs ?? DEFAULT_ROUTE_TIMEOUT_MS)
     const timer = setTimeout(() => {
       this.#routeTimers.delete(endpoint)
       this.#endpointFailed(endpoint)

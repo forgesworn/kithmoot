@@ -921,3 +921,27 @@ describe('meeting the far end on its rung', () => {
     h.close()
   })
 })
+
+describe('the TURN rung gets longer', () => {
+  it('BUG: gives the last rung more time than the others, because it is the slow one', async () => {
+    vi.useFakeTimers()
+    try {
+      const remote = device()
+      const h = harness({ routeTimeoutMs: 1_000, turnRouteTimeoutMs: 3_000 })
+      const view = person(remote.pub)
+      view.tracks = [{ trackId: 'cam', role: 'camera', device: remote.pub }]
+      h.session.setViews([view])
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
+      // Past the direct budget, well inside the TURN one: still trying.
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'turn', exhausted: false })
+      // Past the TURN budget: now it has genuinely failed.
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'turn', exhausted: true })
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

@@ -94,6 +94,9 @@ const RELAYS = ['wss://relay.trotters.cc', 'wss://nos.lol', 'wss://relay.primal.
 // kind of central dependency this project exists to avoid. This is only a
 // sensible default for a room that never set its own.
 const DEFAULT_ICE_URLS = ['stun:stun.l.google.com:19302']
+/** How often a joined page re-fetches its TURN credential. The credential
+ *  service mints for an hour; forty minutes keeps a fresh one in hand. */
+const ICE_REFRESH_MS = 40 * 60 * 1000
 
 // A default TURN server is a convenience, never a requirement - the design
 // this app follows is that no operator is protocol-mandated. STUN alone
@@ -1851,6 +1854,8 @@ function render(views: ParticipantView[], me: string): void {
 
   const root = $('room')
   root.innerHTML = ''
+  const agentsRow = $('agentsRow')
+  agentsRow.innerHTML = ''
 
   // Ask about every key in the room, so anyone with a published Nostr
   // profile is shown as having one. Cheap to repeat - the book only looks
@@ -1858,6 +1863,27 @@ function render(views: ParticipantView[], me: string): void {
   profiles.want(views.map((v) => v.participant))
 
   for (const view of views) {
+    // An agent with nothing on screen - a keeper, a host, one that only
+    // reads and writes - is a name in a row, not an empty tile taking a
+    // person's space in the grid. One that publishes media is a tile like
+    // anybody else.
+    const showsMedia =
+      view.participant === me
+        ? localMediaEl.childElementCount > 0
+        : view.devices.some((device) => (deviceMediaEls.get(device)?.childElementCount ?? 0) > 0)
+    if (view.agent && !showsMedia) {
+      const chip = document.createElement('span')
+      chip.className = 'agentChip'
+      const shown = shownAs(view.participant, view.name)
+      chip.append(identityRun(shown, view.participant === me))
+      const badge = document.createElement('span')
+      badge.className = 'badge agent'
+      badge.textContent = 'agent'
+      badge.title = 'This participant says it is an automated agent'
+      chip.append(badge)
+      agentsRow.append(chip)
+      continue
+    }
     const box = document.createElement('div')
     box.className = 'participant'
     // The claim this app exists to prove: two devices, one tile. Anything
@@ -1927,6 +1953,8 @@ function render(views: ParticipantView[], me: string): void {
 
     root.append(box)
   }
+
+  agentsRow.hidden = agentsRow.childElementCount === 0
 
   // Emptying the grid above detached our own holder if it was in a tile. If
   // no tile of ours was built this time - our entry has not come back from
@@ -2475,7 +2503,7 @@ async function startSession(): Promise<void> {
     // (a minted credential for this app's own default TURN, if configured
     // and actually in play - see isDefaultIceUrls) and never blocks
     // joining if the credential endpoint is absent or unreachable.
-    const resolvedIceServers = await resolveIceServers(iceUrls)
+    let resolvedIceServers = await resolveIceServers(iceUrls)
 
     // A real RTCPeerConnection genuinely has everything RTCPeerConnectionLike
     // needs - its on* handlers just carry the full, specific DOM event type
@@ -2490,9 +2518,23 @@ async function startSession(): Promise<void> {
     // less - it has simply tried everything at once and taken whatever
     // connected. Keeping TURN out of the list until the mesh asks for the
     // TURN rung is the only way the earlier rungs mean anything.
-    const stunOnly = resolvedIceServers.filter(
-      (server) => !toUrlList(server.urls).some((url) => url.toLowerCase().startsWith('turn')),
-    )
+    const withoutTurn = (servers: RTCIceServer[]) =>
+      servers.filter((server) => !toUrlList(server.urls).some((url) => url.toLowerCase().startsWith('turn')))
+    let stunOnly = withoutTurn(resolvedIceServers)
+    // A minted TURN credential lasts an hour. A standing room lasts longer,
+    // and the TURN rung is built from whatever these hold at the moment a
+    // pair needs it - which, two hours in, was an expired credential, and a
+    // person whose Wi-Fi had just changed could not be reached again.
+    // Refreshed well inside the credential's life, and never blocking: a
+    // refresh that fails leaves the last good list in place.
+    setInterval(() => {
+      resolveIceServers(iceUrls)
+        .then((fresh) => {
+          resolvedIceServers = fresh
+          stunOnly = withoutTurn(fresh)
+        })
+        .catch(() => {})
+    }, ICE_REFRESH_MS)
     const factory: PeerFactory = (context?: PeerContext) => {
       const iceServers = context?.tier === 'turn' ? resolvedIceServers : stunOnly
       const pc = new RTCPeerConnection({ iceServers })
