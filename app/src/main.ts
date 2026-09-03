@@ -190,7 +190,16 @@ const BLOSSOM_ENDPOINT = 'https://kithmoot.forgesworn.dev'
 // runtime which key signs its receipts - never hardcoded here, so a wallet
 // that changes provider or drops zap support takes the ring dark rather than
 // leaving it accepting whatever turns up.
-const DONATION_ADDRESS = 'profusemeat89@walletofsatoshi.com'
+//
+// It ships EMPTY, and it must stay that way in the repository. This once
+// carried a real Lightning address that had been picked up from the funding
+// field of a dependency in package-lock.json - somebody else's wallet
+// entirely. Nothing was payable, because the recipient below was empty and
+// both are required, but the instructions say to fill in the recipient, and
+// doing that alone would have pointed the ring at a stranger and told every
+// viewer in the tooltip that the money went there. An address in this
+// constant is one nobody has checked; the operator sets it deliberately.
+const DONATION_ADDRESS = ''
 // The Nostr pubkey a donation has to be addressed to, in hex. This is NOT the
 // same thing as the address, and it is not optional: the address above is at
 // a custodial wallet whose signing key is shared with every other customer of
