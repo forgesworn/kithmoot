@@ -277,6 +277,13 @@
         <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Diagnostics"></textarea>
 
         <h2>Chat</h2>
+        <div id="channelBar" class="channelBar" role="tablist" aria-label="Channels" hidden></div>
+        <form id="channelNew" class="channelNew" hidden>
+          <input id="channelName" placeholder="new-channel" autocomplete="off" autocapitalize="off" spellcheck="false"
+                 maxlength="64" pattern="[a-z0-9][a-z0-9-]*" aria-label="Name for a new channel" />
+          <button type="submit" id="channelAdd">Open channel</button>
+          <button type="button" id="channelClose" hidden>Close this channel</button>
+        </form>
         <div id="approvals" aria-live="polite"></div>
         <div id="chatLog" aria-live="polite"></div>
         <form id="chatForm">
