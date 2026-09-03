@@ -148,6 +148,49 @@ The agent carries the proof on every roster entry and every chat message,
 inside the room-key ciphertext like everything else, and for the reason the
 device credential rides both: a line read out of history was written by an
 agent that may be in nobody's roster now. Every reader verifies it itself.
+
+### The agent must not be the principal
+
+Those two commands take two different keys, and if they are ever the same
+key the whole thing collapses quietly. An agent holding its principal's key
+can attest that it belongs to itself, and can approve its own requests,
+because the approval rule counts "the agent's verified principal" and that
+is now the same key. Nothing on the wire looks wrong. Every check passes.
+
+It is easy to arrive at by accident, because `--identity` **creates the file
+if it is missing** rather than failing. Point it at a path that has not been
+populated yet and the agent mints a fresh key, writes it there, and runs -
+and every restart after that reuses it, so the deployment looks settled.
+Point it at the wrong file, or leave a principal's key where the deploy
+expects an agent's, and the agent runs as a person.
+
+Two flags make that a startup failure instead:
+
+```bash
+kithmoot-agent join '<link>' --name Tally \
+  --identity ~/.kithmoot/tally.key \
+  --expect-pubkey npub1t96z23k...          # must be Tally
+  --forbid-pubkey npub1mgvlrnf...          # must never be the principal
+```
+
+`--expect-pubkey` is for any agent whose npub is written down anywhere - an
+allowlist, a kind 0, another party's contact list. `--forbid-pubkey` is
+repeatable and is for principals: list every human key that must never end
+up on an agent, and the process refuses to start rather than signing as one
+of them. Both take an npub or hex, and both are also `KITHMOOT_EXPECT_PUBKEY`
+and `KITHMOOT_FORBID_PUBKEY` so they can live in a unit file.
+
+The npub the process resolved is printed on every start, before it joins
+anything. That line exists because the alternative is asking the agent in
+chat what its own key is, and an agent whose tooling is misconfigured will
+answer that wrongly and with complete confidence - it has no reason to doubt
+its own tools.
+
+**This guards the room identity only.** An agent's other credentials - an
+MCP server it drives, a Nostr client it calls, a wallet - are configured
+separately and have their own active identity, which this cannot see. If an
+agent's tools sign as somebody else, nothing here will notice. Check those
+where they are configured, and prefer one key per agent per purpose.
 `decodeRosterEvent` and `decodeChatEvent` drop a proof that does not hold,
 so `RosterEntry.owner`, `ChatMessage.owner` and `ParticipantView.owner` are
 only ever a proof the reader checked, and a client renders "Tally, agent of
