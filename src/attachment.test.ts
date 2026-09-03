@@ -129,6 +129,12 @@ describe('FSWNENC2 known-answer vectors', () => {
 
 describe('FSWNENC1 and legacy WBLMENC1 known-answer vectors', () => {
   for (const name of ['encryption-v2', 'encryption-v1', 'encryption-v2-two-records', 'encryption-v1-two-records']) {
+    // A two-record vector is a 2 MiB envelope built, hashed, and opened a
+    // megabyte at a time, and the recipe is rebuilt rather than read, so
+    // this is real work rather than a hang. Measured: 1.3s on an M4 under
+    // Node 24, 5.0s on a CI runner under Node 22 - which is over vitest's
+    // default and turned a slow test into a red build. The budget is what
+    // separates "slow" from "wedged", so it is stated rather than removed.
     it(`seals ${name} to the published hash and opens it again`, () => {
       const v = vector(name) as RecipeVector
       const { envelope, source } = sealRecipe(v)
@@ -150,7 +156,7 @@ describe('FSWNENC1 and legacy WBLMENC1 known-answer vectors', () => {
       // And the key Wildbloom shows its user is the key the chat carries.
       expect(parseRecoveryKey(v.testOnlyKey.recoveryKey)).toBe(v.testOnlyKey.rawHex)
       expect(formatRecoveryKey(v.testOnlyKey.rawHex)).toBe(v.testOnlyKey.recoveryKey)
-    })
+    }, 30_000)
   }
 })
 
