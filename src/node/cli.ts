@@ -8,6 +8,8 @@ import { nip19 } from 'nostr-tools'
 import { RoomAgent } from '../agent.js'
 import type { KeeperState } from '../agent.js'
 import { parseKeeperState, serialiseKeeperState } from '../keeper-state.js'
+import { parseForwarderRef } from '../descriptor.js'
+import type { ForwarderRef } from '../types.js'
 import { issueAgentOwnership, normaliseAgentOwnership, verifyAgentOwnership } from '../ownership.js'
 import type { AgentOwnership } from '../types.js'
 import { localIdentity } from '../identity.js'
@@ -69,6 +71,11 @@ Options
   --name <name>            What the room calls this agent (required)
   --owner-proof <file>     This agent's ownership proof, from attest; carried on
                            every roster entry and message so people see whose it is
+  --forwarder <json|file>  (create) A forwarder the room may promote to: the line
+                           kithmoot-forwarder prints, {"url","pubkey","label"}, or a
+                           file holding one or a list. Repeatable. The keeper
+                           publishes the room descriptor at start, after every
+                           rekey, and for every arrival, so nobody has to from the app.
   --admin <pubkey>         (create) A participant who may act on the room: remove
                            a member, close it, ask somebody to mute. Repeatable;
                            hex or npub. The keeper announces the list, signed.
@@ -100,7 +107,8 @@ KITHMOOT_IDENTITY, KITHMOOT_RELAYS (comma separated), KITHMOOT_ICE (comma
 separated), KITHMOOT_ADMINS (comma separated), KITHMOOT_PERSONA,
 KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
 KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_OWNER_PROOF,
-KITHMOOT_LINK, KITHMOOT_ROOM_NAME, KITHMOOT_NUDGE (1 to turn it on). A flag
+KITHMOOT_FORWARDER (JSON, or a file path), KITHMOOT_LINK, KITHMOOT_ROOM_NAME,
+KITHMOOT_NUDGE (1 to turn it on). A flag
 wins over the environment. With --state, the room link is also written
 beside the state file as <state>.link, readable by the keeper's user only.
 
@@ -162,6 +170,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       state: { type: 'string' },
       name: { type: 'string' },
       admin: { type: 'string', multiple: true },
+      forwarder: { type: 'string', multiple: true },
       identity: { type: 'string' },
       nsec: { type: 'string' },
       relay: { type: 'string', multiple: true },
@@ -252,6 +261,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     const state = statePath ? await loadKeeperState(statePath) : undefined
     if (state?.closed) fail(`${statePath}: this room was closed. Delete the state file to make a new one.`)
     const admins = [...(values.admin ?? []), ...envList('ADMINS')].map(adminPubkey)
+    const forwarders = await forwarderRefs([...(values.forwarder ?? []), ...(env('FORWARDER') ? [env('FORWARDER')!] : [])])
     const factory = common.listen ? await createWeriftFactory({ iceUrls: common.ice, turn }) : undefined
     agent = await RoomAgent.create({
       base,
@@ -264,6 +274,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       state,
       owner,
       admins,
+      forwarders,
       onState: statePath ? (next) => saveKeeperState(statePath, next) : undefined,
     })
     if (statePath) {
@@ -276,6 +287,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     log(`room ${agent.roomId.slice(0, 8)} open${state ? ' again' : ''}${epoch ? `, epoch ${epoch}` : ''}. link: ${agent.url}`)
     if (admins.length) log(`admins: ${admins.map((a) => a.slice(0, 8)).join(', ')}`)
     else log('no admins: only this process can remove a member or close the room')
+    for (const f of forwarders) log(`forwarder: ${f.url}${f.pubkey ? ` (${f.pubkey.slice(0, 8)})` : ''}${f.label ? ` ${f.label}` : ''}, in the room descriptor`)
     agent.onEpoch((notice) => {
       const who = notice.removed.map((p) => p.slice(0, 8)).join(', ')
       log(`epoch ${notice.epoch}${who ? `: removed ${who}` : ''}${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}. link: ${agent.url}`)
@@ -489,6 +501,40 @@ function keeperNudgeStore(agent: RoomAgent): NudgeStore {
     load: async () => [...(agent.keeperState?.nudge ?? [])],
     save: (pubkeys) => agent.amendKeeperState({ nudge: pubkeys }),
   }
+}
+
+/**
+ * `--forwarder` values: each is JSON (an object, or a list of them) or the
+ * path of a file holding the same. Refused with a reason before the keeper
+ * joins anything.
+ */
+async function forwarderRefs(values: string[]): Promise<ForwarderRef[]> {
+  const out: ForwarderRef[] = []
+  for (const value of values) {
+    const trimmed = value.trim()
+    let text = trimmed
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+      try {
+        text = await readFile(trimmed, 'utf8')
+      } catch (err) {
+        return fail(`--forwarder ${trimmed}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    let raw: unknown
+    try {
+      raw = JSON.parse(text)
+    } catch {
+      return fail(`--forwarder ${trimmed.slice(0, 60)}: not JSON. Expected the line kithmoot-forwarder prints: {"url","pubkey","label"}`)
+    }
+    for (const entry of Array.isArray(raw) ? raw : [raw]) {
+      try {
+        out.push(parseForwarderRef(entry))
+      } catch (err) {
+        return fail(`--forwarder: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+  }
+  return out
 }
 
 /** A proof from `attest`, checked here against this agent's own key so a

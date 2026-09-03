@@ -24,7 +24,8 @@ import { randomBytes } from '@noble/hashes/utils'
 import type { PeerFactory } from './peer.js'
 import type { ChatLog, ChatMessage } from './chat.js'
 import type { RemoteTrack } from './mesh.js'
-import type { AgentOwnership, KindredProof, RoomPolicy, SingularRole, TrackAdvert } from './types.js'
+import type { AgentOwnership, ForwarderRef, KindredProof, RoomPolicy, SingularRole, TrackAdvert } from './types.js'
+import { parseForwarderRef } from './descriptor.js'
 
 /**
  * The relays an agent uses when its link names none. The same three the
@@ -193,6 +194,15 @@ export interface CreateRoomOptions extends CommonAgentOptions {
   /** Called with the state to persist whenever it changes: on every epoch,
    *  and on close. A keeper that ignores this reopens in the wrong epoch. */
   onState?: (state: KeeperState) => void | Promise<void>
+  /**
+   * Forwarders this room may promote to, published in its descriptor by
+   * the keeper: at start, after every rekey (the descriptor rides the
+   * epoch key), and whenever a device arrives, because the descriptor is
+   * an ephemeral kind and a late joiner is never sent what it missed. Each
+   * is the line `server/forwarder.mjs` prints. Refused at construction
+   * when malformed; see `parseForwarderRef`.
+   */
+  forwarders?: ForwarderRef[]
 }
 
 /**
@@ -238,6 +248,12 @@ export class RoomAgent {
   readonly #approvals = new Map<string, { options: string[]; expiresAt: number; resolve: (o: ApprovalOutcome) => void; timer: ReturnType<typeof setTimeout> }>()
   readonly #approvalListeners = new Set<(outcome: ApprovalOutcome) => void>()
   readonly #ignoredListeners = new Set<(ignored: IgnoredApproval) => void>()
+  /** What this keeper's descriptor names. Empty means no descriptor. */
+  readonly #forwarders: ForwarderRef[]
+  /** Devices this keeper has restated the descriptor to. */
+  readonly #described = new Set<string>()
+  #describeTimer?: ReturnType<typeof setTimeout>
+  #rosterUnsub?: () => void
   readonly #transport: RelayTransport
   readonly #now: () => number
   #hostTransport?: RelayTransport
@@ -262,7 +278,9 @@ export class RoomAgent {
     admins?: string[]
     owner?: AgentOwnership
     onState?: (state: KeeperState) => void | Promise<void>
+    forwarders?: ForwarderRef[]
   }) {
+    this.#forwarders = fields.forwarders ?? []
     this.session = fields.session
     this.link = fields.link
     this.url = fields.url
@@ -335,6 +353,9 @@ export class RoomAgent {
     if (opts.roomName !== undefined) link.name = opts.roomName
     const url = encodeRoomLink(opts.base, link)
     if (epochNumber > 0 && !state.epochSecret) throw new Error('keeper state names an epoch above 0 without its secret')
+    // Refused here, before a relay is dialled: a keeper in a room with a
+    // descriptor it cannot publish is a forwarder nobody will ever reach.
+    const forwarders = (opts.forwarders ?? []).map(parseForwarderRef)
     const epoch: RoomEpoch | undefined =
       epochNumber > 0 && state.epochSecret ? { epoch: epochNumber, secret: state.epochSecret } : undefined
 
@@ -351,6 +372,7 @@ export class RoomAgent {
       epoch,
       removed: state.removed,
       admins: canonicalAdmins(opts.admins ?? []),
+      forwarders,
     })
   }
 
@@ -370,6 +392,7 @@ export class RoomAgent {
       admins?: string[]
       policy?: RoomPolicy
       onState?: (state: KeeperState) => void | Promise<void>
+      forwarders?: ForwarderRef[]
     },
   ): Promise<RoomAgent> {
     const transport = opts.makeTransport(opts.relays)
@@ -414,6 +437,7 @@ export class RoomAgent {
       admins: opts.admins,
       owner: opts.owner,
       onState: opts.onState,
+      forwarders: opts.forwarders,
     })
     // A keeper reopening a room remembers who it removed before the roster
     // can tell it anything. Marked on the session by way of the first
@@ -463,7 +487,46 @@ export class RoomAgent {
       }
     }
     agent.#openControl()
+    if (opts.keeper && agent.#forwarders.length) agent.#keepDescribing()
     return agent
+  }
+
+  // -------------------------------------------------------------------------
+  // The keeper's descriptor: where the room may forward to
+  // -------------------------------------------------------------------------
+
+  /** Publish now, and again for every device that arrives. Coalesced, so
+   *  twenty arrivals cost one descriptor rather than twenty. */
+  #keepDescribing(): void {
+    this.#describe().catch(() => {})
+    for (const view of this.session.participants()) for (const d of view.devices) this.#described.add(d)
+    this.#rosterUnsub = this.session.onChange((views) => {
+      let arrived = false
+      for (const view of views) {
+        for (const device of view.devices) {
+          if (this.#described.has(device)) continue
+          this.#described.add(device)
+          if (device !== this.device) arrived = true
+        }
+      }
+      if (!arrived || this.#describeTimer !== undefined) return
+      const timer = setTimeout(() => {
+        this.#describeTimer = undefined
+        this.#describe().catch(() => {})
+      }, 200)
+      ;(timer as unknown as { unref?: () => void }).unref?.()
+      this.#describeTimer = timer
+    })
+  }
+
+  async #describe(): Promise<void> {
+    if (this.#left || this.session.closed || !this.#forwarders.length) return
+    await this.session.publishDescriptor({ forwarders: this.#forwarders })
+  }
+
+  /** The forwarders this keeper publishes for its room. */
+  get forwarders(): readonly ForwarderRef[] {
+    return this.#forwarders
   }
 
   #stopHosting(): void {
@@ -490,6 +553,9 @@ export class RoomAgent {
     if (this.#keeper) {
       this.#persist().catch(() => {})
       this.#announceAdmins().catch(() => {})
+      // The descriptor rode the old epoch's key; whoever moved needs it
+      // again under the new one.
+      this.#describe().catch(() => {})
     }
   }
 
@@ -823,6 +889,10 @@ export class RoomAgent {
     this.#left = true
     this.#controlUnsub?.()
     this.#controlUnsub = undefined
+    this.#rosterUnsub?.()
+    this.#rosterUnsub = undefined
+    if (this.#describeTimer !== undefined) clearTimeout(this.#describeTimer)
+    this.#describeTimer = undefined
     for (const [id, open] of this.#approvals) {
       clearTimeout(open.timer)
       open.resolve({ id, verdict: 'expired', at: this.#now(), expired: true })

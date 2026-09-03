@@ -25,6 +25,7 @@ set -euo pipefail
 #   KITHMOOT_BASE     where the app is served, e.g. https://host/j/
 #   KITHMOOT_NAME     what the room calls the keeper; default "Keeper"
 #   KITHMOOT_RELAYS   comma-separated relay list; default: the app's own
+#   KITHMOOT_FORWARDER the forwarder line to put in the room descriptor; optional
 #
 # Idempotent. A second run updates the tree and restarts the instances; the
 # env files and the state directories are left alone, so the rooms survive.
@@ -159,6 +160,10 @@ if [[ -n "$ROOM" ]]; then
 KITHMOOT_BASE=${KITHMOOT_BASE:?KITHMOOT_BASE is required}
 KITHMOOT_NAME="$name"
 KITHMOOT_RELAYS=${KITHMOOT_RELAYS:-wss://relay.trotters.cc,wss://nos.lol,wss://relay.primal.net}
+# A forwarder this room may promote to: the line kithmoot-forwarder prints,
+# {"url","pubkey","label"}. The keeper publishes it in the room descriptor at
+# start, after every rekey and for every arrival. Empty means no forwarder.
+KITHMOOT_FORWARDER='${KITHMOOT_FORWARDER:-}'
 ENV
     chown "$USER_NAME:$USER_NAME" "$ENV_FILE"
     chmod 0600 "$ENV_FILE"

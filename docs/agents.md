@@ -92,6 +92,12 @@ set, so a restart reopens the room in the same epoch, still refusing the
 same people; a file written before epochs reads as epoch 0 with nobody
 removed. A closed room is not reopened: delete the state to make a new one.
 
+A keeper also publishes the room's descriptor when it is told what to put in
+it: `--forwarder <json|file>` (or `KITHMOOT_FORWARDER`) takes the line a
+`kithmoot-forwarder` prints, and the keeper publishes it at start, after
+every rekey and for every arrival, so attaching a forwarder to a standing
+room needs nobody at a browser. A malformed line is refused at start.
+
 `RoomAgent.remove(participant)` and `RoomAgent.closeRoom()` do the same from
 code, and `onEpoch`, `onRemoved` and `onClosed` are how an agent hears it
 happen. A joining agent follows a rekey the way a browser does, and one that
