@@ -245,7 +245,7 @@ to make that one thing true.
   hear me" switch and carries display names. It cannot yet follow a room
   epoch, and says so rather than going quiet: see its own README for what
   it does and does not implement.
-- **95 published interop vectors** (`vectors/`), which both implementations
+- **101 published interop vectors** (`vectors/`), which both implementations
   are checked against.
 
 ## Names, and who you are

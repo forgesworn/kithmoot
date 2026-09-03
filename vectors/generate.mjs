@@ -61,6 +61,7 @@ import * as fx from './lib/fixtures.mjs'
 // `vectors` script in package.json, which always runs that first).
 import { KINDS } from '../dist/src/kinds.js'
 import { deriveRoom, encodeJoinUrl, decodeJoinUrl } from '../dist/src/room.js'
+import { verificationWords } from '../dist/src/verification.js'
 import { deriveChannel } from '../dist/src/chat.js'
 import { verifyDeviceCredential } from '../dist/src/credential.js'
 import { decodeRosterEvent } from '../dist/src/roster.js'
@@ -77,7 +78,7 @@ import { encodeControl, decodeControl } from '../dist/src/control.js'
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], agentOwnership: [], chatAttachment: [], approvalControl: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -1921,6 +1922,101 @@ for (const [name, note, forwarders] of [
     note: 'Who may answer an approval, announced on the same channel. ANY member may publish this op - the channel is the room\'s - and only the authority\'s signature over the canonical list makes it believed, which is what the `roomEpoch/admins-signature` vector pins. A reader that took the list on the word of whoever sent it would let any member appoint themselves.',
     input: { message: adminsMessage, roomId: room.roomId, authority: fx.AUTHORITY, auxRandHex: bytesToHex(seed32('admins-announcement-auxrand')) },
     output: { text: encodeControl(adminsMessage), result: decodeControl(encodeControl(adminsMessage)) },
+  })
+}
+
+// ===========================================================================
+// 15. Verification words - the three words each of a pair says aloud to check
+//     they are looking at the same participant keys (src/verification.ts).
+//
+//     These MUST be pinned across implementations, and the reason is sharper
+//     than usual. Every other group here fails safe when two implementations
+//     disagree: a bad signature is refused, a wrong key decodes nothing. This
+//     one fails LOUD and WRONG. Two people whose clients derive different
+//     words read them out, hear a mismatch, and conclude that one of them is
+//     being impersonated - the feature manufactures exactly the alarm it
+//     exists to raise, in the one situation where a false alarm is most
+//     expensive.
+//
+//     Three properties a second implementation has to get right, one vector
+//     each:
+//
+//       - The pair is in the derivation. Deriving from the speaker alone
+//         gives a participant the same words against everybody, which would
+//         pass against an impostor standing in for anyone.
+//       - Order does not matter. Both clients sort the two keys, so neither
+//         has to agree who goes first.
+//       - Three words, not one. A word is 11 bits; one word is a 1-in-2048
+//         coin toss somebody would then call "verified".
+// ===========================================================================
+
+for (const [name, roomKey, a, b, note] of [
+  [
+    'pair-a-b',
+    ROOM_1.roomKey,
+    fx.PARTICIPANT_A,
+    fx.PARTICIPANT_B,
+    'The reference pair. Each side gets three space-separated words from the spoken-token wordlist; the two sides differ, so the second speaker cannot pass by repeating the first.',
+  ],
+  [
+    'pair-b-a-same-as-a-b',
+    ROOM_1.roomKey,
+    fx.PARTICIPANT_B,
+    fx.PARTICIPANT_A,
+    'The same pair, given the other way round. Both clients sort the keys, so the output is identical to `pair-a-b` - neither side has to agree who goes first.',
+  ],
+  [
+    'pair-a-c-differs-from-a-b',
+    ROOM_1.roomKey,
+    fx.PARTICIPANT_A,
+    fx.PARTICIPANT_C,
+    "A's words against C, which must NOT equal A's words against B. An implementation that derives from the speaker alone gives A one word for everybody and passes against an impostor standing in for anyone.",
+  ],
+  [
+    'pair-a-b-other-room',
+    ROOM_2.roomKey,
+    fx.PARTICIPANT_A,
+    fx.PARTICIPANT_B,
+    'The same pair under a different room key. The words move with the room, which is what makes an epoch rekey change them.',
+  ],
+]) {
+  vectors.verificationWords.push({
+    name,
+    kind: 'positive',
+    note,
+    input: { roomKeyHex: bytesToHex(roomKey), a, b },
+    output: verificationWords(roomKey, a, b),
+  })
+}
+
+for (const [name, roomKey, a, b, note] of [
+  [
+    'same-participant-refused',
+    ROOM_1.roomKey,
+    fx.PARTICIPANT_A,
+    fx.PARTICIPANT_A,
+    'A participant cannot verify against itself. There is no honest answer, and returning a plausible-looking word would put something on screen that proves nothing.',
+  ],
+  [
+    'short-room-key-refused',
+    new Uint8Array(16),
+    fx.PARTICIPANT_A,
+    fx.PARTICIPANT_B,
+    'The room key is 32 bytes. Anything else is a caller error, not something to derive from.',
+  ],
+]) {
+  let threw = false
+  try {
+    verificationWords(roomKey, a, b)
+  } catch {
+    threw = true
+  }
+  vectors.verificationWords.push({
+    name,
+    kind: 'negative',
+    note,
+    input: { roomKeyHex: bytesToHex(roomKey), a, b },
+    output: { throws: threw },
   })
 }
 

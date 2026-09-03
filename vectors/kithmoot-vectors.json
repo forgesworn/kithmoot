@@ -3852,6 +3852,90 @@
           }
         }
       }
+    ],
+    "verificationWords": [
+      {
+        "name": "pair-a-b",
+        "kind": "positive",
+        "note": "The reference pair. Each side gets three space-separated words from the spoken-token wordlist; the two sides differ, so the second speaker cannot pass by repeating the first.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+        },
+        "output": {
+          "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74": "banner hire lumen",
+          "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea": "erosion benefit drafter"
+        }
+      },
+      {
+        "name": "pair-b-a-same-as-a-b",
+        "kind": "positive",
+        "note": "The same pair, given the other way round. Both clients sort the keys, so the output is identical to `pair-a-b` - neither side has to agree who goes first.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "a": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+          "b": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+        },
+        "output": {
+          "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74": "banner hire lumen",
+          "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea": "erosion benefit drafter"
+        }
+      },
+      {
+        "name": "pair-a-c-differs-from-a-b",
+        "kind": "positive",
+        "note": "A's words against C, which must NOT equal A's words against B. An implementation that derives from the speaker alone gives A one word for everybody and passes against an impostor standing in for anyone.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "574b6077bdfe12953110c6ea93b4c6a46ba8e62b38c752ba413b9cf46a6bd5b8"
+        },
+        "output": {
+          "574b6077bdfe12953110c6ea93b4c6a46ba8e62b38c752ba413b9cf46a6bd5b8": "casual juice tool",
+          "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74": "osprey basket faculty"
+        }
+      },
+      {
+        "name": "pair-a-b-other-room",
+        "kind": "positive",
+        "note": "The same pair under a different room key. The words move with the room, which is what makes an epoch rekey change them.",
+        "input": {
+          "roomKeyHex": "deb56b230478ea80360cf944c2f67e3ff54bbeed6bc177419cc81ac66d0c3cfa",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+        },
+        "output": {
+          "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74": "fennel reason family",
+          "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea": "annual affair coyote"
+        }
+      },
+      {
+        "name": "same-participant-refused",
+        "kind": "negative",
+        "note": "A participant cannot verify against itself. There is no honest answer, and returning a plausible-looking word would put something on screen that proves nothing.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+        },
+        "output": {
+          "throws": true
+        }
+      },
+      {
+        "name": "short-room-key-refused",
+        "kind": "negative",
+        "note": "The room key is 32 bytes. Anything else is a caller error, not something to derive from.",
+        "input": {
+          "roomKeyHex": "00000000000000000000000000000000",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+        },
+        "output": {
+          "throws": true
+        }
+      }
     ]
   }
 }
