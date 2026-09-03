@@ -221,7 +221,10 @@ to make that one thing true.
   carry it gets more capable as more people arrive.
 - **A native Android app** (`forgesworn/kithmoot-android`), a second
   independent implementation, written against the published vectors without
-  reading this codebase.
+  reading this codebase. It reads the agent flag, honours the "agents can
+  hear me" switch and carries display names. It cannot yet follow a room
+  epoch, and says so rather than going quiet: see its own README for what
+  it does and does not implement.
 - **95 published interop vectors** (`vectors/`), which both implementations
   are checked against.
 
