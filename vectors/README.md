@@ -120,6 +120,10 @@ directly, with no reimplementation involved.
 | `accessEvaluation` | a `RoomPolicy` + participant + proof + now → `{ admitted, reason }` | `src/access.ts` |
 | `turnCredential` | secret + ttl + fixed now → coturn REST `{ username, credential }` | `src/turn.ts` |
 | `roomDescriptor` | a `RoomDescriptor` (forwarders + ICE servers) + room key → encrypted kind-20465 event | `src/descriptor.ts` |
+| `roomEpoch` | epoch → `id` + `key`; a kind-1462 rekey read by a kept device, by a removed one, and refused; the authority-signed admin list | `src/epoch.ts` |
+| `agentOwnership` | a principal's signature that an agent is theirs, and the six ways a reader must refuse one | `src/ownership.ts` |
+| `chatAttachment` | a Wildbloom share riding in a kind-1460 message, what a reader defuses, and the envelope's own arithmetic | `src/attachment.ts`, `src/chat.ts` |
+| `approvalControl` | an agent's approval request and the answer, on the room's `control` channel | `src/control.ts` |
 
 **A note on scope:** the brief for stage 1 described the join URL as
 carrying "secret + relays + ICE list". The join URL does not carry an ICE
@@ -451,3 +455,38 @@ diffing (see the stage-2 vectors report for the result).
 `verify.test.ts` runs as part of `npx vitest run` and is the regression net:
 if a derivation string, tag name, encoding, or rejection reason changes in
 `src/`, it fails here first.
+
+## What the four newest groups exist to pin
+
+**`roomEpoch`.** Removal is the one thing rotation could never do, and the
+mechanism is easy to implement almost-right. Three things the vectors hold a
+second implementation to: epoch 0 derives byte-identically to `deriveRoom`,
+so a client that has never heard of epochs and one that has agree on a room
+nobody has been removed from; a rekey is refused on the SIGNING KEY before
+anything is decrypted, because every member holds the room key and any of
+them could otherwise remove any other; and only the very next epoch is
+applied, so a device cannot be walked past a removal it never saw. The
+`rekey-read-by-the-removed-device` vector is the one worth reading twice: the
+removed device decodes the notice perfectly well and finds no secret in it,
+and that - not an error - is how it learns it is out.
+
+**`agentOwnership`.** The proof is deliberately room-independent and has no
+revocation but expiry, so every other rule has to hold. The signed message
+puts an absent expiry and an absent label in as the empty string rather than
+omitting them, which is what stops two different claims colliding. The label
+is sanitised before it is signed and re-sanitised by every reader, so a
+principal cannot sign one thing and have every screen render another.
+
+**`chatAttachment`.** The recovery key that opens a file is in the room-key
+ciphertext and nowhere else, so the normalisation rules are a security
+boundary: a share served over plain HTTP is dropped, a key that is not 32
+bytes is dropped, and a message carrying more shares than the cap allows is
+refused whole rather than trimmed. A bad attachment costs the attachment; it
+never costs the sentence somebody wrote.
+
+**`approvalControl`.** The request and the answer are ordinary chat messages
+on a channel every member can read, so nothing inside the JSON says who sent
+it - that is the message's credential-bound participant, and it is the only
+attribution that cannot be typed by somebody else. The admin list rides the
+same channel and is believed only on the authority's signature over the
+canonical list, which is why the two groups reference each other.

@@ -44,6 +44,11 @@ import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bytesToHex } from '@noble/hashes/utils'
+import { sha256 } from '@noble/hashes/sha2'
+
+/** UTF-8 bytes, for the canonical messages a signature is taken over. */
+const utf8Bytes = (text) => new TextEncoder().encode(text)
+import { hexToBytes as hexToBytesLocal } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { nip44 } from 'nostr-tools'
@@ -63,11 +68,16 @@ import { unwrapSignal } from '../dist/src/signal.js'
 import { evaluateAccess } from '../dist/src/access.js'
 import { mintTurnCredential } from '../dist/src/turn.js'
 import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
+import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochGrant, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
+import { normaliseAgentOwnership, verifyAgentOwnership } from '../dist/src/ownership.js'
+import { decodeChatEvent } from '../dist/src/chat.js'
+import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../dist/src/attachment.js'
+import { encodeControl, decodeControl } from '../dist/src/control.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], agentOwnership: [], chatAttachment: [], approvalControl: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -1250,6 +1260,667 @@ for (const [name, note, forwarders] of [
       event: built.event,
       result: decodeDescriptorEvent(built.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
     },
+  })
+}
+
+
+// ===========================================================================
+// Room epochs: removing a member by moving the room, not by asking nicely
+// ===========================================================================
+//
+// Link rotation retires a rendezvous; it cannot remove anybody, because
+// everybody admitted holds the room key. Removal is therefore a new key that
+// the removed are not given: the authority - the root inviter, the only key
+// a member believes for this - publishes a rekey naming the next epoch, with
+// the successor secret sealed once per device that stays.
+//
+// Two things are worth reading twice. The ROOM ID does not move: a device
+// credential binds to it, and a room whose id changed would invalidate every
+// credential in it. What moves is the `d` tag events are published under and
+// the key they are encrypted to, both derived from the epoch number. And
+// epoch 0 is byte-identical to a room with no epochs at all, so every vector
+// in every other group above remains exactly what this room looks like
+// before anybody is removed.
+{
+  const room = deriveRoom(fx.ROOM_SECRET_1)
+  for (const [name, epoch, secret, note] of [
+    [
+      'epoch-zero-is-the-room',
+      0,
+      fx.ROOM_SECRET_1,
+      'Epoch 0 is not a special case bolted on: it derives to exactly what `deriveRoom` derives, with the same two HKDF info strings and no salt. A client that has never heard of epochs and one that has agree byte for byte on a room nobody has been removed from, which is what makes the whole mechanism additive.',
+    ],
+    [
+      'epoch-one',
+      1,
+      fx.ROOM_SECRET_1,
+      'The first successor. `id = HKDF-SHA256(ikm = secret, info = "kithmoot/v1/epoch-id/1", 32)` as hex and `key = HKDF-SHA256(ikm = secret, info = "kithmoot/v1/epoch-key/1", 32)`, no salt. The secret is the one the rekey sealed to each remaining device - NOT the original room secret, which the removed device still holds and which now opens nothing.',
+    ],
+    [
+      'epoch-two',
+      2,
+      fx.EPOCH_SECRET_1,
+      'A second removal from a room already at epoch 1: a fresh secret again, and the info strings carry the number so two epochs of one room never collide.',
+    ],
+  ]) {
+    const keys = deriveEpoch({ epoch, secret })
+    vectors.roomEpoch.push({
+      name,
+      kind: 'positive',
+      note,
+      input: { epoch, secretHex: bytesToHex(secret) },
+      output: { id: keys.id, keyHex: bytesToHex(keys.key), epoch: keys.epoch },
+    })
+  }
+
+  // --- A rekey event -----------------------------------------------------
+  const current = deriveEpoch({ epoch: 0, secret: fx.ROOM_SECRET_1 })
+  const next = { epoch: 1, secret: fx.EPOCH_SECRET_1 }
+
+  function buildRekey({ authoritySk, current, next, recipients, removed, by, closed, createdAt, nonceLabel, auxRandLabel, sealLabel }) {
+    const keys = {}
+    if (!closed) {
+      for (const [i, device] of recipients.entries()) {
+        const conversation = nip44.v2.utils.getConversationKey(authoritySk, device)
+        keys[device] = nip44.v2.encrypt(
+          JSON.stringify({ v: 1, secret: base64urlnopad.encode(next.secret) }),
+          conversation,
+          seed32(`${sealLabel}-${i}`),
+        )
+      }
+    }
+    const body = {
+      v: 1,
+      epoch: next.epoch,
+      removed: [...new Set(removed.map((d) => d.toLowerCase()))].sort(),
+      ...(by ? { by } : {}),
+      ...(closed ? { closed: true } : {}),
+      keys,
+    }
+    const event = finalizeDeterministic(
+      {
+        kind: KINDS.ROOM_REKEY,
+        created_at: createdAt,
+        tags: [
+          ['d', room.roomId],
+          ['epoch', String(next.epoch)],
+        ],
+        content: nip44.v2.encrypt(JSON.stringify(body), current.key, seed32(nonceLabel)),
+      },
+      authoritySk,
+      seed32(auxRandLabel),
+    )
+    return { event, nonceHex: bytesToHex(seed32(nonceLabel)), auxRandHex: bytesToHex(seed32(auxRandLabel)) }
+  }
+
+  const rekey = buildRekey({
+    authoritySk: fx.AUTHORITY_SK,
+    current,
+    next,
+    recipients: [fx.KEPT_DEVICE],
+    removed: [fx.REMOVED_DEVICE],
+    by: fx.PARTICIPANT_A,
+    createdAt: fx.REKEY_CREATED_AT,
+    nonceLabel: 'rekey-1-nonce',
+    auxRandLabel: 'rekey-1-auxrand',
+    sealLabel: 'rekey-1-seal',
+  })
+  const decodeArgs = {
+    roomId: room.roomId,
+    authority: fx.AUTHORITY,
+    current: { epoch: 0, id: current.id, keyHex: bytesToHex(current.key) },
+  }
+  /** A notice as JSON: the secret is bytes, and bytes do not survive
+   *  JSON.stringify as anything a reader could use. */
+  const noticeJson = (notice) =>
+    notice === null
+      ? null
+      : { ...notice, secret: undefined, ...(notice.secret ? { secretHex: bytesToHex(notice.secret) } : {}) }
+
+  const keptResult = noticeJson(
+    decodeRekeyEvent(rekey.event, { roomId: room.roomId, authority: fx.AUTHORITY, current, deviceSk: fx.KEPT_DEVICE_SK }),
+  )
+  vectors.roomEpoch.push({
+    name: 'rekey',
+    kind: 'positive',
+    note: 'The authority moves the room to epoch 1 and removes one device. Encrypted to the epoch being LEFT, so everybody currently in the room can read who left; the successor secret inside is sealed separately to each device that stays, under a NIP-44 conversation key between the authority and that device, so the removed device reads the notice and not the secret. `peekRekeyEvent` answers "which epoch is this" with no key at all, which is how a device that has fallen behind knows it has.',
+    input: {
+      event: rekey.event,
+      authoritySkHex: bytesToHex(fx.AUTHORITY_SK),
+      currentEpoch: 0,
+      currentKeyHex: bytesToHex(current.key),
+      next: { epoch: next.epoch, secretHex: bytesToHex(next.secret) },
+      recipients: [fx.KEPT_DEVICE],
+      removed: [fx.REMOVED_DEVICE],
+      by: fx.PARTICIPANT_A,
+      createdAt: fx.REKEY_CREATED_AT,
+      nonceHex: rekey.nonceHex,
+      sealNonceHex: bytesToHex(seed32('rekey-1-seal-0')),
+      auxRandHex: rekey.auxRandHex,
+    },
+    output: { peek: peekRekeyEvent(rekey.event, { roomId: room.roomId, authority: fx.AUTHORITY }), result: keptResult },
+    expected: {
+      decode: { ...decodeArgs, deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK) },
+      result: keptResult,
+    },
+  })
+
+  const removedResult = noticeJson(
+    decodeRekeyEvent(rekey.event, { roomId: room.roomId, authority: fx.AUTHORITY, current, deviceSk: fx.REMOVED_DEVICE_SK }),
+  )
+  vectors.roomEpoch.push({
+    name: 'rekey-read-by-the-removed-device',
+    kind: 'positive',
+    note: 'The same event, decoded by the device it removes. It decodes - the notice is encrypted to the epoch that device still holds - and it carries no `secret`, because no copy was sealed to it. A client must treat "decoded, no secret" as "you are out", not as an error: it is how a removed member learns it has been removed, and it is the only notice it will get.',
+    input: { event: rekey.event },
+    output: { result: removedResult },
+    expected: { decode: { ...decodeArgs, deviceSkHex: bytesToHex(fx.REMOVED_DEVICE_SK) }, result: removedResult },
+  })
+
+  const closed = buildRekey({
+    authoritySk: fx.AUTHORITY_SK,
+    current,
+    next: { epoch: 1, secret: fx.EPOCH_SECRET_2 },
+    recipients: [],
+    removed: [],
+    closed: true,
+    createdAt: fx.REKEY_CREATED_AT,
+    nonceLabel: 'rekey-closed-nonce',
+    auxRandLabel: 'rekey-closed-auxrand',
+    sealLabel: 'rekey-closed-seal',
+  })
+  const closedResult = noticeJson(
+    decodeRekeyEvent(closed.event, { roomId: room.roomId, authority: fx.AUTHORITY, current, deviceSk: fx.KEPT_DEVICE_SK }),
+  )
+  vectors.roomEpoch.push({
+    name: 'rekey-closed',
+    kind: 'positive',
+    note: 'Closing a room is a rekey with no sealed copies at all: the epoch advances and nobody is given the successor, so nothing further can be published or read. `closed` is inside the ciphertext and is only a JSON `true`; the empty `keys` object is what actually closes the room, and a client that ignored the flag would still find itself with no key.',
+    input: { event: closed.event },
+    output: { result: closedResult },
+    expected: { decode: { ...decodeArgs, deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK) }, result: closedResult },
+  })
+
+  // Negatives.
+  const impostor = buildRekey({
+    authoritySk: fx.HOST_UNTRUSTED_SK,
+    current,
+    next,
+    recipients: [fx.KEPT_DEVICE],
+    removed: [fx.KEPT_DEVICE],
+    createdAt: fx.REKEY_CREATED_AT,
+    nonceLabel: 'rekey-impostor-nonce',
+    auxRandLabel: 'rekey-impostor-auxrand',
+    sealLabel: 'rekey-impostor-seal',
+  })
+  vectors.roomEpoch.push({
+    name: 'rekey-not-the-authority',
+    kind: 'negative',
+    note: 'A perfectly formed rekey, correctly encrypted to the current epoch, signed by a member who is not the room authority - which is to say, by anybody else who holds the room key, which is everybody in the room. It is REFUSED before decryption, on the signing key alone. Without this check any member could remove any other, and "removal" would mean nothing.',
+    input: { event: impostor.event, decode: { ...decodeArgs, deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK) } },
+    output: {
+      peek: peekRekeyEvent(impostor.event, { roomId: room.roomId, authority: fx.AUTHORITY }),
+      result: decodeRekeyEvent(impostor.event, { roomId: room.roomId, authority: fx.AUTHORITY, current, deviceSk: fx.KEPT_DEVICE_SK }),
+    },
+  })
+
+  const skipped = buildRekey({
+    authoritySk: fx.AUTHORITY_SK,
+    current,
+    next: { epoch: 3, secret: fx.EPOCH_SECRET_2 },
+    recipients: [fx.KEPT_DEVICE],
+    removed: [fx.REMOVED_DEVICE],
+    createdAt: fx.REKEY_CREATED_AT,
+    nonceLabel: 'rekey-skipped-nonce',
+    auxRandLabel: 'rekey-skipped-auxrand',
+    sealLabel: 'rekey-skipped-seal',
+  })
+  vectors.roomEpoch.push({
+    name: 'rekey-skips-an-epoch',
+    kind: 'negative',
+    note: 'The authority naming epoch 3 while this device is at epoch 0. Refused: only the very next epoch is applied, so a device cannot be walked forward past a removal it never saw, and a replayed rekey from an epoch already passed cannot move it backwards either. `peekRekeyEvent` still answers 3, which is how a client knows it is behind and should ask.',
+    input: { event: skipped.event, decode: { ...decodeArgs, deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK) } },
+    output: {
+      peek: peekRekeyEvent(skipped.event, { roomId: room.roomId, authority: fx.AUTHORITY }),
+      result: decodeRekeyEvent(skipped.event, { roomId: room.roomId, authority: fx.AUTHORITY, current, deviceSk: fx.KEPT_DEVICE_SK }),
+    },
+  })
+
+  // --- The admin list, signed -------------------------------------------
+  const admins = [fx.PARTICIPANT_A, fx.GUEST]
+  // Signed by hand with a recorded aux-rand: `signAdmins` signs with random
+  // aux-rand, which is right for production and fatal for a frozen vector.
+  // The message is built exactly as `signAdmins` builds it, and the result
+  // is handed to the real `verifyAdmins` below before it is written out.
+  const adminsMessageHex = `kithmoot/v1/admins:${room.roomId}:1:${canonicalAdmins(admins).join(',')}`
+  const adminsAuxRand = seed32('admins-1-auxrand')
+  const adminsSig = bytesToHex(schnorr.sign(sha256(utf8Bytes(adminsMessageHex)), fx.AUTHORITY_SK, adminsAuxRand))
+  vectors.roomEpoch.push({
+    name: 'admins-signature',
+    kind: 'positive',
+    note: 'Who may remove somebody, said by the authority and checkable by everybody. The message is `sha256("kithmoot/v1/admins:<roomId>:<epoch>:<admins joined by comma>")` over the CANONICAL list - lower-cased, deduplicated, sorted - so two clients that hold the same set in different orders verify the same signature. The epoch is inside the message, so a list signed for one epoch does not authorise anybody after the next removal.',
+    input: {
+      roomId: room.roomId,
+      epoch: 1,
+      admins,
+      authoritySkHex: bytesToHex(fx.AUTHORITY_SK),
+      canonicalMessage: adminsMessageHex,
+      auxRandHex: bytesToHex(adminsAuxRand),
+    },
+    output: { canonical: canonicalAdmins(admins), sig: adminsSig },
+    expected: {
+      verify: { roomId: room.roomId, epoch: 1, admins, authority: fx.AUTHORITY },
+      result: verifyAdmins({ roomId: room.roomId, epoch: 1, admins, sig: adminsSig, authority: fx.AUTHORITY }),
+    },
+  })
+  vectors.roomEpoch.push({
+    name: 'admins-signature-another-epoch',
+    kind: 'negative',
+    note: 'The same signature, offered for epoch 2. Refused: a list is authorised for the epoch it names and no other, so an admin set from before a removal cannot be replayed to re-authorise somebody after it.',
+    input: { roomId: room.roomId, epoch: 2, admins, sig: adminsSig, authority: fx.AUTHORITY },
+    output: { result: verifyAdmins({ roomId: room.roomId, epoch: 2, admins, sig: adminsSig, authority: fx.AUTHORITY }) },
+  })
+}
+
+// ===========================================================================
+// Whose agent is this
+// ===========================================================================
+//
+// A principal signs, once, that an agent is theirs. Deliberately room
+// independent: the same proof rides in every room that agent joins, so a
+// person does not re-sign for every moot. It is not revocable except by
+// expiry, which is why the vectors below pin the expiry rules as hard as the
+// signature.
+{
+    const utf8 = utf8Bytes
+
+  function buildOwnership({ principalSk, agent, issuedAt, expiresAt, label, auxRandLabel }) {
+    const canonical = `kithmoot/v1/agent-owner:${agent}:${getPublicKey(principalSk)}:${issuedAt}:${expiresAt ?? ''}:${label ?? ''}`
+    const message = sha256(utf8(canonical))
+    const auxRand = seed32(auxRandLabel)
+    return {
+      canonical,
+      proof: {
+        agent,
+        principal: getPublicKey(principalSk),
+        issuedAt,
+        ...(expiresAt !== undefined ? { expiresAt } : {}),
+        ...(label !== undefined ? { label } : {}),
+        sig: bytesToHex(schnorr.sign(message, principalSk, auxRand)),
+      },
+      auxRandHex: bytesToHex(auxRand),
+    }
+  }
+
+  const plain = buildOwnership({
+    principalSk: fx.PRINCIPAL_SK,
+    agent: fx.AGENT,
+    issuedAt: fx.OWNERSHIP_ISSUED_AT,
+    auxRandLabel: 'ownership-plain',
+  })
+  vectors.agentOwnership.push({
+    name: 'valid',
+    kind: 'positive',
+    note: 'The smallest honest proof: an agent pubkey, a principal pubkey, when it was issued, and a BIP-340 signature over `sha256("kithmoot/v1/agent-owner:<agent>:<principal>:<issuedAt>:<expiresAt>:<label>")`. Note the two empty fields: an absent expiry and an absent label are the EMPTY STRING in the signed message, not omitted, so a proof with no expiry and one whose expiry is the empty string cannot be made to collide.',
+    input: { ...plain.proof, canonicalMessage: plain.canonical, principalSkHex: bytesToHex(fx.PRINCIPAL_SK), auxRandHex: plain.auxRandHex },
+    output: { proof: plain.proof },
+    expected: {
+      verify: { agent: fx.AGENT, now: fx.NOW },
+      result: verifyAgentOwnership(plain.proof, { agent: fx.AGENT, now: fx.NOW }),
+    },
+  })
+
+  const labelled = buildOwnership({
+    principalSk: fx.PRINCIPAL_SK,
+    agent: fx.AGENT,
+    issuedAt: fx.OWNERSHIP_ISSUED_AT,
+    expiresAt: fx.OWNERSHIP_EXPIRES_AT,
+    label: fx.OWNERSHIP_LABEL,
+    auxRandLabel: 'ownership-labelled',
+  })
+  vectors.agentOwnership.push({
+    name: 'with-expiry-and-label',
+    kind: 'positive',
+    note: 'The same proof with a horizon and a human label. The label is sanitised BEFORE it is signed, so what a reader renders is what the principal actually put their name to - and a reader must re-sanitise and compare, which is the `label-not-as-signed` negative below.',
+    input: { ...labelled.proof, canonicalMessage: labelled.canonical, auxRandHex: labelled.auxRandHex },
+    output: { proof: labelled.proof },
+    expected: {
+      verify: { agent: fx.AGENT, now: fx.NOW },
+      result: verifyAgentOwnership(labelled.proof, { agent: fx.AGENT, now: fx.NOW }),
+    },
+  })
+
+  vectors.agentOwnership.push({
+    name: 'names-another-agent',
+    kind: 'negative',
+    note: 'A genuine, correctly signed proof presented for a DIFFERENT agent - the exact move an agent would make to borrow somebody else standing. The check is against the agent whose roster entry or chat message carries it, never against the agent named inside, so the proof is refused with `names another agent`.',
+    input: { proof: plain.proof, verify: { agent: fx.GUEST, now: fx.NOW } },
+    output: { result: verifyAgentOwnership(plain.proof, { agent: fx.GUEST, now: fx.NOW }) },
+  })
+
+  const expired = buildOwnership({
+    principalSk: fx.PRINCIPAL_SK,
+    agent: fx.AGENT,
+    issuedAt: fx.OWNERSHIP_ISSUED_AT,
+    expiresAt: fx.OWNERSHIP_EXPIRED_AT,
+    auxRandLabel: 'ownership-expired',
+  })
+  vectors.agentOwnership.push({
+    name: 'expired',
+    kind: 'negative',
+    note: 'Signed properly and out of date. Expiry is the only revocation this proof has, so it is checked strictly: `expiresAt <= now` is expired, not "expired a moment ago is fine".',
+    input: { proof: expired.proof, verify: { agent: fx.AGENT, now: fx.NOW } },
+    output: { result: verifyAgentOwnership(expired.proof, { agent: fx.AGENT, now: fx.NOW }) },
+  })
+
+  const hostileLabel = buildOwnership({
+    principalSk: fx.PRINCIPAL_SK,
+    agent: fx.AGENT,
+    issuedAt: fx.OWNERSHIP_ISSUED_AT,
+    label: 'Ada‮ evil',
+    auxRandLabel: 'ownership-hostile-label',
+  })
+  vectors.agentOwnership.push({
+    name: 'label-not-as-signed',
+    kind: 'negative',
+    note: 'A label carrying a right-to-left override, signed exactly as written. The signature verifies; the proof does not. A reader sanitises the label and refuses when the result differs from what was signed, because otherwise a principal could sign one thing and every reader would render another. `label is not as signed` is the reason.',
+    input: { proof: hostileLabel.proof, verify: { agent: fx.AGENT, now: fx.NOW } },
+    output: { result: verifyAgentOwnership(hostileLabel.proof, { agent: fx.AGENT, now: fx.NOW }) },
+  })
+
+  const selfOwned = buildOwnership({
+    principalSk: fx.AGENT_SK,
+    agent: fx.AGENT,
+    issuedAt: fx.OWNERSHIP_ISSUED_AT,
+    auxRandLabel: 'ownership-self',
+  })
+  vectors.agentOwnership.push({
+    name: 'its-own-principal',
+    kind: 'negative',
+    note: 'An agent signing for itself, which is a valid signature over a meaningless claim: the whole point of the proof is that somebody ELSE vouched. Refused on the two keys being equal, before the signature is even checked.',
+    input: { proof: selfOwned.proof, verify: { agent: fx.AGENT, now: fx.NOW } },
+    output: { result: verifyAgentOwnership(selfOwned.proof, { agent: fx.AGENT, now: fx.NOW }) },
+  })
+
+  const forged = { ...plain.proof, sig: 'ff'.repeat(64) }
+  vectors.agentOwnership.push({
+    name: 'bad-signature',
+    kind: 'negative',
+    note: 'Every field right and the signature wrong. Checked last, because it is the expensive one, but checked.',
+    input: { proof: forged, verify: { agent: fx.AGENT, now: fx.NOW } },
+    output: { result: verifyAgentOwnership(forged, { agent: fx.AGENT, now: fx.NOW }) },
+  })
+
+  const messy = {
+    principal: fx.PRINCIPAL.toUpperCase(),
+    label: 'kept',
+    agent: fx.AGENT.toUpperCase(),
+    sig: plain.proof.sig.toUpperCase(),
+    issuedAt: fx.OWNERSHIP_ISSUED_AT,
+    junk: 'dropped',
+  }
+  vectors.agentOwnership.push({
+    name: 'normalised-shape',
+    kind: 'positive',
+    note: 'What a reader must make of an ownership proof off the wire before it verifies anything: keys lower-cased, unknown fields dropped, and the surviving fields written back in a fixed order - `agent, principal, issuedAt, sig, expiresAt, label`. This is the order the roster and chat encoders re-serialise, so an implementation that keeps the sender order produces different bytes for the same proof.',
+    input: { raw: messy },
+    output: { result: normaliseAgentOwnership(messy) },
+  })
+}
+
+
+// ===========================================================================
+// A Wildbloom file riding with a chat message
+// ===========================================================================
+//
+// What crosses the wire is four hex strings and a URL, inside the room-key
+// ciphertext: which file event, where the sealed envelope is served, the
+// hash of exactly those bytes, and the recovery key that opens them. The
+// bytes themselves are on a Blossom server that never sees the key, and the
+// key is in the chat and nowhere else - which is the whole design, and why
+// the normalisation rules below are a security boundary rather than tidying.
+{
+  const room = deriveRoom(fx.ROOM_SECRET_1)
+  const credential = buildCredential({
+    participantSk: fx.PARTICIPANT_A_SK,
+    devicePubkey: fx.DEVICE_A,
+    roomId: room.roomId,
+    createdAt: fx.CREDENTIAL_CREATED_AT,
+    expiresAt: fx.CREDENTIAL_EXPIRES_AT,
+    auxRandLabel: 'attachment-credential',
+  })
+
+  function buildChat({ message, roomId, roomKey, deviceSk, nonceLabel, auxRandLabel }) {
+    const content = nip44.v2.encrypt(JSON.stringify(message), roomKey, seed32(nonceLabel))
+    const event = finalizeDeterministic(
+      { kind: KINDS.CHAT, created_at: message.sentAt, tags: [['d', roomId]], content },
+      deviceSk,
+      seed32(auxRandLabel),
+    )
+    return { event, nonceHex: bytesToHex(seed32(nonceLabel)), auxRandHex: bytesToHex(seed32(auxRandLabel)) }
+  }
+
+  const attachment = {
+    event: fx.ATTACHMENT_EVENT_ID,
+    url: fx.ATTACHMENT_URL,
+    sha256: fx.ATTACHMENT_SHA256,
+    key: fx.ATTACHMENT_KEY,
+    name: 'minutes.pdf',
+    type: 'application/pdf',
+    size: 131_072,
+  }
+  const withAttachment = buildChat({
+    message: {
+      id: 'attachment-message-1',
+      participant: fx.PARTICIPANT_A,
+      device: fx.DEVICE_A,
+      credential: credential.event,
+      text: 'the minutes, sealed',
+      sentAt: fx.ATTACHMENT_CREATED_AT,
+      attachments: [attachment],
+    },
+    roomId: room.roomId,
+    roomKey: room.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'chat-attachment-nonce',
+    auxRandLabel: 'chat-attachment-auxrand',
+  })
+  const decodeArgs = { roomId: room.roomId, roomKeyHex: bytesToHex(room.roomKey), now: fx.NOW }
+  const decoded = decodeChatEvent(withAttachment.event, { roomId: room.roomId, roomKey: room.roomKey, now: fx.NOW })
+  vectors.chatAttachment.push({
+    name: 'chat-with-attachment',
+    kind: 'positive',
+    note: 'One share on one message. Everything that matters is inside the ciphertext: a relay carrying this sees a chat event for a room id and nothing about a file, and the Blossom server that holds the bytes sees a hash being fetched and never the key. `name`, `type` and `size` are the sender\'s hints for rendering before the envelope is opened; the envelope carries its own metadata and that is the authority.',
+    input: { event: withAttachment.event, nonceHex: withAttachment.nonceHex, auxRandHex: withAttachment.auxRandHex },
+    output: { result: decoded },
+    expected: { decode: decodeArgs, result: decoded },
+  })
+
+  const messy = buildChat({
+    message: {
+      id: 'attachment-message-2',
+      participant: fx.PARTICIPANT_A,
+      device: fx.DEVICE_A,
+      credential: credential.event,
+      text: 'two of these are not shares',
+      sentAt: fx.ATTACHMENT_CREATED_AT,
+      attachments: [
+        { ...attachment, url: 'http://kithmoot.example/blossom/' + fx.ATTACHMENT_SHA256 },
+        { ...attachment, key: 'not-a-key' },
+        { ...attachment, name: 'quarterly‮report.pdf', type: 'APPLICATION/PDF', size: 12.5 },
+      ],
+    },
+    roomId: room.roomId,
+    roomKey: room.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'chat-attachment-messy-nonce',
+    auxRandLabel: 'chat-attachment-messy-auxrand',
+  })
+  const messyResult = decodeChatEvent(messy.event, { roomId: room.roomId, roomKey: room.roomKey, now: fx.NOW })
+  vectors.chatAttachment.push({
+    name: 'attachments-a-reader-must-defuse',
+    kind: 'positive',
+    note: 'Three attachments from a client that checked nothing. The first is served over plain HTTP and is DROPPED - a share is https or it is not a share, because the URL is fetched by the browser and a downgrade is a downgrade. The second has a key that is not 32 bytes of hex and is dropped. The third survives with its name defused (the right-to-left override goes), its media type lower-cased, and its non-integer size dropped. The MESSAGE is kept throughout: a bad attachment costs the attachment, never the sentence somebody wrote.',
+    input: { event: messy.event },
+    output: { result: messyResult },
+    expected: { decode: decodeArgs, result: messyResult },
+  })
+
+  const tooMany = buildChat({
+    message: {
+      id: 'attachment-message-3',
+      participant: fx.PARTICIPANT_A,
+      device: fx.DEVICE_A,
+      credential: credential.event,
+      text: 'five is too many',
+      sentAt: fx.ATTACHMENT_CREATED_AT,
+      attachments: [1, 2, 3, 4, 5].map((n) => ({ ...attachment, name: `file-${n}.pdf` })),
+    },
+    roomId: room.roomId,
+    roomKey: room.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'chat-attachment-many-nonce',
+    auxRandLabel: 'chat-attachment-many-auxrand',
+  })
+  vectors.chatAttachment.push({
+    name: 'more-attachments-than-a-message-may-carry',
+    kind: 'negative',
+    note: 'Five shares on one message. The WHOLE MESSAGE is refused rather than the extras being trimmed, and the count is taken as sent rather than after filtering: a cap that silently truncates is a cap an attacker tunes, and one that counts survivors can be walked past with junk entries.',
+    input: { event: tooMany.event, decode: decodeArgs },
+    output: { result: decodeChatEvent(tooMany.event, { roomId: room.roomId, roomKey: room.roomKey, now: fx.NOW }) },
+  })
+
+  // --- The envelope's own arithmetic ------------------------------------
+  vectors.chatAttachment.push({
+    name: 'envelope-key-derivation',
+    kind: 'positive',
+    note: 'The recovery key in the chat is not the AES key: the AES key is `HKDF-SHA256(ikm = recovery key, salt = the envelope header salt, info = "forgesworn-aes-256-gcm-chunked/v2", 32)`. The salt is in the header of the envelope being opened, so the same recovery key opens exactly one envelope and knowing it tells you nothing about another.',
+    input: { recoveryKeyHex: fx.ATTACHMENT_KEY, saltHex: bytesToHex(fx.ATTACHMENT_SALT) },
+    output: { keyHex: bytesToHex(deriveEnvelopeKey(hexToBytesLocal(fx.ATTACHMENT_KEY), fx.ATTACHMENT_SALT)) },
+  })
+
+  vectors.chatAttachment.push({
+    name: 'padded-plaintext-length',
+    kind: 'positive',
+    note: 'What an envelope\'s length is allowed to say about the file inside it. Everything up to 64 KiB is padded to 64 KiB; up to a mebibyte, to the next power of two; beyond that, to the next whole mebibyte. A watcher who can see only the size of an upload therefore learns a bucket rather than a fingerprint.',
+    input: { lengths: [0, 1, 65_536, 65_537, 100_000, 1_048_576, 1_048_577, 5_000_000] },
+    output: { padded: [0, 1, 65_536, 65_537, 100_000, 1_048_576, 1_048_577, 5_000_000].map(paddedPlaintextLength) },
+  })
+
+  vectors.chatAttachment.push({
+    name: 'file-event',
+    kind: 'positive',
+    note: 'The NIP-94 kind-1063 event that announces a sealed envelope: tags in a fixed order, `x` and `ox` both the hash of the served bytes, the media type the opaque envelope type rather than the file\'s own, and an `alt` that says nothing about the contents. Deterministic given the url, hash, size and time, so two implementations announcing the same upload produce the same event.',
+    input: { url: fx.ATTACHMENT_URL, sha256: fx.ATTACHMENT_SHA256, size: 131_072, now: fx.ATTACHMENT_CREATED_AT },
+    output: { template: buildFileEvent({ url: fx.ATTACHMENT_URL, sha256: fx.ATTACHMENT_SHA256, size: 131_072 }, fx.ATTACHMENT_CREATED_AT) },
+  })
+
+  vectors.chatAttachment.push({
+    name: 'upload-authorisation',
+    kind: 'positive',
+    note: 'The kind-24242 Blossom authorisation an uploader signs: bound to one hash and one server, expiring ninety seconds later, and stamped a second early so a server whose clock is a moment behind does not refuse a fresh one.',
+    input: { sha256: fx.ATTACHMENT_SHA256, server: 'https://kithmoot.example', now: fx.ATTACHMENT_CREATED_AT },
+    output: { template: buildUploadAuthorisation(fx.ATTACHMENT_SHA256, 'https://kithmoot.example', fx.ATTACHMENT_CREATED_AT) },
+  })
+}
+
+// ===========================================================================
+// Approvals: an agent asking, and what counts as an answer
+// ===========================================================================
+//
+// The request and the answer are ordinary chat messages on the room's
+// `control` channel, so attribution is the chat message's credential-bound
+// participant and nothing inside the JSON names a sender. What makes an
+// answer count is decided by the agent, not the codec: only an admin the
+// authority signed for, or the agent's own principal, and only an option the
+// question actually offered.
+{
+  const request = { op: 'approval-request', id: 'spend-1', text: 'Publish the minutes to the town hall room?', options: ['approve', 'decline'], expiresAt: fx.NOW + 600 }
+  vectors.approvalControl.push({
+    name: 'approval-request',
+    kind: 'positive',
+    note: 'A question, its options and its horizon. The id is what an answer refers to; the options are what an answer may say, exactly, case-sensitively. Encoded as JSON in the text of a chat message on the `control` channel, so everybody in the room can read both the question and every answer to it - an agent asking permission in private would not be asking permission.',
+    input: { message: request },
+    output: { text: encodeControl(request), result: decodeControl(encodeControl(request)) },
+  })
+
+  const noOptions = { op: 'approval-request', id: 'spend-2', text: 'Delete the room?' }
+  vectors.approvalControl.push({
+    name: 'approval-request-without-options',
+    kind: 'positive',
+    note: 'Options are optional on the wire; a reader keeps the message as sent, with no options field. The default pair - approve and decline - is applied by the agent that asked, not by the decoder, so a decoder never invents an option the asker did not offer.',
+    input: { message: noOptions },
+    output: { text: encodeControl(noOptions), result: decodeControl(encodeControl(noOptions)) },
+  })
+
+  const answer = { op: 'approval', id: 'spend-1', verdict: 'approve', note: 'go ahead' }
+  vectors.approvalControl.push({
+    name: 'approval',
+    kind: 'positive',
+    note: 'An answer names the question it answers and says one of its options. Nothing here says who answered: that is the chat message\'s participant, bound to a device credential, which is the only attribution that cannot be typed by somebody else.',
+    input: { message: answer },
+    output: { text: encodeControl(answer), result: decodeControl(encodeControl(answer)) },
+  })
+
+  const dupes = { op: 'approval-request', id: 'spend-3', text: 'Which?', options: ['yes', 'no', 'yes', 'maybe'] }
+  vectors.approvalControl.push({
+    name: 'approval-request-duplicate-options',
+    kind: 'positive',
+    note: 'Repeated options are deduplicated in the order they were first offered, and NOT sorted or lower-cased: an option list is a menu a person reads, so the order is the asker\'s and the comparison against a verdict is exact.',
+    input: { message: dupes },
+    output: { text: encodeControl(dupes), result: decodeControl(encodeControl(dupes)) },
+  })
+
+  for (const [name, text, note] of [
+    [
+      'approval-verdict-with-a-newline',
+      JSON.stringify({ op: 'approval', id: 'spend-1', verdict: 'approve\nand pay' }),
+      'A verdict carrying a newline, which a renderer might show as one word and a comparison might treat as another. Refused whole: a verdict is a short token from a fixed alphabet, and anything else is not an answer.',
+    ],
+    [
+      'approval-request-option-list-too-long',
+      JSON.stringify({ op: 'approval-request', id: 'spend-4', text: 'Pick', options: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] }),
+      'Nine options where eight is the cap. Refused whole rather than trimmed, for the same reason the attachment cap refuses the message: a limit that silently drops the tail is a limit an attacker aims at.',
+    ],
+    [
+      'approval-request-id-that-is-a-path',
+      JSON.stringify({ op: 'approval-request', id: '../../etc/passwd', text: 'Read this?' }),
+      'An id is a short token, not a name a reader might resolve against anything. Refused.',
+    ],
+    [
+      'not-a-control-message',
+      'have you seen the minutes?',
+      'Somebody typing into the control channel by hand. It is a perfectly good chat message and not a control message, and a reader must treat it as the former: the channel is a place in the room, and people can write there.',
+    ],
+  ]) {
+    vectors.approvalControl.push({
+      name,
+      kind: 'negative',
+      note,
+      input: { text },
+      output: { result: decodeControl(text) },
+    })
+  }
+
+  const room = deriveRoom(fx.ROOM_SECRET_1)
+  const admins = [fx.PARTICIPANT_A, fx.GUEST]
+  // Hand-built with a recorded aux-rand, for the same reason the
+  // `roomEpoch/admins-signature` vector is: a frozen file cannot carry a
+  // signature that changes on every run.
+  const announcedSig = bytesToHex(
+    schnorr.sign(
+      sha256(utf8Bytes(`kithmoot/v1/admins:${room.roomId}:1:${canonicalAdmins(admins).join(',')}`)),
+      fx.AUTHORITY_SK,
+      seed32('admins-announcement-auxrand'),
+    ),
+  )
+  const adminsMessage = { op: 'admins', host: fx.PARTICIPANT_A, admins, epoch: 1, sig: announcedSig }
+  vectors.approvalControl.push({
+    name: 'admins-announcement',
+    kind: 'positive',
+    note: 'Who may answer an approval, announced on the same channel. ANY member may publish this op - the channel is the room\'s - and only the authority\'s signature over the canonical list makes it believed, which is what the `roomEpoch/admins-signature` vector pins. A reader that took the list on the word of whoever sent it would let any member appoint themselves.',
+    input: { message: adminsMessage, roomId: room.roomId, authority: fx.AUTHORITY, auxRandHex: bytesToHex(seed32('admins-announcement-auxrand')) },
+    output: { text: encodeControl(adminsMessage), result: decodeControl(encodeControl(adminsMessage)) },
   })
 }
 

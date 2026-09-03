@@ -222,7 +222,7 @@ to make that one thing true.
 - **A native Android app** (`forgesworn/kithmoot-android`), a second
   independent implementation, written against the published vectors without
   reading this codebase.
-- **61 published interop vectors** (`vectors/`), which both implementations
+- **95 published interop vectors** (`vectors/`), which both implementations
   are checked against.
 
 ## Names, and who you are
@@ -408,7 +408,7 @@ Stated plainly, before anyone else finds it:
 ```bash
 npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 990 tests, in-process relay simulator, no network
+npm test          # 1028 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, over live relays
 E2E_RELAYS=local npm run test:e2e  # the same, against test/ws-relay.mjs: what CI runs

@@ -101,3 +101,53 @@ export const FORWARDER_URL_LOCAL = 'ws://box-under-the-stairs.local:7788'
 /** A STUN-only ICE list: no username, no credential, because TURN
  *  credentials are minted per viewer with a TTL rather than shared. */
 export const ICE_SERVERS = [{ urls: ['stun:stun.kithmoot.example:3478'] }]
+
+// --- Epochs and removal ---------------------------------------------------
+// A room's authority is the root inviter: the only key that may retire a
+// link, and the only one whose rekey a member believes. `EPOCH_SECRET_*` are
+// the successor secrets a rekey hands out, sealed to one device at a time.
+export const AUTHORITY_SK = deriveSecretKey('room-authority')
+export const AUTHORITY = getPublicKey(AUTHORITY_SK)
+
+export const EPOCH_SECRET_1 = seed32('epoch-secret-1')
+export const EPOCH_SECRET_2 = seed32('epoch-secret-2')
+
+/** The device a rekey keeps, and the device it removes. The kept device is
+ *  the one the sealed copy is addressed to; the removed one is named in the
+ *  clear inside the ciphertext, because everybody still in the room has to
+ *  know who left and the party being removed is not a reader. */
+export const KEPT_DEVICE_SK = deriveSecretKey('epoch-kept-device')
+export const KEPT_DEVICE = getPublicKey(KEPT_DEVICE_SK)
+export const REMOVED_DEVICE_SK = deriveSecretKey('epoch-removed-device')
+export const REMOVED_DEVICE = getPublicKey(REMOVED_DEVICE_SK)
+
+export const REKEY_CREATED_AT = 1_799_999_000
+export const EPOCH_CREATED_AT = 1_799_999_950
+
+// --- Agent ownership ------------------------------------------------------
+// A principal signs, once, that an agent is theirs. Room-independent by
+// design, so the same proof rides in every room that agent joins.
+export const PRINCIPAL_SK = deriveSecretKey('agent-principal')
+export const PRINCIPAL = getPublicKey(PRINCIPAL_SK)
+export const AGENT_SK = deriveSecretKey('agent-participant')
+export const AGENT = getPublicKey(AGENT_SK)
+export const AGENT_DEVICE_SK = deriveSecretKey('agent-device')
+export const AGENT_DEVICE = getPublicKey(AGENT_DEVICE_SK)
+
+export const OWNERSHIP_ISSUED_AT = 1_799_900_000
+export const OWNERSHIP_EXPIRES_AT = NOW + 86_400
+export const OWNERSHIP_EXPIRED_AT = NOW - 1
+export const OWNERSHIP_LABEL = 'Ada, my research agent'
+
+// --- Attachments ----------------------------------------------------------
+// A Wildbloom share rides with a chat message: the file event's id, where
+// the sealed envelope is served, the hash of those exact bytes, and the
+// recovery key that opens them. The key is in the room-key ciphertext and
+// nowhere else.
+export const ATTACHMENT_EVENT_ID = 'a1'.repeat(32)
+export const ATTACHMENT_URL = 'https://kithmoot.example/blossom/' + 'b2'.repeat(32)
+export const ATTACHMENT_SHA256 = 'b2'.repeat(32)
+export const ATTACHMENT_KEY = 'c3'.repeat(32)
+export const ATTACHMENT_SALT = seed32('attachment-salt')
+export const ATTACHMENT_NONCE_PREFIX = seed32('attachment-nonce-prefix').slice(0, 8)
+export const ATTACHMENT_CREATED_AT = 1_799_999_800

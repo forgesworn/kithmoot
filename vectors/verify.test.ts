@@ -42,6 +42,11 @@ import { unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
 import { decodeDescriptorEvent } from '../src/descriptor.js'
+import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, signAdmins, verifyAdmins, canonicalAdmins } from '../src/epoch.js'
+import { normaliseAgentOwnership, verifyAgentOwnership } from '../src/ownership.js'
+import { decodeChatEvent } from '../src/chat.js'
+import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
+import { encodeControl, decodeControl } from '../src/control.js'
 import type { RoomPolicy } from '../src/types.js'
 
 interface Vector {
@@ -80,7 +85,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'agentOwnership', 'chatAttachment', 'approvalControl']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -567,4 +572,263 @@ describe('TURN credential', () => {
       expect(result).toEqual(v.output)
     })
   }
+})
+
+describe('room epoch', () => {
+  for (const v of groups.roomEpoch.filter((x) => x.name.startsWith('epoch-'))) {
+    it(v.name, () => {
+      const keys = deriveEpoch({ epoch: v.input.epoch as number, secret: hexToBytes(v.input.secretHex as string) })
+      expect(keys.epoch).toBe(v.output.epoch)
+      expect(keys.id).toBe(v.output.id)
+      expect(bytesToHex(keys.key)).toBe(v.output.keyHex)
+      // Epoch 0 is the room itself, byte for byte: it is what makes every
+      // other group in this file the same room before anybody is removed.
+      if (v.input.epoch === 0) {
+        const room = deriveRoom(hexToBytes(v.input.secretHex as string))
+        expect(keys.id).toBe(room.roomId)
+        expect(bytesToHex(keys.key)).toBe(bytesToHex(room.roomKey))
+      }
+    })
+  }
+
+  /** The decode arguments a rekey vector names, as the real function wants them. */
+  function rekeyArgs(decode: Record<string, unknown>) {
+    return {
+      roomId: decode.roomId as string,
+      authority: decode.authority as string,
+      current: {
+        epoch: (decode.current as Record<string, unknown>).epoch as number,
+        id: (decode.current as Record<string, unknown>).id as string,
+        key: hexToBytes((decode.current as Record<string, unknown>).keyHex as string),
+      },
+      deviceSk: hexToBytes(decode.deviceSkHex as string),
+    }
+  }
+
+  /** A notice as the vector records it: bytes do not survive JSON, so the
+   *  successor secret is written as hex and compared as hex. */
+  function noticeJson(notice: ReturnType<typeof decodeRekeyEvent>) {
+    if (notice === null) return null
+    const { secret, ...rest } = notice
+    return { ...rest, ...(secret ? { secretHex: bytesToHex(secret) } : {}) }
+  }
+
+  it('rekey: the kept device reads the notice and gets the successor secret', () => {
+    const v = vec('roomEpoch', 'rekey')
+    const args = rekeyArgs(v.expected!.decode as Record<string, unknown>)
+    expect(peekRekeyEvent(v.input.event as Event, { roomId: args.roomId, authority: args.authority })).toBe(v.output.peek)
+    const result = decodeRekeyEvent(v.input.event as Event, args)
+    expect(noticeJson(result)).toEqual(v.expected!.result)
+    expect(result!.epoch).toBe(1)
+    expect(result!.removed).toEqual([fx.REMOVED_DEVICE])
+    expect(result!.secret).toBeDefined()
+    // The successor secret derives the epoch the room is moving to, which is
+    // the whole point of the sealed copy.
+    expect(deriveEpoch({ epoch: 1, secret: result!.secret! }).id).toBe(deriveEpoch({ epoch: 1, secret: fx.EPOCH_SECRET_1 }).id)
+    // And it is sealed: the ciphertext carries no secret in the clear.
+    expect(JSON.stringify(v.input.event)).not.toContain(bytesToHex(fx.EPOCH_SECRET_1))
+  })
+
+  it('rekey: the removed device reads the notice and gets no secret', () => {
+    const v = vec('roomEpoch', 'rekey-read-by-the-removed-device')
+    const result = decodeRekeyEvent(v.input.event as Event, rekeyArgs(v.expected!.decode as Record<string, unknown>))
+    expect(noticeJson(result)).toEqual(v.expected!.result)
+    expect(result!.secret).toBeUndefined()
+    expect(result!.removed).toContain(fx.REMOVED_DEVICE)
+  })
+
+  it('rekey-closed: the epoch advances and nobody is given it', () => {
+    const v = vec('roomEpoch', 'rekey-closed')
+    const result = decodeRekeyEvent(v.input.event as Event, rekeyArgs(v.expected!.decode as Record<string, unknown>))
+    expect(noticeJson(result)).toEqual(v.expected!.result)
+    expect(result!.closed).toBe(true)
+    expect(result!.secret).toBeUndefined()
+  })
+
+  for (const name of ['rekey-not-the-authority', 'rekey-skips-an-epoch']) {
+    it(`${name}: refused`, () => {
+      const v = vec('roomEpoch', name)
+      const result = decodeRekeyEvent(v.input.event as Event, rekeyArgs(v.input.decode as Record<string, unknown>))
+      expect(result).toBeNull()
+      expect(result).toEqual(v.output.result ?? null)
+    })
+  }
+
+  it('admins-signature: canonical, and bound to its epoch', () => {
+    const v = vec('roomEpoch', 'admins-signature')
+    const admins = v.input.admins as string[]
+    const roomId = v.input.roomId as string
+    const epoch = v.input.epoch as number
+    expect(canonicalAdmins(admins)).toEqual(v.output.canonical)
+    // The recorded signature is checked rather than re-made: `signAdmins`
+    // signs with random aux-rand, so an implementation that produces a
+    // different signature for the same list is correct, and one that will
+    // not accept this one is not.
+    expect(verifyAdmins({ roomId, epoch, admins, sig: v.output.sig as string, authority: fx.AUTHORITY })).toBe(true)
+    // The order a client happens to hold them in changes nothing.
+    expect(
+      verifyAdmins({ roomId, epoch, admins: [...admins].reverse(), sig: v.output.sig as string, authority: fx.AUTHORITY }),
+    ).toBe(true)
+    // And this implementation's own signature verifies too.
+    const mine = signAdmins({ roomId, epoch, admins, authoritySk: hexToBytes(v.input.authoritySkHex as string) })
+    expect(verifyAdmins({ roomId, epoch, admins, sig: mine, authority: fx.AUTHORITY })).toBe(true)
+  })
+
+  it('admins-signature-another-epoch: refused', () => {
+    const v = vec('roomEpoch', 'admins-signature-another-epoch')
+    expect(
+      verifyAdmins({
+        roomId: v.input.roomId as string,
+        epoch: v.input.epoch as number,
+        admins: v.input.admins as string[],
+        sig: v.input.sig as string,
+        authority: v.input.authority as string,
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('agent ownership', () => {
+  for (const name of ['valid', 'with-expiry-and-label']) {
+    it(name, () => {
+      const v = vec('agentOwnership', name)
+      const proof = v.output.proof as Record<string, unknown>
+      const result = verifyAgentOwnership(proof, {
+        agent: (v.expected!.verify as Record<string, unknown>).agent as string,
+        now: (v.expected!.verify as Record<string, unknown>).now as number,
+      })
+      expect(result).toEqual(v.expected!.result)
+      expect(result.ok).toBe(true)
+      // Room independent by design: nothing in the proof names a room.
+      expect(JSON.stringify(proof)).not.toContain(deriveRoom(fx.ROOM_SECRET_1).roomId)
+    })
+  }
+
+  for (const name of ['names-another-agent', 'expired', 'label-not-as-signed', 'its-own-principal', 'bad-signature']) {
+    it(`${name}: refused, with a reason`, () => {
+      const v = vec('agentOwnership', name)
+      const verify = v.input.verify as Record<string, unknown>
+      const result = verifyAgentOwnership(v.input.proof, { agent: verify.agent as string, now: verify.now as number })
+      expect(result).toEqual(v.output.result)
+      expect(result.ok).toBe(false)
+    })
+  }
+
+  it('normalised-shape: keys lower-cased, unknown fields dropped, order fixed', () => {
+    const v = vec('agentOwnership', 'normalised-shape')
+    const result = normaliseAgentOwnership(v.input.raw)
+    expect(result).toEqual(v.output.result)
+    // The order is what the roster and chat encoders re-serialise, so it is
+    // part of the wire format rather than a detail.
+    expect(Object.keys(result!)).toEqual(Object.keys(v.output.result as object))
+  })
+})
+
+describe('chat attachment', () => {
+  function chatArgs(decode: Record<string, unknown>) {
+    return { roomId: decode.roomId as string, roomKey: hexToBytes(decode.roomKeyHex as string), now: decode.now as number }
+  }
+
+  it('chat-with-attachment: everything that matters is inside the ciphertext', () => {
+    const v = vec('chatAttachment', 'chat-with-attachment')
+    const result = decodeChatEvent(v.input.event as Event, chatArgs(v.expected!.decode as Record<string, unknown>))
+    expect(result).toEqual(v.expected!.result)
+    expect(result!.attachments).toHaveLength(1)
+    const wire = JSON.stringify(v.input.event)
+    for (const secret of [fx.ATTACHMENT_KEY, fx.ATTACHMENT_URL, fx.ATTACHMENT_SHA256]) {
+      expect(wire).not.toContain(secret)
+    }
+  })
+
+  it('attachments-a-reader-must-defuse: the message survives, the bad shares do not', () => {
+    const v = vec('chatAttachment', 'attachments-a-reader-must-defuse')
+    const result = decodeChatEvent(v.input.event as Event, chatArgs(v.expected!.decode as Record<string, unknown>))
+    expect(result).toEqual(v.expected!.result)
+    expect(result!.text).toBe('two of these are not shares')
+    expect(result!.attachments).toHaveLength(1)
+    expect(result!.attachments![0]!.url.startsWith('https:')).toBe(true)
+    expect(result!.attachments![0]!.type).toBe('application/pdf')
+    expect(result!.attachments![0]!.name).not.toContain('‮')
+    expect(result!.attachments![0]!.size).toBeUndefined()
+  })
+
+  it('more-attachments-than-a-message-may-carry: the whole message is refused', () => {
+    const v = vec('chatAttachment', 'more-attachments-than-a-message-may-carry')
+    const result = decodeChatEvent(v.input.event as Event, chatArgs(v.input.decode as Record<string, unknown>))
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.result ?? null)
+  })
+
+  it('envelope-key-derivation', () => {
+    const v = vec('chatAttachment', 'envelope-key-derivation')
+    expect(bytesToHex(deriveEnvelopeKey(hexToBytes(v.input.recoveryKeyHex as string), hexToBytes(v.input.saltHex as string)))).toBe(
+      v.output.keyHex,
+    )
+  })
+
+  it('padded-plaintext-length', () => {
+    const v = vec('chatAttachment', 'padded-plaintext-length')
+    expect((v.input.lengths as number[]).map(paddedPlaintextLength)).toEqual(v.output.padded)
+  })
+
+  it('file-event', () => {
+    const v = vec('chatAttachment', 'file-event')
+    expect(
+      buildFileEvent(
+        { url: v.input.url as string, sha256: v.input.sha256 as string, size: v.input.size as number },
+        v.input.now as number,
+      ),
+    ).toEqual(v.output.template)
+  })
+
+  it('upload-authorisation', () => {
+    const v = vec('chatAttachment', 'upload-authorisation')
+    expect(buildUploadAuthorisation(v.input.sha256 as string, v.input.server as string, v.input.now as number)).toEqual(
+      v.output.template,
+    )
+  })
+})
+
+describe('approval control', () => {
+  for (const v of groups.approvalControl.filter((x) => x.kind === 'positive')) {
+    it(v.name, () => {
+      const text = encodeControl(v.input.message as never)
+      expect(text).toBe(v.output.text)
+      expect(decodeControl(text)).toEqual(v.output.result)
+    })
+  }
+
+  for (const v of groups.approvalControl.filter((x) => x.kind === 'negative')) {
+    it(`${v.name}: not a control message`, () => {
+      const result = decodeControl(v.input.text as string)
+      expect(result).toBeNull()
+      expect(result).toEqual(v.output.result ?? null)
+    })
+  }
+
+  it('an admin list is believed on the authority signature, not on who sent it', () => {
+    const v = vec('approvalControl', 'admins-announcement')
+    const message = decodeControl(v.output.text as string)!
+    expect(message.op).toBe('admins')
+    const admins = (message as { admins: string[] }).admins
+    expect(
+      verifyAdmins({
+        roomId: v.input.roomId as string,
+        epoch: (message as { epoch: number }).epoch,
+        admins,
+        sig: (message as { sig: string }).sig,
+        authority: v.input.authority as string,
+      }),
+    ).toBe(true)
+    // The same list, offered under anybody else's authority, is not believed.
+    expect(
+      verifyAdmins({
+        roomId: v.input.roomId as string,
+        epoch: (message as { epoch: number }).epoch,
+        admins,
+        sig: (message as { sig: string }).sig,
+        authority: fx.HOST_UNTRUSTED,
+      }),
+    ).toBe(false)
+  })
 })
