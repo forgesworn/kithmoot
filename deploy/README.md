@@ -496,18 +496,54 @@ it.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `KITHMOOT_ROOM_ID` | yes | The room's 64-hex public id. Not the join URL. |
+| `KITHMOOT_ROOM_ID` | yes | The room's 64-hex public id, or several comma-separated. Not the join URL. |
 | `NOSTR_RELAYS` | yes | Comma-separated `ws:`/`wss:` relays. Use the ones the room uses, or it will never see the forwarder answer. |
-| `KITHMOOT_FORWARDER_SK` | yes | This forwarder's own Nostr secret key, 64 hex (`openssl rand -hex 32`). No default, on purpose. |
+| `KITHMOOT_FORWARDER_SK` | one of | This forwarder's own Nostr secret key, 64 hex (`openssl rand -hex 32`). **One room only.** No default, on purpose. |
+| `KITHMOOT_FORWARDER_ROOT_SK` | one of | A root secret, 64 hex, from which a **separate key per room** is derived. Use this to serve several rooms from one process. |
 | `KITHMOOT_FORWARDER_URL` | no | The relay advertised in the descriptor. Defaults to the first `NOSTR_RELAYS` entry. |
 | `KITHMOOT_MAX_PEERS` | no | Fan-out cap. Default 24. |
 | `KITHMOOT_MAX_TRACKS_PER_PEER` | no | Per-peer track cap. Default 4. |
 | `KITHMOOT_LABEL` | no | A name for people. Never used for logic. |
 
+#### Several rooms, one process
+
+A box that forwards for more than one room does not need a process each.
+List the ids and give it a root secret instead of a literal key:
+
+```bash
+KITHMOOT_ROOM_ID=<64 hex>,<64 hex>,<64 hex> \
+KITHMOOT_FORWARDER_ROOT_SK=$(openssl rand -hex 32) \
+NOSTR_RELAYS=wss://relay.trotters.cc \
+  npx kithmoot-forwarder
+```
+
+**Each room gets its own pubkey**, derived from the root and that room's id.
+That is not tidiness. A descriptor names its forwarder by pubkey, so one key
+across several rooms publishes the same pubkey into all of them, and anyone
+reading those descriptors can tell those rooms share infrastructure - the
+cross-room linkage per-room device keys exist to prevent (see
+`docs/decisions.md`, "Device keys are per room"). Derivation is also what
+keeps the pubkeys **stable** across restarts without a file to back up.
+
+Passing `KITHMOOT_FORWARDER_SK` with more than one room is refused rather
+than quietly shared. The two variables are separate on purpose: an existing
+single-room forwarder that upgrades keeps `KITHMOOT_FORWARDER_SK` and keeps
+its exact pubkey, so nothing it already serves is orphaned. Moving to a root
+secret changes the pubkey, and the descriptors have to be updated - which is
+why it is a different variable and not a silent reinterpretation of the same
+one.
+
+What one process does **not** buy you is isolation. The rooms share an event
+loop, an uplink and a `MemoryMax`, so a room busy enough to saturate any of
+those is felt by the rest, and one crash takes them all down together. One
+instance per room is still how you keep rooms apart; this is for a box
+carrying several quiet ones.
+
 For a persistent install, `deploy/forwarder@.service` is a systemd template
-with a dedicated user, `Restart=always`, and the usual hardening: one
-instance per room, `kithmoot-forwarder@<name>`, reading
-`/etc/kithmoot/forwarder-<name>.env`. From a checkout on your own machine,
+with a dedicated user, `Restart=always`, and the usual hardening:
+`kithmoot-forwarder@<name>`, reading `/etc/kithmoot/forwarder-<name>.env`.
+An instance serves one room or several, depending on what that env file
+says. From a checkout on your own machine,
 never on the box:
 
 ```bash

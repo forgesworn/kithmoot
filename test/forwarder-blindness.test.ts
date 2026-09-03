@@ -40,7 +40,7 @@ import {
 // The forwarder process itself, not a stand-in for it. Its config loader is
 // where "never the room key" is actually enforced.
 // @ts-expect-error - server/ is plain Node JavaScript with no build step.
-import { loadConfigFromEnv, createForwarder, createWeriftStack } from '../server/forwarder.mjs'
+import { loadConfigFromEnv, roomConfigs, createForwarder, createWeriftStack } from '../server/forwarder.mjs'
 
 const NOW = 1_800_000_000
 const now = () => NOW
@@ -112,7 +112,7 @@ describe('a forwarder is given the room id, never the room key', () => {
   })
 
   it('holds nothing from which the room key can be derived', async () => {
-    const config = loadConfigFromEnv(forwarderEnv())
+    const config = roomConfigs(loadConfigFromEnv(forwarderEnv()))[0]
     const alice = getPublicKey(generateSecretKey())
     const candidates = everyKeyTheForwarderHolds(config, [alice])
     for (const key of candidates) {
@@ -126,7 +126,7 @@ describe('a forwarder is given the room id, never the room key', () => {
 
 describe("a forwarder's view of the roster is opaque", () => {
   it('cannot read a roster entry, while a member can read the same one', async () => {
-    const config = loadConfigFromEnv(forwarderEnv())
+    const config = roomConfigs(loadConfigFromEnv(forwarderEnv()))[0]
     const participantSk = generateSecretKey()
     const deviceSk = generateSecretKey()
     const device = getPublicKey(deviceSk)
@@ -158,7 +158,7 @@ describe("a forwarder's view of the roster is opaque", () => {
   })
 
   it('learns nothing about the room from the descriptor that names it', async () => {
-    const config = loadConfigFromEnv(forwarderEnv())
+    const config = roomConfigs(loadConfigFromEnv(forwarderEnv()))[0]
     const participantSk = generateSecretKey()
     const deviceSk = generateSecretKey()
     const device = getPublicKey(deviceSk)
@@ -189,7 +189,7 @@ describe("a forwarder's view of the roster is opaque", () => {
     const relay = new SimRelay()
     const transport = new SimTransport(relay)
     const stack = await createWeriftStack()
-    const config = loadConfigFromEnv(forwarderEnv())
+    const config = roomConfigs(loadConfigFromEnv(forwarderEnv()))[0]
     const forwarder = createForwarder({ config, transport, stack, log: () => {}, now })
     forwarder.start()
     teardowns.push(() => {
@@ -212,7 +212,7 @@ describe("a forwarder's view of the roster is opaque", () => {
   it('sees real members join and still cannot say who they are', async () => {
     const relay = new SimRelay()
     const stack = await createWeriftStack()
-    const config = loadConfigFromEnv(forwarderEnv())
+    const config = roomConfigs(loadConfigFromEnv(forwarderEnv()))[0]
     const forwarder = createForwarder({ config, transport: new SimTransport(relay), stack, log: () => {}, now })
     forwarder.start()
 
@@ -279,7 +279,7 @@ describe('a forwarder cannot read the media it relays', () => {
   it('relays a frame end to end: the far end reads it, the forwarder cannot', async () => {
     const werift = await import('werift')
     const { RTCPeerConnection, MediaStreamTrack, MediaStream, RtpPacket, RtpHeader } = werift
-    const config = loadConfigFromEnv(forwarderEnv())
+    const config = roomConfigs(loadConfigFromEnv(forwarderEnv()))[0]
     const stack = await createWeriftStack()
 
     const aliceDevice = getPublicKey(generateSecretKey())
@@ -392,7 +392,7 @@ describe('a forwarder cannot forge attribution for a track it relays', () => {
   })
 
   it('cannot invent media for a member', async () => {
-    const config = loadConfigFromEnv(forwarderEnv())
+    const config = roomConfigs(loadConfigFromEnv(forwarderEnv()))[0]
     const invented = new Uint8Array([0x10, 0x02, 0x00, ...Array.from({ length: 32 }, () => 0x41)])
     for (const key of everyKeyTheForwarderHolds(config, [aliceDevice, carolDevice, FORWARDER_PUB])) {
       // Whatever it seals with, no member's key opens it - so nothing it
@@ -426,7 +426,7 @@ describe('a forwarder cannot forge attribution for a track it relays', () => {
     // Media is not the only attribution surface. A forwarder that could mint
     // a roster entry or a signal for a member could rearrange the room
     // without touching a frame.
-    const config = loadConfigFromEnv(forwarderEnv())
+    const config = roomConfigs(loadConfigFromEnv(forwarderEnv()))[0]
     const alicePartSk = generateSecretKey()
     const aliceDevSk = generateSecretKey()
 

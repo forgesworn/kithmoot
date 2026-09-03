@@ -384,7 +384,10 @@ Stated plainly, before anyone else finds it:
 
 - **No iOS app.** See above. It is the largest gap.
 - **Forwarder trees are two levels deep.** Enough for a room of about 21;
-  beyond that nobody has measured anything.
+  beyond that nobody has measured anything. One process can now serve several
+  rooms (`KITHMOOT_ROOM_ID` takes a list, with a key derived per room so they
+  do not share a pubkey), but they share an event loop and an uplink, so that
+  is for a box carrying several quiet rooms rather than a way to scale one.
 - **No browser-as-forwarder.** It needs WebRTC Encoded Transform, which is
   solid in Chrome and patchy in Safari, so it stays opportunistic and never
   load-bearing. The reference forwarder is a small Node process.

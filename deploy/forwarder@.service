@@ -1,5 +1,14 @@
 # systemd template for server/forwarder.mjs - the reference KithMoot
-# forwarder. One instance per room: `kithmoot-forwarder@<name>`.
+# forwarder. `kithmoot-forwarder@<name>`, one instance per env file.
+#
+# An instance serves ONE room or SEVERAL, depending on what its env file
+# says. One room uses KITHMOOT_FORWARDER_SK, the literal key. Several list
+# their ids in KITHMOOT_ROOM_ID and use KITHMOOT_FORWARDER_ROOT_SK, from
+# which a separate key is derived per room - one pubkey per room, because a
+# descriptor names its forwarder by pubkey and one key across several rooms
+# would publish the same one into all of them. Rooms in one process share an
+# event loop, an uplink and the MemoryMax below; separate instances is still
+# how you keep them apart. See deploy/README.md.
 #
 # WHAT THIS PROCESS IS, AND WHAT IT IS NOT:
 #

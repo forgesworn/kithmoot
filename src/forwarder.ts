@@ -1,5 +1,53 @@
+import { hkdf } from '@noble/hashes/hkdf'
+import { sha256 } from '@noble/hashes/sha2'
+import { secp256k1 } from '@noble/curves/secp256k1.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import type { CapacityEstimate, ForwarderRef } from './types.js'
+
+/** HKDF info for a forwarder's per-room identity. Distinct from every other
+ *  `kithmoot/v1/*` label, so a root secret used here can never collide with
+ *  one used anywhere else. */
+const FORWARDER_KEY_INFO = 'kithmoot/v1/forwarder-key'
+
+/**
+ * A forwarder's Nostr secret key for one room, derived from a root secret.
+ *
+ * **Why derive rather than reuse.** A room descriptor names its forwarder by
+ * pubkey, so one process serving several rooms with one key publishes the
+ * same pubkey into every one of them - and anyone reading those descriptors
+ * can then tell that those rooms share infrastructure. That is precisely the
+ * linkage `docs/decisions.md` refuses for devices ("Device keys are per
+ * room"), and a forwarder should not reintroduce it one layer down.
+ *
+ * **Why derive rather than store.** The key has to be *stable*: a descriptor
+ * points at a pubkey, so a forwarder that came back with a new one would
+ * silently orphan every room naming it. Derivation makes stability a
+ * property of the arithmetic rather than of a file somebody has to back up.
+ *
+ * The room id is public and the root secret never leaves the process, so a
+ * derived key tells an observer nothing about the root or about the other
+ * rooms.
+ */
+export function deriveForwarderKey(rootSecret: Uint8Array, roomId: string): Uint8Array {
+  if (rootSecret.length !== 32) throw new Error('forwarder root secret must be 32 bytes')
+  const room = normaliseHex(roomId)
+  if (!/^[0-9a-f]{64}$/.test(room)) throw new Error('forwarder key derivation needs a 64-hex room id')
+
+  const key = hkdf(sha256, rootSecret, undefined, `${FORWARDER_KEY_INFO}:${room}`, 32)
+
+  // A secp256k1 secret key must be in [1, n-1]. HKDF output lands outside
+  // that with probability about 2^-128, so this branch is not expected to
+  // run in the lifetime of anything - but a key that fails validation would
+  // otherwise surface as an opaque throw from deep inside a signing call,
+  // and the operator would have no idea which room did it.
+  if (!secp256k1.utils.isValidSecretKey(key)) {
+    throw new Error(
+      `derived forwarder key for room ${room} is not a valid secp256k1 scalar. ` +
+        'This is a ~2^-128 event; use a different root secret.',
+    )
+  }
+  return key
+}
 
 export type { ForwarderRef } from './types.js'
 // `CapacityEstimate` lives in `types.ts` because it now rides the wire: a

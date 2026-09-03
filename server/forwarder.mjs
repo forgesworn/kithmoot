@@ -73,6 +73,7 @@ import { wrapSignal, unwrapSignal } from '../dist/src/signal.js'
 import { SignalGuard } from '../dist/src/signal-guard.js'
 import { NostrRelayPool } from '../dist/src/relay-pool.js'
 import { normaliseHex } from '../dist/src/hex.js'
+import { deriveForwarderKey } from '../dist/src/forwarder.js'
 
 /**
  * How many devices one forwarder will carry for one room.
@@ -153,7 +154,8 @@ export function loadConfigFromEnv(env = process.env) {
   if (!rawRoomId) {
     throw new Error(
       'KITHMOOT_ROOM_ID is not set - refusing to start. It is the 64-character hex room id, which a ' +
-        'member can read off `deriveRoom(secret).roomId`. It is not the join URL and not the room secret.',
+        'member can read off `deriveRoom(secret).roomId`. It is not the join URL and not the room secret. ' +
+        'Several rooms may be served by one process: comma-separate their ids.',
     )
   }
   if (rawRoomId.includes('#') || rawRoomId.includes('://')) {
@@ -163,9 +165,18 @@ export function loadConfigFromEnv(env = process.env) {
         'characters, no scheme and no fragment.',
     )
   }
-  const roomId = normaliseHex(rawRoomId)
-  if (!HEX_64.test(roomId)) {
-    throw new Error(`KITHMOOT_ROOM_ID must be 64 hex characters, got ${rawRoomId.length}.`)
+  const roomIds = []
+  for (const raw of splitCsv(rawRoomId)) {
+    const roomId = normaliseHex(raw)
+    if (!HEX_64.test(roomId)) {
+      throw new Error(`KITHMOOT_ROOM_ID entries must be 64 hex characters, got "${raw}" (${raw.length}).`)
+    }
+    // A room listed twice would start two forwarders on one key, which then
+    // race each other to answer the same offers.
+    if (roomIds.includes(roomId)) {
+      throw new Error(`KITHMOOT_ROOM_ID lists room ${roomId} more than once.`)
+    }
+    roomIds.push(roomId)
   }
 
   const relays = splitCsv(env.NOSTR_RELAYS)
@@ -182,23 +193,69 @@ export function loadConfigFromEnv(env = process.env) {
     }
   }
 
+  // Two ways to key this process, and they are deliberately different
+  // variables rather than one that changes meaning.
+  //
+  //   KITHMOOT_FORWARDER_SK       the literal key. One room only. This is
+  //                               what single-room deployments already have,
+  //                               and it keeps its exact pubkey on upgrade.
+  //   KITHMOOT_FORWARDER_ROOT_SK  a root secret. One key derived PER ROOM,
+  //                               so several rooms share a process without
+  //                               sharing a pubkey.
+  //
+  // Reusing KITHMOOT_FORWARDER_SK for the root would have been tidier and
+  // was rejected: an existing forwarder upgrading into multi-room would
+  // silently change the pubkey of the room it already serves, and the room
+  // descriptor still naming the old one would point at nothing. Making it a
+  // new variable makes that migration a decision instead of an accident.
   const rawSk = (env.KITHMOOT_FORWARDER_SK ?? '').trim().toLowerCase()
-  if (!rawSk) {
+  const rawRootSk = (env.KITHMOOT_FORWARDER_ROOT_SK ?? '').trim().toLowerCase()
+
+  if (rawSk && rawRootSk) {
     throw new Error(
-      'KITHMOOT_FORWARDER_SK is not set - refusing to start. This is the forwarder\'s own Nostr secret ' +
-        'key, and it must be stable: a room descriptor names a forwarder by pubkey, so a key generated ' +
-        'afresh on each restart would silently orphan every room pointing here. Generate one with ' +
-        '`openssl rand -hex 32` and put it in this service\'s EnvironmentFile. There is no default on purpose.',
+      'KITHMOOT_FORWARDER_SK and KITHMOOT_FORWARDER_ROOT_SK are both set - refusing to start. They key ' +
+        'this process two different ways and would give the same room two different pubkeys depending on ' +
+        'which won. Set exactly one.',
     )
   }
-  if (!HEX_64.test(rawSk)) {
-    throw new Error('KITHMOOT_FORWARDER_SK must be 64 hex characters (`openssl rand -hex 32`).')
+  if (!rawSk && !rawRootSk) {
+    throw new Error(
+      'Neither KITHMOOT_FORWARDER_SK nor KITHMOOT_FORWARDER_ROOT_SK is set - refusing to start. This is ' +
+        "the forwarder's own Nostr secret, and it must be stable: a room descriptor names a forwarder by " +
+        'pubkey, so a key generated afresh on each restart would silently orphan every room pointing here. ' +
+        'Generate one with `openssl rand -hex 32` and put it in this service\'s EnvironmentFile. Use ' +
+        'KITHMOOT_FORWARDER_ROOT_SK to serve more than one room from this process. There is no default on purpose.',
+    )
   }
-  const secretKey = hexToBytes(rawSk)
-  // Derived, never read from the environment: a pubkey taken on trust could
-  // disagree with the key that actually signs, and the room would address
-  // wraps this process can never unwrap.
-  const pubkey = getPublicKey(secretKey)
+
+  let rooms
+  if (rawSk) {
+    if (!HEX_64.test(rawSk)) {
+      throw new Error('KITHMOOT_FORWARDER_SK must be 64 hex characters (`openssl rand -hex 32`).')
+    }
+    if (roomIds.length > 1) {
+      throw new Error(
+        `KITHMOOT_FORWARDER_SK is a single literal key but ${roomIds.length} rooms are configured - refusing ` +
+          'to start. One key across several rooms publishes the same pubkey into every descriptor, which is ' +
+          'exactly the cross-room linkage per-room device keys exist to prevent. Use ' +
+          'KITHMOOT_FORWARDER_ROOT_SK instead: it derives a separate key per room from one secret.',
+      )
+    }
+    const secretKey = hexToBytes(rawSk)
+    // Derived, never read from the environment: a pubkey taken on trust could
+    // disagree with the key that actually signs, and the room would address
+    // wraps this process can never unwrap.
+    rooms = [{ roomId: roomIds[0], secretKey, pubkey: getPublicKey(secretKey) }]
+  } else {
+    if (!HEX_64.test(rawRootSk)) {
+      throw new Error('KITHMOOT_FORWARDER_ROOT_SK must be 64 hex characters (`openssl rand -hex 32`).')
+    }
+    const root = hexToBytes(rawRootSk)
+    rooms = roomIds.map((roomId) => {
+      const secretKey = deriveForwarderKey(root, roomId)
+      return { roomId, secretKey, pubkey: getPublicKey(secretKey) }
+    })
+  }
 
   const url = (env.KITHMOOT_FORWARDER_URL ?? '').trim() || relays[0]
   if (!isWebSocketUrl(url)) {
@@ -217,7 +274,26 @@ export function loadConfigFromEnv(env = process.env) {
 
   const label = (env.KITHMOOT_LABEL ?? '').trim() || undefined
 
-  return { roomId, relays, secretKey, pubkey, url, label, maxPeers, maxTracksPerPeer }
+  return { rooms, relays, url, label, maxPeers, maxTracksPerPeer }
+}
+
+/**
+ * One config per room, in the shape `createForwarder` takes.
+ *
+ * The shared settings - relays, the signalling URL, the caps - are copied
+ * onto each, so a forwarder instance never has to know it has siblings.
+ * That is what keeps multi-room a `main()` concern rather than something
+ * every function in this file has to reason about.
+ */
+export function roomConfigs(config) {
+  return config.rooms.map((room) => ({
+    ...room,
+    relays: config.relays,
+    url: config.url,
+    label: config.label,
+    maxPeers: config.maxPeers,
+    maxTracksPerPeer: config.maxTracksPerPeer,
+  }))
 }
 
 function readPositiveInt(raw, name, fallback) {
@@ -525,13 +601,27 @@ async function main() {
     return
   }
 
+  // One relay pool and one media stack across every room. The pool
+  // multiplexes subscriptions over the same sockets, so serving four rooms
+  // costs four subscriptions rather than four connections per relay.
   const transport = new NostrRelayPool(config.relays)
   const stack = await createWeriftStack()
-  const forwarder = createForwarder({ config, transport, stack })
-  forwarder.start()
+
+  const forwarders = roomConfigs(config).map((roomConfig) =>
+    createForwarder({ config: roomConfig, transport, stack }),
+  )
+  for (const forwarder of forwarders) forwarder.start()
+
+  if (forwarders.length > 1) {
+    console.error(
+      `forwarder: serving ${forwarders.length} rooms from one process. They share an event loop and an ` +
+        'uplink, so a room busy enough to saturate either is felt by the rest; one instance per room is ' +
+        'still the way to keep them apart. See deploy/README.md.',
+    )
+  }
 
   const shutdown = () => {
-    forwarder.close()
+    for (const forwarder of forwarders) forwarder.close()
     transport.close()
     process.exit(0)
   }

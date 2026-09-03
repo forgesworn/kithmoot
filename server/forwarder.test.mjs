@@ -6,6 +6,7 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { bytesToHex } from '@noble/hashes/utils'
 import {
   loadConfigFromEnv,
+  roomConfigs,
   createForwarder,
   forwarderRef,
   DEFAULT_MAX_PEERS,
@@ -137,7 +138,7 @@ function standUpForwarder(overrides = {}) {
   const transport = new SimTransport(relay)
   const stack = createFakeStack()
   const logs = []
-  const config = loadConfigFromEnv(baseEnv(overrides.env))
+  const config = roomConfigs(loadConfigFromEnv(baseEnv(overrides.env)))[0]
   const forwarder = createForwarder({
     config: { ...config, ...overrides.config },
     transport,
@@ -198,7 +199,7 @@ describe('loadConfigFromEnv', () => {
 
   it('accepts a room id in upper case and normalises it', async () => {
     const config = loadConfigFromEnv(baseEnv({ KITHMOOT_ROOM_ID: ROOM_ID.toUpperCase() }))
-    expect(config.roomId).toBe(ROOM_ID)
+    expect(config.rooms[0].roomId).toBe(ROOM_ID)
   })
 
   // The claim this whole process exists to make, enforced at the only point
@@ -232,7 +233,7 @@ describe('loadConfigFromEnv', () => {
 
   it('derives the forwarder pubkey from the key rather than taking it on trust', async () => {
     const config = loadConfigFromEnv(baseEnv())
-    expect(config.pubkey).toBe(FORWARDER_PUB)
+    expect(config.rooms[0].pubkey).toBe(FORWARDER_PUB)
   })
 
   it('defaults the advertised url to the first relay and the caps to their constants', async () => {
@@ -255,9 +256,103 @@ describe('loadConfigFromEnv', () => {
   })
 })
 
+describe('serving more than one room from one process', () => {
+  const ROOM_B = 'b'.repeat(64)
+  const ROOT_SK = 'c'.repeat(64)
+
+  function multiEnv(overrides = {}) {
+    const env = baseEnv({
+      KITHMOOT_ROOM_ID: `${ROOM_ID},${ROOM_B}`,
+      KITHMOOT_FORWARDER_ROOT_SK: ROOT_SK,
+      ...overrides,
+    })
+    delete env.KITHMOOT_FORWARDER_SK
+    return env
+  }
+
+  it('takes a comma-separated list of room ids', async () => {
+    const config = loadConfigFromEnv(multiEnv())
+    expect(config.rooms.map((r) => r.roomId)).toEqual([ROOM_ID, ROOM_B])
+  })
+
+  it('gives every room a different pubkey', async () => {
+    // The whole reason for deriving rather than reusing. One key across
+    // several rooms publishes the same pubkey into every descriptor, and
+    // anyone reading them can then tell those rooms share infrastructure -
+    // the cross-room linkage per-room device keys exist to prevent.
+    const config = loadConfigFromEnv(multiEnv())
+    const [a, b] = config.rooms
+    expect(a.pubkey).not.toBe(b.pubkey)
+    expect(bytesToHex(a.secretKey)).not.toBe(bytesToHex(b.secretKey))
+  })
+
+  it('derives the same key for the same room every time', async () => {
+    // A descriptor names a forwarder by pubkey, so a restart that produced a
+    // different one would silently orphan the room pointing here.
+    const first = loadConfigFromEnv(multiEnv())
+    const second = loadConfigFromEnv(multiEnv())
+    expect(first.rooms.map((r) => r.pubkey)).toEqual(second.rooms.map((r) => r.pubkey))
+  })
+
+  it('derives a different key from a different root', async () => {
+    const other = loadConfigFromEnv(multiEnv({ KITHMOOT_FORWARDER_ROOT_SK: 'd'.repeat(64) }))
+    const mine = loadConfigFromEnv(multiEnv())
+    expect(other.rooms[0].pubkey).not.toBe(mine.rooms[0].pubkey)
+  })
+
+  it('refuses a literal key for more than one room, and says what to use', async () => {
+    const env = baseEnv({ KITHMOOT_ROOM_ID: `${ROOM_ID},${ROOM_B}` })
+    expect(() => loadConfigFromEnv(env)).toThrow(/KITHMOOT_FORWARDER_ROOT_SK/)
+  })
+
+  it('refuses both keying variables at once', async () => {
+    const env = multiEnv()
+    env.KITHMOOT_FORWARDER_SK = 'e'.repeat(64)
+    expect(() => loadConfigFromEnv(env)).toThrow(/both set/i)
+  })
+
+  it('refuses neither', async () => {
+    const env = baseEnv()
+    delete env.KITHMOOT_FORWARDER_SK
+    expect(() => loadConfigFromEnv(env)).toThrow(/Neither KITHMOOT_FORWARDER_SK/)
+  })
+
+  it('refuses the same room listed twice', async () => {
+    // Two forwarders on one key racing each other to answer the same offers.
+    expect(() => loadConfigFromEnv(multiEnv({ KITHMOOT_ROOM_ID: `${ROOM_ID},${ROOM_ID}` }))).toThrow(
+      /more than once/,
+    )
+  })
+
+  it('still refuses a room key however many rooms are configured', async () => {
+    // The claim this process exists to make does not weaken with scale.
+    const env = multiEnv()
+    env['KITHMOOT_ROOM_SECRET'] = 'anything'
+    expect(() => loadConfigFromEnv(env)).toThrow(/room id, never the room key/i)
+  })
+
+  it('copies the shared settings onto every room config', async () => {
+    const configs = roomConfigs(loadConfigFromEnv(multiEnv({ KITHMOOT_MAX_PEERS: '7' })))
+    expect(configs).toHaveLength(2)
+    for (const c of configs) {
+      expect(c.url).toBe('wss://relay.example')
+      expect(c.maxPeers).toBe(7)
+      expect(c.relays).toEqual(['wss://relay.example'])
+    }
+  })
+
+  it('a single room keeps its literal key untouched, so an upgrade orphans nothing', async () => {
+    // The compatibility promise: an existing deployment that keeps using
+    // KITHMOOT_FORWARDER_SK publishes exactly the pubkey it published before.
+    const config = loadConfigFromEnv(baseEnv())
+    expect(config.rooms).toHaveLength(1)
+    expect(config.rooms[0].pubkey).toBe(FORWARDER_PUB)
+  })
+})
+
 describe('forwarderRef', () => {
   it('is exactly the three fields a room descriptor may carry', async () => {
-    const config = loadConfigFromEnv(baseEnv({ KITHMOOT_LABEL: 'trotters box' }))
+    const config = roomConfigs(loadConfigFromEnv(baseEnv({ KITHMOOT_LABEL: 'trotters box' })))[0]
     expect(forwarderRef(config)).toEqual({
       url: 'wss://relay.example',
       pubkey: FORWARDER_PUB,
