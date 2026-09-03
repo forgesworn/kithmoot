@@ -67,6 +67,8 @@ import {
   type RoomLink,
   type RelayTransport,
   type EncryptedEnvelope,
+  DonationLedger,
+  ringTier,
 } from '../../src/index.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
@@ -170,6 +172,31 @@ const TURN_CREDENTIAL_ENDPOINT: string | undefined = '/turn'
 // app for a community names their own here, or sets it to '' and the panel
 // asks, which is what Wildbloom itself does.
 const BLOSSOM_ENDPOINT = 'https://kithmoot.forgesworn.dev'
+
+// The donor ring: a coloured ring on a profile picture showing what somebody
+// has put into the project, summed in this browser from public zap receipts.
+// Nothing is gated by it and nobody is asked for anything. See
+// `src/donations.ts` for the three checks that make the number real, and
+// `deploy/README.md`, "Turning the donor ring on", for switching it on.
+//
+// TWO SETTINGS, AND BOTH ARE REQUIRED. Leave either empty and the feature is
+// entirely dark: no rings, no endpoint lookup, no relay traffic, nothing on
+// the console. That is the default and a fork that wants no such thing does
+// nothing to keep it.
+//
+// The address is where the money goes, and its own endpoint is asked at
+// runtime which key signs its receipts - never hardcoded here, so a wallet
+// that changes provider or drops zap support takes the ring dark rather than
+// leaving it accepting whatever turns up.
+const DONATION_ADDRESS = 'profusemeat89@walletofsatoshi.com'
+// The Nostr pubkey a donation has to be addressed to, in hex. This is NOT the
+// same thing as the address, and it is not optional: the address above is at
+// a custodial wallet whose signing key is shared with every other customer of
+// that wallet, so a receipt bearing that signature proves the money reached
+// the provider and not that it reached us. The recipient named inside the
+// donor's own signed request is what says who was paid. Empty until the
+// project settles which of its identities zaps should be addressed to.
+const DONATION_RECIPIENT = ''
 
 function $<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T
@@ -814,6 +841,25 @@ const profiles = new ProfileBook({
   },
 })
 
+/**
+ * What each person has put into the project, if that has been switched on.
+ *
+ * Given the same relays as the profile book, because a lookup should follow
+ * the room. It asks those relays for receipts addressed to the PROJECT and
+ * nothing else - no participant pubkey is ever in its filter - so it inherits
+ * the relay correlation `profiles.ts` documents without adding to it.
+ */
+const donations = new DonationLedger({
+  address: DONATION_ADDRESS,
+  recipient: DONATION_RECIPIENT,
+  relays: () => relays,
+  transport: (urls) => new NostrRelayPool(urls),
+  fetch: (...args) => fetch(...args),
+  onChange: () => {
+    if (session) render(session.participants(), meParticipant)
+  },
+})
+
 /** Twelve hex characters is enough to read aloud and to tell two keys apart
  *  at a glance, and short enough to sit on a tile beside a name. */
 function shortKey(pubkey: string): string {
@@ -840,18 +886,63 @@ interface Shown {
   /** True when this key has a kind-0 profile on a relay - which makes it a
    *  published Nostr identity, NOT a verified name. See profiles.ts. */
   nostr: boolean
+  /** Verified sats into the project, or undefined when unknown or when the
+   *  donor ring is switched off. See `src/donations.ts`. */
+  sats?: number
 }
 
 /** Resolve everything a tile or a chat line needs to show one person. */
 function shownAs(pubkey: string, asserted?: string): Shown {
   const profile: Profile | undefined = profiles.get(pubkey)
+  // Only a published identity is asked about, so a per-device key is never
+  // even looked up: there is nothing to attribute a payment to. Cheap on
+  // every render by design - it does nothing for a total that is still
+  // fresh, and nothing at all when the feature is off.
+  if (profile !== undefined) donations.want([pubkey])
   return {
     name: profile?.name ?? asserted,
     short: shortKey(pubkey),
     npub: npubOf(pubkey),
     picture: profile?.picture,
     nostr: profile !== undefined,
+    sats: donations.sats(pubkey),
   }
+}
+
+/** How a figure reads in a tooltip: 1500 sats, not 1500. */
+const SATS = new Intl.NumberFormat(undefined, { useGrouping: true })
+
+/**
+ * The profile picture, ringed by what this person has put in.
+ *
+ * The ring is drawn nowhere else, so a tile, a roster chip and a chat line
+ * cannot disagree about somebody. Below the lowest band there is no ring at
+ * all rather than a grey one, so having given nothing is quiet; a per-device
+ * key gets no ring and no placeholder either, because it has no identity a
+ * payment could be attributed to.
+ */
+function pictureOf(shown: Shown): HTMLElement | undefined {
+  if (shown.picture === undefined) return undefined
+  const avatar = document.createElement('img')
+  avatar.className = 'avatar'
+  avatar.src = shown.picture
+  avatar.alt = ''
+  avatar.loading = 'lazy'
+  // A picture that will not load must not leave a broken icon sitting where
+  // a person's face was supposed to be, nor an empty ring around nothing.
+  avatar.addEventListener('error', () => (avatar.closest('.donorRing') ?? avatar).remove())
+
+  const tier = ringTier(shown)
+  if (tier === undefined) return avatar
+
+  const ring = document.createElement('span')
+  ring.className = `donorRing ${tier.ring}`
+  // Says the figure, says what it is computed against, and says who is
+  // vouching for it, which is nobody. The arithmetic happened in this
+  // browser out of receipts anybody can read.
+  ring.title = `${SATS.format(shown.sats ?? 0)} sats zapped to ${donations.address} (${shortKey(donations.recipient)}). Worked out in this browser from public zap receipts, and asserted by nobody.`
+  ring.append(avatar)
+  return ring
 }
 
 /** Build the name-and-key run that identifies one person. Deliberately the
@@ -859,6 +950,12 @@ function shownAs(pubkey: string, asserted?: string): Shown {
  *  line can never drift apart on it. */
 function identityRun(shown: Shown, isSelf: boolean): DocumentFragment {
   const run = document.createDocumentFragment()
+
+  // The picture, and the donor ring around it, live here rather than in one
+  // caller, so that "wherever this person is drawn" is a single decision and
+  // the ring reads as part of the same system as the badges below it.
+  const picture = pictureOf(shown)
+  if (picture) run.append(picture)
 
   if (shown.name !== undefined) {
     const name = document.createElement('span')
@@ -2154,17 +2251,8 @@ function render(views: ParticipantView[], me: string): void {
     const shown = shownAs(view.participant, view.name)
 
     const heading = document.createElement('h3')
-    if (shown.picture) {
-      const avatar = document.createElement('img')
-      avatar.className = 'avatar'
-      avatar.src = shown.picture
-      avatar.alt = ''
-      avatar.loading = 'lazy'
-      // A picture that will not load must not leave a broken icon sitting
-      // where a person's face was supposed to be.
-      avatar.addEventListener('error', () => avatar.remove())
-      heading.append(avatar)
-    }
+    // The picture comes with the identity run now, ringed by what this
+    // person has put in - see `pictureOf`.
     heading.append(identityRun(shown, view.participant === me))
     heading.append(` · ${view.devices.length} device${view.devices.length === 1 ? '' : 's'}`)
     if (view.devices.length > 1) {

@@ -327,5 +327,30 @@ export { SpeakingDetector, SpeakingSet, SPEAKING } from './speaking.js'
 export type { SpeakingThresholds } from './speaking.js'
 export { rms, rmsFromByteTimeDomain } from './audio-level.js'
 
+export {
+  DonationLedger,
+  DONOR_TIERS,
+  ZAP_RECEIPT_KIND,
+  ZAP_REQUEST_KIND,
+  bolt11Msats,
+  creditFromReceipt,
+  donorTier,
+  fetchZapEndpoint,
+  lnurlpUrl,
+  ringTier,
+  satsOf,
+  tallyDonations,
+} from './donations.js'
+export type {
+  CreditOptions,
+  DonationLedgerOptions,
+  DonorTier,
+  FetchZapEndpointOptions,
+  RingInput,
+  TallyOptions,
+  ZapCredit,
+  ZapEndpoint,
+} from './donations.js'
+
 export { verificationWords, verificationStatus, VERIFY_NAMESPACE } from './verification.js'
 export type { KnownParticipant, VerificationStatus, VerificationView, VerificationWords } from './verification.js'

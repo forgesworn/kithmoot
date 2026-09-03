@@ -955,3 +955,39 @@ exactly the people who joined by typing a name. And it inherits, without
 adding to, the relay correlation documented in `app/src/profiles.ts`;
 inheriting it is what makes that leak load-bearing rather than incidental,
 which is a reason to settle that trade first rather than after.
+
+### It was built, and there is a third check
+
+`src/donations.ts` now does this, and the two checks above turned out to be
+a floor rather than the whole of it. A third was needed, and it is the one
+that would have been missed.
+
+The project's address is at a CUSTODIAL wallet. Such a provider signs the
+receipts of every one of its customers with the same key, so check two -
+"the receipt was signed by the key this address advertises" - proves the
+money reached that provider and not that it reached us. Anybody else
+banking in the same place produces receipts carrying that signature as a
+matter of course. What actually binds a payment to this project is the
+recipient named in the `p` tag of the embedded kind 9734, which is inside
+the donor's own signature and cannot be moved without breaking it.
+
+So the rule is three-legged: the embedded request verifies, the receipt
+verifies and was signed by the key the address advertises at runtime, and
+the embedded request names the configured recipient pubkey. All three, in
+`creditFromReceipt`, which is the only door into a total. The provider key
+is never written down in the source - it is read from the address's own
+endpoint on each run, so a wallet that changes provider or drops zap
+support takes the ring dark rather than leaving it accepting whatever turns
+up.
+
+Two settings, address and recipient pubkey, both empty by default and both
+required: with either missing there are no rings, no endpoint lookup and no
+relay traffic. The amount is read from the bolt11 invoice in the receipt,
+never from the `amount` tag on the request, which states an intention; an
+invoice that cannot be read contributes nothing rather than a guess.
+
+On the correlation: the relay filter carries the PROJECT's recipient pubkey
+and nothing else. Receipts arrive addressed to the project and which of
+them belong to the people in this room is decided in the browser. So the
+trade in `profiles.ts` is inherited exactly as described and is not made
+worse, and it stays the owner's to settle.
