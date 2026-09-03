@@ -824,12 +824,68 @@ video {
   border-radius: 50%;
   object-fit: cover;
   background: var(--border);
+  display: block;
+}
+
+/* The donor ring
+ *
+ * What somebody has put into the project, worked out in this browser from
+ * public zap receipts and asserted by nobody. It gates nothing: the room is
+ * free and equal, and the ring is a thank-you rather than a rank.
+ *
+ * Five bands, and only the top one glows, because a glow on everything is a
+ * glow on nothing. Below the lowest band there is no element here at all -
+ * not a grey ring, not a placeholder - so that having given nothing is
+ * quiet. The figures are in DONOR_TIERS in src/donations.ts, not here. */
+.donorRing {
+  display: inline-flex;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  line-height: 0;
+}
+
+.donorRing.ring-1 {
+  border-color: #6b4a2c;
+}
+
+.donorRing.ring-2 {
+  border-color: #8e5c28;
+}
+
+.donorRing.ring-3 {
+  border-color: #b87020;
+}
+
+.donorRing.ring-4 {
+  border-color: #d98218;
+}
+
+/* Bitcoin orange, and the only one that glows. */
+.donorRing.ring-5 {
+  border-color: #f7931a;
+  box-shadow: 0 0 6px 1px rgb(247 147 26 / 70%);
 }
 
 #chatLog .who {
   display: inline-flex;
   align-items: baseline;
   gap: 0.3rem;
+}
+
+/* A picture has no baseline worth aligning to, so it centres on the line it
+   sits in rather than dangling below the text, and it comes down a size in
+   the places a person is named in passing rather than given a tile. */
+#chatLog .who .avatar,
+#chatLog .who .donorRing {
+  align-self: center;
+}
+
+#chatLog .who .avatar,
+.hereChip .avatar,
+.agentChip .avatar {
+  width: 1.2rem;
+  height: 1.2rem;
 }
 
 /* Effects - background blur and voice masking

@@ -860,3 +860,43 @@ would stop that too, but a unit should not depend on it.
 `journalctl -u kithmoot-blossom -f` for logs, and
 `curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:8092/upload`
 prints 401 when it is up.
+
+## Turning the donor ring on
+
+Off by default, and off means off: no rings, no endpoint lookup, no relay
+traffic and nothing on the console. Two constants in `app/src/main.ts` switch
+it on, and both are required.
+
+```ts
+const DONATION_ADDRESS = 'you@your-wallet.example'   // where the money goes
+const DONATION_RECIPIENT = ''                        // 64 hex, the pubkey zaps name
+```
+
+`DONATION_ADDRESS` is a Lightning address (LUD-16). The app fetches
+`https://<host>/.well-known/lnurlp/<name>` at runtime and reads `nostrPubkey`
+from it - the key that signs that address's zap receipts. It is never written
+into the source, so a wallet that changes provider, or stops supporting zaps,
+takes the ring dark instead of leaving it accepting whatever turns up.
+
+`DONATION_RECIPIENT` is the Nostr pubkey, in hex, that a donation has to be
+addressed to. It is not the same thing as the address and it is not optional.
+Most Lightning addresses are at custodial wallets, and such a provider signs
+every one of its customers' receipts with one key, so "signed by the key this
+address advertises" proves the money reached the provider and not that it
+reached you. The recipient inside the donor's own signed request is what says
+who was paid. Set it to the pubkey your donors' clients will actually put in
+a zap - normally the identity whose profile carries the address - and check
+the two agree before switching this on, because a mismatch produces rings for
+nobody rather than a wrong figure.
+
+Then rebuild the PWA and deploy it as usual. There is no server side to this
+and nothing to run: totals are worked out in each viewer's browser from
+public zap receipts, and every receipt has to pass all three checks in
+`src/donations.ts` before it counts. The bands are `DONOR_TIERS` in that same
+file - five of them, top band 100,000 sats - and changing the figures there
+changes every ring in the app.
+
+What it asks relays for: receipts addressed to `DONATION_RECIPIENT`, and
+nothing else. No participant pubkey is ever in the filter, so this adds
+nothing to the relay correlation that `app/src/profiles.ts` already documents
+and states.
