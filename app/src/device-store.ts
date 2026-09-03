@@ -21,6 +21,7 @@
  */
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import type { DeviceCredential } from '../../src/types.js'
+import type { InvitationDelegation, RoomAdmission } from '../../src/invitation.js'
 
 export interface DeviceStore {
   get(key: string): string | null
@@ -31,6 +32,15 @@ export interface DeviceStore {
 
 export const DEVICE_PREFIX = 'kithmoot.device.'
 export const CREDENTIAL_PREFIX = 'kithmoot.credential.'
+/** A joiner's admission, kept on purpose - see `storeKeptAdmission`. Keyed
+ *  by invitation id like the creator's record, because both are looked up
+ *  from a link before the room's id can be known. */
+export const KEPT_ADMISSION_PREFIX = 'kithmoot.admission-kept.v1.'
+
+/** How long a kept admission lasts: the same twelve hours as the creator's
+ *  record and a device credential, counted from when it was last kept,
+ *  which is every time the room is opened with the choice still on. */
+export const KEPT_ADMISSION_TTL_SECONDS = 12 * 60 * 60
 
 /** A room key not used for this long is forgotten. A credential lasts twelve
  *  hours, so nothing depends on a key this old; keeping it would only grow
@@ -135,4 +145,77 @@ export function isPairedSecondary(store: DeviceStore): boolean {
  *  replaces. A credential lasts twelve hours, so nothing of value is lost. */
 export function forgetLegacyStorage(store: DeviceStore): void {
   for (const key of LEGACY_KEYS) store.remove(key)
+}
+
+interface StoredKeptAdmission {
+  roomSecret: string
+  delegateSk: string
+  delegation: InvitationDelegation[]
+  /** What the responder said the room's epoch was. See `RoomAdmission.epoch`. */
+  epoch?: number
+  /** Unix seconds it was kept, or last kept again. */
+  createdAt: number
+}
+
+/**
+ * Keep a joiner's admission on this device, beyond the tab.
+ *
+ * A version 2 link is an invitation; the room secret arrives over the
+ * rendezvous and, for a joiner, lived only in the tab's session until now.
+ * That is the right default: a browser that was handed a room key for an
+ * afternoon should not hold it for ever unasked. But the rooms list and a
+ * notification both need the key with no tab open on the room, so a person
+ * can choose, per room, to keep it here - in the same shape and on the
+ * same clock as the creator's own record: the secret, the responder key
+ * and its delegation chain, hex, for twelve hours from the last time the
+ * room was opened. Forgetting the room removes it; so does turning the
+ * choice off.
+ */
+export function storeKeptAdmission(store: DeviceStore, invitationId: string, admission: RoomAdmission, now: number): void {
+  const value: StoredKeptAdmission = {
+    roomSecret: bytesToHex(admission.secret),
+    delegateSk: bytesToHex(admission.delegate.delegateSk),
+    delegation: admission.delegate.chain,
+    ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
+    createdAt: now,
+  }
+  store.set(KEPT_ADMISSION_PREFIX + invitationId, JSON.stringify(value))
+}
+
+/** The kept admission for an invitation, or undefined. One that has lapsed
+ *  or does not parse is removed on the way through. */
+export function loadKeptAdmission(store: DeviceStore, invitationId: string, now: number): RoomAdmission | undefined {
+  const key = KEPT_ADMISSION_PREFIX + invitationId
+  const raw = store.get(key)
+  if (!raw) return undefined
+  try {
+    const value = JSON.parse(raw) as Partial<StoredKeptAdmission>
+    if (
+      typeof value.roomSecret !== 'string' ||
+      typeof value.delegateSk !== 'string' ||
+      !Array.isArray(value.delegation) ||
+      typeof value.createdAt !== 'number' ||
+      !Number.isFinite(value.createdAt) ||
+      value.createdAt + KEPT_ADMISSION_TTL_SECONDS <= now
+    ) {
+      store.remove(key)
+      return undefined
+    }
+    const secret = hexToBytes(value.roomSecret)
+    const delegateSk = hexToBytes(value.delegateSk)
+    if (secret.length !== 32 || delegateSk.length !== 32) {
+      store.remove(key)
+      return undefined
+    }
+    const admission: RoomAdmission = { secret, delegate: { delegateSk, chain: value.delegation } }
+    if (Number.isSafeInteger(value.epoch) && (value.epoch as number) >= 0) admission.epoch = value.epoch
+    return admission
+  } catch {
+    store.remove(key)
+    return undefined
+  }
+}
+
+export function forgetKeptAdmission(store: DeviceStore, invitationId: string): void {
+  store.remove(KEPT_ADMISSION_PREFIX + invitationId)
 }

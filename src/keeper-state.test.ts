@@ -36,6 +36,16 @@ describe('keeper state', () => {
     expect(() => parseKeeperState(JSON.stringify({ v: 2, secret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer), epoch: 1 }))).toThrow(/epochSecret/)
   })
 
+  it('carries who asked to be nudged, written only when somebody has', () => {
+    const plain = serialiseKeeperState({ secret, inviterSk, bearer })
+    expect(JSON.parse(plain).nudge).toBeUndefined()
+    const json = serialiseKeeperState({ secret, inviterSk, bearer, nudge: ['CD'.repeat(32), 'ab'.repeat(32), 'ab'.repeat(32)] })
+    expect(JSON.parse(json).nudge).toEqual(['ab'.repeat(32), 'cd'.repeat(32)])
+    expect(parseKeeperState(json).nudge).toEqual(['ab'.repeat(32), 'cd'.repeat(32)])
+    expect(parseKeeperState(serialiseKeeperState({ secret, inviterSk, bearer, nudge: [] })).nudge).toBeUndefined()
+    expect(() => parseKeeperState(JSON.stringify({ v: 2, secret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer), nudge: ['x'] }))).toThrow(/nudge/)
+  })
+
   it('refuses what it cannot read rather than guessing', () => {
     expect(() => parseKeeperState('{"v":3}')).toThrow(/version/)
     expect(() => parseKeeperState(JSON.stringify({ v: 1, secret: 'short', inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer) }))).toThrow(/secret/)

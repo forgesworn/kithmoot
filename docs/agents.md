@@ -51,7 +51,31 @@ people for as long as it runs, with no bound, because it is the creator.
 `--state` persists the traffic secret, the inviter key and the bearer, so a
 restart reopens the same room on the same link. This is what a room that is
 meant to stay open for days wants: the keeper is the room's availability, and
-people and their agents drift in and out around it.
+people and their agents drift in and out around it. `--room-name` puts a
+name on the link, so everybody sent it calls the room the same thing.
+
+**Nudge.** A keeper started with `--nudge` (or `KITHMOOT_NUDGE=1`) tells
+absent members there is something to read. A member who signed in with a
+Nostr key turns on **Nudge me when I'm away** in the room, which sends the
+keeper a signed `nudge` message on the `control` channel
+(`src/control.ts`); the keeper records the participant pubkey in its state
+file beside the room, so a restart does not forget who asked, and the
+member's own `nudge off` removes it. When a message lands in the main chat
+and an opted-in member is not in the roster, the keeper sends that member
+one NIP-17 gift-wrapped DM (`src/node/nudge.ts`, nostr-tools `nip17`) from
+its own participant key to theirs, over the room's relays, saying there
+are new messages in the room by name, with the room link. At most one per
+member per hour, and not again until they have been present since; what
+was said before the keeper started is history, not a reason to write.
+
+What a relay learns from a nudge: that the keeper's key published a gift
+wrap addressed to that pubkey, and roughly when. The wrap is signed by a
+throwaway key and stamped a random while in the past, as NIP-59 has it;
+the seal inside is what carries the keeper's key, and only the member can
+open it. The room, the text and who else was nudged stay inside. The DM
+goes to the room's relays, not to the member's own inbox relays, so a DM
+client has to be reading those to show it. A name-only identity has no key
+a DM could reach and is not offered the switch.
 
 The keeper is also the room's authority: the one party that can move the
 room to a new epoch, which is how a member is removed (see "A member is
@@ -256,9 +280,10 @@ same agent next week too.
 ```bash
 npm run build:lib
 
-# a keeper: the room's availability
+# a keeper: the room's availability, named, nudging members who ask
 node bin/kithmoot-agent.mjs create --base https://kithmoot.forgesworn.dev/j/ \
-  --name Keeper --state ~/.kithmoot/standing-room.json --identity ~/.kithmoot/keeper.key
+  --name Keeper --room-name 'Town hall' --nudge \
+  --state ~/.kithmoot/standing-room.json --identity ~/.kithmoot/keeper.key
 
 # a character, on a local model
 node bin/kithmoot-agent.mjs join '<link>' --name Ada --brain ollama --model qwen3:32b \
@@ -300,6 +325,12 @@ in a loop and is woken by the next message on the conversations it named.
   model brain speaking when named and whispering when told, the bound on
   agents talking among themselves, the stdio protocol.
 - `src/node/utterances.test.ts`: the splitter and the arithmetic.
+- `src/node/nudge.test.ts`: over the simulated relay with a recording
+  sender and a fake clock, a member opts in on their signed word and is
+  recorded, is not nudged while present, is nudged once away, once an hour
+  at most and only after being back, opts out on the newest word, is never
+  nudged for their own message, and the real sender's wrap is a kind-1059
+  gift wrap only the member can open that names the keeper's key inside.
 - `src/node/scribe.test.ts`: with the fixed transcriber and a deterministic
   model behind the brain seam, utterances become transcript lines,
   `!minutes` puts minutes on the `minutes` channel, a call that ends puts

@@ -20,6 +20,9 @@ import type { Transcriber } from './transcriber.js'
 import { createWeriftFactory } from './webrtc.js'
 import { AgentHost, loadCatalogue } from './host.js'
 import { Scribe } from './scribe.js'
+import { Nudger, nip17Sender } from './nudge.js'
+import type { NudgeStore } from './nudge.js'
+import { NostrRelayPool } from '../relay-pool.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
@@ -28,6 +31,9 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
       admits newcomers for as long as it runs; --state persists the room across
       restarts. This is what a room that stays open for days wants. --admin
       names who may remove members, mute them or close the room from the app.
+      --room-name puts a name on the link; --nudge lets members who signed in
+      with a Nostr key ask to be DM'd (NIP-17, from this keeper's key, over the
+      room's relays) when there are new messages and they are not in the room.
 
   kithmoot-agent join <link> --name <name> [options]
       Join the room behind a link, as an ordinary member, and answer that link
@@ -75,6 +81,8 @@ Options
   --fake-transcriber       Write "(speech)" for every utterance; for plumbing checks
   --catalogue <dir>        (host) the agents this host can run
   --call-ends-after <min>  (scribe) minutes without media before the call is over; default 3
+  --room-name <name>       (create) what the room is called; rides in the link
+  --nudge                  (create) DM members who asked, when they miss messages
   --quiet                  No log lines on stderr
 
 Every option can also come from the environment, for a systemd unit's
@@ -82,15 +90,17 @@ EnvironmentFile: KITHMOOT_NAME, KITHMOOT_BASE, KITHMOOT_STATE,
 KITHMOOT_IDENTITY, KITHMOOT_RELAYS (comma separated), KITHMOOT_ICE (comma
 separated), KITHMOOT_ADMINS (comma separated), KITHMOOT_PERSONA,
 KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
-KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_LINK. A flag wins over
-the environment. With --state, the room link is also written beside the
-state file as <state>.link, readable by the keeper's user only.
+KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_LINK,
+KITHMOOT_ROOM_NAME, KITHMOOT_NUDGE (1 to turn it on). A flag wins over the
+environment. With --state, the room link is also written beside the state
+file as <state>.link, readable by the keeper's user only.
 
-A keeper records the room's epoch and who has been removed in its state, so
-a restart reopens the same room in the same epoch and keeps refusing the
-same people. A closed room is not reopened: delete the state to make a new
-one. After a removal a v1 link that carried the room secret is dead, and the
-keeper prints the current link again.
+A keeper records the room's epoch, who has been removed and who asked to be
+nudged in its state, so a restart reopens the same room in the same epoch,
+keeps refusing the same people and keeps nudging the ones who asked. A
+closed room is not reopened: delete the state to make a new one. After a
+removal a v1 link that carried the room secret is dead, and the keeper
+prints the current link again.
 `
 
 /** `KITHMOOT_<NAME>` from the environment, or undefined. */
@@ -104,6 +114,12 @@ function envList(name: string): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+/** `KITHMOOT_<NAME>=1` (or true, yes, on) turns a switch on. */
+function envFlag(name: string): boolean {
+  const value = env(name)?.trim().toLowerCase()
+  return value !== undefined && ['1', 'true', 'yes', 'on'].includes(value)
 }
 
 interface Common {
@@ -154,6 +170,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       'fake-transcriber': { type: 'boolean', default: false },
       catalogue: { type: 'string' },
       'call-ends-after': { type: 'string' },
+      'room-name': { type: 'string' },
+      nudge: { type: 'boolean', default: false },
       quiet: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
@@ -199,9 +217,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   }
   const base = values.base ?? env('BASE')
   const statePath = values.state ?? env('STATE')
+  const roomName = values['room-name'] ?? env('ROOM_NAME')
+  const nudge = values.nudge || envFlag('NUDGE')
   const log = common.quiet ? () => {} : (line: string) => process.stderr.write(`[kithmoot-agent] ${line}\n`)
 
-  const identity = localIdentity(await participantKey(common))
+  const participantSk = await participantKey(common)
+  const identity = localIdentity(participantSk)
   const persona = await loadPersona(common)
   const turn = common.turnCredential ? splitCredential(common.turnCredential) : undefined
 
@@ -214,6 +235,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     const factory = common.listen ? await createWeriftFactory({ iceUrls: common.ice, turn }) : undefined
     agent = await RoomAgent.create({
       base,
+      roomName,
       name: common.name,
       identity,
       relays: common.relays.length ? common.relays : undefined,
@@ -260,6 +282,25 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   const runtime = new AgentRuntime(agent, { persona, memoryDir: common.memory }).start()
 
+  // The keeper nudges members who asked. Only a keeper: a joiner is not
+  // the room's availability, and two nudgers would be two DMs.
+  let nudger: Nudger | undefined
+  let nudgePool: NostrRelayPool | undefined
+  if (nudge && command === 'create') {
+    nudgePool = new NostrRelayPool(agent.relays)
+    nudger = new Nudger({
+      agent,
+      send: nip17Sender(participantSk, nudgePool),
+      store: keeperNudgeStore(agent),
+      roomName,
+      log,
+    })
+    await nudger.start()
+    log(`nudging: members who ask are DM'd once an hour at most when they miss messages${statePath ? '' : ' (no --state, so who asked is forgotten on restart)'}`)
+  } else if (nudge) {
+    log('--nudge only means something to a keeper (create); ignored')
+  }
+
   if (common.listen) {
     const transcriber: Transcriber = common.fakeTranscriber
       ? new FixedTranscriber()
@@ -270,6 +311,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   const stop = () => {
     log('leaving')
+    nudger?.stop()
+    nudgePool?.close()
     // The farewell is the last thing out, and the process waits for it:
     // exiting first leaves a tile on everybody's screen for the whole
     // presence timeout. Bounded, because a relay that never answers must
@@ -413,6 +456,16 @@ async function loadKeeperState(path: string): Promise<KeeperState | undefined> {
 async function saveKeeperState(path: string, state: KeeperState): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, serialiseKeeperState(state), { mode: 0o600 })
+}
+
+/** Who asked to be nudged, kept in the keeper's own state - the same
+ *  record the epoch and the removed ride in, saved by the same `onState`,
+ *  so it survives a restart and is backed up with the room. */
+function keeperNudgeStore(agent: RoomAgent): NudgeStore {
+  return {
+    load: async () => [...(agent.keeperState?.nudge ?? [])],
+    save: (pubkeys) => agent.amendKeeperState({ nudge: pubkeys }),
+  }
 }
 
 /** An admin as typed: hex or npub, to lower-case hex. */

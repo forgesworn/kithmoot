@@ -172,6 +172,10 @@
             Keep the browser that opened the room online: it answers new
             arrivals without showing you a prompt.
           </p>
+          <div id="keepRow" class="toggles switchRow" hidden>
+            <button id="toggleKeep" class="toggle" data-on="false" aria-pressed="false">Keep on this device</button>
+            <span id="keepNote" class="note inline"></span>
+          </div>
           <input id="shareUrl" readonly />
           <button id="shareRoom" type="button" hidden>Share</button>
           <button id="copyShare" type="button">Copy</button>
@@ -206,6 +210,18 @@
       </section>
 
       <p id="status" role="status"></p>
+
+      <!-- Notifications come from this open app and nowhere else: there is
+           no server to push from. Per device, off until asked for, and what
+           reaches the operating system is the room and the sender unless
+           the second switch says the text may go too. -->
+      <section id="notify">
+        <div class="toggles switchRow">
+          <button id="toggleNotify" class="toggle" data-on="false" aria-pressed="false">Notify me</button>
+          <button id="toggleNotifyText" class="toggle" data-on="false" aria-pressed="false" hidden>Show message text</button>
+          <span id="notifyNote" class="note inline"></span>
+        </div>
+      </section>
 
       <!-- Peer assist. Sits above the room rather than inside a settings
            disclosure on purpose: while it is on, this device is spending its
@@ -249,6 +265,15 @@
         </div>
         <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
         <div id="room"></div>
+        <div id="nudgeRow" class="toggles switchRow" hidden>
+          <button id="toggleNudge" class="toggle" data-on="false" aria-pressed="false">Nudge me when I'm away</button>
+          <span id="nudgeNote" class="note inline">
+            Asks the room's keeper to DM your Nostr key, from its own, when
+            there are new messages and you are not here: once an hour at most,
+            over this room's relays. A relay sees that the keeper wrote to
+            your key, and nothing else.
+          </span>
+        </div>
         <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Diagnostics"></textarea>
 
         <h2>Chat</h2>

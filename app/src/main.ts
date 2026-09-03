@@ -7,10 +7,13 @@ import {
   forgetLegacyStorage,
   isPairedSecondary,
   loadCredentialFor,
+  loadKeptAdmission,
   storeCredentialFor,
+  storeKeptAdmission,
 } from './device-store.js'
-import { forgetRoom, knownRooms, markRead, rememberRoom, roomLabel, type KnownRoom } from './rooms-store.js'
+import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { RoomWatch } from './room-watch.js'
+import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
   RoomSession,
   NostrRelayPool,
@@ -641,6 +644,70 @@ function loadCachedAdmission(invitation: RoomInvitation): RoomAdmission | undefi
   }
 }
 
+// ---------------------------------------------------------------------------
+// Keeping a room on this device
+//
+// A joiner's admission lives in sessionStorage above: the tab's lifetime,
+// and no longer, which is the right default for a key a stranger's link
+// handed over. But the rooms list and a notification both need the room
+// key with no tab open on the room, so a person may choose, per room, to
+// keep it here on the creator's terms - twelve hours from each visit, gone
+// when the room is forgotten. The choice is written in the rooms store;
+// the admission itself is written here, by the page that holds it. See
+// `storeKeptAdmission` and docs/decisions.md.
+// ---------------------------------------------------------------------------
+
+/** The admission this page holds as a joiner: the secret, and the delegated
+ *  responder key with its chain. Undefined on the creator's page, on a
+ *  legacy link, and on a page whose delegation has been retired. */
+function currentJoinerAdmission(): RoomAdmission | undefined {
+  if (!roomInvitationCapability || !invitationAuthoritySk || invitationDelegation.length === 0) return undefined
+  return { secret: roomSecret, delegate: { delegateSk: invitationAuthoritySk, chain: invitationDelegation } }
+}
+
+/** Write the admission down again if the room is one the person chose to
+ *  keep, so the twelve hours run from this visit. */
+function refreshKeptAdmission(): void {
+  const roomId = currentRoomId()
+  const invitation = roomInvitationCapability
+  if (!roomId || !invitation) return
+  if (!knownRoom(deviceStore, roomId)?.keep) return
+  const admission = currentJoinerAdmission()
+  if (!admission) return
+  try {
+    storeKeptAdmission(deviceStore, deriveInvitationId(invitation), admission, nowSeconds())
+  } catch {
+    // Storage may be unavailable. The room still opens; only the way to
+    // read it later goes unwritten.
+  }
+}
+
+function setKeepRoomChoice(on: boolean): void {
+  const roomId = currentRoomId()
+  if (!roomId || !roomInvitationCapability) return
+  if (!setKeepRoom(deviceStore, roomId, on)) {
+    rememberCurrentRoom()
+    setKeepRoom(deviceStore, roomId, on)
+  }
+  if (on) refreshKeptAdmission()
+  renderKeepChoice()
+}
+
+/** The switch, shown to a joiner holding an admission, or to one who kept
+ *  one earlier and may want to stop. The creator's own record is already
+ *  on these terms, so the creator is not asked. */
+function renderKeepChoice(): void {
+  const row = $('keepRow')
+  const roomId = currentRoomId()
+  const on = roomId !== undefined && knownRoom(deviceStore, roomId)?.keep === true
+  row.hidden = !roomId || !roomInvitationCapability || (!currentJoinerAdmission() && !on)
+  setToggle('toggleKeep', on)
+  $('toggleKeep').setAttribute('aria-pressed', String(on))
+  $('keepNote').textContent = on
+    ? 'On: this device keeps the room\u2019s key for twelve hours from each visit, so the rooms list and notifications can read it with no tab open here. Forgetting the room removes it.'
+    : 'Off: this device holds the room\u2019s key only while a tab is open on it. Until then the rooms list cannot read this room, and nothing here notifies for it.'
+}
+
 function stopInvitationHost(): void {
   invitationHost?.close()
   invitationTransport?.close()
@@ -861,6 +928,7 @@ function renderIdentity(): void {
       'A name only. You get a key of your own the first time you join, and it shows here beside the name.'
   }
   line.append(how)
+  renderNudgeChoice()
 }
 
 // The published tracks. Neither the microphone nor the camera track is the
@@ -973,12 +1041,15 @@ async function roomFromLocation(): Promise<boolean> {
       expectedEpoch = 0
       serveCurrentInvitation()
     } else {
-      const cached = loadCachedAdmission(invitation)
+      // This tab's session first, then what the person chose to keep on
+      // this device, then the live rendezvous.
+      const cached = loadCachedAdmission(invitation) ?? loadKeptAdmission(deviceStore, deriveInvitationId(invitation), nowSeconds())
       if (cached) {
         roomSecret = cached.secret
         invitationAuthoritySk = cached.delegate.delegateSk
         invitationDelegation = cached.delegate.chain
         expectedEpoch = cached.epoch
+        cacheAdmission(invitation, cached)
         serveCurrentInvitation()
       } else {
         setStatus('Opening the private room…')
@@ -1019,8 +1090,10 @@ async function roomFromLocation(): Promise<boolean> {
   }
 
   // Admitted, one way or another: this is now a room this device has been
-  // in, and the list on the front page will offer it again.
+  // in, and the list on the front page will offer it again - and, if the
+  // person chose to keep it here, readable from there.
   rememberCurrentRoom()
+  refreshKeptAdmission()
   return true
 }
 
@@ -1483,6 +1556,7 @@ function showRoomUi(): void {
   hideRoomsList()
   $('roomNav').hidden = false
   renderRoomTitle()
+  renderKeepChoice()
   $('deviceControls').hidden = false
   $('join').hidden = false
   $('links').hidden = false
@@ -3073,19 +3147,32 @@ async function startSession(): Promise<void> {
     await s.join(currentAdverts(), currentClaims())
     s.publishTracks(activeTracks(), { audience })
 
+    // What lands while this tab is in the background is worth a
+    // notification, if the person asked for them. Followed from now, so
+    // the history the log replays on open is never news.
+    const joinedRoomId = currentRoomId() ?? s.roomId
+    const roomLabelNow = () => roomLabel({ roomId: joinedRoomId, name: roomName })
+    const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel })
     s.chat.onChange((messages) => {
       renderChat(messages)
       noteChatRead(messages)
+      notifyChat(messages)
     })
     renderChat(s.chat.messages())
     noteChatRead(s.chat.messages())
+    notifyChat(s.chat.messages())
     // The side channels: what the agents say to each other, and what a
     // listening agent heard. Opened now rather than on demand, because a
     // relay replays a durable kind to a subscriber but a person opening
     // the panel an hour in should not have to wait for that.
     const agents = s.channel(AGENT_CHANNEL)
-    agents.onChange((messages) => renderLog('agentLog', 'agentsCount', messages))
+    const notifyAgents = notifier.follow({ roomId: joinedRoomId, channel: 'agents', room: roomLabelNow, sender: senderLabel })
+    agents.onChange((messages) => {
+      renderLog('agentLog', 'agentsCount', messages)
+      notifyAgents(messages)
+    })
     renderLog('agentLog', 'agentsCount', agents.messages())
+    notifyAgents(agents.messages())
     const transcript = s.channel(TRANSCRIPT_CHANNEL)
     transcript.onChange((messages) => renderLog('transcriptLog', 'transcriptCount', messages))
     renderLog('transcriptLog', 'transcriptCount', transcript.messages())
@@ -3093,8 +3180,13 @@ async function startSession(): Promise<void> {
     // the chat, which goes out as an ordinary message, so any scribe that
     // is listening sees it.
     const minutes = s.channel(MINUTES_CHANNEL)
-    minutes.onChange((messages) => renderLog('minutesLog', 'minutesCount', messages))
+    const notifyMinutes = notifier.follow({ roomId: joinedRoomId, channel: 'minutes', room: roomLabelNow, sender: senderLabel })
+    minutes.onChange((messages) => {
+      renderLog('minutesLog', 'minutesCount', messages)
+      notifyMinutes(messages)
+    })
     renderLog('minutesLog', 'minutesCount', minutes.messages())
+    notifyMinutes(minutes.messages())
     // Agent hosts say what they can run on the control channel; a person
     // asks on it. Asked once on arrival, so a host that has been quiet for
     // an hour says again.
@@ -3108,6 +3200,7 @@ async function startSession(): Promise<void> {
     joinBtn.hidden = true
     $('identity').hidden = true
     $('roomArea').hidden = false
+    renderNudgeChoice()
     // The offer starts at whatever the person has already chosen, which is
     // off unless they turned it on before joining.
     lastOffering = currentAssistOffer() !== null
@@ -3144,13 +3237,16 @@ function noteChatRead(messages: ChatMessage[]): void {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || !session) return
+  if (document.visibilityState !== 'visible') return
+  notifier.seen()
+  if (!session) return
   try {
     noteChatRead(session.chat.messages())
   } catch {
     // Not joined yet: there is no chat to have read.
   }
 })
+window.addEventListener('focus', () => notifier.seen())
 
 // ---------------------------------------------------------------------------
 // Your rooms
@@ -3171,11 +3267,17 @@ let roomsTimer: ReturnType<typeof setInterval> | undefined
  *  relay open, when it is not. */
 let roomsListShown = false
 
-/** The room secret behind a known room, when this device holds it. */
+/** The room secret behind a known room, when this device holds it: the
+ *  creator's record, this tab's admission, or one the person chose to
+ *  keep. */
 function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
   if (link.secret) return link.secret
   if (!link.invitation) return undefined
-  return loadInvitationOwner(link.invitation)?.roomSecret ?? loadCachedAdmission(link.invitation)?.secret
+  return (
+    loadInvitationOwner(link.invitation)?.roomSecret ??
+    loadCachedAdmission(link.invitation)?.secret ??
+    loadKeptAdmission(deviceStore, deriveInvitationId(link.invitation), nowSeconds())?.secret
+  )
 }
 
 function watchKnownRoom(room: KnownRoom): void {
@@ -3192,7 +3294,25 @@ function watchKnownRoom(room: KnownRoom): void {
   // A key that does not open this room is not this room's key.
   if (roomId !== room.roomId) return
   const pool = new NostrRelayPool(link.relays.length ? link.relays : RELAYS)
-  const watch = new RoomWatch({ transport: pool, roomId, roomKey, policy: link.policy, onChange: renderRooms })
+  // A message in a room on the list is a message in a room not on screen,
+  // and the list is what this device reads other rooms with.
+  const notify = notifier.follow({
+    roomId,
+    channel: 'chat',
+    room: () => roomLabel(knownRoom(deviceStore, roomId) ?? room),
+    sender: senderLabel,
+  })
+  const watch = new RoomWatch({
+    transport: pool,
+    roomId,
+    roomKey,
+    policy: link.policy,
+    onChange: () => {
+      renderRooms()
+      notify(watch.messages())
+    },
+  })
+  notify(watch.messages())
   roomWatches.set(room.roomId, { pool, watch })
 }
 
@@ -3361,10 +3481,206 @@ function backToRooms(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Notifications
+//
+// From this open app, and from nowhere else: there is no server to push
+// from. The rule for when a message is worth one is in app/src/notify.ts;
+// this is the browser around it - permission, the system notification, and
+// what a click on one does.
+// ---------------------------------------------------------------------------
+
+const APP_TITLE = document.title
+
+/** How a sender is named in a notification: as everywhere else, the name
+ *  they claim beside a short key, or the key alone. */
+function senderLabel(m: ChatMessage): string {
+  const shown = shownAs(m.participant, m.name)
+  return shown.name !== undefined ? `${shown.name} (${shown.short})` : shown.short
+}
+
+const notifier = new Notifier({
+  settings: () => notifySettings(deviceStore),
+  hidden: () => document.hidden,
+  shownRoomId: () => (session ? currentRoomId() : undefined),
+  self: () => meParticipant || currentParticipant(),
+  deliver: (content, arrival) => deliverNotification(content, arrival),
+  onPending: (count) => {
+    document.title = titleWithCount(APP_TITLE, count)
+  },
+})
+
+/**
+ * One notification, through the service worker's registration when there
+ * is one - that is what survives the tab being put in the background on a
+ * phone - and through the page otherwise. The room's link rides in the
+ * notification's data, for the click: it is the same link this device
+ * already keeps for the room, held by the same browser.
+ */
+async function deliverNotification(content: NotificationContent, arrival: Arrival): Promise<void> {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  const url = knownRoom(deviceStore, arrival.roomId)?.link
+  const options: NotificationOptions = { body: content.body, tag: content.tag, data: { url } }
+  let registration: ServiceWorkerRegistration | undefined
+  try {
+    registration = await navigator.serviceWorker?.getRegistration()
+  } catch {
+    registration = undefined
+  }
+  if (registration?.showNotification) {
+    await registration.showNotification(content.title, options)
+    return
+  }
+  const shown = new Notification(content.title, options)
+  shown.onclick = () => {
+    window.focus()
+    shown.close()
+    if (url) openLink(url)
+  }
+}
+
+/** Whether a link opens the room this page is already on. */
+function alreadyHere(url: string): boolean {
+  try {
+    const link = parseRoomLink(url)
+    if (link.invitation) {
+      return roomInvitationCapability !== undefined && deriveInvitationId(link.invitation) === deriveInvitationId(roomInvitationCapability)
+    }
+    if (link.secret) return currentRoomId() === deriveRoom(link.secret).roomId
+  } catch {
+    // Not a room link.
+  }
+  return false
+}
+
+/** Open a room link from a notification: this app's own links only, and
+ *  a reload for the reason `openKnownRoom` reloads. */
+function openLink(url: string): void {
+  let target: URL
+  try {
+    target = new URL(url, location.href)
+  } catch {
+    return
+  }
+  if (target.origin !== location.origin || !target.href.startsWith(joinLinkBase())) return
+  if (alreadyHere(target.href)) return
+  history.replaceState(null, '', target.href)
+  location.reload()
+}
+
+navigator.serviceWorker?.addEventListener('message', (event) => {
+  const data = event.data as { type?: unknown; url?: unknown } | null
+  if (data && data.type === 'kithmoot:open' && typeof data.url === 'string') openLink(data.url)
+})
+
+function renderNotifyChoice(): void {
+  const settings = notifySettings(deviceStore)
+  const supported = typeof Notification !== 'undefined'
+  const granted = supported && Notification.permission === 'granted'
+  const on = settings.enabled && granted
+  setToggle('toggleNotify', on)
+  $('toggleNotify').setAttribute('aria-pressed', String(on))
+  ;($('toggleNotify') as HTMLButtonElement).disabled = !supported
+  const textToggle = $('toggleNotifyText') as HTMLButtonElement
+  textToggle.hidden = !on
+  setToggle('toggleNotifyText', settings.showText)
+  textToggle.setAttribute('aria-pressed', String(settings.showText))
+  const note = $('notifyNote')
+  if (!supported) {
+    note.textContent = 'This browser cannot show notifications.'
+  } else if (Notification.permission === 'denied') {
+    note.textContent = 'Notifications are blocked for this site in the browser\u2019s settings; allow them there first.'
+  } else if (on) {
+    note.textContent = settings.showText
+      ? 'On: a message in a room you are not looking at is shown by the system with the room, who spoke, and what they said.'
+      : 'On: a message in a room you are not looking at is shown by the system with the room and who spoke. The text stays in the app unless you say otherwise.'
+  } else {
+    note.textContent =
+      'Off. On, this open app tells you about a message in a room you are not looking at - a tab in the background, or a room on your list. There is no server to push from, so a closed app tells you nothing.'
+  }
+}
+
+async function setNotify(on: boolean): Promise<void> {
+  if (on && typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+    // Asked from the click, which is the only place a browser will grant it.
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      setNotifySettings(deviceStore, { enabled: false })
+      renderNotifyChoice()
+      return
+    }
+  }
+  setNotifySettings(deviceStore, { enabled: on })
+  renderNotifyChoice()
+}
+
+// ---------------------------------------------------------------------------
+// Being nudged by the keeper
+//
+// The keeper is the one party always in the room, and a Nostr key is an
+// address a DM can reach. A member signed in with one can ask the keeper,
+// on the control channel, to say when there are new messages and they are
+// away. A name-only identity has no inbox to read a DM from, so it is not
+// offered the switch. What was last asked for is remembered per room on
+// this device; the keeper holds the truth of it.
+// ---------------------------------------------------------------------------
+
+const NUDGE_PREFIX = 'kithmoot.nudge.'
+
+function nudgeWanted(roomId: string): boolean {
+  try {
+    return localStorage.getItem(NUDGE_PREFIX + roomId) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function renderNudgeChoice(): void {
+  const row = $('nudgeRow')
+  const roomId = currentRoomId()
+  row.hidden = !session || !nostrSession || !roomId
+  const on = roomId !== undefined && nudgeWanted(roomId)
+  setToggle('toggleNudge', on)
+  $('toggleNudge').setAttribute('aria-pressed', String(on))
+}
+
+async function setNudge(on: boolean): Promise<void> {
+  const roomId = currentRoomId()
+  if (!session || !nostrSession || !roomId) return
+  await session.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'nudge', on }))
+  try {
+    if (on) localStorage.setItem(NUDGE_PREFIX + roomId, 'true')
+    else localStorage.removeItem(NUDGE_PREFIX + roomId)
+  } catch {
+    // Storage may be unavailable; the keeper still heard.
+  }
+  renderNudgeChoice()
+  setStatus(on ? 'Asked the room\u2019s keeper to nudge you when you miss messages.' : 'Asked the room\u2019s keeper to stop nudging you.')
+}
+
+// ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
 
 $('backToRooms').addEventListener('click', backToRooms)
+
+renderNotifyChoice()
+$('toggleNotify').addEventListener('click', () => {
+  setNotify($('toggleNotify').dataset.on !== 'true').catch((err) => setStatus(describeError(err)))
+})
+$('toggleNotifyText').addEventListener('click', () => {
+  setNotifySettings(deviceStore, { showText: $('toggleNotifyText').dataset.on !== 'true' })
+  renderNotifyChoice()
+})
+$('toggleKeep').addEventListener('click', () => setKeepRoomChoice($('toggleKeep').dataset.on !== 'true'))
+$('toggleNudge').addEventListener('click', () => {
+  const button = $('toggleNudge') as HTMLButtonElement
+  button.disabled = true
+  setNudge(button.dataset.on !== 'true')
+    .catch((err) => setStatus(describeError(err)))
+    .finally(() => {
+      button.disabled = false
+    })
+})
 
 $('displayName').addEventListener('input', (event) => {
   // Stored as typed, sanitised on the way in. The identity line below the
@@ -3939,6 +4255,7 @@ restoreSession()
     nostrSession = session
     profiles.want([session.pubkey])
     renderIdentity()
+    renderNudgeChoice()
   })
   .catch(() => {
     // No stored session, or a signer that is not answering today. Either

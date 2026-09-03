@@ -143,7 +143,14 @@ export default defineConfig({
       // visits never use - which is the exact thing the lazy load exists to
       // avoid. Both halves are excluded together, because precaching one
       // half of a pair that is useless apart is the worst of both.
-      workbox: { globIgnores: ['**/mediapipe/**', '**/vision_bundle-*.js'] },
+      workbox: {
+        globIgnores: ['**/mediapipe/**', '**/vision_bundle-*.js', 'notify-sw.js'],
+        // A click on a notification shown through the registration arrives
+        // in the worker, not the page. The handler is a plain script in
+        // app/public, imported into the generated worker rather than
+        // precached by it, so it is fetched with the worker itself.
+        importScripts: ['notify-sw.js'],
+      },
       // Serves a real manifest and service worker under `npm run demo` too,
       // not only after a production build - otherwise the manifest link in
       // index.html 404s in dev and the browser logs a spurious parse error.

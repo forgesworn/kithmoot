@@ -9,20 +9,24 @@
  * last in it, and how far through its chat this device has read.
  *
  * Nothing in here is a secret, and nothing in here is anything the link
- * did not already carry. The room key is deliberately NOT kept: a version
- * 2 link is an invitation, the room secret arrives over the rendezvous and
- * lives where the app already keeps it - a creator's record for twelve
- * hours, a joiner's for the tab's session - and this store does not extend
- * that. What it keeps is the way back in, which is the link itself. A
- * pairing link is refused outright: its code is single-use and a kept copy
- * is a code sitting somewhere it could be forwarded by accident.
+ * did not already carry. The room key is deliberately NOT kept here: a
+ * version 2 link is an invitation, the room secret arrives over the
+ * rendezvous and lives where the app already keeps it - a creator's record
+ * for twelve hours, a joiner's for the tab's session, or, when the person
+ * has chosen to keep the room on this device, a joiner's record on the
+ * creator's terms (see `storeKeptAdmission` in device-store.ts). What this
+ * keeps is the way back in, which is the link itself, and whether that
+ * choice was made. A pairing link is refused outright: its code is
+ * single-use and a kept copy is a code sitting somewhere it could be
+ * forwarded by accident.
  *
  * Pure functions over the same injected `DeviceStore` the device keys use,
  * so the rules are tested with no browser.
  */
 import { parseRoomLink } from '../../src/link.js'
+import { deriveInvitationId } from '../../src/invitation.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
-import type { DeviceStore } from './device-store.js'
+import { forgetKeptAdmission, type DeviceStore } from './device-store.js'
 
 export const ROOM_PREFIX = 'kithmoot.room.'
 
@@ -38,6 +42,10 @@ export interface KnownRoom {
   /** `sentAt` of the newest chat message this device has been shown. Zero
    *  until it has been shown any, so everything in the room is new. */
   readAt: number
+  /** The person chose to keep this room's admission on this device, so the
+   *  list and notifications can read it with no tab open on it. Off unless
+   *  they did. */
+  keep?: boolean
 }
 
 /** What a visit to a room says about it. */
@@ -70,6 +78,7 @@ function readRoom(store: DeviceStore, roomId: string): KnownRoom | undefined {
       openedAt: parsed.openedAt,
       readAt: typeof parsed.readAt === 'number' && Number.isFinite(parsed.readAt) ? parsed.readAt : 0,
     }
+    if (parsed.keep === true) room.keep = true
     // Sanitised on the way out of storage as well as on the way in, because
     // a stored value is only as trustworthy as whatever wrote it.
     const name = sanitiseDisplayName(parsed.name)
@@ -126,8 +135,25 @@ export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
   }
   const name = sanitiseDisplayName(visit.name) ?? link.name ?? existing?.name
   if (name !== undefined) room.name = name
+  if (existing?.keep) room.keep = true
   writeRoom(store, room)
   return room
+}
+
+/**
+ * Whether to keep this room's admission on this device - see
+ * `storeKeptAdmission`. The choice is written here; the admission itself
+ * is written by whoever holds it, which is the page in the room. Turning
+ * it off removes whatever was kept for the room's current link. False when
+ * the room is not one this device has written down.
+ */
+export function setKeepRoom(store: DeviceStore, roomId: string, keep: boolean): boolean {
+  const room = knownRoom(store, roomId)
+  if (!room) return false
+  const { keep: _was, ...rest } = room
+  writeRoom(store, keep ? { ...rest, keep: true } : rest)
+  if (!keep) forgetKeptFor(store, room.link)
+  return true
 }
 
 /**
@@ -145,10 +171,24 @@ export function markRead(store: DeviceStore, roomId: string, readAt: number): bo
   return true
 }
 
-/** Forget a room on this device. The link goes with it; the room itself,
- *  and this device's standing in it, are untouched. */
+/** Forget a room on this device. The link goes with it, and so does any
+ *  admission kept for it; the room itself, and this device's standing in
+ *  it, are untouched. */
 export function forgetRoom(store: DeviceStore, roomId: string): void {
-  if (ROOM_ID.test(roomId)) store.remove(keyFor(roomId))
+  if (!ROOM_ID.test(roomId)) return
+  const room = readRoom(store, roomId)
+  if (room) forgetKeptFor(store, room.link)
+  store.remove(keyFor(roomId))
+}
+
+/** Remove the kept admission behind a link, if the link is an invitation. */
+function forgetKeptFor(store: DeviceStore, link: string): void {
+  try {
+    const parsed = parseRoomLink(link)
+    if (parsed.invitation) forgetKeptAdmission(store, deriveInvitationId(parsed.invitation))
+  } catch {
+    // A link that does not parse kept nothing.
+  }
 }
 
 /** What to call a room on screen: its name, or enough of its id to tell it

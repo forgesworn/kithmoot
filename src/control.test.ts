@@ -17,6 +17,8 @@ describe('control messages', () => {
       { op: 'remove' as const, participant: 'cd'.repeat(32) },
       { op: 'mute' as const, participant: 'cd'.repeat(32) },
       { op: 'close' as const },
+      { op: 'nudge' as const, on: true },
+      { op: 'nudge' as const, on: false },
     ]
     for (const shape of shapes) expect(decodeControl(encodeControl(shape))).toEqual(shape)
   })
@@ -35,6 +37,9 @@ describe('control messages', () => {
     expect(decodeControl('hello agents')).toBeNull()
     expect(decodeControl('{"op":"invite"}')).toBeNull()
     expect(decodeControl('{"op":"launch","host":"x"}')).toBeNull()
+    // A nudge is on or off, not "yes".
+    expect(decodeControl('{"op":"nudge","on":"yes"}')).toBeNull()
+    expect(decodeControl('{"op":"nudge"}')).toBeNull()
   })
 
   it('refuses a host that is not a pubkey and an agent id that is not an id', () => {

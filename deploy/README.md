@@ -671,3 +671,24 @@ closed room's state says so and is not reopened: move
 removal, `sudo cat /var/lib/kithmoot-keeper/<room>/room.json.link` still
 prints the link: it is the same link, and it still admits people; what
 changed is the key behind it.
+### Nudging absent members
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `KITHMOOT_ROOM_NAME` | unset | What the room is called. Rides in the link, and is what a nudge names. |
+| `KITHMOOT_NUDGE` | unset | `1` to DM members who asked, when they miss messages. |
+
+With `KITHMOOT_NUDGE=1` in the instance's env file, a member who signed in
+with a Nostr key can turn on **Nudge me when I'm away** in the room. The
+keeper writes their pubkey into `room.json` beside the room's secret, and
+when a chat message lands while they are not in the roster it sends them
+one NIP-17 gift-wrapped DM from the keeper's own participant key
+(`identity.key` under the instance's state directory), over the room's
+relays, saying there are new messages in the room, with the link. One an
+hour at most per member, and not again until they have been back.
+
+Say this plainly to the people in the room: a relay carrying the room now
+also sees that the keeper's key sent a gift wrap to that member's pubkey,
+and roughly when. It does not see the room, the text, or who else was
+written to. The DM lands on the room's relays, so a member's DM client has
+to be reading those to show it. See `docs/agents.md`, "Nudge".
