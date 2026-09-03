@@ -44,7 +44,7 @@ export function deriveChannel(roomId: string, roomKey: Uint8Array, channel?: str
 }
 
 /** What a message is, when it is not simply something somebody typed. */
-export type ChatMessageKind = 'transcript'
+export type ChatMessageKind = 'transcript' | 'directive'
 
 export interface ChatMessage {
   id: string
@@ -77,6 +77,22 @@ export interface ChatMessage {
    * typed. Absent on an ordinary message, so the wire is byte-identical for
    * a client that has never heard of transcripts, and such a client shows
    * it as an ordinary message from the transcriber, which is honest.
+   *
+   * `directive` when `text` is what the SENDER said, out loud, while
+   * deliberately holding the microphone down to address the agents. It is
+   * an instruction rather than conversation, and the distinction is the
+   * whole point: pressing a microphone is already an unambiguous act of
+   * address, so nobody should have to say a machine's name out loud to be
+   * heard by one, and an adapter may treat a directive as a mention
+   * whatever its engagement pattern otherwise says.
+   *
+   * A directive carries no `speaker`. A transcript needs one because the
+   * sender is writing down somebody else's words; a directive is the
+   * sender's own, so `participant` already says whose they are, and a
+   * second claim would only be a weaker copy of it.
+   *
+   * Like a transcript it degrades honestly: a client that has never heard
+   * of directives shows an ordinary message from the person who spoke.
    */
   kind?: ChatMessageKind
   /**
@@ -258,10 +274,11 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
   // than an empty list, so a message without them is byte-identical to one
   // encoded before attachments existed.
   const transcript = msg.kind === 'transcript'
+  const directive = msg.kind === 'directive'
   const plaintext = JSON.stringify({
     ...msg,
     name: sanitiseDisplayName(msg.name),
-    kind: transcript ? 'transcript' : undefined,
+    kind: transcript ? 'transcript' : directive ? 'directive' : undefined,
     speaker: transcript && typeof msg.speaker === 'string' ? normaliseHex(msg.speaker) : undefined,
     attachments: honestAttachments(msg.attachments),
     owner: msg.owner ? normaliseAgentOwnership(msg.owner) ?? undefined : undefined,
@@ -360,10 +377,18 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     // heard of transcripts. The speaker is a pubkey off the wire like any
     // other, canonicalised here so a renderer can match it to a roster
     // entry without its own case rule.
-    if (msg.kind !== 'transcript') {
+    // Only an honest shape reads as anything but an ordinary message, which
+    // is what it would be to a client that never heard of either marker. A
+    // speaker belongs to a transcript alone: on a directive the sender is
+    // the speaker, so one arriving there is dropped rather than believed.
+    if (msg.kind !== 'transcript' && msg.kind !== 'directive') {
       delete msg.kind
       delete msg.speaker
-    } else if (typeof msg.speaker === 'string' && /^[0-9a-fA-F]{64}$/.test(msg.speaker)) {
+    } else if (
+      msg.kind === 'transcript' &&
+      typeof msg.speaker === 'string' &&
+      /^[0-9a-fA-F]{64}$/.test(msg.speaker)
+    ) {
       msg.speaker = normaliseHex(msg.speaker)
     } else {
       delete msg.speaker
@@ -458,6 +483,14 @@ export interface SendOptions {
   /** Mark the message a transcript of `speaker`'s words. See
    *  `ChatMessage.kind`. */
   transcriptOf?: string
+  /**
+   * Send this as a directive: something the sender said out loud, holding
+   * the microphone, to address the agents. See `ChatMessage.kind`.
+   *
+   * Refused together with `transcriptOf`, because the two say different
+   * things about whose words these are and a message cannot be both.
+   */
+  directive?: boolean
   /** Files shared through Wildbloom to carry with the text. See
    *  `ChatAttachment`. The text is the caption and is still required. */
   attachments?: ChatAttachment[]
@@ -555,7 +588,9 @@ export class ChatLog {
       ...(name !== undefined ? { name } : {}),
       ...(sendOpts.transcriptOf !== undefined
         ? { kind: 'transcript' as const, speaker: normaliseHex(sendOpts.transcriptOf) }
-        : {}),
+        : sendOpts.directive
+          ? { kind: 'directive' as const }
+          : {}),
       text,
       sentAt: this.#now(),
       ...(attachments ? { attachments } : {}),

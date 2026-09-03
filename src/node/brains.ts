@@ -1,4 +1,4 @@
-import type { ChatAttachment } from '../chat.js'
+import type { ChatAttachment, ChatMessageKind } from '../chat.js'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type Anthropic from '@anthropic-ai/sdk'
@@ -40,7 +40,14 @@ export type StdioEvent =
       name?: string
       text: string
       sentAt: number
-      kind?: 'transcript'
+      /** `transcript` for words an agent wrote down, `directive` for words
+       *  the sender said while holding the microphone to address the
+       *  agents. A brain may treat a directive as a mention whatever its
+       *  engagement pattern says: pressing the microphone was the address.
+       *  Absent on an ordinary message. */
+      kind?: ChatMessageKind
+      /** Whose words a `transcript` carries. Never set on a directive - the
+       *  sender said those, so `from` already answers it. */
       speaker?: string
       attachments?: ChatAttachment[]
     }

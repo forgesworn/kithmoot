@@ -51,6 +51,8 @@ import {
   encodeControl,
   decodeControl,
   verifyAdmins,
+  verifyChannels,
+  CHANNEL_NAME,
   type RekeyNotice,
   type ControlMessage,
   type ChatMessage,
@@ -2377,6 +2379,16 @@ const controlSeen = new Set<string>()
 /** Who may act on this room, as the keeper last announced it. */
 let admins = new Set<string>()
 let adminsAt = 0
+/** The room's named channels, as the keeper last announced them and this
+ *  client verified against the pinned authority. */
+let channels: string[] = []
+let channelsAt = 0
+/** Which conversation the chat box is showing. `undefined` is the main
+ *  chat, which is the room itself and has no name. */
+let currentChannel: string | undefined
+/** Channels this client has already opened a log for, so switching back to
+ *  one does not resubscribe. */
+const channelLogs = new Map<string, ReturnType<NonNullable<typeof session>['channel']>>()
 /** The keeper's own participant, from its announcement. Not somebody an
  *  admin can remove: removing the keeper is closing the room. */
 let keeperParticipant: string | undefined
@@ -2629,6 +2641,23 @@ function ingestControl(messages: ChatMessage[]): void {
       case 'error':
         if (control.host === m.participant && m.sentAt >= nowSeconds() - 30) setStatus(`Agent host: ${control.message}`)
         break
+      case 'channels': {
+        // Only a list the room's authority signed, and only the newest. An
+        // unsigned one is exactly what a member holding the room key would
+        // forge, which is the whole reason the list is signed at all.
+        const authority = roomAuthority()
+        if (!authority || !session || control.host !== m.participant) break
+        if (!verifyChannels({ roomId: session.roomId, epoch: control.epoch, channels: control.channels, sig: control.sig, authority })) break
+        if (m.sentAt < channelsAt) break
+        channels = control.channels
+        channelsAt = m.sentAt
+        // Somebody standing in a channel that has just been closed is put
+        // back in the main chat rather than left looking at a conversation
+        // the room no longer lists.
+        if (currentChannel !== undefined && !channels.includes(currentChannel)) selectChannel(undefined)
+        else renderChannels()
+        break
+      }
       case 'admins': {
         // Only a list the room's authority signed, and only the newest.
         const authority = roomAuthority()
@@ -2640,6 +2669,7 @@ function ingestControl(messages: ChatMessage[]): void {
         keeperParticipant = control.host
         renderHost()
         renderApprovals()
+        renderChannels()
         break
       }
       case 'mute':
@@ -2825,6 +2855,99 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
 
 function renderChat(messages: ChatMessage[]): void {
   renderLog('chatLog', undefined, messages, systemLines)
+}
+
+// ---------------------------------------------------------------------------
+// Channels
+//
+// Several conversations in one long-lived room. The mechanism was already
+// here - a named channel takes its id and key from the room key by HKDF -
+// and what was missing was discovery and a gate. The keeper publishes the
+// list signed by the room's authority; this client believes that signature
+// and nothing else, so typing a channel name into the chat creates nothing.
+//
+// The main chat is not in the list and never will be: it is the room, it
+// has no name, and `deriveChannel` already spells that `undefined`.
+// ---------------------------------------------------------------------------
+
+/** The log the chat box is reading and writing: a named channel, or the
+ *  room's own chat. Opened on first use rather than all at once, because a
+ *  room with a dozen channels should not open a dozen subscriptions to show
+ *  one of them. */
+function activeChat(): NonNullable<typeof session>['chat'] | undefined {
+  const s = session
+  if (!s) return undefined
+  if (currentChannel === undefined) return s.chat
+  let log = channelLogs.get(currentChannel)
+  if (!log) {
+    log = s.channel(currentChannel)
+    channelLogs.set(currentChannel, log)
+    log.onChange((messages) => {
+      if (currentChannel !== undefined && channelLogs.get(currentChannel) === log) renderChat(messages)
+    })
+  }
+  return log
+}
+
+function selectChannel(name: string | undefined): void {
+  currentChannel = name
+  delete $('channelClose').dataset.arm
+  renderChannels()
+  const log = activeChat()
+  renderChat(log ? log.messages() : [])
+  const input = $('chatInput')
+  if (input instanceof HTMLInputElement) {
+    input.placeholder = name === undefined ? 'Say something' : `Say something in ${name}`
+  }
+}
+
+function renderChannels(): void {
+  const bar = $('channelBar')
+  const s = session
+  // One conversation is not a set of channels, so the bar stays out of the
+  // way until a room actually has one.
+  bar.hidden = !s || channels.length === 0
+  bar.innerHTML = ''
+  if (!bar.hidden) {
+    for (const [name, label] of [[undefined, 'Main'] as const, ...channels.map((c) => [c, c] as const)]) {
+      const tab = document.createElement('button')
+      tab.type = 'button'
+      tab.setAttribute('role', 'tab')
+      tab.setAttribute('aria-selected', String(currentChannel === name))
+      tab.textContent = label
+      tab.addEventListener('click', () => selectChannel(name))
+      bar.append(tab)
+    }
+  }
+
+  // Creating and closing a channel is structure, so it is an admin's to do
+  // and the controls are absent rather than disabled for everybody else.
+  //
+  // And absent without a keeper, because there would be nobody to ask. The
+  // list is signed by the room's authority, and the only process that holds
+  // the authority key and stays in the room is its keeper - the browser that
+  // opened the room holds that key too, but a second announcer would mean
+  // two signed lists disagreeing, which is worse than not offering it. So
+  // channels are a thing a room WITH a keeper has, which is the long-lived
+  // room this is for; an ad-hoc call between two people has one
+  // conversation and needs no tabs above it.
+  const isAdmin = s !== undefined && admins.has(meParticipant) && keeperParticipant !== undefined
+  $('channelNew').hidden = !isAdmin
+  const close = $('channelClose')
+  close.hidden = !isAdmin || currentChannel === undefined
+  if (!close.hidden && close.dataset.arm !== currentChannel) close.textContent = `Close ${currentChannel}`
+}
+
+/** Ask the keeper to open or close one. A request, not an announcement:
+ *  what the room believes is the signed list that comes back. */
+async function requestChannel(name: string, open: boolean): Promise<void> {
+  const s = session
+  if (!s) return
+  try {
+    await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'channel', name, open }))
+  } catch (err) {
+    setStatus(describeError(err))
+  }
 }
 
 /**
@@ -3570,6 +3693,9 @@ async function startSession(): Promise<void> {
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
     if (s.epoch > 0) addSystemLine(`This room is in epoch ${s.epoch}.`)
     renderHost()
+    // Empty until the keeper answers the `catalogue?` above with its signed
+    // list, which is the only thing this client will believe.
+    renderChannels()
 
     joinBtn.hidden = true
     $('identity').hidden = true
@@ -4312,7 +4438,43 @@ $('chatForm').addEventListener('submit', (event) => {
   input.value = ''
   stagedAttachments = []
   renderStaged()
-  session.chat.send(text, attachments.length ? { attachments } : {}).catch((err) => setStatus(describeError(err)))
+  // Into whichever conversation is on screen, which is the main chat until
+  // somebody picks another.
+  const log = activeChat() ?? session.chat
+  log.send(text, attachments.length ? { attachments } : {}).catch((err) => setStatus(describeError(err)))
+})
+
+$('channelNew').addEventListener('submit', (event) => {
+  event.preventDefault()
+  const input = $('channelName')
+  if (!(input instanceof HTMLInputElement)) return
+  const name = input.value.trim().toLowerCase()
+  // Checked here as well as in the protocol, so a typo is answered on the
+  // spot rather than by a request that quietly does nothing.
+  if (!CHANNEL_NAME.test(name)) {
+    setStatus('A channel name is lower case letters, digits and hyphens, starting with a letter or digit.')
+    return
+  }
+  input.value = ''
+  void requestChannel(name, true)
+})
+
+// Two clicks rather than a `confirm()`. A browser modal blocks the page and
+// reads as an error, and this is not one: closing a channel takes it off the
+// room's list and deletes nothing, because everybody admitted still holds
+// the key that opens what was said there. So the button says so and asks
+// again, in the page.
+$('channelClose').addEventListener('click', () => {
+  const name = currentChannel
+  if (name === undefined) return
+  const button = $('channelClose')
+  if (button.dataset.arm !== name) {
+    button.dataset.arm = name
+    button.textContent = `Really close ${name}? Nothing is deleted`
+    return
+  }
+  delete button.dataset.arm
+  void requestChannel(name, false)
 })
 
 // ---------------------------------------------------------------------------

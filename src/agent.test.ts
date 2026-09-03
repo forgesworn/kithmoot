@@ -4,7 +4,7 @@ import { RoomAgent, AGENT_CHANNEL, TRANSCRIPT_CHANNEL } from './agent.js'
 import type { KeeperState } from './agent.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { CONTROL_CHANNEL, decodeControl, encodeControl } from './control.js'
-import { verifyAdmins } from './epoch.js'
+import { verifyAdmins, verifyChannels } from './epoch.js'
 import type { RekeyNotice } from './epoch.js'
 import { encodeJoinUrl } from './room.js'
 import { encodeRoomLink, parseRoomLink } from './link.js'
@@ -15,6 +15,19 @@ const BASE = 'https://example.test/j/'
 /** Lets scheduled re-announces and admission grants run. */
 async function settle(): Promise<void> {
   for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0))
+}
+
+/**
+ * Settle until something is true, rather than for a fixed number of ticks.
+ *
+ * A fixed `settle()` is enough for one hop. An exchange that goes request ->
+ * keeper -> signed announcement -> every member is three, and a tick count
+ * that covers it on an idle machine does not cover it under a full suite.
+ * That is a flaky test rather than a real failure, so the condition is what
+ * is waited on.
+ */
+async function settleUntil(done: () => boolean, rounds = 20): Promise<void> {
+  for (let i = 0; i < rounds && !done(); i++) await settle()
 }
 
 function transportFor(relay: SimRelay) {
@@ -114,6 +127,74 @@ describe('RoomAgent', () => {
     const pairing = encodeRoomLink(BASE, { ...keeper.link, pairingCode: new Uint8Array(16).fill(1) })
     await expect(RoomAgent.join({ link: pairing, name: 'Ada', transport: transportFor(relay) })).rejects.toThrow(/pairing/)
     keeper.leave()
+  })
+
+  it('a keeper opens a channel for an admin, ignores anybody else, and remembers it across a restart', async () => {
+    const relay = new SimRelay()
+    const adminSk = generateSecretKey()
+    const admin = localIdentity(adminSk)
+    const states: KeeperState[] = []
+    const keeper = await RoomAgent.create({
+      base: BASE,
+      name: 'Keeper',
+      relays: ['wss://sim'],
+      transport: transportFor(relay),
+      announceJitterMs: 0,
+      admins: [admin.pubkey],
+      onState: (s) => {
+        states.push(s)
+      },
+    })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', identity: admin, transport: transportFor(relay), announceJitterMs: 0 })
+    const mallory = await RoomAgent.join({ link: keeper.url, name: 'Mallory', transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+
+    // Found by content rather than by position. The keeper legitimately
+    // announces an empty list on the first `catalogue?`, every arriving
+    // client sends one, and the simulator stamps messages from a fixed
+    // clock - so "the last one" is not a well-defined thing to assert on.
+    const announcementOf = (name: string) =>
+      keeper
+        .channel(CONTROL_CHANNEL)
+        .messages()
+        .map((m) => decodeControl(m.text))
+        .find((c) => c?.op === 'channels' && c.channels.includes(name))
+
+    // Mallory holds the room key like everybody else, and that buys her
+    // nothing: structure is not something a chat message may change.
+    await mallory.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'channel', name: 'mallory-only', open: true }))
+    await settle()
+    await settle()
+    expect(keeper.announcedChannels.has('mallory-only')).toBe(false)
+
+    await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'channel', name: 'shipping', open: true }))
+    await settleUntil(() => ada.announcedChannels.has('shipping') && mallory.announcedChannels.has('shipping'))
+    const list = announcementOf('shipping')
+    expect(list?.op).toBe('channels')
+    if (list?.op !== 'channels') throw new Error('unreachable')
+    expect(list.channels).toEqual(['shipping'])
+    expect(
+      verifyChannels({ roomId: keeper.roomId, epoch: 0, channels: list.channels, sig: list.sig, authority: keeper.link.invitation!.inviter }),
+    ).toBe(true)
+    // Everybody in the room, agents included, sees the same list.
+    expect([...ada.announcedChannels]).toEqual(['shipping'])
+    expect([...mallory.announcedChannels]).toEqual(['shipping'])
+
+    // Closing takes it off the list. It does not pretend the messages are
+    // gone: everybody admitted still holds the key that opens them.
+    await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'channel', name: 'shipping', open: false }))
+    await settleUntil(() => !ada.announcedChannels.has('shipping'))
+    expect([...ada.announcedChannels]).toEqual([])
+
+    // And the keeper's own memory of it survives a restart, so a bounce
+    // does not empty the room's channel list on every screen.
+    await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'channel', name: 'design', open: true }))
+    await settleUntil(() => states.at(-1)?.channels?.includes('design') === true)
+    expect(states.at(-1)?.channels).toEqual(['design'])
+
+    keeper.leave()
+    ada.leave()
+    mallory.leave()
   })
 
   it('a keeper removes a member on an admin’s signed request, and not on anybody else’s', async () => {

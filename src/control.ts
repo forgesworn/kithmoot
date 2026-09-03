@@ -1,4 +1,5 @@
 import { MAX_CHAT_TEXT_LENGTH } from './chat.js'
+import { canonicalChannels } from './epoch.js'
 
 /**
  * The channel a room's agent hosts and its people use to ask for agents.
@@ -61,9 +62,40 @@ export type ControlMessage =
    * `catalogue?`.
    */
   | { op: 'admins'; host: string; admins: string[]; epoch: number; sig: string }
+  /**
+   * The channels this room has, beyond the main chat.
+   *
+   * Signed by the authority and bound to the epoch exactly as the admin list
+   * is, and for the same reason: every member holds the room key, so an
+   * unsigned list of channels is the first thing a member would forge, and
+   * a channel is structure. A client checks it against the inviter pinned in
+   * its link and ignores one that fails, which is what makes "nothing a chat
+   * message says may change the structure of a room" true rather than
+   * merely intended - typing a channel name into the chat creates nothing.
+   *
+   * The main chat is not in the list. It is the room, it has no name, and
+   * `deriveChannel` already spells that `undefined`.
+   */
+  | { op: 'channels'; host: string; channels: string[]; epoch: number; sig: string }
   /** An admin: keeper, remove this participant. Acted on only when the
    *  sender is on the announced list; the keeper checks. */
   | { op: 'remove'; participant: string }
+  /**
+   * An admin: keeper, open a channel by this name, or close it.
+   *
+   * A request, not an announcement. Anybody can send one of these - it is a
+   * chat message on the control channel like any other - and the keeper acts
+   * on it only when the sender is on the announced admin list. What the room
+   * BELIEVES is the signed `channels` list the keeper publishes afterwards,
+   * so a forged request changes nothing even if a relay carries it.
+   *
+   * Closing a channel removes it from the list. It does not and cannot
+   * delete what was said there: the messages are encrypted under a key
+   * derived from the room key, which everybody admitted still holds. It
+   * means "this is no longer one of the room's conversations", not "this
+   * never happened", and the interface should not imply otherwise.
+   */
+  | { op: 'channel'; name: string; open: boolean }
   /** An admin: keeper, close the room. */
   | { op: 'close' }
   /**
@@ -98,6 +130,9 @@ const HEX64 = /^[0-9a-f]{64}$/
 const ID = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const MAX_AGENTS = 12
 const MAX_ADMINS = 32
+/** More channels than this in one room is a directory, not a conversation,
+ *  and a list nobody can read at a glance is a list nobody reads. */
+const MAX_CHANNELS = 32
 /** An approval id: what the agent chose, short and safe to put in a DOM id. */
 const APPROVAL_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/i
 const APPROVAL_OPTION = /^[a-z0-9][a-z0-9 _-]{0,31}$/i
@@ -209,6 +244,35 @@ export function decodeControl(text: string): ControlMessage | null {
         epoch: m.epoch as number,
         sig: m.sig.toLowerCase(),
       }
+    }
+    case 'channel': {
+      if (typeof m.name !== 'string' || typeof m.open !== 'boolean') return null
+      // Held to the registry's own rule here, so a request that could never
+      // be announced is refused at the door rather than by the keeper.
+      try {
+        canonicalChannels([m.name])
+      } catch {
+        return null
+      }
+      return { op: 'channel', name: m.name, open: m.open }
+    }
+    case 'channels': {
+      if (!hostOk || !Array.isArray(m.channels) || m.channels.length > MAX_CHANNELS) return null
+      if (!Number.isSafeInteger(m.epoch) || (m.epoch as number) < 0) return null
+      if (typeof m.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(m.sig)) return null
+      // Canonicalised here rather than trusted, so the list a caller
+      // verifies the signature over is the same list it renders. A name
+      // that is not a legal channel name, or one the room already means
+      // something else by, makes the whole message unreadable rather than
+      // being quietly dropped - a registry missing an entry is worse than
+      // one that refuses to load, because nobody can see what is absent.
+      let channels: string[]
+      try {
+        channels = canonicalChannels(m.channels as string[])
+      } catch {
+        return null
+      }
+      return { op: 'channels', host: host!, channels, epoch: m.epoch as number, sig: m.sig.toLowerCase() }
     }
     case 'remove':
     case 'mute': {

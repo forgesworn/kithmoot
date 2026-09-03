@@ -636,6 +636,93 @@ export interface SignAdminsOptions {
 }
 
 /**
+ * Channel names a room may be told about.
+ *
+ * Deliberately stricter than `deriveChannel`, which accepts any string of
+ * 1..64 characters because it is only doing HKDF and has no opinion. A name
+ * in the REGISTRY is different: it is announced to every client, rendered as
+ * a label, and handed to an agent as its thread id. So it is held to a shape
+ * that survives all three without escaping, normalising or truncating -
+ * lower case, digits and hyphens, opening on an alphanumeric.
+ *
+ * The consequence worth stating: a name is stored and compared exactly as
+ * written here, so a client, an agent adapter and a relay all mean the same
+ * string by it, and nothing anywhere has to guess at a canonical form.
+ */
+export const CHANNEL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/
+
+/**
+ * Names the registry will not carry, because the room already means
+ * something by them: `agents` is the backchannel, `transcript` is what was
+ * said, `minutes` is what the scribe wrote. Deriving them still works - they
+ * are ordinary channels to the crypto - but announcing one as a place to
+ * chat would put two different things under one name.
+ */
+export const RESERVED_CHANNELS: readonly string[] = ['agents', 'minutes', 'transcript']
+
+/** Canonical form of a channel list: validated, deduplicated, sorted. */
+export function canonicalChannels(channels: readonly string[]): string[] {
+  for (const name of channels) {
+    if (typeof name !== 'string' || !CHANNEL_NAME.test(name)) throw new Error(`bad channel name: ${String(name)}`)
+    if (RESERVED_CHANNELS.includes(name)) throw new Error(`reserved channel name: ${name}`)
+  }
+  return [...new Set(channels)].sort()
+}
+
+function channelsMessage(roomId: string, epoch: number, channels: string[]): Uint8Array {
+  return sha256(new TextEncoder().encode(`kithmoot/v1/channels:${roomId}:${epoch}:${channels.join(',')}`))
+}
+
+export interface SignChannelsOptions {
+  roomId: string
+  epoch: number
+  channels: readonly string[]
+  authoritySk: Uint8Array
+}
+
+/**
+ * Sign the list of channels a room has.
+ *
+ * Signed by the authority and bound to the epoch for exactly the reasons the
+ * admin list is: every member holds the room key, so an unsigned list is the
+ * first thing a member would forge, and a list valid at one epoch must not
+ * be replayable into the next. This is what settles the rule that nothing a
+ * chat message says may change the structure of a room - a channel exists
+ * because the authority said so, or it does not exist.
+ */
+export function signChannels(opts: SignChannelsOptions): string {
+  require32(opts.authoritySk, 'authority secret key')
+  const roomId = requireHex32(opts.roomId, 'room id')
+  const channels = canonicalChannels(opts.channels)
+  return bytesToHex(schnorr.sign(channelsMessage(roomId, requireEpochNumber(opts.epoch), channels), opts.authoritySk))
+}
+
+export interface VerifyChannelsOptions {
+  roomId: string
+  epoch: number
+  channels: readonly string[]
+  sig: string
+  authority: string
+}
+
+/** Never throws: this runs on anything a relay hands over. */
+export function verifyChannels(opts: VerifyChannelsOptions): boolean {
+  try {
+    const roomId = requireHex32(opts.roomId, 'room id')
+    const channels = canonicalChannels(opts.channels)
+    const sig = hexToBytes(opts.sig)
+    if (sig.length !== 64) return false
+    return schnorr.verify(
+      sig,
+      channelsMessage(roomId, requireEpochNumber(opts.epoch), channels),
+      hexToBytes(requireHex32(opts.authority, 'authority')),
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
  * Sign the list of participants who may act on the room, so a client can
  * tell a keeper's announcement from anybody else's claim: the announcement
  * rides the control channel, which every member can write to, and only the

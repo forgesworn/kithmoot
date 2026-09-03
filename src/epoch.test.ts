@@ -20,6 +20,10 @@ import {
   requestRoomEpoch,
   signAdmins,
   verifyAdmins,
+  signChannels,
+  verifyChannels,
+  canonicalChannels,
+  RESERVED_CHANNELS,
 } from './epoch.js'
 
 const NOW = 1_800_000_000
@@ -263,5 +267,45 @@ describe('the admin list', () => {
     expect(verifyAdmins({ roomId, epoch: 2, admins, sig, authority })).toBe(false)
     expect(verifyAdmins({ roomId, epoch: 1, admins, sig, authority: getPublicKey(generateSecretKey()) })).toBe(false)
     expect(verifyAdmins({ roomId, epoch: 1, admins, sig: 'zz', authority })).toBe(false)
+  })
+})
+
+describe('the channel list', () => {
+  it('verifies against the authority and nobody else, for this room and epoch', () => {
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const channels = ['shipping', 'design']
+    const sig = signChannels({ roomId, epoch: 1, channels, authoritySk })
+    expect(verifyChannels({ roomId, epoch: 1, channels, sig, authority })).toBe(true)
+    // Order does not matter; the set does.
+    expect(verifyChannels({ roomId, epoch: 1, channels: ['design', 'shipping'], sig, authority })).toBe(true)
+    expect(verifyChannels({ roomId, epoch: 1, channels: ['design'], sig, authority })).toBe(false)
+    // A member holding the room key must not be able to add a channel by
+    // replaying a list the authority signed at another epoch.
+    expect(verifyChannels({ roomId, epoch: 2, channels, sig, authority })).toBe(false)
+    expect(verifyChannels({ roomId, epoch: 1, channels, sig, authority: getPublicKey(generateSecretKey()) })).toBe(false)
+    expect(verifyChannels({ roomId, epoch: 1, channels, sig: 'zz', authority })).toBe(false)
+  })
+
+  it('refuses a name that cannot survive being a label and a thread id', () => {
+    for (const bad of ['', ' ', 'Design', 'has space', '-leading', 'e'.repeat(65), 'emoji🙂', 'under_score']) {
+      expect(() => canonicalChannels([bad]), JSON.stringify(bad)).toThrow()
+    }
+    expect(canonicalChannels(['shipping', 'design', 'shipping'])).toEqual(['design', 'shipping'])
+  })
+
+  it('refuses the three names the room already means something by', () => {
+    for (const reserved of RESERVED_CHANNELS) {
+      expect(() => canonicalChannels([reserved]), reserved).toThrow()
+    }
+  })
+
+  it('never throws on rubbish, because it runs on whatever a relay hands over', () => {
+    const authority = getPublicKey(generateSecretKey())
+    for (const rubbish of [['Design'], ['agents'], [null], [{}]]) {
+      expect(
+        verifyChannels({ roomId, epoch: 1, channels: rubbish as string[], sig: 'ab'.repeat(64), authority }),
+      ).toBe(false)
+    }
   })
 })

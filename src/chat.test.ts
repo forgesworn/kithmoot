@@ -584,6 +584,48 @@ describe('transcripts', () => {
     expect(log.messages()[0]).toMatchObject({ kind: 'transcript', speaker, text: 'we should ship on friday' })
     log.close()
   })
+
+  it('carries a directive as `kind: directive`, with no speaker and nothing else on the wire', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent({ ...msg, kind: 'directive' }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded).toMatchObject({ kind: 'directive', text: 'hello room' })
+    // The sender said these words, so `participant` already answers whose
+    // they are and a speaker would only be a weaker second claim.
+    expect(decoded).not.toHaveProperty('speaker')
+  })
+
+  it('drops a speaker smuggled onto a directive', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const other = getPublicKey(generateSecretKey())
+    const event = encodeChatEvent({ ...msg, kind: 'directive', speaker: other }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded?.kind).toBe('directive')
+    expect(decoded, 'a directive must never carry somebody else as its speaker').not.toHaveProperty('speaker')
+  })
+
+  it('sends a directive through the log, attributed to the sender', async () => {
+    const { roomId, roomKey, deviceSk, credential } = await fixture()
+    const relay = new SimRelay()
+    const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
+    await log.send('summarise what we just agreed', { directive: true })
+    const sent = log.messages()[0]
+    expect(sent).toMatchObject({ kind: 'directive', text: 'summarise what we just agreed' })
+    expect(sent.participant).toBe(credential.pubkey)
+    expect(sent).not.toHaveProperty('speaker')
+    log.close()
+  })
+
+  it('a client that never heard of directives sees an ordinary message from the person who spoke', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent({ ...msg, kind: 'directive' }, { roomId, roomKey, deviceSk })
+    const wire = JSON.parse(nip44.v2.decrypt(event.content, roomKey))
+    // Everything an older reader needs is where it always was; the marker
+    // is one extra field it ignores.
+    expect(wire.text).toBe('hello room')
+    expect(wire.participant).toBe(msg.participant)
+    expect(wire.kind).toBe('directive')
+  })
 })
 
 describe('attachments', () => {

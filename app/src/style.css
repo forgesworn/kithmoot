@@ -1399,3 +1399,46 @@ label.note {
     height: clamp(280px, 40vh, 520px);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Channels
+
+   A room's conversations, as a row of tabs above the chat. The main chat is
+   the first and is not in the signed registry - it is the room itself, has
+   no name, and `deriveChannel` already spells that `undefined`. */
+.channelBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.4rem;
+}
+
+.channelBar button {
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.95rem;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.channelBar button[aria-selected='true'] {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-dim);
+}
+
+/* Admin only, and hidden entirely for everybody else rather than shown
+   disabled: a control you may not use is noise on a phone. */
+.channelNew {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+}
+
+.channelNew input {
+  flex: 1 1 12rem;
+  width: auto;
+}

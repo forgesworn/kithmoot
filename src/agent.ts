@@ -16,7 +16,7 @@ import type { InvitationDelegation } from './invitation.js'
 import { localIdentity } from './identity.js'
 import type { ParticipantIdentity } from './identity.js'
 import { generateRoomSecret } from './room.js'
-import { canonicalAdmins, hostRoomEpoch, signAdmins, verifyAdmins } from './epoch.js'
+import { canonicalAdmins, canonicalChannels, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
 import type { RekeyNotice, RoomEpoch } from './epoch.js'
 import { CONTROL_CHANNEL, DEFAULT_APPROVAL_OPTIONS, decodeControl, encodeControl } from './control.js'
 import { normaliseHex } from './hex.js'
@@ -83,6 +83,11 @@ export interface KeeperState {
   /** Participants who asked to be nudged when they miss messages, lower-case
    *  hex. Absent until somebody has. See `Nudger` in src/node/nudge.ts. */
   nudge?: string[]
+  /** The room's named channels, beyond the unnamed main chat. Absent until
+   *  an admin has opened one. Kept so a keeper restart does not silently
+   *  empty a room's channel list and take its conversations off every
+   *  client's screen. */
+  channels?: string[]
 }
 
 interface CommonAgentOptions {
@@ -244,6 +249,12 @@ export class RoomAgent {
    *  authority pinned in the link. Empty until heard. */
   readonly #announcedAdmins = new Set<string>()
   #announcedAdminsAt = 0
+  readonly #announcedChannels = new Set<string>()
+  #announcedChannelsAt = 0
+  /** The keeper's own view of the room's channels, which is what it signs.
+   *  On a non-keeper this stays empty and `announcedChannels` is what
+   *  matters. */
+  readonly #channels = new Set<string>()
   /** Approval requests this agent has open, by id. */
   readonly #approvals = new Map<string, { options: string[]; expiresAt: number; resolve: (o: ApprovalOutcome) => void; timer: ReturnType<typeof setTimeout> }>()
   readonly #approvalListeners = new Set<(outcome: ApprovalOutcome) => void>()
@@ -288,6 +299,9 @@ export class RoomAgent {
     this.#transport = fields.transport
     this.#now = fields.now
     this.#keeper = fields.keeper
+    // A keeper restart must not silently empty the room's channel list and
+    // take its conversations off every client's screen.
+    for (const name of fields.keeper?.channels ?? []) this.#channels.add(name)
     this.admins = fields.admins ?? []
     this.owner = fields.owner
     this.#onState = fields.onState
@@ -595,6 +609,16 @@ export class RoomAgent {
       this.#announcedAdminsAt = m.sentAt
       return
     }
+    // Same reasoning as the admin list: signed, so as true replayed as live.
+    if (control.op === 'channels') {
+      const authority = this.link.invitation?.inviter
+      if (!authority || control.host !== m.participant || m.sentAt < this.#announcedChannelsAt) return
+      if (!verifyChannels({ roomId: this.roomId, epoch: control.epoch, channels: control.channels, sig: control.sig, authority })) return
+      this.#announcedChannels.clear()
+      for (const c of control.channels) this.#announcedChannels.add(c)
+      this.#announcedChannelsAt = m.sentAt
+      return
+    }
     // Replayed history: a request from before this agent opened its ears
     // was for one that is gone, and was acted on then or not at all.
     if (m.sentAt < openedAt - 10) return
@@ -604,7 +628,10 @@ export class RoomAgent {
         this.#onVerdict(m, control.id, control.verdict, control.note)
         return
       case 'catalogue?':
-        if (this.#keeper) await this.#announceAdmins()
+        if (this.#keeper) {
+          await this.#announceAdmins()
+          await this.#announceChannels()
+        }
         return
       case 'remove':
         if (!this.#keeper || !this.admins.includes(m.participant)) return
@@ -613,6 +640,10 @@ export class RoomAgent {
       case 'close':
         if (!this.#keeper || !this.admins.includes(m.participant)) return
         await this.closeRoom(m.participant)
+        return
+      case 'channel':
+        if (!this.#keeper || !this.admins.includes(m.participant)) return
+        await this.setChannel(control.name, control.open)
         return
       default:
         return
@@ -697,6 +728,50 @@ export class RoomAgent {
   }
 
   /** Say who may act on this room, signed by the authority key. */
+  /** The channels the keeper announced, once heard. Empty on a room whose
+   *  keeper has never opened one. */
+  get announcedChannels(): ReadonlySet<string> {
+    return this.#announcedChannels
+  }
+
+  /**
+   * Open or close a named channel. Keeper only.
+   *
+   * Idempotent: opening one that is already open, or closing one that was
+   * never open, changes nothing and announces nothing, so a client that
+   * retries a request it is unsure about does not make the room flicker.
+   */
+  async setChannel(name: string, open: boolean): Promise<void> {
+    if (!this.#keeper) return
+    const [canonical] = canonicalChannels([name])
+    const had = this.#channels.has(canonical!)
+    if (had === open) return
+    if (open) this.#channels.add(canonical!)
+    else this.#channels.delete(canonical!)
+    await this.#persist()
+    await this.#announceChannels()
+  }
+
+  async #announceChannels(): Promise<void> {
+    const keeper = this.#keeper
+    if (!keeper || this.#left || this.session.closed) return
+    const channels = canonicalChannels([...this.#channels])
+    const epoch = this.session.epoch
+    try {
+      await this.session.channel(CONTROL_CHANNEL).send(
+        encodeControl({
+          op: 'channels',
+          host: this.participant,
+          channels,
+          epoch,
+          sig: signChannels({ roomId: this.roomId, epoch, channels, authoritySk: keeper.inviterSk }),
+        }),
+      )
+    } catch {
+      // Same as the admin list: re-announced on the next `catalogue?`.
+    }
+  }
+
   async #announceAdmins(): Promise<void> {
     const keeper = this.#keeper
     if (!keeper || this.#left || this.session.closed) return
@@ -731,6 +806,7 @@ export class RoomAgent {
       ...(current.epoch > 0 ? { epochSecret: current.secret } : {}),
       ...(this.session.closed ? { closed: true } : {}),
       ...(keeper.nudge?.length ? { nudge: keeper.nudge } : {}),
+      ...(this.#channels.size ? { channels: canonicalChannels([...this.#channels]) } : {}),
     }
     this.#keeper = next
     await this.#onState?.(next)
