@@ -410,8 +410,12 @@ npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
 npm test          # 1028 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
-npm run test:e2e  # the acceptance tests, in a real browser, over live relays
-E2E_RELAYS=local npm run test:e2e  # the same, against test/ws-relay.mjs: what CI runs
+npm run test:e2e  # the acceptance tests, in a real browser, against the test
+                  # relay in test/ws-relay.mjs: deterministic, offline, the gate
+E2E_RELAYS=live npm run test:e2e
+                  # the same against real public relays: the live check. Expect
+                  # it to fail sometimes on relay latency alone. That is
+                  # weather, not a regression - never read one red run as a bug
 npm run typecheck
 npm run demo       # HTTPS dev server for driving the app by hand, phone included
 npm run build      # production PWA build, to app/dist
@@ -425,11 +429,12 @@ and is not committed; without it `npm test` quietly loads 391 tests instead of
 assertion. Once `dist/` exists it stays, which is why this is easy to miss
 locally and impossible to miss in CI.
 
-`npm run test:live` and `npm run test:e2e` need the network, and real relays
-have real weather, so both are excluded from `npm test`. The acceptance
-specs also run in CI on every push, against a NIP-01 relay of their own
-(`test/ws-relay.mjs`, started by `playwright.config.ts` when
-`E2E_RELAYS=local`): two or three browser contexts in a room, measured off
+`npm run test:live` needs the network, and real relays have real weather, so
+it is excluded from `npm test`. `npm run test:e2e` drives real browsers and is
+excluded for cost rather than weather: it runs against a NIP-01 relay of its
+own (`test/ws-relay.mjs`, started by `playwright.config.ts`), which is what CI
+runs and what a red run can be believed on. `E2E_RELAYS=live` points the same
+specs at real public relays for the live check. Two or three browser contexts in a room, measured off
 the decoded pixels and the audio energy rather than the DOM. That gate
 exists because the unit suite once passed 685 tests while the shipped app
 negotiated media perfectly and put none of it on screen. `test/soak.spec.ts`
@@ -466,7 +471,8 @@ install resolves back into the broken range.
 ## The acceptance test
 
 This is the whole of the product's claim, checked by hand and, since stage 2,
-repeated on every run by `npm run test:e2e` against live public relays:
+repeated on every run by `npm run test:e2e`, and against real public relays
+by `E2E_RELAYS=live npm run test:e2e`:
 
 1. On a **laptop**, open the app, click **Start a room**, then **Screen
    share**. Pick a window, and click **Join room**.

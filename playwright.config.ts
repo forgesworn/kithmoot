@@ -99,7 +99,7 @@ export default defineConfig({
   // above). Skipped entirely when E2E_BASE_URL points somewhere already
   // running (e.g. a developer's own `npm run demo`).
   //
-  // With E2E_RELAYS=local (see test/relays.ts) a NIP-01 relay is started
+  // Unless E2E_RELAYS=live (see test/relays.ts) a NIP-01 relay is started
   // beside it - test/ws-relay.mjs - and the specs pin every room to it. That
   // is the CI configuration: the same acceptance tests, no public relays,
   // no weather. Unset, the specs run against the app's real default relays.
@@ -113,7 +113,7 @@ export default defineConfig({
           reuseExistingServer: !process.env.CI,
           timeout: 120_000,
         },
-        ...(process.env.E2E_RELAYS === 'local'
+        ...(process.env.E2E_RELAYS !== 'live'
           ? [
               {
                 command: 'node test/ws-relay.mjs',

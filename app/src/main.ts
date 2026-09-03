@@ -4006,16 +4006,29 @@ $('join').addEventListener('click', () => {
  * and a partial teardown that missed one pipeline would leave a camera
  * light on with nobody watching, which is worse than a flicker.
  */
-function leaveRoom(): void {
+async function leaveRoom(): Promise<void> {
   const s = session
   session = undefined
   sessionTransport = undefined
-  s?.leave()
+  // Awaited, because the farewell is the entire point of a Leave button.
+  // `reload()` used to run in the same tick as `leave()`, which left the
+  // goodbye racing the page teardown: whether it reached a relay came down
+  // to whether the socket happened to flush first, and measured against
+  // two browsers it did about half the time. The other half, everybody
+  // else kept the tile for the full presence timeout and their mesh spent
+  // it escalating a route ladder at a device that had gone - the exact
+  // failure the farewell was added to prevent.
+  //
+  // `leave()` is bounded at FAREWELL_BOUND_MS, so this waits for the
+  // goodbye to land and never longer than that, whatever the relay does.
+  const button = $('leave')
+  if (button instanceof HTMLButtonElement) button.disabled = true
+  await s?.leave()
   location.reload()
 }
 
 $('leave').addEventListener('click', () => {
-  leaveRoom()
+  void leaveRoom()
 })
 
 // A closed tab, a navigation away, or a phone putting the browser to sleep
