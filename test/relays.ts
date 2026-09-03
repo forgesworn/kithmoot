@@ -4,18 +4,25 @@ import { base64urlnopad } from '@scure/base'
 /**
  * Which relays the acceptance specs pin a room to.
  *
- * Unset: the app's own defaults, which are real public relays - the live
- * check, with real relay weather. `E2E_RELAYS=local`: the relay in
- * `test/ws-relay.mjs`, which playwright.config.ts starts alongside the app -
- * the CI gate, deterministic and offline. A comma-separated list names any
- * other relays.
+ * Unset, and `E2E_RELAYS=local`: the relay in `test/ws-relay.mjs`, which
+ * playwright.config.ts starts alongside the app - deterministic and offline.
+ * This is the default, and it is the default because the alternative lies:
+ * run against real public relays and a slow one turns into a red suite that
+ * reads exactly like a regression. That cost two people an afternoon on
+ * 3 September 2026, hunting a rooms-list bug that did not exist, because a
+ * spec was failing two runs in three on relay latency alone.
+ *
+ * `E2E_RELAYS=live`: the app's own defaults, which are real public relays -
+ * the live check, with real relay weather. Worth running deliberately, and
+ * worth never believing on a single red run. A comma-separated list names
+ * any other relays.
  */
 export const LOCAL_TEST_RELAY = 'ws://127.0.0.1:7777'
 
 export function testRelays(): string[] | undefined {
   const env = process.env.E2E_RELAYS
-  if (!env) return undefined
-  if (env === 'local') return [LOCAL_TEST_RELAY]
+  if (!env || env === 'local') return [LOCAL_TEST_RELAY]
+  if (env === 'live') return undefined
   return env.split(',').map((s) => s.trim()).filter(Boolean)
 }
 
