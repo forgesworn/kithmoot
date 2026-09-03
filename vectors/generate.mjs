@@ -507,7 +507,7 @@ vectors.rosterEvent.push({
   // that does not carry names at all: it decodes the event, ignores the
   // field, and matches the recorded entry on everything it does model.
 
-  const namedEntry = { ...rosterEntry, name: 'Darren' }
+  const namedEntry = { ...rosterEntry, name: 'Robin' }
   const namedRoster = buildRoster({
     entry: namedEntry,
     roomId: ROOM_1.roomId,
@@ -534,7 +534,7 @@ vectors.rosterEvent.push({
   // reader. Everything in this string is a known display-name attack:
   //
   //   U+202E RIGHT-TO-LEFT OVERRIDE  reverses the rest of the line, so
-  //                                  "nerrad" renders as "darren"
+  //                                  "niboR" renders as "Robin"
   //   \n                             takes a second row in the tile
   //   U+200B ZERO WIDTH SPACE        hides the join between two parts
   //   200 further characters         push the pubkey beside it off the row

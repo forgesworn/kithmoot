@@ -234,7 +234,7 @@ participant key, you type what people should call you, and you join. The
 name is **self-asserted**. Anyone can type any name, including yours, so it
 never stands alone. A short pubkey renders beside it everywhere, on tiles
 and in chat, and the full npub is on the element's title. Two people who
-both typed "Darren" are visibly two people.
+both typed "Robin" are visibly two people.
 
 **Sign in with Nostr.** Optional, behind a disclosure so it never gets in
 the way. Uses [`signet-login`](https://www.npmjs.com/package/signet-login)
@@ -266,7 +266,7 @@ signature per join.
   Nostr key from one this browser generated a moment ago, and nothing
   could.
 - **A kind-0 name is also self-asserted.** It says "the holder of this key
-  calls themselves Darren", which is the same kind of claim as a typed
+  calls themselves Robin", which is the same kind of claim as a typed
   name; the difference is that the key is persistent and has a history.
   It is never labelled "verified", because it is not.
 - **Names are sanitised at both ends.** `sanitiseDisplayName`

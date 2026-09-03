@@ -1208,15 +1208,15 @@ describe('RoomSession display names', () => {
 
   it('carries a name to everyone else in the room', async () => {
     const relay = new SimRelay()
-    const darren = named(relay, 'Darren')
+    const robin = named(relay, 'Robin')
     const observer = named(relay, 'Observer')
 
-    await darren.join([], {})
+    await robin.join([], {})
     await observer.join([], {})
     await settle()
 
-    const view = observer.participants().find((v) => v.participant === darren.participant)
-    expect(view!.name).toBe('Darren')
+    const view = observer.participants().find((v) => v.participant === robin.participant)
+    expect(view!.name).toBe('Robin')
   })
 
   it('leaves a participant with no name unnamed, rather than inventing one', async () => {
@@ -1234,8 +1234,8 @@ describe('RoomSession display names', () => {
 
   it('keeps two participants who typed the same name distinguishable', async () => {
     const relay = new SimRelay()
-    const one = named(relay, 'Darren')
-    const two = named(relay, 'Darren')
+    const one = named(relay, 'Robin')
+    const two = named(relay, 'Robin')
     const observer = named(relay, 'Observer')
 
     await one.join([], {})
@@ -1243,11 +1243,11 @@ describe('RoomSession display names', () => {
     await observer.join([], {})
     await settle()
 
-    const darrens = observer.participants().filter((v) => v.name === 'Darren')
-    expect(darrens).toHaveLength(2)
+    const robins = observer.participants().filter((v) => v.name === 'Robin')
+    expect(robins).toHaveLength(2)
     // The name is the same; the identity is not, and that is what a
     // renderer has to show alongside it.
-    expect(new Set(darrens.map((v) => v.participant)).size).toBe(2)
+    expect(new Set(robins.map((v) => v.participant)).size).toBe(2)
     expect(one.participant).not.toBe(two.participant)
   })
 
@@ -1269,8 +1269,8 @@ describe('RoomSession display names', () => {
   it('shows one name for a person on two devices, not two', async () => {
     const relay = new SimRelay()
     const participantSk = generateSecretKey()
-    const phone = named(relay, 'Darren', participantSk)
-    const laptop = named(relay, 'Darren', participantSk)
+    const phone = named(relay, 'Robin', participantSk)
+    const laptop = named(relay, 'Robin', participantSk)
     const observer = named(relay, 'Observer')
 
     await phone.join([], {})
@@ -1280,7 +1280,7 @@ describe('RoomSession display names', () => {
 
     const views = observer.participants().filter((v) => v.participant === getPublicKey(participantSk))
     expect(views).toHaveLength(1)
-    expect(views[0].name).toBe('Darren')
+    expect(views[0].name).toBe('Robin')
     expect(views[0].devices).toHaveLength(2)
   })
 })

@@ -250,7 +250,7 @@ a registry, which is the thing this project exists not to have.
 Three consequences follow:
 
 **A name never renders alone.** A short pubkey goes beside it everywhere, on
-tiles and in chat. Without that, two people called "Darren" are
+tiles and in chat. Without that, two people called "Robin" are
 indistinguishable and impersonation is free. With it, impersonation is
 visible, which is the most a system with no registry can offer.
 
@@ -283,7 +283,7 @@ That is a fact about the key, so the label says what it is and no more.
 
 It is deliberately never called "verified". A kind-0 `name` is self-asserted
 in exactly the way a typed name is. It says "the holder of this key calls
-themselves Darren", and the only difference is that the key is persistent and
+themselves Robin", and the only difference is that the key is persistent and
 has a history. That is worth something. It is not proof of a person, and
 the interface does not imply it is.
 

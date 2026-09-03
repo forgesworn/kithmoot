@@ -262,12 +262,12 @@ describe('roster event', () => {
     })
     expect(result).toEqual(v.expected.result)
     expect(result).toEqual(v.output.result)
-    expect(result!.name).toBe('Darren')
+    expect(result!.name).toBe('Robin')
     // A name is a label on a pubkey, never a substitute for one.
     expect(result!.participant).toBe(fx.PARTICIPANT_A)
     expect(result!.device).toBe(fx.DEVICE_A)
     // And it stays inside the ciphertext, where the participant pubkey is.
-    expect(JSON.stringify(v.input.event)).not.toContain('Darren')
+    expect(JSON.stringify(v.input.event)).not.toContain('Robin')
   })
 
   it('display-name-hostile: the entry is accepted and only the name is defused', () => {

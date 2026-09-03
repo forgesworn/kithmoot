@@ -16,7 +16,7 @@
  *
  *   2. **Never render it alone, and never as HTML.** Both are the caller's
  *      job, because both are about what a name sits next to. A short pubkey
- *      always renders beside it, so two people called "Darren" stay
+ *      always renders beside it, so two people called "Robin" stay
  *      distinguishable and an impersonation is visible; and it goes in via
  *      `textContent`, never `innerHTML`, so markup in a name stays text.
  */
@@ -64,7 +64,7 @@ export function sanitiseDisplayName(raw: unknown): string | undefined {
 
   // Whitespace first, invisibles second, and the order matters: a newline
   // is itself a control character, so stripping controls first would turn
-  // "Darren\nadmin" into one word rather than two - hiding the smuggled
+  // "Robin\nadmin" into one word rather than two - hiding the smuggled
   // line break instead of defusing it.
   const collapsed = raw.replace(WHITESPACE, ' ').replace(INVISIBLE, '').replace(WHITESPACE, ' ').trim()
   if (!collapsed) return undefined

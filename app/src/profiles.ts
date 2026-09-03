@@ -12,8 +12,8 @@ import type { Event } from 'nostr-tools/pure'
  *
  * Be precise about what it proves. A kind-0 `name` is **still
  * self-asserted**: it says "the holder of this key calls themselves
- * Darren", exactly as a typed name says "whoever is at this keyboard calls
- * themselves Darren". The difference is only that the key is persistent and
+ * Robin", exactly as a typed name says "whoever is at this keyboard calls
+ * themselves Robin". The difference is only that the key is persistent and
  * has a history - which is worth something, and is not the same as being
  * verified. The app labels it accordingly and never as "verified".
  */

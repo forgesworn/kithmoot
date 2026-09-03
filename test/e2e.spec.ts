@@ -280,13 +280,13 @@ test('two devices of one participant render as one tile group to a third person'
     // Every device types the SAME name, deliberately. A and B are one
     // person on two devices; C is somebody else entirely who happens to
     // have typed the same thing - which anybody can.
-    await prepareDevice(pageA, joinUrl, 'Darren')
+    await prepareDevice(pageA, joinUrl, 'Robin')
     const pairUrl = await offerPairing(pageA, joinUrl)
     // B: a SEPARATE context (own localStorage) opening the PAIRING url, so
     // it becomes a second device under A's identity - not a new person.
-    await prepareDevice(pageB, pairUrl, 'Darren')
+    await prepareDevice(pageB, pairUrl, 'Robin')
     // C: a separate person entirely, via the plain join URL.
-    await prepareDevice(pageC, joinUrl, 'Darren')
+    await prepareDevice(pageC, joinUrl, 'Robin')
 
     // C subscribes FIRST, before the paired devices publish anything - see
     // the file-level comment on why this ordering matters for a roster
@@ -296,7 +296,7 @@ test('two devices of one participant render as one tile group to a third person'
     await joinRoom(pageB)
 
     await expectOnePairedGroupPlusSelf(pageC)
-    await expectSameNameStillTwoPeople(pageC, 'Darren')
+    await expectSameNameStillTwoPeople(pageC, 'Robin')
   } finally {
     await Promise.all([ctxA.close(), ctxB.close(), ctxC.close()])
   }

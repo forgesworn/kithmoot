@@ -790,7 +790,7 @@ let myDeviceId = ''
 // Three rules, and they are the whole of it:
 //
 //   1. A name NEVER stands alone. A short pubkey renders beside it, always,
-//      so two people who both typed "Darren" are visibly two people and an
+//      so two people who both typed "Robin" are visibly two people and an
 //      impersonation is visible rather than convincing.
 //   2. A name is text, never markup. Everything below goes in through
 //      `textContent`; nothing here ever touches innerHTML except to empty a

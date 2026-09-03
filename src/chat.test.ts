@@ -429,18 +429,18 @@ describe('ChatLog', () => {
 describe('chat display names', () => {
   it('carries the sender’s name with the message, so history reads after they leave', async () => {
     const { roomId, roomKey, deviceSk, msg } = await fixture()
-    const named = { ...msg, name: 'Darren' }
+    const named = { ...msg, name: 'Robin' }
     const event = encodeChatEvent(named, { roomId, roomKey, deviceSk })
     // The roster is ephemeral and chat is durable: a message read out of
     // history was sent by somebody who may be in nobody's roster now, so
     // the name has to travel with the message rather than be looked up.
-    expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })!.name).toBe('Darren')
+    expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })!.name).toBe('Robin')
   })
 
   it('leaves no name on the wire', async () => {
     const { roomId, roomKey, deviceSk, msg } = await fixture()
-    const event = encodeChatEvent({ ...msg, name: 'Darren' }, { roomId, roomKey, deviceSk })
-    expect(JSON.stringify(event)).not.toContain('Darren')
+    const event = encodeChatEvent({ ...msg, name: 'Robin' }, { roomId, roomKey, deviceSk })
+    expect(JSON.stringify(event)).not.toContain('Robin')
   })
 
   it('neutralises a hostile name on a message', async () => {
@@ -469,13 +469,13 @@ describe('chat display names', () => {
       roomKey,
       credential,
       deviceSk,
-      name: '  Darren  ',
+      name: '  Robin  ',
       now: () => NOW,
     })
     await log.send('hello room')
 
     const sent = log.messages()[0]
-    expect(sent.name).toBe('Darren')
+    expect(sent.name).toBe('Robin')
     // The credential is still what says who sent this.
     expect(sent.participant).toBe(identity.pubkey)
     log.close()

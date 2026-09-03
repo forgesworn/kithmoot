@@ -174,17 +174,17 @@ describe('roster events', () => {
 describe('roster display names', () => {
   it('carries a name through the encrypted round trip', async () => {
     const { roomId, roomKey, deviceSk, entry } = await fixture()
-    const named = { ...entry, name: 'Darren' }
+    const named = { ...entry, name: 'Robin' }
     const event = encodeRosterEvent(named, { roomId, roomKey, deviceSk })
-    expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })!.name).toBe('Darren')
+    expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })!.name).toBe('Robin')
   })
 
   it('keeps the name inside the ciphertext, where the participant pubkey already is', async () => {
     const { roomId, roomKey, deviceSk, entry } = await fixture()
-    const event = encodeRosterEvent({ ...entry, name: 'Darren' }, { roomId, roomKey, deviceSk })
+    const event = encodeRosterEvent({ ...entry, name: 'Robin' }, { roomId, roomKey, deviceSk })
     // A relay learning who is in a room by name would be worse than a relay
     // learning their pubkey, not better.
-    expect(JSON.stringify(event)).not.toContain('Darren')
+    expect(JSON.stringify(event)).not.toContain('Robin')
   })
 
   it('has no name at all when none was set, so the wire is unchanged for anyone who never types one', async () => {
@@ -246,7 +246,7 @@ describe('roster display names', () => {
   it('drops a name that is not a string, rather than rendering whatever it is', async () => {
     const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent(
-      { ...entry, name: { toString: () => 'Darren' } } as unknown as RosterEntry,
+      { ...entry, name: { toString: () => 'Robin' } } as unknown as RosterEntry,
       { roomId, roomKey, deviceSk },
     )
     expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })).not.toHaveProperty('name')
@@ -254,7 +254,7 @@ describe('roster display names', () => {
 
   it('never lets a name stand in for the pubkey it is decoded alongside', async () => {
     const { roomId, roomKey, deviceSk, entry } = await fixture()
-    const event = encodeRosterEvent({ ...entry, name: 'Darren' }, { roomId, roomKey, deviceSk })
+    const event = encodeRosterEvent({ ...entry, name: 'Robin' }, { roomId, roomKey, deviceSk })
     const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })!
     // The credential still decides who this is. A name is a label on it.
     expect(decoded.participant).toBe(entry.participant)

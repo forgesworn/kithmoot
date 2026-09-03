@@ -164,7 +164,7 @@ export interface RosterEntry {
    * anywhere else checks it. It is a label on a pubkey, never a substitute
    * for one - `sanitiseDisplayName` bounds what it can look like, and every
    * renderer is required to show a short pubkey beside it so two people
-   * called "Darren" stay apart and an impersonation is visible.
+   * called "Robin" stay apart and an impersonation is visible.
    *
    * Absent when nobody typed one, which keeps the wire byte-identical for
    * anyone who does not use this at all.
