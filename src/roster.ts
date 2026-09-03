@@ -6,6 +6,7 @@ import { verifyEventUncached } from './verify.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { sanitiseAssistOffer } from './peer-assist.js'
+import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RosterEntry } from './types.js'
 
 export interface EncodeRosterOptions {
@@ -40,12 +41,16 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
   // `left` is written only as an honest `true`: a farewell is the one entry
   // that removes somebody from a room, so it is never published by accident
   // of a truthy value, and every entry that is not one stays byte-identical.
+  // An ownership proof rides only on an agent's entry, in its one honest
+  // shape: it is the principal's signed bytes, and anything else is not it.
+  const owner = entry.agent === true && entry.owner ? normaliseAgentOwnership(entry.owner) ?? undefined : undefined
   const plaintext = JSON.stringify({
     ...entry,
     name: sanitiseDisplayName(entry.name),
     assist: sanitiseAssistOffer(entry.assist),
     left: entry.left === true ? true : undefined,
     agent: entry.agent === true ? true : undefined,
+    owner,
   })
   const root = opts.epoch ?? { id: opts.roomId, key: opts.roomKey }
   const content = nip44.v2.encrypt(plaintext, root.key)
@@ -138,6 +143,18 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     // Same rule for the agent flag, for the same reason: it decides what a
     // member sends this device, so only an honest `true` is one.
     if (entry.agent !== true) delete entry.agent
+    // Whose agent this is, verified here or not carried at all. A reader
+    // that sees `owner` on a decoded entry is looking at a proof this
+    // function checked against the participant the entry names, at this
+    // moment; one that fails costs the claim, never the entry. On a device
+    // that does not say it is an agent there is nothing for a proof to be
+    // about, and it goes too.
+    if (entry.owner !== undefined) {
+      const proof = entry.agent === true ? normaliseAgentOwnership(entry.owner) : null
+      const verdict = proof ? verifyAgentOwnership(proof, { agent: entry.participant, now: opts.now }) : { ok: false as const }
+      if (proof && verdict.ok) entry.owner = proof
+      else delete entry.owner
+    }
 
     if (entry.proof) {
       entry.proof = {

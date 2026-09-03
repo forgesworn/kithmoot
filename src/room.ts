@@ -41,6 +41,7 @@ interface JoinPayload {
 }
 
 const TIERS: AccessTier[] = ['open', 'ken', 'kith', 'kin']
+const AGENT_RULES = ['owned-by-members']
 
 /**
  * Parse an access policy out of a URL fragment, which is untrusted input.
@@ -59,13 +60,21 @@ export function parseRoomPolicy(raw: unknown): RoomPolicy | undefined {
       throw new Error('join URL carries a malformed access policy')
     }
   }
+  // An agent rule this reader does not know is refused for the same reason
+  // an unknown tier is: dropping it would admit what the room meant to keep
+  // out.
+  if (policy.agents !== undefined && !AGENT_RULES.includes(policy.agents)) {
+    throw new Error('join URL carries an access policy with an unknown agent rule')
+  }
   // The allow-list is exactly the case this rule was written for: entries a
   // person typed or pasted into a link. Canonicalise here, at the point they
   // enter the system off the URL, rather than relying on every reader to
   // compare them case-insensitively.
-  return policy.admitted
+  const parsed: RoomPolicy = policy.admitted
     ? { tier: policy.tier, admitted: policy.admitted.map(normaliseHex) }
     : { tier: policy.tier }
+  if (policy.agents !== undefined) parsed.agents = policy.agents
+  return parsed
 }
 
 /**

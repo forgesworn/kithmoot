@@ -23,7 +23,7 @@ import { normaliseHex } from './hex.js'
 import type { PeerFactory } from './peer.js'
 import type { ChatLog, ChatMessage } from './chat.js'
 import type { RemoteTrack } from './mesh.js'
-import type { KindredProof, RoomPolicy, SingularRole, TrackAdvert } from './types.js'
+import type { AgentOwnership, KindredProof, RoomPolicy, SingularRole, TrackAdvert } from './types.js'
 
 /**
  * The relays an agent uses when its link names none. The same three the
@@ -114,6 +114,10 @@ interface CommonAgentOptions {
   claims?: Partial<Record<SingularRole, number>>
   /** This agent's kindred proof, for a gated room. */
   proof?: KindredProof
+  /** This agent's ownership proof: its principal's signed word that it is
+   *  theirs, carried on every roster entry and message. See
+   *  `docs/agents.md`, "Whose agent is this". */
+  owner?: AgentOwnership
 }
 
 export interface JoinRoomOptions extends CommonAgentOptions {
@@ -334,6 +338,7 @@ export class RoomAgent {
       proof: opts.proof,
       name: opts.name,
       agent: opts.agent ?? true,
+      owner: opts.owner,
       now: opts.now,
       timing: opts.timing,
       announceJitterMs: opts.announceJitterMs,
