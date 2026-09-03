@@ -238,7 +238,7 @@ export type { TurnCredential } from './turn.js'
 export { needsForwarding, selectForwarder, DEFAULT_HEADROOM } from './forwarder.js'
 export type { CapacityEstimate } from './forwarder.js'
 export type { ForwarderRef, IceServerRef } from './types.js'
-export { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
+export { encodeDescriptorEvent, decodeDescriptorEvent, parseForwarderRef } from './descriptor.js'
 export type { EncodeDescriptorOptions, DecodeDescriptorOptions } from './descriptor.js'
 export type { RoomDescriptor } from './types.js'
 export {

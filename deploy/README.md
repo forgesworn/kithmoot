@@ -532,8 +532,10 @@ room's descriptor:
 ### Pointing a room at it
 
 A room's forwarder list travels in its descriptor, encrypted to the room key
-and published as an ephemeral event, next to its ICE servers. Add the JSON
-above to `forwarders` and publish. `selectForwarder` (`src/forwarder.ts`)
+and published as an ephemeral event, next to its ICE servers. For a room a
+keeper holds, put the JSON above in the keeper's `KITHMOOT_FORWARDER` (see
+"Pointing the keeper's room at a forwarder" below) and the keeper publishes
+it. From code, add it to `forwarders` and `publishDescriptor`. `selectForwarder` (`src/forwarder.ts`)
 imposes a total order over the list, so every client in the room independently
 picks the same one without negotiating - and picks `wss:` over `ws:` where a
 forwarder offers both.
@@ -671,6 +673,33 @@ closed room's state says so and is not reopened: move
 removal, `sudo cat /var/lib/kithmoot-keeper/<room>/room.json.link` still
 prints the link: it is the same link, and it still admits people; what
 changed is the key behind it.
+### Pointing the keeper's room at a forwarder
+
+The descriptor that names a room's forwarders is an ephemeral event under
+the room's epoch key, and the app publishes none: until now, attaching a
+forwarder to a standing room needed a member to publish it by hand. The
+keeper does it instead. Put the line `kithmoot-forwarder` printed in the
+instance's env file:
+
+```
+KITHMOOT_FORWARDER='{"url":"wss://relay.example","pubkey":"<64 hex>","label":"townhall box"}'
+```
+
+single-quoted, because the value is JSON and systemd's `EnvironmentFile`
+reads single quotes as quoting. A path to a file holding that line, or a
+list of them, works too, as does repeating `--forwarder` on the command
+line. Restart `kithmoot-keeper@<room>` after editing. A line that does not
+parse - a missing `url`, a scheme other than `ws:`/`wss:`, a pubkey that is
+not 64 hex - is refused at start with the reason, before the keeper joins
+anything.
+
+The keeper publishes the descriptor when it starts, again after every
+rekey (the descriptor rides the epoch key, so the old one is unreadable to
+whoever moved), and again whenever a device arrives, because a descriptor
+is never replayed and a late joiner is otherwise never told. Whether a
+room promotes is still decided on measured capacity, never on headcount:
+naming a forwarder makes it available, not mandatory.
+
 ### Nudging absent members
 
 | Variable | Default | Meaning |

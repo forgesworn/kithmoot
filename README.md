@@ -406,7 +406,7 @@ Stated plainly, before anyone else finds it:
 ```bash
 npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 987 tests, in-process relay simulator, no network
+npm test          # 990 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, over live relays
 E2E_RELAYS=local npm run test:e2e  # the same, against test/ws-relay.mjs: what CI runs

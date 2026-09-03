@@ -46,6 +46,39 @@ function projectForwarder(raw: unknown): ForwarderRef | null {
   return ref
 }
 
+/** Only these schemes are a relay to signal over. */
+const FORWARDER_SCHEMES = ['ws:', 'wss:']
+
+/**
+ * Read a forwarder entry as an operator typed it - the line
+ * `server/forwarder.mjs` prints, or a hand-written one - and refuse it with
+ * a reason rather than carry it. The projection above is for the wire,
+ * where a bad entry costs the entry; this is for a flag, where a bad entry
+ * should cost the start, before a keeper is in a room publishing nothing.
+ */
+export function parseForwarderRef(raw: unknown): ForwarderRef {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('a forwarder is an object: {"url","pubkey","label"}')
+  const { url, pubkey, label } = raw as Record<string, unknown>
+  if (typeof url !== 'string' || url === '') throw new Error('a forwarder needs a url: the relay to signal to it over')
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(`forwarder url is not a URL: ${url}`)
+  }
+  if (!FORWARDER_SCHEMES.includes(parsed.protocol)) throw new Error(`forwarder url must be ws: or wss:, not ${parsed.protocol}`)
+  const ref: ForwarderRef = { url }
+  if (pubkey !== undefined) {
+    if (typeof pubkey !== 'string' || !/^[0-9a-f]{64}$/i.test(pubkey)) throw new Error('forwarder pubkey must be 64 hex characters')
+    ref.pubkey = normaliseHex(pubkey)
+  }
+  if (label !== undefined) {
+    if (typeof label !== 'string' || label.length > 64) throw new Error('forwarder label must be text, at most 64 characters')
+    if (label) ref.label = label
+  }
+  return ref
+}
+
 /** As `projectForwarder`, for the ICE server list. */
 function projectIceServer(raw: unknown): IceServerRef | null {
   if (typeof raw !== 'object' || raw === null) return null
