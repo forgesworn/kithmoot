@@ -29,6 +29,24 @@ describe('control messages', () => {
     expect(decodeControl(JSON.stringify({ op: 'admins', host: HOST, admins: ['not a key'], epoch: 0, sig: 'ef'.repeat(64) }))).toBeNull()
     expect(decodeControl(JSON.stringify({ op: 'admins', host: HOST, admins: [], epoch: -1, sig: 'ef'.repeat(64) }))).toBeNull()
     expect(decodeControl(JSON.stringify({ op: 'admins', host: HOST, admins: [], epoch: 0, sig: 'short' }))).toBeNull()
+  })
+
+  it('round-trips a channel list, canonicalising it, and refuses one it cannot render', () => {
+    const sig = 'ef'.repeat(64)
+    const decoded = decodeControl(JSON.stringify({ op: 'channels', host: HOST, channels: ['shipping', 'design', 'shipping'], epoch: 3, sig: 'EF'.repeat(64) }))
+    expect(decoded).toEqual({ op: 'channels', host: HOST, channels: ['design', 'shipping'], epoch: 3, sig })
+    // A name that is not a legal channel name takes the whole message with
+    // it: a registry quietly missing an entry is worse than one that
+    // refuses to load, because nobody can see what is absent.
+    expect(decodeControl(JSON.stringify({ op: 'channels', host: HOST, channels: ['Design'], epoch: 0, sig }))).toBeNull()
+    expect(decodeControl(JSON.stringify({ op: 'channels', host: HOST, channels: ['has space'], epoch: 0, sig }))).toBeNull()
+    // And the three the room already means something by.
+    expect(decodeControl(JSON.stringify({ op: 'channels', host: HOST, channels: ['agents'], epoch: 0, sig }))).toBeNull()
+    expect(decodeControl(JSON.stringify({ op: 'channels', host: HOST, channels: [], epoch: -1, sig }))).toBeNull()
+    expect(decodeControl(JSON.stringify({ op: 'channels', host: HOST, channels: [], epoch: 0, sig: 'short' }))).toBeNull()
+    // An empty list is a room that has had its channels removed, which is
+    // a thing an authority may legitimately say.
+    expect(decodeControl(JSON.stringify({ op: 'channels', host: HOST, channels: [], epoch: 0, sig }))).toEqual({ op: 'channels', host: HOST, channels: [], epoch: 0, sig })
     expect(decodeControl(JSON.stringify({ op: 'remove', participant: 'bob' }))).toBeNull()
     expect(decodeControl(JSON.stringify({ op: 'mute' }))).toBeNull()
   })

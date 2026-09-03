@@ -25,6 +25,11 @@ export {
   signAdmins,
   verifyAdmins,
   canonicalAdmins,
+  signChannels,
+  verifyChannels,
+  canonicalChannels,
+  CHANNEL_NAME,
+  RESERVED_CHANNELS,
   MAX_EPOCH,
 } from './epoch.js'
 export type {
