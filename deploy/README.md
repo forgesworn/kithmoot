@@ -3,7 +3,7 @@
 This directory is a deploy *kit*, not a deploy. Nothing in it runs on its
 own - you run `deploy/deploy.sh` yourself, by hand, when you mean to.
 
-Four independent things live here:
+Six independent things live here:
 
 1. **The static PWA** (`Caddyfile.kithmoot`, `deploy.sh`) - serving the app
    from a real domain so people other than you can open it.
@@ -25,6 +25,14 @@ Four independent things live here:
    the room: it is the room's availability and its admission desk, and the
    box is trusted with that room exactly as a browser that created one
    would be.
+
+6. **A Blossom server** (`blossom.service`, `blossom.yml`,
+   `blossom-deploy.sh`, `blossom-install.sh`) - where a file dropped into a
+   room's chat goes, sealed in the browser first. See "Running a Blossom
+   server" below. The box learns an encrypted blob and the device key that
+   signed the upload, and nothing else; uploads are open to any key, with a
+   cap, a quota and an expiry standing in for the allowlist there is nobody
+   to put on.
 
 Read the design principle below before touching the TURN half. It's the
 part that's easy to get backwards.
@@ -721,3 +729,90 @@ also sees that the keeper's key sent a gift wrap to that member's pubkey,
 and roughly when. It does not see the room, the text, or who else was
 written to. The DM lands on the room's relays, so a member's DM client has
 to be reading those to show it. See `docs/agents.md`, "Nudge".
+
+## Running a Blossom server
+
+Drop a file on a room's chat and the browser seals it into a Wildbloom
+envelope under a fresh key, puts the sealed bytes on a Blossom server
+(BUD-01: `PUT /upload`, authorised by a signed kind-24242 event), and hands
+the key to the room inside the message; `docs/agents.md`, "Dropping a file
+in", has the whole of it. The server is a default on the same terms as
+TURN, not a dependency: `BLOSSOM_ENDPOINT` in `app/src/main.ts` names the
+app's own origin, the Attach panel lets anyone name another, and a fork
+that runs none sets the constant back to `''` and the panel asks.
+
+The kit runs [blossom-server-ts](https://github.com/hzrd149/blossom-server),
+the most used open-source Blossom server, pinned to 5.2.0, on the box's
+Node 22. Wildbloom Node, ForgeSworn's own, is a Rust daemon with
+deny-by-default writes and an owner, friend and guest model: the right
+shape for a person's own machine and the wrong one for an open drop box.
+
+```bash
+DEPLOY_HOST=deploy@YOUR_BOX deploy/blossom-deploy.sh
+```
+
+ships `deploy/blossom.service`, `deploy/blossom.yml` and
+`deploy/blossom-install.sh` to `/opt/kithmoot-blossom` and runs the install
+there as root: a `kithmoot-blossom` system user, `npm install` of the
+pinned server into the tree, the config as `config.yml`, an env file at
+`/etc/kithmoot/blossom.env` (written once, then left alone: `PORT`,
+`BLOSSOM_PUBLIC_URL`, `BLOSSOM_STATE`), the unit as
+`kithmoot-blossom.service`, and the state under `/var/lib/kithmoot-blossom`:
+`sqlite.db` (what is stored, under which key, last fetched when) and
+`blobs/`. A second run updates the tree and the unit and restarts the
+service; the env file, the database and the blobs are left alone.
+
+**The quota.** `blobs/` is a fixed-size ext4 image, `blobs.img`, made by
+the install script (`BLOSSOM_QUOTA_GIB`, default 20) and mounted from
+`/etc/fstab`; the unit has `RequiresMountsFor` on it, so the server does
+not start without it and cannot write past it. When it is full, uploads
+fail until something expires. There is no retention beyond that: a blob
+that has gone 90 days without being fetched is pruned (the one rule in
+`blossom.yml`, counted from the last fetch, not the upload), and a full
+image is a full image. To resize: stop the unit, unmount, move `blobs.img`
+aside, take its line out of `/etc/fstab`, and run the deploy again with a
+new `BLOSSOM_QUOTA_GIB`.
+
+**The cap.** 70 MiB per blob: a 64 MiB source (`MAX_UPLOAD_SOURCE_BYTES`,
+what the app refuses before sealing) plus the envelope's padding and tags.
+It is Caddy's `request_body max_size` on `/upload`, because
+blossom-server-ts 5.2.0 has no cap of its own: Caddy reads the body up to
+70 MiB and no further, answers 413, and cuts the upstream, at which the
+service removes the upload it was spooling. It does not pre-check the
+`Content-Length`, so an over-cap upload costs 70 MiB of transfer before it
+is refused; the app never sends one, and nothing is stored. An upload is
+spooled to the unit's private `/tmp` before it is hashed and moved into
+place, so the cap is what bounds that too.
+
+**Caddy.** Two `handle` blocks in `Caddyfile.kithmoot`, beside `/turn`:
+`/upload` (PUT and HEAD, the cap, proxied to `127.0.0.1:8092`) and
+`/blossom/<sha256>` (GET and HEAD, the prefix stripped, proxied to the
+same). The service is told in `BLOSSOM_PUBLIC_URL` that its blobs live
+under `https://kithmoot.forgesworn.dev/blossom/`, so the descriptor it
+answers an upload with names that, and the app checks the origin is its
+own and the leaf is the hash before it trusts it. The upload is at the
+root because the app takes an origin and nothing more for a Blossom server,
+and BUD-01 puts the upload at `/upload` under it. Nothing else of the
+server's is exposed: list, delete, mirror, the admin page and the landing
+page answer on loopback only. The deploy script does not touch Caddy; put
+the two handles in the vhost, `caddy validate`, reload.
+
+**What the box learns, and who may use it.** An encrypted blob, its size,
+and the device key that signed the upload; the device key is random per
+device and per room, so it names nobody. Not the file's name, type or
+contents, and never the key: those are inside the envelope, and the key
+goes in the message. Uploads are open to any key, because there is nobody
+to allowlist: a participant's device key is made on the device and
+registered nowhere. What stands in the way of abuse is the cap, the quota,
+the expiry, and one accepted media type,
+`application/vnd.forgesworn.encrypted`, the envelope and nothing else. An
+image or a video is refused, so the box is not a general file host and
+nothing on it can be hot-linked as media; the worst anyone can do is fill
+20 GiB with sealed bytes nobody can open, and wait 90 days.
+
+The unit fences the socket to loopback (`IPAddressAllow=localhost`), because
+5.2.0 takes a port and no host and listens on every interface; the firewall
+would stop that too, but a unit should not depend on it.
+`journalctl -u kithmoot-blossom -f` for logs, and
+`curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:8092/upload`
+prints 401 when it is up.

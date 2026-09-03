@@ -1,0 +1,87 @@
+# systemd unit for the KithMoot box's Blossom server: blossom-server-ts,
+# holding the sealed envelopes that files dropped into a room's chat
+# become. See deploy/README.md, "Running a Blossom server".
+#
+# WHAT THIS PROCESS IS:
+#
+#   A content-addressed store behind the app's own origin. A browser (or an
+#   agent) seals a file under a fresh key, PUTs the sealed bytes to /upload
+#   with a signed kind-24242 authorisation, and this stores them under their
+#   SHA-256 and serves them back at /blossom/<sha256>. It learns an
+#   encrypted blob, its size and the device key that signed the upload; it
+#   never learns the file's name, type or contents, and never the key. It
+#   takes uploads from any key, because a room member's device key is random
+#   per device and there is nothing to allowlist; what stands in the way of
+#   abuse is a per-blob cap at Caddy, one accepted media type, a fixed-size
+#   filesystem for the blobs and an expiry on the unfetched.
+#
+# LAYOUT:
+#
+#   /opt/kithmoot-blossom                 the tree: package.json, node_modules, config.yml
+#   /etc/kithmoot/blossom.env             PORT, BLOSSOM_PUBLIC_URL, BLOSSOM_STATE
+#   /var/lib/kithmoot-blossom/sqlite.db   what is stored, under which key, last fetched when
+#   /var/lib/kithmoot-blossom/blobs.img   the quota: a fixed-size ext4 image
+#   /var/lib/kithmoot-blossom/blobs       that image, mounted; the blobs themselves
+#
+# INSTALL: `DEPLOY_HOST=deploy@your-box deploy/blossom-deploy.sh`, which
+# ships this unit, deploy/blossom.yml and deploy/blossom-install.sh to the
+# box and runs the install there as root. Then the Caddy side by hand: the
+# /upload and /blossom/* handles in deploy/Caddyfile.kithmoot, validated
+# and reloaded.
+#
+# Verify: `curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:8092/upload`
+# prints 401 (an upload with no authorisation is refused, so the server is
+# up), and a GET of a 64-hex path it does not hold is 404.
+# `journalctl -u kithmoot-blossom -f` for logs.
+
+[Unit]
+Description=KithMoot Blossom server (the sealed files dropped into rooms)
+Documentation=file:///opt/kithmoot-blossom/deploy/README.md
+After=network.target
+# The blobs live on a fixed-size filesystem, and that is the quota. Without
+# it mounted this must not start, or uploads would land on the root
+# filesystem with no cap at all.
+RequiresMountsFor=/var/lib/kithmoot-blossom/blobs
+
+[Service]
+Type=simple
+User=kithmoot-blossom
+Group=kithmoot-blossom
+WorkingDirectory=/opt/kithmoot-blossom
+EnvironmentFile=/etc/kithmoot/blossom.env
+# systemd creates and owns this; it and the private /tmp are the only
+# writable paths.
+StateDirectory=kithmoot-blossom
+StateDirectoryMode=0750
+ExecStart=/usr/bin/node node_modules/blossom-server-ts/build/index.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening. This process answers unauthenticated traffic proxied in from
+# the public internet and writes only under its state directory and its
+# private /tmp, where an upload is spooled before it is hashed and moved.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# blossom-server-ts 5.2.0 takes a port and no host, so it listens on every
+# interface, and the box's firewall would be the only thing in the way. So
+# the socket is fenced here too: only loopback may reach it, and it reaches
+# only loopback. Nothing it does needs the network; discovery, mirroring
+# and Tor are all off in config.yml.
+IPAddressDeny=any
+IPAddressAllow=localhost
+# Not MemoryDenyWriteExecute: V8 flips code pages between writable and
+# executable, as the other Node units in this kit note.
+MemoryMax=768M
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

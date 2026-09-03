@@ -49,6 +49,47 @@ kithmoot.forgesworn.dev {
 		reverse_proxy 127.0.0.1:8089
 	}
 
+	# Blossom (BUD-01), for the files dropped into a room's chat. The app's
+	# BLOSSOM_ENDPOINT is this origin and nothing more, because an upload
+	# authorisation names a host and BUD-01 puts the upload at /upload under
+	# it: so /upload is proxied at the root, and the blobs are served under
+	# /blossom/, which is the base the service is told (BLOSSOM_PUBLIC_URL)
+	# to name in the descriptor it answers an upload with.
+	# kithmoot-blossom.service listens on 127.0.0.1:8092; see deploy/README.md,
+	# "Running a Blossom server". Like /turn and its constant, these two
+	# handles and BLOSSOM_ENDPOINT are switched on together.
+	#
+	# The 70 MiB is the per-blob cap, and this is where it lives: a 64 MiB
+	# source (MAX_UPLOAD_SOURCE_BYTES, refused by the app before sealing) plus
+	# the envelope's padding and tags, since blossom-server-ts has no cap of
+	# its own. Caddy reads the body up to that and no further: the request is
+	# answered 413, the upstream is cut, and the service removes its spool.
+	# (It does not pre-check the Content-Length, so an over-cap upload costs
+	# 70 MiB of transfer before it is refused; the app never sends one.)
+	# Only PUT and HEAD (BUD-06's preflight) reach the service at
+	# /upload, and only GET and HEAD reach a hash-shaped path under /blossom/;
+	# OPTIONS on both so a Blossom client on another origin can preflight. A
+	# DELETE, a list, a mirror, the admin page or the landing page falls
+	# through to the file server and its 404.
+	@blossomUpload {
+		path /upload
+		method PUT HEAD OPTIONS
+	}
+	handle @blossomUpload {
+		request_body {
+			max_size 70MiB
+		}
+		reverse_proxy 127.0.0.1:8092
+	}
+	@blossomBlob {
+		path_regexp ^/blossom/[0-9a-f]{64}(\.[a-z0-9]{1,10})?$
+		method GET HEAD OPTIONS
+	}
+	handle @blossomBlob {
+		uri strip_prefix /blossom
+		reverse_proxy 127.0.0.1:8092
+	}
+
 	# The APKs live outside the release directories, so a rollback of the
 	# site does not take the downloads with it and a redeploy does not
 	# re-upload 50 MB.

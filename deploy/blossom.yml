@@ -1,0 +1,66 @@
+# blossom-server-ts configuration for the KithMoot box: the Blossom (BUD-01)
+# server that a file dropped into a room's chat is put on, sealed. Installed
+# as /opt/kithmoot-blossom/config.yml by deploy/blossom-install.sh; the
+# ${...} values come from /etc/kithmoot/blossom.env at start-up (the server
+# interpolates environment variables into its config). Edit the env file to
+# move the server or its state; edit this to change what it accepts and for
+# how long it keeps it. See deploy/README.md, "Running a Blossom server".
+#
+# What this server is: an open Blossom server with exactly one accepted
+# media type. Any key may upload (a room member's device key is random per
+# device, so there is nobody to allowlist), but only
+# application/vnd.forgesworn.encrypted is accepted, which is the envelope
+# KithMoot and Wildbloom write: sealed bytes under a key this server never
+# sees. An image, a video or a page is refused, so this is not a general
+# file host and nothing on it can be hot-linked as media. The per-blob cap
+# is Caddy's request_body max_size on /upload (70 MiB), not a setting here,
+# because blossom-server-ts 5.2.0 has none; the quota is the fixed-size
+# filesystem the install script mounts at ${BLOSSOM_STATE}/blobs.
+
+# Where blobs are said to live. The descriptor an upload is answered with
+# names this with the hash appended (the server builds
+# `new URL(sha256, publicDomain)`, so the trailing slash matters), and the
+# app checks that the origin is its own and the leaf is the hash.
+publicDomain: "${BLOSSOM_PUBLIC_URL}"
+
+# What is stored, under which key, and when it was last fetched.
+databasePath: "${BLOSSOM_STATE}/sqlite.db"
+
+dashboard:
+  enabled: false
+
+# Never go looking elsewhere for a blob this server does not have: a miss
+# is a 404, not a fetch from some other server on this box's behalf.
+discovery:
+  nostr:
+    enabled: false
+  upstream:
+    enabled: false
+
+storage:
+  backend: local
+  local:
+    dir: "${BLOSSOM_STATE}/blobs"
+  removeWhenNoOwners: false
+  # The one rule is also the allowlist of media types: a blob matching no
+  # rule is refused. The expiration counts from the last fetch, not from
+  # the upload, so a file a room keeps opening stays, and one nobody has
+  # asked for in 90 days goes.
+  rules:
+    - type: application/vnd.forgesworn.encrypted
+      expiration: 90 days
+
+upload:
+  enabled: true
+  requireAuth: true
+  requirePubkeyInRule: false
+
+media:
+  enabled: false
+
+list:
+  requireAuth: true
+  allowListOthers: false
+
+tor:
+  enabled: false
