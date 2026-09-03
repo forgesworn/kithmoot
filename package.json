@@ -36,6 +36,7 @@
     "opus-decoder": "^0.7.12",
     "qrcode": "^1.5.4",
     "signet-login": "^0.14.3",
+    "spoken-token": "^2.1.0",
     "werift": "^0.24.4",
     "zod": "^4.5.4"
   },

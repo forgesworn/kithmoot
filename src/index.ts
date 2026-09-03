@@ -326,3 +326,6 @@ export type { VoicePreset, VoiceSettings, VoiceMaskerOptions } from './voice-eff
 export { SpeakingDetector, SpeakingSet, SPEAKING } from './speaking.js'
 export type { SpeakingThresholds } from './speaking.js'
 export { rms, rmsFromByteTimeDomain } from './audio-level.js'
+
+export { verificationWords, verificationStatus, VERIFY_NAMESPACE } from './verification.js'
+export type { KnownParticipant, VerificationStatus, VerificationView, VerificationWords } from './verification.js'

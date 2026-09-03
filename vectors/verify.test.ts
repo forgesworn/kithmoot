@@ -48,6 +48,7 @@ import { decodeChatEvent } from '../src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
 import { encodeControl, decodeControl } from '../src/control.js'
 import type { RoomPolicy } from '../src/types.js'
+import { verificationWords } from '../src/verification.js'
 
 interface Vector {
   name: string
@@ -830,5 +831,52 @@ describe('approval control', () => {
         authority: fx.HOST_UNTRUSTED,
       }),
     ).toBe(false)
+  })
+})
+
+describe('verification words', () => {
+  for (const v of groups.verificationWords.filter((x) => x.kind === 'positive')) {
+    it(v.name, () => {
+      const words = verificationWords(
+        hexToBytes(v.input.roomKeyHex as string),
+        v.input.a as string,
+        v.input.b as string,
+      )
+      expect(words).toEqual(v.output)
+      // Three words a side, and the two sides differ - the properties the
+      // ritual rests on, asserted here as well as against the frozen output
+      // so a regenerated file cannot quietly weaken them.
+      for (const said of Object.values(words)) expect(said.split(' ')).toHaveLength(3)
+      const [first, second] = Object.values(words)
+      expect(first).not.toBe(second)
+    })
+  }
+
+  for (const v of groups.verificationWords.filter((x) => x.kind === 'negative')) {
+    it(v.name, () => {
+      expect(() =>
+        verificationWords(
+          hexToBytes(v.input.roomKeyHex as string),
+          v.input.a as string,
+          v.input.b as string,
+        ),
+      ).toThrow()
+    })
+  }
+
+  it('binds the words to the pair, not to the speaker', () => {
+    // The cross-vector claim no single vector can make: A's words against B
+    // must differ from A's words against C. An implementation that derives
+    // from the speaker alone passes every individual vector above.
+    const ab = groups.verificationWords.find((v) => v.name === 'pair-a-b')!
+    const ac = groups.verificationWords.find((v) => v.name === 'pair-a-c-differs-from-a-b')!
+    const a = ab.input.a as string
+    expect((ab.output as Record<string, string>)[a]).not.toBe((ac.output as Record<string, string>)[a])
+  })
+
+  it('gives the same words whichever way round the pair is given', () => {
+    const ab = groups.verificationWords.find((v) => v.name === 'pair-a-b')!
+    const ba = groups.verificationWords.find((v) => v.name === 'pair-b-a-same-as-a-b')!
+    expect(ab.output).toEqual(ba.output)
   })
 })

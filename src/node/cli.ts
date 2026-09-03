@@ -13,6 +13,7 @@ import type { ForwarderRef } from '../types.js'
 import { issueAgentOwnership, normaliseAgentOwnership, verifyAgentOwnership } from '../ownership.js'
 import type { AgentOwnership } from '../types.js'
 import { localIdentity } from '../identity.js'
+import { checkIdentity, npubOrHex } from './identity-guard.js'
 import { parseRoomLink } from '../link.js'
 import { AgentRuntime } from './runtime.js'
 import type { Persona } from './runtime.js'
@@ -82,6 +83,18 @@ Options
   --relays <a,b>           Relay hints, comma separated (same as repeated --relay)
   --identity <file>        Participant key, hex, created if missing (kept 0600)
   --nsec <nsec|hex>        Participant key, given directly (prefer --identity)
+  --expect-pubkey <k>      Refuse to start unless the key resolves to this.
+                           npub or hex. Use it for any agent whose npub is
+                           written down anywhere: --identity mints a fresh
+                           key when the file is missing rather than failing,
+                           and an agent running as the wrong key looks
+                           exactly like one running correctly.
+  --forbid-pubkey <k>      Refuse to start if the key resolves to this.
+                           Repeatable; npub or hex. This is for PRINCIPALS -
+                           a person's key, never an agent's. An agent holding
+                           its principal's key can attest that it belongs to
+                           itself and approve its own requests, because it is
+                           the principal those checks look for.
   --relay <url>            Relay hint; repeatable. Overrides the link's.
   --ice <url>              STUN/TURN url; repeatable. Overrides the link's.
   --turn-credential <u:p>  Static credentials for every TURN url given
@@ -158,6 +171,8 @@ interface Common {
   fakeTranscriber: boolean
   callEndsAfter?: string
   ownerProof?: string
+  expectPubkey?: string
+  forbidPubkey: string[]
   quiet: boolean
 }
 
@@ -192,6 +207,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       'room-name': { type: 'string' },
       nudge: { type: 'boolean', default: false },
       'owner-proof': { type: 'string' },
+      'expect-pubkey': { type: 'string' },
+      'forbid-pubkey': { type: 'string', multiple: true },
       agent: { type: 'string' },
       label: { type: 'string' },
       expires: { type: 'string' },
@@ -236,6 +253,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     fakeTranscriber: values['fake-transcriber'],
     callEndsAfter: values['call-ends-after'] ?? env('CALL_ENDS_AFTER'),
     ownerProof: values['owner-proof'] ?? env('OWNER_PROOF'),
+    expectPubkey: values['expect-pubkey'] ?? env('EXPECT_PUBKEY'),
+    forbidPubkey: [...(values['forbid-pubkey'] ?? []), ...envList('FORBID_PUBKEY')],
     quiet: values.quiet,
   }
   // Refused before joining, so a mistyped flag does not leave a ghost in
@@ -249,8 +268,20 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const nudge = values.nudge || envFlag('NUDGE')
   const log = common.quiet ? () => {} : (line: string) => process.stderr.write(`[kithmoot-agent] ${line}\n`)
 
-  const participantSk = await participantKey(common)
+  const participantSk = await participantKey(common, log)
   const identity = localIdentity(participantSk)
+
+  // Said out loud on every start, and checked before anything joins a room
+  // or signs a single event. An agent that has silently come up as the wrong
+  // key is indistinguishable from a working one until somebody asks it in
+  // chat what its own npub is - and it will answer wrongly and with
+  // confidence, because nothing ever told it otherwise.
+  log(`identity ${npubOrHex(identity.pubkey)}`)
+  try {
+    checkIdentity({ pubkey: identity.pubkey, expect: common.expectPubkey, forbid: common.forbidPubkey })
+  } catch (err) {
+    fail((err as Error).message)
+  }
   const owner = common.ownerProof ? await loadOwnerProof(common.ownerProof, identity.pubkey) : undefined
   const persona = await loadPersona(common)
   const turn = common.turnCredential ? splitCredential(common.turnCredential) : undefined
@@ -444,7 +475,7 @@ function makeCompleter(common: Common, log: (line: string) => void): Completer |
   }
 }
 
-async function participantKey(common: Common): Promise<Uint8Array> {
+async function participantKey(common: Common, log: (line: string) => void): Promise<Uint8Array> {
   if (common.nsec) {
     if (common.nsec.startsWith('nsec1')) {
       const decoded = nip19.decode(common.nsec)
@@ -462,6 +493,17 @@ async function participantKey(common: Common): Promise<Uint8Array> {
       const sk = generateSecretKey()
       await mkdir(dirname(common.identity), { recursive: true })
       await writeFile(common.identity, bytesToHex(sk) + '\n', { mode: 0o600 })
+      // Loudly. A named key file that does not exist gets a FRESH identity
+      // rather than an error, which is convenient for an ad-hoc agent and a
+      // trap for a named one: the key is written, so every restart after
+      // this reuses it and the deployment looks settled. If this line
+      // appears for an agent whose npub is on a list somewhere, the wrong
+      // key is now in place.
+      log(
+        `MINTED A NEW IDENTITY at ${common.identity} - that file did not exist. ` +
+          'If this agent is supposed to have a published key, stop it now: it is not that key. ' +
+          'Use --expect-pubkey to make this a startup failure instead.',
+      )
       return sk
     }
   }
@@ -562,7 +604,9 @@ async function attest(opts: { agent?: string; nsec?: string; identity?: string; 
   const agent = pubkeyArg(opts.agent, '--agent')
   let principalSk: Uint8Array
   if (opts.nsec) {
-    principalSk = await participantKey({ nsec: opts.nsec } as Common)
+    principalSk = await participantKey({ nsec: opts.nsec } as Common, (line) =>
+      process.stderr.write(`[kithmoot-agent] ${line}\n`),
+    )
   } else {
     try {
       principalSk = hexToBytes((await readFile(opts.identity!, 'utf8')).trim())

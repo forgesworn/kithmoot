@@ -14,6 +14,7 @@ import {
 import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { RoomWatch } from './room-watch.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
+import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
   RoomSession,
@@ -2182,6 +2183,7 @@ function render(views: ParticipantView[], me: string): void {
       heading.append(badge)
       if (view.owner) heading.append(ownerRun(view.owner))
     }
+    if (view.participant !== me) heading.append(verifyChip(view, shown.name ?? ''))
     box.append(heading)
 
     if (view.participant === me) {
@@ -2845,6 +2847,95 @@ const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamT
  * never lit while everybody else's did. A constant cannot be too early, and
  * cannot collide with a device id, which is 64 hex characters.
  */
+/**
+ * The trust chip on somebody else's tile.
+ *
+ * Three states, and only one of them is an accusation:
+ *
+ *   new       never verified. Not a warning - most people are new, and
+ *             colouring that as a problem teaches people to ignore it.
+ *   verified  this exact key was verified on this device before.
+ *   changed   a key you verified uses this name, and this is not it. This
+ *             is the one that matters, and it is the shape the September
+ *             incident took.
+ *
+ * Clicking it shows the words to say. See `src/verification.ts` for what
+ * they do and do not prove - the panel says so too, because a verification
+ * story that overclaims is worse than none.
+ */
+function verifyChip(view: ParticipantView, name: string): HTMLElement {
+  const chip = document.createElement('button')
+  chip.type = 'button'
+  chip.className = 'verifyChip'
+  const seen = participantVerification(deviceStore, view.participant, name)
+  chip.classList.add(seen.status)
+
+  if (seen.status === 'verified') {
+    chip.textContent = 'verified'
+    chip.title = `You verified this key on ${new Date((seen.verifiedAt ?? 0) * 1000).toLocaleDateString()}`
+  } else if (seen.status === 'key-changed') {
+    chip.textContent = 'key changed'
+    chip.title =
+      `You verified a DIFFERENT key under this name (${short(seen.expected ?? '')}). ` +
+      'Either they are on a new device or key, or this is not them. Check before you trust it.'
+  } else {
+    chip.textContent = 'not verified'
+    chip.title = 'You have not checked this key against the person. Click to see the words to say.'
+  }
+
+  chip.addEventListener('click', () => showVerification(view, name, seen.status))
+  return chip
+}
+
+/**
+ * The words, and the one button that means "yes, that is them".
+ *
+ * A real dialog rather than `confirm()`: the words have to be read carefully
+ * and said out loud, and a browser alert with newlines in it is the wrong
+ * furniture for the one security ritual this app has. `showModal` brings the
+ * focus trap and Escape with it.
+ */
+function showVerification(view: ParticipantView, name: string, status: string): void {
+  if (!session) return
+  let words: { mine: string; theirs: string }
+  try {
+    words = session.verificationWords(view.participant)
+  } catch {
+    // A participant with no words - ourselves, or a malformed key - has
+    // nothing honest to show, and a plausible-looking panel would be worse
+    // than none.
+    return
+  }
+
+  const shownName = name || short(view.participant)
+  const dialog = $('verifyDialog') as HTMLDialogElement
+  $('verifyTitle').textContent = `Is this really ${shownName}?`
+  $('verifyMine').textContent = words.mine
+  $('verifyTheirs').textContent = words.theirs
+
+  const warning = $('verifyWarning')
+  if (status === 'key-changed') {
+    warning.textContent =
+      `You have verified a different key under the name "${shownName}" before. ` +
+      'Either they are on a new key, or this is not them. Do not mark this verified ' +
+      'unless the words match and you know the voice.'
+    warning.hidden = false
+  } else {
+    warning.textContent = ''
+    warning.hidden = true
+  }
+
+  const onClose = () => {
+    dialog.removeEventListener('close', onClose)
+    if (dialog.returnValue !== 'verify') return
+    rememberVerified(deviceStore, view.participant, name, Date.now())
+    if (session) render(session.participants(), meParticipant)
+  }
+  dialog.addEventListener('close', onClose)
+  dialog.returnValue = ''
+  dialog.showModal()
+}
+
 const LOCAL_SPEAKING_KEY = 'self'
 
 /**

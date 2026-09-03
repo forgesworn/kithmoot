@@ -42,6 +42,16 @@ export const ROOM_SECRET_2 = seed32('room-secret-2')
 export const PARTICIPANT_A_SK = deriveSecretKey('participant-a')
 export const PARTICIPANT_A = getPublicKey(PARTICIPANT_A_SK)
 
+/** A second participant, for the pairwise vectors: verification words are
+ *  derived from BOTH keys, so one participant is not enough to pin them. */
+export const PARTICIPANT_B_SK = deriveSecretKey('participant-b')
+export const PARTICIPANT_B = getPublicKey(PARTICIPANT_B_SK)
+
+/** A third, to pin that the words are bound to the pair rather than to the
+ *  speaker: A-with-B must not equal A-with-C. */
+export const PARTICIPANT_C_SK = deriveSecretKey('participant-c')
+export const PARTICIPANT_C = getPublicKey(PARTICIPANT_C_SK)
+
 export const DEVICE_A_SK = deriveSecretKey('device-a')
 export const DEVICE_A = getPublicKey(DEVICE_A_SK)
 

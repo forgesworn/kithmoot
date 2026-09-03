@@ -28,6 +28,7 @@ import {
 } from './epoch.js'
 import type { EpochKeys, EpochRefusal, RekeyNotice, RoomEpoch } from './epoch.js'
 import type { RelayTransport } from './relay-pool.js'
+import { verificationWords } from './verification.js'
 import type {
   AgentOwnership,
   AssistOffer,
@@ -667,6 +668,21 @@ export class RoomSession {
   /** The epoch this session is in. */
   get epoch(): number {
     return this.#epoch.epoch
+  }
+
+  /**
+   * The words this device and `participant` say to each other to check they
+   * are looking at the same pair of keys. See `verification.ts` for what
+   * this does and does not prove.
+   *
+   * A method rather than a `roomKey` getter on purpose: the room key is the
+   * room, and handing it out so a caller can derive three words would be a
+   * poor trade. The session already holds it and already knows which epoch
+   * it is in, so it derives them here and the key stays put.
+   */
+  verificationWords(participant: string): { mine: string; theirs: string } {
+    const words = verificationWords(this.#roomKey, this.participant, participant)
+    return { mine: words[this.participant.toLowerCase()]!, theirs: words[participant.toLowerCase()]! }
   }
 
   /** Participants removed from this room, at any epoch this session saw. */

@@ -124,6 +124,7 @@ directly, with no reimplementation involved.
 | `agentOwnership` | a principal's signature that an agent is theirs, and the six ways a reader must refuse one | `src/ownership.ts` |
 | `chatAttachment` | a Wildbloom share riding in a kind-1460 message, what a reader defuses, and the envelope's own arithmetic | `src/attachment.ts`, `src/chat.ts` |
 | `approvalControl` | an agent's approval request and the answer, on the room's `control` channel | `src/control.ts` |
+| `verificationWords` | the three words each of a pair says aloud to check they are looking at the same participant keys | `src/verification.ts` |
 
 **A note on scope:** the brief for stage 1 described the join URL as
 carrying "secret + relays + ICE list". The join URL does not carry an ICE
@@ -483,6 +484,23 @@ boundary: a share served over plain HTTP is dropped, a key that is not 32
 bytes is dropped, and a message carrying more shares than the cap allows is
 refused whole rather than trimmed. A bad attachment costs the attachment; it
 never costs the sentence somebody wrote.
+
+**`verificationWords`.** Every other group here fails safe when two
+implementations disagree: a bad signature is refused, a wrong key decodes
+nothing. This one fails loud and wrong. Two people whose clients derive
+different words read them out, hear a mismatch, and conclude one of them is
+being impersonated - the feature manufactures exactly the alarm it exists to
+raise, in the one situation where a false alarm is most expensive. So the
+derivation is frozen here before a second implementation attempts it.
+
+Three properties a second implementation has to get right, one vector each.
+**The pair is in the derivation**: deriving from the speaker alone gives a
+participant the same words against everybody, which passes against an
+impostor standing in for anyone, and `pair-a-c-differs-from-a-b` is what
+catches it. **Order does not matter**: both clients sort the two keys, so
+neither has to agree who goes first (`pair-b-a-same-as-a-b`). **Three words,
+not one**: a word is 11 bits, and one word is a 1-in-2048 coin toss somebody
+would go on to call "verified".
 
 **`approvalControl`.** The request and the answer are ordinary chat messages
 on a channel every member can read, so nothing inside the JSON says who sent

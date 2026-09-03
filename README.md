@@ -89,6 +89,18 @@ to make that one thing true.
   see they are being picked up rather than guess. Muting is instant: the
   track stays published with `enabled = false`, which feeds the analyser
   silence.
+- **"Is this really them", asked in the call.** A name is a claim and
+  nothing checks it - which on 3 September 2026 let three participants in a
+  room claim names belonging to somebody else while everybody read the
+  pubkeys and could not tell. So each pair is shown three words derived from
+  the room key and the two participant keys, directional so the second
+  speaker cannot pass by repeating the first. Say them out loud, where you
+  can see the person and hear their voice; the call is the strongest
+  out-of-band channel anybody gets. Mark them verified and this device
+  remembers the key. **A familiar name arriving on a different key afterwards
+  is flagged in red**, which is the only part of this that catches an
+  impostor - the words prove that both clients see the same pair of keys, not
+  that somebody already in the room could not compute them.
 - Mesh WebRTC for video, voice and screen share, negotiated directly between
   devices with no media server in the path. SDP/ICE signalling travels
   wrapped in a NIP-59-style gift wrap addressed to one peer, so a relay
@@ -233,7 +245,7 @@ to make that one thing true.
   hear me" switch and carries display names. It cannot yet follow a room
   epoch, and says so rather than going quiet: see its own README for what
   it does and does not implement.
-- **95 published interop vectors** (`vectors/`), which both implementations
+- **101 published interop vectors** (`vectors/`), which both implementations
   are checked against.
 
 ## Names, and who you are
