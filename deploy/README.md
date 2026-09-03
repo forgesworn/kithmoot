@@ -369,10 +369,18 @@ There is no free fix here; pick honestly among:
   anything. Cheaper to build than kindred-gating, but the token itself
   becomes one more secret to distribute and leak, and doesn't scope
   access per-room the way kindred does.
+- **Charge for it.** Put L402 in front of the endpoint, so a credential
+  costs a satoshi or two. A rate limiter is a speed bump because requests
+  are free; a price turns bandwidth theft into a purchase, and the
+  attacker's arithmetic is the control. `deploy/l402/` is that kit - it
+  proxies this same service without modifying it, and it stands up a
+  *separate* host rather than putting a paywall on the app's own `/turn`.
 
-None of these ship in this kit today - `server/turn-credentials.mjs` mints
-on request to anyone who can reach it, by design, so the choice above is
-made deliberately rather than defaulted into.
+The first three do not ship in this kit - `server/turn-credentials.mjs`
+mints on request to anyone who can reach it, by design, so the choice above
+is made deliberately rather than defaulted into. The fourth ships as
+`deploy/l402/`, and is off unless you deploy it: the free endpoint this
+page describes is unchanged by its existence.
 
 ## Running a forwarder
 

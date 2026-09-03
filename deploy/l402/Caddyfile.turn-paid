@@ -1,0 +1,75 @@
+# turn.forgesworn.dev - the paid TURN credential endpoint, L402 in front of
+# the same server/turn-credentials.mjs the free endpoint uses.
+#
+# This is a SEPARATE vhost from kithmoot.forgesworn.dev on purpose. The app's
+# own /turn stays free and unauthenticated (see deploy/README.md, "The honest
+# cost of an unauthenticated endpoint"); this host is the one a room names in
+# its join link when it would rather pay than share an allowance. Because a
+# room's ICE servers are a plural, swappable list, choosing this is one config
+# change and so is leaving.
+#
+# Install: additive conf.d drop-in, imported by the main Caddyfile's
+# `import /etc/caddy/conf.d/*.Caddyfile`. Copy to
+# /etc/caddy/conf.d/turn.forgesworn.dev.Caddyfile - the .Caddyfile suffix is
+# what the glob matches - and never touch another tenant's directory, unit or
+# vhost. Validate the WHOLE config before reloading: a broken drop-in takes
+# every site on this box down, not just this one.
+#   sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+#   sudo systemctl reload caddy
+#
+# Needs an A record for `turn` in forgesworn.dev, grey-cloud (DNS-only), so
+# Caddy issues and renews the certificate itself.
+#
+# Bring docker-compose.yml up first. A reverse_proxy to a port nothing is
+# listening on is a 502 for anyone who finds the path.
+turn.forgesworn.dev {
+	encode zstd gzip
+
+	# Only /turn is routed. Aperture's own surface - its static root, any
+	# other service it might later be configured with - is not exposed by
+	# this vhost, and /healthz is deliberately absent here exactly as it is
+	# on the free endpoint: it exists for curl on the box, and publishing it
+	# only advertises the service to anyone scanning.
+	#
+	# A `handle` block rather than a bare matched `reverse_proxy`, for the
+	# same reason as the app's vhost: Caddy sorts directives by its own
+	# fixed order, not by file position, and `handle` sorts ahead of
+	# `reverse_proxy` - so the catch-all below would otherwise win.
+	handle /turn {
+		# Aperture, from docker-compose.yml, loopback-bound. It answers 402
+		# with a WWW-Authenticate: L402 challenge until a macaroon and
+		# preimage arrive, then proxies through to turn-credentials.mjs on
+		# the host at :8089.
+		reverse_proxy 127.0.0.1:8081
+	}
+
+	# Everything else is nothing. This host serves one endpoint; there is no
+	# site here, and a 404 says so without hinting at what else is running.
+	handle {
+		respond "not found" 404
+	}
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		# No browser renders anything from this host, so the strictest
+		# policy costs nothing and removes the question.
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+	}
+
+	# No access logs, matching kithmoot.forgesworn.dev and every other
+	# conf.d drop-in on this box. It matters more here, not less: this host
+	# sees the people who pay, and an access log would be a timestamped
+	# list of them sitting next to a wallet. Phoenixd already holds the
+	# only record billing needs.
+	#
+	# It also avoids the trap documented on the app's vhost - `sudo caddy
+	# validate` runs as root and creates any log file the config names,
+	# owned by root, after which the caddy user cannot open it and every
+	# subsequent reload fails on a file nobody remembers creating.
+	log {
+		output discard
+	}
+}

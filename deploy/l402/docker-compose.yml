@@ -1,0 +1,49 @@
+# Phoenixd and Aperture for KithMoot's paid TURN endpoint.
+#
+# Both bind to loopback. Caddy (Caddyfile.turn-paid) is the only thing that
+# reaches Aperture, and nothing but Aperture reaches Phoenixd. Publishing
+# either port would expose a hot wallet's REST API and an L402 proxy's own
+# surface to the internet for no gain.
+#
+# The Aperture image is built from a checkout of lightninglabs/aperture with
+# aperture-phoenixd's challenger wired in - stock Aperture does not understand
+# `phoenixdurl`. Set APERTURE_CONTEXT to that checkout. See README.md.
+
+services:
+  phoenixd:
+    image: ghcr.io/acinq/phoenixd:0.4.0
+    restart: always
+    # Loopback only. Anyone who reaches this API can spend the wallet.
+    ports:
+      - "127.0.0.1:9740:9740"
+    volumes:
+      - phoenixd-data:/root/.phoenix
+    command: ["--agree-to-terms-of-service", "--http-bind-ip", "0.0.0.0"]
+
+  aperture:
+    build:
+      context: ${APERTURE_CONTEXT:-../../../aperture}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - envsubst < /etc/aperture/aperture.yaml.tmpl > /tmp/aperture.yaml && exec aperture --configfile=/tmp/aperture.yaml
+    restart: always
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./aperture.yaml:/etc/aperture/aperture.yaml.tmpl:ro
+      - aperture-data:/home/aperture/.aperture
+    environment:
+      - PHOENIXD_PASSWORD=${PHOENIXD_PASSWORD:?set PHOENIXD_PASSWORD in .env}
+    # turn-credentials.mjs runs on the host as a systemd unit, not in this
+    # compose project, so Aperture reaches it through the host gateway. This
+    # is what `address: host.docker.internal:8089` in aperture.yaml resolves.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    user: "1000"
+    depends_on:
+      - phoenixd
+
+volumes:
+  phoenixd-data:
+  aperture-data:

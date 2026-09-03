@@ -1,0 +1,67 @@
+# Aperture config for KithMoot's paid TURN credential endpoint.
+#
+# This puts L402 in front of the *existing* server/turn-credentials.mjs. That
+# service is not modified and does not know this exists: Aperture is a reverse
+# proxy, so the whole paywall is this file plus a vhost. See README.md in this
+# directory for why the free endpoint stays free and who is expected to pay.
+#
+# Derived from aperture-phoenixd's own deploy/aperture.yaml, which is a
+# working config. The parts changed from it are the `services` block and the
+# price; the authenticator, dbbackend and strictverify are as proven there.
+#
+# Requires Aperture built with the aperture-phoenixd challenger wired in
+# (testdata/aperture-patch.diff in that repo). Stock Aperture does not
+# understand `phoenixdurl` and will refuse to start.
+
+# Loopback only. Caddy is the only thing that should be able to reach this -
+# see Caddyfile.turn-paid. Binding this publicly would expose Aperture's own
+# surface for no reason.
+listenaddr: "127.0.0.1:8081"
+
+# Caddy terminates TLS and renews the certificate. Aperture must not try.
+autocert: false
+
+authenticator:
+  # Phoenixd's REST API, bound to loopback by the compose file.
+  phoenixdurl: "http://phoenixd:9740"
+  # Never inline. envsubst reads this from the .env beside the compose file;
+  # Phoenixd writes the value into ~/.phoenix/phoenix.conf on first run.
+  phoenixdpassword: "${PHOENIXD_PASSWORD}"
+  network: "mainnet"
+  disable: false
+
+# Macaroon + preimage verification, without invoice status tracking. This is
+# Aperture's default and it is not a free choice here: Phoenixd's WebSocket
+# does not emit the invoice cancellation events strictverify=true needs, so
+# turning it on buys nothing and breaks the challenger. See the Limitations
+# section of aperture-phoenixd's README.
+strictverify: false
+
+# SQLite for the macaroon/token store, so there is no etcd to run. The file
+# lives in the aperture-data volume declared by docker-compose.yml.
+dbbackend: "sqlite"
+
+services:
+  - name: "kithmoot-turn"
+    # Only this host. A `.*` hostregexp on a box serving other tenants would
+    # put a paywall in front of whatever else resolved here.
+    hostregexp: "^turn\\.forgesworn\\.dev$"
+    # Only /turn. /healthz is not proxied publicly at all (Caddyfile.turn-paid
+    # does not route it), matching how the free endpoint is exposed.
+    pathregexp: "^/turn$"
+    # The existing minter. In the compose network this is the host's loopback;
+    # see the extra_hosts entry in docker-compose.yml.
+    address: "host.docker.internal:8089"
+    protocol: "http"
+
+    # 10 sats per one-hour credential. This is a spam price, not a margin
+    # price: the marginal bandwidth cost of a credential is a fraction of a
+    # penny, and what is actually being defended is the box's 20 TB egress
+    # allowance. At 10 sats, burning that allowance costs an attacker roughly
+    # 300,000 sats. The full arithmetic is in README.md.
+    price: 10
+
+    # The first three requests are free, so the endpoint can be tried before
+    # it is paid for - and so a room whose keeper's wallet is empty degrades
+    # to "a few free credentials" rather than to nothing at all.
+    auth: "freebie 3"
