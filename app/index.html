@@ -381,6 +381,40 @@
       <div id="parked" aria-hidden="true"></div>
     </main>
 
+    <!-- The "is this really them" ritual. A native <dialog> rather than the
+         page's own furniture: this is a moment you have to read carefully
+         before answering, so blocking is right, and showModal() gives the
+         focus trap and Escape-to-close for free. Filled in by
+         showVerification in app/src/main.ts. -->
+    <dialog id="verifyDialog" aria-labelledby="verifyTitle">
+      <form method="dialog" class="verifyForm">
+        <h2 id="verifyTitle">Is this really them?</h2>
+        <p id="verifyWarning" class="verifyWarning" hidden></p>
+        <p class="note">
+          Say your words out loud on the call, where you can see them and hear
+          their voice. They should answer with theirs.
+        </p>
+        <dl class="verifyWords">
+          <dt>You say</dt>
+          <dd id="verifyMine"></dd>
+          <dt>They should say back</dt>
+          <dd id="verifyTheirs"></dd>
+        </dl>
+        <p class="note">
+          This checks that you are both looking at the same pair of keys, so
+          nothing carrying the room has substituted one. It does not stop
+          somebody already in the room from working the words out — they hold
+          the room key too.
+        </p>
+        <div class="verifyButtons">
+          <button type="submit" value="cancel">Cancel</button>
+          <button type="submit" value="verify" id="verifyConfirm" class="primary">
+            They match — mark verified
+          </button>
+        </div>
+      </form>
+    </dialog>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

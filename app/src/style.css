@@ -494,6 +494,75 @@ video {
   font-size: 0.85rem;
 }
 
+/* The verification dialog. The rest of the app confirms a one-line yes/no
+   with confirm(), which is fine for "remove this person?"; this one has
+   words to read and say aloud, so it gets furniture of its own. */
+#verifyDialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0;
+  max-width: 34rem;
+  width: calc(100% - 2rem);
+}
+
+#verifyDialog::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.verifyForm {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin: 0;
+}
+
+.verifyForm h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.verifyWarning {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid var(--danger);
+  background: rgb(255 136 136 / 0.12);
+  color: var(--text);
+}
+
+/* The words themselves are the point of the dialog, so they are the biggest
+   thing in it and set in the monospace face - these get read aloud
+   character by character when somebody mishears. */
+.verifyWords {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem 1rem;
+  align-items: baseline;
+}
+
+.verifyWords dt {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.verifyWords dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+.verifyButtons {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 /* The trust chip. A button, because it does something: clicking shows the
    words to say. Three states, and only one is coloured as a problem -
    "not verified" is the ordinary case for most people, and colouring that

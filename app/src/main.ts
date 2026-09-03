@@ -2887,36 +2887,53 @@ function verifyChip(view: ParticipantView, name: string): HTMLElement {
   return chip
 }
 
-/** The words, and the one button that means "yes, that is them". */
+/**
+ * The words, and the one button that means "yes, that is them".
+ *
+ * A real dialog rather than `confirm()`: the words have to be read carefully
+ * and said out loud, and a browser alert with newlines in it is the wrong
+ * furniture for the one security ritual this app has. `showModal` brings the
+ * focus trap and Escape with it.
+ */
 function showVerification(view: ParticipantView, name: string, status: string): void {
   if (!session) return
   let words: { mine: string; theirs: string }
   try {
     words = session.verificationWords(view.participant)
   } catch {
+    // A participant with no words - ourselves, or a malformed key - has
+    // nothing honest to show, and a plausible-looking panel would be worse
+    // than none.
     return
   }
 
   const shownName = name || short(view.participant)
-  const warning =
-    status === 'key-changed'
-      ? [`WARNING: you verified a DIFFERENT key under the name "${shownName}".`, '']
-      : []
-  const lines = [
-    ...warning,
-    `Say to ${shownName}: ${words.mine}`,
-    `They should say back: ${words.theirs}`,
-    '',
-    'Say them out loud on the call, where you can hear their voice. If both',
-    'match, mark them verified. If they do not, somebody is not who they say.',
-    '',
-    'This checks that you are both looking at the same pair of keys. It does',
-    'not stop somebody already in the room from working out the words.',
-  ]
+  const dialog = $('verifyDialog') as HTMLDialogElement
+  $('verifyTitle').textContent = `Is this really ${shownName}?`
+  $('verifyMine').textContent = words.mine
+  $('verifyTheirs').textContent = words.theirs
 
-  if (!confirm(`${lines.join('\n')}\n\nMark ${shownName} as verified?`)) return
-  rememberVerified(deviceStore, view.participant, name, Date.now())
-  if (session) render(session.participants(), meParticipant)
+  const warning = $('verifyWarning')
+  if (status === 'key-changed') {
+    warning.textContent =
+      `You have verified a different key under the name "${shownName}" before. ` +
+      'Either they are on a new key, or this is not them. Do not mark this verified ' +
+      'unless the words match and you know the voice.'
+    warning.hidden = false
+  } else {
+    warning.textContent = ''
+    warning.hidden = true
+  }
+
+  const onClose = () => {
+    dialog.removeEventListener('close', onClose)
+    if (dialog.returnValue !== 'verify') return
+    rememberVerified(deviceStore, view.participant, name, Date.now())
+    if (session) render(session.participants(), meParticipant)
+  }
+  dialog.addEventListener('close', onClose)
+  dialog.returnValue = ''
+  dialog.showModal()
 }
 
 const LOCAL_SPEAKING_KEY = 'self'

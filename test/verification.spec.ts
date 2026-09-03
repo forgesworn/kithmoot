@@ -16,24 +16,16 @@ import { createRoom, joinWithMedia, newDeviceContext } from './browser.js'
  * that somebody is an impostor.
  */
 
-/** Read the verification panel by clicking the chip, and hand back its text. */
-async function openVerification(page: Page, tileText: string): Promise<string> {
-  const dialog = new Promise<string>((resolve) => {
-    page.once('dialog', async (d) => {
-      const message = d.message()
-      await d.dismiss()
-      resolve(message)
-    })
-  })
+/** Open the verification dialog from a tile and read the two words out of it. */
+async function openVerification(page: Page, tileText: string): Promise<{ mine: string; theirs: string }> {
   await page.locator('#room .participant', { hasText: tileText }).locator('.verifyChip').click()
-  return dialog
-}
-
-/** "Say to X: a b c" -> "a b c" */
-function saidWords(panel: string, label: string): string {
-  const line = panel.split('\n').find((l) => l.startsWith(label))
-  expect(line, `no "${label}" line in:\n${panel}`).toBeTruthy()
-  return line!.slice(label.length).trim()
+  const dialog = page.locator('#verifyDialog')
+  await expect(dialog).toBeVisible()
+  const mine = ((await page.locator('#verifyMine').textContent()) ?? '').trim()
+  const theirs = ((await page.locator('#verifyTheirs').textContent()) ?? '').trim()
+  expect(mine, 'no words shown to say').toBeTruthy()
+  expect(theirs, 'no words shown to expect').toBeTruthy()
+  return { mine, theirs }
 }
 
 test('both sides are shown the same words, and verifying is remembered', async ({ browser, baseURL }) => {
@@ -61,10 +53,14 @@ test('both sides are shown the same words, and verifying is remembered', async (
     const panelA = await openVerification(pageA, 'Bob')
     const panelB = await openVerification(pageB, 'Ada')
 
-    const adaSays = saidWords(panelA, 'Say to Bob:')
-    const adaExpects = saidWords(panelA, 'They should say back:')
-    const bobSays = saidWords(panelB, 'Say to Ada:')
-    const bobExpects = saidWords(panelB, 'They should say back:')
+    const { mine: adaSays, theirs: adaExpects } = panelA
+    const { mine: bobSays, theirs: bobExpects } = panelB
+
+    // Escape closes it without verifying anything.
+    await pageA.keyboard.press('Escape')
+    await pageB.keyboard.press('Escape')
+    await expect(pageA.locator('#verifyDialog')).toBeHidden()
+    await expect(bobOnAda.locator('.verifyChip'), 'dismissing must not verify').toHaveText('not verified')
 
     // The whole ritual, in two assertions: what each says is what the other
     // is waiting to hear.
@@ -79,8 +75,8 @@ test('both sides are shown the same words, and verifying is remembered', async (
     expect(adaSays.split(' ')).toHaveLength(3)
 
     // Now actually verify, and check it sticks.
-    pageA.once('dialog', (d) => void d.accept())
     await bobOnAda.locator('.verifyChip').click()
+    await pageA.locator('#verifyConfirm').click()
     await expect(bobOnAda.locator('.verifyChip'), 'verifying Bob did not stick').toHaveText('verified', {
       timeout: 10_000,
     })
