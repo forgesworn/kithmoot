@@ -949,3 +949,97 @@ label.note {
 .approvalCard .options button {
   margin: 0;
 }
+
+/* ---------------------------------------------------------------------------
+   Narrow screens
+
+   Nothing here is about width. The layout already fits a phone: the body is
+   fluid under its 820px cap, every row wraps, and an audit at 320, 360 and
+   390px finds not one element spilling past the viewport. What was wrong on a
+   phone was the ORDER.
+
+   A room page is setup furniture followed by the room: the media buttons, the
+   share link with the three paragraphs explaining what a link does and does
+   not carry, the pairing panel, the notification switch and the carrying
+   offer - and only then the roster, the chat and the agents. On a desktop
+   that costs a glance, because a wide column makes each of those blocks two
+   or three lines. On a phone the same words become paragraphs, and the
+   conversation starts about seventeen hundred pixels down: two screens of
+   explanation to reach a message, with the agents panel last on the page.
+
+   So on a narrow screen the room comes first and the furniture follows it.
+   The media buttons stay second, because a call is the one thing you want
+   within reach of the chat you were reading when somebody suggested one.
+
+   This reorders what is PAINTED, not what is READ: the DOM order is
+   unchanged, so a screen reader and the tab key still walk the sections in
+   their written order. That divergence is the reason to move exactly one
+   section rather than shuffle them all.
+
+   Kept off tablets deliberately. At 768px the text is already wide enough
+   that the furniture costs about what it costs on a desktop. */
+@media (max-width: 700px) {
+  main {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* The room, then the way into a call, then everything else in the order it
+     is written. Only these two are named: a section with no `order` sits at
+     0 and keeps its place relative to its siblings. */
+  #roomArea {
+    order: -2;
+  }
+
+  #deviceControls {
+    order: -1;
+  }
+
+  /* A flex container does not collapse the margins between its children, so
+     the gaps the block layout used to fold together would otherwise stack up
+     and undo some of what the reorder just bought. One explicit gap instead,
+     and the section margins that fed the old collapsing are dropped. */
+  main > section,
+  main > p {
+    margin-block: 0;
+  }
+
+  main {
+    gap: 1.25rem;
+  }
+
+  /* The agents' own channel is the reason several of these rooms exist, and a
+     collapsed row of text at the foot of a long page reads as a feature that
+     was never built. Give it the same weight as the chat it sits under. */
+  #agentsPanel > summary {
+    padding: 0.5rem 0;
+    font-size: 1rem;
+  }
+
+  /* A log that can only ever be 220px tall wastes a phone screen, and one
+     that grows without limit pushes its own input off the bottom. Half the
+     viewport, which is about six exchanges. */
+  .log {
+    max-height: 50vh;
+  }
+
+  /* An empty log is a border around nothing, and at this width that renders
+     as a grey sliver a couple of pixels tall - which reads as a panel that
+     failed to load rather than one with nothing in it yet. Give it the
+     height of a few lines so it is visibly a place messages will appear. */
+  .log:empty {
+    min-height: 4.5rem;
+  }
+
+  /* "In the room" is three words and a phone breaks it across two lines to
+     make room for two buttons beside it, which leaves the heading colliding
+     with the controls. Keep the heading whole and let the buttons drop to
+     their own row when they no longer fit. */
+  .roomHead {
+    flex-wrap: wrap;
+  }
+
+  .roomHead h2 {
+    white-space: nowrap;
+  }
+}
