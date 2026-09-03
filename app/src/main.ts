@@ -13,6 +13,7 @@ import {
 } from './device-store.js'
 import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { RoomWatch } from './room-watch.js'
+import { SpeakingMonitor } from './speaking-monitor.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
   RoomSession,
@@ -1689,6 +1690,8 @@ function onMicEnded(): void {
   mic?.stop()
   mic = undefined
   micTrack = undefined
+  speakingMonitor.unwatch(LOCAL_SPEAKING_KEY)
+  paintSpeaking()
   publishActiveTracks()
   updateUi()
 }
@@ -1707,6 +1710,10 @@ function adoptMicTrack(): void {
   micTrack.removeEventListener('ended', onMicEnded)
   micTrack = next
   micTrack.addEventListener('ended', onMicEnded)
+  // The tap follows the published track, not the raw microphone: what the
+  // indicator should report is what the room can actually hear, and those
+  // differ whenever the masking graph is in the path.
+  speakingMonitor.watch(LOCAL_SPEAKING_KEY, micTrack)
   publishActiveTracks()
   updateUi()
 }
@@ -1727,6 +1734,10 @@ async function toggleMic(): Promise<void> {
     }
     mic = pipeline
     micTrack.addEventListener('ended', onMicEnded)
+    // Our own tile lights up too, so a person can see they are being picked
+    // up rather than guessing. Muting sets `track.enabled = false`, which
+    // feeds the analyser silence, so a muted mic goes dark on its own.
+    speakingMonitor.watch(LOCAL_SPEAKING_KEY, micTrack)
     publishActiveTracks()
     renderVoiceState(pipeline.state)
   } else {
@@ -2131,6 +2142,13 @@ function render(views: ParticipantView[], me: string): void {
     // The claim this app exists to prove: two devices, one tile. Anything
     // else in the styling is decoration.
     if (view.devices.length > 1) box.classList.add('linked')
+
+    // Which devices this tile speaks for. `render()` rebuilds the room from
+    // scratch, so a tile rebuilt in the middle of a word has to come back
+    // already lit rather than waiting for the next poll to notice.
+    const tileDevices = view.participant === me ? [LOCAL_SPEAKING_KEY] : view.devices
+    box.dataset.devices = tileDevices.join(' ')
+    if (tileDevices.some((d) => speakingMonitor.isSpeaking(d))) box.classList.add('speaking')
 
     const shown = shownAs(view.participant, view.name)
 
@@ -2817,6 +2835,41 @@ interface RemoteVideo {
 const remoteVideos = new Map<string, RemoteVideo>()
 const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamTrack }>()
 
+/**
+ * The key our own microphone is tapped under.
+ *
+ * NOT `myDeviceId`. The mic can be switched on before joining - that is the
+ * ordinary path, and the one the acceptance test drives - and `myDeviceId`
+ * is empty until the join builds the device key. Keying the local tap on it
+ * registered every pre-join microphone under `''`, so a person's own tile
+ * never lit while everybody else's did. A constant cannot be too early, and
+ * cannot collide with a device id, which is 64 hex characters.
+ */
+const LOCAL_SPEAKING_KEY = 'self'
+
+/**
+ * Who is talking. Keyed by device, because that is what carries a track -
+ * a person with two devices lights up when either of them speaks, which is
+ * the same grouping rule the tiles already use.
+ *
+ * Repaints only the class on the affected tiles, never the room: `render()`
+ * rebuilds every element it touches, and doing that twenty times a second
+ * would throw away every `<video>` in the grid mid-frame.
+ */
+const speakingMonitor = new SpeakingMonitor({
+  onChange: () => paintSpeaking(),
+})
+
+/** Applies the current speaking state to whichever tiles are on screen.
+ *  Cheap enough to call on every change and on every render. */
+function paintSpeaking(): void {
+  const speaking = speakingMonitor.speaking()
+  for (const box of document.querySelectorAll<HTMLElement>('.participant[data-devices]')) {
+    const devices = (box.dataset.devices ?? '').split(' ').filter(Boolean)
+    box.classList.toggle('speaking', devices.some((d) => speaking.has(d)))
+  }
+}
+
 /** How many checks a picture may go without a new frame before it comes off
  *  screen. Two at a one-second interval: long enough not to flicker on a
  *  dropped frame or a slow moment, short enough that "off" looks off. */
@@ -2995,10 +3048,17 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.srcObject = new MediaStream([track])
       if (existing) existing.track = track
     }
+    // Tap it for the speaking indicator. Keyed by device rather than by
+    // track, so a device sending both a microphone and its screen's audio
+    // lights its tile from whichever is making noise - which is what a
+    // person watching the grid means by "they are talking".
+    speakingMonitor.watch(device, track)
     track.addEventListener('ended', () => {
       if (remoteAudios.get(key)?.track !== track) return
       el.remove()
       remoteAudios.delete(key)
+      speakingMonitor.unwatch(device)
+      paintSpeaking()
       if (session) render(session.participants(), meParticipant)
     })
   }

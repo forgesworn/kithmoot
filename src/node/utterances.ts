@@ -15,6 +15,13 @@
  * it, and the WebRTC track that feeds that, live in `audio.ts`.
  */
 
+import { rms } from '../audio-level.js'
+
+// Re-exported: this module was where `rms` lived, and it is part of its
+// published surface. The definition moved to `audio-level.ts` so the
+// browser's speaking indicator could share it - see the note there.
+export { rms }
+
 export interface Utterance {
   /** Mono PCM, in the range -1..1, at `sampleRate`. */
   pcm: Float32Array
@@ -139,13 +146,6 @@ export class UtteranceSplitter {
     this.#silentSamples = 0
     this.#startedAt = undefined
   }
-}
-
-export function rms(block: Float32Array): number {
-  if (block.length === 0) return 0
-  let sum = 0
-  for (let i = 0; i < block.length; i++) sum += block[i]! * block[i]!
-  return Math.sqrt(sum / block.length)
 }
 
 function concat(chunks: Float32Array[], total: number): Float32Array {

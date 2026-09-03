@@ -322,3 +322,7 @@ export {
   fftInPlace,
 } from './voice-effects.js'
 export type { VoicePreset, VoiceSettings, VoiceMaskerOptions } from './voice-effects.js'
+
+export { SpeakingDetector, SpeakingSet, SPEAKING } from './speaking.js'
+export type { SpeakingThresholds } from './speaking.js'
+export { rms, rmsFromByteTimeDomain } from './audio-level.js'

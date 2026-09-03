@@ -81,6 +81,14 @@ to make that one thing true.
   belongs to, and singular roles (`mic`, `monitor`) are arbitrated
   deterministically so two devices under one identity can never both claim
   the live microphone.
+- **A speaking indicator**, grouped the same way: a person's tile lights when
+  either of their devices makes a noise, so the two-device claim holds here
+  too. Energy off an `AnalyserNode`, with two thresholds and 400ms of
+  hangover so it rides the gaps between words instead of strobing through a
+  sentence. Your own tile lights as well, because a person should be able to
+  see they are being picked up rather than guess. Muting is instant: the
+  track stays published with `enabled = false`, which feeds the analyser
+  silence.
 - Mesh WebRTC for video, voice and screen share, negotiated directly between
   devices with no media server in the path. SDP/ICE signalling travels
   wrapped in a NIP-59-style gift wrap addressed to one peer, so a relay

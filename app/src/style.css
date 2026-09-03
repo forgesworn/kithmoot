@@ -226,6 +226,38 @@ details#roomSettings label {
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
+/* Speaking: an outer ring, so it stacks with `linked`'s inset one rather
+   than replacing it. Being one person across two devices is the claim this
+   app exists to show, and it must stay legible while somebody is talking.
+
+   A shadow rather than a border width, because growing the border by 3px
+   reflows the whole grid every time anybody starts or stops a sentence.
+
+   `--ok` rather than `--accent`: accent already means "one person", and a
+   second meaning on the same colour makes both harder to read. */
+.participant.speaking {
+  box-shadow: 0 0 0 3px var(--ok);
+}
+
+.participant.linked.speaking {
+  box-shadow:
+    0 0 0 1px var(--accent) inset,
+    0 0 0 3px var(--ok);
+}
+
+/* Short enough to feel immediate, long enough not to flash. The detector's
+   hangover already stops this strobing between words; this only softens the
+   edges of a real start and stop. */
+.participant {
+  transition: box-shadow 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .participant {
+    transition: none;
+  }
+}
+
 .participant h3 {
   margin: 0 0 0.5rem;
   font-size: 0.9rem;
