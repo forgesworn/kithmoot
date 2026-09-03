@@ -172,6 +172,12 @@ to make that one thing true.
   merely says it is somebody's gets the plain badge. A room's link can
   require it: `agents: 'owned-by-members'` admits an agent only with a
   proof from a participant who is in the room. See `docs/agents.md`.
+- **Approvals in the room.** An agent about to act can ask - on the control
+  channel, where everybody sees the question - and the person who can
+  answer sees a card with a button per option. Only an announced admin or
+  the agent's verified principal counts; anybody else's click is ignored
+  and the agent is told. Everybody sees "Ada approved Tally's request".
+  Through the stdio brain as an event, and the MCP brain as a tool.
 - **Invite an agent with one click.** An agent host (`kithmoot-agent host`)
   sits in the room with a catalogue of personas; every person sees the
   catalogue under the agents panel and starts or stops one with a button.
@@ -400,7 +406,7 @@ Stated plainly, before anyone else finds it:
 ```bash
 npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 954 tests, in-process relay simulator, no network
+npm test          # 987 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, over live relays
 E2E_RELAYS=local npm run test:e2e  # the same, against test/ws-relay.mjs: what CI runs

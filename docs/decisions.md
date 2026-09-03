@@ -633,6 +633,41 @@ that - an agent that arrives first is admitted on its next entry once its
 principal has - and so does departure, an agent going when its principal
 does. Off by default, so a room that says nothing works as it always did.
 
+## An approval is asked and answered in the room, and only the right answer counts
+
+An agent about to act on somebody's behalf should ask them, and the ask
+should happen where the room can see it: a person in a call watching an
+agent they did not bring say "may I?" and get "yes" from a stranger has
+learned something worth knowing. So approvals ride the `control` channel
+like everything an agent host does, as ordinary room-key chat messages.
+
+**The answer is signed by construction.** A control message is a chat
+message: signed by a device, bound to a participant by the credential it
+carries, checked by every reader. There is nothing extra to sign.
+
+**Who counts is the only rule, and it is one the room already has.** An
+agent takes a verdict from a participant on the keeper's announced admin
+list - the signed list that already gates removal - or from its own
+verified principal, the proof it carries on every entry. Anybody else's
+answer is ignored and reported, not refused with an error: an error would
+be an argument with the wrong person. The app shows the card only to
+people whose click would count, and everybody the outcome, decided by the
+same rule on the reader's side, so the "approved" line is not something a
+bystander can produce.
+
+**Expiry is the agent's clock.** The request names when it stops waiting;
+a verdict stamped after that is ignored, and the agent's caller gets
+`expired` rather than nothing. Ten minutes by default, because a person
+who has not looked in ten minutes is not going to, and an agent blocked
+on a question nobody will answer is an agent that should do the safe thing
+and say so.
+
+**What this is not.** It is not a permission system. A person who is not
+in the room cannot approve from it; an agent that does not ask is not
+stopped by anything here; the answer is a word, and what the agent does
+with the word is the agent's. It is the smallest shape in which "the human
+said yes" is something the whole room witnessed.
+
 ## A member is removed by a room epoch, and the key is what removes them
 
 Link rotation retires a rendezvous. It never removed anybody: everybody

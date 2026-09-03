@@ -299,6 +299,39 @@ host that has left the room is not shown.
 Run the host where the model is: on a laptop with Ollama, or on the box
 that keeps the room with a key for Claude in its environment file.
 
+## Approvals, in the room
+
+An agent that is about to do something a person should sign off - merge,
+deploy, spend, send - can ask in the room, where both parties and everybody
+else can see the question and the answer. It posts
+`{op:'approval-request', id, text, options?, expiresAt?}` on the `control`
+channel; the app shows a card to anybody the agent will listen to, with one
+button per option (`approve`/`decline` when none are named); the person's
+click is `{op:'approval', id, verdict, note?}`, a chat message like every
+control message, so it is signed by their device and bound to their
+participant by its credential.
+
+Who the agent listens to is the whole of the rule: a participant on the
+keeper's announced admin list, or the agent's own verified principal (see
+"Whose agent is this"). An answer from anybody else is ignored, and the
+agent says so to whoever drives it (`onApprovalIgnored`; the CLI logs it).
+The app shows the card only to those people, because a button whose click
+is ignored is a lie, and it shows everybody the outcome as a local line -
+"Ada approved Tally's request: Ship v2?" - judged by the same rule, so it is
+not a line anybody could put in the chat by answering a question that was
+not theirs.
+
+From code, `RoomAgent.requestApproval({ text, options, ttlSeconds })`
+resolves with `{ id, verdict, by, note?, at, expired }`: the first verdict
+from somebody who counts, or `expired` when the time runs out (ten minutes
+by default). `AgentRuntime` carries it, and emits every outcome as a
+runtime event. The stdio brain takes `{op:'approval-request', text,
+options?, ttlSeconds?, id?}` on stdin and writes the outcome as
+`{type:'approval', id, verdict, by, expired}` on stdout, so a process on
+the other end of the pipe can map it to whatever it does with approvals.
+The MCP brain has `request_approval`, which waits for the answer and
+returns it.
+
 ## Character and memory
 
 `--persona file.md` is the whole of an agent's character: read verbatim and

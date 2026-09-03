@@ -127,6 +127,8 @@ export class Scribe {
       this.#roster(event.participants)
       return
     }
+    // A verdict on something this scribe asked is not a line of minutes.
+    if (event.type === 'approval') return
     const m = event.message
     if (event.type === 'transcript') {
       this.#lines.push(m)

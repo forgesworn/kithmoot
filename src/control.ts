@@ -79,11 +79,31 @@ export type ControlMessage =
    *  bound by its credential like any chat message, so there is nothing to
    *  name. See `Nudger` in src/node/nudge.ts. */
   | { op: 'nudge'; on: boolean }
+  /**
+   * An agent asking a person for a decision, where everybody can see it
+   * asked. `options` are the verdicts it will take, `approve`/`decline`
+   * when absent; `expiresAt` is unix seconds after which it stops waiting.
+   * Answered by an `approval` from somebody the agent will listen to: a
+   * participant on the keeper's announced admin list, or the agent's own
+   * verified principal (`AgentOwnership`). Anybody else's answer is
+   * ignored, and the agent says so to whoever is driving it.
+   */
+  | { op: 'approval-request'; id: string; text: string; options?: string[]; expiresAt?: number }
+  /** A person's answer to an `approval-request`, one of its options. The
+   *  sender is the chat message's credential-bound participant, which is
+   *  what makes it a signed answer. */
+  | { op: 'approval'; id: string; verdict: string; note?: string }
 
 const HEX64 = /^[0-9a-f]{64}$/
 const ID = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const MAX_AGENTS = 12
 const MAX_ADMINS = 32
+/** An approval id: what the agent chose, short and safe to put in a DOM id. */
+const APPROVAL_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/i
+const APPROVAL_OPTION = /^[a-z0-9][a-z0-9 _-]{0,31}$/i
+export const MAX_APPROVAL_TEXT = 500
+export const MAX_APPROVAL_OPTIONS = 8
+export const DEFAULT_APPROVAL_OPTIONS: readonly string[] = ['approve', 'decline']
 const MAX_DESCRIPTION = 140
 
 function str(v: unknown, max: number): string | undefined {
@@ -198,6 +218,31 @@ export function decodeControl(text: string): ControlMessage | null {
     }
     case 'close':
       return { op: 'close' }
+    case 'approval-request': {
+      const id = str(m.id, 64)
+      const text = str(m.text, MAX_APPROVAL_TEXT)
+      if (!id || !APPROVAL_ID.test(id) || !text) return null
+      const out: ControlMessage = { op: 'approval-request', id, text }
+      if (m.options !== undefined) {
+        if (!Array.isArray(m.options) || m.options.length === 0 || m.options.length > MAX_APPROVAL_OPTIONS) return null
+        if (!m.options.every((o) => typeof o === 'string' && APPROVAL_OPTION.test(o))) return null
+        out.options = [...new Set(m.options as string[])]
+      }
+      if (m.expiresAt !== undefined) {
+        if (!Number.isSafeInteger(m.expiresAt) || (m.expiresAt as number) <= 0) return null
+        out.expiresAt = m.expiresAt as number
+      }
+      return out
+    }
+    case 'approval': {
+      const id = str(m.id, 64)
+      const verdict = str(m.verdict, 32)
+      if (!id || !APPROVAL_ID.test(id) || !verdict || !APPROVAL_OPTION.test(verdict)) return null
+      const out: ControlMessage = { op: 'approval', id, verdict }
+      const note = str(m.note, MAX_DESCRIPTION)
+      if (note) out.note = note
+      return out
+    }
     case 'nudge':
       if (typeof m.on !== 'boolean') return null
       return { op: 'nudge', on: m.on }

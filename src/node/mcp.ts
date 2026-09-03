@@ -94,7 +94,7 @@ export async function serveMcp(runtime: AgentRuntime, opts: { name?: string; ver
         'Block until a new message arrives on one of the chosen conversations, or somebody arrives or leaves, or the timeout passes. Returns the event, or nothing on timeout. Call this in a loop to follow the room.',
       inputSchema: {
         timeoutMs: z.number().int().min(100).max(300_000).default(60_000),
-        channels: z.array(z.enum(['chat', 'backchannel', 'transcript', 'roster'])).optional(),
+        channels: z.array(z.enum(['chat', 'backchannel', 'transcript', 'roster', 'approval'])).optional(),
       },
     },
     async ({ timeoutMs, channels }) => {
@@ -102,6 +102,21 @@ export async function serveMcp(runtime: AgentRuntime, opts: { name?: string; ver
       if (!event) return text({ event: null, timedOut: true })
       return text({ event: toStdioEvent(event), timedOut: false })
     },
+  )
+
+  server.registerTool(
+    'request_approval',
+    {
+      title: 'Ask a person for a decision',
+      description:
+        'Post a question on the room’s control channel, where everybody can see it, and wait for an answer from somebody this agent listens to: a participant on the keeper’s announced admin list, or this agent’s own verified principal. Returns the verdict (one of the options, `approve`/`decline` by default) and who gave it, or `expired` if nobody answered in time. Anybody else’s answer is ignored.',
+      inputSchema: {
+        text: z.string().min(1).max(500),
+        options: z.array(z.string().min(1).max(32)).min(1).max(8).optional(),
+        timeoutMs: z.number().int().min(1_000).max(3_600_000).default(600_000),
+      },
+    },
+    async ({ text: body, options, timeoutMs }) => text(await runtime.requestApproval({ text: body, options, ttlSeconds: timeoutMs / 1000 })),
   )
 
   server.registerTool(

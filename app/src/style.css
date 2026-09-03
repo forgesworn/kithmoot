@@ -892,3 +892,28 @@ label.note {
   color: #b9b3a6;
   font-style: italic;
 }
+
+/* An agent's question, for the person who can answer it. */
+.approvalCard {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  margin: 0.4rem 0;
+  background: var(--panel);
+}
+.approvalCard .who {
+  display: block;
+  margin-bottom: 0.3rem;
+}
+.approvalCard .text {
+  display: block;
+  margin: 0.2rem 0 0.5rem;
+}
+.approvalCard .options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.approvalCard .options button {
+  margin: 0;
+}

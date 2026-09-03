@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { RoomAgent } from '../agent.js'
+import type { ApprovalOutcome, ApprovalRequestOptions, RoomAgent } from '../agent.js'
 import type { ChatLog, ChatMessage } from '../chat.js'
 import type { ParticipantView } from '../session.js'
 import { listenToTrack } from './audio.js'
@@ -15,6 +15,9 @@ export const CHANNELS: readonly Channel[] = ['chat', 'backchannel', 'transcript'
 export type RuntimeEvent =
   | { type: Channel; message: ChatMessage; at: number }
   | { type: 'roster'; participants: ParticipantView[]; at: number }
+  /** How a request this agent made through `requestApproval` ended: a
+   *  verdict from an approver, with who gave it, or `expired`. */
+  | { type: 'approval'; id: string; verdict: string; by?: string; note?: string; expired: boolean; at: number }
 
 /**
  * Who an agent is.
@@ -90,6 +93,11 @@ export class AgentRuntime {
     this.#unsubs.push(
       this.agent.onRoster((participants) => this.#emit({ type: 'roster', participants, at: this.#now() })),
     )
+    this.#unsubs.push(
+      this.agent.onApproval((outcome) =>
+        this.#emit({ type: 'approval', id: outcome.id, verdict: outcome.verdict, by: outcome.by, note: outcome.note, expired: outcome.expired, at: this.#now() }),
+      ),
+    )
     return this
   }
 
@@ -132,6 +140,8 @@ export class AgentRuntime {
       const line =
         event.type === 'roster'
           ? { type: 'roster', at: event.at, participants: event.participants.map((p) => ({ participant: p.participant, name: p.name, agent: p.agent === true })) }
+          : event.type === 'approval'
+          ? { type: 'approval', at: event.at, id: event.id, verdict: event.verdict, by: event.by, note: event.note }
           : { type: event.type, at: event.at, id: event.message.id, participant: event.message.participant, name: event.message.name, kind: event.message.kind, speaker: event.message.speaker, text: event.message.text, sentAt: event.message.sentAt }
       await appendFile(join(this.#memoryDir, 'log.jsonl'), JSON.stringify(line) + '\n')
     } catch {
@@ -208,6 +218,11 @@ export class AgentRuntime {
    *  it; that is the point. */
   async whisper(text: string): Promise<void> {
     await this.agent.backchannel.send(text)
+  }
+
+  /** Ask a person for a decision, in the room. See `RoomAgent.requestApproval`. */
+  requestApproval(opts: ApprovalRequestOptions): Promise<ApprovalOutcome> {
+    return this.agent.requestApproval(opts)
   }
 
   /**

@@ -347,6 +347,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   // Removed, or the room closed under this agent: there is nothing left to
   // be in. A keeper closing its own room ends the same way, and its state
   // file already says closed, so a supervisor's restart makes no new room.
+  agent.onApprovalIgnored((ignored) => log(`approval ${ignored.id}: ignored "${ignored.verdict}" from ${ignored.by.slice(0, 8)} (${ignored.reason})`))
   agent.onRemoved((notice) => {
     log(`removed from the room${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}`)
     stop()
