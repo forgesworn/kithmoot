@@ -3,8 +3,8 @@
   --bg: #101114;
   --panel: #1a1b1f;
   --border: #2c2e33;
-  --text: #eee;
-  --muted: #999;
+  --text: #eae6dc;
+  --muted: #aca79c;
   --accent: #4ecbff;
   --accent-dim: #244a5c;
   --danger: #f88;
@@ -27,11 +27,25 @@
 body {
   font-family: system-ui, sans-serif;
   margin: 0;
-  padding: 1rem;
+  padding: 1rem clamp(1rem, 3vw, 2.5rem);
   background: var(--bg);
   color: var(--text);
-  max-width: 820px;
+  max-width: 1500px;
   margin-inline: auto;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+/* Prose keeps the measure the shell gave up. Everything a person READS in
+   sentences is capped here; everything they SCAN - the roster, the grid,
+   the logs, the rows of controls - is left to use the width. */
+.note,
+.linkBox p,
+.assistBox p,
+#chatLog p,
+.log p,
+main > p {
+  max-width: 72ch;
 }
 
 h1 {
@@ -72,14 +86,33 @@ button:disabled {
 }
 
 input[type='text'],
-input:not([type]) {
+input[type='url'],
+input[type='password'],
+input[type='search'],
+input[type='number'],
+input:not([type]),
+textarea {
   font-family: monospace;
-  padding: 0.5rem;
+  font-size: 1rem;
+  padding: 0.55rem 0.6rem;
   width: 100%;
   background: #16171a;
   color: var(--text);
-  border: 1px solid #444;
+  border: 1px solid #5a5e66;
   border-radius: 6px;
+}
+
+/* A field should say where it is before it is typed in and say plainly
+   when it has the keyboard. The glow is the focus ring; the outline
+   underneath it is what a forced-colours or high-contrast mode keeps when
+   the shadow is thrown away. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(78 203 255 / 25%);
 }
 
 section {
@@ -88,7 +121,7 @@ section {
 
 details#roomSettings {
   margin-top: 0.75rem;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   color: var(--muted);
 }
 
@@ -137,7 +170,7 @@ details#roomSettings label {
 #shareQrDetails summary {
   cursor: pointer;
   color: var(--accent);
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 #pairQrWrap {
@@ -147,7 +180,7 @@ details#roomSettings label {
 #status {
   min-height: 1.25rem;
   color: var(--danger);
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 /* Toggles - the microphone, camera and screen-share controls. An "on" toggle
@@ -182,7 +215,7 @@ details#roomSettings label {
 }
 
 .indicator {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   color: var(--muted);
   min-height: 1.1rem;
 }
@@ -228,7 +261,7 @@ details#roomSettings label {
 
 .participant h3 {
   margin: 0 0 0.5rem;
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-family: monospace;
   display: flex;
   align-items: center;
@@ -238,7 +271,7 @@ details#roomSettings label {
 
 .participant .badge {
   padding: 0.1rem 0.4rem;
-  font-size: 0.7rem;
+  font-size: 0.85rem;
   font-family: system-ui, sans-serif;
   border-radius: 4px;
   background: var(--accent);
@@ -255,7 +288,7 @@ details#roomSettings label {
   background: #222;
   border-radius: 4px;
   padding: 0.4rem 0.6rem;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .media {
@@ -290,10 +323,10 @@ video {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.6rem;
-  height: 220px;
+  height: clamp(220px, 38vh, 460px);
   overflow-y: auto;
   background: var(--panel);
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 #chatLog p {
@@ -382,7 +415,7 @@ video {
   padding: 0.15rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 999px;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .attachChip button {
@@ -440,7 +473,7 @@ video {
   max-height: 220px;
   overflow-y: auto;
   background: var(--panel);
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .log p {
@@ -459,7 +492,112 @@ video {
 .count {
   color: var(--muted);
   font-weight: normal;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
+}
+
+/* The verification dialog. The rest of the app confirms a one-line yes/no
+   with confirm(), which is fine for "remove this person?"; this one has
+   words to read and say aloud, so it gets furniture of its own. */
+#verifyDialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0;
+  max-width: 34rem;
+  width: calc(100% - 2rem);
+}
+
+#verifyDialog::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.verifyForm {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin: 0;
+}
+
+.verifyForm h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.verifyWarning {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid var(--danger);
+  background: rgb(255 136 136 / 0.12);
+  color: var(--text);
+}
+
+/* The words themselves are the point of the dialog, so they are the biggest
+   thing in it and set in the monospace face - these get read aloud
+   character by character when somebody mishears. */
+.verifyWords {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem 1rem;
+  align-items: baseline;
+}
+
+.verifyWords dt {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.verifyWords dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+.verifyButtons {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* The trust chip. A button, because it does something: clicking shows the
+   words to say. Three states, and only one is coloured as a problem -
+   "not verified" is the ordinary case for most people, and colouring that
+   as a warning is how people learn to ignore warnings. */
+.participant .verifyChip {
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8em;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.05em 0.5em;
+}
+
+.participant .verifyChip:hover,
+.participant .verifyChip:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.participant .verifyChip.verified {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+/* The one accusation on the page. It gets the danger colour and a fill,
+   because a name you have verified arriving on a different key is the
+   attack this whole feature exists for. */
+.participant .verifyChip.key-changed {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #2a0a0a;
+  font-weight: 600;
 }
 
 .participant .badge.agent {
@@ -485,7 +623,7 @@ video {
   display: block;
   margin-bottom: 0.4rem;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 #identity input {
@@ -495,13 +633,13 @@ video {
 #identity summary {
   cursor: pointer;
   color: var(--accent);
-  font-size: 0.9rem;
+  font-size: 1rem;
   margin-top: 0.5rem;
 }
 
 .note {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   margin: 0.4rem 0;
 }
 
@@ -516,7 +654,7 @@ video {
   gap: 0.4rem;
   flex-wrap: wrap;
   margin: 0.75rem 0 0;
-  font-size: 0.9rem;
+  font-size: 1rem;
   color: var(--muted);
 }
 
@@ -534,7 +672,7 @@ video {
 
 .idkind {
   padding: 0.05rem 0.35rem;
-  font-size: 0.65rem;
+  font-size: 0.8rem;
   font-family: system-ui, sans-serif;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -579,13 +717,13 @@ video {
 
 #effects summary {
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 1rem;
   color: var(--text);
 }
 
 #effects .chip {
   font-family: monospace;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   color: var(--accent);
   border: 1px solid var(--accent-dim);
   border-radius: 4px;
@@ -601,7 +739,7 @@ video {
 }
 
 .seg {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   padding: 0.35rem 0.7rem;
   margin: 0;
 }
@@ -621,7 +759,7 @@ video {
 }
 
 .effectRow label {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   color: var(--muted);
 }
 
@@ -677,7 +815,7 @@ video {
 #assist summary {
   cursor: pointer;
   color: var(--accent);
-  font-size: 0.9rem;
+  font-size: 1rem;
   margin-top: 0.4rem;
 }
 
@@ -700,7 +838,7 @@ video {
   width: 100%;
   margin: 0.5rem 0;
   font-family: monospace;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   background: var(--panel);
   color: var(--fg, #eae6dc);
   border: 1px solid var(--border);
@@ -726,13 +864,13 @@ video {
 
 .inviteRow .desc {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 1rem;
   flex: 1 1 14rem;
 }
 
 .inviteRow .running {
   color: var(--accent);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 /* Agents with nothing on screen: a row of names above the grid, not empty
@@ -744,7 +882,7 @@ video {
   align-items: center;
   margin: 0 0 0.75rem;
   font-family: monospace;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .agentChip {
@@ -805,7 +943,7 @@ video {
   gap: 0.5rem;
   flex-wrap: wrap;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 1rem;
   margin-top: 0.3rem;
 }
 
@@ -831,7 +969,7 @@ video {
   border: 1px dashed var(--border);
   border-radius: 999px;
   font-family: monospace;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 /* A button that is there without asking for attention: forget, and the way
@@ -1009,5 +1147,62 @@ label.note {
 
   .roomHead h2 {
     white-space: nowrap;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Wide screens
+
+   Widening the shell on its own does not use a window, it only makes the
+   same column longer: the prose keeps its measure and everything else grows
+   a margin of empty space, while the conversation still starts two screens
+   down behind the setup furniture.
+
+   So on a wide screen the room and its furniture become two columns. The
+   room - roster, video grid, chat, and the agents' own channel - takes the
+   larger column and the whole height. Everything used once to set the room
+   up goes into a sidebar beside it: the media buttons, the share link, the
+   notification switch and the carrying offer.
+
+   The result is that on a desktop the roster, the chat and the agents
+   channel are all above the fold at once, which is the thing that could not
+   be true in one column at any width.
+
+   Only when there is a room to show. `:has()` keeps the front page - where
+   `#roomArea` is still hidden - as the single column it should be, rather
+   than an empty left column beside a stack of controls. */
+@media (min-width: 1100px) {
+  main:has(#roomArea:not([hidden])) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem);
+    align-items: start;
+    /* No ROW gap on purpose. The room spans a hundred rows so that it keeps
+       its own column beside the whole sidebar, and a row gap would then be
+       charged ninety-odd times over for rows that hold nothing - about
+       fifteen hundred pixels of empty page. The sidebar spaces itself. */
+    gap: 0 2rem;
+  }
+
+  /* Spanning a large number of rows rather than `1 / -1`: with no explicit
+     rows declared, `-1` names the end of the EXPLICIT grid, which is row
+     line 1, so the room would take a single row and leave the rest of its
+     own column empty beside the sidebar. */
+  main:has(#roomArea:not([hidden])) > #roomArea {
+    grid-column: 1;
+    grid-row: 1 / span 100;
+    margin-top: 0;
+  }
+
+  main:has(#roomArea:not([hidden])) > :not(#roomArea) {
+    grid-column: 2;
+    margin: 0 0 1.25rem;
+  }
+
+  /* The chat log is the one thing that should take the height it is given
+     rather than a share of the viewport: it is the column now. */
+  /* Sized so the agents channel underneath it still clears the fold on a
+     900px-tall window, which is the smallest a desktop realistically is. */
+  main:has(#roomArea:not([hidden])) #chatLog {
+    height: clamp(280px, 40vh, 520px);
   }
 }
