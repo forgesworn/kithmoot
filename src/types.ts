@@ -19,11 +19,44 @@ export interface TrackAdvert {
  *  recognition, no requirement at all. */
 export type AccessTier = 'open' | 'ken' | 'kith' | 'kin'
 
+/** What a room requires of its agents. `owned-by-members`: an agent is
+ *  admitted to the roster only with a verified ownership proof from a
+ *  participant who is in the room. See `AgentOwnership`. */
+export type AgentRule = 'owned-by-members'
+
 /** A room's admission rule. `admitted` lists the issuer pubkeys the room
- *  trusts to vouch for guests; irrelevant when `tier` is `open`. */
+ *  trusts to vouch for guests; irrelevant when `tier` is `open`. `agents`
+ *  is a separate rule about what an agent has to show; absent means
+ *  nothing, which is how every room worked before it existed. */
 export interface RoomPolicy {
   tier: AccessTier
   admitted?: string[]
+  agents?: AgentRule
+}
+
+/**
+ * A principal's signed statement that an agent is theirs.
+ *
+ * Signed by the principal over the agent's key, its own, when it was
+ * issued, until when, and what the principal calls the agent. Room
+ * independent: it is a fact about two keys, attested once and carried into
+ * every room. What a client shows as "agent of" comes only from a proof it
+ * verified itself; the codecs drop one that fails before anybody sees it.
+ * See `ownership.ts`.
+ */
+export interface AgentOwnership {
+  /** The agent's participant pubkey. */
+  agent: string
+  /** Who it acts for. */
+  principal: string
+  /** Unix seconds. */
+  issuedAt: number
+  /** Unix seconds. Absent means it stands until the keys change. */
+  expiresAt?: number
+  /** What the principal calls the agent, sanitised like a display name. */
+  label?: string
+  /** Schnorr by the principal. */
+  sig: string
 }
 
 /**
@@ -184,6 +217,15 @@ export interface RosterEntry {
    * for a client that has never heard of agents.
    */
   agent?: boolean
+  /**
+   * Whose agent this is, said by the principal rather than by the agent.
+   * Carried only on an entry that says `agent: true`, and only ever seen
+   * by a reader after `decodeRosterEvent` verified it: a proof that does
+   * not verify costs the claim, not the entry, exactly as a hostile name
+   * costs the name. Absent on every entry that has none, so the wire is
+   * byte-identical for a client that has never heard of ownership.
+   */
+  owner?: AgentOwnership
   /**
    * True on the last entry a device publishes: it has left the room.
    *

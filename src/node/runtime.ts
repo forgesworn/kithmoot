@@ -185,7 +185,19 @@ export class AgentRuntime {
     }
     const short = participant.slice(0, 8)
     if (participant === this.agent.participant) return `${name ?? this.persona.name} (${short}, you)`
-    return name ? `${name} (${short}${view?.agent ? ', agent' : ''})` : `${short}${view?.agent ? ' (agent)' : ''}`
+    // "agent of" only from a proof the session verified; a bare agent flag
+    // is a claim and reads as one.
+    const owner = view?.owner
+    const kind = owner ? `, agent of ${this.#principalLabel(owner.principal)}` : view?.agent ? ', agent' : ''
+    return name ? `${name} (${short}${kind})` : `${short}${kind ? ` (${kind.slice(2)})` : ''}`
+  }
+
+  /** A principal, by roster name or short key, for "agent of". */
+  #principalLabel(principal: string): string {
+    const view = this.roster().find((v) => v.participant === principal)
+    const short = principal.slice(0, 8)
+    if (principal === this.agent.participant) return 'you'
+    return view?.name ? `${view.name} (${short})` : short
   }
 
   async say(text: string): Promise<void> {

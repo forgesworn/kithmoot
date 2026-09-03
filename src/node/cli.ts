@@ -8,6 +8,8 @@ import { nip19 } from 'nostr-tools'
 import { RoomAgent } from '../agent.js'
 import type { KeeperState } from '../agent.js'
 import { parseKeeperState, serialiseKeeperState } from '../keeper-state.js'
+import { issueAgentOwnership, normaliseAgentOwnership, verifyAgentOwnership } from '../ownership.js'
+import type { AgentOwnership } from '../types.js'
 import { localIdentity } from '../identity.js'
 import { parseRoomLink } from '../link.js'
 import { AgentRuntime } from './runtime.js'
@@ -58,8 +60,15 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
       none, the default here, writes the transcript grouped by speaker instead,
       so it works with no model at all.
 
+  kithmoot-agent attest --agent <pubkey|npub> (--nsec <key> | --identity <file>) [--label <text>] [--expires <30d|12h|unix>]
+      As a principal, say that an agent is yours: prints an ownership proof
+      (JSON) signed by your key, to give the agent as --owner-proof. Room
+      independent, attested once; set --expires if you may change your mind.
+
 Options
   --name <name>            What the room calls this agent (required)
+  --owner-proof <file>     This agent's ownership proof, from attest; carried on
+                           every roster entry and message so people see whose it is
   --admin <pubkey>         (create) A participant who may act on the room: remove
                            a member, close it, ask somebody to mute. Repeatable;
                            hex or npub. The keeper announces the list, signed.
@@ -90,10 +99,10 @@ EnvironmentFile: KITHMOOT_NAME, KITHMOOT_BASE, KITHMOOT_STATE,
 KITHMOOT_IDENTITY, KITHMOOT_RELAYS (comma separated), KITHMOOT_ICE (comma
 separated), KITHMOOT_ADMINS (comma separated), KITHMOOT_PERSONA,
 KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
-KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_LINK,
-KITHMOOT_ROOM_NAME, KITHMOOT_NUDGE (1 to turn it on). A flag wins over the
-environment. With --state, the room link is also written beside the state
-file as <state>.link, readable by the keeper's user only.
+KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_OWNER_PROOF,
+KITHMOOT_LINK, KITHMOOT_ROOM_NAME, KITHMOOT_NUDGE (1 to turn it on). A flag
+wins over the environment. With --state, the room link is also written
+beside the state file as <state>.link, readable by the keeper's user only.
 
 A keeper records the room's epoch, who has been removed and who asked to be
 nudged in its state, so a restart reopens the same room in the same epoch,
@@ -140,6 +149,7 @@ interface Common {
   language?: string
   fakeTranscriber: boolean
   callEndsAfter?: string
+  ownerProof?: string
   quiet: boolean
 }
 
@@ -172,14 +182,22 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       'call-ends-after': { type: 'string' },
       'room-name': { type: 'string' },
       nudge: { type: 'boolean', default: false },
+      'owner-proof': { type: 'string' },
+      agent: { type: 'string' },
+      label: { type: 'string' },
+      expires: { type: 'string' },
       quiet: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
   })
   const command = positionals[0]
-  if (values.help || !command || !['create', 'join', 'mcp', 'host', 'scribe'].includes(command)) {
+  if (values.help || !command || !['create', 'join', 'mcp', 'host', 'scribe', 'attest'].includes(command)) {
     process.stderr.write(USAGE)
     process.exitCode = command ? 2 : 0
+    return
+  }
+  if (command === 'attest') {
+    await attest({ agent: values.agent, nsec: values.nsec, identity: values.identity ?? env('IDENTITY'), label: values.label, expires: values.expires })
     return
   }
   const name = values.name ?? env('NAME') ?? (command === 'host' ? 'Agent host' : undefined)
@@ -208,6 +226,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     language: values.language ?? env('LANGUAGE'),
     fakeTranscriber: values['fake-transcriber'],
     callEndsAfter: values['call-ends-after'] ?? env('CALL_ENDS_AFTER'),
+    ownerProof: values['owner-proof'] ?? env('OWNER_PROOF'),
     quiet: values.quiet,
   }
   // Refused before joining, so a mistyped flag does not leave a ghost in
@@ -223,6 +242,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   const participantSk = await participantKey(common)
   const identity = localIdentity(participantSk)
+  const owner = common.ownerProof ? await loadOwnerProof(common.ownerProof, identity.pubkey) : undefined
   const persona = await loadPersona(common)
   const turn = common.turnCredential ? splitCredential(common.turnCredential) : undefined
 
@@ -242,6 +262,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       iceUrls: common.ice,
       factory,
       state,
+      owner,
       admins,
       onState: statePath ? (next) => saveKeeperState(statePath, next) : undefined,
     })
@@ -272,6 +293,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       identity,
       relays: common.relays.length ? common.relays : undefined,
       factory,
+      owner,
     })
     log(`joined room ${agent.roomId.slice(0, 8)} as ${agent.participant.slice(0, 8)}${agent.hosting ? ', answering the link' : ''}${agent.session.epoch ? `, epoch ${agent.session.epoch}` : ''}`)
     agent.onEpoch((notice) => {
@@ -466,6 +488,75 @@ function keeperNudgeStore(agent: RoomAgent): NudgeStore {
     load: async () => [...(agent.keeperState?.nudge ?? [])],
     save: (pubkeys) => agent.amendKeeperState({ nudge: pubkeys }),
   }
+}
+
+/** A proof from `attest`, checked here against this agent's own key so a
+ *  proof for some other agent fails at start rather than being carried
+ *  around and dropped by every reader. */
+async function loadOwnerProof(path: string, agent: string): Promise<AgentOwnership> {
+  let raw: unknown
+  try {
+    raw = JSON.parse(await readFile(path, 'utf8'))
+  } catch (err) {
+    return fail(`--owner-proof ${path}: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  const proof = normaliseAgentOwnership(raw)
+  if (!proof) return fail(`--owner-proof ${path}: not an ownership proof`)
+  const verdict = verifyAgentOwnership(proof, { agent, now: Math.floor(Date.now() / 1000) })
+  if (!verdict.ok) return fail(`--owner-proof ${path}: ${verdict.reason}`)
+  return proof
+}
+
+/** `attest`: a principal signs that an agent is theirs. Stdout, so it can
+ *  go straight to a file; nothing else is printed there. */
+async function attest(opts: { agent?: string; nsec?: string; identity?: string; label?: string; expires?: string }): Promise<void> {
+  if (!opts.agent) fail('attest needs --agent <pubkey|npub>: the agent this proof is about')
+  if (!opts.nsec && !opts.identity) fail('attest needs the principal key: --nsec or --identity (an existing file)')
+  const agent = pubkeyArg(opts.agent, '--agent')
+  let principalSk: Uint8Array
+  if (opts.nsec) {
+    principalSk = await participantKey({ nsec: opts.nsec } as Common)
+  } else {
+    try {
+      principalSk = hexToBytes((await readFile(opts.identity!, 'utf8')).trim())
+    } catch (err) {
+      return fail(`--identity ${opts.identity}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  const issuedAt = Math.floor(Date.now() / 1000)
+  const expiresAt = opts.expires === undefined ? undefined : expiryArg(opts.expires, issuedAt)
+  const proof = issueAgentOwnership({ principalSk, agent, issuedAt, expiresAt, label: opts.label })
+  process.stdout.write(JSON.stringify(proof, null, 2) + '\n')
+}
+
+/** `30d`, `12h`, `90m`, or unix seconds. */
+function expiryArg(raw: string, now: number): number {
+  const m = /^(\d+)([dhm])$/.exec(raw.trim())
+  if (m) {
+    const n = Number(m[1])
+    const unit = m[2] === 'd' ? 86_400 : m[2] === 'h' ? 3_600 : 60
+    if (n <= 0) fail('--expires must be positive')
+    return now + n * unit
+  }
+  const at = Number(raw)
+  if (Number.isSafeInteger(at) && at > now) return at
+  return fail('--expires must be a duration like 30d, 12h or 90m, or unix seconds in the future')
+}
+
+/** A pubkey as typed: hex or npub, to lower-case hex. */
+function pubkeyArg(raw: string, flag: string): string {
+  const value = raw.trim()
+  if (value.startsWith('npub1')) {
+    try {
+      const decoded = nip19.decode(value)
+      if (decoded.type === 'npub') return decoded.data
+    } catch {
+      // Falls through to the failure below.
+    }
+    return fail(`${flag} ${value}: not an npub`)
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(value)) return fail(`${flag} ${value}: not a pubkey (64 hex characters or an npub)`)
+  return value.toLowerCase()
 }
 
 /** An admin as typed: hex or npub, to lower-case hex. */

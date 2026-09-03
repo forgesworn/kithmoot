@@ -882,6 +882,24 @@ function identityRun(shown: Shown, isSelf: boolean): DocumentFragment {
 }
 
 /**
+ * "agent of <principal>", for an agent whose principal has said so. Only
+ * ever built from `ParticipantView.owner` or `ChatMessage.owner`, both of
+ * which exist only when the library verified the proof itself: an agent
+ * that merely says it is somebody's gets the plain badge and nothing more.
+ */
+function ownerRun(owner: { principal: string; label?: string }): DocumentFragment {
+  const run = document.createDocumentFragment()
+  const of = document.createElement('span')
+  of.className = 'ownerOf'
+  of.textContent = ' agent of '
+  of.title = owner.label ? `Its principal calls it ${owner.label}. Signed by the principal's key.` : "Signed by the principal's key."
+  run.append(of)
+  const principalName = session?.participants().find((v) => v.participant === owner.principal)?.name
+  run.append(identityRun(shownAs(owner.principal, principalName), owner.principal === meParticipant))
+  return run
+}
+
+/**
  * The identity line above the room: who this device would join as, shown
  * before anything is committed to.
  */
@@ -2101,6 +2119,7 @@ function render(views: ParticipantView[], me: string): void {
       badge.textContent = 'agent'
       badge.title = 'This participant says it is an automated agent'
       chip.append(badge)
+      if (view.owner) chip.append(ownerRun(view.owner))
       agentsRow.append(chip)
       continue
     }
@@ -2140,6 +2159,7 @@ function render(views: ParticipantView[], me: string): void {
       badge.textContent = 'agent'
       badge.title = 'This participant says it is an automated agent'
       heading.append(badge)
+      if (view.owner) heading.append(ownerRun(view.owner))
     }
     box.append(heading)
 
@@ -2359,6 +2379,7 @@ function renderHost(): void {
     who.className = 'who'
     who.append(identityRun(shownAs(view.participant, view.name), false))
     if (view.agent) who.append(' (agent)')
+    if (view.owner) who.append(ownerRun(view.owner))
     row.append(who)
     const label = personLabel(view.participant)
     if (view.participant === keeperParticipant) {
@@ -2638,6 +2659,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       // the short pubkey is here too - and the name on the message is the
       // sender's own claim, carried with it (see ChatMessage.name).
       who.append(identityRun(shownAs(m.participant, m.name), m.participant === meParticipant))
+      // Whose agent wrote this, from the proof carried on the message and
+      // verified as at its send time - see ChatMessage.owner.
+      if (m.owner) who.append(ownerRun(m.owner))
       p.append(who, m.text)
     }
     for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))

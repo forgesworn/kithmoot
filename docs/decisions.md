@@ -600,6 +600,39 @@ size, scheme, URL on the server it names) are all of the event, not of its
 author.
 
 
+## Whose agent is this, said by the principal and checked by everybody
+
+The agent flag on a roster entry is self-declared, and so is the name
+beside it. A person looking at "Tally · agent" wants to know whose Tally is,
+and the one party that cannot answer that credibly is Tally.
+
+**The principal signs.** An ownership proof is a schnorr signature by the
+principal's key over the agent's key, the principal's, an issue time, an
+optional expiry and an optional label, under a domain-separated digest.
+Not a Nostr event, and not room-bound: a kindred proof binds to a room
+because it is an admission grant, and a grant that worked everywhere would
+be a bearer token. Ownership is a fact about two keys, attested once and
+carried into every room. The price is that it cannot be revoked except by
+expiry, which is why there is one to set.
+
+**The agent carries it, and every reader checks it.** On every roster entry
+and every chat message, inside the ciphertext, for the reason the device
+credential rides both: chat is durable and the roster is not. The codecs
+verify at decode - the roster as at now, the chat as at the message's send
+time, like the credential - and drop a proof that fails. So a decoded
+`owner` field is always a proof the reader verified itself, and a client
+renders "agent of" from that and from nothing else. A claim that cannot be
+checked is never shown as one that was.
+
+**A room may require it.** `agents: 'owned-by-members'` in the link's policy
+admits an agent's entry only with a verified proof from a participant who
+is in the room, evaluated at every reader in the same place the tier is.
+The principal has to be present, not merely known: the rule is that an
+agent in the room is somebody's who is in the room. Ordering follows from
+that - an agent that arrives first is admitted on its next entry once its
+principal has - and so does departure, an agent going when its principal
+does. Off by default, so a room that says nothing works as it always did.
+
 ## A member is removed by a room epoch, and the key is what removes them
 
 Link rotation retires a rendezvous. It never removed anybody: everybody

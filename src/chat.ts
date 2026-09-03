@@ -9,8 +9,9 @@ import { verifyDeviceCredential } from './credential.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { evaluateAccess } from './access.js'
+import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RelayTransport } from './relay-pool.js'
-import type { DeviceCredential, KindredProof, RoomPolicy } from './types.js'
+import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from './types.js'
 
 export const MAX_CHAT_TEXT_LENGTH = 2_000
 export const CHAT_RETENTION_SECONDS = 30 * 24 * 60 * 60
@@ -92,6 +93,15 @@ export interface ChatMessage {
    * which the sender wrote as the caption. See `ChatAttachment`.
    */
   attachments?: ChatAttachment[]
+  /**
+   * Whose agent the sender is, when it is one and its principal has said
+   * so. Carried on the message for the reason the credential is: chat is
+   * durable and the roster is not, and a line read out of history was
+   * written by an agent that may be in nobody's roster now. Verified by
+   * `decodeChatEvent` as at the message's send time, like the credential,
+   * and dropped if it does not hold. See `AgentOwnership`.
+   */
+  owner?: AgentOwnership
 }
 
 /**
@@ -254,6 +264,7 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     kind: transcript ? 'transcript' : undefined,
     speaker: transcript && typeof msg.speaker === 'string' ? normaliseHex(msg.speaker) : undefined,
     attachments: honestAttachments(msg.attachments),
+    owner: msg.owner ? normaliseAgentOwnership(msg.owner) ?? undefined : undefined,
   })
   const root = rootOf(opts)
   const { id, key } = deriveChannel(root.id, root.key, opts.channel)
@@ -374,6 +385,15 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
       }
     }
 
+    // Whose agent the sender is: verified as at send time, like the
+    // credential, or not carried at all. See `decodeRosterEvent`.
+    if (msg.owner !== undefined) {
+      const proof = normaliseAgentOwnership(msg.owner)
+      const verdict = proof ? verifyAgentOwnership(proof, { agent: msg.participant, now: msg.sentAt }) : { ok: false as const }
+      if (proof && verdict.ok) msg.owner = proof
+      else delete msg.owner
+    }
+
     // The device that signed this event must be the device the message
     // claims to be from - the same attribution guard the roster uses.
     if (!hexEquals(msg.device, event.pubkey)) return null
@@ -428,6 +448,9 @@ export interface ChatLogOptions {
   channel?: string
   /** The epoch to open in. Omit for epoch 0. `rekey` moves a log on. */
   epoch?: EpochRoot
+  /** This sender's ownership proof, when it is an agent whose principal
+   *  has attested to it. Carried on every message. */
+  owner?: AgentOwnership
 }
 
 /** What `send` may say beyond the text. */
@@ -536,6 +559,7 @@ export class ChatLog {
       text,
       sentAt: this.#now(),
       ...(attachments ? { attachments } : {}),
+      ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),
     }
     const event = encodeChatEvent(msg, {
       roomId: this.#opts.roomId,

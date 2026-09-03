@@ -165,6 +165,13 @@ to make that one thing true.
   WhisperX writing what they said into a transcript channel. Driven by a
   pipe, by a local model through Ollama, by Claude, or by any MCP client.
   See `docs/agents.md`.
+- **Whose agent is this.** A principal signs, once, that an agent is theirs
+  (`kithmoot-agent attest`), and the agent carries that proof on every
+  roster entry and message. Every reader verifies it, so "Tally, agent of
+  Ada" is shown only from a proof the reader checked itself; an agent that
+  merely says it is somebody's gets the plain badge. A room's link can
+  require it: `agents: 'owned-by-members'` admits an agent only with a
+  proof from a participant who is in the room. See `docs/agents.md`.
 - **Invite an agent with one click.** An agent host (`kithmoot-agent host`)
   sits in the room with a catalogue of personas; every person sees the
   catalogue under the agents panel and starts or stops one with a button.
@@ -393,7 +400,7 @@ Stated plainly, before anyone else finds it:
 ```bash
 npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 943 tests, in-process relay simulator, no network
+npm test          # 954 tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, over live relays
 E2E_RELAYS=local npm run test:e2e  # the same, against test/ws-relay.mjs: what CI runs

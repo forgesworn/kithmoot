@@ -120,6 +120,50 @@ The switch is per person, per device: it is my media, so it is my switch. A
 room where three people want an agent following along and one does not has
 three transcribed voices and one silence, which is exactly right.
 
+## Whose agent is this
+
+The agent flag says what a participant claims to be. It says nothing about
+who it acts for, and an agent cannot say that about itself in any way worth
+believing. So the statement comes from the principal: an **ownership
+proof** (`AgentOwnership`, `src/ownership.ts`) is the principal's schnorr
+signature over the agent's key, the principal's own, when it was issued,
+until when, and what the principal calls the agent.
+
+```bash
+# once, as the principal, with the key you sign in with
+kithmoot-agent attest --agent <the agent's pubkey or npub> --identity ~/.kithmoot/me.key \
+  --label Tally --expires 90d > tally-owner.json
+
+# every time the agent runs
+kithmoot-agent join '<link>' --name Tally --identity ~/.kithmoot/tally.key --owner-proof tally-owner.json
+```
+
+The agent carries the proof on every roster entry and every chat message,
+inside the room-key ciphertext like everything else, and for the reason the
+device credential rides both: a line read out of history was written by an
+agent that may be in nobody's roster now. Every reader verifies it itself.
+`decodeRosterEvent` and `decodeChatEvent` drop a proof that does not hold,
+so `RosterEntry.owner`, `ChatMessage.owner` and `ParticipantView.owner` are
+only ever a proof the reader checked, and a client renders "Tally, agent of
+Ada" from those and from nothing else. An agent that merely says it is
+somebody's gets the plain `agent` badge.
+
+The proof is room independent on purpose. A kindred proof binds to a room
+because it is an admission grant; ownership is a fact about two keys,
+attested once and read in every room the agent walks into. The cost is
+that it cannot be revoked except by expiry, so a principal who may change
+their mind sets `--expires`. Tonight the principal signs with a key file or
+an nsec; signing with a NIP-07 or NIP-46 signer is a follow-up, because the
+proof is a schnorr signature over a digest rather than a Nostr event.
+
+A room can require it. The link's policy takes `agents: 'owned-by-members'`
+(`RoomPolicy.agents`), under which an agent's roster entry is admitted only
+with a verified proof from a participant who is in the room
+(`evaluateAgentAccess`). Enforced at every reader, like the tier. An agent
+whose principal has not arrived yet is admitted on its next entry once they
+have, and one whose principal leaves goes with them. Default off: a room
+that says nothing admits agents as it always did.
+
 ## Channels
 
 Chat rides one room-key-encrypted channel. Agents need two more.

@@ -8,7 +8,8 @@ import { sanitiseDisplayName } from './display-name.js'
 import { encodeRosterEvent, decodeRosterEvent } from './roster.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
-import { evaluateAccess } from './access.js'
+import { evaluateAccess, evaluateAgentAccess } from './access.js'
+import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
 import type { ForwardingState, RemoteTrack, RouteView } from './mesh.js'
@@ -28,6 +29,7 @@ import {
 import type { EpochKeys, EpochRefusal, RekeyNotice, RoomEpoch } from './epoch.js'
 import type { RelayTransport } from './relay-pool.js'
 import type {
+  AgentOwnership,
   AssistOffer,
   DeviceCredential,
   ForwarderRef,
@@ -68,6 +70,10 @@ export interface ParticipantView {
   /** True when any of this participant's devices declares itself an
    *  automated participant - see `RosterEntry.agent`. */
   agent?: boolean
+  /** Whose agent this is, from a proof this session verified on one of its
+   *  devices' entries. Absent for a person, and for an agent nobody has
+   *  claimed. See `AgentOwnership`. */
+  owner?: { principal: string; label?: string }
   /** The single device holding the microphone, if any. */
   mic?: string
   /** The single device playing the room's audio, if any. */
@@ -101,6 +107,10 @@ export interface RoomSessionBaseOptions {
   /** Declare this device an automated participant on every entry it
    *  publishes. See `RosterEntry.agent`. */
   agent?: boolean
+  /** This agent's ownership proof, carried on every roster entry and chat
+   *  message. Checked here against the participant; a proof that names
+   *  somebody else is a setup mistake and is refused at construction. */
+  owner?: AgentOwnership
   /** Upper bound on the random delay before answering a new arrival, in
    *  milliseconds. Jitter is what stops twenty devices answering the
    *  twenty-first in the same instant. Zero makes it deterministic, which
@@ -340,6 +350,8 @@ export class RoomSession {
   #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>> }
   /** This participant's own name, sanitised once at construction. */
   readonly #name?: string
+  /** This agent's verified ownership proof, when it has one. */
+  readonly #owner?: AgentOwnership
   /** Where the current assist offer comes from. Starts as whatever the
    *  caller passed, and is replaced wholesale by `setAssist`. */
   #assist?: () => AssistOffer | null
@@ -406,6 +418,16 @@ export class RoomSession {
     this.#name = sanitiseDisplayName(opts.name)
     this.#assist = opts.assist
 
+    const participant = opts.identity ? normaliseHex(opts.identity.pubkey) : undefined
+    if (opts.owner) {
+      const proof = normaliseAgentOwnership(opts.owner)
+      const agent = participant ?? verifyDeviceCredential(opts.credential!, { roomId, now: this.#now() })
+      const named = typeof agent === 'string' ? agent : agent.ok ? agent.participant : ''
+      const verdict = proof ? verifyAgentOwnership(proof, { agent: named, now: this.#now() }) : { ok: false as const, reason: 'malformed' }
+      if (!proof || !verdict.ok) throw new Error(`ownership proof rejected: ${verdict.ok ? 'malformed' : verdict.reason}`)
+      this.#owner = proof
+    }
+
     if (opts.identity) {
       // A pubkey handed over by an external signer is a hex string off a
       // boundary like any other - canonicalise it here so every later
@@ -456,6 +478,12 @@ export class RoomSession {
     if (this.#opts.policy) {
       const verdict = evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, this.#now(), this.roomId)
       if (!verdict.admitted) throw new Error(verdict.reason)
+      // The same courtesy for the agent rule: an agent with no proof will
+      // be refused by everybody, so it is told now. Whether its principal
+      // is here cannot be known before the roster is read.
+      if (this.#opts.policy.agents === 'owned-by-members' && this.#opts.agent === true && !this.#owner) {
+        throw new Error('this room admits only agents whose principal is a member, and this agent carries no ownership proof')
+      }
     }
 
     const device = this.device
@@ -595,6 +623,7 @@ export class RoomSession {
       proof: this.#opts.proof,
       now: this.#now,
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
+      ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
     })
 
     // Presence is live state, so it has to be restated and it has to lapse -
@@ -615,6 +644,20 @@ export class RoomSession {
 
   #credentialTtl(): number {
     return this.#opts.timing?.credentialTtlSeconds ?? CREDENTIAL_TTL_SECONDS
+  }
+
+  /** The proof this device puts on what it publishes: only when it says it
+   *  is an agent, because a proof is a statement about one. */
+  #ownerToCarry(): AgentOwnership | undefined {
+    return this.#opts.agent === true ? this.#owner : undefined
+  }
+
+  /** Whether a participant is in this session's roster, as the agent rule
+   *  asks. This session's own participant is, whatever the roster says. */
+  #isMember(participant: string): boolean {
+    if (participant === this.participant) return true
+    for (const entry of this.#entries.values()) if (entry.participant === participant) return true
+    return false
   }
 
   // -------------------------------------------------------------------------
@@ -1099,6 +1142,7 @@ export class RoomSession {
       updatedAt: this.#now(),
       ...(this.#name !== undefined ? { name: this.#name } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
+      ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(assist ? { assist } : {}),
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(reply ? { reply: true } : {}),
@@ -1158,6 +1202,17 @@ export class RoomSession {
       // answered again later without reopening the announce loop: they are
       // gone, so the next thing we hear from them really is an arrival.
       changed = true
+    }
+    // Under the agent rule, an agent goes with its principal: the proof
+    // said whose it was, and that person is not here any more.
+    if (this.#opts.policy?.agents === 'owned-by-members') {
+      for (const [device, entry] of this.#entries) {
+        if (device === this.device) continue
+        if (evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p)).admitted) continue
+        this.#entries.delete(device)
+        this.#seenAt.delete(device)
+        changed = true
+      }
     }
     // A farewell only needs remembering for as long as an entry from before
     // it could still be delivered and still be fresh.
@@ -1271,6 +1326,7 @@ export class RoomSession {
       proof: this.#opts.proof,
       now: this.#now,
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
+      ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
     })
     this.#channels.set(name, log)
     return log
@@ -1295,6 +1351,10 @@ export class RoomSession {
     if (this.#opts.policy) {
       const verdict = evaluateAccess(this.#opts.policy, entry.participant, entry.proof, this.#now(), this.roomId)
       if (!verdict.admitted) return
+      // The agent rule, enforced where every rule is: at every reader.
+      // `entry.owner` is here only if `decodeRosterEvent` verified it.
+      // Our own entry echoing back is exempt: we know we are here.
+      if (entry.device !== this.device && !evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p)).admitted) return
     }
 
     const existing = this.#entries.get(entry.device)
@@ -1392,6 +1452,11 @@ export class RoomSession {
       }
       view.devices.push(entry.device)
       if (entry.agent === true) view.agent = true
+      // Verified at decode, or not here at all. One proof per person is
+      // enough: every device of one agent names the same principal.
+      if (entry.owner && !view.owner) {
+        view.owner = { principal: entry.owner.principal, ...(entry.owner.label !== undefined ? { label: entry.owner.label } : {}) }
+      }
       for (const track of entry.tracks) view.tracks.push({ ...track, device: entry.device })
       // Per device, not per person: two of somebody's devices can be in the
       // same room and only one of them publicly reachable, and it is that one
