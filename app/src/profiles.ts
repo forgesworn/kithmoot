@@ -16,6 +16,30 @@ import type { Event } from 'nostr-tools/pure'
  * themselves Robin". The difference is only that the key is persistent and
  * has a history - which is worth something, and is not the same as being
  * verified. The app labels it accordingly and never as "verified".
+ *
+ * **And be precise about what it costs, because it is not free.** The
+ * lookup is a relay subscription filtered by `authors`, sent to the ROOM's
+ * own relays - see `ProfileBookOptions.relays`, which chooses them
+ * deliberately so a lookup follows the room. That hands those relays the
+ * participant pubkeys of everybody in the room, in the clear, as a query.
+ *
+ * The room's own design goes to some trouble to avoid exactly that: a
+ * device credential is never published, precisely so "relays never see the
+ * participant pubkey" (`KINDS.CREDENTIAL`), and the roster it travels in is
+ * encrypted to the room key. A relay carrying a room therefore sees the
+ * room id and the timing of its roster events, and - because of this file
+ * and nothing else - can also learn which participant keys are in it.
+ *
+ * That is a real correlation and it is not mitigated here. It is written
+ * down rather than fixed because every fix costs something a reader should
+ * get to weigh: looking profiles up on unrelated relays weakens the link
+ * without breaking it and contradicts the reason room relays were chosen;
+ * padding the filter with decoy authors costs bandwidth and only raises the
+ * work; and not looking them up at all removes the one signal that
+ * distinguishes a published identity from a key made five seconds ago.
+ *
+ * Anything built on top of this - a lookup keyed on participant pubkeys for
+ * any other purpose - inherits the same cost and does not add a new one.
  */
 export interface Profile {
   /** From kind 0's `display_name` or `name`, sanitised like any other. */
