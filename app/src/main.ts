@@ -191,15 +191,17 @@ const BLOSSOM_ENDPOINT = 'https://kithmoot.forgesworn.dev'
 // that changes provider or drops zap support takes the ring dark rather than
 // leaving it accepting whatever turns up.
 //
-// It ships EMPTY, and it must stay that way in the repository. This once
-// carried a real Lightning address that had been picked up from the funding
-// field of a dependency in package-lock.json - somebody else's wallet
-// entirely. Nothing was payable, because the recipient below was empty and
-// both are required, but the instructions say to fill in the recipient, and
-// doing that alone would have pointed the ring at a stranger and told every
-// viewer in the tooltip that the money went there. An address in this
-// constant is one nobody has checked; the operator sets it deliberately.
-const DONATION_ADDRESS = ''
+// This is the project's own address, and it is also the funding address of
+// the `spoken-token` dependency - which is not a coincidence and is not a
+// mistake: both are forgesworn's. It was briefly emptied on 4 September 2026
+// by somebody who found it in package-lock.json, matched it to a dependency,
+// and concluded it belonged to that dependency's author. It did. The
+// dependency's author is us.
+//
+// The check that would have settled it in one step is the package's own
+// `author` field, not the lockfile entry that carries the address. A
+// repository is allowed to contain the same true fact twice.
+const DONATION_ADDRESS = 'profusemeat89@walletofsatoshi.com'
 // The Nostr pubkey a donation has to be addressed to, in hex. This is NOT the
 // same thing as the address, and it is not optional: the address above is at
 // a custodial wallet whose signing key is shared with every other customer of
