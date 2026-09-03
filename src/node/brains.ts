@@ -46,8 +46,11 @@ export type StdioEvent =
     }
   | { type: 'roster'; participants: Array<{ participant: string; name?: string; agent: boolean; tracks: string[] }> }
   | { type: 'ready'; participant: string; device: string; room: string; url: string; hosting: boolean }
+  /** How a request made with `approval-request` ended: a verdict and who
+   *  gave it, or `expired` with nobody. */
+  | { type: 'approval'; id: string; verdict: string; by?: string; note?: string; expired: boolean }
   | { type: 'error'; message: string }
-  | { type: 'ok'; op: string }
+  | { type: 'ok'; op: string; id?: string }
 
 /** What comes in on stdin, one JSON object per line. */
 export type StdioCommand =
@@ -55,6 +58,9 @@ export type StdioCommand =
   | { op: 'whisper'; text: string }
   | { op: 'roster' }
   | { op: 'history'; channel?: Channel; limit?: number }
+  /** Ask a person in the room for a decision. The answer arrives later as
+   *  an `approval` event carrying the same id, which is echoed in the ok. */
+  | { op: 'approval-request'; text: string; options?: string[]; ttlSeconds?: number; id?: string }
   | { op: 'leave' }
 
 /**
@@ -137,6 +143,24 @@ export class StdioBrain implements Brain {
           }
           write({ type: 'ok', op: 'history' })
           return
+        case 'approval-request': {
+          const id = typeof command.id === 'string' ? command.id : undefined
+          const options = Array.isArray(command.options) ? command.options.map(String) : undefined
+          // Not awaited: the verdict is an event, so the pipe stays free.
+          let pending: Promise<unknown> = Promise.resolve()
+          const opened = new Promise<string>((resolve, reject) => {
+            pending = runtime.agent
+              .requestApproval({ text: String(command.text), options, ttlSeconds: command.ttlSeconds, id })
+              .then(() => undefined, reject)
+            // The id is known synchronously when the caller gave one; when
+            // random, the request event carries it and so does the outcome.
+            resolve(id ?? '')
+          })
+          void pending.catch(() => {})
+          const chosen = await opened
+          write({ type: 'ok', op: 'approval-request', ...(chosen ? { id: chosen } : {}) })
+          return
+        }
         case 'leave':
           await runtime.close()
           write({ type: 'ok', op: 'leave' })
@@ -151,6 +175,16 @@ export class StdioBrain implements Brain {
 }
 
 export function toStdioEvent(event: RuntimeEvent): StdioEvent {
+  if (event.type === 'approval') {
+    return {
+      type: 'approval',
+      id: event.id,
+      verdict: event.verdict,
+      ...(event.by !== undefined ? { by: event.by } : {}),
+      ...(event.note !== undefined ? { note: event.note } : {}),
+      expired: event.expired,
+    }
+  }
   if (event.type === 'roster') {
     return {
       type: 'roster',
@@ -255,7 +289,7 @@ export abstract class ModelBrain implements Brain {
   }
 
   #onEvent(runtime: AgentRuntime, event: RuntimeEvent): void {
-    if (event.type === 'roster') return
+    if (event.type === 'roster' || event.type === 'approval') return
     const m = event.message
     if (m.participant === runtime.agent.participant) return
     const fromAgent = runtime.roster().find((v) => v.participant === m.participant)?.agent === true
@@ -272,7 +306,7 @@ export abstract class ModelBrain implements Brain {
   }
 
   #wants(runtime: AgentRuntime, event: RuntimeEvent, fromAgent: boolean): boolean {
-    if (event.type === 'roster') return false
+    if (event.type === 'roster' || event.type === 'approval') return false
     const text = event.message.text.toLowerCase()
     const named = text.includes(runtime.persona.name.toLowerCase())
     if (event.type === 'backchannel') {
@@ -306,7 +340,7 @@ export abstract class ModelBrain implements Brain {
         runtime.describe(),
         '',
         'New since your last turn:',
-        ...news.map((e) => (e.type === 'roster' ? '' : `[${e.type}] ${runtime.line(e.message)}`)),
+        ...news.map((e) => (e.type === 'roster' || e.type === 'approval' ? '' : `[${e.type}] ${runtime.line(e.message)}`)),
       ].join('\n')
       this.#opts.log(`turn: ${news.length} new`)
       const reply = await this.complete(system, user)

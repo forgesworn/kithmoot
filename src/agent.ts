@@ -16,10 +16,11 @@ import type { InvitationDelegation } from './invitation.js'
 import { localIdentity } from './identity.js'
 import type { ParticipantIdentity } from './identity.js'
 import { generateRoomSecret } from './room.js'
-import { canonicalAdmins, hostRoomEpoch, signAdmins } from './epoch.js'
+import { canonicalAdmins, hostRoomEpoch, signAdmins, verifyAdmins } from './epoch.js'
 import type { RekeyNotice, RoomEpoch } from './epoch.js'
-import { CONTROL_CHANNEL, decodeControl, encodeControl } from './control.js'
+import { CONTROL_CHANNEL, DEFAULT_APPROVAL_OPTIONS, decodeControl, encodeControl } from './control.js'
 import { normaliseHex } from './hex.js'
+import { randomBytes } from '@noble/hashes/utils'
 import type { PeerFactory } from './peer.js'
 import type { ChatLog, ChatMessage } from './chat.js'
 import type { RemoteTrack } from './mesh.js'
@@ -120,6 +121,39 @@ interface CommonAgentOptions {
   owner?: AgentOwnership
 }
 
+/** What an agent asks a person to decide. */
+export interface ApprovalRequestOptions {
+  /** What is being asked. At most 500 characters. */
+  text: string
+  /** The verdicts the agent will take. `approve` and `decline` by default. */
+  options?: string[]
+  /** How long to wait. Ten minutes by default. */
+  ttlSeconds?: number
+  /** A caller's own id, when it has one; random otherwise. */
+  id?: string
+}
+
+/** How an approval request ended. */
+export interface ApprovalOutcome {
+  id: string
+  /** One of the request's options, or `expired` when nobody answered. */
+  verdict: string
+  /** Who answered. Absent on expiry. */
+  by?: string
+  note?: string
+  /** Unix seconds. */
+  at: number
+  expired: boolean
+}
+
+/** A verdict the agent did not take, and why. */
+export interface IgnoredApproval {
+  id: string
+  by: string
+  verdict: string
+  reason: 'not an approver' | 'unknown request' | 'not an option' | 'already answered' | 'expired'
+}
+
 export interface JoinRoomOptions extends CommonAgentOptions {
   /** The room link, exactly as a person was sent it. */
   link: string
@@ -194,6 +228,16 @@ export class RoomAgent {
   readonly relays: string[]
   /** Who may act on this room, when this agent is its keeper. */
   readonly admins: readonly string[]
+  /** This agent's ownership proof, when it carries one. */
+  readonly owner?: AgentOwnership
+  /** The admin list as the keeper announced it, verified against the
+   *  authority pinned in the link. Empty until heard. */
+  readonly #announcedAdmins = new Set<string>()
+  #announcedAdminsAt = 0
+  /** Approval requests this agent has open, by id. */
+  readonly #approvals = new Map<string, { options: string[]; expiresAt: number; resolve: (o: ApprovalOutcome) => void; timer: ReturnType<typeof setTimeout> }>()
+  readonly #approvalListeners = new Set<(outcome: ApprovalOutcome) => void>()
+  readonly #ignoredListeners = new Set<(ignored: IgnoredApproval) => void>()
   readonly #transport: RelayTransport
   readonly #now: () => number
   #hostTransport?: RelayTransport
@@ -216,6 +260,7 @@ export class RoomAgent {
     now: () => number
     keeper?: KeeperState
     admins?: string[]
+    owner?: AgentOwnership
     onState?: (state: KeeperState) => void | Promise<void>
   }) {
     this.session = fields.session
@@ -226,6 +271,7 @@ export class RoomAgent {
     this.#now = fields.now
     this.#keeper = fields.keeper
     this.admins = fields.admins ?? []
+    this.owner = fields.owner
     this.#onState = fields.onState
   }
 
@@ -366,6 +412,7 @@ export class RoomAgent {
       now: opts.now,
       keeper: opts.keeper,
       admins: opts.admins,
+      owner: opts.owner,
       onState: opts.onState,
     })
     // A keeper reopening a room remembers who it removed before the roster
@@ -415,7 +462,7 @@ export class RoomAgent {
         hostTransport.close()
       }
     }
-    if (opts.keeper) agent.#openDesk()
+    agent.#openControl()
     return agent
   }
 
@@ -447,11 +494,11 @@ export class RoomAgent {
   }
 
   // -------------------------------------------------------------------------
-  // The keeper's desk: host controls over the control channel
+  // The control channel: the keeper's desk, and every agent's ears for who
+  // the admins are and for answers to what it asked
   // -------------------------------------------------------------------------
 
-  /** Listen for admins on the control channel, and say who they are. */
-  #openDesk(): void {
+  #openControl(): void {
     const log = this.session.channel(CONTROL_CHANNEL)
     const seen = new Set<string>()
     const openedAt = this.#now()
@@ -462,32 +509,125 @@ export class RoomAgent {
         this.#handleControl(m, openedAt).catch(() => {})
       }
     })
-    this.#announceAdmins().catch(() => {})
+    if (this.#keeper) this.#announceAdmins().catch(() => {})
+    // Not a keeper: ask who the admins are, the way the app does on arrival.
+    else log.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
   }
 
   async #handleControl(m: ChatMessage, openedAt: number): Promise<void> {
     if (this.#left) return
-    // Replayed history: a request from before this keeper opened its desk
-    // was for a keeper that is gone, and was acted on then or not at all.
-    if (m.sentAt < openedAt - 10) return
-    if (m.participant === this.participant) return
     const control = decodeControl(m.text)
     if (!control) return
+    // The admin list is worth reading from history: the keeper said it
+    // once, and it is signed, so it is as true replayed as it was live.
+    if (control.op === 'admins') {
+      const authority = this.link.invitation?.inviter
+      if (!authority || control.host !== m.participant || m.sentAt < this.#announcedAdminsAt) return
+      if (!verifyAdmins({ roomId: this.roomId, epoch: control.epoch, admins: control.admins, sig: control.sig, authority })) return
+      this.#announcedAdmins.clear()
+      for (const a of control.admins) this.#announcedAdmins.add(a)
+      this.#announcedAdminsAt = m.sentAt
+      return
+    }
+    // Replayed history: a request from before this agent opened its ears
+    // was for one that is gone, and was acted on then or not at all.
+    if (m.sentAt < openedAt - 10) return
+    if (m.participant === this.participant) return
     switch (control.op) {
+      case 'approval':
+        this.#onVerdict(m, control.id, control.verdict, control.note)
+        return
       case 'catalogue?':
-        await this.#announceAdmins()
+        if (this.#keeper) await this.#announceAdmins()
         return
       case 'remove':
-        if (!this.admins.includes(m.participant)) return
+        if (!this.#keeper || !this.admins.includes(m.participant)) return
         await this.remove(control.participant, m.participant)
         return
       case 'close':
-        if (!this.admins.includes(m.participant)) return
+        if (!this.#keeper || !this.admins.includes(m.participant)) return
         await this.closeRoom(m.participant)
         return
       default:
         return
     }
+  }
+
+  /** The admin list as the keeper announced it, once heard. */
+  get announcedAdmins(): ReadonlySet<string> {
+    return this.#announcedAdmins
+  }
+
+  /** Whether a participant's answer counts: on the announced admin list,
+   *  or this agent's own verified principal. */
+  #isApprover(participant: string): boolean {
+    return this.#announcedAdmins.has(participant) || (this.owner !== undefined && this.owner.principal === participant)
+  }
+
+  /**
+   * Ask a person for a decision, in the room, where everybody can see the
+   * question and the answer. Resolves with the first verdict from somebody
+   * this agent listens to - an announced admin, or its own principal - or
+   * with `expired` when the time runs out. Never rejects for a bad answer:
+   * one from anybody else is ignored and reported through
+   * `onApprovalIgnored`, so a driver can see who tried.
+   */
+  async requestApproval(opts: ApprovalRequestOptions): Promise<ApprovalOutcome> {
+    const id = opts.id ?? hex(randomBytes(8))
+    const options = [...new Set(opts.options?.length ? opts.options : DEFAULT_APPROVAL_OPTIONS)]
+    const ttl = opts.ttlSeconds ?? 600
+    if (!Number.isFinite(ttl) || ttl <= 0) throw new Error('ttlSeconds must be positive')
+    if (this.#approvals.has(id)) throw new Error(`approval ${id} is already open`)
+    const expiresAt = this.#now() + Math.ceil(ttl)
+    const outcome = new Promise<ApprovalOutcome>((resolve) => {
+      const timer = setTimeout(() => {
+        if (!this.#approvals.delete(id)) return
+        const expired: ApprovalOutcome = { id, verdict: 'expired', at: this.#now(), expired: true }
+        resolve(expired)
+        this.#emit(this.#approvalListeners, expired)
+      }, ttl * 1000)
+      ;(timer as unknown as { unref?: () => void }).unref?.()
+      this.#approvals.set(id, { options, expiresAt, resolve, timer })
+    })
+    try {
+      await this.session
+        .channel(CONTROL_CHANNEL)
+        .send(encodeControl({ op: 'approval-request', id, text: opts.text, options, expiresAt }))
+    } catch (err) {
+      const open = this.#approvals.get(id)
+      if (open) {
+        clearTimeout(open.timer)
+        this.#approvals.delete(id)
+      }
+      throw err
+    }
+    return outcome
+  }
+
+  #onVerdict(m: ChatMessage, id: string, verdict: string, note?: string): void {
+    const open = this.#approvals.get(id)
+    const ignore = (reason: IgnoredApproval['reason']): void => this.#emit(this.#ignoredListeners, { id, by: m.participant, verdict, reason })
+    if (!open) return ignore('unknown request')
+    if (!this.#isApprover(m.participant)) return ignore('not an approver')
+    if (m.sentAt > open.expiresAt) return ignore('expired')
+    if (!open.options.includes(verdict)) return ignore('not an option')
+    clearTimeout(open.timer)
+    this.#approvals.delete(id)
+    const outcome: ApprovalOutcome = { id, verdict, by: m.participant, ...(note ? { note } : {}), at: m.sentAt, expired: false }
+    open.resolve(outcome)
+    this.#emit(this.#approvalListeners, outcome)
+  }
+
+  /** Every outcome of a request this agent made: a verdict, or expiry. */
+  onApproval(cb: (outcome: ApprovalOutcome) => void): () => void {
+    this.#approvalListeners.add(cb)
+    return () => this.#approvalListeners.delete(cb)
+  }
+
+  /** A verdict this agent did not take, and why. */
+  onApprovalIgnored(cb: (ignored: IgnoredApproval) => void): () => void {
+    this.#ignoredListeners.add(cb)
+    return () => this.#ignoredListeners.delete(cb)
   }
 
   /** Say who may act on this room, signed by the authority key. */
@@ -683,8 +823,17 @@ export class RoomAgent {
     this.#left = true
     this.#controlUnsub?.()
     this.#controlUnsub = undefined
+    for (const [id, open] of this.#approvals) {
+      clearTimeout(open.timer)
+      open.resolve({ id, verdict: 'expired', at: this.#now(), expired: true })
+    }
+    this.#approvals.clear()
     this.#stopHosting()
     await this.session.leave()
     this.#transport.close()
   }
+}
+
+function hex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }

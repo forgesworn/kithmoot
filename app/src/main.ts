@@ -45,6 +45,7 @@ import {
   TRANSCRIPT_CHANNEL,
   MINUTES_CHANNEL,
   CONTROL_CHANNEL,
+  DEFAULT_APPROVAL_OPTIONS,
   encodeControl,
   decodeControl,
   verifyAdmins,
@@ -2363,6 +2364,84 @@ function sendHostControl(message: ControlMessage, said: string): void {
     .catch((err) => setStatus(describeError(err)))
 }
 
+// ---------------------------------------------------------------------------
+// Approvals: an agent asks, in the room, and the right person answers
+//
+// The card is shown only to somebody the agent will listen to - a
+// participant on the keeper's announced admin list, or the agent's verified
+// principal - because an answer from anybody else is ignored by the agent
+// and would be a button that does nothing. Everybody sees the outcome as a
+// system line, judged by the same rule, so it is not a line anybody could
+// put in the chat by answering a question that was not theirs.
+// ---------------------------------------------------------------------------
+
+interface OpenApproval {
+  id: string
+  from: string
+  text: string
+  options: string[]
+  expiresAt?: number
+  at: number
+  answered?: { by: string; verdict: string }
+}
+const approvals = new Map<string, OpenApproval>()
+let approvalTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Whether `participant` is somebody the agent `requester` will listen to. */
+function canApprove(participant: string, requester: string): boolean {
+  if (admins.has(participant)) return true
+  const owner = session?.participants().find((v) => v.participant === requester)?.owner
+  return owner !== undefined && owner.principal === participant
+}
+
+function verdictSentence(by: string, verdict: string, request: OpenApproval): string {
+  const what = request.text.length > 80 ? `${request.text.slice(0, 77)}…` : request.text
+  const said = verdict === 'approve' ? 'approved' : verdict === 'decline' ? 'declined' : `answered “${verdict}” to`
+  return `${personLabel(by)} ${said} ${personLabel(request.from)}’s request: ${what}`
+}
+
+function renderApprovals(): void {
+  const box = $('approvals')
+  box.innerHTML = ''
+  const now = nowSeconds()
+  let soonest: number | undefined
+  for (const request of approvals.values()) {
+    if (request.answered) continue
+    if (request.expiresAt !== undefined && request.expiresAt <= now) continue
+    if (!session || !canApprove(meParticipant, request.from)) continue
+    if (request.expiresAt !== undefined && (soonest === undefined || request.expiresAt < soonest)) soonest = request.expiresAt
+    const card = document.createElement('div')
+    card.className = 'approvalCard'
+    const who = document.createElement('span')
+    who.className = 'who'
+    const view = session.participants().find((v) => v.participant === request.from)
+    who.append(identityRun(shownAs(request.from, view?.name), false))
+    if (view?.owner) who.append(ownerRun(view.owner))
+    who.append(' asks:')
+    const text = document.createElement('span')
+    text.className = 'text'
+    text.textContent = request.text
+    const options = document.createElement('div')
+    options.className = 'options'
+    for (const option of request.options) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = option
+      button.addEventListener('click', () => {
+        for (const b of options.querySelectorAll('button')) (b as HTMLButtonElement).disabled = true
+        sendHostControl({ op: 'approval', id: request.id, verdict: option }, `Answered ${option}.`)
+      })
+      options.append(button)
+    }
+    card.append(who, text, options)
+    box.append(card)
+  }
+  // A card leaves on its own when its question expires.
+  if (approvalTimer !== undefined) clearTimeout(approvalTimer)
+  approvalTimer = undefined
+  if (soonest !== undefined) approvalTimer = setTimeout(renderApprovals, Math.max(0, (soonest - now) * 1000 + 50))
+}
+
 /** The Host panel: shown only to a participant on the announced list. */
 function renderHost(): void {
   const panel = $('hostPanel') as HTMLDetailsElement
@@ -2450,6 +2529,7 @@ function ingestControl(messages: ChatMessage[]): void {
         adminsAt = m.sentAt
         keeperParticipant = control.host
         renderHost()
+        renderApprovals()
         break
       }
       case 'mute':
@@ -2459,6 +2539,33 @@ function ingestControl(messages: ChatMessage[]): void {
         if (m.sentAt < nowSeconds() - 30) break
         muteRequested(m.participant)
         break
+      case 'approval-request': {
+        // Kept whoever asked: the card decides who sees it, and the answer
+        // decides whose answer counts. An expired one is history.
+        if (control.expiresAt !== undefined && control.expiresAt <= nowSeconds()) break
+        if (approvals.has(control.id)) break
+        approvals.set(control.id, {
+          id: control.id,
+          from: m.participant,
+          text: control.text,
+          options: control.options ?? [...DEFAULT_APPROVAL_OPTIONS],
+          ...(control.expiresAt !== undefined ? { expiresAt: control.expiresAt } : {}),
+          at: m.sentAt,
+        })
+        renderApprovals()
+        break
+      }
+      case 'approval': {
+        const request = approvals.get(control.id)
+        if (!request || request.answered) break
+        if (!canApprove(m.participant, request.from)) break
+        if (request.expiresAt !== undefined && m.sentAt > request.expiresAt) break
+        if (!request.options.includes(control.verdict)) break
+        request.answered = { by: m.participant, verdict: control.verdict }
+        addSystemLine(verdictSentence(m.participant, control.verdict, request))
+        renderApprovals()
+        break
+      }
       default:
         break
     }
@@ -3165,6 +3272,8 @@ async function startSession(): Promise<void> {
       render(views, meParticipant)
       renderInvites()
       renderHost()
+      // The owner of an agent that asked may only now be known.
+      renderApprovals()
     })
     s.onRemoteTrack(({ device, track }) => attachRemoteTrack(device, track))
 
