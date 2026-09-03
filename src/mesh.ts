@@ -400,12 +400,23 @@ export class Mesh {
   publish(tracks: MediaStreamTrack[], audience?: (participant: ParticipantView) => boolean): void {
     this.#tracks = tracks
     this.#audience = audience
+    // Both of those feed the promotion decision - what this device is being
+    // asked to send, and whether it is keeping any of it from somebody - and
+    // the decision used to be taken only when the roster moved. A camera
+    // turned on in a room that then needed a forwarder waited for the next
+    // arrival, and a switch turned on while a forwarder was carrying the
+    // room did not come back down at all. Reconciling here asks the whole
+    // question again, and it is the same question `#reconcile` answers on
+    // every roster change.
+    this.#reconcile(this.#opts.session.participants())
     for (const [endpoint, peer] of this.#peers) {
       peer.start(this.#tracksFor(endpoint)).catch(() => {})
       // A connection that was idle because nobody had anything to send now
       // has something, and its rung gets its budget from here.
       this.#armRouteTimerIfNeeded(endpoint)
     }
+    // Never narrowed: a forwarder cannot skip anybody, which is why a device
+    // that narrows never promotes at all - see `#audienceNarrows`.
     this.#forwarderPeer?.start(tracks).catch(() => {})
   }
 
@@ -927,7 +938,7 @@ export class Mesh {
     // above the forwarder, which no capacity measurement will ever show -
     // so a room whose uplink is fine must not tear down the forwarder that
     // is the only thing connecting two of its members.
-    const want = this.#needsForwarding(peers) || this.#routesWantForwarder()
+    const want = (this.#needsForwarding(peers) || this.#routesWantForwarder()) && !this.#audienceNarrows()
 
     if (!want) {
       // The room fits again - fewer people, or a screen share stopped. Give
@@ -949,6 +960,42 @@ export class Mesh {
     if (!ref) return
 
     this.#promote(ref)
+  }
+
+  /**
+   * Whether this device is currently keeping its media from somebody in the
+   * room.
+   *
+   * A forwarder fans out one copy to everybody it carries for, and it is
+   * given the room id and never the room key, so it cannot be told to skip
+   * anyone: the narrowing `publish` does per connection has no equivalent
+   * there. A device whose person has said that agents may not hear them
+   * therefore must not hand its media to a forwarder at all - doing so
+   * would send it to the very member the switch exists to exclude, on the
+   * strength of a bandwidth calculation nobody was shown.
+   *
+   * So the switch wins and the room stays a mesh for this device. That
+   * costs it `(N-1) x bitrate`, which is the price of the promise, and it
+   * is a price only the device that made the promise pays: everybody else
+   * in the room promotes normally. A device already on a forwarder when
+   * somebody turns the switch on comes back down at the next roster
+   * change, which is what `#evaluatePromotion` does with `want === false`.
+   */
+  #audienceNarrows(): boolean {
+    const audience = this.#audience
+    if (!audience || this.#tracks.length === 0) return false
+    for (const view of this.#views) {
+      if (view.participant === this.#opts.localParticipant) continue
+      try {
+        if (!audience(view)) return true
+      } catch {
+        // A rule that throws has not said yes, and `#tracksFor` already
+        // treats that as a refusal. Treat it as one here too, or a throwing
+        // rule would quietly promote what it refuses to publish.
+        return true
+      }
+    }
+    return false
   }
 
   /** True while any device is on the forwarder rung of the ladder. */

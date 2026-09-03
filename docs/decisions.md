@@ -823,3 +823,24 @@ What a relay learns is that the keeper's key sent a gift wrap to that
 member's key, and when: not the room, not the text, not who else. That
 is one fact more than the relay had, stated here so it is chosen and not
 discovered.
+
+## A device that narrows its audience does not use a forwarder
+
+`publishTracks` takes an audience, and a participant it refuses is sent
+nothing: the tracks never reach that connection. A forwarder has no
+equivalent. It is given the room id and never the room key, it fans one
+copy out to everybody it carries for, and nothing in a room descriptor
+could tell it to skip a member - the thing that would have to be named is
+exactly the thing it is not allowed to read.
+
+So the switch wins over the bandwidth. A device that is keeping its media
+from anybody in the room never promotes, and comes back down if somebody
+turns the switch on while a forwarder is carrying it. The cost is stated
+rather than hidden: that device pays `(N-1) x bitrate` for as long as it
+keeps the promise, and a room where everybody switches agents off gets no
+forwarder at all. The alternative was a promise that quietly stopped being
+true at a bandwidth threshold nobody was shown, which is not a promise.
+
+The decision is taken on every publish as well as on every roster change,
+because both inputs move: a camera turned on changes what the room costs,
+and a switch turned on changes who may receive it.

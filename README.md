@@ -390,16 +390,18 @@ Stated plainly, before anyone else finds it:
   segmenter finds one person and treats everything else as background, so a
   second person behind you is blurred rather than hidden.
 - **No user-uploaded backgrounds**, on purpose. See above.
-- **The agents' switch cannot narrow a forwarder.** A forwarder fans out to
-  everybody it carries for. Every route the app uses today is direct, so the
-  switch holds; a room that promotes to a forwarder with an agent in it
-  should know that it stops holding there.
+- **A device that keeps media from somebody never uses a forwarder.** A
+  forwarder fans out one copy to everybody it carries for and cannot be told
+  to skip anyone, so a device whose person has switched agents off stays a
+  mesh and pays `(N-1) x bitrate` itself. That is the price of the promise,
+  and only the device that made it pays: everybody else in the room promotes
+  normally. It does mean a room of people who all switch agents off does not
+  get a forwarder at all.
 - **WhisperX is not bundled.** `server/whisperx/` is a Python server that
   needs `pip install whisperx`; the Node side is checked against a fixed
   transcriber.
-- **An agent cannot speak aloud**, and a message cannot carry an
-  attachment. Both fit the shapes that exist - a text-to-speech track behind
-  `publishTracks`, a field on a chat message - and neither is built.
+- **An agent cannot speak aloud.** It reads, writes and listens; a voice
+  would be a text-to-speech track behind `publishTracks`, and is not built.
 
 ## Running it
 

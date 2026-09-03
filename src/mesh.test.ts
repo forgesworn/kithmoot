@@ -575,6 +575,60 @@ describe('Mesh promotion to a forwarder', () => {
     mesh.close()
   })
 
+  it('BUG: never hands its media to a forwarder while it is keeping media from somebody', async () => {
+    // A forwarder fans out one copy to everybody it carries for, and is
+    // given the room id and never the room key, so it cannot be told to
+    // skip anyone. A device whose person said agents may not hear them
+    // would otherwise send its media to the very member the switch exists
+    // to exclude, on the strength of a bandwidth sum nobody was shown.
+    const { session, factory, mesh } = build({ uplink: TIGHT, forwarders: FORWARDERS })
+    const people = fill(session, 12)
+    const views = session.participants()
+    // One of them is an agent this device refuses.
+    views[0]!.agent = true
+    session.setViews(views)
+    mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack], (v) => v.agent !== true)
+    await settle()
+    expect(mesh.forwarding).toBe('off')
+    // Still a mesh, and the refused member is sent nothing on their own
+    // connection either.
+    expect(factory.to(people[0]!)?.tracks).toEqual([])
+    expect(factory.to(people[1]!)?.tracks).toHaveLength(1)
+
+    // The switch goes off: the room may promote again.
+    mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
+    await settle()
+    expect(mesh.forwarding).toBe('trying')
+    mesh.close()
+  })
+
+  it('comes back down off a forwarder when somebody starts keeping media from a member', async () => {
+    const { session, mesh } = build({ uplink: TIGHT, forwarders: FORWARDERS })
+    fill(session, 12)
+    mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
+    await settle()
+    expect(mesh.forwarding).toBe('trying')
+
+    const views = session.participants()
+    views[0]!.agent = true
+    session.setViews(views)
+    mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack], (v) => v.agent !== true)
+    await settle()
+    expect(mesh.forwarding).toBe('off')
+    mesh.close()
+  })
+
+  it('promotes normally for a device that publishes nothing, whatever its rule says', async () => {
+    // A rule cannot narrow what is not being sent, and somebody with their
+    // camera off still has to receive the room.
+    const { session, mesh } = build({ uplink: TIGHT, forwarders: FORWARDERS })
+    fill(session, 12)
+    mesh.publish([], (v) => v.agent !== true)
+    await settle()
+    expect(mesh.forwarding).toBe('trying')
+    mesh.close()
+  })
+
   it('closes the direct peers only once the forwarder is genuinely connected', async () => {
     const { session, factory, mesh } = build({ uplink: TIGHT, forwarders: FORWARDERS })
     fill(session, 12)
