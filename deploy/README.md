@@ -872,6 +872,20 @@ const DONATION_ADDRESS = 'you@your-wallet.example'   // where the money goes
 const DONATION_RECIPIENT = ''                        // 64 hex, the pubkey zaps name
 ```
 
+Do not read that as one slot being settled and the other outstanding. In
+this repository the address is populated with forgesworn's own and the
+recipient is empty, so **the ring is off**, and filling in the recipient
+alone is what switches it on. Check the address is the one you mean before
+you do: it is the only constant here where being approximately right sends
+money to somebody else. A fork inherits both and should replace them
+together, not fill in the second.
+
+Two checks worth doing on the address rather than assuming, because it has
+already caused one wrong conclusion. Confirm the LNURL endpoint resolves and
+advertises `nostrPubkey` - and confirm separately that the wallet is yours,
+because resolving proves the address exists and says nothing about who owns
+it.
+
 `DONATION_ADDRESS` is a Lightning address (LUD-16). The app fetches
 `https://<host>/.well-known/lnurlp/<name>` at runtime and reads `nostrPubkey`
 from it - the key that signs that address's zap receipts. It is never written
