@@ -153,11 +153,14 @@ Stated before anyone finds it:
   invoice cancellation events full status tracking needs. The security model
   is macaroon plus preimage, which is Aperture's default and is fine here -
   but do not turn it on expecting it to work.
-- **No client speaks L402 yet.** Not the browser, not `kithmoot-agent`. Until
-  the keeper learns to pay (see "Who pays"), the only thing that can use this
-  endpoint is `402-mcp` or a person with `curl` and a wallet. That is
-  deliberate: stand the endpoint up, announce it, and find out whether anybody
-  pays before building the client half.
+- **Nothing is wired to pay this yet.** `src/node/l402.ts` is the client half
+  - it answers a 402, checks the amount against a cap, pays through a `Payer`
+  (`nwcPayer` adapts `nwc-kit` in three lines) and re-sends the token rather
+  than paying twice. It is tested and it is not *called* by anything: the
+  keeper does not yet fetch a credential or put one in the room descriptor.
+  Until it does, this endpoint's users are `402-mcp`, `curl`, or a few lines
+  of Node. The browser is deliberately not on that list and should stay off
+  it - `src/node/` never reaches the app bundle.
 - **What paying reveals.** An invoice settled at the moment a pair needs a
   relay is a timestamped event linking a payer to a call. It does not name the
   room - the credential minter never learns a room id, and coturn sees only an
