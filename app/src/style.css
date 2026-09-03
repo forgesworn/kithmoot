@@ -390,16 +390,22 @@ video {
   font-size: 0.8rem;
 }
 
-/* The switch that decides who is sent this device's media, beside the
-   preview of what that media is. */
-.toggles.agentsHear {
+/* A switch with its explanation beside it: who is sent this device's
+   media, whether a room is kept here, whether to be told about messages. */
+.toggles.agentsHear,
+.toggles.switchRow {
   align-items: center;
   margin-top: 0.5rem;
 }
 
-.toggles.agentsHear .note {
+.toggles.agentsHear .note,
+.toggles.switchRow .note {
   margin: 0;
   flex: 1 1 16rem;
+}
+
+#notify {
+  margin: 0.5rem 0;
 }
 
 /* The side channels: the same log as the chat, folded away until wanted. */

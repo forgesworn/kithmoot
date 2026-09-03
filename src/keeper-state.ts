@@ -22,6 +22,8 @@ export interface StoredKeeperState {
   epochSecret?: string
   removed?: string[]
   closed?: boolean
+  /** Who asked to be nudged. Written only when somebody has. */
+  nudge?: string[]
 }
 
 const HEX64 = /^[0-9a-f]{64}$/i
@@ -57,6 +59,13 @@ export function parseKeeperState(json: string): KeeperState {
     state.removed = [...new Set(stored.removed.map(normaliseHex))].sort()
   }
   if (stored.closed === true) state.closed = true
+  if (stored.nudge !== undefined) {
+    if (!Array.isArray(stored.nudge) || !stored.nudge.every((p) => typeof p === 'string' && HEX64.test(p))) {
+      throw new Error('keeper state: nudge is not a list of pubkeys')
+    }
+    const nudge = [...new Set(stored.nudge.map(normaliseHex))].sort()
+    if (nudge.length) state.nudge = nudge
+  }
   return state
 }
 
@@ -75,5 +84,6 @@ export function serialiseKeeperState(state: KeeperState): string {
     stored.epochSecret = bytesToHex(state.epochSecret)
   }
   if (state.closed) stored.closed = true
+  if (state.nudge?.length) stored.nudge = [...new Set(state.nudge.map(normaliseHex))].sort()
   return JSON.stringify(stored, null, 2) + '\n'
 }

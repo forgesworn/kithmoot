@@ -74,6 +74,11 @@ export type ControlMessage =
    * what enforces; this is manners.
    */
   | { op: 'mute'; participant: string }
+  /** A member, to the room's keeper: tell me over Nostr when there are new
+   *  messages here and I am not. The sender is the message's participant,
+   *  bound by its credential like any chat message, so there is nothing to
+   *  name. See `Nudger` in src/node/nudge.ts. */
+  | { op: 'nudge'; on: boolean }
 
 const HEX64 = /^[0-9a-f]{64}$/
 const ID = /^[a-z0-9][a-z0-9_-]{0,31}$/
@@ -193,6 +198,9 @@ export function decodeControl(text: string): ControlMessage | null {
     }
     case 'close':
       return { op: 'close' }
+    case 'nudge':
+      if (typeof m.on !== 'boolean') return null
+      return { op: 'nudge', on: m.on }
     default:
       return null
   }

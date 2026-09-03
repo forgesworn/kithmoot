@@ -697,3 +697,61 @@ legacy secret link - cannot be rekeyed at all, and its sessions never move.
 And a browser that rotated its link forgot the old inviter key, so a room
 it made is at epoch 0 for good; only a keeper rekeys, which is the case the
 weekly town hall needed.
+## A joined room is kept on this device only when asked
+
+The rooms list could count what was new in a room this device created,
+and not in a room it had only been admitted to: the creator's record
+lives in localStorage for twelve hours, a joiner's admission lived in
+sessionStorage for the tab. That asymmetry was deliberate, and the entry
+above left extending it to the package that needed it. This is that
+package, and the extension is opt in.
+
+**Why opt in.** A joiner's key arrived over a stranger's link. That the
+person opened the link says they wanted to be in the room that afternoon;
+it does not say they want this browser to hold the room's key overnight,
+on a shared machine, for every room a link ever led them to. So the
+default stays the tab's session, and a person chooses per room, from
+inside it, with **Keep on this device**. The creator is not asked: the
+creator's record is already on these terms.
+
+**What is stored.** The same record the creator keeps, in the joiner's
+form: the room secret, the delegated responder key and its chain, hex,
+with when it was kept, under `kithmoot.admission-kept.v1.<invitation id>`
+beside the creator's `kithmoot.invitation-owner.v1.<invitation id>`. It
+lasts the creator's twelve hours, counted from the last visit, so a room
+the person keeps opening stays readable and one they stop opening lets
+go on its own. The choice itself is a flag on the room's entry in the
+list, so it survives a rotated link; the record is rewritten under the
+new invitation the next time the room is opened.
+
+**What forgetting removes.** Forgetting a room on the list removes its
+link, the choice, and the kept record. Turning the choice off removes the
+record and leaves the room on the list. Neither touches the room, the
+device key, or this device's standing in the room: the key is forgotten,
+not revoked, and a link would bring it back.
+
+## A notification comes from the person's own app, or from the keeper
+
+A standing room nobody is told about is a room nobody reads, and there
+is no server to push from. So there are two honest sources and no third.
+
+**This open app.** A tab in the background, or a tab on the rooms list,
+already reads the rooms it holds keys for, and can tell the person
+through the system what it read. Per device, off until asked, and what
+reaches the operating system is the room and the sender; the text goes
+too only when a second switch says so, because a notification centre is
+read over shoulders and by other apps with permission. Nothing said
+before the tab was following the room is news, and nothing the person
+said themselves is.
+
+**The keeper.** The one party always in the room is its keeper, and the
+one address every Nostr identity already has is a DM. A member signed in
+with a Nostr key can ask the keeper, on the control channel, to nudge
+them: one NIP-17 gift-wrapped DM, from the keeper's own key, over the
+room's relays, when a message lands and they are not in the roster. An
+hour apart at most, and not again until they have been back. A name-only
+identity has no inbox to read a DM from and is not offered the switch.
+What a relay learns is that the keeper's key sent a gift wrap to that
+member's key, and when: not the room, not the text, not who else. That
+is one fact more than the relay had, stated here so it is chosen and not
+discovered.

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { memoryDeviceStore } from './device-store.js'
+import { generateSecretKey } from 'nostr-tools/pure'
+import { loadKeptAdmission, memoryDeviceStore, storeKeptAdmission } from './device-store.js'
 import {
   ROOM_PREFIX,
   forgetRoom,
@@ -8,9 +9,11 @@ import {
   markRead,
   rememberRoom,
   roomLabel,
+  setKeepRoom,
   unreadCount,
 } from './rooms-store.js'
-import { createRoomInvitation } from '../../src/invitation.js'
+import { createRoomInvitation, deriveInvitationId } from '../../src/invitation.js'
+import { parseRoomLink } from '../../src/link.js'
 import { encodeRoomLink } from '../../src/link.js'
 import { encodeJoinUrl } from '../../src/room.js'
 
@@ -117,5 +120,37 @@ describe('the rooms this device has been in', () => {
     store.set(ROOM_PREFIX + 'short', JSON.stringify({ link: invitationLink(), openedAt: NOW }))
     expect(knownRooms(store)).toEqual([])
     expect(knownRoom(store, ROOM_A)).toBeUndefined()
+  })
+
+  it('keeps a room only when asked, remembers the choice across visits, and turning it off removes what was kept', () => {
+    const store = memoryDeviceStore()
+    const link = invitationLink({ name: 'Town hall' })
+    const invitationId = deriveInvitationId(parseRoomLink(link).invitation!)
+    rememberRoom(store, { roomId: ROOM_A, link, openedAt: NOW })
+    expect(knownRoom(store, ROOM_A)?.keep).toBeUndefined()
+    expect(setKeepRoom(store, ROOM_B, true)).toBe(false)
+
+    expect(setKeepRoom(store, ROOM_A, true)).toBe(true)
+    expect(knownRoom(store, ROOM_A)?.keep).toBe(true)
+    rememberRoom(store, { roomId: ROOM_A, link, openedAt: NOW + 60 })
+    expect(knownRoom(store, ROOM_A)?.keep).toBe(true)
+
+    const admission = { secret: new Uint8Array(32).fill(1), delegate: { delegateSk: generateSecretKey(), chain: [] } }
+    storeKeptAdmission(store, invitationId, admission, NOW)
+    setKeepRoom(store, ROOM_A, false)
+    expect(knownRoom(store, ROOM_A)?.keep).toBeUndefined()
+    expect(loadKeptAdmission(store, invitationId, NOW)).toBeUndefined()
+  })
+
+  it('forgetting a room takes the admission kept for it too', () => {
+    const store = memoryDeviceStore()
+    const link = invitationLink()
+    const invitationId = deriveInvitationId(parseRoomLink(link).invitation!)
+    rememberRoom(store, { roomId: ROOM_A, link, openedAt: NOW })
+    setKeepRoom(store, ROOM_A, true)
+    storeKeptAdmission(store, invitationId, { secret: new Uint8Array(32).fill(2), delegate: { delegateSk: generateSecretKey(), chain: [] } }, NOW)
+    forgetRoom(store, ROOM_A)
+    expect(knownRoom(store, ROOM_A)).toBeUndefined()
+    expect(loadKeptAdmission(store, invitationId, NOW)).toBeUndefined()
   })
 })

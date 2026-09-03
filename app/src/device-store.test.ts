@@ -2,15 +2,21 @@ import { describe, it, expect } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import {
   DEVICE_KEY_MAX_AGE_SECONDS,
+  KEPT_ADMISSION_PREFIX,
+  KEPT_ADMISSION_TTL_SECONDS,
   deviceKeyFor,
   forgetCredentialFor,
+  forgetKeptAdmission,
   forgetLegacyStorage,
   isPairedSecondary,
   loadCredentialFor,
+  loadKeptAdmission,
   memoryDeviceStore,
   storeCredentialFor,
+  storeKeptAdmission,
 } from './device-store.js'
 import type { DeviceCredential } from '../../src/types.js'
+import type { RoomAdmission } from '../../src/invitation.js'
 
 const NOW = 1_800_000_000
 const ROOM_A = 'a'.repeat(64)
@@ -90,5 +96,78 @@ describe('per-room device keys', () => {
     store.set('kithmoot.credential.' + ROOM_B, '{not json')
     expect(() => deviceKeyFor(store, ROOM_A, NOW, generateSecretKey)).not.toThrow()
     expect(loadCredentialFor(store, ROOM_B)).toBeUndefined()
+  })
+
+  describe('a joiner’s admission, kept on purpose', () => {
+    const INVITATION = 'i'.repeat(64)
+    function admission(): RoomAdmission {
+      return {
+        secret: new Uint8Array(32).fill(7),
+        delegate: {
+          delegateSk: generateSecretKey(),
+          chain: [{ invitation: INVITATION, room: ROOM_A, issuer: 'a'.repeat(64), delegate: 'b'.repeat(64), expiresAt: NOW + 3600, sig: 's'.repeat(128) }],
+        },
+      }
+    }
+
+    it('is not there until the person chooses, and then comes back whole', () => {
+      const store = memoryDeviceStore()
+      expect(loadKeptAdmission(store, INVITATION, NOW)).toBeUndefined()
+      const kept = admission()
+      storeKeptAdmission(store, INVITATION, kept, NOW)
+      const back = loadKeptAdmission(store, INVITATION, NOW + 60)
+      expect(back?.secret).toEqual(kept.secret)
+      expect(back?.delegate.delegateSk).toEqual(kept.delegate.delegateSk)
+      expect(back?.delegate.chain).toEqual(kept.delegate.chain)
+      expect(back?.epoch).toBeUndefined()
+      // The epoch hint rides along when the responder gave one.
+      storeKeptAdmission(store, INVITATION, { ...kept, epoch: 2 }, NOW)
+      expect(loadKeptAdmission(store, INVITATION, NOW)?.epoch).toBe(2)
+    })
+
+    it('is written in the creator’s shape: hex, with when it was kept, under its own prefix', () => {
+      // The shape is a contract with whoever reads storage by hand, and
+      // with the creator's record beside it: the same fields in the same
+      // form, so one rule covers both.
+      const store = memoryDeviceStore()
+      const kept = admission()
+      storeKeptAdmission(store, INVITATION, kept, NOW)
+      const raw = JSON.parse(store.get(KEPT_ADMISSION_PREFIX + INVITATION)!) as Record<string, unknown>
+      expect(Object.keys(raw).sort()).toEqual(['createdAt', 'delegateSk', 'delegation', 'roomSecret'])
+      storeKeptAdmission(store, INVITATION, { ...kept, epoch: 1 }, NOW)
+      expect(Object.keys(JSON.parse(store.get(KEPT_ADMISSION_PREFIX + INVITATION)!) as object).sort()).toEqual(['createdAt', 'delegateSk', 'delegation', 'epoch', 'roomSecret'])
+      expect(raw.roomSecret).toBe('07'.repeat(32))
+      expect(raw.createdAt).toBe(NOW)
+      expect(typeof raw.delegateSk).toBe('string')
+    })
+
+    it('lasts the creator’s twelve hours from when it was last kept, and goes on its own after', () => {
+      const store = memoryDeviceStore()
+      storeKeptAdmission(store, INVITATION, admission(), NOW)
+      expect(loadKeptAdmission(store, INVITATION, NOW + KEPT_ADMISSION_TTL_SECONDS - 1)).toBeDefined()
+      // Kept again on a later visit: the clock restarts.
+      storeKeptAdmission(store, INVITATION, admission(), NOW + 3600)
+      expect(loadKeptAdmission(store, INVITATION, NOW + KEPT_ADMISSION_TTL_SECONDS + 1)).toBeDefined()
+      expect(loadKeptAdmission(store, INVITATION, NOW + 3600 + KEPT_ADMISSION_TTL_SECONDS)).toBeUndefined()
+      expect(store.get(KEPT_ADMISSION_PREFIX + INVITATION)).toBeNull()
+    })
+
+    it('is removed by forgetting, and touches nothing else', () => {
+      const store = memoryDeviceStore()
+      storeKeptAdmission(store, INVITATION, admission(), NOW)
+      storeKeptAdmission(store, 'j'.repeat(64), admission(), NOW)
+      forgetKeptAdmission(store, INVITATION)
+      expect(loadKeptAdmission(store, INVITATION, NOW)).toBeUndefined()
+      expect(loadKeptAdmission(store, 'j'.repeat(64), NOW)).toBeDefined()
+    })
+
+    it('does not choke on a stored value somebody else wrote, and clears it', () => {
+      const store = memoryDeviceStore()
+      store.set(KEPT_ADMISSION_PREFIX + INVITATION, 'not json')
+      expect(loadKeptAdmission(store, INVITATION, NOW)).toBeUndefined()
+      expect(store.get(KEPT_ADMISSION_PREFIX + INVITATION)).toBeNull()
+      store.set(KEPT_ADMISSION_PREFIX + INVITATION, JSON.stringify({ roomSecret: 'ab', delegateSk: 'cd', delegation: [], createdAt: NOW }))
+      expect(loadKeptAdmission(store, INVITATION, NOW)).toBeUndefined()
+    })
   })
 })

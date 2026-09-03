@@ -78,6 +78,9 @@ export interface KeeperState {
   removed?: string[]
   /** True once the room was closed. A closed room is not reopened. */
   closed?: boolean
+  /** Participants who asked to be nudged when they miss messages, lower-case
+   *  hex. Absent until somebody has. See `Nudger` in src/node/nudge.ts. */
+  nudge?: string[]
 }
 
 interface CommonAgentOptions {
@@ -132,6 +135,9 @@ export interface JoinRoomOptions extends CommonAgentOptions {
 export interface CreateRoomOptions extends CommonAgentOptions {
   /** Where the app is served, for the link: `https://host/j/`. */
   base: string
+  /** What the room is called. Rides in the link, so everybody sent it
+   *  calls the room the same thing - see `RoomLink.name`. */
+  roomName?: string
   relays?: string[]
   iceUrls?: string[]
   policy?: RoomPolicy
@@ -276,6 +282,7 @@ export class RoomAgent {
     const invitation = roomInvitation(state.bearer, getPublicKey(state.inviterSk))
     const link: RoomLink = { invitation, relays, iceUrls: opts.iceUrls ?? [] }
     if (opts.policy) link.policy = opts.policy
+    if (opts.roomName !== undefined) link.name = opts.roomName
     const url = encodeRoomLink(opts.base, link)
     if (epochNumber > 0 && !state.epochSecret) throw new Error('keeper state names an epoch above 0 without its secret')
     const epoch: RoomEpoch | undefined =
@@ -512,7 +519,25 @@ export class RoomAgent {
       removed: [...this.session.removed].sort(),
       ...(current.epoch > 0 ? { epochSecret: current.secret } : {}),
       ...(this.session.closed ? { closed: true } : {}),
+      ...(keeper.nudge?.length ? { nudge: keeper.nudge } : {}),
     }
+    this.#keeper = next
+    await this.#onState?.(next)
+  }
+
+  /**
+   * Change what the keeper remembers beyond the room itself - today, who
+   * asked to be nudged - and persist it through the same `onState` an
+   * epoch change goes through, so there is one state file and one writer.
+   * Only a keeper has state to amend.
+   */
+  async amendKeeperState(patch: Pick<KeeperState, 'nudge'>): Promise<void> {
+    const keeper = this.#keeper
+    if (!keeper) throw new Error('only a keeper has state to amend')
+    const nudge = [...new Set(patch.nudge ?? [])].sort()
+    const next: KeeperState = { ...keeper }
+    if (nudge.length) next.nudge = nudge
+    else delete next.nudge
     this.#keeper = next
     await this.#onState?.(next)
   }
