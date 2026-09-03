@@ -494,6 +494,42 @@ video {
   font-size: 0.85rem;
 }
 
+/* The trust chip. A button, because it does something: clicking shows the
+   words to say. Three states, and only one is coloured as a problem -
+   "not verified" is the ordinary case for most people, and colouring that
+   as a warning is how people learn to ignore warnings. */
+.participant .verifyChip {
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8em;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.05em 0.5em;
+}
+
+.participant .verifyChip:hover,
+.participant .verifyChip:focus-visible {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.participant .verifyChip.verified {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+/* The one accusation on the page. It gets the danger colour and a fill,
+   because a name you have verified arriving on a different key is the
+   attack this whole feature exists for. */
+.participant .verifyChip.key-changed {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #2a0a0a;
+  font-weight: 600;
+}
+
 .participant .badge.agent {
   background: #7a6fd0;
   color: #fff;

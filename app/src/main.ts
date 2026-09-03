@@ -14,6 +14,7 @@ import {
 import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { RoomWatch } from './room-watch.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
+import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
   RoomSession,
@@ -2182,6 +2183,7 @@ function render(views: ParticipantView[], me: string): void {
       heading.append(badge)
       if (view.owner) heading.append(ownerRun(view.owner))
     }
+    if (view.participant !== me) heading.append(verifyChip(view, shown.name ?? ''))
     box.append(heading)
 
     if (view.participant === me) {
@@ -2845,6 +2847,78 @@ const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamT
  * never lit while everybody else's did. A constant cannot be too early, and
  * cannot collide with a device id, which is 64 hex characters.
  */
+/**
+ * The trust chip on somebody else's tile.
+ *
+ * Three states, and only one of them is an accusation:
+ *
+ *   new       never verified. Not a warning - most people are new, and
+ *             colouring that as a problem teaches people to ignore it.
+ *   verified  this exact key was verified on this device before.
+ *   changed   a key you verified uses this name, and this is not it. This
+ *             is the one that matters, and it is the shape the September
+ *             incident took.
+ *
+ * Clicking it shows the words to say. See `src/verification.ts` for what
+ * they do and do not prove - the panel says so too, because a verification
+ * story that overclaims is worse than none.
+ */
+function verifyChip(view: ParticipantView, name: string): HTMLElement {
+  const chip = document.createElement('button')
+  chip.type = 'button'
+  chip.className = 'verifyChip'
+  const seen = participantVerification(deviceStore, view.participant, name)
+  chip.classList.add(seen.status)
+
+  if (seen.status === 'verified') {
+    chip.textContent = 'verified'
+    chip.title = `You verified this key on ${new Date((seen.verifiedAt ?? 0) * 1000).toLocaleDateString()}`
+  } else if (seen.status === 'key-changed') {
+    chip.textContent = 'key changed'
+    chip.title =
+      `You verified a DIFFERENT key under this name (${short(seen.expected ?? '')}). ` +
+      'Either they are on a new device or key, or this is not them. Check before you trust it.'
+  } else {
+    chip.textContent = 'not verified'
+    chip.title = 'You have not checked this key against the person. Click to see the words to say.'
+  }
+
+  chip.addEventListener('click', () => showVerification(view, name, seen.status))
+  return chip
+}
+
+/** The words, and the one button that means "yes, that is them". */
+function showVerification(view: ParticipantView, name: string, status: string): void {
+  if (!session) return
+  let words: { mine: string; theirs: string }
+  try {
+    words = session.verificationWords(view.participant)
+  } catch {
+    return
+  }
+
+  const shownName = name || short(view.participant)
+  const warning =
+    status === 'key-changed'
+      ? [`WARNING: you verified a DIFFERENT key under the name "${shownName}".`, '']
+      : []
+  const lines = [
+    ...warning,
+    `Say to ${shownName}: ${words.mine}`,
+    `They should say back: ${words.theirs}`,
+    '',
+    'Say them out loud on the call, where you can hear their voice. If both',
+    'match, mark them verified. If they do not, somebody is not who they say.',
+    '',
+    'This checks that you are both looking at the same pair of keys. It does',
+    'not stop somebody already in the room from working out the words.',
+  ]
+
+  if (!confirm(`${lines.join('\n')}\n\nMark ${shownName} as verified?`)) return
+  rememberVerified(deviceStore, view.participant, name, Date.now())
+  if (session) render(session.participants(), meParticipant)
+}
+
 const LOCAL_SPEAKING_KEY = 'self'
 
 /**
