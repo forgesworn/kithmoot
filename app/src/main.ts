@@ -158,14 +158,16 @@ const ICE_REFRESH_MS = 40 * 60 * 1000
 const TURN_CREDENTIAL_ENDPOINT: string | undefined = '/turn'
 
 // Where a file dropped into the chat is put, unless this device has been
-// told otherwise in the Attach panel. Empty on purpose: the same rule as
-// TURN, no operator is protocol-mandated, and Wildbloom itself ships with
-// no default server either - it asks. A Blossom server sees an encrypted
-// blob and the device key that signed the upload, nothing else, but which
-// server sees that is still the person's choice, made once and remembered
-// on this device. An operator hosting this app for a community can name
-// their own here.
-const BLOSSOM_ENDPOINT = ''
+// told otherwise in the Attach panel. The app's own origin: the box that
+// serves it runs a Blossom server of its own behind /upload and /blossom/
+// (deploy/README.md, "Running a Blossom server"), on the same terms as its
+// TURN server, a default and not a dependency. A Blossom server sees an
+// encrypted blob and the device key that signed the upload, nothing else,
+// but which server sees that is still the person's choice, made once in
+// the Attach panel and remembered on this device. An operator hosting this
+// app for a community names their own here, or sets it to '' and the panel
+// asks, which is what Wildbloom itself does.
+const BLOSSOM_ENDPOINT = 'https://kithmoot.forgesworn.dev'
 
 function $<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T

@@ -481,12 +481,16 @@ in with a hardware signer is not asked to press a button per file, and a
 relay that watches kind-1063 events sees a key it cannot tie to a person.
 
 Which Blossom server is the person's choice, set once in the Attach panel
-and remembered on the device. The app ships with no default, for the same
-reason it hardcodes no TURN server and Wildbloom ships with none: no
-operator is protocol-mandated, and where your encrypted bytes go is not a
-decision an app should make for you. An operator hosting the app for a
-community can name their own in `BLOSSOM_ENDPOINT` beside the TURN
-endpoint constant.
+and remembered on the device. Left unset, the app as served from
+kithmoot.forgesworn.dev uses its own origin: the box runs a Blossom server
+of its own behind `/upload` and `/blossom/` (`deploy/README.md`, "Running
+a Blossom server"), open to any key, one accepted media type, a 70 MiB cap
+and a 20 GiB quota, and no promise to keep a blob past 90 days unfetched.
+It is a default on the same terms as the TURN server, not a dependency: no
+operator is protocol-mandated, and where your encrypted bytes go is still
+yours to change. An operator hosting the app for a community names their
+own in `BLOSSOM_ENDPOINT` beside the TURN endpoint constant, or sets it
+back to empty and the panel asks, which is what Wildbloom itself does.
 
 ## What is not done
 
