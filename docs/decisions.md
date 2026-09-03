@@ -844,3 +844,76 @@ true at a bandwidth threshold nobody was shown, which is not a promise.
 The decision is taken on every publish as well as on every roster change,
 because both inputs move: a camera turned on changes what the room costs,
 and a switch turned on changes who may receive it.
+
+## Named channels and spoken directives need no new event kinds
+
+Not built yet. Recorded before building because both features were
+described as needing new wire format, and working through them says they
+do not - and the cheapest moment to find that out is before two clients
+have each guessed differently.
+
+### Named channels
+
+Several conversations inside one long-lived room, in the Slack sense.
+
+The mechanism is already here. `deriveChannel(roomId, roomKey, name)`
+takes a channel id and key from the room key by HKDF, with `undefined`
+meaning the main chat, and a name of at most `MAX_CHANNEL_NAME_LENGTH`
+(64). `agents`, `transcript` and `minutes` are reserved and already in
+use. What is missing is not derivation, it is **discovery and a gate**:
+how a client learns which channels exist, and who may say so.
+
+Discovery does not want a new kind. The obvious candidate, the room
+descriptor (kind 20465), is the wrong home: a descriptor is authored per
+DEVICE and carries that device's credential and forwarders, so a channel
+list in it would be one device's opinion of the room. The right home is
+the control channel, which already carries every structural operation the
+room has - `admins`, `remove`, `close`, `mute` - and already has the gate
+this needs.
+
+The gate is the one that exists. An `admins` control message is signed by
+the room authority and checked with `verifyAdmins` before it is believed.
+A channel registry rides the same way, which settles the constraint that
+nothing a chat message says may change membership, roles or structure: a
+channel is created by an admin-signed control message or it is not created
+at all. A room member who types a channel name into the chat changes
+nothing.
+
+For an agent, the thread id is the channel name exactly as the protocol
+validates and stores it, with `null` for the main chat - which is what the
+adapter already does for the three reserved names. Keeping to names the
+protocol already accepts means the adapter generalises its mapping and
+needs no other change.
+
+### Spoken directives
+
+Click the microphone once to start and once to stop, and what was said
+goes to the agents as an instruction rather than as conversation.
+
+The precedent quoted for this was transcripts, "the same message shape
+with its own kind". That is right, but the word kind is doing two jobs and
+the difference decides the whole design. `ChatMessageKind` is a field
+INSIDE the encrypted chat payload, not a Nostr event kind: transcripts are
+ordinary chat events carrying a marker. So a directive is a new
+`ChatMessageKind` beside `transcript`, and the kind table does not move.
+
+Two properties follow from that choice rather than having to be built.
+It is attributed to the speaker's participant key like any other message,
+so a client that has never heard of directives shows a perfectly ordinary
+message from the person who spoke - no silent drop, no unexplained gap.
+And an agent adapter can treat the marker as a mention whatever its
+engagement pattern says, because clicking a microphone is already an
+unambiguous act of address and nobody should have to say a machine's name
+out loud to be heard by it.
+
+It must not be written to the `transcript` channel. The scribe reads that
+channel to write the minutes, and an instruction folded into the minutes
+as if it were conversation is a record of a meeting that did not happen.
+
+### What this leaves
+
+`KINDS` stays where it is, at 20469 and 1462. The two additions are a
+control-message op and a `ChatMessageKind` value, both inside envelopes
+that already exist and both carried by clients that have never heard of
+them without breaking. Neither is implemented, and the wire shapes should
+be settled deliberately rather than inferred from a first implementation.
