@@ -917,3 +917,41 @@ control-message op and a `ChatMessageKind` value, both inside envelopes
 that already exist and both carried by clients that have never heard of
 them without breaking. Neither is implemented, and the wire shapes should
 be settled deliberately rather than inferred from a first implementation.
+
+## What would make a zap-derived badge real
+
+Nothing is being built. This records one correctness constraint, because
+it is true whenever a client computes anything from zap receipts and it is
+the kind of thing that is discovered by getting it wrong.
+
+The idea it came from is a coloured ring on a profile picture showing what
+somebody has contributed, summed from public zap receipts. Whether this
+project wants such a thing at all is a separate and larger question - it
+makes visible who has NOT given as clearly as who has, in a room where the
+posture so far is that everybody is equal and a name is only a claim.
+
+The trap is the phrase "zap receipts are public, signed events". True, and
+not sufficient. A kind 9735 receipt is signed by the RECIPIENT's LNURL
+provider, not by the zapper, so anybody able to write to a relay can
+publish a receipt naming any zapper they like. Two checks make the
+attribution real, and both are needed:
+
+  1. Validate the kind 9734 zap request embedded in the receipt's
+     `description` tag. That inner event IS signed by the zapper, and it is
+     the only thing that binds a payment to a person.
+
+  2. Confirm the receipt itself was signed by the nostr pubkey that the
+     recipient's own LNURL endpoint advertises. Otherwise the provider
+     half is unbound and anybody may mint receipts for the address.
+
+Do one and not the other and the badge is forgeable. A badge with a number
+on it is the worst place in an interface to be approximately right about a
+signature, because it is the one thing worth forging.
+
+Two smaller notes if it is ever built. It can only work for participants
+signed in with Nostr - a per-device key has no identity to attribute a
+payment to and no kind 0 to draw a ring around - so it is invisible for
+exactly the people who joined by typing a name. And it inherits, without
+adding to, the relay correlation documented in `app/src/profiles.ts`;
+inheriting it is what makes that leak load-bearing rather than incidental,
+which is a reason to settle that trade first rather than after.
