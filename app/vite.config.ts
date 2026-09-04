@@ -121,6 +121,15 @@ export default defineConfig({
   // as much as the assets, because a service worker registered at `/` would
   // otherwise answer navigations to the marketing page out of its own cache.
   base: BASE,
+  // Browser acceptance runs on HTTPS. WebKit correctly refuses an insecure
+  // ws:// relay from that page, even on loopback. Terminate test TLS at the
+  // preview server and proxy to the same local relay used by the other tests.
+  // Preview configuration is not included in the deployed static app.
+  preview: {
+    proxy: {
+      '/__test-relay': { target: 'ws://127.0.0.1:7777', ws: true },
+    },
+  },
   build: {
     // Written outside app/ so `dist/` at the repo root is unambiguous
     // between the library build (tsc, ./dist) and this one - callers

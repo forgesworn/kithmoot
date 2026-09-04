@@ -1,14 +1,19 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
-import { LOCAL_TEST_RELAY } from './relays.js'
 import { goToConversation } from './browser.js'
 
-async function contextFor(browser: Browser): Promise<BrowserContext> {
+function testRelay(baseURL: string): string {
+  const url = new URL('/__test-relay', baseURL)
+  url.protocol = 'wss:'
+  return url.href
+}
+
+async function contextFor(browser: Browser, baseURL: string): Promise<BrowserContext> {
   const context = await browser.newContext({
     ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 },
   })
   await context.route('**/turn', r => r.fulfill({ status: 503, body: '' }))
-  await context.routeWebSocket(/wss:\/\/.*/, ws => ws.close())
+  await context.routeWebSocket(url => url.protocol === 'wss:' && url.href !== testRelay(baseURL), ws => ws.close())
   return context
 }
 
@@ -20,13 +25,14 @@ async function join(page: Page, url: string, name: string): Promise<void> {
 }
 
 test('a lost acknowledgement retains the message and retries the same event in its original conversation', async ({ browser, baseURL }) => {
-  const context = await contextFor(browser)
+  const context = await contextFor(browser, baseURL!)
+  const relay = testRelay(baseURL!)
   const secret = generateRoomSecret()
   const { roomId } = deriveRoom(secret)
   const sent: string[] = []
   let firstId: string | undefined
   let reject = true
-  await context.routeWebSocket(LOCAL_TEST_RELAY, ws => {
+  await context.routeWebSocket(relay, ws => {
     const upstream = ws.connectToServer()
     ws.onMessage(raw => {
       const frame = JSON.parse(String(raw))
@@ -48,7 +54,7 @@ test('a lost acknowledgement retains the message and retries the same event in i
   try {
     reject = false
     const page = await context.newPage()
-    await join(page, encodeJoinUrl(baseURL!, secret, [LOCAL_TEST_RELAY]), 'Ada')
+    await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
     reject = true
     await page.locator('#chatInput').fill('Please keep this message')
     await page.locator('#chatInput').press('Enter')
@@ -72,10 +78,10 @@ test('a lost acknowledgement retains the message and retries the same event in i
 })
 
 test('incoming chat preserves the reading position and offers a way to the latest messages', async ({ browser, baseURL }) => {
-  const a = await contextFor(browser)
-  const b = await contextFor(browser)
+  const a = await contextFor(browser, baseURL!)
+  const b = await contextFor(browser, baseURL!)
   try {
-    const url = encodeJoinUrl(baseURL!, generateRoomSecret(), [LOCAL_TEST_RELAY])
+    const url = encodeJoinUrl(baseURL!, generateRoomSecret(), [testRelay(baseURL!)])
     const reader = await a.newPage()
     const writer = await b.newPage()
     await join(reader, url, 'Reader')
@@ -100,9 +106,10 @@ test('incoming chat preserves the reading position and offers a way to the lates
 })
 
 test('public profiles require opt-in and the choice does not survive a new visit', async ({ browser, baseURL }) => {
-  const context = await contextFor(browser)
+  const context = await contextFor(browser, baseURL!)
+  const relay = testRelay(baseURL!)
   const queries: string[][] = []
-  await context.routeWebSocket(LOCAL_TEST_RELAY, ws => {
+  await context.routeWebSocket(relay, ws => {
     const upstream = ws.connectToServer()
     ws.onMessage(raw => {
       const frame = JSON.parse(String(raw))
@@ -116,7 +123,7 @@ test('public profiles require opt-in and the choice does not survive a new visit
   })
   try {
     const page = await context.newPage()
-    await join(page, encodeJoinUrl(baseURL!, generateRoomSecret(), [LOCAL_TEST_RELAY]), 'Private reader')
+    await join(page, encodeJoinUrl(baseURL!, generateRoomSecret(), [relay]), 'Private reader')
     await page.locator('#chatInput').fill('No public lookup needed')
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('No public lookup needed')
