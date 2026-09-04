@@ -654,7 +654,12 @@ video {
   z-index: 5;
   display: flex;
   flex-direction: column;
-  max-height: min(40vh, 13rem);
+  /* Short enough to clear a raised keyboard on the smallest phone still in
+     use. With the keyboard up on a 568 point screen there is about two
+     hundred points between the top of what is visible and the box, and a
+     list taller than that would be cut off at the top rather than scrolled
+     to. Four names at a time, and it scrolls for the rest. */
+  max-height: min(38vh, 11rem);
   overflow-y: auto;
   padding: 0.25rem;
   background: var(--panel);
