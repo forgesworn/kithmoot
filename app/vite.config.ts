@@ -136,7 +136,7 @@ export default defineConfig({
     // and the phone is the device the whole app exists to prove works.
     basicSsl(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       // The MediaPipe runtime is 11.7MB of WASM plus 155KB of glue, and it
       // is fetched only if somebody turns an effect on. Precaching it would
       // make every first visit pay, in the background, for a feature most

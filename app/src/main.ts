@@ -1,5 +1,7 @@
 import './style.css'
-import { registerSW } from 'virtual:pwa-register'
+import { installUpdates } from './updates.js'
+import { Outbox } from './outbox.js'
+import { ChatScroll } from './chat-scroll.js'
 import {
   browserDeviceStore,
   deviceKeyFor,
@@ -104,10 +106,13 @@ import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 
-// autoUpdate: a new build replaces the cached shell in the background and
-// takes over on next load - no "a new version is available" prompt to wire
-// up, no stale room UI stuck behind a service worker.
-registerSW({ immediate: true })
+const outbox = new Outbox(document.getElementById('outbox')!)
+const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
+installUpdates(() => Boolean(session) || hasUnsentWork())
+
+function hasUnsentWork(): boolean {
+  return outbox.pending || Boolean(($('chatInput') as HTMLTextAreaElement).value) || stagedAttachments.length > 0
+}
 
 // Relays confirmed live for this room kind. relay.trotters.cc is the
 // project's own relay, so it goes first; nos.lol and relay.primal.net are
@@ -873,6 +878,15 @@ const profiles = new ProfileBook({
     }
     renderRooms()
   },
+})
+
+$('lookupProfiles').addEventListener('change', () => {
+  profiles.setEnabled(($('lookupProfiles') as HTMLInputElement).checked)
+  if (session) {
+    render(session.participants(), meParticipant)
+    repaintActiveChat()
+  }
+  renderIdentity()
 })
 
 /**
@@ -3234,6 +3248,7 @@ function renderChat(messages: ChatMessage[]): void {
   // showing. See `#chatLog.minutes` in style.css.
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
+  if (currentChannel === undefined) noteChatRead(messages)
 }
 
 /**
@@ -3703,6 +3718,7 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
  */
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
+  const restoreScroll = chatScroll.before(currentChannel ?? '')
   log.innerHTML = ''
   // What this conversation is, at the top of it, the way a messaging app
   // puts the thing you should know once at the head of the thread.
@@ -3744,6 +3760,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     if (m.kind === 'transcript') {
       const p = document.createElement('p')
       p.className = 'transcript'
+      p.dataset.messageId = m.id
       const who = document.createElement('span')
       who.className = 'who'
       if (m.speaker) {
@@ -3769,6 +3786,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     const fromAgent = participantIsAgent(m.participant)
     const row = document.createElement('div')
     row.className = `msg ${mine ? 'mine' : 'theirs'}${fromAgent ? ' fromAgent' : ''}`
+    row.dataset.messageId = m.id
 
     // Who said it, above the bubble, the way every group chat does it.
     // Left-alignment says "not you"; in a room of six it does not say WHO,
@@ -3813,7 +3831,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   }
   systemUpTo(Number.POSITIVE_INFINITY)
   if (countId) $(countId).textContent = messages.length ? `(${messages.length})` : ''
-  log.scrollTop = log.scrollHeight
+  restoreScroll()
 }
 
 /**
@@ -4535,6 +4553,10 @@ async function startSession(): Promise<void> {
     lastOffering = currentAssistOffer() !== null
     startAssistPolling()
     render(s.participants(), meParticipant)
+    // History may have arrived while the join screen still hid the log.
+    // Start at the latest message once the conversation can be measured.
+    chatScroll.reset()
+    repaintActiveChat()
   } catch (err) {
     session = undefined
     sessionTransport = undefined
@@ -4557,7 +4579,9 @@ async function startSession(): Promise<void> {
  * count on the rooms list is measured against.
  */
 function noteChatRead(messages: ChatMessage[]): void {
-  if (document.visibilityState !== 'visible') return
+  if (document.visibilityState !== 'visible' || currentChannel !== undefined || $('roomArea').hidden) return
+  const log = $('chatLog')
+  if (log.scrollHeight - log.clientHeight - log.scrollTop >= 48) return
   const roomId = currentRoomId()
   if (!roomId) return
   let newest = 0
@@ -4576,6 +4600,9 @@ document.addEventListener('visibilitychange', () => {
   }
 })
 window.addEventListener('focus', () => notifier.seen())
+$('chatLog').addEventListener('scroll', () => {
+  if (session && currentChannel === undefined) noteChatRead(session.chat.messages())
+})
 
 // ---------------------------------------------------------------------------
 // Your rooms
@@ -4871,6 +4898,7 @@ function renderWayBack(): void {
 /** Back to the list: leave the room if in it, and open the app with no
  *  link on it. A reload for the same reason `leaveRoom` reloads. */
 function backToRooms(): void {
+  if (hasUnsentWork() && !confirm('Leave this room and discard your unsent messages and files?')) return
   const s = session
   session = undefined
   sessionTransport = undefined
@@ -5328,6 +5356,7 @@ async function leaveRoom(): Promise<void> {
 }
 
 $('leave').addEventListener('click', () => {
+  if (hasUnsentWork() && !confirm('Leave this room and discard your unsent messages and files?')) return
   void leaveRoom()
 })
 
@@ -5554,6 +5583,14 @@ $('chatForm').addEventListener('submit', (event) => {
     (attachments.length === 1
       ? `Shared a file${attachments[0]?.name ? `: ${attachments[0].name}` : ''}`
       : `Shared ${attachments.length} files`)
+  const log = activeChat() ?? session.chat
+  let publish: () => Promise<void>
+  try {
+    publish = log.prepareSend(text, attachments.length ? { attachments } : {})
+  } catch (err) {
+    setStatus(describeError(err))
+    return
+  }
   input.value = ''
   growComposer(input)
   closeMentionPicker()
@@ -5561,8 +5598,8 @@ $('chatForm').addEventListener('submit', (event) => {
   renderStaged()
   // Into whichever conversation is on screen, which is the main chat until
   // somebody picks another.
-  const log = activeChat() ?? session.chat
-  log.send(text, attachments.length ? { attachments } : {}).catch((err) => setStatus(describeError(err)))
+  outbox.send(text, currentChannel ?? 'Chat', publish, attachments.map(a => a.name ?? 'Encrypted file'))
+  chatScroll.latest()
   if (currentChannel === undefined && asksForMinutes(typed)) acknowledgeMinutesRequest()
 })
 

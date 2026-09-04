@@ -288,6 +288,12 @@ signature per join.
   the only signal that exists. Nothing on the wire distinguishes a real
   Nostr key from one this browser generated a moment ago, and nothing
   could.
+- **Public-profile lookup is off by default.** Room details offers an
+  opt-in for this visit. Looking profiles up gives the room's relays the
+  participant keys in plaintext queries, and loading pictures contacts
+  their hosts. Turning it off stops further lookups and removes the loaded
+  profiles; it cannot retract requests already sent. Other members can
+  independently enable lookups, so this is not a room-wide privacy guarantee.
 - **A kind-0 name is also self-asserted.** It says "the holder of this key
   calls themselves Robin", which is the same kind of claim as a typed
   name; the difference is that the key is persistent and has a history.

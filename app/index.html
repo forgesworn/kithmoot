@@ -13,6 +13,9 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <aside id="updateNotice" hidden role="status">
+      An update is ready. <button id="updateApp" type="button">Update and reload</button>
+    </aside>
     <header>
       <h1>KithMoot</h1>
       <p class="tagline">A town hall nobody owns.</p>
@@ -180,6 +183,8 @@
         <h3 class="sr-only">Conversation</h3>
         <div id="approvals" aria-live="polite"></div>
         <div id="chatLog" aria-live="polite"></div>
+        <button id="newMessages" type="button" hidden>New messages ↓</button>
+        <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
         <!-- Said where the box would be, on the conversations nobody types
              into. A box on the Transcript tab invited somebody to type into
              a record of what was said aloud, which is not what that tab is.
@@ -342,8 +347,8 @@
           <summary>I already have a Nostr key</summary>
           <p class="note">
             Goes in with a key you already have, kept in an add-on, an app or
-            another device of yours. Your name and picture come from there,
-            and the key never comes to this page.
+            another device of yours. Public names and pictures can be loaded
+            from Room details after you join.
           </p>
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
@@ -485,6 +490,13 @@
         </details>
 
         <h3 class="sheetHead">Who is here</h3>
+        <label class="profileChoice"><input id="lookupProfiles" type="checkbox" /> Look up public profiles for this visit</label>
+        <p class="note">
+          Off by default. Turning this on sends the participant keys in this room
+          to its relays and loads profile pictures from their hosts. Those services
+          can connect these requests with your visit. Turning it off stops further
+          lookups; it cannot take back requests already sent.
+        </p>
         <!-- What the `agent` tag means. It is said again as the first note
              in every conversation, where a first-time reader actually meets
              it, and it lives here permanently for anybody who comes looking.
