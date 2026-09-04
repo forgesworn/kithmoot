@@ -341,9 +341,37 @@ host's environment, never in the catalogue or the room.
 
 The `control` channel is a room channel like the others: any member can ask,
 because any member holds the room key, and any member can read what was
-asked. What a member cannot do is run something the host did not put in its
-catalogue, or run it anywhere but on the host's machine. A catalogue from a
-host that has left the room is not shown.
+asked. Asking is not being obeyed. **Only the host's principal can start an
+agent on it**: the key on the ownership proof the host was given at startup,
+from `kithmoot-agent attest`. A link is forwarded by design, so "anybody who
+holds the room key" includes everybody the link has ever reached, and none of
+them are the person whose laptop this is.
+
+So a host wants attesting before anyone can use it. The keys below are made
+up, and so is the path:
+
+    kithmoot-agent attest --agent <the host's npub> --identity ./me.key > host-owner.json
+    kithmoot-agent host <link> --catalogue ./agents --owner-proof host-owner.json
+
+Without `--owner-proof` a host cannot tell whose it is, so it starts nothing
+for anybody. It says that on its first line of output rather than waiting for
+a click to fail. Every refusal is said out loud on the same channel as an
+`error`, which the app shows as a status line, so a person who clicks Invite
+on a host that will not obey them is told so instead of watching nothing
+happen.
+
+Dismiss is not the mirror of invite. Any member may stop a hosted agent,
+because the worst that comes of it is an agent that has to be invited again,
+and because somebody who wants an agent out of a room they are standing in
+should not have to find its owner first. Starting one is not like that: it
+spends another person's machine and puts the room's key in a process nobody
+here vouched for, and no amount of clicking undoes it. `docs/decisions.md`
+has the reasoning under "A host is commanded by its owner, and dismissed by
+anybody".
+
+What nobody can do, the principal included, is run something the host did not
+put in its catalogue, or run it anywhere but on the host's machine. A
+catalogue from a host that has left the room is not shown.
 
 Run the host where the model is: on a laptop with Ollama, or on the box
 that keeps the room with a key for Claude in its environment file.

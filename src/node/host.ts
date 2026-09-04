@@ -6,8 +6,9 @@ import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import type { RoomAgent } from '../agent.js'
 import type { ChatMessage } from '../chat.js'
-import { CONTROL_CHANNEL, decodeControl, encodeControl } from '../control.js'
-import type { CatalogueEntry, ControlMessage, RunningAgent } from '../control.js'
+import { CONTROL_CHANNEL, decodeControl, encodeControl, mayCommandHost } from '../control.js'
+import type { CatalogueEntry, ControlMessage, HostCommand, RunningAgent } from '../control.js'
+import { verifyAgentOwnership } from '../ownership.js'
 
 /**
  * One agent a host knows how to run: a persona and the way it is driven.
@@ -64,9 +65,16 @@ export interface AgentHostOptions {
  * the host only starts and stops the process.
  *
  * Anybody in the room may ask, because anybody in the room holds the room
- * key and the channel is the room's. What a person cannot do is run
- * something the host did not put in its catalogue, or run it anywhere but
- * on the host's machine.
+ * key and the channel is the room's. Asking is not being obeyed. Only the
+ * host's own principal - the key on the ownership proof it was started
+ * with - can make it start anything, because starting an agent spends
+ * somebody else's machine and hands the room's key to a process nobody in
+ * the room vouched for. Any member may dismiss one, which is recoverable.
+ * A host with no ownership proof starts nothing for anybody and says so.
+ * See `mayCommandHost` in src/control.ts.
+ *
+ * What nobody can do, principal included, is run something the host did
+ * not put in its catalogue, or run it anywhere but on the host's machine.
  */
 export class AgentHost {
   readonly #agent: RoomAgent
@@ -115,7 +123,28 @@ export class AgentHost {
     return [...this.#running].map(([id, r]) => ({ id, name: this.#catalogue.get(id)?.name ?? id, participant: r.participant, since: r.since }))
   }
 
+  /**
+   * Whose host this is, when its proof still says so, and undefined when
+   * it has none or it has lapsed.
+   *
+   * Verified at every use rather than once at start. An ownership proof
+   * cannot be revoked except by expiring, so the expiry is the only lever
+   * a principal has, and a host that checked it once at boot and then ran
+   * for a month would have taken that lever away.
+   */
+  #principal(): string | undefined {
+    const proof = this.#agent.owner
+    if (!proof) return undefined
+    const verdict = verifyAgentOwnership(proof, { agent: this.host, now: this.#now() })
+    return verdict.ok ? verdict.principal : undefined
+  }
+
   async start(): Promise<void> {
+    // Said at startup, because the alternative is a person clicking Invite
+    // on a host that will never obey them and having to guess why.
+    const principal = this.#principal()
+    if (principal) this.#log(`invitations from ${principal.slice(0, 8)} only, the key this host belongs to`)
+    else this.#log('no ownership proof: this host will refuse every invitation. Attest it with `kithmoot-agent attest` and start it with --owner-proof.')
     const log = this.#agent.channel(CONTROL_CHANNEL)
     this.#unsub = log.onChange((messages) => {
       for (const m of messages) void this.#handle(m)
@@ -139,16 +168,39 @@ export class AgentHost {
         await this.#announce()
         return
       case 'invite':
+        // Named host first, entitlement second: a room with two hosts in it
+        // should not have one of them answering for the other's refusals.
         if (control.host !== this.host) return
+        if (!(await this.#allowed('invite', m.participant, control.agent))) return
         await this.invite(control.agent)
         return
       case 'dismiss':
         if (control.host !== this.host) return
+        if (!(await this.#allowed('dismiss', m.participant, control.agent))) return
         await this.dismiss(control.agent)
         return
       default:
         return
     }
+  }
+
+  /**
+   * Whether to act on a request, and if not, say so out loud.
+   *
+   * The refusal is an `error` on the same channel, which the app shows as
+   * a status line, so a person who clicks Invite on a host that will not
+   * obey them learns that instead of watching nothing happen. This is the
+   * opposite of what an agent does with an approval it will not take,
+   * where staying quiet is right: an unwanted verdict is somebody
+   * answering a question that was not theirs, while a click on Invite is
+   * an offer the room made and has to answer for.
+   */
+  async #allowed(op: HostCommand, sender: string, agent: string): Promise<boolean> {
+    const verdict = mayCommandHost({ op, sender, principal: this.#principal() })
+    if (verdict.ok) return true
+    this.#log(`refused ${op} of ${agent} from ${sender.slice(0, 8)}: ${verdict.reason}`)
+    await this.#say({ op: 'error', host: this.host, agent, message: verdict.reason })
+    return false
   }
 
   async #say(message: ControlMessage): Promise<void> {
@@ -164,7 +216,12 @@ export class AgentHost {
     await this.#say({ op: 'catalogue', host: this.host, name: this.#agent.session.participants().find((v) => v.participant === this.host)?.name ?? 'Agent host', agents: this.catalogue(), running: this.running() })
   }
 
-  /** Start one. Idempotent: an agent already running is left running. */
+  /** Start one. Idempotent: an agent already running is left running.
+   *
+   *  Whoever holds this object is the operator of the machine it runs on,
+   *  so there is nothing to check here. The rule about who may ask lives on
+   *  the way in, in `#allowed`, which is where the asking is done by
+   *  somebody else. */
   async invite(id: string): Promise<void> {
     const config = this.#catalogue.get(id)
     if (!config) {

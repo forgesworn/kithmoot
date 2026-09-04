@@ -314,3 +314,45 @@ export function decodeControl(text: string): ControlMessage | null {
       return null
   }
 }
+
+/** What a member can ask an agent host to do with an agent in its
+ *  catalogue: bring it into the room, or stop it. */
+export type HostCommand = 'invite' | 'dismiss'
+
+/** Whether a request will be acted on, and what to tell the room when it
+ *  will not. Shaped like `OwnershipVerdict`: a refusal carries its reason,
+ *  so the reason a host logs is the reason the room is given. */
+export type HostCommandVerdict = { ok: true } | { ok: false; reason: string }
+
+/**
+ * Whether a participant may make an agent host act.
+ *
+ * The control channel is derived from the room key, so anybody holding a
+ * link can write to it, and a link is forwarded by design. That makes
+ * "which member sent this" the only thing worth asking, and it is already
+ * on the message: a control message is a chat message, bound to a
+ * participant by the credential it carries and checked by every reader.
+ *
+ * The rule is deliberately asymmetric, and `docs/decisions.md` has the
+ * reasoning. Inviting starts a process on somebody else's machine and
+ * hands the room's key to an agent nobody vouched for, so only the
+ * person the host belongs to may do it. Dismissing stops one, and its
+ * worst outcome is an agent that has to be invited again, so any member
+ * may. A host that cannot say whose it is refuses every invitation:
+ * absent an answer, the answer is no.
+ *
+ * `principal` is a key, not a proof, because how a caller established it is
+ * the caller's business. `AgentHost` takes it from the ownership proof the
+ * host carries and re-verifies that proof at every use, since a proof
+ * cannot be revoked except by expiring.
+ */
+export function mayCommandHost(opts: { op: HostCommand; sender: string; principal?: string }): HostCommandVerdict {
+  if (opts.op === 'dismiss') return { ok: true }
+  if (!opts.principal) {
+    return { ok: false, reason: 'this host has not been told whose it is, so nobody may invite: give it --owner-proof' }
+  }
+  if (opts.sender.toLowerCase() !== opts.principal.toLowerCase()) {
+    return { ok: false, reason: 'only the person this host belongs to may start an agent on it' }
+  }
+  return { ok: true }
+}

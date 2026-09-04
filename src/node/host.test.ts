@@ -3,10 +3,13 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../agent.js'
 import { SimRelay, SimTransport } from '../../test/sim-relay.js'
 import { CONTROL_CHANNEL, decodeControl, encodeControl } from '../control.js'
 import type { ControlMessage } from '../control.js'
+import { localIdentity } from '../identity.js'
+import { issueAgentOwnership } from '../ownership.js'
 import { AgentHost, loadCatalogue } from './host.js'
 import type { SpawnFn } from './host.js'
 
@@ -37,11 +40,32 @@ function fakeSpawn() {
   return { spawn, calls }
 }
 
-async function room() {
+/**
+ * A room with a person in it and a laptop of theirs hosting agents.
+ *
+ * The person is the host's principal by default, which is the ordinary
+ * shape: the laptop is theirs, and they attested to it once with
+ * `kithmoot-agent attest`. Pass `owned: false` for a host started without
+ * `--owner-proof`, which is a host nobody may invite from.
+ */
+async function room(opts: { owned?: boolean; ownerExpiresIn?: number } = {}) {
   const relay = new SimRelay()
   const transport = () => new SimTransport(relay)
-  const person = await RoomAgent.create({ base: BASE, name: 'Person', relays: ['wss://sim'], transport, announceJitterMs: 0, agent: false })
-  const hostAgent = await RoomAgent.join({ link: person.url, name: 'Laptop', transport, announceJitterMs: 0 })
+  const personSk = generateSecretKey()
+  const person = await RoomAgent.create({ base: BASE, name: 'Person', relays: ['wss://sim'], transport, announceJitterMs: 0, agent: false, identity: localIdentity(personSk) })
+  const hostSk = generateSecretKey()
+  const issuedAt = Math.floor(Date.now() / 1000)
+  const owner =
+    opts.owned === false
+      ? undefined
+      : issueAgentOwnership({
+          principalSk: personSk,
+          agent: getPublicKey(hostSk),
+          issuedAt,
+          ...(opts.ownerExpiresIn !== undefined ? { expiresAt: issuedAt + opts.ownerExpiresIn } : {}),
+          label: 'Laptop',
+        })
+  const hostAgent = await RoomAgent.join({ link: person.url, name: 'Laptop', transport, announceJitterMs: 0, identity: localIdentity(hostSk), owner })
   await settle()
   const control = person.channel(CONTROL_CHANNEL)
   const heard: ControlMessage[] = []
@@ -52,7 +76,15 @@ async function room() {
       if (c) heard.push(c)
     }
   })
-  return { relay, person, hostAgent, control, heard }
+  return { relay, person, hostAgent, control, heard, transport }
+}
+
+/** Somebody else in the room. A link is forwarded by design, so this is
+ *  not an attacker breaking in: it is the ordinary population of a room. */
+async function stranger(person: RoomAgent, transport: () => SimTransport): Promise<RoomAgent> {
+  const other = await RoomAgent.join({ link: person.url, name: 'Stranger', transport, announceJitterMs: 0, agent: false })
+  await settle()
+  return other
 }
 
 describe('AgentHost', () => {
@@ -151,5 +183,152 @@ describe('AgentHost', () => {
     expect(catalogue[1]!.listen).toBe(true)
     await writeFile(join(dir, 'bad.json'), JSON.stringify({ name: 'Bad', brain: 'ollama' }))
     await expect(loadCatalogue(dir)).rejects.toThrow(/needs a model/)
+  })
+
+  it('starts nothing for anybody but its principal, and says the refusal out loud', async () => {
+    const { person, hostAgent, control, heard, transport } = await room()
+    const other = await stranger(person, transport)
+    const { spawn, calls } = fakeSpawn()
+    const host = new AgentHost({ agent: hostAgent, catalogue: [{ id: 'ada', name: 'Ada', brain: 'none' }], stateDir: await mkdtemp(join(tmpdir(), 'kithmoot-host-')), spawn })
+    await host.start()
+    await settle()
+    const errors = () => heard.filter((c): c is Extract<ControlMessage, { op: 'error' }> => c.op === 'error')
+
+    // A member of the room, holding the room key, asking properly. Before
+    // the sender was consulted this started a process on the host's machine.
+    await other.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
+    await settle()
+    await settle()
+    expect(calls).toHaveLength(0)
+    expect(host.running()).toHaveLength(0)
+    // Refused where the click came from, not only in the host's own log.
+    expect(errors().map((e) => e.message)).toContainEqual(expect.stringContaining('belongs to'))
+    expect(errors().at(-1)?.agent).toBe('ada')
+
+    // The same message from the principal is obeyed, so this is a rule
+    // about who asked and not a host that has stopped working.
+    await control.send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
+    await settle()
+    await settle()
+    expect(calls).toHaveLength(1)
+    expect(host.running()).toHaveLength(1)
+
+    await host.stop()
+    other.leave()
+    hostAgent.leave()
+    person.leave()
+  })
+
+  it('lets any member dismiss, because an agent that has to be invited again is recoverable', async () => {
+    const { person, hostAgent, control, heard, transport } = await room()
+    const other = await stranger(person, transport)
+    const { spawn, calls } = fakeSpawn()
+    const host = new AgentHost({ agent: hostAgent, catalogue: [{ id: 'ada', name: 'Ada', brain: 'none' }], stateDir: await mkdtemp(join(tmpdir(), 'kithmoot-host-')), spawn })
+    await host.start()
+    await settle()
+
+    await control.send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
+    await settle()
+    await settle()
+    expect(host.running()).toHaveLength(1)
+
+    await other.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'dismiss', host: hostAgent.participant, agent: 'ada' }))
+    await settle()
+    await new Promise((r) => setTimeout(r, 5))
+    await settle()
+    expect(host.running()).toHaveLength(0)
+    expect(heard.some((c) => c.op === 'dismissed' && c.agent === 'ada')).toBe(true)
+
+    // Stopping is theirs; starting is not, so they cannot put it back.
+    await other.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
+    await settle()
+    await settle()
+    expect(calls).toHaveLength(1)
+    expect(host.running()).toHaveLength(0)
+
+    await host.stop()
+    other.leave()
+    hostAgent.leave()
+    person.leave()
+  })
+
+  it('refuses every invitation when it has not been told whose it is, and says so at startup', async () => {
+    const { person, hostAgent, control, heard } = await room({ owned: false })
+    const { spawn, calls } = fakeSpawn()
+    const lines: string[] = []
+    const host = new AgentHost({
+      agent: hostAgent,
+      catalogue: [{ id: 'ada', name: 'Ada', brain: 'none' }],
+      stateDir: await mkdtemp(join(tmpdir(), 'kithmoot-host-')),
+      spawn,
+      log: (line) => lines.push(line),
+    })
+    await host.start()
+    await settle()
+    // Loudly, at the top, rather than at the first click that goes nowhere.
+    expect(lines.some((l) => l.includes('--owner-proof'))).toBe(true)
+
+    // Not even the person who made the room and holds its keeper key: the
+    // host has no way to know that key is anything to do with its machine.
+    await control.send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
+    await settle()
+    await settle()
+    expect(calls).toHaveLength(0)
+    expect(host.running()).toHaveLength(0)
+    expect(heard.some((c) => c.op === 'error' && c.message.includes('--owner-proof'))).toBe(true)
+
+    await host.stop()
+    hostAgent.leave()
+    person.leave()
+  })
+
+  it('stops obeying a principal whose proof has expired', async () => {
+    const { person, hostAgent, control, heard } = await room({ ownerExpiresIn: 5 })
+    const { spawn, calls } = fakeSpawn()
+    // Nine seconds ahead: past the proof's expiry, and still inside the ten
+    // seconds of slack `#handle` allows, so live messages are still live.
+    // A proof cannot be revoked any other way, which is why the expiry has
+    // to be read at the moment it is relied on rather than once at boot.
+    const host = new AgentHost({
+      agent: hostAgent,
+      catalogue: [{ id: 'ada', name: 'Ada', brain: 'none' }],
+      stateDir: await mkdtemp(join(tmpdir(), 'kithmoot-host-')),
+      spawn,
+      now: () => Math.floor(Date.now() / 1000) + 9,
+    })
+    await host.start()
+    await settle()
+
+    await control.send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
+    await settle()
+    await settle()
+    expect(calls).toHaveLength(0)
+    expect(heard.some((c) => c.op === 'error' && c.message.includes('whose it is'))).toBe(true)
+
+    await host.stop()
+    hostAgent.leave()
+    person.leave()
+  })
+
+  it('ignores its own messages rather than refusing them, so two hosts do not argue', async () => {
+    const { person, hostAgent, heard } = await room()
+    const { spawn, calls } = fakeSpawn()
+    const host = new AgentHost({ agent: hostAgent, catalogue: [{ id: 'ada', name: 'Ada', brain: 'none' }], stateDir: await mkdtemp(join(tmpdir(), 'kithmoot-host-')), spawn })
+    await host.start()
+    await settle()
+    const before = heard.filter((c) => c.op === 'error').length
+
+    // A host is never its own principal - an ownership proof over your own
+    // key is refused - so without the self check this would come back as a
+    // refusal addressed to itself.
+    await hostAgent.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
+    await settle()
+    await settle()
+    expect(calls).toHaveLength(0)
+    expect(heard.filter((c) => c.op === 'error').length).toBe(before)
+
+    await host.stop()
+    hostAgent.leave()
+    person.leave()
   })
 })

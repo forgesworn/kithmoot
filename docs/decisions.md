@@ -1048,3 +1048,78 @@ of band, once, by a person. What the protocol offers is that the binding, once
 made, stays checkable by everybody afterwards without asking anyone. An agent
 can be told which key its principal is and compare against it. It cannot be
 told who anybody is.
+
+## A host is commanded by its owner, and dismissed by anybody
+
+An agent host joins a room, says on the `control` channel what it can run,
+and starts one when somebody clicks Invite. Until this was fixed it checked
+only that the request named it, and never looked at who sent it. The sender
+was in hand and was used for one thing: skipping its own messages. So
+anybody who had ever held a link to the room could start any agent in any
+present host's catalogue, on a machine that was not theirs, and stop one
+that was running there. A link is forwarded by design, which is what makes
+this worse than it sounds: the set of people who could do it was not the
+people in the room, it was everybody the link had ever reached.
+
+**Who counts is settled by the proof the host already carries.** A host
+started with `--owner-proof` carries an ownership proof, signed by its
+principal over its key. That is the one statement in the system that says
+"this machine's agent answers to this person", it is verified by everybody
+rather than asserted by the host, and it needed no new plumbing: the flag,
+the `attest` subcommand and the verifier were all already there. An invite
+is acted on when the sender is that principal, and refused otherwise.
+
+**Not the room's admin list.** The keeper's signed admin list is the obvious
+candidate, and it is wrong here. Admins govern the room: they remove members,
+close it, ask somebody to mute. None of that is a claim on anybody's
+hardware. The list is chosen by whoever created the room, which may be
+nobody the host's operator has met, and letting it start processes on their
+box is the same defect wearing a better hat. Approvals do accept an admin's
+answer, and the difference is worth naming: an approval answers a question
+the agent chose to ask, while an invite spends a machine that never
+volunteered.
+
+**Not a list of keys on the host either.** A `--commander` flag would work
+and was rejected. It would be a third notion of who somebody is, sitting
+beside the admin list and the ownership proof, unsigned, and invisible to
+everybody in the room, so the room could not see who the host answers to
+without being told by the host. The ownership proof already says it and is
+already checked. If several people ever need to invite from one host, the
+honest shape is something the principal signs, not a flag on the box.
+
+**Dismiss stays open, and the asymmetry is deliberate.** This half comes
+from a product decision rather than from the code: bringing your own agent
+is not the same as being able to start somebody else's on their hardware,
+and anyone may send an agent home while only its principal brings it in.
+The reasoning is the part worth keeping. A wrongful dismiss leaves the room
+with an agent that has to be invited again, which is recoverable. A wrongful
+invite leaves a stranger's process running on somebody's machine, holding
+the room's key, and clicking again does not undo it. The costs are not
+mirror images, so the rule is not either. It does mean a persistent nuisance
+can keep a host's agents out of a room, and the answer to that is the one
+the room already has: an admin removes them.
+
+**Fail closed, and check the expiry when it matters.** A host with no
+ownership proof cannot name a principal, so it starts nothing for anybody,
+including the person who made the room. It says so on its first line rather
+than at the first click, because a host that silently obeys nobody looks
+exactly like a host that is broken. The proof is re-verified at each use, not
+once at boot: it cannot be revoked except by expiring, so a host that read
+the expiry once and then ran for a month would have taken away the only
+lever its principal has.
+
+**A refusal is loud, and an ignored approval is not.** A refused invite goes
+back on the channel as an `error`, which the app already renders. This is
+the opposite of what an agent does with an approval from the wrong person,
+where the entry above says an error would be an argument with the wrong
+person, and both are right. An unwanted verdict is somebody answering a
+question that was not theirs. A click on Invite is an offer the room made,
+on a button the room drew, and the room has to answer for it. The cost is
+that a stranger can make a host say one line; it could already make it say
+one by asking for an agent that does not exist.
+
+**What this is not.** It is not a permission system, and it does not make a
+hosted agent trustworthy: the principal can still start something that
+behaves badly, and everything above about weighing what an agent says still
+holds. It is the narrowest answer to one question, which is whose machine
+gets spent.
