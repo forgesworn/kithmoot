@@ -1738,16 +1738,16 @@ function showRoomUi(): void {
   $('setup').hidden = true
   $('notify').hidden = true
   hideRoomsList()
+  // At the door of a room the way back to the list is here, because the
+  // room's own bar does not exist until you are inside. The way back INTO a
+  // room has been taken.
   $('roomNav').hidden = false
-  // In a room, so the way out of it is what the nav offers; the way back
-  // into one has been taken.
-  $('backToRooms').hidden = false
+  $('doorToRooms').hidden = false
   $('backToRoom').hidden = true
   forgetWayBack()
   renderRoomTitle()
   // The tagline has just gone and the way back has just appeared, so where
   // the room starts is not where it started a moment ago.
-  remeasureShell()
   renderKeepChoice()
   renderArrival()
   $('join').hidden = false
@@ -1762,67 +1762,71 @@ function showRoomUi(): void {
 }
 
 /** Everything that is not the conversation, revealed once there is a
- *  conversation for it to be about. */
+ *  conversation for it to be about - which now means putting it in the
+ *  room's details rather than on the screen. */
 function showRoomTools(): void {
-  remeasureShell()
+  // In the room now, and the room's own bar carries the way out of it.
+  $('roomNav').hidden = true
+  $('doorToRooms').hidden = true
+  // Notifications are a front-page control as well as a room one, so the
+  // markup lives in `main` for the rooms list. In a room it belongs in the
+  // details with everything else, and it is moved rather than duplicated:
+  // one element, one set of listeners, one truth about its state. Leaving
+  // a room reloads the page, so it never needs moving back.
   $('notify').hidden = false
-  $('deviceControls').hidden = false
-  $('roomTools').hidden = false
-  openToolsForWidth()
+  $('notifySlot').append($('notify'))
+  // The one line the page uses to say something went wrong belongs where
+  // the person is looking. It is written in `main` for the join screen and
+  // the rooms list; in a room it moves under the box to write in, because
+  // the room takes the whole screen and anything after it is below the
+  // fold. Moved rather than duplicated, and leaving a room reloads.
+  $('roomArea').append($('status'))
 }
 
 /**
- * Where the room starts on the page, published to the stylesheet.
+ * The call.
  *
- * The conversation is sized against the screen it is given - the rest of
- * the window from where the room begins - and CSS cannot work that out on
- * its own, because the masthead above it changes height with the width, the
- * room name and whether there is a way-back button on the nav. Guessing a
- * constant is how a log ends up either overflowing the bottom of the window
- * or leaving a band of nothing under the box you type in.
- *
- * Written only when it changes, so the observer below settles in one pass.
+ * Camera, microphone and screen share were three buttons on the message
+ * screen at all times, in a room where most of the time nobody is on a
+ * call. A phone shows call controls during a call and a call button the
+ * rest of the time; so does this. Anything of yours that is live keeps the
+ * controls open, because a control that hides while it is doing something
+ * is how a camera ends up on with nobody watching.
  */
-let shellTop = -1
-function measureShell(): void {
-  const main = document.querySelector('main')
-  if (!main) return
-  const top = Math.round(main.getBoundingClientRect().top + window.scrollY)
-  if (top === shellTop || top < 0) return
-  shellTop = top
-  document.documentElement.style.setProperty('--shell-top', `${top}px`)
+function setCallOpen(open: boolean): void {
+  const bay = $('callBay')
+  bay.hidden = !open
+  // The controls themselves start hidden in the markup, because until the
+  // room is on screen there is nothing for them to be about.
+  $('deviceControls').hidden = !open
+  $('callToggle').setAttribute('aria-expanded', String(open))
+  $('callToggle').dataset.on = String(open)
 }
 
-/**
- * Measure AFTER the browser has laid the change out, not during it.
- *
- * Going into a room moves the masthead twice in one tick - the tagline
- * goes, the way back appears - and a measurement taken in the middle of
- * that records a number that was true for a moment. It stayed recorded,
- * because the value only gets written when it changes, and the room was
- * then sized against a masthead fifty points taller than the one on
- * screen: the box to reply in sat below the fold with the section under it
- * overlapping. Two frames is enough for style, layout and the room's own
- * first render to have happened.
- */
-function remeasureShell(): void {
-  requestAnimationFrame(() => requestAnimationFrame(measureShell))
+function callIsLive(): boolean {
+  return Boolean(micTrack ?? cameraTrack ?? screenTrack)
 }
 
-/**
- * The drawer starts open on a wide screen and closed on a phone.
- *
- * On a wide screen it lives in the second column beside the room, so being
- * open costs the conversation nothing and saves a click. In one column it
- * would push the chat down the page, which is the whole thing this rewrite
- * was for. Once somebody opens or closes it themselves that is their
- * choice, and this stops adjusting it.
- */
-let toolsTouched = false
-function openToolsForWidth(): void {
-  if (toolsTouched) return
-  const panel = $('roomToolsPanel') as HTMLDetailsElement
-  panel.open = window.matchMedia('(min-width: 1100px)').matches
+// ---------------------------------------------------------------------------
+// Room details
+//
+// A modal dialog rather than a panel on the page: it traps focus, Escape
+// closes it, and the browser draws the backdrop. Everything that used to
+// compete with the conversation is in here, one tap from the bar.
+// ---------------------------------------------------------------------------
+
+function openRoomSheet(): void {
+  const sheet = $('roomSheet') as HTMLDialogElement
+  if (sheet.open) return
+  if (session) renderSheetRoster(session.participants(), meParticipant)
+  renderChannels()
+  sheet.showModal()
+  sheet.scrollTop = 0
+}
+
+function closeRoomSheet(): void {
+  const sheet = $('roomSheet') as HTMLDialogElement
+  if (sheet.open) sheet.close()
 }
 
 /** Who invited you, and to what, in the one sentence somebody needs before
@@ -2322,6 +2326,7 @@ function setToggle(id: string, on: boolean): void {
 }
 
 function updateUi(): void {
+  if (callIsLive()) setCallOpen(true)
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
@@ -2360,13 +2365,6 @@ function participantIsAgent(participant: string): boolean {
 }
 
 function render(views: ParticipantView[], me: string): void {
-  // Cheap, and the one hook that is guaranteed to run after the room is
-  // actually on screen: one rectangle read, and it writes nothing unless
-  // the answer has changed. Two animation frames after the join turned out
-  // not to be late enough for the masthead's own style change to have
-  // landed, and a shell measured against the join screen sizes the room
-  // fifty points too short for the rest of its life.
-  measureShell()
   for (const view of views) if (view.agent) agentParticipants.add(view.participant)
   const mine = views.find((v) => v.participant === me)
 
@@ -2491,7 +2489,18 @@ function render(views: ParticipantView[], me: string): void {
   }
 
   agentsRow.hidden = agentsRow.childElementCount === 0
+  // Faces and voices, and only when there are some.
+  //
+  // Not "only when a picture has arrived": a tile that is still connecting
+  // says which rung of the route ladder it is on, and that is exactly the
+  // moment somebody wants to know. So the strip appears as soon as anybody
+  // in the room is offering anything, and a room where nobody has turned
+  // anything on shows nothing at all - which is most rooms, most of the
+  // time, and is why this is not on the screen permanently.
+  $('whoIsHere').hidden = !views.some((view) => view.tracks.length > 0) && localMediaEl.childElementCount === 0
   renderAgentsExplain(views)
+  renderRoomWho()
+  if (($('roomSheet') as HTMLDialogElement).open) renderSheetRoster(views, me)
 
   // Emptying the grid above detached our own holder if it was in a tile. If
   // no tile of ours was built this time - our entry has not come back from
@@ -2509,43 +2518,105 @@ function inWords(n: number): string {
 }
 
 /**
- * What the `agent` tag means, said next to the names carrying it.
+ * What the `agent` tag means, in one sentence with the tag set into it.
  *
- * The Agents tab explains this properly, and the explanation there is a
- * good one. But somebody handed a link has no reason to open a tab they
- * have never heard of: they read the names, and some of those names are
- * programs. A tag a reader cannot decode is worse than no tag at all,
- * because it looks like a detail rather than the difference between a
- * person and a machine - and a child reads five names as five people.
+ * This used to be a strip pinned above the conversation, permanently, in
+ * every room. It was put there because a cold reader took five names for
+ * five people and nothing on the screen said otherwise - and it worked, and
+ * it was also one more thing competing with the conversation for ever after
+ * the reader had understood it.
  *
- * So the one sentence that matters is on the main screen, with the tag
- * itself set into it, and the tab keeps the rest.
+ * So it is said where Signal says "messages are end-to-end encrypted": as
+ * the first note at the head of the thread, in the conversation the person
+ * came to read. After that the purple bubbles and the tags carry it. It
+ * also lives permanently in the room's details, for anybody who comes back
+ * looking for it.
+ *
+ * Returns a fragment rather than writing to one element, because it is now
+ * said in two places and neither of them may be allowed to drift.
  */
-function renderAgentsExplain(views: ParticipantView[]): void {
-  const line = $('agentsExplain')
-  line.textContent = ''
-  const count = views.filter((v) => v.agent).length
-  line.hidden = count === 0
-  if (count === 0) return
-
-  line.append(count === 1 ? 'One of these names is marked ' : `${inWords(count)} of these names are marked `)
-  // The tag as it actually appears above, so the sentence and the thing it
-  // is about cannot be told apart.
+function agentsSentence(count: number): DocumentFragment | undefined {
+  if (count === 0) return undefined
+  const run = document.createDocumentFragment()
+  run.append(count === 1 ? 'One of these names is marked ' : `${inWords(count)} of these names are marked `)
+  // The tag exactly as it appears on a name and on a bubble, so the
+  // sentence and the thing it is about cannot be told apart.
   const badge = document.createElement('span')
   badge.className = 'badge agent'
   badge.textContent = 'agent'
-  line.append(badge)
-  // Kept to four short clauses on purpose. At 375 points this is the first
-  // thing on the screen and every line of it is a line of conversation
-  // somebody does not get to see.
-  line.append(
+  run.append(badge)
+  run.append(
     count === 1 ? ': a computer program, not a person. ' : ': computer programs, not people. ',
     'Somebody here started ',
     count === 1 ? 'it' : 'them',
     ', and everything ',
     count === 1 ? 'it says' : 'they say',
-    ' is in the open for everybody to read. More on the Agents tab.',
+    ' is in the open for everybody to read.',
   )
+  return run
+}
+
+function renderAgentsExplain(views: ParticipantView[]): void {
+  const line = $('agentsExplain')
+  line.textContent = ''
+  const run = agentsSentence(views.filter((v) => v.agent).length)
+  line.hidden = run === undefined
+  if (run) line.append(run)
+}
+
+/**
+ * Who is here, in words, for the one line under the room's name.
+ *
+ * The strip of chips this replaces said the same thing in a great deal more
+ * space. The chips are not gone: they are in the room's details, one tap
+ * away behind this very line, which is what it is for.
+ */
+function renderRoomWho(): void {
+  const line = $('roomWho')
+  const views = session?.participants() ?? []
+  const where = currentChannel === undefined ? 'Chat' : currentChannel
+  if (views.length === 0) {
+    line.textContent = where
+    return
+  }
+  const agents = views.filter((v) => v.agent).length
+  const here = `${views.length} here`
+  line.textContent = agents === 0 ? `${where} · ${here}` : `${where} · ${here}, ${agents} of them agent${agents === 1 ? '' : 's'}`
+}
+
+/**
+ * The full roster, in the room's details.
+ *
+ * The same run of name, short key and tags that a tile and a line of chat
+ * use, so a person looks the same wherever they are drawn, and the same
+ * "is this really them" control, which would otherwise have been lost with
+ * the chips it used to sit on.
+ */
+function renderSheetRoster(views: ParticipantView[], me: string): void {
+  const list = $('sheetRoster')
+  list.innerHTML = ''
+  for (const view of views) {
+    const row = document.createElement('div')
+    row.className = 'rosterRow'
+    const shown = shownAs(view.participant, view.name)
+    row.append(identityRun(shown, view.participant === me))
+    if (view.agent) {
+      const badge = document.createElement('span')
+      badge.className = 'badge agent'
+      badge.textContent = 'agent'
+      badge.title = 'This one says it is a computer helper, not a person'
+      row.append(badge)
+      if (view.owner) row.append(ownerRun(view.owner))
+    }
+    if (view.devices.length > 1) {
+      const badge = document.createElement('span')
+      badge.className = 'badge'
+      badge.textContent = 'one person'
+      row.append(badge)
+    }
+    if (view.participant !== me) row.append(verifyChip(view, shown.name ?? ''))
+    list.append(row)
+  }
 }
 
 /**
@@ -2965,7 +3036,12 @@ function renderInvites(): void {
   const box = $('inviteAgents')
   const list = $('inviteList')
   list.innerHTML = ''
-  if (currentChannel !== AGENT_CHANNEL || !session) {
+  // Shown whenever there is a room, now that it is in the room's details
+  // rather than on the message screen. It used to appear only while the
+  // agents' conversation was open, which after the move would have meant
+  // switching to that conversation - closing the sheet - and opening the
+  // sheet again to find this.
+  if (!session) {
     box.hidden = true
     return
   }
@@ -3187,8 +3263,11 @@ function selectChannel(name: string | undefined): void {
     input.placeholder = name === undefined ? 'Say something' : `Say something in ${name}`
     growComposer(input)
   }
-  // Asking an agent in belongs on the tab about agents, and nowhere else.
+  // Asking an agent in belongs with the agents' conversation, and nowhere else.
   renderInvites()
+  renderRoomWho()
+  // You picked it: you are done with the sheet you picked it in.
+  closeRoomSheet()
 }
 
 /**
@@ -3276,14 +3355,15 @@ function renderChannels(): void {
   // announced them. `agents` is where agents talk among themselves, and a
   // person being able to read that is the whole reason it exists.
   //
-  // These stay on the bar when they are empty, and the reason is not the
-  // obvious one. An always-present tab answers a question only its absence
-  // could raise - "is something being said out of my sight?" - and a tab
-  // that vanishes when quiet can never answer it. But an empty tab that
+  // These stay on the list when they are empty, and the reason is not the
+  // obvious one. An always-present conversation answers a question only its
+  // absence could raise - "is something being said out of my sight?" - and
+  // one that vanishes when quiet can never answer it. But an empty one that
   // says nothing about itself reads as broken, which is worse for a first-
-  // time reader than never seeing it. So: always there, and never silent
-  // about what it is. `channelPurpose` says what the place is for and
-  // `renderChannelHint` says out loud when nothing has been said in it yet.
+  // time reader than never seeing it. So: always listed, and never silent
+  // about what it is. `channelSummary` says what each one is for in the
+  // list, `channelPurpose` says it properly at the head of the conversation
+  // itself, and the note there says out loud when nothing has been said.
   const reserved: Array<[string, string]> = [[AGENT_CHANNEL, 'Agents']]
   for (const name of [TRANSCRIPT_CHANNEL, MINUTES_CHANNEL]) {
     if (channels.includes(name)) continue
@@ -3292,8 +3372,6 @@ function renderChannels(): void {
   const named = channels.filter((c) => !reserved.some(([n]) => n === c))
   const tabs: Array<[string | undefined, string]> = [[undefined, 'Chat'], ...reserved, ...named.map((c) => [c, c] as [string, string])]
 
-  // The bar is worth showing whenever there is somewhere else to go, which
-  // with the reserved conversations is always, in a room that has a session.
   bar.hidden = !s
   bar.innerHTML = ''
   if (!bar.hidden) {
@@ -3303,23 +3381,29 @@ function renderChannels(): void {
       tab.setAttribute('role', 'tab')
       const on = currentChannel === name
       tab.setAttribute('aria-selected', String(on))
-      tab.append(label)
-      // A dot on a tab that has something behind it. Nothing on one that
-      // does not, so an eye landing on this bar for the first time goes to
-      // the places where somebody has actually said something.
+      const heading = document.createElement('span')
+      heading.className = 'channelName'
+      heading.append(label)
+      // A dot beside a conversation that has something in it. Nothing beside
+      // one that does not, so an eye running down this list for the first
+      // time goes to the places where somebody has actually said something.
       const said = name === undefined ? (session?.chat.messages().length ?? 0) : (channelCounts.get(name) ?? 0)
       if (said > 0) {
         const dot = document.createElement('span')
         dot.className = 'tabDot'
         dot.setAttribute('aria-label', 'has messages')
-        tab.append(dot)
+        heading.append(dot)
       }
+      const desc = document.createElement('span')
+      desc.className = 'channelDesc'
+      desc.textContent = channelSummary(name)
+      tab.append(heading, desc)
       tab.addEventListener('click', () => selectChannel(name))
       bar.append(tab)
     }
   }
-  renderChannelHint()
   renderComposer()
+  renderRoomWho()
 
   // Creating and closing a channel is structure, so it is an admin's to do
   // and the controls are absent rather than disabled for everybody else.
@@ -3339,30 +3423,50 @@ function renderChannels(): void {
   if (!close.hidden && close.dataset.arm !== currentChannel) close.textContent = `Close ${currentChannel}`
 }
 
+/** A few words for the list of conversations. The careful version is
+ *  `channelPurpose`, said at the head of the conversation itself, where
+ *  there is room for it and where somebody is actually reading. */
+function channelSummary(name: string | undefined): string {
+  if (name === undefined) return 'Everybody here can read and write.'
+  if (name === AGENT_CHANNEL) return 'What the computer helpers say to each other.'
+  if (name === TRANSCRIPT_CHANNEL) return 'What was said out loud, written down.'
+  if (name === MINUTES_CHANNEL) return 'A write-up of what a call came to.'
+  return 'Another conversation in this room.'
+}
+
 /**
- * The line under the tabs: what this conversation is for, and whether
+ * The note at the head of a conversation: what this one is for, and whether
  * anything has been said in it.
  *
- * "Nothing here yet" is the sentence that makes an always-present tab
- * honest. Without it an empty Agents tab looks like something that failed
- * to load, and a person who has never used the app has no way to tell the
- * difference between "quiet" and "broken".
+ * "Nothing here yet" is the sentence that makes an always-listed
+ * conversation honest. Without it an empty Agents channel looks like
+ * something that failed to load, and a person who has never used the app has
+ * no way to tell the difference between "quiet" and "broken".
  */
-function renderChannelHint(): void {
-  const hint = $('channelHint')
-  if (!session) {
-    hint.textContent = ''
-    hint.hidden = true
-    return
-  }
+function introLines(): DocumentFragment {
+  const run = document.createDocumentFragment()
   const name = currentChannel
-  const said = name === undefined ? session.chat.messages().length : (channelCounts.get(name) ?? 0)
+
+  // The room's own note first, and only in the room's own conversation: it
+  // is about who is here, not about this channel.
+  const agents = agentsSentence(name === undefined ? (session?.participants() ?? []).filter((v) => v.agent).length : 0)
+  if (agents) {
+    const p = document.createElement('p')
+    p.className = 'system intro'
+    p.append(agents)
+    run.append(p)
+  }
+
+  const said = name === undefined ? (session?.chat.messages().length ?? 0) : (channelCounts.get(name) ?? 0)
   const empty =
     name === undefined
       ? ' Nobody has said anything yet. Go on, you can be first.'
       : ' Nothing has been said here yet.'
-  hint.textContent = channelPurpose(name) + (said === 0 ? empty : '')
-  hint.hidden = false
+  const p = document.createElement('p')
+  p.className = 'system intro'
+  p.textContent = channelPurpose(name) + (said === 0 ? empty : '')
+  run.append(p)
+  return run
 }
 
 /** The two conversations nobody types into. Both are an agent writing
@@ -3559,6 +3663,9 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
   log.innerHTML = ''
+  // What this conversation is, at the top of it, the way a messaging app
+  // puts the thing you should know once at the head of the thread.
+  if (session) log.append(introLines())
   pruneOpenedAttachments(logId, messages)
   profiles.want(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
 
@@ -4377,8 +4484,7 @@ async function startSession(): Promise<void> {
     showRoomTools()
     // The join screen has gone and the room is on: the last chance for the
     // masthead to have changed height.
-    remeasureShell()
-    renderNudgeChoice()
+      renderNudgeChoice()
     // The offer starts at whatever the person has already chosen, which is
     // off unless they turned it on before joining.
     lastOffering = currentAssistOffer() !== null
@@ -4713,7 +4819,7 @@ function renderWayBack(): void {
   const name = typeof kept?.name === 'string' && kept.name ? kept.name : 'the room you were in'
   button.textContent = `Back to ${name}`
   // Already on the list, so the way to it is not the thing to offer.
-  $('backToRooms').hidden = true
+  $('doorToRooms').hidden = true
   $('roomNav').hidden = false
 }
 
@@ -4912,51 +5018,26 @@ async function setNudge(on: boolean): Promise<void> {
 // Wiring
 // ---------------------------------------------------------------------------
 
-// Where the room starts, kept current. A rotation, a keyboard opening, a
-// room name wrapping onto a second line: all of them move it, and the
-// conversation is sized from it.
-measureShell()
-window.addEventListener('resize', measureShell)
-window.addEventListener('orientationchange', measureShell)
-if (typeof ResizeObserver !== 'undefined') {
-  const watchShell = new ResizeObserver(() => measureShell())
-  watchShell.observe(document.documentElement)
-  // The masthead itself, because what moves the room down the page is the
-  // masthead changing height, and that is not a change in the page's own
-  // size.
-  const header = document.querySelector('header')
-  if (header) watchShell.observe(header)
-  watchShell.observe($('roomNav'))
-}
-
-/**
- * Opening the settings drawer says so.
- *
- * It unfolds downwards, and it used to be the last thing on the page, so a
- * tap on it changed nothing a person could see: the content appeared below
- * the fold and the tap read as a miss. The tester pressed it, saw nothing
- * move, and concluded they had hit the wrong thing. It is written higher up
- * the document now, and this brings whatever it just revealed onto the
- * screen when it would otherwise open out of sight.
- *
- * Listening for the click on the summary rather than for `toggle` on the
- * details, because `toggle` also fires when the page opens the drawer
- * itself on a wide screen, and nothing should scroll for that.
- */
-$('roomToolsSummary').addEventListener('click', () => {
-  const panel = $('roomToolsPanel') as HTMLDetailsElement
-  // This runs before the element flips, so `open` is the state it is
-  // leaving. Closing needs no help finding the screen.
-  if (panel.open) return
-  // From here on the width no longer decides: the person has.
-  toolsTouched = true
-  requestAnimationFrame(() => {
-    if (panel.getBoundingClientRect().bottom <= window.innerHeight) return
-    panel.scrollIntoView({ block: 'start', behavior: 'smooth' })
-  })
-})
-
+// The bar: back, who and where, the call, and everything else.
 $('backToRooms').addEventListener('click', backToRooms)
+$('doorToRooms').addEventListener('click', backToRooms)
+$('roomIdentity').addEventListener('click', openRoomSheet)
+$('roomMenu').addEventListener('click', openRoomSheet)
+$('roomSheetClose').addEventListener('click', closeRoomSheet)
+// A tap on the backdrop, which is the gesture people expect of a sheet. The
+// dialog element itself fills the screen, so a click that lands ON the
+// dialog and not on anything inside it is a click on the backdrop.
+$('roomSheet').addEventListener('click', (event) => {
+  if (event.target === $('roomSheet')) closeRoomSheet()
+})
+$('callToggle').addEventListener('click', () => {
+  // Refuse to hide controls for a camera or microphone that is still on.
+  if (callIsLive()) {
+    setCallOpen(true)
+    return
+  }
+  setCallOpen($('callBay').hidden)
+})
 
 // The way back into the room this tab just left. A fragment-only change is
 // a same-document navigation and never re-runs this module, so the reload
@@ -5550,8 +5631,9 @@ function renderStaged(): void {
   // One name, whatever the state. The button used to be "Add a file" in the
   // markup and "Attach" the moment anything re-rendered it, so a control a
   // person had already found went and a different one appeared in its
-  // place. The count is the only thing that changes.
-  $('attachToggle').textContent = stagedAttachments.length ? `Add a file (${stagedAttachments.length})` : 'Add a file'
+  // place. Only the count changes, and it has a span of its own so that
+  // neither the label nor the accessible name is touched.
+  $('attachCount').textContent = stagedAttachments.length ? ` (${stagedAttachments.length})` : ''
 }
 
 /**

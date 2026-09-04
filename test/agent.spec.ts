@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { withRelays } from './relays.js'
-import { SYNTHETIC_MIC, createRoom, joinWithMedia, newDeviceContext, startRelay } from './browser.js'
+import { SYNTHETIC_MIC, createRoom, goToConversation, joinWithMedia, newDeviceContext, startRelay } from './browser.js'
 import { RoomAgent } from '../src/agent.js'
 import { AgentRuntime } from '../src/node/runtime.js'
 import type { RuntimeEvent } from '../src/node/runtime.js'
@@ -70,7 +70,7 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
     // as tabs and once stacked below with a second composer, which is what
     // somebody looking for one agents conversation met two of.
     await runtime.whisper('note to the other agents')
-    await page.locator('#channelBar [role="tab"]', { hasText: 'Agents' }).click()
+    await goToConversation(page, 'Agents')
     await expect(page.locator('#chatLog')).toContainText('note to the other agents', { timeout: 30_000 })
 
     // Listening. Alice has not said agents may hear her, so nothing reaches
@@ -79,7 +79,7 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
     runtime.listen(transcriber)
     await page.waitForTimeout(8_000)
     expect(transcriber.heard, 'the agent heard something before it was allowed to').toHaveLength(0)
-    await page.locator('#channelBar [role="tab"]', { hasText: 'Transcript' }).click()
+    await goToConversation(page, 'Transcript')
     await expect(page.locator('#chatLog')).not.toContainText('(speech)')
 
     // She turns it on: her microphone's tone reaches the agent, is cut into

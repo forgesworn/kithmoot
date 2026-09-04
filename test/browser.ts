@@ -177,35 +177,44 @@ export async function offerPairing(page: Page): Promise<string> {
     void dialog.accept()
   })
   // The pass for a second device is offered from inside the room now, out of
-  // the drawer that holds everything which is not the conversation. A page
+  // the sheet that holds everything which is not the conversation. A page
   // still at the door has no `#addDevice` to click.
-  await openRoomTools(page)
+  await openRoomDetails(page)
   await page.locator('#addDevice').click()
   const pairUrl = await page.locator('#pairUrl').inputValue()
   expect(pairUrl, 'add device did not produce a pairing URL').toContain('#')
+  // Shut the sheet again. It is a modal dialog, so leaving it open makes
+  // the rest of the page inert - and what a person does after taking a
+  // pairing link is go back to the room.
+  await page.locator('#roomSheetClose').click()
+  await expect(page.locator('#roomSheet')).toHaveJSProperty('open', false)
   return pairUrl
 }
 
 /**
- * The drawer holding what is not the conversation: the room's own link, the
- * pass for a second device, the admin controls, the bug report.
+ * The room's details: everything that is not the conversation. The room's
+ * own link, the pass for a second device, who is here, the conversations,
+ * the admin controls, the bug report.
  *
- * It exists only once this device is in the room, and it starts open on a
- * wide window and shut on a narrow one. A helper that wants something out of
- * it opens it itself rather than depending on the window size the run
- * happened to get, which is the sort of thing that passes on a laptop and
- * fails on a runner for reasons nobody can see.
+ * It is a sheet now rather than a drawer on the page, because a message
+ * screen shows a header, the messages and the box to type in and nothing
+ * else. Anything reaching for one of those controls opens the sheet itself
+ * rather than assuming it is already open.
  */
-export async function openRoomTools(page: Page): Promise<void> {
-  await expect(
-    page.locator('#roomTools'),
-    'the room drawer is only on the page once this device is in the room',
-  ).toBeVisible()
-  const panel = page.locator('#roomToolsPanel')
-  if (!(await panel.evaluate((el) => (el as HTMLDetailsElement).open))) {
-    await panel.locator('summary').click()
+export async function openRoomDetails(page: Page): Promise<void> {
+  const sheet = page.locator('#roomSheet')
+  if (!(await sheet.evaluate((el) => (el as HTMLDialogElement).open))) {
+    await page.locator('#roomMenu').click()
   }
-  await expect(panel).toHaveJSProperty('open', true)
+  await expect(sheet).toHaveJSProperty('open', true)
+}
+
+/** Move to one of the room's conversations. Picking one closes the sheet it
+ *  was picked in, which is what makes it a switcher rather than a tab row. */
+export async function goToConversation(page: Page, name: string): Promise<void> {
+  await openRoomDetails(page)
+  await page.locator('#channelBar button', { hasText: name }).click()
+  await expect(page.locator('#roomSheet')).toHaveJSProperty('open', false)
 }
 
 /**
@@ -271,13 +280,30 @@ export async function joinWithMedia(page: Page, url: string, name: string): Prom
   await turnOnMedia(page)
 }
 
+/**
+ * Open the call.
+ *
+ * The camera, microphone and screen share live behind the call control in
+ * the room's bar: the message screen carries a header, the conversation and
+ * the box to type in, and the call controls appear when there is a call to
+ * point them at. Idempotent, so a caller that does not know whether the
+ * call is already open can just say so.
+ */
+export async function openCall(page: Page): Promise<void> {
+  await expect(
+    page.locator('#callToggle'),
+    'the call control only appears once this device is in the room',
+  ).toBeVisible()
+  if (await page.locator('#deviceControls').isHidden()) {
+    await page.locator('#callToggle').click()
+  }
+  await expect(page.locator('#deviceControls')).toBeVisible()
+}
+
 /** Camera and microphone on, from inside the room. The controls arrive with
  *  the room, so this is only ever called after joining. */
 export async function turnOnMedia(page: Page): Promise<void> {
-  await expect(
-    page.locator('#deviceControls'),
-    'the camera and microphone controls only appear once this device is in the room',
-  ).toBeVisible()
+  await openCall(page)
   await page.locator('#toggleCamera').click()
   await page.locator('#toggleMic').click()
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')

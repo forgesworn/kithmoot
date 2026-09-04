@@ -73,8 +73,10 @@ test('the front page lists every room this device has been in, with what is new 
     await expectAtTheDoor(page)
 
     // Back to the front page: both rooms, by name, with the room's id
-    // beside each - two rooms can be called the same thing.
-    await page.locator('#backToRooms').click()
+    // beside each - two rooms can be called the same thing. From the DOOR
+    // of a room, which is where this page is. Once you are inside, the
+    // room's own bar carries the way out; this is the way out before that.
+    await page.locator('#doorToRooms').click()
     await expect(page.locator('#rooms')).toBeVisible()
     const rows = page.locator('#roomList .roomRow')
     await expect(rows).toHaveCount(2)

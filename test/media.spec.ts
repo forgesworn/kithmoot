@@ -1,18 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, withRelays } from './relays.js'
-import {
-  createRoom,
-  expectToSeeAndHear,
-  inbound,
-  joinWithMedia,
-  newDeviceContext,
-  offerPairing,
-  open,
-  remoteAudioCount,
-  remotePictures,
-  startSlowAckRelay,
-  turnOnMedia,
-} from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, openRoomDetails, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia } from './browser.js'
 
 /**
  * Can you actually see and hear the other person?
@@ -172,6 +160,7 @@ test('one person on two devices delivers two live pictures to everybody else', a
     await open(pageLaptop, url, 'Ada')
     await pageLaptop.locator('#join').click()
     await expect(pageLaptop.locator('#roomArea')).toBeVisible()
+    await openCall(pageLaptop)
     await pageLaptop.locator('#toggleScreen').click()
     await expect(pageLaptop.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
     const pairUrl = await offerPairing(pageLaptop)
@@ -257,7 +246,9 @@ test('somebody who joins with nothing on still sees and hears the room', async (
     await expectToSeeAndHear(pageBob, 'Bob (who brought nothing)')
 
     // And he is a full participant, not a spectator: turning his camera on
-    // has to reach Ada, on the connection that was built without it.
+    // has to reach Ada, on the connection that was built without it. He
+    // brought nothing, so this is the first time he has opened the call.
+    await openCall(pageBob)
     await pageBob.locator('#toggleCamera').click()
     await expect(pageBob.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
     await expect
@@ -422,6 +413,9 @@ test('somebody who leaves is gone from everybody else at once', async ({ browser
     await joinWithMedia(pageB, url, 'Bob')
     await expect(pageB.locator('#room .participant'), 'Bob never saw Ada').toHaveCount(2, { timeout: 60_000 })
 
+    // Leaving is in the room's details, with everything else that is not
+    // the conversation.
+    await openRoomDetails(pageA)
     await pageA.locator('#leave').click({ timeout: 5_000 })
 
     // Well inside the 75 s presence timeout: this is the farewell arriving,

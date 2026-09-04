@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { bytesToHex } from '@noble/hashes/utils'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { newDeviceContext, open, openRoomTools, startRelay } from './browser.js'
+import { goToConversation, newDeviceContext, open, openRoomDetails, startRelay } from './browser.js'
 import { RoomAgent } from '../src/agent.js'
 
 /**
@@ -63,21 +63,22 @@ test.describe('channels', () => {
       await open(memberPage, keeper.url, 'Bob')
       await memberPage.locator('#join').click()
 
-      // The bar is there from the moment somebody is in the room, carrying
+      // The list is there from the moment somebody is in the room, carrying
       // the conversations every room has whether or not anybody has used
-      // them. A tab that vanishes when quiet can never answer the question
-      // it exists for - is something being said out of my sight - so it does
+      // them. One that vanishes when quiet can never answer the question it
+      // exists for - is something being said out of my sight - so it does
       // not vanish. What is NOT there yet is a channel nobody has opened.
+      await openRoomDetails(adminPage)
       await expect(adminPage.locator('#channelBar')).toBeVisible()
       await expect(adminPage.locator('#channelBar button', { hasText: 'shipping' })).toHaveCount(0)
 
       // Ada is an admin and the room has a keeper, so she may open one.
       // Bob may not, and is shown no control rather than a dead one. Both
-      // drawers are opened first: a control that is merely behind a shut
-      // drawer would read as absent, and then Bob's half of this would pass
+      // sheets are opened first: a control that is merely behind a shut
+      // sheet would read as absent, and then Bob's half of this would pass
       // for a reason that has nothing to do with who he is.
-      await openRoomTools(adminPage)
-      await openRoomTools(memberPage)
+      await openRoomDetails(adminPage)
+      await openRoomDetails(memberPage)
       await expect(adminPage.locator('#channelNew')).toBeVisible({ timeout: 60_000 })
       await expect(memberPage.locator('#channelNew')).toBeHidden()
 
@@ -87,21 +88,22 @@ test.describe('channels', () => {
       // Both of them, because the list is announced to the room and not
       // just to the person who asked for it.
       for (const page of [adminPage, memberPage]) {
+        await openRoomDetails(page)
         await expect(page.locator('#channelBar button', { hasText: 'shipping' })).toBeVisible({ timeout: 60_000 })
         await expect(page.locator('#channelBar button', { hasText: 'Chat' })).toBeVisible()
       }
 
       // A message sent in a channel belongs to that channel, and the main
       // chat does not see it.
-      await memberPage.locator('#channelBar button', { hasText: 'shipping' }).click()
+      await goToConversation(memberPage, 'shipping')
       await memberPage.locator('#chatInput').fill('the crates are late')
       await memberPage.locator('#chatForm button[type=submit]').click()
       await expect(adminPage.locator('#chatLog')).not.toContainText('the crates are late')
 
-      await adminPage.locator('#channelBar button', { hasText: 'shipping' }).click()
+      await goToConversation(adminPage, 'shipping')
       await expect(adminPage.locator('#chatLog')).toContainText('the crates are late', { timeout: 60_000 })
 
-      await adminPage.locator('#channelBar button', { hasText: 'Chat' }).click()
+      await goToConversation(adminPage, 'Chat')
       await expect(adminPage.locator('#chatLog')).not.toContainText('the crates are late')
     } finally {
       await adminCtx.close()

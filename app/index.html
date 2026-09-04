@@ -29,7 +29,13 @@
          offered here as a button. See `backToRooms` and `renderWayBack` in
          app/src/main.ts. -->
     <nav id="roomNav" hidden>
-      <button id="backToRooms" type="button" class="quiet">Your rooms</button>
+      <!-- The way back to the list, at the door of a room and on the list
+           itself. Once you are IN a room the room's own bar carries it, and
+           this goes: two ways back on one screen is one too many. Without
+           this, somebody who followed a link and had not gone in yet was in
+           a room with no way out of it - the same dead end, one screen
+           earlier. -->
+      <button id="doorToRooms" type="button" class="quiet" hidden>Your rooms</button>
       <button id="backToRoom" type="button" class="quiet" hidden></button>
     </nav>
 
@@ -47,64 +53,131 @@
          back for them - just not before they have read a word.
          =================================================================== -->
     <main>
-      <!-- The room. First on the page, in every window, joined or not. -->
+      <!-- ===============================================================
+           The message screen: a bar, the conversation, the box to write in.
+
+           That is the whole inventory, and it is the inventory every
+           messaging app a person already uses has settled on. What used to
+           be here as well - a sentence about agents, a strip of participant
+           chips, four conversation tabs, a line explaining the tab, camera
+           and microphone and screen-share buttons, an invite drawer, a
+           notification switch and a way back to the rooms list - each
+           earned its place by being reasonable on its own. Together they
+           were the reason the room read as busy, and no amount of tightening
+           spacing fixes that, because the problem is the NUMBER of things
+           asking to be read, not their size.
+
+           Every one of them is one tap away in the room details sheet at
+           the bottom of this file, and not one sentence of it was deleted.
+           =============================================================== -->
       <section id="roomArea" hidden>
-        <div class="roomHead">
-          <h2 id="roomTitle" class="roomTitle" hidden></h2>
-          <button id="leave" type="button" class="quiet">Leave</button>
+        <!-- One line. Back, who and where you are, a call, and the rest. -->
+        <div class="roomBar">
+          <button id="backToRooms" type="button" class="barBack" aria-label="Back to your rooms">
+            <span aria-hidden="true">&#8249;</span>
+          </button>
+          <!-- The name and the who-is-here line are one control, because
+               they answer the same question and a reader who wants more
+               about either taps the thing they are looking at. -->
+          <button id="roomIdentity" type="button" class="roomIdentity" aria-haspopup="dialog">
+            <span id="roomTitle" class="roomTitle"></span>
+            <span id="roomWho" class="roomWho"></span>
+          </button>
+          <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
+                  title="Camera, microphone and screen share">Call</button>
+          <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
+                  aria-label="Room details">
+            <span aria-hidden="true">&#8943;</span>
+          </button>
         </div>
 
-        <!-- Who is here. A short strip rather than a wall of cards: a
-             person with no camera on is a name, and six names should cost
-             one line, not six. A tile grows into a card the moment there
-             is a picture in it. See `#room .participant` in style.css. -->
-        <h3 class="miniHead">Who is here</h3>
-        <!-- The names, and what the tag on some of them means, in one
-             block. One block because on a phone it has to be bounded - a
-             room of eight would otherwise push the conversation off the
-             bottom of the screen - and bounding the names and the sentence
-             about them separately left the sentence sandwiched between two
-             scrollbars. See `#whoIsHere` in style.css. -->
-        <!-- What the `agent` tag means, above the names carrying it. The
-             full explanation is on the Agents tab and it is a good one, but
-             a person who has just been handed a link has no reason to open
-             a tab: they read the names, and three of them were programs. So
-             the one sentence that matters is said here.
+        <!-- The call. Absent until there is one, the way a phone shows call
+             controls only during a call. Revealed by the Call button above,
+             and kept open for as long as anything of yours is live. -->
+        <div id="callBay" hidden>
+          <section id="deviceControls" hidden>
+            <p>Turn on your camera or microphone:</p>
+            <div class="toggles">
+              <button id="toggleMic" class="toggle" data-on="false">Microphone</button>
+              <button id="toggleCamera" class="toggle" data-on="false">Camera</button>
+              <button id="toggleScreen" class="toggle" data-on="false">Screen share</button>
+            </div>
+            <p id="micIndicator" class="indicator"></p>
 
-             OUTSIDE the box that bounds the names, and deliberately: on a
-             phone that box scrolls, and a sentence cut off in the middle of
-             a word is worse than no sentence at all. The names can be
-             scrolled to. This cannot. Filled in by `render` in
-             app/src/main.ts. -->
-        <p id="agentsExplain" class="agentsExplain" hidden></p>
+            <div id="effects">
+              <details id="cameraEffects" hidden>
+                <summary>Hide what is behind you <span id="effectMode" class="chip">blur</span></summary>
+                <div class="segmented" id="effectModes" role="radiogroup" aria-label="Background">
+                  <button type="button" class="seg" data-mode="off">Off</button>
+                  <button type="button" class="seg" data-mode="blur">Blur</button>
+                  <button type="button" class="seg" data-mode="replace">Replace</button>
+                </div>
+                <div class="effectRow" id="strengthRow">
+                  <label for="blurStrength">Strength</label>
+                  <input id="blurStrength" type="range" min="0" max="100" step="1" value="60" />
+                </div>
+                <div class="segmented" id="backgroundChoices" role="radiogroup" aria-label="Picture" hidden></div>
+                <div class="effectRow">
+                  <button id="switchCamera" type="button" hidden>Switch camera</button>
+                </div>
+                <p id="effectStatus" class="indicator"></p>
+                <p class="note">
+                  Blur is on the first time you turn the camera on. It is the
+                  computer's best guess at where you stop and your room starts,
+                  so edges, dim light and quick movement all let bits of the room
+                  through for a moment at a time. It uses battery, and on a slow
+                  machine it costs you smooth video. It makes your room harder to
+                  see. It is not a promise that nobody can see it.
+                </p>
+              </details>
+
+              <details id="voiceEffects" hidden>
+                <summary>Change how your voice sounds <span id="voiceMode" class="chip">off</span></summary>
+                <div class="segmented" id="voicePresets" role="radiogroup" aria-label="Voice masking">
+                  <button type="button" class="seg" data-preset="off">Off</button>
+                  <button type="button" class="seg" data-preset="lower">Lower</button>
+                  <button type="button" class="seg" data-preset="higher">Higher</button>
+                  <button type="button" class="seg" data-preset="neutral">Neutral</button>
+                </div>
+                <div class="effectRow">
+                  <button id="voicePreview" type="button">Hear yourself</button>
+                  <audio id="voicePreviewAudio" controls hidden></audio>
+                </div>
+                <p id="voiceStatus" class="indicator"></p>
+                <p class="note warn">
+                  This disguises your voice. It does not make you anonymous. It
+                  moves your voice up or down and shifts its tone separately, which
+                  is enough that somebody who knows your voice will not place it
+                  straight away. It will not stop anybody who holds a recording of
+                  you and wants to match it, and it does not survive an expert
+                  comparison. Do not lean on it where being recognised would
+                  matter. It does not change your accent, your words or the way
+                  you put them, and anybody who knows those will still know you.
+                </p>
+              </details>
+            </div>
+
+            <div id="local"></div>
+            <div class="toggles agentsHear">
+              <button id="toggleAgentsHear" class="toggle" data-on="false">Let agents hear me</button>
+              <span id="agentsHearNote" class="note inline">
+                Off: nothing that says it is an agent is sent your camera or
+                microphone. It never leaves this device for them.
+              </span>
+            </div>
+          </section>
+        </div>
+
+        <!-- Pictures, and only when there are pictures. With every camera
+             off this is empty and takes no room at all; a face is worth the
+             screen it costs and an empty box is not. See `#whoIsHere` in
+             style.css. -->
         <div id="whoIsHere">
           <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
           <div id="room"></div>
         </div>
 
         <h3 class="sr-only">Conversation</h3>
-        <div id="channelBar" class="channelBar" role="tablist" aria-label="Conversations" hidden></div>
-        <!-- One line saying what the tab you are on is for, and saying so
-             when nothing has been said in it yet. A tab with nothing behind
-             it reads as broken; a tab that says what it is for and that it
-             is empty reads as a room nobody has used. Filled in by
-             `renderChannels` in app/src/main.ts. -->
-        <p id="channelHint" class="channelHint"></p>
-
-        <!-- How an agent gets into a room. It used to be folded inside a
-             panel below the chat, which is where somebody went looking for
-             it and did not find it. It belongs on the Agents tab, one
-             click from the conversation. -->
-        <details id="inviteAgents" hidden>
-          <summary>Ask an agent to come in</summary>
-          <p class="note">
-            These are the agents that people here can start on their own
-            computers. One click asks for one, and it comes in as a member
-            like anybody else.
-          </p>
-          <div id="inviteList"></div>
-        </details>
-
         <div id="approvals" aria-live="polite"></div>
         <div id="chatLog" aria-live="polite"></div>
         <!-- Said where the box would be, on the conversations nobody types
@@ -128,7 +201,17 @@
           <textarea id="chatInput" placeholder="Say something" autocomplete="off" rows="1"
                     enterkeyhint="send" aria-label="Say something"
                     aria-autocomplete="list" aria-controls="mentions" aria-expanded="false"></textarea>
-          <button type="button" id="attachToggle" title="Send a file: drop one here, or pick one">Add a file</button>
+          <!-- The word on a screen with room for it, a plus on one without.
+               The accessible name never changes and neither does what the
+               button is: only how much of it there is room to print. It is
+               NOT allowed to rename itself as you use it - the count goes
+               in its own span - because a control that changes identity
+               under a person is a control they stop trusting. -->
+          <button type="button" id="attachToggle" aria-label="Add a file"
+                  title="Send a file: drop one here, or pick one">
+            <span class="attachIcon" aria-hidden="true">+</span>
+            <span class="attachWord">Add a file</span><span id="attachCount" class="attachCount"></span>
+          </button>
           <button type="submit">Send</button>
         </form>
         <div id="attachStaged"></div>
@@ -241,244 +324,13 @@
            second column on a wide screen, so neither costs you the chat.
            =============================================================== -->
 
-      <section id="deviceControls" hidden>
-        <p>Turn on your camera or microphone:</p>
-        <div class="toggles">
-          <button id="toggleMic" class="toggle" data-on="false">Microphone</button>
-          <button id="toggleCamera" class="toggle" data-on="false">Camera</button>
-          <button id="toggleScreen" class="toggle" data-on="false">Screen share</button>
-        </div>
-        <p id="micIndicator" class="indicator"></p>
-
-        <div id="effects">
-          <details id="cameraEffects" hidden>
-            <summary>Hide what is behind you <span id="effectMode" class="chip">blur</span></summary>
-            <div class="segmented" id="effectModes" role="radiogroup" aria-label="Background">
-              <button type="button" class="seg" data-mode="off">Off</button>
-              <button type="button" class="seg" data-mode="blur">Blur</button>
-              <button type="button" class="seg" data-mode="replace">Replace</button>
-            </div>
-            <div class="effectRow" id="strengthRow">
-              <label for="blurStrength">Strength</label>
-              <input id="blurStrength" type="range" min="0" max="100" step="1" value="60" />
-            </div>
-            <div class="segmented" id="backgroundChoices" role="radiogroup" aria-label="Picture" hidden></div>
-            <div class="effectRow">
-              <button id="switchCamera" type="button" hidden>Switch camera</button>
-            </div>
-            <p id="effectStatus" class="indicator"></p>
-            <p class="note">
-              Blur is on the first time you turn the camera on. It is the
-              computer's best guess at where you stop and your room starts,
-              so edges, dim light and quick movement all let bits of the room
-              through for a moment at a time. It uses battery, and on a slow
-              machine it costs you smooth video. It makes your room harder to
-              see. It is not a promise that nobody can see it.
-            </p>
-          </details>
-
-          <details id="voiceEffects" hidden>
-            <summary>Change how your voice sounds <span id="voiceMode" class="chip">off</span></summary>
-            <div class="segmented" id="voicePresets" role="radiogroup" aria-label="Voice masking">
-              <button type="button" class="seg" data-preset="off">Off</button>
-              <button type="button" class="seg" data-preset="lower">Lower</button>
-              <button type="button" class="seg" data-preset="higher">Higher</button>
-              <button type="button" class="seg" data-preset="neutral">Neutral</button>
-            </div>
-            <div class="effectRow">
-              <button id="voicePreview" type="button">Hear yourself</button>
-              <audio id="voicePreviewAudio" controls hidden></audio>
-            </div>
-            <p id="voiceStatus" class="indicator"></p>
-            <p class="note warn">
-              This disguises your voice. It does not make you anonymous. It
-              moves your voice up or down and shifts its tone separately, which
-              is enough that somebody who knows your voice will not place it
-              straight away. It will not stop anybody who holds a recording of
-              you and wants to match it, and it does not survive an expert
-              comparison. Do not lean on it where being recognised would
-              matter. It does not change your accent, your words or the way
-              you put them, and anybody who knows those will still know you.
-            </p>
-          </details>
-        </div>
-
-        <div id="local"></div>
-        <div class="toggles agentsHear">
-          <button id="toggleAgentsHear" class="toggle" data-on="false">Let agents hear me</button>
-          <span id="agentsHearNote" class="note inline">
-            Off: nothing that says it is an agent is sent your camera or
-            microphone. It never leaves this device for them.
-          </span>
-        </div>
-      </section>
-
-      <!-- Invite people, and the rest of the settings.
-
-           Written here, directly under the camera buttons, rather than
-           last on the page. It was the final element, roughly four
-           screenfuls down past the media controls and a long passage
-           about lending your connection - which is a long way to travel
-           for the link that lets anybody else in at all. It is moved in
-           the document rather than with `order`, because a screen reader
-           and the tab key walk the written sequence and a divergence
-           between the two is worse than the distance was. -->
-      <!-- One drawer for the rest. Closed on a phone and open beside the
-           room on a wide screen, because in a sidebar it costs the
-           conversation nothing. See `openToolsForWidth` in main.ts. -->
-      <section id="roomTools" hidden>
-        <details id="roomToolsPanel">
-          <summary id="roomToolsSummary">Invite people, and other settings</summary>
-
-          <div class="linkBox">
-            <p><strong>Invite somebody</strong></p>
-            <p class="note">
-              Send this link and whoever gets it can come in, including
-              anybody they pass it on to. It is a key to the front door, so
-              send it the way you would tell somebody a secret.
-            </p>
-            <p class="note">
-              The end of the link, after the #, never reaches this website,
-              so we never see it. The app you send it with can still read the
-              whole thing, unless that chat is private from end to end.
-            </p>
-            <p class="note">
-              Leave this tab open. It is what lets the next person in when
-              they follow the link.
-            </p>
-            <div id="keepRow" class="toggles switchRow" hidden>
-              <button id="toggleKeep" class="toggle" data-on="false" aria-pressed="false">Remember this room here</button>
-              <span id="keepNote" class="note inline"></span>
-            </div>
-            <input id="shareUrl" readonly aria-label="Link to this room" />
-            <button id="shareRoom" type="button" hidden>Share</button>
-            <button id="copyShare" type="button">Copy</button>
-            <button id="rotateShare" type="button" hidden>New link</button>
-            <!-- Hidden with the button it describes. Only the browser that
-                 opened the room can make a new link, and everybody else was
-                 reading a sentence about a control that was not on their
-                 page. See `showRoomUi` in app/src/main.ts. -->
-            <p id="rotateNote" class="note" hidden>
-              A new link stops the old one letting anybody new in. Anybody
-              already here stays.
-            </p>
-            <details id="shareQrDetails">
-              <summary>Show a QR code</summary>
-              <canvas id="shareQr" class="qr" role="img" aria-label="QR code for the join link"></canvas>
-              <p class="note">Point another phone's camera at this to open the room on it.</p>
-            </details>
-          </div>
-
-          <div class="linkBox pairing">
-            <p>
-              <strong>Use your phone in here too.</strong>
-              The link below is a pass for this room and nothing else, and it
-              stops working after twelve hours. It does not carry who you
-              are, and it is no use anywhere else. This device will ask you
-              to say yes before it hands one out.
-            </p>
-            <button id="addDevice">Add my phone or another device</button>
-            <input id="pairUrl" readonly hidden aria-label="Link for your other device" />
-            <button id="copyPair" type="button" hidden>Copy</button>
-            <button id="stopPairing" type="button" hidden>Stop adding</button>
-            <div id="pairQrWrap" hidden>
-              <canvas id="pairQr" class="qr" role="img" aria-label="QR code for the pairing link"></canvas>
-              <p class="note">Point the other device's camera at this, or send it the link above. This device will then ask you to allow it, once.</p>
-            </div>
-          </div>
-
-          <div id="nudgeRow" class="toggles switchRow" hidden>
-            <button id="toggleNudge" class="toggle" data-on="false" aria-pressed="false">Nudge me when I am away</button>
-            <span id="nudgeNote" class="note inline">
-              Asks whichever computer looks after this room to send you a
-              private message when there are new words here and you are not.
-              Once an hour at most. Nothing outside can read the message, and
-              all the servers in between learn is that one was sent.
-            </span>
-          </div>
-
-          <form id="channelNew" class="channelNew" hidden>
-            <label for="channelName" class="note">
-              Open another conversation in this room, with its own name.
-            </label>
-            <input id="channelName" placeholder="new-channel" autocomplete="off" autocapitalize="off" spellcheck="false"
-                   maxlength="64" pattern="[a-z0-9][a-z0-9-]*" aria-label="Name for a new conversation" />
-            <button type="submit" id="channelAdd">Open it</button>
-            <button type="button" id="channelClose" hidden>Close this one</button>
-          </form>
-
-          <details id="hostPanel" hidden>
-            <summary>You look after this room</summary>
-            <p class="note">
-              <strong>Remove</strong> moves the room onto a new key that
-              person is not given: from then on they can read nothing, and
-              what they already read stays theirs. <strong>Mute</strong> is a
-              request their own app does as it is asked, by switching off
-              their camera and microphone; nothing in between can force it.
-              <strong>Close</strong> ends the room for everybody.
-            </p>
-            <div id="hostList"></div>
-            <div class="hostRow">
-              <button type="button" id="closeRoom" class="danger">Close the room</button>
-            </div>
-          </details>
-
-          <!-- One disclosure away rather than sitting among the settings.
-               "Copy a bug report" beside the switches a person uses reads
-               as one of them, and a bug report is not a setting: it is what
-               you reach for on a bad day. Still here, still one click, and
-               now it says what it is for before you press it. -->
-          <details id="troubleshooting">
-            <summary>If something here is not working</summary>
-            <p class="note">
-              This copies what this page knows about its own connections:
-              which route each person is on, what the relays answered, what
-              this browser can and cannot do. It carries no messages and no
-              keys. Paste it wherever you are reporting the problem.
-            </p>
-            <div class="toolRow">
-              <button id="diagnostics" type="button" class="quiet">Copy a bug report</button>
-            </div>
-            <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Bug report"></textarea>
-          </details>
-        </details>
-      </section>
 
 
       <!-- Lending your connection to other people. Not folded away with the
            settings on purpose: while it is on, this device is spending its
            owner's internet on somebody else's call, and that is not
            something you should have to go hunting for. -->
-      <section id="assist" hidden>
-        <div class="toggles">
-          <button id="toggleAssist" class="toggle" data-on="false" aria-pressed="false" hidden>
-            Help other people connect
-          </button>
-        </div>
-        <p id="assistIndicator" class="indicator" aria-live="polite"></p>
-        <details id="assistCost">
-          <summary>What helping costs you</summary>
-          <p class="note" id="assistCostNote"></p>
-          <p class="note">
-            Two people who cannot reach each other directly are one pair.
-            This device will help three pairs at most, and stops being asked
-            once it is full.
-          </p>
-          <p class="note warn">
-            The people you would be helping are already in the room with you.
-            You can see and hear them now, and passing their video along
-            gives you nothing you did not already have. What it does not let
-            you do is pass one person off as another: every picture and voice
-            is signed by whoever sent it, and a relabelled one is thrown out
-            at the other end.
-          </p>
-          <p class="note">
-            Turn it off whenever you like, even in the middle of a call.
-            Anybody you were helping finds another way round on their own,
-            and neither your call nor theirs stops.
-          </p>
-        </details>
-      </section>
+
 
       <!-- Notifications come from this open app and nowhere else: there is
            no server to push from. Per device, off until asked for, and what
@@ -532,6 +384,207 @@
           </button>
         </div>
       </form>
+    </dialog>
+
+
+    <!-- =====================================================================
+         Room details.
+
+         Everything the message screen used to carry permanently. A modal
+         <dialog>, for the same reasons the verification dialog is one: it
+         traps focus, Escape closes it, and the browser does the rest. The
+         bar at the top sticks to the top of the SHEET - which is its own
+         scrolling box, and nothing to do with the page's own scrolling, so
+         it cannot bring back the collapsing-address-bar trouble that
+         pinning anything on the page itself would.
+
+         Reachable and dismissible by thumb: a Close button that stays on
+         screen, Escape, and a tap on the backdrop.
+         ===================================================================== -->
+    <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
+      <div class="sheetBar">
+        <h2 id="roomSheetTitle">Room details</h2>
+        <button id="roomSheetClose" type="button" class="primary">Close</button>
+      </div>
+
+      <div class="sheetBody">
+        <h3 class="sheetHead">Conversations</h3>
+        <!-- The room's conversations. These used to be a row of tabs above
+             the messages, which is a thing no messaging app does: you are
+             only ever reading one of them, so the other three were three
+             permanent invitations to be somewhere else. Picking one here
+             closes this sheet and takes you to it, and the bar at the top
+             of the room says which one you are in. -->
+        <div id="channelBar" class="channelBar" role="tablist" aria-label="Conversations"></div>
+
+        <form id="channelNew" class="channelNew" hidden>
+          <label for="channelName" class="note">
+            Open another conversation in this room, with its own name.
+          </label>
+          <input id="channelName" placeholder="new-channel" autocomplete="off" autocapitalize="off" spellcheck="false"
+                 maxlength="64" pattern="[a-z0-9][a-z0-9-]*" aria-label="Name for a new conversation" />
+          <button type="submit" id="channelAdd">Open it</button>
+          <button type="button" id="channelClose" hidden>Close this one</button>
+        </form>
+
+        <details id="inviteAgents" hidden>
+          <summary>Ask an agent to come in</summary>
+          <p class="note">
+            These are the agents that people here can start on their own
+            computers. One click asks for one, and it comes in as a member
+            like anybody else.
+          </p>
+          <div id="inviteList"></div>
+        </details>
+
+        <h3 class="sheetHead">Who is here</h3>
+        <!-- What the `agent` tag means. It is said again as the first note
+             in every conversation, where a first-time reader actually meets
+             it, and it lives here permanently for anybody who comes looking.
+             Filled in by `render` in app/src/main.ts. -->
+        <p id="agentsExplain" class="agentsExplain" hidden></p>
+        <div id="sheetRoster" class="sheetRoster"></div>
+
+        <h3 class="sheetHead">Invite somebody</h3>
+        <div class="linkBox">
+          <p><strong>Invite somebody</strong></p>
+          <p class="note">
+            Send this link and whoever gets it can come in, including
+            anybody they pass it on to. It is a key to the front door, so
+            send it the way you would tell somebody a secret.
+          </p>
+          <p class="note">
+            The end of the link, after the #, never reaches this website,
+            so we never see it. The app you send it with can still read the
+            whole thing, unless that chat is private from end to end.
+          </p>
+          <p class="note">
+            Leave this tab open. It is what lets the next person in when
+            they follow the link.
+          </p>
+          <div id="keepRow" class="toggles switchRow" hidden>
+            <button id="toggleKeep" class="toggle" data-on="false" aria-pressed="false">Remember this room here</button>
+            <span id="keepNote" class="note inline"></span>
+          </div>
+          <input id="shareUrl" readonly aria-label="Link to this room" />
+          <button id="shareRoom" type="button" hidden>Share</button>
+          <button id="copyShare" type="button">Copy</button>
+          <button id="rotateShare" type="button" hidden>New link</button>
+          <!-- Hidden with the button it describes. Only the browser that
+               opened the room can make a new link, and everybody else was
+               reading a sentence about a control that was not on their
+               page. See `showRoomUi` in app/src/main.ts. -->
+          <p id="rotateNote" class="note" hidden>
+            A new link stops the old one letting anybody new in. Anybody
+            already here stays.
+          </p>
+          <details id="shareQrDetails">
+            <summary>Show a QR code</summary>
+            <canvas id="shareQr" class="qr" role="img" aria-label="QR code for the join link"></canvas>
+            <p class="note">Point another phone's camera at this to open the room on it.</p>
+          </details>
+        </div>
+
+        <div class="linkBox pairing">
+          <p>
+            <strong>Use your phone in here too.</strong>
+            The link below is a pass for this room and nothing else, and it
+            stops working after twelve hours. It does not carry who you
+            are, and it is no use anywhere else. This device will ask you
+            to say yes before it hands one out.
+          </p>
+          <button id="addDevice">Add my phone or another device</button>
+          <input id="pairUrl" readonly hidden aria-label="Link for your other device" />
+          <button id="copyPair" type="button" hidden>Copy</button>
+          <button id="stopPairing" type="button" hidden>Stop adding</button>
+          <div id="pairQrWrap" hidden>
+            <canvas id="pairQr" class="qr" role="img" aria-label="QR code for the pairing link"></canvas>
+            <p class="note">Point the other device's camera at this, or send it the link above. This device will then ask you to allow it, once.</p>
+          </div>
+        </div>
+
+        <h3 class="sheetHead">Being told about this room</h3>
+        <div id="notifySlot"></div>
+        <div id="nudgeRow" class="toggles switchRow" hidden>
+          <button id="toggleNudge" class="toggle" data-on="false" aria-pressed="false">Nudge me when I am away</button>
+          <span id="nudgeNote" class="note inline">
+            Asks whichever computer looks after this room to send you a
+            private message when there are new words here and you are not.
+            Once an hour at most. Nothing outside can read the message, and
+            all the servers in between learn is that one was sent.
+          </span>
+        </div>
+
+        <section id="assist" hidden>
+          <div class="toggles">
+            <button id="toggleAssist" class="toggle" data-on="false" aria-pressed="false" hidden>
+              Help other people connect
+            </button>
+          </div>
+          <p id="assistIndicator" class="indicator" aria-live="polite"></p>
+          <details id="assistCost">
+            <summary>What helping costs you</summary>
+            <p class="note" id="assistCostNote"></p>
+            <p class="note">
+              Two people who cannot reach each other directly are one pair.
+              This device will help three pairs at most, and stops being asked
+              once it is full.
+            </p>
+            <p class="note warn">
+              The people you would be helping are already in the room with you.
+              You can see and hear them now, and passing their video along
+              gives you nothing you did not already have. What it does not let
+              you do is pass one person off as another: every picture and voice
+              is signed by whoever sent it, and a relabelled one is thrown out
+              at the other end.
+            </p>
+            <p class="note">
+              Turn it off whenever you like, even in the middle of a call.
+              Anybody you were helping finds another way round on their own,
+              and neither your call nor theirs stops.
+            </p>
+          </details>
+        </section>
+
+        <details id="hostPanel" hidden>
+          <summary>You look after this room</summary>
+          <p class="note">
+            <strong>Remove</strong> moves the room onto a new key that
+            person is not given: from then on they can read nothing, and
+            what they already read stays theirs. <strong>Mute</strong> is a
+            request their own app does as it is asked, by switching off
+            their camera and microphone; nothing in between can force it.
+            <strong>Close</strong> ends the room for everybody.
+          </p>
+          <div id="hostList"></div>
+          <div class="hostRow">
+            <button type="button" id="closeRoom" class="danger">Close the room</button>
+          </div>
+        </details>
+
+        <!-- One disclosure away rather than sitting among the settings.
+             "Copy a bug report" beside the switches a person uses reads
+             as one of them, and a bug report is not a setting: it is what
+             you reach for on a bad day. Still here, still one click, and
+             now it says what it is for before you press it. -->
+        <details id="troubleshooting">
+          <summary>If something here is not working</summary>
+          <p class="note">
+            This copies what this page knows about its own connections:
+            which route each person is on, what the relays answered, what
+            this browser can and cannot do. It carries no messages and no
+            keys. Paste it wherever you are reporting the problem.
+          </p>
+          <div class="toolRow">
+            <button id="diagnostics" type="button" class="quiet">Copy a bug report</button>
+          </div>
+          <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Bug report"></textarea>
+        </details>
+
+        <div class="sheetRow">
+          <button id="leave" type="button" class="danger">Leave this room</button>
+        </div>
+      </div>
     </dialog>
 
     <script type="module" src="/src/main.ts"></script>

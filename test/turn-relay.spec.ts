@@ -156,10 +156,14 @@ async function prepareDevice(page: Page, url: string, name: string): Promise<voi
 
 /** Camera and microphone on, from inside the room. */
 async function turnOnMedia(page: Page): Promise<void> {
-  await expect(
-    page.locator('#deviceControls'),
-    'the camera and microphone controls only appear once this device is in the room',
-  ).toBeVisible()
+  // The camera and microphone are behind the call control in the room's bar
+  // now: a message screen carries a header, the conversation and the box to
+  // type in, and the camera appears when there is a call to point it at.
+  await expect(page.locator('#callToggle')).toBeVisible()
+  if (await page.locator('#deviceControls').isHidden()) {
+    await page.locator('#callToggle').click()
+  }
+  await expect(page.locator('#deviceControls')).toBeVisible()
   await page.locator('#toggleCamera').click()
   await page.locator('#toggleMic').click()
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')

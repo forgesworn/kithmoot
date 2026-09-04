@@ -119,21 +119,16 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
   return joinUrl
 }
 
-/** The drawer holding what is not the conversation - the room's link, the
- *  pass for a second device, the admin controls. It is on the page only once
- *  this device is in the room, and it starts shut on a narrow window, so
- *  anything reaching into it opens it rather than trusting the window size
- *  the run happened to get. */
+/** The room's details - the link, the pass for a second device, who is
+ *  here, the conversations, the admin controls. A sheet one tap off the
+ *  message screen, which carries the header, the messages and the box to
+ *  type in and nothing else. */
 async function openRoomTools(page: Page): Promise<void> {
-  await expect(
-    page.locator('#roomTools'),
-    'the room drawer is only on the page once this device is in the room',
-  ).toBeVisible()
-  const panel = page.locator('#roomToolsPanel')
-  if (!(await panel.evaluate((el) => (el as HTMLDetailsElement).open))) {
-    await panel.locator('summary').click()
+  const sheet = page.locator('#roomSheet')
+  if (!(await sheet.evaluate((el) => (el as HTMLDialogElement).open))) {
+    await page.locator('#roomMenu').click()
   }
-  await expect(panel).toHaveJSProperty('open', true)
+  await expect(sheet).toHaveJSProperty('open', true)
 }
 
 /** Starts a pairing exchange on the page that will host it. The page must
@@ -154,6 +149,11 @@ async function offerPairing(page: Page, joinUrl: string): Promise<string> {
   expect(pairUrl.length, 'a pairing URL carrying a secret key would be far longer').toBeLessThan(
     joinUrl.length + 80,
   )
+  // Shut the sheet again. It is a modal dialog, so leaving it open makes
+  // the rest of the page inert - and what a person does after taking a
+  // pairing link is go back to the room.
+  await page.locator('#roomSheetClose').click()
+  await expect(page.locator('#roomSheet')).toHaveJSProperty('open', false)
   return pairUrl
 }
 
@@ -190,12 +190,19 @@ async function joinRoom(page: Page): Promise<void> {
 /** Camera and microphone on - real synthetic media, granted with no human
  *  present via the --use-fake-device-for-media-stream and
  *  --use-fake-ui-for-media-stream launch flags in playwright.config.ts.
- *  Only reachable from inside the room. */
+ *  Only reachable from inside the room, and now from behind the call
+ *  control in the room's bar: a message screen carries a header, the
+ *  conversation and the box to type in, and the camera appears when there
+ *  is a call to point it at. */
 async function turnOnMedia(page: Page): Promise<void> {
   await expect(
-    page.locator('#deviceControls'),
-    'the camera and microphone controls only appear once this device is in the room',
+    page.locator('#callToggle'),
+    'the call control only appears once this device is in the room',
   ).toBeVisible()
+  if (await page.locator('#deviceControls').isHidden()) {
+    await page.locator('#callToggle').click()
+  }
+  await expect(page.locator('#deviceControls')).toBeVisible()
   await page.locator('#toggleCamera').click()
   await page.locator('#toggleMic').click()
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
@@ -270,9 +277,11 @@ test('rotating a share link retires its public capability without moving the roo
   expect(second).not.toBe(first)
   await expect(page.locator('#status')).toContainText('Current clients will no longer answer the old link')
   // And the room this tab is in is untouched by its link being replaced -
-  // still in it, still with everything the room offers.
+  // still in it, still with everything the room offers. The camera is
+  // behind the call control now rather than beside the conversation, so
+  // what this checks is that the control is there to press.
   await expect(page.locator('#roomArea')).toBeVisible()
-  await expect(page.locator('#deviceControls')).toBeVisible()
+  await expect(page.locator('#callToggle')).toBeVisible()
   // The wording pass that came with the rebuilt page took "retired" out of
   // this sentence along with every other word that assumed the reader knew
   // the vocabulary. What it says now is what the other tab actually reads.

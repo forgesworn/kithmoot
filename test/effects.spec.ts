@@ -162,6 +162,13 @@ async function goIn(page: Page): Promise<void> {
   await page.locator('#displayName').fill('Robin')
   await page.locator('#join').click()
   await expect(page.locator('#roomArea')).toBeVisible()
+  // The camera and microphone are behind the call control in the room's bar
+  // now: a message screen carries a header, the conversation and the box to
+  // type in, and the camera appears when there is a call to point it at.
+  await expect(page.locator('#callToggle')).toBeVisible()
+  if (await page.locator('#deviceControls').isHidden()) {
+    await page.locator('#callToggle').click()
+  }
   await expect(page.locator('#deviceControls')).toBeVisible()
 }
 

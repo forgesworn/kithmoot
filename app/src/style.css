@@ -1,12 +1,4 @@
 :root {
-  /* How far down the page the room begins, in pixels, written here by
-     `measureShell` in app/src/main.ts on load and on every resize. The
-     conversation is sized against the screen it is given - "the rest of the
-     window from here down" - and CSS on its own cannot know how tall the
-     masthead above it happens to be. The fallback is a sensible guess for
-     the moment before the first measurement lands. */
-  --shell-top: 8rem;
-
   /* Every colour in the sheet is named here and nowhere else.
 
      It used to be about thirty raw hex values scattered through the rules,
@@ -306,6 +298,13 @@ details#roomSettings label {
   margin-top: 0.6rem;
 }
 
+/* No reserved line when there is nothing to say: in a room this sits under
+   the box to write in, and a permanent empty line there is a permanent
+   twenty points off the conversation. */
+#status:empty {
+  min-height: 0;
+}
+
 #status {
   min-height: 1.25rem;
   color: var(--danger);
@@ -333,6 +332,106 @@ details#roomSettings label {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+/* The room's bar. Back, where you are, the call, and everything else.
+
+   One row, and the only permanent furniture above the conversation. What
+   it replaces - the room name on its own line, a strip of participant
+   chips, a row of conversation tabs and a line explaining the tab - is
+   either in this bar in words or one tap behind it. */
+.roomBar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.barBack,
+.barBtn {
+  margin: 0;
+  flex: 0 0 auto;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  padding: 0.45rem 0.6rem;
+}
+
+.barBack {
+  font-size: 1.6rem;
+  line-height: 1;
+  padding: 0.2rem 0.5rem;
+}
+
+.barBack:hover,
+.barBtn:hover,
+.barBtn[data-on='true'] {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--control);
+}
+
+/* The name and who is here are one control. Left-aligned text in a button,
+   because it is a button that reads as a heading rather than the other way
+   round. */
+.roomIdentity {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  margin: 0;
+  padding: 0.25rem 0.4rem;
+  background: transparent;
+  border-color: transparent;
+  text-align: left;
+}
+
+.roomIdentity:hover {
+  background: var(--control);
+  border-color: var(--border);
+}
+
+.roomIdentity .roomTitle,
+.roomIdentity .roomWho {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roomIdentity .roomTitle {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.roomIdentity .roomWho {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Faces and voices, hidden by `render` in app/src/main.ts unless somebody
+   in the room is offering one. */
+#whoIsHere {
+  margin-bottom: 0.6rem;
+}
+
+/* The call, while there is one. */
+#callBay {
+  margin: 0 0 0.6rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+#callBay > section {
+  margin: 0;
 }
 
 .roomHead {
@@ -723,6 +822,10 @@ video {
   margin: 0.6rem 0 0;
 }
 
+.attachIcon {
+  display: none;
+}
+
 #chatForm {
   display: flex;
   gap: 0.5rem;
@@ -929,39 +1032,6 @@ video {
 
 #notify {
   margin: 0.5rem 0;
-}
-
-/* ---------------------------------------------------------------------------
-   The settings drawer
-
-   One place for everything that is not the conversation: the room's link,
-   the pass for your own second device, the nudge switch, the admin controls
-   and the bug report. All of it was on the page before the first message,
-   and all of it is still here - one disclosure in, which is where a thing
-   you use once belongs.
-
-   The summary names what is inside rather than calling itself "Settings",
-   because "invite people" is what somebody is actually looking for and a
-   word like "settings" gives them no reason to think it is in there. */
-#roomTools {
-  margin: 0.5rem 0;
-}
-
-#roomToolsPanel > summary {
-  cursor: pointer;
-  font-weight: 600;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-#roomToolsPanel[open] > summary {
-  margin-bottom: 0.75rem;
-}
-
-#roomToolsPanel > *:not(summary) {
-  margin-bottom: 1rem;
 }
 
 .toolRow {
@@ -1702,6 +1772,33 @@ label.note {
   font-style: italic;
 }
 
+/* The notes at the head of a thread: what this conversation is, and which
+   of the names in it are machines. Said once, where a reader meets them,
+   rather than pinned above the messages for ever. Wider and quieter than a
+   bubble, and they scroll away with the history like everything else. */
+#chatLog p.system.intro {
+  align-self: stretch;
+  text-align: left;
+  max-width: 100%;
+  margin: 0 0 0.4rem;
+  padding: 0 0 0 0.7rem;
+  border-left: 2px solid var(--border);
+  font-style: normal;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+/* The one about agents is the one a first-time reader has to take in, so it
+   keeps the colour its tag uses. */
+#chatLog p.system.intro:first-child {
+  border-left-color: var(--agent);
+}
+
+#chatLog p.system.intro .badge.agent {
+  margin: 0 0.15rem;
+}
+
 /* Nobody sent these, so they take neither side: centred, between the
    bubbles, where a chat app puts "you were added to this group". */
 #chatLog p.system {
@@ -1753,6 +1850,40 @@ label.note {
 
    What is left here is genuinely about a narrow screen. */
 @media (max-width: 700px) {
+  /* The room fills the screen, worked out by the layout rather than by a
+     measurement.
+
+     This used to be `height: calc(100svh - var(--shell-top) - 1rem)`, where
+     `--shell-top` was how far down the page the room began, measured in
+     JavaScript and written into a custom property. It was one more thing to
+     keep current, and when it went stale - which it did, because the
+     masthead changes height at the moment you go in - the room was sized
+     against a page that no longer existed. Letting the body be a column and
+     the room be the part that grows is the same answer with nothing to keep
+     current. */
+  body:has(#roomArea:not([hidden])) {
+    min-height: 100vh;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  body:has(#roomArea:not([hidden])) > main {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  /* In a room, the room's bar is the top of the screen.
+
+     The masthead above it is the app introducing itself, which is worth a
+     line on the way in and worth nothing at all once you are reading a
+     conversation - and on a phone it is a line the conversation pays for.
+     Every messaging app does this: the thread has its own header and the
+     product name is nowhere on it. */
+  body:has(#roomArea:not([hidden])) > header {
+    display: none;
+  }
+
   main {
     display: flex;
     flex-direction: column;
@@ -1787,36 +1918,23 @@ label.note {
   }
 
   /* The conversation has to clear the fold on a phone WITH the box to reply
-     in, not just the messages: a person who can read but cannot see where to
-     answer has got halfway.
-
-     It used to be a fixed box of at most 300px, which on a tall phone left
-     the box to reply in floating in the middle of the screen with dead
-     space under it, and on a short one cut the conversation to four lines
-     whatever else was on the page. So the room takes the screen it is
-     given, measured from where it actually starts (see `--shell-top`), and
-     the conversation takes whatever is left in it after the names and the
-     tabs. `min-height` rather than `height`, so a busy roster pushes the
-     page longer instead of squeezing the messages to nothing. */
+     in, not just the messages: a person who can read but cannot see where
+     to answer has got halfway. It used to be a fixed box of at most 300px,
+     which on a tall phone left the box floating in the middle of the screen
+     with dead space under it, and on a short one cut the conversation to
+     four lines whatever else was on the page. */
   #roomArea {
     display: flex;
     flex-direction: column;
-    /* At LEAST the screen it is given.
+    /* The part of the column that grows. The bar and the box take what they
+       need and the conversation takes the rest, so the box to reply in is
+       on the first screen always and the messages fill everything above it.
 
-       `min-height` and not `height`. A fixed height guarantees the box to
-       reply in is on the first screen, and buys that guarantee by clipping
-       whatever will not fit - which on the smallest phone still in use
-       means cutting the sentence that says which of these names are
-       machines. So the room takes the screen it is given as a floor: when
-       there is room to spare the conversation grows into it and there is no
-       dead space beneath, and when there is not, the page simply gets
-       longer, which is what a page is for. Nothing is clipped and nothing
-       overlaps.
-
-       `svh` rather than `dvh`, so a collapsing address bar never resizes
-       the conversation mid-scroll. */
-    min-height: calc(100vh - var(--shell-top) - 1rem);
-    min-height: calc(100svh - var(--shell-top) - 1rem);
+       `svh` on the body rather than `dvh`, so a collapsing address bar
+       never resizes the conversation mid-scroll. No `fixed` and no
+       `sticky`: this is a plain block in a plain flowing document. */
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   /* The box gets the whole width, and the buttons go under it.
@@ -1829,17 +1947,30 @@ label.note {
      problem never appears, which is what says it is width and nothing
      else. */
   #chatForm {
-    flex-wrap: wrap;
     gap: 0.4rem;
     margin-top: 0.4rem;
   }
 
+  /* One row. The box takes what is left of it, and it is a box that WRAPS
+     rather than a line that scrolls sideways, so what a narrower box costs
+     is height rather than the ability to read back what you wrote - which
+     is what was actually broken before. */
   #chatInput {
-    flex: 1 1 100%;
+    flex: 1 1 auto;
   }
 
   #chatForm button {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
+  }
+
+  .attachWord {
+    display: none;
+  }
+
+  #attachToggle .attachIcon {
+    display: inline;
+    font-size: 1.4rem;
+    line-height: 1;
   }
 
   /* Forty-four points, which is what every phone platform asks of anything
@@ -1871,7 +2002,6 @@ label.note {
      one of them however far down the sheet it is written. */
   summary,
   #shareQrDetails summary,
-  #roomToolsPanel > summary,
   #inviteAgents > summary,
   #troubleshooting > summary,
   #identity summary,
@@ -1890,45 +2020,14 @@ label.note {
        need. Both this and the names have a floor below which they will not
        go; the floors are what stop the box to reply in being pushed off the
        bottom of the screen. */
-    flex: 1 1 auto;
+    /* Basis zero: the conversation asks for what is LEFT of the screen, not
+       for the room its whole history would like. */
+    flex: 1 1 0;
     height: auto;
-    /* A floor of about four messages. It grows into whatever the screen has
-       left over, which on anything larger than the smallest phone is most
-       of it. */
-    min-height: 6rem;
+    min-height: 4rem;
   }
 
-  /* Who is here is bounded, and the conversation is not.
 
-     A room holds as many people as it holds, and a list that grows without
-     limit puts the chat back below the fold at the exact moment a room gets
-     busy enough to be worth reading. So on a phone the names take about a
-     third of the screen at most and scroll among themselves after that.
-     Nobody is hidden and nothing is behind a click; the guarantee moves to
-     the thing that needs it, which is that there is always a message and a
-     box to answer in on the first screen.
-
-     Only the names. The sentence about the tag sits above this box rather
-     than inside it, because a box that scrolls will cut its last line in
-     half, and half a sentence explaining that some of these names are
-     machines is worse than none.
-
-     Not once there is a picture: a video tile is worth the screen it takes,
-     and clipping somebody's face is not a saving. */
-  #whoIsHere:not(:has(video)) {
-    /* About two names at a time. Measured on a 375 by 667 phone: a taller
-       box here is paid for by the conversation and the box to reply in,
-       and a reader who wants the full list scrolls this one. The sentence
-       above it, which is the part that has to be read, is not in here. */
-    max-height: 14vh;
-    overflow-y: auto;
-    /* A floor, because a scrolling box may be shrunk to nothing. Anything
-       with `overflow` may be squeezed to zero height by the flex algorithm,
-       and that is exactly what happened once the box to reply in took two
-       rows: who is here vanished and left a heading over a hairline. One
-       row of names, always. */
-    min-height: 2.75rem;
-  }
 
 
   /* Every row above the conversation is paid for out of it, so the ones
@@ -1944,123 +2043,73 @@ label.note {
     font-size: 0.95rem;
   }
 
-  .miniHead {
-    margin: 0.3rem 0 0.2rem;
-    font-size: 0.8rem;
-  }
 
-  .agentsRow {
-    margin-bottom: 0.5rem;
-  }
 
-  .channelHint {
-    margin-bottom: 0.4rem;
-  }
 
-  /* A room name and a Leave button, on ONE row.
-
-     They used to wrap, on the reasoning that a long name should not be
-     squeezed. Measured on a phone that costs forty points, which is a whole
-     message out of a conversation that only has room for three - and the
-     name is the thing on this row a reader can most afford to lose the end
-     of, because the room they are looking at is the room they are in. So
-     the name gives way and the button stays put. */
-  .roomHead {
-    flex-wrap: nowrap;
-    gap: 0.5rem;
-  }
-
-  .roomHead h2 {
-    flex: 1 1 auto;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 }
 
 /* ---------------------------------------------------------------------------
    Wide screens
 
-   Widening the shell on its own does not use a window, it only makes the
-   same column longer: the prose keeps its measure and everything else grows
-   a margin of empty space, while the conversation still starts two screens
-   down behind the setup furniture.
+   A single column, centred, the height of the window.
 
-   So on a wide screen the room and its furniture become two columns. The
-   room - who is here, any video, and the conversation with its tabs - takes
-   the larger column and the whole height. Everything used to set the room up
-   goes into a sidebar beside it: the media buttons, the settings drawer with
-   the share link in it, and the notification switch.
+   This used to be two columns: the room on the left and a sidebar of
+   controls on the right. There is no sidebar any more - the controls are
+   in the room's details - so what is left is the thing every messaging app
+   shows on a wide screen, which is one conversation with room to breathe
+   and nothing beside it. The measure is capped because a line of chat two
+   thousand pixels wide is not easier to read, it is harder.
 
-   The result is that on a desktop who is here, the conversation and the box
-   you type into are all above the fold at once, which is the thing that
-   could not be true in one column at any width.
-
-   Only when there is a room to show. `:has()` keeps the front page - where
-   `#roomArea` is still hidden - as the single column it should be, rather
-   than an empty left column beside a stack of controls. */
-@media (min-width: 1100px) {
+   Only when there is a room to show. `:has()` keeps the front page as the
+   ordinary flowing page it should be. */
+@media (min-width: 1000px) {
   main:has(#roomArea:not([hidden])) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem);
-    align-items: start;
-    /* No ROW gap on purpose. The room spans a hundred rows so that it keeps
-       its own column beside the whole sidebar, and a row gap would then be
-       charged ninety-odd times over for rows that hold nothing - about
-       fifteen hundred pixels of empty page. The sidebar spaces itself. */
-    gap: 0 2rem;
+    max-width: 56rem;
+    margin-inline: auto;
   }
 
-  /* Spanning a large number of rows rather than `1 / -1`: with no explicit
-     rows declared, `-1` names the end of the EXPLICIT grid, which is row
-     line 1, so the room would take a single row and leave the rest of its
-     own column empty beside the sidebar. */
-  main:has(#roomArea:not([hidden])) > #roomArea {
-    grid-column: 1;
-    grid-row: 1 / span 100;
-    margin-top: 0;
-    /* The room is as tall as the window and stays put while the sidebar
-       scrolls past it, which is the whole point of giving it a column of
-       its own: the conversation and the box to answer in never leave the
-       screen. `overflow-y` so that opening the file panel underneath the
-       box scrolls this column rather than pushing anything out of reach. */
-    position: sticky;
-    /* Pinned exactly where it starts, so it does not move at all while the
-       sidebar scrolls past it, and sized to the rest of the window from
-       that point down. A height, not a cap: a column that merely may not
-       exceed the window still collapses onto its own content, and then
-       there is nothing for the conversation to grow into. */
-    top: var(--shell-top);
-    align-self: start;
+  /* The masthead lines up with the column under it rather than sitting off
+     to one side of it. `width: 100%` because the body is a flex column
+     here, and an auto inline margin turns off the stretch a block would
+     otherwise get - which shrink-wraps the masthead to the width of the
+     word in it and centres that. */
+  body:has(#roomArea:not([hidden])) > header,
+  body:has(#roomArea:not([hidden])) > nav {
+    width: 100%;
+    max-width: 56rem;
+    margin-inline: auto;
+  }
+
+  /* Same as the phone: the body is a column and the room is the part that
+     grows, so nothing has to measure where the room starts. */
+  body:has(#roomArea:not([hidden])) {
+    min-height: 100vh;
+    min-height: 100svh;
     display: flex;
     flex-direction: column;
-    height: calc(100vh - var(--shell-top) - 1rem);
-    /* SMALL viewport height, not dynamic. `dvh` changes as a browser
-       collapses and restores its address bar, which would make the
-       conversation grow and shrink under the reader's thumb while they
-       scroll. `svh` is the height when the chrome is at its largest: it
-       never moves, and the cost is a little unused space at the bottom
-       once the bar has gone. */
-    height: calc(100svh - var(--shell-top) - 1rem);
-    overflow-y: auto;
   }
 
-  main:has(#roomArea:not([hidden])) > :not(#roomArea) {
-    grid-column: 2;
-    margin: 0 0 1.25rem;
+  body:has(#roomArea:not([hidden])) > main {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
-  /* The conversation takes whatever height is left in that column.
+  main:has(#roomArea:not([hidden])) {
+    display: flex;
+    flex-direction: column;
+  }
 
-     It used to be capped at 520px whatever the window, so on a tall screen
-     it stopped halfway down a column that carried on to the bottom of the
-     page: several hundred pixels of nothing under the box you type into,
-     while the messages above scrolled inside a short box. Now the box sits
-     at the bottom of the window and the messages fill everything above it. */
+  main:has(#roomArea:not([hidden])) > #roomArea {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
   main:has(#roomArea:not([hidden])) #chatLog {
-    /* Basis zero for the same reason as on a phone: the log takes what is
-       left of the column, not what its own history would like. */
+    /* The conversation takes what is left of the column, not what its own
+       history would like. */
     flex: 1 1 0;
     height: auto;
     min-height: 10rem;
@@ -2075,25 +2124,44 @@ label.note {
    no name, and `deriveChannel` already spells that `undefined`. */
 .channelBar {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 0.35rem;
-  margin: 0.5rem 0 0.4rem;
+  margin: 0 0 0.75rem;
 }
 
+/* A row per conversation, with what it is for beside its name. These were
+   four pills above the messages: you are only ever reading one of them, so
+   the other three sat there permanently inviting you to be somewhere else.
+   Here they are a list you open when you want one, which is what every
+   messaging app does with its channels. */
 .channelBar button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
   margin: 0;
-  padding: 0.3rem 0.7rem;
-  font-size: 0.95rem;
-  border-radius: 999px;
+  padding: 0.6rem 0.7rem;
+  font-size: 1rem;
+  border-radius: 8px;
   background: transparent;
   border: 1px solid var(--border);
-  color: var(--muted);
+  color: var(--text);
+  text-align: left;
 }
 
 .channelBar button[aria-selected='true'] {
   border-color: var(--accent);
-  color: var(--text);
   background: var(--accent-dim);
+}
+
+.channelName {
+  font-weight: 600;
+}
+
+.channelDesc {
+  font-size: 0.9rem;
+  color: var(--muted);
 }
 
 /* A dot on a tab that has something behind it. The tabs for the reserved
@@ -2110,16 +2178,7 @@ label.note {
   vertical-align: 0.08em;
 }
 
-/* What the tab you are on is for, and whether anything is in it. One line
-   under the bar, always there, because a person who has never seen this app
-   should not have to open a panel to find out what "Minutes" means. */
-.channelHint {
-  margin: 0 0 0.5rem;
-  font-size: 0.95rem;
-  line-height: 1.45;
-  color: var(--muted);
-  max-width: 60ch;
-}
+
 
 /* Admin only, and hidden entirely for everybody else rather than shown
    disabled: a control you may not use is noise on a phone. */
@@ -2144,33 +2203,129 @@ label.note {
    silently does nothing. Four tabs wrapped onto two rows on a 375 point
    phone, and the second row cost the same forty points as two lines of
    conversation. */
+
+
+
+/* ---------------------------------------------------------------------------
+   Room details
+
+   Everything that used to be on the message screen. A modal dialog, so the
+   browser gives the focus trap, Escape and the backdrop; a sheet on a
+   phone, a panel on a desktop. The bar sticks to the top of the SHEET,
+   which is its own scrolling box - nothing to do with the page's own
+   scrolling, so it cannot bring back the collapsing-address-bar trouble
+   that pinning anything to the page itself would. */
+#roomSheet {
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  width: min(38rem, 100%);
+  max-width: 100%;
+  max-height: 88vh;
+  max-height: 88svh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#roomSheet::backdrop {
+  background: rgb(0 0 0 / 0.55);
+}
+
+.sheetBar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.sheetBar h2 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.sheetBar button {
+  margin: 0;
+  min-height: 44px;
+}
+
+.sheetBody {
+  padding: 0.5rem 0.9rem 1.5rem;
+}
+
+.sheetHead {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sheetBody > .sheetHead:first-child {
+  margin-top: 0.25rem;
+}
+
+.sheetBody > section {
+  margin: 0.75rem 0;
+}
+
+.sheetRow {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.sheetRow button {
+  margin: 0;
+}
+
+/* Who is here, in full, with the same name-and-key run and the same "is
+   this really them" control the tiles carry. */
+.sheetRoster {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.rosterRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 0.95rem;
+}
+
+.rosterRow .avatar,
+.rosterRow .donorRing {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+/* A sheet on a phone: the full screen, so the thumb has everything and the
+   close control is where a thumb expects it. */
 @media (max-width: 700px) {
-  .channelBar {
-    gap: 0.25rem;
-    margin: 0.4rem 0 0.35rem;
+  #roomSheet {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border: 0;
+    border-radius: 0;
   }
 
-  .channelBar button {
-    padding: 0.28rem 0.45rem;
-    font-size: 0.85rem;
-    position: relative;
-  }
-
-  /* The dot moves into the corner of the pill rather than sitting after the
-     label. Inline it cost about eleven points of width on every tab that
-     had one, which was the difference between four tabs on one row and four
-     tabs on two - and the second row costs the same forty points as a
-     message. Nothing is lost: the dot is still on the tab, still says the
-     same thing, and is now clear of the word. */
-  .tabDot {
-    position: absolute;
-    top: 0.3rem;
-    right: 0.3rem;
-    margin: 0;
-  }
-
-  .channelHint {
-    font-size: 0.9rem;
-    margin-bottom: 0.35rem;
+  .sheetBody {
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
   }
 }
