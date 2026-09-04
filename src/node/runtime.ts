@@ -18,6 +18,9 @@ export type RuntimeEvent =
   /** How a request this agent made through `requestApproval` ended: a
    *  verdict from an approver, with who gave it, or `expired`. */
   | { type: 'approval'; id: string; verdict: string; by?: string; note?: string; expired: boolean; at: number }
+  /** Somebody asking a host to bring an agent in or send it away. `by` is
+   *  the participant who asked; the rule about who may is the driver's. */
+  | { type: 'presence'; op: 'invite' | 'dismiss' | 'catalogue?'; host?: string; agent?: string; by: string; at: number }
 
 /**
  * Who an agent is.
@@ -94,6 +97,11 @@ export class AgentRuntime {
       this.agent.onRoster((participants) => this.#emit({ type: 'roster', participants, at: this.#now() })),
     )
     this.#unsubs.push(
+      this.agent.onPresenceRequest((request) =>
+        this.#emit({ type: 'presence', op: request.op, host: request.host, agent: request.agent, by: request.by, at: this.#now() }),
+      ),
+    )
+    this.#unsubs.push(
       this.agent.onApproval((outcome) =>
         this.#emit({ type: 'approval', id: outcome.id, verdict: outcome.verdict, by: outcome.by, note: outcome.note, expired: outcome.expired, at: this.#now() }),
       ),
@@ -142,6 +150,8 @@ export class AgentRuntime {
           ? { type: 'roster', at: event.at, participants: event.participants.map((p) => ({ participant: p.participant, name: p.name, agent: p.agent === true })) }
           : event.type === 'approval'
           ? { type: 'approval', at: event.at, id: event.id, verdict: event.verdict, by: event.by, note: event.note }
+          : event.type === 'presence'
+          ? { type: 'presence', at: event.at, op: event.op, host: event.host, agent: event.agent, by: event.by }
           : { type: event.type, at: event.at, id: event.message.id, participant: event.message.participant, name: event.message.name, kind: event.message.kind, speaker: event.message.speaker, text: event.message.text, sentAt: event.message.sentAt }
       await appendFile(join(this.#memoryDir, 'log.jsonl'), JSON.stringify(line) + '\n')
     } catch {

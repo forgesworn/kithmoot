@@ -18,7 +18,7 @@ import type { ParticipantIdentity } from './identity.js'
 import { generateRoomSecret } from './room.js'
 import { canonicalAdmins, canonicalChannels, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
 import type { RekeyNotice, RoomEpoch } from './epoch.js'
-import { CONTROL_CHANNEL, DEFAULT_APPROVAL_OPTIONS, decodeControl, encodeControl } from './control.js'
+import { CONTROL_CHANNEL, DEFAULT_APPROVAL_OPTIONS, decodeControl, encodeControl, type ControlMessage } from './control.js'
 import { normaliseHex } from './hex.js'
 import { randomBytes } from '@noble/hashes/utils'
 import type { PeerFactory } from './peer.js'
@@ -211,6 +211,22 @@ export interface CreateRoomOptions extends CommonAgentOptions {
 }
 
 /**
+ * Somebody in the room asking a host to bring an agent in or send it away.
+ *
+ * `by` is the participant who asked. Every rule about who may do this is a
+ * rule about `by`, which is why it is here and why nothing in this file
+ * interprets it.
+ */
+export interface PresenceRequest {
+  op: 'invite' | 'dismiss' | 'catalogue?'
+  /** The host addressed, absent on `catalogue?` which addresses everyone. */
+  host?: string
+  /** The catalogue entry, absent on `catalogue?`. */
+  agent?: string
+  by: string
+}
+
+/**
  * An automated participant, with the same standing in the room as a person.
  *
  * Nothing here drives a browser. An agent reads the same link a person was
@@ -247,6 +263,7 @@ export class RoomAgent {
   readonly owner?: AgentOwnership
   /** The admin list as the keeper announced it, verified against the
    *  authority pinned in the link. Empty until heard. */
+  readonly #presenceListeners = new Set<(request: PresenceRequest) => void>()
   readonly #announcedAdmins = new Set<string>()
   #announcedAdminsAt = 0
   readonly #announcedChannels = new Set<string>()
@@ -594,6 +611,16 @@ export class RoomAgent {
     else log.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
   }
 
+  #emitPresence(request: PresenceRequest): void {
+    for (const cb of this.#presenceListeners) {
+      try {
+        cb(request)
+      } catch {
+        // A driver that throws is not this class's problem to survive badly.
+      }
+    }
+  }
+
   async #handleControl(m: ChatMessage, openedAt: number): Promise<void> {
     if (this.#left) return
     const control = decodeControl(m.text)
@@ -632,6 +659,13 @@ export class RoomAgent {
           await this.#announceAdmins()
           await this.#announceChannels()
         }
+        this.#emitPresence({ op: 'catalogue?', by: m.participant })
+        return
+      case 'invite':
+      case 'dismiss':
+        // Passed up with the asker's key and no judgement applied. This
+        // class does not know whose agent it is running.
+        this.#emitPresence({ op: control.op, host: control.host, agent: control.agent, by: m.participant })
         return
       case 'remove':
         if (!this.#keeper || !this.admins.includes(m.participant)) return
@@ -716,6 +750,28 @@ export class RoomAgent {
   }
 
   /** Every outcome of a request this agent made: a verdict, or expiry. */
+  /**
+   * Presence requests on the control channel: somebody clicking Invite or
+   * Dismiss, or asking every host to say its catalogue again.
+   *
+   * **`by` is the asking participant.** It is carried because the rule about
+   * who may bring an agent into a room cannot be enforced without it, and
+   * because the sender is already on the message: not carrying it forward is
+   * the omission, not adding it. Deciding what to do with `by` is the
+   * driver's, not this class's; an agent run for one person and an agent run
+   * for a room have different answers and neither belongs here.
+   */
+  onPresenceRequest(cb: (request: PresenceRequest) => void): () => void {
+    this.#presenceListeners.add(cb)
+    return () => this.#presenceListeners.delete(cb)
+  }
+
+  /** Say something on the control channel: a catalogue, or a refusal. */
+  async sendControl(message: ControlMessage): Promise<void> {
+    if (this.#left) return
+    await this.session.channel(CONTROL_CHANNEL).send(encodeControl(message))
+  }
+
   onApproval(cb: (outcome: ApprovalOutcome) => void): () => void {
     this.#approvalListeners.add(cb)
     return () => this.#approvalListeners.delete(cb)

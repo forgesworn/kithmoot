@@ -1,3 +1,4 @@
+import type { CatalogueEntry, RunningAgent } from '../control.js'
 import type { ChatAttachment, ChatMessageKind } from '../chat.js'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
@@ -56,6 +57,12 @@ export type StdioEvent =
   /** How a request made with `approval-request` ended: a verdict and who
    *  gave it, or `expired` with nobody. */
   | { type: 'approval'; id: string; verdict: string; by?: string; note?: string; expired: boolean }
+  /** Somebody in the room clicked Invite or Dismiss, or asked every host to
+   *  say its catalogue again. `by` is the participant who asked, and it is
+   *  the whole point of the event: a brain cannot apply any rule about who
+   *  may bring an agent into a room without knowing who asked. Nothing here
+   *  decides on its behalf. */
+  | { type: 'presence'; op: 'invite' | 'dismiss' | 'catalogue?'; host?: string; agent?: string; by: string }
   | { type: 'error'; message: string }
   | { type: 'ok'; op: string; id?: string }
 
@@ -68,6 +75,14 @@ export type StdioCommand =
   /** Ask a person in the room for a decision. The answer arrives later as
    *  an `approval` event carrying the same id, which is echoed in the ok. */
   | { op: 'approval-request'; text: string; options?: string[]; ttlSeconds?: number; id?: string }
+  /** Say on the control channel what this host can run and what it is
+   *  running, in the shape the browser already renders. Sent on arrival and
+   *  in answer to a `presence` event with op `catalogue?`. */
+  | { op: 'announce'; agents: CatalogueEntry[]; running?: RunningAgent[] }
+  /** Say on the control channel that a request was refused, and why, so a
+   *  click that does nothing is never indistinguishable from a click that
+   *  was declined. */
+  | { op: 'refuse'; agent?: string; message: string }
   | { op: 'leave' }
 
 /**
@@ -203,6 +218,15 @@ export function toStdioEvent(event: RuntimeEvent): StdioEvent {
       })),
     }
   }
+  if (event.type === 'presence') {
+    return {
+      type: 'presence',
+      op: event.op,
+      ...(event.host !== undefined ? { host: event.host } : {}),
+      ...(event.agent !== undefined ? { agent: event.agent } : {}),
+      by: event.by,
+    }
+  }
   const m = event.message
   return {
     type: event.type,
@@ -296,7 +320,7 @@ export abstract class ModelBrain implements Brain {
   }
 
   #onEvent(runtime: AgentRuntime, event: RuntimeEvent): void {
-    if (event.type === 'roster' || event.type === 'approval') return
+    if (event.type === 'roster' || event.type === 'approval' || event.type === 'presence') return
     const m = event.message
     if (m.participant === runtime.agent.participant) return
     const fromAgent = runtime.roster().find((v) => v.participant === m.participant)?.agent === true
@@ -313,7 +337,7 @@ export abstract class ModelBrain implements Brain {
   }
 
   #wants(runtime: AgentRuntime, event: RuntimeEvent, fromAgent: boolean): boolean {
-    if (event.type === 'roster' || event.type === 'approval') return false
+    if (event.type === 'roster' || event.type === 'approval' || event.type === 'presence') return false
     const text = event.message.text.toLowerCase()
     const named = text.includes(runtime.persona.name.toLowerCase())
     if (event.type === 'backchannel') {
@@ -347,7 +371,9 @@ export abstract class ModelBrain implements Brain {
         runtime.describe(),
         '',
         'New since your last turn:',
-        ...news.map((e) => (e.type === 'roster' || e.type === 'approval' ? '' : `[${e.type}] ${runtime.line(e.message)}`)),
+        ...news.map((e) =>
+          e.type === 'roster' || e.type === 'approval' || e.type === 'presence' ? '' : `[${e.type}] ${runtime.line(e.message)}`,
+        ),
       ].join('\n')
       this.#opts.log(`turn: ${news.length} new`)
       const reply = await this.complete(system, user)
