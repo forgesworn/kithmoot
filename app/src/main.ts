@@ -2915,12 +2915,28 @@ function selectChannel(name: string | undefined): void {
 function renderChannels(): void {
   const bar = $('channelBar')
   const s = session
-  // One conversation is not a set of channels, so the bar stays out of the
-  // way until a room actually has one.
-  bar.hidden = !s || channels.length === 0
+  // Reserved channels every room has, whether or not a keeper announced
+  // them. `agents` is where agents talk among themselves, and a principal
+  // being able to read it is the whole reason it exists, so it is a tab
+  // beside the conversation rather than something you have to know about.
+  //
+  // Deliberately not filtered by whether anything has been said there yet:
+  // an empty tab tells you the place exists and that nothing is being said
+  // out of your sight, which is the question it answers.
+  const reserved: Array<[string, string]> = [['agents', 'Agents']]
+  for (const name of ['transcript', 'minutes']) {
+    if (channels.includes(name)) continue
+    if (name === 'minutes' || name === 'transcript') reserved.push([name, name === 'minutes' ? 'Minutes' : 'Transcript'])
+  }
+  const named = channels.filter((c) => !reserved.some(([n]) => n === c))
+  const tabs: Array<[string | undefined, string]> = [[undefined, 'Main'], ...reserved, ...named.map((c) => [c, c] as [string, string])]
+
+  // The bar is worth showing whenever there is somewhere else to go, which
+  // with the reserved channels is always, in a room that has a session.
+  bar.hidden = !s
   bar.innerHTML = ''
   if (!bar.hidden) {
-    for (const [name, label] of [[undefined, 'Main'] as const, ...channels.map((c) => [c, c] as const)]) {
+    for (const [name, label] of tabs) {
       const tab = document.createElement('button')
       tab.type = 'button'
       tab.setAttribute('role', 'tab')
