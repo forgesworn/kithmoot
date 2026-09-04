@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#101114" />
+    <meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
     <meta name="referrer" content="no-referrer" />
     <meta name="description" content="A town hall nobody owns." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -92,9 +93,9 @@
           <section id="deviceControls" hidden>
             <p>Turn on your camera or microphone:</p>
             <div class="toggles">
-              <button id="toggleMic" class="toggle" data-on="false">Microphone</button>
-              <button id="toggleCamera" class="toggle" data-on="false">Camera</button>
-              <button id="toggleScreen" class="toggle" data-on="false">Screen share</button>
+              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false">Microphone</button>
+              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false">Camera</button>
+              <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false">Screen share</button>
             </div>
             <p id="micIndicator" class="indicator"></p>
 
@@ -153,7 +154,7 @@
 
             <div id="local"></div>
             <div class="toggles agentsHear">
-              <button id="toggleAgentsHear" class="toggle" data-on="false">Let agents hear me</button>
+              <button id="toggleAgentsHear" class="toggle" data-on="false" aria-pressed="false">Let agents hear me</button>
               <span id="agentsHearNote" class="note inline">
                 Off: nothing that says it is an agent is sent your camera or
                 microphone. It never leaves this device for them.
@@ -458,6 +459,21 @@
          Reachable and dismissible by thumb: a Close button that stays on
          screen, Escape, and a tap on the backdrop.
          ===================================================================== -->
+    <dialog id="conversationSearch" aria-labelledby="messageSearchTitle" aria-describedby="messageSearchScope">
+      <div class="sheetBar">
+        <h2 id="messageSearchTitle">Search this conversation</h2>
+        <button id="messageSearchClose" type="button" class="primary">Close</button>
+      </div>
+      <div class="sheetBody">
+        <label for="messageSearchQuery">Message, person or file name</label>
+        <input id="messageSearchQuery" type="search" maxlength="200" autocomplete="off" spellcheck="false" />
+        <label class="searchFileFilter"><input id="messageSearchFiles" type="checkbox" /> Files only</label>
+        <p id="messageSearchScope" class="note"></p>
+        <p id="messageSearchStatus" role="status" class="note"></p>
+        <ol id="messageSearchResults" class="messageSearchResults" aria-label="Matching messages"></ol>
+      </div>
+    </dialog>
+
     <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
       <div class="sheetBar">
         <h2 id="roomSheetTitle">Room details</h2>
@@ -479,6 +495,7 @@
         </p>
 
         <h3 class="sheetHead">Conversations</h3>
+        <button id="searchConversation" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search this conversation</button>
         <!-- The room's conversations. These used to be a row of tabs above
              the messages, which is a thing no messaging app does: you are
              only ever reading one of them, so the other three were three

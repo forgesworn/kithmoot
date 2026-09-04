@@ -2,6 +2,7 @@ import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { ChatScroll } from './chat-scroll.js'
+import { ConversationSearch } from './conversation-search.js'
 import {
   browserDeviceStore,
   deviceKeyFor,
@@ -109,6 +110,7 @@ import { base64urlnopad } from '@scure/base'
 
 const outbox = new Outbox(document.getElementById('outbox')!)
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
+const conversationSearch = new ConversationSearch(document)
 installUpdates(() => Boolean(session) || hasUnsentWork())
 
 function hasUnsentWork(): boolean {
@@ -2446,6 +2448,7 @@ function publishActiveTracks(): void {
 
 function setToggle(id: string, on: boolean): void {
   $(id).dataset.on = String(on)
+  $(id).setAttribute('aria-pressed', String(on))
 }
 
 function updateUi(): void {
@@ -3316,6 +3319,10 @@ function renderChat(messages: ChatMessage[]): void {
   // showing. See `#chatLog.minutes` in style.css.
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
+  conversationSearch.update(messages, currentChannel ?? 'Chat', message => {
+    if (message.participant === meParticipant) return message.name ? `${message.name} (you)` : 'You'
+    return shownAs(message.participant, message.name).name ?? message.participant.slice(0, 8)
+  })
   if (currentChannel === undefined) noteChatRead(messages)
 }
 
@@ -5280,6 +5287,10 @@ $('roomSwitcher').addEventListener('click', event => {
 $('roomIdentity').addEventListener('click', openRoomSheet)
 $('roomMenu').addEventListener('click', openRoomSheet)
 $('roomSheetClose').addEventListener('click', closeRoomSheet)
+$('searchConversation').addEventListener('click', () => {
+  closeRoomSheet()
+  conversationSearch.open()
+})
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
 // dialog element itself fills the screen, so a click that lands ON the
 // dialog and not on anything inside it is a click on the backdrop.

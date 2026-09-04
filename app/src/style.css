@@ -2231,7 +2231,8 @@ label.note {
    scrolling, so it cannot bring back the collapsing-address-bar trouble
    that pinning anything to the page itself would. */
 #roomSheet,
-#roomSwitcher {
+#roomSwitcher,
+#conversationSearch {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2246,7 +2247,8 @@ label.note {
 }
 
 #roomSheet::backdrop,
-#roomSwitcher::backdrop {
+#roomSwitcher::backdrop,
+#conversationSearch::backdrop {
   background: rgb(0 0 0 / 0.55);
 }
 
@@ -2346,7 +2348,8 @@ label.note {
    close control is where a thumb expects it. */
 @media (max-width: 700px) {
   #roomSheet,
-  #roomSwitcher {
+  #roomSwitcher,
+  #conversationSearch {
     width: 100%;
     max-width: 100%;
     height: 100%;
@@ -2388,3 +2391,24 @@ label.note {
 .switchRoomCode { color: var(--muted); font-size: .8rem; }
 .switchRoomNewTab { flex: 0 0 auto; padding: .6rem; color: var(--accent); }
 #roomSwitcherList .roomRow { align-items: center; flex-wrap: wrap; }
+
+/* Search uses the room's sheet so opening it never interrupts the call. */
+#searchConversation { margin-bottom: 1rem; }
+.searchFileFilter { display: flex; align-items: center; gap: .6rem; margin-block: .8rem; min-height: 44px; }
+.searchFileFilter input { width: 1.2rem; height: 1.2rem; margin: 0; }
+.messageSearchResults { list-style: none; margin: 0; padding: 0; }
+.messageSearchResults li + li { margin-top: .6rem; }
+.messageSearchResults button {
+  display: flex; flex-direction: column; gap: .35rem; width: 100%; margin: 0;
+  padding: 1rem; text-align: left; white-space: normal; overflow-wrap: anywhere;
+  background: var(--panel); border: 1px solid var(--field-border); border-radius: 10px;
+}
+.messageSearchResults button:hover { background: var(--control-hover); }
+.searchSender { font-weight: 700; }
+.messageSearchResults time { font-size: .8rem; color: var(--muted); }
+.searchExcerpt { white-space: pre-wrap; }
+.searchFiles { color: var(--accent); font-size: .9rem; }
+#chatLog .searchTarget { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 10px; }
+
+/* Give the dashboard and invitation a reading width on a desktop. */
+body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }

@@ -119,6 +119,14 @@ to make that one thing true.
   key, and stages it for the next message.
 - **Names, and optionally a real Nostr identity.** Type a name and join, or
   sign in with a key you already have. See below.
+- **Search a conversation.** Open Room details and choose **Search this
+  conversation** to find words, people or file names in the history already
+  loaded in this tab. **Files only** lists messages with shared files, and
+  selecting a result returns to the original message. Search stays on the
+  device, downloads no files and keeps the current call and unfinished
+  message in place. It covers the active conversation's loaded history,
+  bounded by the 30-day query window and 500-message retention cap; it does
+  not query a separate archive or search inside files.
 - **Leaving is instant, and so is a dropped connection coming back.** A
   device that hangs up, closes the tab or navigates away says goodbye, and
   everybody else drops it at once rather than after the presence timeout. A
@@ -468,7 +476,7 @@ Stated plainly, before anyone else finds it:
 ```bash
 npm install
 npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 1028 tests, in-process relay simulator, no network
+npm test          # unit and protocol tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, against the test
                   # relay in test/ws-relay.mjs: deterministic, offline, the gate
@@ -534,18 +542,18 @@ This is the whole of the product's claim, checked by hand and, since stage 2,
 repeated on every run by `npm run test:e2e`, and against real public relays
 by `E2E_RELAYS=live npm run test:e2e`:
 
-1. On a **laptop**, open the app, click **Start a room**, then **Screen
-   share**. Pick a window, and click **Join room**.
-2. Click **Add a device**. Copy that link, not the plain room link above
+1. On a **laptop**, open the app, choose **Start a room**, enter your name
+   and choose **Go in**. Open **Call**, then **Screen share**, and pick a window.
+2. Open **Room details**, then **Add a device**. Copy that link, not the plain room link above
    it, and send it to a **phone**. Leave the laptop page open: it is what
    answers the phone, and closing it retires the link.
 3. On the phone, open the pairing link. The laptop asks you to confirm the
-   new device; say yes. The phone then waits for its credential: **Join
-   room** stays greyed out until it arrives. Once it lights up, click
-   **Microphone**, **Camera**, then **Join room**.
+   new device; say yes. The phone then waits for its credential: **Go in**
+   stays greyed out until it arrives. Once available, choose **Go in**, open
+   **Call**, then turn on **Microphone** and **Camera**.
 4. On a **third** browser (a different device, or a private window with a
-   fresh profile), open the plain room link from step 1, and click **Join
-   room**.
+   fresh profile), open the plain room link, enter a name and choose **Go in**.
+   Open **Call** to see the devices together.
 
 The pairing link grants a credential for **that room only**, expiring after
 twelve hours. It does not carry your identity. The participant key never
