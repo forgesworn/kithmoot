@@ -1036,6 +1036,31 @@ function ownerRun(owner: { principal: string; label?: string }): DocumentFragmen
 }
 
 /**
+ * Which way in this device is on, and what that means.
+ *
+ * It used to sit on the identity line, where it ran to three lines of prose
+ * directly above the button somebody was looking for - and on a 375 by 540
+ * phone, which is a real iPhone SE once Safari has taken its chrome, those
+ * three lines were the difference between seeing the way forward and seeing
+ * a form with nothing under it. It is a sentence about names and codes, so
+ * it sits with the other one, a line in.
+ */
+function renderHowIn(): void {
+  const how = $('nameHow')
+  const participant = currentParticipant()
+  if (loadCredential()) {
+    how.textContent = 'This device has been paired with another one of yours, so it goes in as the same person.'
+  } else if (nostrSession) {
+    how.textContent = 'Signed in with Nostr. Your key stays where it is kept; this page never holds it.'
+  } else if (participant) {
+    how.textContent = 'A name only. Anybody can type any name, so the short code beside it is the part that says which one is you.'
+  } else {
+    how.textContent =
+      'A name only. Your device makes a code of its own the first time you go in, and it will show here beside your name.'
+  }
+}
+
+/**
  * The identity line above the room: who this device would join as, shown
  * before anything is committed to.
  */
@@ -1057,6 +1082,7 @@ function renderIdentity(): void {
   // entry screen spent telling somebody what they already know.
   line.hidden = name === undefined && participant === undefined
   if (line.hidden) {
+    renderHowIn()
     renderNudgeChoice()
     return
   }
@@ -1078,19 +1104,7 @@ function renderIdentity(): void {
     line.append('nobody in particular yet')
   }
 
-  const how = document.createElement('span')
-  how.className = 'note inline'
-  if (loadCredential()) {
-    how.textContent = 'This device has been paired with another one of yours, so it goes in as the same person.'
-  } else if (nostrSession) {
-    how.textContent = 'Signed in with Nostr. Your key stays where it is kept; this page never holds it.'
-  } else if (participant) {
-    how.textContent = 'A name only. Anybody can type any name, so the short code beside it is the part that says which one is you.'
-  } else {
-    how.textContent =
-      'A name only. Your device makes a code of its own the first time you go in, and it will show here beside your name.'
-  }
-  line.append(how)
+  renderHowIn()
   renderNudgeChoice()
 }
 
@@ -1819,6 +1833,7 @@ function openRoomSheet(): void {
   const sheet = $('roomSheet') as HTMLDialogElement
   if (sheet.open) return
   if (session) renderSheetRoster(session.participants(), meParticipant)
+  renderSheetRoom()
   renderChannels()
   sheet.showModal()
   sheet.scrollTop = 0
@@ -1846,22 +1861,48 @@ function renderArrival(): void {
   lead.hidden = false
 }
 
-/** What this room is called, and enough of its id to tell it from another
- *  called the same thing, above the link that opens it. */
+/**
+ * What this room is called, at the head of the conversation.
+ *
+ * The NAME, and nothing else. It used to be the name with a short id beside
+ * it, which for a room somebody had named read as a name plus a code, and
+ * for a room nobody had named read as `Room 353ff833  353ff83…` - the same
+ * identifier twice, once inside a title manufactured out of it and once
+ * again beside that. Every messaging app puts a human name in this slot.
+ *
+ * The identifier has not gone anywhere: two rooms can be called the same
+ * thing and the code is what tells them apart, so it is in the room's
+ * details with the other technical facts, and on the rooms list where you
+ * are actually choosing between rooms.
+ */
 function renderRoomTitle(): void {
   const title = $('roomTitle')
   const roomId = currentRoomId()
   title.textContent = ''
   title.hidden = roomId === undefined
   if (!roomId) return
-  const name = document.createElement('span')
-  name.className = 'name'
-  name.textContent = roomLabel({ roomId, name: roomName })
+  title.textContent = roomName ?? 'Room'
+  title.title = roomName ?? `Room ${shortKey(roomId)}`
+  renderSheetRoom()
+}
+
+/** The name and the code together, in the room's details. */
+function renderSheetRoom(): void {
+  const line = $('sheetRoomId')
+  line.textContent = ''
+  const roomId = currentRoomId()
+  if (!roomId) return
+  if (roomName) {
+    const name = document.createElement('span')
+    name.className = 'name'
+    name.textContent = roomName
+    line.append(name, ' ')
+  }
   const id = document.createElement('span')
   id.className = 'pubkey'
   id.textContent = shortKey(roomId)
   id.title = roomId
-  title.append(name, ' ', id)
+  line.append(id)
 }
 
 function copyInput(id: string): void {
@@ -4477,6 +4518,10 @@ async function startSession(): Promise<void> {
 
     joinBtn.hidden = true
     $('identity').hidden = true
+    // What sits under the way in goes with it. These are the entry screen's
+    // own explanations, and a message screen carries a header, the
+    // conversation and the box to type in.
+    $('identityMore').hidden = true
     $('roomArea').hidden = false
     // "Invitation accepted. Go in when you are ready." has been acted on.
     // A line about getting in is stale the moment you are in.

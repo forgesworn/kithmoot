@@ -207,6 +207,10 @@ input[type='search'],
 input[type='number'],
 input:not([type]),
 textarea {
+  /* Monospace by default because most of the fields in this app hold a
+     code, a key or a link, where telling an l from a 1 matters. The two
+     that hold WORDS opt out below: a box in a typewriter face reads as a
+     place to paste a hash, not as a place to say something. */
   font-family: monospace;
   font-size: 1rem;
   padding: 0.55rem 0.6rem;
@@ -217,15 +221,26 @@ textarea {
   border-radius: 6px;
 }
 
-/* A field should say where it is before it is typed in and say plainly
-   when it has the keyboard. The glow is the focus ring; the outline
-   underneath it is what a forced-colours or high-contrast mode keeps when
-   the shadow is thrown away. */
+/* The two fields people type WORDS into, in the face people read. */
+#chatInput,
+#displayName {
+  font-family: inherit;
+}
+
+/* A field should say where it is before it is typed in and say plainly when
+   it has the keyboard.
+
+   One ring and a glow, not two rings and a glow. The outline used to sit a
+   pixel clear of a border that also turned accent-coloured, so a focused
+   field wore three concentric lines and read as heavier than anything else
+   on the page. `outline-offset: 0` lays the outline over the border
+   instead, which leaves one crisp edge - and the outline is still what a
+   forced-colours or high-contrast mode keeps when the glow is thrown away. */
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 0;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--focus-glow);
 }
@@ -2289,6 +2304,18 @@ label.note {
 
 /* Who is here, in full, with the same name-and-key run and the same "is
    this really them" control the tiles carry. */
+.roomIdLine {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.25rem;
+}
+
+.roomIdLine .name {
+  font-weight: 600;
+}
+
 .sheetRoster {
   display: flex;
   flex-direction: column;

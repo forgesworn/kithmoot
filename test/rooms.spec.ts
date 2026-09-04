@@ -36,7 +36,7 @@ async function startNamedRoom(page: Page, baseURL: string, name: string): Promis
   // thing the page deliberately does not do until a person has gone in.
   const share = page.locator('#shareUrl')
   await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
-  await expect(page.locator('#roomTitle .name')).toHaveText(name)
+  await expect(page.locator('#roomTitle')).toHaveText(name)
   return pinToTestRelays(await share.inputValue())
 }
 
@@ -61,7 +61,7 @@ test('the front page lists every room this device has been in, with what is new 
     const townHall = await startNamedRoom(page, url, 'Town hall')
     await openRoomUrl(page, townHall)
     await expectAtTheDoor(page)
-    await expect(page.locator('#roomTitle .name')).toHaveText('Town hall')
+    await expect(page.locator('#roomTitle')).toHaveText('Town hall')
 
     // The tab that answers the town hall's link. It stays put.
     const hall = await principal.newPage()
@@ -116,7 +116,7 @@ test('the front page lists every room this device has been in, with what is new 
     // Opening a room from the list is opening its link. Joining and seeing
     // the message is reading it, and the list says so on the way back.
     await townHallRow.locator('button.open').click()
-    await expect(page.locator('#roomTitle .name')).toHaveText('Town hall')
+    await expect(page.locator('#roomTitle')).toHaveText('Town hall')
     await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()

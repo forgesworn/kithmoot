@@ -256,32 +256,23 @@
           enterkeyhint="go"
         />
         <button id="join" class="primary" hidden>Go in</button>
-        <p class="note">
-          Type any name you like. Nobody checks it, so a short code is always
-          shown next to it. Everybody's code is different, and that is the
-          part that really tells two people apart.
-        </p>
-        <details id="nostrOption">
-          <summary>I already have a Nostr key</summary>
-          <p class="note">
-            Goes in with a key you already have, kept in an add-on, an app or
-            another device of yours. Your name and picture come from there,
-            and the key never comes to this page.
-          </p>
-          <button id="signIn" type="button">Sign in with Nostr</button>
-          <button id="signOut" type="button" hidden>Sign out</button>
-        </details>
+        <!-- Straight under the action, because it is the answer to "who am
+             I about to be" and it says which of the ways in you are on. -->
         <p id="whoami" class="whoami"></p>
       </section>
 
       <section id="rooms" hidden>
         <h2>Your rooms</h2>
+        <ul id="roomList" class="roomList" aria-live="polite"></ul>
+        <!-- Under the list rather than over it. Somebody who comes back here
+             comes back for the rooms, and three lines about how the list is
+             read were three lines between them and the first one - enough,
+             on a 375 by 540 phone, to leave no room visible at all. -->
         <p class="note">
           The rooms this device has been in. We look for new messages using
           the key this device already has, and we send nothing out to do it,
           so nobody in the room can tell that you looked.
         </p>
-        <ul id="roomList" class="roomList" aria-live="polite"></ul>
       </section>
 
       <!-- Hidden until the page knows which kind of visit this is.
@@ -294,13 +285,20 @@
            is added underneath only when there turns out to be no link. See
            the boot block at the bottom of app/src/main.ts. -->
       <section id="setup" hidden>
-        <label for="roomName" class="note">
+        <!-- The field and the action first, and what the field is for
+             underneath them. Three lines of explanation above a button is
+             three lines of the only screen a first-time visitor gets, and
+             the button was landing exactly on the fold of a real phone. The
+             sentence is not gone: it is under the button it belongs to, and
+             the field still carries it for a screen reader. -->
+        <input id="roomName" placeholder="Room name (optional)" maxlength="64" autocomplete="off"
+               aria-label="Room name" aria-describedby="roomNameNote" />
+        <button id="create" class="primary">Start a room</button>
+        <p id="roomNameNote" class="note">
           Give the room a name if it is one you will come back to. The name
           travels inside the link, so everybody you send it to sees the same
           one.
-        </label>
-        <input id="roomName" placeholder="Room name (optional)" maxlength="64" autocomplete="off" />
-        <button id="create" class="primary">Start a room</button>
+        </p>
         <p>or paste a link somebody sent you:</p>
         <input id="url" placeholder="https://…#…" />
         <button id="openUrl">Open</button>
@@ -313,6 +311,42 @@
             has to take our word for which ones to use.
           </label>
           <input id="iceServers" value="stun:stun.l.google.com:19302" />
+        </details>
+      </section>
+
+      <!-- Below the action, deliberately.
+
+           The screen's job is to take a name and go, so the name field and
+           the way forward are what a first screen holds. Everything that
+           explains or offers an alternative is under them: both were above,
+           and between them they put "Start a room" at 570 points on a
+           screen 540 points tall - which is a real iPhone SE once Safari
+           has taken its chrome, and is why a check against a bare 375 by
+           667 viewport kept passing. Nothing is deleted; it is one line
+           lower or one line in. -->
+      <section id="identityMore">
+        <details id="nameHelp">
+          <summary>Why there is a code beside your name</summary>
+          <p class="note">
+            Type any name you like. Nobody checks it, so a short code is always
+            shown next to it. Everybody's code is different, and that is the
+            part that really tells two people apart.
+          </p>
+          <!-- Which of the ways in this device is on, and what that means.
+               It was on the identity line above the action, where it ran to
+               three lines. Filled in by `renderIdentity` in
+               app/src/main.ts. -->
+          <p id="nameHow" class="note"></p>
+        </details>
+        <details id="nostrOption">
+          <summary>I already have a Nostr key</summary>
+          <p class="note">
+            Goes in with a key you already have, kept in an add-on, an app or
+            another device of yours. Your name and picture come from there,
+            and the key never comes to this page.
+          </p>
+          <button id="signIn" type="button">Sign in with Nostr</button>
+          <button id="signOut" type="button" hidden>Sign out</button>
         </details>
       </section>
 
@@ -408,6 +442,19 @@
       </div>
 
       <div class="sheetBody">
+        <h3 class="sheetHead">This room</h3>
+        <!-- The name and the code, together, here. The bar at the top of
+             the room shows the NAME, because that is what every messaging
+             app puts at the head of a conversation - and a room with no
+             name was getting its identifier printed twice, once inside a
+             manufactured title and once beside it, which reads like a
+             database row rather than a place people are talking. -->
+        <p id="sheetRoomId" class="roomIdLine"></p>
+        <p class="note">
+          Two rooms can be called the same thing, so the code beside the
+          name is the part that tells them apart.
+        </p>
+
         <h3 class="sheetHead">Conversations</h3>
         <!-- The room's conversations. These used to be a row of tabs above
              the messages, which is a thing no messaging app does: you are
