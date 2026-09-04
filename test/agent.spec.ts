@@ -64,10 +64,14 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
       .poll(() => events.some((e) => e.type === 'chat' && e.message.text === 'hello Ada'), { timeout: 30_000 })
       .toBe(true)
 
-    // The agents' channel, readable by Alice in her own panel.
+    // The agents' conversation, readable by Alice. It is a tab in the
+    // channel bar rather than a panel of its own: the panels were removed
+    // when the reserved conversations turned out to be rendered twice, once
+    // as tabs and once stacked below with a second composer, which is what
+    // somebody looking for one agents conversation met two of.
     await runtime.whisper('note to the other agents')
-    await page.locator('#agentsPanel summary').click()
-    await expect(page.locator('#agentLog')).toContainText('note to the other agents', { timeout: 30_000 })
+    await page.locator('#channelBar [role="tab"]', { hasText: 'Agents' }).click()
+    await expect(page.locator('#chatLog')).toContainText('note to the other agents', { timeout: 30_000 })
 
     // Listening. Alice has not said agents may hear her, so nothing reaches
     // the agent: no track, no utterance, no transcript.
@@ -75,8 +79,8 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
     runtime.listen(transcriber)
     await page.waitForTimeout(8_000)
     expect(transcriber.heard, 'the agent heard something before it was allowed to').toHaveLength(0)
-    await page.locator('#transcriptPanel summary').click()
-    await expect(page.locator('#transcriptLog')).not.toContainText('(speech)')
+    await page.locator('#channelBar [role="tab"]', { hasText: 'Transcript' }).click()
+    await expect(page.locator('#chatLog')).not.toContainText('(speech)')
 
     // She turns it on: her microphone's tone reaches the agent, is cut into
     // utterances, and comes back as transcript lines she can read.
@@ -85,8 +89,8 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
     await expect
       .poll(() => transcriber.heard.length, { message: 'the agent never heard an utterance', timeout: 90_000 })
       .toBeGreaterThan(0)
-    await expect(page.locator('#transcriptLog')).toContainText('(speech)', { timeout: 60_000 })
-    await expect(page.locator('#transcriptLog')).toContainText('said')
+    await expect(page.locator('#chatLog')).toContainText('(speech)', { timeout: 60_000 })
+    await expect(page.locator('#chatLog')).toContainText('said')
 
     // And off again: the tracks are removed, and the utterances stop.
     await page.locator('#toggleAgentsHear').click()
