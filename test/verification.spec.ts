@@ -46,9 +46,12 @@ test('both sides are shown the same words, and verifying is remembered', async (
     await expect(bobOnAda).toBeVisible({ timeout: 30_000 })
     await expect(adaOnBob).toBeVisible({ timeout: 30_000 })
 
-    // Nobody has been checked yet, and that is not a warning.
-    await expect(bobOnAda.locator('.verifyChip')).toHaveText('not verified')
-    await expect(adaOnBob.locator('.verifyChip')).toHaveText('not verified')
+    // Nobody has been checked yet, and that is not a warning. The chip says
+    // "not checked" rather than "not verified": the wording pass that came
+    // with the rebuilt page took the jargon out of every one of these, and
+    // the word on the button is what a person actually reads.
+    await expect(bobOnAda.locator('.verifyChip')).toHaveText('not checked')
+    await expect(adaOnBob.locator('.verifyChip')).toHaveText('not checked')
 
     const panelA = await openVerification(pageA, 'Bob')
     const panelB = await openVerification(pageB, 'Ada')
@@ -60,7 +63,7 @@ test('both sides are shown the same words, and verifying is remembered', async (
     await pageA.keyboard.press('Escape')
     await pageB.keyboard.press('Escape')
     await expect(pageA.locator('#verifyDialog')).toBeHidden()
-    await expect(bobOnAda.locator('.verifyChip'), 'dismissing must not verify').toHaveText('not verified')
+    await expect(bobOnAda.locator('.verifyChip'), 'dismissing must not verify').toHaveText('not checked')
 
     // The whole ritual, in two assertions: what each says is what the other
     // is waiting to hear.
@@ -77,13 +80,13 @@ test('both sides are shown the same words, and verifying is remembered', async (
     // Now actually verify, and check it sticks.
     await bobOnAda.locator('.verifyChip').click()
     await pageA.locator('#verifyConfirm').click()
-    await expect(bobOnAda.locator('.verifyChip'), 'verifying Bob did not stick').toHaveText('verified', {
+    await expect(bobOnAda.locator('.verifyChip'), 'verifying Bob did not stick').toHaveText('checked', {
       timeout: 10_000,
     })
 
     // And it is this device's memory, not the room's: Bob's view of Ada is
     // untouched by Ada verifying Bob.
-    await expect(adaOnBob.locator('.verifyChip')).toHaveText('not verified')
+    await expect(adaOnBob.locator('.verifyChip')).toHaveText('not checked')
   } finally {
     await contextA.close()
     await contextB.close()

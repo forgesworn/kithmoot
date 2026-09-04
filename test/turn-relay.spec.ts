@@ -133,17 +133,33 @@ async function newDeviceContext(browser: Browser, baseURL: string): Promise<Brow
 async function createRoom(page: Page, baseURL: string): Promise<string> {
   await page.goto(baseURL)
   await page.locator('#create').click()
-  await expect(page.locator('#links')).toBeVisible()
-  const joinUrl = await page.locator('#shareUrl').inputValue()
+  // The link, not the box it used to sit in. The entry page was rebuilt to
+  // put the conversation first and the drawer holding the link stays shut
+  // until somebody has gone in, so waiting for it to be on screen would be
+  // waiting for something the page deliberately does not do yet.
+  const share = page.locator('#shareUrl')
+  await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
+  const joinUrl = await share.inputValue()
   expect(joinUrl, 'room creation did not produce a join URL').toContain('#')
   return joinUrl
 }
 
+/** Up to the door: a name typed and the way in ready to click. The camera
+ *  and microphone are not out here any more - they arrive with the room -
+ *  so turning them on is `turnOnMedia`, after the join. */
 async function prepareDevice(page: Page, url: string, name: string): Promise<void> {
   await page.goto(url)
   await page.locator('#displayName').fill(name)
-  await expect(page.locator('#deviceControls')).toBeVisible()
+  await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
   await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
+}
+
+/** Camera and microphone on, from inside the room. */
+async function turnOnMedia(page: Page): Promise<void> {
+  await expect(
+    page.locator('#deviceControls'),
+    'the camera and microphone controls only appear once this device is in the room',
+  ).toBeVisible()
   await page.locator('#toggleCamera').click()
   await page.locator('#toggleMic').click()
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
@@ -188,8 +204,10 @@ test('a call connects and carries media with host and reflexive candidates exclu
 
     await pageA.locator('#join').click()
     await expect(pageA.locator('#roomArea')).toBeVisible()
+    await turnOnMedia(pageA)
     await pageB.locator('#join').click()
     await expect(pageB.locator('#roomArea')).toBeVisible()
+    await turnOnMedia(pageB)
 
     // Each side sees the other. With relay-only forced this cannot happen
     // over a loopback shortcut - the media path is a TURN allocation or

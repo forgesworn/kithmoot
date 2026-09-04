@@ -176,18 +176,51 @@ export async function offerPairing(page: Page): Promise<string> {
   page.on('dialog', (dialog) => {
     void dialog.accept()
   })
+  // The pass for a second device is offered from inside the room now, out of
+  // the drawer that holds everything which is not the conversation. A page
+  // still at the door has no `#addDevice` to click.
+  await openRoomTools(page)
   await page.locator('#addDevice').click()
   const pairUrl = await page.locator('#pairUrl').inputValue()
   expect(pairUrl, 'add device did not produce a pairing URL').toContain('#')
   return pairUrl
 }
 
-/** Opens a room and joins WITHOUT touching the camera or microphone, so the
- *  caller can decide what this device brings. */
+/**
+ * The drawer holding what is not the conversation: the room's own link, the
+ * pass for a second device, the admin controls, the bug report.
+ *
+ * It exists only once this device is in the room, and it starts open on a
+ * wide window and shut on a narrow one. A helper that wants something out of
+ * it opens it itself rather than depending on the window size the run
+ * happened to get, which is the sort of thing that passes on a laptop and
+ * fails on a runner for reasons nobody can see.
+ */
+export async function openRoomTools(page: Page): Promise<void> {
+  await expect(
+    page.locator('#roomTools'),
+    'the room drawer is only on the page once this device is in the room',
+  ).toBeVisible()
+  const panel = page.locator('#roomToolsPanel')
+  if (!(await panel.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await panel.locator('summary').click()
+  }
+  await expect(panel).toHaveJSProperty('open', true)
+}
+
+/**
+ * Up to the door and no further: a room link opened and a name typed, with
+ * the way in ready to click. The caller decides when this device actually
+ * goes in, because that is what decides who is listening when.
+ *
+ * There is nothing else to do out here. The camera and microphone buttons
+ * are not on the entry page: the rebuilt page shows nothing that is not the
+ * conversation until there is a conversation, so they arrive with the room.
+ */
 export async function open(page: Page, url: string, name: string): Promise<void> {
   await openRoomUrl(page, url)
   await page.locator('#displayName').fill(name)
-  await expect(page.locator('#deviceControls')).toBeVisible()
+  await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
   await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
 }
 
@@ -215,18 +248,40 @@ export async function createRoom(page: Page, baseURL: string): Promise<string> {
   return pinToTestRelays(await share.inputValue())
 }
 
-/** Opens the room with camera and microphone on, and joins. */
+/**
+ * In, with a camera and a microphone on - in the order a person can
+ * actually do it.
+ *
+ * This used to turn the camera and microphone on and THEN join, because the
+ * media row was on the entry page. It is not any more: a person puts in a
+ * name, goes in, and turns their camera or microphone on once they are
+ * inside, where there is a room for it to be about. Turning them on before
+ * joining is not a thing the app offers, so a helper that did it was not
+ * walking the product - it was walking a page that no longer exists.
+ *
+ * This is the only order there is now, which means every spec joining "with
+ * media" is really joining with nothing and adding tracks a moment later.
+ * That path is renegotiation rather than a first offer, and it is the one
+ * the app has.
+ */
 export async function joinWithMedia(page: Page, url: string, name: string): Promise<void> {
-  await openRoomUrl(page, url)
-  await page.locator('#displayName').fill(name)
-  await expect(page.locator('#deviceControls')).toBeVisible()
-  await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
+  await open(page, url, name)
+  await page.locator('#join').click()
+  await expect(page.locator('#roomArea')).toBeVisible()
+  await turnOnMedia(page)
+}
+
+/** Camera and microphone on, from inside the room. The controls arrive with
+ *  the room, so this is only ever called after joining. */
+export async function turnOnMedia(page: Page): Promise<void> {
+  await expect(
+    page.locator('#deviceControls'),
+    'the camera and microphone controls only appear once this device is in the room',
+  ).toBeVisible()
   await page.locator('#toggleCamera').click()
   await page.locator('#toggleMic').click()
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
   await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
-  await page.locator('#join').click()
-  await expect(page.locator('#roomArea')).toBeVisible()
 }
 
 /**

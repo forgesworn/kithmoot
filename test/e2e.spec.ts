@@ -38,10 +38,13 @@ import { openRoomUrl, pinToTestRelays, testRelays, withRelays } from './relays.j
  * the devices already present re-announce so the newcomer learns of them
  * (see docs/decisions.md).
  *
- * The first case has C subscribe FIRST and asserts the end state. That is
+ * The first case has C subscribe before B and asserts the end state. That is
  * ordering-independent coverage of the happy path and worth keeping, but it
- * is deliberately NOT evidence about the roster: C hears everyone simply
- * because it was already listening.
+ * is deliberately NOT evidence about the roster: C hears B simply because it
+ * was already listening. It cannot put C ahead of A any more - the pass for
+ * a second device is offered from inside the room now, so A has to be in
+ * before there is a pairing link for B at all - and it does not need to,
+ * because the case below is where the evidence lives.
  *
  * The second case is the evidence. C is the LAST to arrive - A and B are
  * already in the room and have stopped publishing before C's page even
@@ -95,9 +98,16 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
   // #iceServers sits inside a collapsed <details> and already defaults to
   // a public STUN server (app/index.html) - nothing to change here.
   await page.locator('#create').click()
-  await expect(page.locator('#links')).toBeVisible()
+  // The room's own link exists as soon as the room does, but the drawer
+  // holding it stays shut until somebody has gone in - the entry page shows
+  // nothing that is not the conversation until there is a conversation, and
+  // the `#links` box that used to sit here went with the rebuild. So this
+  // waits for the value rather than the box, which is the thing the next
+  // line reads and cannot be removed without failing honestly.
+  const share = page.locator('#shareUrl')
+  await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
 
-  const joinUrl = await page.locator('#shareUrl').inputValue()
+  const joinUrl = await share.inputValue()
   expect(joinUrl, 'room creation did not produce a join URL').toContain('#')
   const payload = JSON.parse(
     new TextDecoder().decode(base64urlnopad.decode(new URL(joinUrl).hash.slice(1))),
@@ -109,12 +119,32 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
   return joinUrl
 }
 
+/** The drawer holding what is not the conversation - the room's link, the
+ *  pass for a second device, the admin controls. It is on the page only once
+ *  this device is in the room, and it starts shut on a narrow window, so
+ *  anything reaching into it opens it rather than trusting the window size
+ *  the run happened to get. */
+async function openRoomTools(page: Page): Promise<void> {
+  await expect(
+    page.locator('#roomTools'),
+    'the room drawer is only on the page once this device is in the room',
+  ).toBeVisible()
+  const panel = page.locator('#roomToolsPanel')
+  if (!(await panel.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await panel.locator('summary').click()
+  }
+  await expect(panel).toHaveJSProperty('open', true)
+}
+
 /** Starts a pairing exchange on the page that will host it. The page must
- *  stay put afterwards: closing or navigating retires the code. */
+ *  stay put afterwards: closing or navigating retires the code - and it must
+ *  already be IN the room, because the pass for a second device is offered
+ *  from the drawer inside it, not from the entry page. */
 async function offerPairing(page: Page, joinUrl: string): Promise<string> {
   page.on('dialog', (dialog) => {
     void dialog.accept()
   })
+  await openRoomTools(page)
   await page.locator('#addDevice').click()
   const pairUrl = await page.locator('#pairUrl').inputValue()
   expect(pairUrl, 'add device did not produce a pairing URL').toContain('#')
@@ -127,11 +157,16 @@ async function offerPairing(page: Page, joinUrl: string): Promise<string> {
   return pairUrl
 }
 
-/** Navigates to a join or pairing URL and enables camera + mic - real
- *  synthetic media, granted with no human present via the
- *  --use-fake-device-for-media-stream / --use-fake-ui-for-media-stream
- *  launch flags in playwright.config.ts. Stops short of clicking "Join
- *  room" so the caller controls subscribe/publish ordering. */
+/**
+ * Navigates to a join or pairing URL and gets as far as the door: a name
+ * typed, and the way in ready to click. Stops there so the caller controls
+ * subscribe/publish ordering.
+ *
+ * It used to turn the camera and microphone on here as well, because the
+ * media row was on the entry page. It is not any more - a person goes in
+ * first and turns their camera on inside, where there is a room for it to
+ * be about - so that half moved to `turnOnMedia`, after `joinRoom`.
+ */
 async function prepareDevice(page: Page, url: string, name?: string): Promise<void> {
   await openRoomUrl(page, url)
   if (name !== undefined) {
@@ -140,20 +175,31 @@ async function prepareDevice(page: Page, url: string, name?: string): Promise<vo
     await page.locator('#displayName').fill(name)
     await expect(page.locator('#whoami .name')).toHaveText(name)
   }
-  await expect(page.locator('#deviceControls')).toBeVisible()
+  await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
   // A device opening a pairing link holds the join button disabled until the
   // credential has actually arrived - joining early would mint a fresh
   // participant key and put it in the room as a stranger.
   await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
-  await page.locator('#toggleCamera').click()
-  await page.locator('#toggleMic').click()
-  await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
-  await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
 }
 
 async function joinRoom(page: Page): Promise<void> {
   await page.locator('#join').click()
   await expect(page.locator('#roomArea')).toBeVisible()
+}
+
+/** Camera and microphone on - real synthetic media, granted with no human
+ *  present via the --use-fake-device-for-media-stream and
+ *  --use-fake-ui-for-media-stream launch flags in playwright.config.ts.
+ *  Only reachable from inside the room. */
+async function turnOnMedia(page: Page): Promise<void> {
+  await expect(
+    page.locator('#deviceControls'),
+    'the camera and microphone controls only appear once this device is in the room',
+  ).toBeVisible()
+  await page.locator('#toggleCamera').click()
+  await page.locator('#toggleMic').click()
+  await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+  await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
 }
 
 /**
@@ -204,13 +250,18 @@ async function expectSameNameStillTwoPeople(page: Page, name: string): Promise<v
 test('rotating a share link retires its public capability without moving the room', async ({ page, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
   const first = pinToTestRelays(await createRoom(page, baseURL!))
-  await openRoomUrl(page, first)
-  await expect(page.locator('#deviceControls')).toBeVisible()
+  await prepareDevice(page, first, 'Robin')
+  // The new link is handed out from inside the room, so replacing it is too.
+  await joinRoom(page)
+  await openRoomTools(page)
   // A restored creator tab has the same local inviter key and would keep the
-  // old link alive unless rotation is coordinated across tabs.
+  // old link alive unless rotation is coordinated across tabs. It stays at
+  // the door: this is about what it would still ANSWER, and its own copy of
+  // the control is read off the app's `hidden` flag rather than off the
+  // screen, because a control behind a shut drawer is not the same claim.
   const otherCreatorTab = await page.context().newPage()
   await openRoomUrl(otherCreatorTab, first)
-  await expect(otherCreatorTab.locator('#rotateShare')).toBeVisible()
+  await expect(otherCreatorTab.locator('#rotateShare')).toHaveJSProperty('hidden', false)
   page.on('dialog', (dialog) => void dialog.accept())
   await page.locator('#rotateShare').click()
   await expect(page.locator('#shareUrl')).not.toHaveValue(first, { timeout: 60_000 })
@@ -218,10 +269,15 @@ test('rotating a share link retires its public capability without moving the roo
 
   expect(second).not.toBe(first)
   await expect(page.locator('#status')).toContainText('Current clients will no longer answer the old link')
+  // And the room this tab is in is untouched by its link being replaced -
+  // still in it, still with everything the room offers.
+  await expect(page.locator('#roomArea')).toBeVisible()
   await expect(page.locator('#deviceControls')).toBeVisible()
-  await expect(page.locator('#join')).toBeVisible()
-  await expect(otherCreatorTab.locator('#status')).toContainText('retired in another tab')
-  await expect(otherCreatorTab.locator('#rotateShare')).toBeHidden()
+  // The wording pass that came with the rebuilt page took "retired" out of
+  // this sentence along with every other word that assumed the reader knew
+  // the vocabulary. What it says now is what the other tab actually reads.
+  await expect(otherCreatorTab.locator('#status')).toContainText('replaced in another tab')
+  await expect(otherCreatorTab.locator('#rotateShare')).toHaveJSProperty('hidden', true)
 })
 
 test('an admitted member keeps the invitation available after the creator leaves', async ({ browser, page, baseURL }) => {
@@ -230,15 +286,30 @@ test('an admitted member keeps the invitation available after the creator leaves
   // Re-open the creator on the rewritten relay hints so its responder and
   // the two independent browsers rendezvous on the same relay.
   await openRoomUrl(page, joinUrl)
-  await expect(page.locator('#deviceControls')).toBeVisible()
+  await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
   const memberContext = await newDeviceContext(browser, baseURL!)
   const arrivalContext = await newDeviceContext(browser, baseURL!)
 
   try {
     const member = await memberContext.newPage()
     await openRoomUrl(member, joinUrl)
-    await expect(member.locator('#deviceControls')).toBeVisible({ timeout: 60_000 })
-    await expect(member.locator('#status')).toContainText('Invitation accepted')
+    await expect(member.locator('#join')).toBeVisible({ timeout: 60_000 })
+    // FAILING ON PURPOSE, and soft so the rest of this test still runs.
+    //
+    // The admission itself works: the way in is enabled and this browser
+    // does get into the room. What is gone is the sentence that said so.
+    // The rewrite that put the conversation first replaced two lines - one
+    // before the request and one after it - with a single progress line and
+    // no ending, so "Getting you in…" stays on screen, still styled as
+    // something in progress, for a thing that finished. Measured against a
+    // live room: still there fifteen seconds after the admission landed,
+    // and it only goes when the person clicks the way in.
+    //
+    // That is a fault in the page, not in this test, and weakening the
+    // assertion would bless it. Soft, so this spec reports the fault
+    // without dying before the claim in its own name has been checked.
+    // Fix it where the status is set and this goes green on its own.
+    await expect.soft(member.locator('#status')).toContainText('Invitation accepted', { timeout: 5_000 })
 
     // The creator was the original responder. Closing it leaves only the
     // newly admitted browser on the invitation rendezvous.
@@ -246,9 +317,13 @@ test('an admitted member keeps the invitation available after the creator leaves
 
     const arrival = await arrivalContext.newPage()
     await openRoomUrl(arrival, joinUrl)
-    await expect(arrival.locator('#deviceControls')).toBeVisible({ timeout: 60_000 })
-    await expect(arrival.locator('#status')).toContainText('Invitation accepted')
-    await expect(arrival.locator('#rotateShare')).toBeHidden()
+    await expect(arrival.locator('#join')).toBeVisible({ timeout: 60_000 })
+    // Soft for the same reason as above: the same missing sentence.
+    await expect.soft(arrival.locator('#status')).toContainText('Invitation accepted', { timeout: 5_000 })
+    // Read off the app's own flag, not off the screen: this browser holds no
+    // inviter key so it must not be offering to replace the link, and the
+    // drawer being shut would say that for it whether or not it were true.
+    await expect(arrival.locator('#rotateShare')).toHaveJSProperty('hidden', true)
   } finally {
     await memberContext.close()
     await arrivalContext.close()
@@ -273,27 +348,35 @@ test('two devices of one participant render as one tile group to a third person'
     // A creates the room (no network yet) and produces the join link.
     const joinUrl = pinToTestRelays(await createRoom(pageA, url))
 
-    // Get every device to the "ready, media on, not yet joined" point
-    // before any of them subscribes or publishes. A settles on its room
-    // page FIRST, then offers pairing - the offer only lives as long as the
-    // page that made it.
     // Every device types the SAME name, deliberately. A and B are one
     // person on two devices; C is somebody else entirely who happens to
     // have typed the same thing - which anybody can.
+    //
+    // A goes in first, and now has to: the pass for a second device is
+    // offered from the drawer inside the room, so there is no pairing link
+    // to hand B until A is in. A then stays put, because the offer only
+    // lives as long as the page that made it.
     await prepareDevice(pageA, joinUrl, 'Robin')
+    await joinRoom(pageA)
+    await turnOnMedia(pageA)
     const pairUrl = await offerPairing(pageA, joinUrl)
+
     // B: a SEPARATE context (own localStorage) opening the PAIRING url, so
     // it becomes a second device under A's identity - not a new person.
     await prepareDevice(pageB, pairUrl, 'Robin')
     // C: a separate person entirely, via the plain join URL.
     await prepareDevice(pageC, joinUrl, 'Robin')
 
-    // C subscribes FIRST, before the paired devices publish anything - see
-    // the file-level comment on why this ordering matters for a roster
-    // event in Nostr's ephemeral kind range.
+    // C subscribes before B publishes anything - see the file-level comment
+    // on why arrival order matters for a roster event in Nostr's ephemeral
+    // kind range. C can no longer be first of all three, because A has to be
+    // in the room to produce B's pairing link at all; this case was never
+    // the evidence about the roster in any event, and the join-last case
+    // below still is.
     await joinRoom(pageC)
-    await joinRoom(pageA)
+    await turnOnMedia(pageC)
     await joinRoom(pageB)
+    await turnOnMedia(pageB)
 
     await expectOnePairedGroupPlusSelf(pageC)
     await expectSameNameStillTwoPeople(pageC, 'Robin')
@@ -335,16 +418,18 @@ test('a person who joins last still sees everyone already in the room', async ({
     const joinUrl = await pageA.locator('#shareUrl').inputValue()
     expect(joinUrl, 'the app did not pick up the pinned relay').not.toBe(defaultUrl)
 
-    // README's procedure, run exactly as written from here on. A turns its
-    // media on and JOINS - so its roster entry is published and gone before
+    // README's procedure, run exactly as written from here on. A JOINS and
+    // turns its media on - so its roster entry is published and gone before
     // anyone else is listening.
     await joinRoom(pageA)
+    await turnOnMedia(pageA)
 
     // Then A offers pairing, and B - a separate context, so separate
     // localStorage - takes it up and joins as A's second device.
     const pairUrl = await offerPairing(pageA, joinUrl)
     await prepareDevice(pageB, pairUrl)
     await joinRoom(pageB)
+    await turnOnMedia(pageB)
 
     // Wait for the room to actually settle into its two-device state before
     // C exists at all. This is a real signal, not a sleep: A can only render

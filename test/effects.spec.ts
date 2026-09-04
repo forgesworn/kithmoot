@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
 // @ts-expect-error - plain ESM helper, no types, and none wanted for a fixture
 import { writeScene } from './synthetic-scene.mjs'
+import { openRoomUrl, pinToTestRelays } from './relays.js'
 
 /**
  * Does the blur actually blur, and does it survive a camera swap?
@@ -19,8 +20,10 @@ import { writeScene } from './synthetic-scene.mjs'
  * order of magnitude when a checkerboard is blurred and barely moves when it
  * is not. It is a number, so the assertion is a number.
  *
- * Unlike test/e2e.spec.ts this needs no relays and no network: the room is
- * created locally and nothing is ever joined.
+ * Unlike test/e2e.spec.ts this needs no public relays and no network
+ * weather. It does have to go into a room, because the camera control lives
+ * inside one now, so it pins its room to the local test relay first and
+ * measures pixels from there. Nobody else ever joins it.
  */
 
 // Written to the OS temp directory rather than into `test-results/`, which
@@ -49,6 +52,16 @@ test.use({
   },
 })
 
+/**
+ * This device's own picture, wherever it is parented.
+ *
+ * The holder is one persistent element that moves: it sits in the strip
+ * under the toggles when nobody is in a room, and in your own tile in the
+ * room from the moment you go in. Keyed on the holder's own class rather
+ * than on where it happens to be, so it survives being moved again.
+ */
+const LOCAL_VIDEO = '.media.mine video'
+
 /** Regions of the 640x480 scene, as fractions, so they survive a camera that
  *  negotiates a different resolution than the file was written at. */
 const BACKGROUND_PATCH = { x: 0.03, y: 0.05, w: 0.16, h: 0.2 }
@@ -72,7 +85,7 @@ interface Sharpness {
 async function measure(page: Page): Promise<Sharpness> {
   return page.evaluate(
     ({ background, face }) => {
-      const video = document.querySelector<HTMLVideoElement>('#local video')
+      const video = document.querySelector<HTMLVideoElement>('.media.mine video')
       if (!video || video.videoWidth === 0) throw new Error('no local preview frame yet')
       const canvas = document.createElement('canvas')
       canvas.width = video.videoWidth
@@ -113,21 +126,43 @@ async function measure(page: Page): Promise<Sharpness> {
 }
 
 async function openCamera(page: Page): Promise<void> {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Start a room' }).click()
+  await goIn(page)
   await page.getByRole('button', { name: 'Camera' }).click()
-  await expect(page.locator('#local video')).toBeVisible()
-  await page.waitForFunction(() => {
-    const video = document.querySelector<HTMLVideoElement>('#local video')
+  await expect(page.locator(LOCAL_VIDEO)).toBeVisible()
+  await page.waitForFunction((selector) => {
+    const video = document.querySelector<HTMLVideoElement>(selector)
     return !!video && video.videoWidth > 0
-  })
+  }, LOCAL_VIDEO)
   // On screen, not merely in the document. Chromium does not paint a
   // MediaStream video that is scrolled out of view, and `drawImage` from an
   // unpainted element gives a flat frame: the measurement below then reads
   // zero detail with the effect off and nothing is learned. Whatever the
   // page puts above the preview, the measurement must not depend on it.
-  await page.locator('#local video').scrollIntoViewIfNeeded()
+  await page.locator(LOCAL_VIDEO).scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
+}
+
+/**
+ * Start a room and go in.
+ *
+ * The camera and microphone buttons are not on the entry page any more: the
+ * page was rebuilt to show nothing that is not the conversation until there
+ * is a conversation, so they arrive with the room. Everything this file
+ * measures is behind that door.
+ */
+async function goIn(page: Page): Promise<void> {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Start a room' }).click()
+  const share = page.locator('#shareUrl')
+  await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
+  // Going in is what puts this device on a relay, and nothing measured in
+  // this file has any business depending on which one. Re-opened on the
+  // pinned link, so the room is on the test relay before the door opens.
+  await openRoomUrl(page, pinToTestRelays(await share.inputValue()))
+  await page.locator('#displayName').fill('Robin')
+  await page.locator('#join').click()
+  await expect(page.locator('#roomArea')).toBeVisible()
+  await expect(page.locator('#deviceControls')).toBeVisible()
 }
 
 /** The frame routes taken since the camera came on. `passthrough` above zero
@@ -221,7 +256,7 @@ test('a camera swap never publishes an unblurred frame', async ({ page }) => {
   await expect(page.locator('#effectMode')).toHaveText('blur')
 
   const trackBefore = await page.evaluate(() => {
-    const video = document.querySelector<HTMLVideoElement>('#local video')
+    const video = document.querySelector<HTMLVideoElement>('.media.mine video')
     return (video?.srcObject as MediaStream | null)?.getVideoTracks()[0]?.id ?? null
   })
 
@@ -246,7 +281,7 @@ test('a camera swap never publishes an unblurred frame', async ({ page }) => {
   // And the published track is the same object it was before the swap, so
   // nothing renegotiated and there was no window to leak through.
   const trackAfter = await page.evaluate(() => {
-    const video = document.querySelector<HTMLVideoElement>('#local video')
+    const video = document.querySelector<HTMLVideoElement>('.media.mine video')
     return (video?.srcObject as MediaStream | null)?.getVideoTracks()[0]?.id ?? null
   })
   expect(trackAfter).toBe(trackBefore)
@@ -272,13 +307,17 @@ test('a segmenter that will not load falls back to passthrough and says so', asy
 })
 
 test('voice masking states what it is, and offers the four presets', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Start a room' }).click()
+  await goIn(page)
   await page.getByRole('button', { name: 'Microphone' }).click()
   await expect(page.locator('#voiceEffects')).toBeVisible()
 
+  // The claim has to be disclaimed in words, and the words changed with the
+  // rest of the rewriting: "this is voice masking, not anonymity" is now
+  // "this disguises your voice. It does not make you anonymous", which says
+  // the same thing without asking the reader to know what anonymity means
+  // here. What must never appear is an overclaim, and that half is unchanged.
   const copy = await page.locator('#voiceEffects .note').innerText()
-  expect(copy).toContain('not anonymity')
+  expect(copy).toContain('does not make you anonymous')
   expect(copy).not.toMatch(/unidentifiable/i)
 
   await page.locator('#voicePresets button[data-preset="lower"]').click()

@@ -30,9 +30,20 @@ async function startNamedRoom(page: Page, baseURL: string, name: string): Promis
   await page.goto(baseURL)
   await page.locator('#roomName').fill(name)
   await page.locator('#create').click()
-  await expect(page.locator('#links')).toBeVisible()
+  // The link exists the moment the room does, but the drawer holding it
+  // stays shut until somebody is inside. So this waits for the value, not
+  // for the box: waiting for it to be on screen would be waiting for a
+  // thing the page deliberately does not do until a person has gone in.
+  const share = page.locator('#shareUrl')
+  await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
   await expect(page.locator('#roomTitle .name')).toHaveText(name)
-  return pinToTestRelays(await page.locator('#shareUrl').inputValue())
+  return pinToTestRelays(await share.inputValue())
+}
+
+/** The room page is up and this device is at the door. The way in is the
+ *  only control out here now, so it is the only honest thing to wait on. */
+async function expectAtTheDoor(page: Page): Promise<void> {
+  await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
 }
 
 test('the front page lists every room this device has been in, with what is new and who is here', async ({ browser, baseURL }) => {
@@ -49,17 +60,17 @@ test('the front page lists every room this device has been in, with what is new 
     // link the list keeps is the one that works.
     const townHall = await startNamedRoom(page, url, 'Town hall')
     await openRoomUrl(page, townHall)
-    await expect(page.locator('#deviceControls')).toBeVisible()
+    await expectAtTheDoor(page)
     await expect(page.locator('#roomTitle .name')).toHaveText('Town hall')
 
     // The tab that answers the town hall's link. It stays put.
     const hall = await principal.newPage()
     await openRoomUrl(hall, townHall)
-    await expect(hall.locator('#deviceControls')).toBeVisible()
+    await expectAtTheDoor(hall)
 
     const bench = await startNamedRoom(page, url, 'Bench')
     await openRoomUrl(page, bench)
-    await expect(page.locator('#deviceControls')).toBeVisible()
+    await expectAtTheDoor(page)
 
     // Back to the front page: both rooms, by name, with the room's id
     // beside each - two rooms can be called the same thing.
@@ -81,7 +92,7 @@ test('the front page lists every room this device has been in, with what is new 
     const other = await visitor.newPage()
     await openRoomUrl(other, townHall)
     await other.locator('#displayName').fill('Ada')
-    await expect(other.locator('#deviceControls')).toBeVisible({ timeout: 60_000 })
+    await expectAtTheDoor(other)
     await expect(other.locator('#join')).toBeEnabled({ timeout: 60_000 })
     await other.locator('#join').click()
     await expect(other.locator('#roomArea')).toBeVisible()

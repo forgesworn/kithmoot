@@ -11,6 +11,7 @@ import {
   remoteAudioCount,
   remotePictures,
   startSlowAckRelay,
+  turnOnMedia,
 } from './browser.js'
 
 /**
@@ -164,27 +165,27 @@ test('one person on two devices delivers two live pictures to everybody else', a
 
     const url = await createRoom(pageLaptop, baseURL!)
 
-    // The laptop: a screen share and nothing else. It has to settle on its
-    // room page before offering pairing, because the offer lives only as
-    // long as the page that made it.
+    // The laptop: a screen share and nothing else. It goes in first, and it
+    // has to: both the screen-share button and the pass for a second device
+    // are inside the room now, and the offer lives only as long as the page
+    // that made it, so this page stays put from here on.
     await open(pageLaptop, url, 'Ada')
+    await pageLaptop.locator('#join').click()
+    await expect(pageLaptop.locator('#roomArea')).toBeVisible()
     await pageLaptop.locator('#toggleScreen').click()
     await expect(pageLaptop.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
     const pairUrl = await offerPairing(pageLaptop)
 
     // The phone: a separate context, so separate localStorage - it opens the
     // PAIRING link and becomes a second device of Ada rather than a second
-    // Ada. Camera and mic, as a phone would.
+    // Ada. Camera and mic, as a phone would, turned on once it is in.
     await open(pagePhone, pairUrl, 'Ada')
-    await pagePhone.locator('#toggleCamera').click()
-    await pagePhone.locator('#toggleMic').click()
-    await expect(pagePhone.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    await pagePhone.locator('#join').click()
+    await expect(pagePhone.locator('#roomArea')).toBeVisible()
+    await turnOnMedia(pagePhone)
 
     // Cara: somebody else entirely, and the only screen that matters here.
     await open(pageCara, url, 'Cara')
-
-    await pageLaptop.locator('#join').click()
-    await pagePhone.locator('#join').click()
     await pageCara.locator('#join').click()
     await expect(pageCara.locator('#roomArea')).toBeVisible()
 
