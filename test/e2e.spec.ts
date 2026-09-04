@@ -294,22 +294,14 @@ test('an admitted member keeps the invitation available after the creator leaves
     const member = await memberContext.newPage()
     await openRoomUrl(member, joinUrl)
     await expect(member.locator('#join')).toBeVisible({ timeout: 60_000 })
-    // FAILING ON PURPOSE, and soft so the rest of this test still runs.
-    //
-    // The admission itself works: the way in is enabled and this browser
-    // does get into the room. What is gone is the sentence that said so.
-    // The rewrite that put the conversation first replaced two lines - one
-    // before the request and one after it - with a single progress line and
-    // no ending, so "Getting you in…" stays on screen, still styled as
-    // something in progress, for a thing that finished. Measured against a
-    // live room: still there fifteen seconds after the admission landed,
-    // and it only goes when the person clicks the way in.
-    //
-    // That is a fault in the page, not in this test, and weakening the
-    // assertion would bless it. Soft, so this spec reports the fault
-    // without dying before the claim in its own name has been checked.
-    // Fix it where the status is set and this goes green on its own.
-    await expect.soft(member.locator('#status')).toContainText('Invitation accepted', { timeout: 5_000 })
+    // "Getting you in…" is a promise, and this is its ending. It used to
+    // have none: the progress line stayed on screen, still styled as work
+    // in progress, under a way in that was ready to be pressed, so the page
+    // said it was still working and the button beside it said go. The line
+    // says the admission landed and that the next move is the reader's, and
+    // the progress styling comes off with it.
+    await expect(member.locator('#status')).toContainText('Invitation accepted', { timeout: 15_000 })
+    await expect(member.locator('#status')).toHaveClass(/\bdone\b/)
 
     // The creator was the original responder. Closing it leaves only the
     // newly admitted browser on the invitation rendezvous.
@@ -318,8 +310,8 @@ test('an admitted member keeps the invitation available after the creator leaves
     const arrival = await arrivalContext.newPage()
     await openRoomUrl(arrival, joinUrl)
     await expect(arrival.locator('#join')).toBeVisible({ timeout: 60_000 })
-    // Soft for the same reason as above: the same missing sentence.
-    await expect.soft(arrival.locator('#status')).toContainText('Invitation accepted', { timeout: 5_000 })
+    // The same ending, for a browser admitted after the creator has gone.
+    await expect(arrival.locator('#status')).toContainText('Invitation accepted', { timeout: 15_000 })
     // Read off the app's own flag, not off the screen: this browser holds no
     // inviter key so it must not be offering to replace the link, and the
     // drawer being shut would say that for it whether or not it were true.

@@ -20,9 +20,17 @@
 
     <!-- The way back to the list of rooms, shown whenever a room is on
          screen. Leaving a room to look at the list is leaving it, and says
-         so; the list is the front page with no link on it. -->
+         so; the list is the front page with no link on it.
+
+         And the way back INTO the room you just left, because leaving used
+         to be one-way: the button took the invitation off the address bar,
+         and a device that was admitted rather than holding the key had no
+         second way in. The link is put down before the page reloads and
+         offered here as a button. See `backToRooms` and `renderWayBack` in
+         app/src/main.ts. -->
     <nav id="roomNav" hidden>
       <button id="backToRooms" type="button" class="quiet">Your rooms</button>
+      <button id="backToRoom" type="button" class="quiet" hidden></button>
     </nav>
 
     <!-- ===================================================================
@@ -51,8 +59,23 @@
              one line, not six. A tile grows into a card the moment there
              is a picture in it. See `#room .participant` in style.css. -->
         <h3 class="miniHead">Who is here</h3>
-        <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
-        <div id="room"></div>
+        <!-- The names, and what the tag on some of them means, in one
+             block. One block because on a phone it has to be bounded - a
+             room of eight would otherwise push the conversation off the
+             bottom of the screen - and bounding the names and the sentence
+             about them separately left the sentence sandwiched between two
+             scrollbars. See `#whoIsHere` in style.css. -->
+        <div id="whoIsHere">
+          <!-- What the `agent` tag means, above the names carrying it. The
+               full explanation is on the Agents tab and it is a good one,
+               but a person who has just been handed a link has no reason to
+               open a tab: they read the names, and three of them were
+               programs. So the one sentence that matters is said here.
+               Filled in by `render` in app/src/main.ts. -->
+          <p id="agentsExplain" class="agentsExplain" hidden></p>
+          <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
+          <div id="room"></div>
+        </div>
 
         <h3 class="sr-only">Conversation</h3>
         <div id="channelBar" class="channelBar" role="tablist" aria-label="Conversations" hidden></div>
@@ -79,8 +102,27 @@
 
         <div id="approvals" aria-live="polite"></div>
         <div id="chatLog" aria-live="polite"></div>
+        <!-- Said where the box would be, on the conversations nobody types
+             into. A box on the Transcript tab invited somebody to type into
+             a record of what was said aloud, which is not what that tab is.
+             Filled in by `renderChannels` in app/src/main.ts. -->
+        <p id="readOnlyNote" class="note" hidden></p>
         <form id="chatForm">
-          <input id="chatInput" placeholder="Say something" autocomplete="off" />
+          <!-- Who is in the room, offered when you type an @. Above the box
+               rather than below it, because below the box on a phone is
+               where the keyboard is, and a picker behind a keyboard does
+               not exist. Filled in by `renderMentionPicker` in
+               app/src/main.ts. -->
+          <div id="mentions" class="mentions" role="listbox" aria-label="People and agents in this room" hidden></div>
+          <!-- A box, not a line. It was one line that scrolled sideways, so
+               a long message could not be read back before it was sent -
+               and a person who cannot re-read what they wrote sends it
+               anyway. It grows with what is typed, up to a few lines, and
+               then scrolls. Enter sends; Shift and Enter start a new line.
+               See the `keydown` handler in app/src/main.ts. -->
+          <textarea id="chatInput" placeholder="Say something" autocomplete="off" rows="1"
+                    enterkeyhint="send" aria-label="Say something"
+                    aria-autocomplete="list" aria-controls="mentions" aria-expanded="false"></textarea>
           <button type="button" id="attachToggle" title="Send a file: drop one here, or pick one">Add a file</button>
           <button type="submit">Send</button>
         </form>
@@ -154,7 +196,16 @@
         <ul id="roomList" class="roomList" aria-live="polite"></ul>
       </section>
 
-      <section id="setup">
+      <!-- Hidden until the page knows which kind of visit this is.
+           Somebody arriving on a link used to be shown this first - a name
+           box, "Start a room", and a place to paste a link - for as long as
+           the admission took to come back over a relay, and only then the
+           invitation screen. Two different screens, the first of them
+           offering to make a room they had never heard of. Now nothing is
+           replaced: the way in is on screen from the first paint, and this
+           is added underneath only when there turns out to be no link. See
+           the boot block at the bottom of app/src/main.ts. -->
+      <section id="setup" hidden>
         <label for="roomName" class="note">
           Give the room a name if it is one you will come back to. The name
           travels inside the link, so everybody you send it to sees the same
@@ -335,7 +386,11 @@
             <button id="shareRoom" type="button" hidden>Share</button>
             <button id="copyShare" type="button">Copy</button>
             <button id="rotateShare" type="button" hidden>New link</button>
-            <p class="note">
+            <!-- Hidden with the button it describes. Only the browser that
+                 opened the room can make a new link, and everybody else was
+                 reading a sentence about a control that was not on their
+                 page. See `showRoomUi` in app/src/main.ts. -->
+            <p id="rotateNote" class="note" hidden>
               A new link stops the old one letting anybody new in. Anybody
               already here stays.
             </p>
@@ -400,10 +455,24 @@
             </div>
           </details>
 
-          <div class="toolRow">
-            <button id="diagnostics" type="button" class="quiet" title="Gather what this page knows about its connections, to paste into a bug report">Copy a bug report</button>
-          </div>
-          <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Bug report"></textarea>
+          <!-- One disclosure away rather than sitting among the settings.
+               "Copy a bug report" beside the switches a person uses reads
+               as one of them, and a bug report is not a setting: it is what
+               you reach for on a bad day. Still here, still one click, and
+               now it says what it is for before you press it. -->
+          <details id="troubleshooting">
+            <summary>If something here is not working</summary>
+            <p class="note">
+              This copies what this page knows about its own connections:
+              which route each person is on, what the relays answered, what
+              this browser can and cannot do. It carries no messages and no
+              keys. Paste it wherever you are reporting the problem.
+            </p>
+            <div class="toolRow">
+              <button id="diagnostics" type="button" class="quiet">Copy a bug report</button>
+            </div>
+            <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Bug report"></textarea>
+          </details>
         </details>
       </section>
 

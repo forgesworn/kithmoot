@@ -1,4 +1,11 @@
 :root {
+  /* How far down the page the room begins, in pixels, written here by
+     `measureShell` in app/src/main.ts on load and on every resize. The
+     conversation is sized against the screen it is given - "the rest of the
+     window from here down" - and CSS on its own cannot know how tall the
+     masthead above it happens to be. The fallback is a sensible guess for
+     the moment before the first measurement lands. */
+  --shell-top: 8rem;
   color-scheme: dark;
   --bg: #101114;
   --panel: #1a1b1f;
@@ -158,13 +165,19 @@ details#roomSettings label {
   margin: 0 0 0.5rem;
 }
 
+/* Using your phone in here too is a feature, and it used to be drawn as an
+   alarm: a red border, a red heading and a dark red fill, which in this
+   sheet is the colour reserved for something having gone wrong. A person
+   reading down the settings met a warning about a thing they were being
+   offered. It is marked as worth noticing, in the colour the app uses for
+   things worth noticing. */
 .linkBox.pairing {
-  border-color: #a44;
-  background: #1c1010;
+  border-color: var(--accent-dim);
+  background: #14181c;
 }
 
 .linkBox.pairing strong {
-  color: var(--danger);
+  color: var(--accent);
 }
 
 /* QR codes - always drawn black-on-white by app/src/qr.ts regardless of the
@@ -204,6 +217,14 @@ details#roomSettings label {
    See setStatus in app/src/main.ts. */
 #status.progress {
   color: var(--muted);
+}
+
+/* And it is not still happening either. A line that says it is working,
+   left in the working style under a button that is ready to be pressed,
+   asks the reader to decide which of the two to believe. This is what
+   finished looks like. */
+#status.done {
+  color: var(--ok);
 }
 
 /* Toggles - the microphone, camera and screen-share controls. An "on" toggle
@@ -411,7 +432,15 @@ details#roomSettings label {
   flex-wrap: wrap;
 }
 
-.participant .badge {
+/* A tag, wherever it is drawn.
+
+   These used to be styled only inside `.participant`, which is a tile with
+   a picture in it. An agent with nothing on screen is a name in the row
+   above the grid, and that is where nearly every agent actually appears -
+   so the one tag that separates a program from a person rendered there as
+   the plain word "agent" in the row's monospace, indistinguishable from a
+   short key. It looks like a tag now, everywhere it is written. */
+.badge {
   padding: 0.1rem 0.4rem;
   font-size: 0.85rem;
   font-family: system-ui, sans-serif;
@@ -480,10 +509,214 @@ video {
   margin-right: 0.4rem;
 }
 
+/* The conversation, as a conversation.
+
+   Other people on the left, you on the right, in bubbles, with the sender's
+   name above somebody else's bubble. This is not decoration: it is the one
+   layout convention everybody has already learnt - Signal, WhatsApp,
+   iMessage, every group chat a child has ever seen - and it answers "who is
+   speaking" before a single word is read. The flat log of lines it replaces
+   made every message look the same shape whoever sent it, so telling your
+   own words from a stranger's meant reading the name on each line.
+
+   A room here holds five or six, so left-alignment alone cannot say WHO:
+   the name goes above the bubble, the way group chats do it, with the short
+   key beside it exactly as everywhere else in the app. And a bubble from a
+   program is a different colour from a bubble from a person, so the
+   difference is visible at a glance and without reading. */
+#chatLog {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  max-width: min(88%, 44rem);
+  min-width: 0;
+}
+
+.msg.theirs {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.msg.mine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.msg .sender {
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 0.15rem 0.65rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 100%;
+}
+
+.bubble {
+  max-width: 100%;
+  min-width: 0;
+  padding: 0.45rem 0.7rem 0.3rem;
+  border-radius: 14px;
+  background: #23252b;
+  border: 1px solid var(--border);
+}
+
+/* The tail. One squared corner on the side the bubble came from, which is
+   what makes a column of bubbles read as two people rather than one list. */
+.msg.theirs .bubble {
+  border-bottom-left-radius: 4px;
+}
+
+.msg.mine .bubble {
+  background: var(--accent-dim);
+  border-color: #3d7f9e;
+  border-bottom-right-radius: 4px;
+}
+
+/* A bubble from a program, in the same purple its tag uses on the roster.
+   Somebody who cannot read yet can still see which of these came from a
+   machine. */
+.msg.fromAgent .bubble {
+  background: #221f33;
+  border-color: #7a6fd0;
+}
+
+/* The line breaks somebody typed are theirs to keep, now that the box they
+   type in makes them. `anywhere` because a pasted key or URL with no spaces
+   in it must wrap rather than stretch the bubble past the screen. */
+.bubble .text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* In the corner of the bubble, which is where every messaging app puts it. */
+.bubble .when {
+  display: block;
+  margin: 0.15rem 0 0;
+  text-align: right;
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
+/* When a line was said.
+
+   There was no time on anything at all, so a room somebody had just been
+   let into gave no way to tell a conversation from ten minutes ago from
+   one from three weeks ago - the first thing a reader wants to know, and
+   the thing that decides whether to wait for an answer. Quiet and
+   fixed-width so a column of them lines up down the left of the log
+   without competing with the names; the exact moment is on the title.
+   See `whenWords` in app/src/main.ts. */
+.when {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  margin-right: 0.45rem;
+  white-space: nowrap;
+}
+
+/* Where the box would be, on the conversations nobody types into. */
+#readOnlyNote {
+  margin: 0.6rem 0 0;
+}
+
 #chatForm {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
+  /* The name picker hangs off this. */
+  position: relative;
+  /* The box grows and the buttons do not: without this they stretch to
+     whatever height a long message has given the box beside them. */
+  align-items: flex-end;
+}
+
+/* The message box. A box, not a line: it was one line that scrolled
+   sideways, so a message longer than the field could not be read back
+   before it was sent. It sizes itself to what is in it - see
+   `growComposer` in app/src/main.ts - so the drag handle is off, because
+   two ways to size one control is one too many. */
+/* Who is in the room, offered when an `@` is typed.
+
+   Above the box, never below it. On a phone the keyboard occupies the
+   bottom of the screen and the box sits directly on top of it, so a list
+   drawn underneath would be behind the keyboard - which is the same as not
+   existing. Bounded so it never covers the conversation it is about. */
+.mentions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 0.4rem);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  max-height: min(40vh, 13rem);
+  overflow-y: auto;
+  padding: 0.25rem;
+  background: var(--panel);
+  border: 1px solid var(--accent-dim);
+  border-radius: 10px;
+  box-shadow: 0 -10px 28px rgb(0 0 0 / 50%);
+}
+
+/* A row a thumb can hit: the padding takes each one past the 44px every
+   phone platform asks for. */
+.mentions button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.65rem 0.6rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  font-size: 1rem;
+}
+
+.mentions button[aria-selected='true'],
+.mentions button:hover {
+  background: var(--accent-dim);
+}
+
+.mentions .name {
+  font-weight: 600;
+}
+
+/* A name said inside a message.
+
+   Marked because saying a name is how you address somebody here, and for an
+   agent it is what decides whether it answers at all - so a reader should
+   be able to see which words in a message are doing that. A mention of the
+   reader gets more than a tint, because that is the one thing anybody scans
+   a busy room for. The rule for what counts is `namesAgent` in
+   src/node/brains.ts, read back in `mentionPattern`. */
+.mention {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mention.me {
+  color: #08222c;
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 0 0.25rem;
+}
+
+#chatInput {
+  resize: none;
+  line-height: 1.45;
+  overflow-y: auto;
+  /* 16px, and never less. Mobile Safari zooms the whole page in when a
+     field it is focusing has a smaller font, and it does not zoom back out
+     afterwards - which leaves the page scrolled sideways with the send
+     button off the edge. */
+  font-size: max(1rem, 16px);
 }
 
 /* The two buttons beside the box keep to one line. "Add a file" broken
@@ -649,11 +882,12 @@ button.primary:hover:not(:disabled) {
 }
 
 /* Minutes are written in paragraphs and headed sections; the line breaks
-   are the structure, so they stay. The chat log is the one log now, so this
-   hangs off the conversation it is showing rather than off a panel of its
-   own. See `renderChat` in app/src/main.ts. */
-#chatLog.minutes p {
-  white-space: pre-wrap;
+   are the structure, so they stay. Every bubble keeps its line breaks now
+   (see `.bubble .text`), so what is left here is the width: a page of
+   minutes is a document to read, not a remark, and it gets the whole log
+   rather than a bubble two thirds of the way across it. */
+#chatLog.minutes .msg {
+  max-width: 100%;
 }
 
 /* A conversation nobody has used yet does not need a screen-tall empty box
@@ -670,6 +904,16 @@ button.primary:hover:not(:disabled) {
   cursor: pointer;
   color: var(--accent);
   margin-bottom: 0.4rem;
+}
+
+/* A bug report is not a setting. It sat in the row of switches an ordinary
+   person reads through, where "Copy a bug report" reads as one of the
+   things they are being asked to decide about. One disclosure away, named
+   for the day you would want it. */
+#troubleshooting > summary {
+  cursor: pointer;
+  color: var(--accent);
+  margin: 0.75rem 0 0.4rem;
 }
 
 .log {
@@ -806,112 +1050,7 @@ button.primary:hover:not(:disabled) {
   font-weight: 600;
 }
 
-/* The verification dialog. The rest of the app confirms a one-line yes/no
-   with confirm(), which is fine for "remove this person?"; this one has
-   words to read and say aloud, so it gets furniture of its own. */
-#verifyDialog {
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0;
-  max-width: 34rem;
-  width: calc(100% - 2rem);
-}
-
-#verifyDialog::backdrop {
-  background: rgb(0 0 0 / 0.6);
-}
-
-.verifyForm {
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-  margin: 0;
-}
-
-.verifyForm h2 {
-  margin: 0;
-  font-size: 1.15rem;
-}
-
-.verifyWarning {
-  margin: 0;
-  padding: 0.6rem 0.75rem;
-  border-left: 3px solid var(--danger);
-  background: rgb(255 136 136 / 0.12);
-  color: var(--text);
-}
-
-/* The words themselves are the point of the dialog, so they are the biggest
-   thing in it and set in the monospace face - these get read aloud
-   character by character when somebody mishears. */
-.verifyWords {
-  margin: 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.4rem 1rem;
-  align-items: baseline;
-}
-
-.verifyWords dt {
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.verifyWords dd {
-  margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 1.25rem;
-  letter-spacing: 0.02em;
-  color: var(--accent);
-}
-
-.verifyButtons {
-  display: flex;
-  gap: 0.6rem;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-
-/* The trust chip. A button, because it does something: clicking shows the
-   words to say. Three states, and only one is coloured as a problem -
-   "not verified" is the ordinary case for most people, and colouring that
-   as a warning is how people learn to ignore warnings. */
-.participant .verifyChip {
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.8em;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--muted);
-  border-radius: 999px;
-  padding: 0.05em 0.5em;
-}
-
-.participant .verifyChip:hover,
-.participant .verifyChip:focus-visible {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.participant .verifyChip.verified {
-  border-color: var(--ok);
-  color: var(--ok);
-}
-
-/* The one accusation on the page. It gets the danger colour and a fill,
-   because a name you have verified arriving on a different key is the
-   attack this whole feature exists for. */
-.participant .verifyChip.key-changed {
-  border-color: var(--danger);
-  background: var(--danger);
-  color: #2a0a0a;
-  font-weight: 600;
-}
-
-.participant .badge.agent {
+.badge.agent {
   background: #7a6fd0;
   color: #fff;
 }
@@ -1053,7 +1192,9 @@ button.primary:hover:not(:disabled) {
   box-shadow: 0 0 6px 1px rgb(247 147 26 / 70%);
 }
 
-#chatLog .who {
+#chatLog .who,
+#chatLog .sender .name,
+#chatLog .sender {
   display: inline-flex;
   align-items: baseline;
   gap: 0.3rem;
@@ -1063,11 +1204,14 @@ button.primary:hover:not(:disabled) {
    sits in rather than dangling below the text, and it comes down a size in
    the places a person is named in passing rather than given a tile. */
 #chatLog .who .avatar,
-#chatLog .who .donorRing {
+#chatLog .who .donorRing,
+#chatLog .sender .avatar,
+#chatLog .sender .donorRing {
   align-self: center;
 }
 
 #chatLog .who .avatar,
+#chatLog .sender .avatar,
 .hereChip .avatar,
 .agentChip .avatar {
   width: 1.2rem;
@@ -1259,7 +1403,7 @@ button.primary:hover:not(:disabled) {
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.6rem;
   font-family: monospace;
   font-size: 0.95rem;
 }
@@ -1271,6 +1415,36 @@ button.primary:hover:not(:disabled) {
   padding: 0.3rem 0.6rem;
   border: 1px dashed var(--border);
   border-radius: 999px;
+  /* A name, a key and two tags is wider than a phone. Wrapping inside the
+     chip keeps the tag on screen; without it the row scrolled sideways and
+     the `agent` tag was the part that fell off the edge, which is the one
+     part that must not. */
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+/* What the `agent` tag means, beside the names carrying it.
+
+   Deliberately NOT a `.note`. The Agents tab explains this properly, and
+   the explanation there is good - but somebody handed a link has no reason
+   to open a tab they have never heard of, so they read the names and take
+   all of them for people. This is the single most important sentence on
+   the screen for a first-time reader, and setting it in footnote grey
+   would repeat the mistake of hiding it. Full text colour, body size, and
+   a rule down the side so the eye lands on it between the names and the
+   conversation. */
+.agentsExplain {
+  margin: 0 0 0.6rem;
+  max-width: 72ch;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--text);
+  border-left: 2px solid #7a6fd0;
+  padding-left: 0.7rem;
+}
+
+.agentsExplain .badge.agent {
+  margin: 0 0.1rem;
 }
 
 /* Your rooms
@@ -1424,6 +1598,14 @@ label.note {
   font-style: italic;
 }
 
+/* Nobody sent these, so they take neither side: centred, between the
+   bubbles, where a chat app puts "you were added to this group". */
+#chatLog p.system {
+  align-self: center;
+  text-align: center;
+  max-width: min(100%, 40rem);
+}
+
 /* An agent's question, for the person who can answer it. */
 .approvalCard {
   border: 1px solid var(--accent);
@@ -1502,26 +1684,70 @@ label.note {
 
   /* The conversation has to clear the fold on a phone WITH the box to reply
      in, not just the messages: a person who can read but cannot see where to
-     answer has got halfway. Sized so that who is here, the tabs, several
-     messages and the box are all on one screen of a 390x844 phone. */
+     answer has got halfway.
+
+     It used to be a fixed box of at most 300px, which on a tall phone left
+     the box to reply in floating in the middle of the screen with dead
+     space under it, and on a short one cut the conversation to four lines
+     whatever else was on the page. So the room takes the screen it is
+     given, measured from where it actually starts (see `--shell-top`), and
+     the conversation takes whatever is left in it after the names and the
+     tabs. `min-height` rather than `height`, so a busy roster pushes the
+     page longer instead of squeezing the messages to nothing. */
+  #roomArea {
+    display: flex;
+    flex-direction: column;
+    /* Exactly the screen it is given, not "at least".
+
+       A height the flex algorithm can work against is what guarantees the
+       box to reply in is ON that screen: both the names and the
+       conversation scroll inside themselves, so both may be squeezed, and
+       the conversation has a floor while the names do not. A busy roster
+       therefore costs you names, which you can scroll to, rather than the
+       one control the room is for. */
+    height: calc(100vh - var(--shell-top) - 1rem);
+    height: calc(100dvh - var(--shell-top) - 1rem);
+  }
+
   #chatLog {
-    height: clamp(180px, 26vh, 300px);
+    /* Basis zero, so the log asks for the space that is LEFT rather than
+       for the space its messages would like. With `auto` a long history
+       measured as a very tall item and the flex algorithm took the shortfall
+       out of everything else in the column - the names shrank to a four
+       pixel sliver while the log kept most of the screen. Zero makes the
+       order of priority explicit: the names get their content height, the
+       conversation gets the remainder, and neither takes the other's. */
+    flex: 1 1 0;
+    height: auto;
+    /* Low, because on the shortest phone the box to reply in matters more
+       than a fifth message being visible: a floor that cannot fit pushes
+       the box off the bottom of the screen, which is the one thing this
+       layout exists to prevent. */
+    min-height: 5rem;
   }
 
   /* Who is here is bounded, and the conversation is not.
 
      A room holds as many people as it holds, and a list that grows without
      limit puts the chat back below the fold at the exact moment a room gets
-     busy enough to be worth reading. So on a phone the names take a third
-     of the screen at most and scroll among themselves after that. Nobody is
-     hidden and nothing is behind a click; the guarantee moves to the thing
-     that needs it, which is that there is always a message and a box to
-     answer in on the first screen. */
-  #agentsRow,
-  #room:not(:has(video)) {
-    max-height: 22vh;
+     busy enough to be worth reading. So on a phone the names take about a
+     third of the screen at most and scroll among themselves after that.
+     Nobody is hidden and nothing is behind a click; the guarantee moves to
+     the thing that needs it, which is that there is always a message and a
+     box to answer in on the first screen.
+
+     The sentence about the tag scrolls with the names it is about, and
+     comes first, so what a reader meets before anything else is what the
+     word `agent` means. Bounding the names and the sentence separately put
+     the sentence between two scrollbars and cut a name in half above it.
+
+     Not once there is a picture: a video tile is worth the screen it takes,
+     and clipping somebody's face is not a saving. */
+  #whoIsHere:not(:has(video)) {
+    max-height: 28vh;
     overflow-y: auto;
   }
+
 
   /* Every row above the conversation is paid for out of it, so the ones
      that are only signposts are made small. Nothing is removed: the way
@@ -1602,6 +1828,24 @@ label.note {
     grid-column: 1;
     grid-row: 1 / span 100;
     margin-top: 0;
+    /* The room is as tall as the window and stays put while the sidebar
+       scrolls past it, which is the whole point of giving it a column of
+       its own: the conversation and the box to answer in never leave the
+       screen. `overflow-y` so that opening the file panel underneath the
+       box scrolls this column rather than pushing anything out of reach. */
+    position: sticky;
+    /* Pinned exactly where it starts, so it does not move at all while the
+       sidebar scrolls past it, and sized to the rest of the window from
+       that point down. A height, not a cap: a column that merely may not
+       exceed the window still collapses onto its own content, and then
+       there is nothing for the conversation to grow into. */
+    top: var(--shell-top);
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--shell-top) - 1rem);
+    height: calc(100dvh - var(--shell-top) - 1rem);
+    overflow-y: auto;
   }
 
   main:has(#roomArea:not([hidden])) > :not(#roomArea) {
@@ -1609,12 +1853,19 @@ label.note {
     margin: 0 0 1.25rem;
   }
 
-  /* The chat log is the one thing that should take the height it is given
-     rather than a share of the viewport: it is the column now. */
-  /* Sized so the agents channel underneath it still clears the fold on a
-     900px-tall window, which is the smallest a desktop realistically is. */
+  /* The conversation takes whatever height is left in that column.
+
+     It used to be capped at 520px whatever the window, so on a tall screen
+     it stopped halfway down a column that carried on to the bottom of the
+     page: several hundred pixels of nothing under the box you type into,
+     while the messages above scrolled inside a short box. Now the box sits
+     at the bottom of the window and the messages fill everything above it. */
   main:has(#roomArea:not([hidden])) #chatLog {
-    height: clamp(280px, 40vh, 520px);
+    /* Basis zero for the same reason as on a phone: the log takes what is
+       left of the column, not what its own history would like. */
+    flex: 1 1 0;
+    height: auto;
+    min-height: 10rem;
   }
 }
 
@@ -1684,4 +1935,34 @@ label.note {
 .channelNew input {
   flex: 1 1 12rem;
   width: auto;
+}
+
+/* ---------------------------------------------------------------------------
+   Narrow screens, after the channel bar
+
+   These belong with the narrow-screen rules above and are written here for
+   one reason: the channel bar is defined further down the sheet than that
+   block, so an override written up there loses to it on source order and
+   silently does nothing. Four tabs wrapped onto two rows on a 375 point
+   phone, and the second row cost the same forty points as two lines of
+   conversation. */
+@media (max-width: 700px) {
+  .channelBar {
+    gap: 0.25rem;
+    margin: 0.4rem 0 0.35rem;
+  }
+
+  .channelBar button {
+    padding: 0.28rem 0.45rem;
+    font-size: 0.85rem;
+  }
+
+  .tabDot {
+    margin-left: 0.3rem;
+  }
+
+  .channelHint {
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+  }
 }

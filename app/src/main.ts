@@ -227,11 +227,18 @@ function describeError(err: unknown): string {
  * wrong for "hold on". A person following a link met "Opening the private
  * room…" in red before they had done anything, and red on a first screen
  * says you have broken it. So a message can say which of the two it is.
+ *
+ * And a third: finished. "Getting you in…" is a promise, and a promise
+ * needs an ending. Left in the progress style it sat under a working way in
+ * for as long as the person looked at it, so the page said it was still
+ * working while the button beside it said go. A reader cannot be asked to
+ * decide which of those to believe.
  */
-function setStatus(message: string, tone: 'problem' | 'progress' = 'problem'): void {
+function setStatus(message: string, tone: 'problem' | 'progress' | 'done' = 'problem'): void {
   const el = $('status')
   el.textContent = message
   el.classList.toggle('progress', tone === 'progress')
+  el.classList.toggle('done', tone === 'done')
   if (message && tone === 'problem') console.error(message)
 }
 
@@ -859,7 +866,10 @@ const profiles = new ProfileBook({
     renderIdentity()
     if (session) {
       render(session.participants(), meParticipant)
-      renderChat(session.chat.messages())
+      // The conversation on screen, not the main chat regardless - a
+      // profile landing while somebody reads the Agents tab must not swap
+      // what is under the tab they picked. See `repaintActiveChat`.
+      repaintActiveChat()
     }
     renderRooms()
   },
@@ -1214,6 +1224,11 @@ async function roomFromLocation(): Promise<boolean> {
           invitationDelegation = admission.delegate.chain
           expectedEpoch = admission.epoch
           cacheAdmission(invitation, admission)
+          // The ending to "Getting you in…". It says the waiting is over
+          // and that the next move is the reader's, which is the thing they
+          // could not tell while a line saying "in progress" sat under a
+          // button that was ready to be pressed.
+          setStatus('Invitation accepted. Go in when you are ready.', 'done')
         } finally {
           transport.close()
         }
@@ -1724,6 +1739,11 @@ function showRoomUi(): void {
   $('notify').hidden = true
   hideRoomsList()
   $('roomNav').hidden = false
+  // In a room, so the way out of it is what the nav offers; the way back
+  // into one has been taken.
+  $('backToRooms').hidden = false
+  $('backToRoom').hidden = true
+  forgetWayBack()
   renderRoomTitle()
   renderKeepChoice()
   renderArrival()
@@ -1732,6 +1752,10 @@ function showRoomUi(): void {
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
     roomInvitationCapability === undefined || invitationAuthoritySk === undefined || invitationDelegation.length !== 0
+  // The sentence about a new link goes with the button that makes one.
+  // Only the browser that opened the room has that button, so everybody
+  // else was reading about a control that was not on their page.
+  $('rotateNote').hidden = ($('rotateShare') as HTMLButtonElement).hidden
 }
 
 /** Everything that is not the conversation, revealed once there is a
@@ -1741,6 +1765,28 @@ function showRoomTools(): void {
   $('deviceControls').hidden = false
   $('roomTools').hidden = false
   openToolsForWidth()
+}
+
+/**
+ * Where the room starts on the page, published to the stylesheet.
+ *
+ * The conversation is sized against the screen it is given - the rest of
+ * the window from where the room begins - and CSS cannot work that out on
+ * its own, because the masthead above it changes height with the width, the
+ * room name and whether there is a way-back button on the nav. Guessing a
+ * constant is how a log ends up either overflowing the bottom of the window
+ * or leaving a band of nothing under the box you type in.
+ *
+ * Written only when it changes, so the observer below settles in one pass.
+ */
+let shellTop = -1
+function measureShell(): void {
+  const main = document.querySelector('main')
+  if (!main) return
+  const top = Math.round(main.getBoundingClientRect().top + window.scrollY)
+  if (top === shellTop || top < 0) return
+  shellTop = top
+  document.documentElement.style.setProperty('--shell-top', `${top}px`)
 }
 
 /**
@@ -2278,7 +2324,23 @@ function updateUi(): void {
 // Rendering
 // ---------------------------------------------------------------------------
 
+/**
+ * Which participants have said they are agents.
+ *
+ * Remembered rather than looked up live, because chat is durable and the
+ * roster is not: a message from an agent that has since left the room would
+ * otherwise lose its tag at exactly the moment there is nobody to ask. A key
+ * this room's roster has never carried is not marked, which is honest - the
+ * claim comes from the roster and from nowhere else.
+ */
+const agentParticipants = new Set<string>()
+
+function participantIsAgent(participant: string): boolean {
+  return agentParticipants.has(participant)
+}
+
 function render(views: ParticipantView[], me: string): void {
+  for (const view of views) if (view.agent) agentParticipants.add(view.participant)
   const mine = views.find((v) => v.participant === me)
 
   const micEl = $('micIndicator')
@@ -2402,6 +2464,7 @@ function render(views: ParticipantView[], me: string): void {
   }
 
   agentsRow.hidden = agentsRow.childElementCount === 0
+  renderAgentsExplain(views)
 
   // Emptying the grid above detached our own holder if it was in a tile. If
   // no tile of ours was built this time - our entry has not come back from
@@ -2409,6 +2472,53 @@ function render(views: ParticipantView[], me: string): void {
   // synchronous pass, so it is never out of the document long enough for
   // the browser to pause the picture in it.
   if (!localMediaEl.isConnected) $('local').append(localMediaEl)
+}
+
+/** Small numbers read better as words in a sentence a stranger has to take
+ *  in at a glance. Above ten the digits are clearer than the word. */
+const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
+function inWords(n: number): string {
+  return COUNT_WORDS[n] ?? String(n)
+}
+
+/**
+ * What the `agent` tag means, said next to the names carrying it.
+ *
+ * The Agents tab explains this properly, and the explanation there is a
+ * good one. But somebody handed a link has no reason to open a tab they
+ * have never heard of: they read the names, and some of those names are
+ * programs. A tag a reader cannot decode is worse than no tag at all,
+ * because it looks like a detail rather than the difference between a
+ * person and a machine - and a child reads five names as five people.
+ *
+ * So the one sentence that matters is on the main screen, with the tag
+ * itself set into it, and the tab keeps the rest.
+ */
+function renderAgentsExplain(views: ParticipantView[]): void {
+  const line = $('agentsExplain')
+  line.textContent = ''
+  const count = views.filter((v) => v.agent).length
+  line.hidden = count === 0
+  if (count === 0) return
+
+  line.append(count === 1 ? 'One of these names is marked ' : `${inWords(count)} of these names are marked `)
+  // The tag as it actually appears above, so the sentence and the thing it
+  // is about cannot be told apart.
+  const badge = document.createElement('span')
+  badge.className = 'badge agent'
+  badge.textContent = 'agent'
+  line.append(badge)
+  // Kept to four short clauses on purpose. At 375 points this is the first
+  // thing on the screen and every line of it is a line of conversation
+  // somebody does not get to see.
+  line.append(
+    count === 1 ? ': a computer program, not a person. ' : ': computer programs, not people. ',
+    'Somebody here started ',
+    count === 1 ? 'it' : 'them',
+    ', and everything ',
+    count === 1 ? 'it says' : 'they say',
+    ' is in the open for everybody to read. More on the Agents tab.',
+  )
 }
 
 /**
@@ -2509,8 +2619,10 @@ function addSystemLine(text: string): void {
   systemLines.push({ at: nowSeconds(), text })
   // An epoch can move while the session is still joining, before its chat
   // exists; the line is kept, and the first render after join shows it.
+  // Only the conversation on screen is repainted - the line belongs to the
+  // main chat and waits there for somebody standing on another tab.
   try {
-    if (session) renderChat(session.chat.messages())
+    repaintActiveChat()
   } catch {
     // Not joined yet.
   }
@@ -2980,6 +3092,28 @@ function renderChat(messages: ChatMessage[]): void {
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
 }
 
+/**
+ * Repaint whichever conversation is actually on screen.
+ *
+ * There is one log element and several conversations behind it, so anything
+ * that repaints "the chat" has to say WHICH. Three callers did not: a new
+ * message in the main chat, a profile arriving, and a system line all
+ * redrew the log with the main chat whatever tab was selected. The tab
+ * stayed lit, the words underneath it changed, and the box below carried on
+ * writing to the conversation the person could no longer see. That is the
+ * worst shape a bug can take in a room: you type into somewhere you are not
+ * looking.
+ *
+ * Reads the already-open log rather than `activeChat`, which would open a
+ * subscription as a side effect of a repaint.
+ */
+function repaintActiveChat(): void {
+  const s = session
+  if (!s) return
+  const log = currentChannel === undefined ? s.chat : channelLogs.get(currentChannel)
+  renderChat(log ? log.messages() : [])
+}
+
 // ---------------------------------------------------------------------------
 // Channels
 //
@@ -3022,8 +3156,9 @@ function selectChannel(name: string | undefined): void {
   const log = activeChat()
   renderChat(log ? log.messages() : [])
   const input = $('chatInput')
-  if (input instanceof HTMLInputElement) {
+  if (input instanceof HTMLTextAreaElement) {
     input.placeholder = name === undefined ? 'Say something' : `Say something in ${name}`
+    growComposer(input)
   }
   // Asking an agent in belongs on the tab about agents, and nowhere else.
   renderInvites()
@@ -3053,12 +3188,58 @@ function channelPurpose(name: string | undefined): string {
     )
   }
   if (name === MINUTES_CHANNEL) {
-    return (
-      'A short write-up of what a call came to: who was there, what was decided, who is doing what. ' +
-      'Type !minutes in the chat to ask for one now. Like the transcript it is one agent’s account, not proof.'
-    )
+    const base = 'A short write-up of what a call came to: who was there, what was decided, who is doing what. '
+    // The instruction is only true while something in the room answers it,
+    // and it is printed only then. Typing !minutes into a room with no
+    // scribe posted a plain message and produced nothing at all - no
+    // minutes, no refusal, no error - and a person who follows a written
+    // instruction and gets silence concludes they did it wrong.
+    return minuteTakerHere()
+      ? base + 'Type !minutes in the chat to ask for one now. Like the transcript it is one agent’s account, not proof.'
+      : base +
+          'Nothing in this room is writing them at the moment, so there is nobody to ask and nothing to type. ' +
+          'Minutes are written by an agent somebody brings in; the Agents tab says who is here and how one is asked in. ' +
+          'When one is, they would be that agent’s account, not proof.'
   }
   return `A separate conversation in this room called ${name}. Everybody here can read it.`
+}
+
+/**
+ * Whether anything in this room writes the minutes.
+ *
+ * The browser cannot ask, so it goes on what it can actually see, and both
+ * halves are evidence rather than a guess. Minutes already on the channel
+ * mean something here has written them. Otherwise: an agent that listens,
+ * running now, offered by a host that is still in the room - which is the
+ * only kind of member that writes them.
+ *
+ * When this is false the Minutes tab says so instead of printing an
+ * instruction, and a typed !minutes is answered on the spot.
+ */
+function minuteTakerHere(): boolean {
+  if ((channelCounts.get(MINUTES_CHANNEL) ?? 0) > 0) return true
+  const present = new Set(session?.participants().map((v) => v.participant) ?? [])
+  for (const [host, catalogue] of catalogues) {
+    if (!present.has(host)) continue
+    for (const running of catalogue.running) {
+      if (catalogue.agents.some((entry) => entry.id === running.id && entry.listens)) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Whether a line of chat asks for the minutes.
+ *
+ * The same rule the scribe applies - `isMinutesRequest` in
+ * src/node/scribe.ts - written again rather than imported, because that
+ * module is a Node agent and has no business in a browser bundle. Kept
+ * deliberately narrow: this only decides whether to answer a request that
+ * nothing will pick up, so a miss costs the old silence and never a wrong
+ * word about a request that was heard.
+ */
+function asksForMinutes(text: string): boolean {
+  return (text.trim().split(/\s+/)[0] ?? '').toLowerCase() === '!minutes'
 }
 
 function renderChannels(): void {
@@ -3111,6 +3292,7 @@ function renderChannels(): void {
     }
   }
   renderChannelHint()
+  renderComposer()
 
   // Creating and closing a channel is structure, so it is an admin's to do
   // and the controls are absent rather than disabled for everybody else.
@@ -3156,6 +3338,31 @@ function renderChannelHint(): void {
   hint.hidden = false
 }
 
+/** The two conversations nobody types into. Both are an agent writing
+ *  something down, and a box under them said otherwise. */
+const WRITTEN_BY_AGENTS: readonly string[] = [TRANSCRIPT_CHANNEL, MINUTES_CHANNEL]
+
+/**
+ * The box to write in, and whether this conversation has one.
+ *
+ * A record of what was said aloud, with a box under it offering to let you
+ * type into the record, undermines the one claim the tab makes about
+ * itself. So on those two the box goes and a line says where to write
+ * instead - which is also the answer to "I typed in here and nothing
+ * happened".
+ */
+function renderComposer(): void {
+  const readOnly = currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel)
+  $('chatForm').hidden = readOnly
+  const note = $('readOnlyNote')
+  note.hidden = !readOnly
+  if (!readOnly) return
+  note.textContent =
+    currentChannel === MINUTES_CHANNEL
+      ? 'Nothing is typed here. Minutes are written by an agent; the Chat tab is where you say something to the room.'
+      : 'Nothing is typed here. This is written down by an agent as people speak; the Chat tab is where you say something to the room.'
+}
+
 /** Ask the keeper to open or close one. A request, not an announcement:
  *  what the room believes is the signed list that comes back. */
 async function requestChannel(name: string, open: boolean): Promise<void> {
@@ -3166,6 +3373,155 @@ async function requestChannel(name: string, open: boolean): Promise<void> {
   } catch (err) {
     setStatus(describeError(err))
   }
+}
+
+// ---------------------------------------------------------------------------
+// When something was said
+//
+// There was no time on anything. A person reading a room they had just been
+// let into could not tell a conversation from ten minutes ago from one from
+// three weeks ago, which is the first thing anybody wants to know and the
+// thing that decides whether to expect an answer.
+//
+// The form changes with the age, because the question does. Inside the hour
+// what matters is how long ago; today, the clock; this week, which day;
+// older than that, the date. The exact moment is always on the element's
+// title for anybody who wants it.
+// ---------------------------------------------------------------------------
+
+const CLOCK = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
+const WEEKDAY = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
+const DATE_SHORT = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' })
+const DATE_YEAR = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+const DATE_FULL = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short' })
+
+const DAY_MS = 86_400_000
+
+function sameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+/** `sentAt` is the sender's own clock in seconds, so a message can arrive
+ *  dated slightly ahead of ours. Anything not yet past reads as just now
+ *  rather than as a negative age. */
+function whenWords(at: number, now: number = Date.now()): string {
+  const then = new Date(at * 1000)
+  const seconds = Math.round((now - then.getTime()) / 1000)
+  if (seconds < 45) return 'just now'
+  if (seconds < 3600) {
+    const minutes = Math.max(1, Math.round(seconds / 60))
+    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+  }
+  const today = new Date(now)
+  if (sameDay(then, today)) return CLOCK.format(then)
+  if (sameDay(then, new Date(now - DAY_MS))) return `yesterday ${CLOCK.format(then)}`
+  if (now - then.getTime() < 7 * DAY_MS) return `${WEEKDAY.format(then)} ${CLOCK.format(then)}`
+  return then.getFullYear() === today.getFullYear() ? DATE_SHORT.format(then) : DATE_YEAR.format(then)
+}
+
+function timeChip(at: number): HTMLTimeElement {
+  const el = document.createElement('time')
+  el.className = 'when'
+  const moment = new Date(at * 1000)
+  el.dateTime = moment.toISOString()
+  // Kept on the element so the once-a-minute pass can rewrite the words
+  // without the log being rebuilt.
+  el.dataset.at = String(at)
+  el.textContent = whenWords(at)
+  el.title = DATE_FULL.format(moment)
+  return el
+}
+
+/** "3 minutes ago" stops being true three minutes later. Only the words in
+ *  the time elements already on screen are rewritten; nothing else moves. */
+setInterval(() => {
+  const now = Date.now()
+  for (const el of document.querySelectorAll<HTMLTimeElement>('time.when[data-at]')) {
+    const at = Number(el.dataset.at)
+    if (Number.isFinite(at)) el.textContent = whenWords(at, now)
+  }
+}, 60_000)
+
+// ---------------------------------------------------------------------------
+// Mentions
+//
+// Saying somebody's name is how you address them, and for an agent it is
+// what decides whether it answers at all. The rule lives on the agent side
+// in `namesAgent` (src/node/brains.ts): an `@` before the name, or the name
+// on its own as a whole word, matched without regard to case, with the name
+// escaped so a name full of punctuation matches itself rather than
+// everything. What follows is the same rule read back, so what the room
+// SHOWS as a mention is exactly what an agent would ANSWER to. If the two
+// ever drift, a person reads a highlighted name and gets no reply.
+//
+// Bare names count deliberately: people were typing names here long before
+// there was an @ to type, and the picker is there to make the good path
+// easy rather than to make the old one fail.
+// ---------------------------------------------------------------------------
+
+/** The names this room knows: everybody on the roster right now. */
+function rosterNames(): string[] {
+  return (session?.participants() ?? []).map((v) => v.name?.trim() ?? '').filter((n) => n.length > 0)
+}
+
+/** What a message calls ME, so a mention of the reader can be marked as
+ *  such. Both the name I typed and the one my profile carries. */
+function myNames(): Set<string> {
+  const mine = new Set<string>()
+  const typed = joiningName()
+  if (typed) mine.add(typed.toLowerCase())
+  if (meParticipant) {
+    const shown = shownAs(meParticipant).name
+    if (shown) mine.add(shown.toLowerCase())
+  }
+  return mine
+}
+
+/** One pattern for every name in the room, longest first so "The moot"
+ *  wins over a shorter name inside it. Word boundaries by letter-or-digit
+ *  rather than \b, exactly as the agent side does them, so a name that is
+ *  not ASCII still gets the boundary it needs and a name with a space in it
+ *  still works. */
+function mentionPattern(names: string[]): RegExp | undefined {
+  const wanted = [...new Set(names)].sort((a, b) => b.length - a.length)
+  if (wanted.length === 0) return undefined
+  const alternatives = wanted.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  try {
+    return new RegExp(`(^|[^\\p{L}\\p{N}_])(@?(?:${alternatives}))(?![\\p{L}\\p{N}_])`, 'giu')
+  } catch {
+    // A name that will not compile is a name nobody gets highlighted for,
+    // which is better than a log that fails to draw.
+    return undefined
+  }
+}
+
+/**
+ * A message's words, with the names in it marked.
+ *
+ * A mention is set apart from ordinary words, and a mention of the reader
+ * is set apart again - that is the one thing a person scans a busy room
+ * for. Everything goes in through `textContent`; nothing here builds
+ * markup out of somebody else's text.
+ */
+function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | undefined, mine: Set<string>): void {
+  if (!pattern) {
+    into.append(text)
+    return
+  }
+  let at = 0
+  for (const match of text.matchAll(pattern)) {
+    const lead = match[1] ?? ''
+    const token = match[2] ?? ''
+    const start = (match.index ?? 0) + lead.length
+    if (start > at) into.append(text.slice(at, start))
+    const span = document.createElement('span')
+    span.className = 'mention'
+    if (mine.has(token.replace(/^@/, '').toLowerCase())) span.classList.add('me')
+    span.textContent = token
+    into.append(span)
+    at = start + token.length
+  }
+  if (at < text.length) into.append(text.slice(at))
 }
 
 /**
@@ -3179,14 +3535,25 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   pruneOpenedAttachments(logId, messages)
   profiles.want(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
 
+  // Built once for the whole log rather than once per message: it is one
+  // pattern over the whole roster and rebuilding it per line is the sort of
+  // thing that only shows up in a room with a thousand messages in it.
+  const mentions = mentionPattern(rosterNames())
+  const namesOfMine = myNames()
+
   // System lines sit in the log where they happened, and look like nothing
   // anybody sent: no name, no key, because nobody did.
   let nextSystem = 0
   const systemUpTo = (at: number): void => {
-    while (nextSystem < system.length && system[nextSystem]!.at <= at) {
+    // Strictly earlier, not "at or before". A line the page writes about a
+    // message - the answer to a typed !minutes - is stamped in the same
+    // second as the message itself, and `<=` put the answer above the
+    // question.
+    while (nextSystem < system.length && system[nextSystem]!.at < at) {
+      const line = system[nextSystem]!
       const p = document.createElement('p')
       p.className = 'system'
-      p.textContent = system[nextSystem]!.text
+      p.append(timeChip(line.at), line.text)
       log.append(p)
       nextSystem++
     }
@@ -3194,11 +3561,16 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
 
   for (const m of messages) {
     systemUpTo(m.sentAt)
-    const p = document.createElement('p')
-    const who = document.createElement('span')
-    who.className = 'who'
+
+    // A transcript line is not a message somebody sent: it is a note of
+    // what a microphone heard, written down by a third party. It keeps the
+    // flat, italic form, because putting it in a speech bubble would claim
+    // the speaker typed it.
     if (m.kind === 'transcript') {
+      const p = document.createElement('p')
       p.className = 'transcript'
+      const who = document.createElement('span')
+      who.className = 'who'
       if (m.speaker) {
         const speakerName = session?.participants().find((v) => v.participant === m.speaker)?.name
         who.append(identityRun(shownAs(m.speaker, speakerName), m.speaker === meParticipant))
@@ -3210,20 +3582,59 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       by.className = 'who'
       by.append(' · heard by ')
       by.append(identityRun(shownAs(m.participant, m.name), false))
-      p.append(who, m.text, by)
-    } else {
-      // The same name-and-key run the tiles use. A line of chat is exactly
-      // where a name alone would be most convincing and least checkable, so
-      // the short pubkey is here too - and the name on the message is the
-      // sender's own claim, carried with it (see ChatMessage.name).
-      who.append(identityRun(shownAs(m.participant, m.name), m.participant === meParticipant))
+      p.append(timeChip(m.sentAt), who)
+      appendWithMentions(p, m.text, mentions, namesOfMine)
+      p.append(by)
+      for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
+      log.append(p)
+      continue
+    }
+
+    const mine = m.participant === meParticipant
+    const fromAgent = participantIsAgent(m.participant)
+    const row = document.createElement('div')
+    row.className = `msg ${mine ? 'mine' : 'theirs'}${fromAgent ? ' fromAgent' : ''}`
+
+    // Who said it, above the bubble, the way every group chat does it.
+    // Left-alignment says "not you"; in a room of six it does not say WHO,
+    // and this is the same name-and-key run the tiles use - a line of chat
+    // is exactly where a name alone would be most convincing and least
+    // checkable, so the short pubkey comes with it. The name on the message
+    // is the sender's own claim, carried with it (see ChatMessage.name).
+    if (!mine) {
+      const sender = document.createElement('div')
+      sender.className = 'sender'
+      sender.append(identityRun(shownAs(m.participant, m.name), false))
+      // The tag, in the same place and the same colour as on the roster, so
+      // a bubble from a program is recognisable without reading a word.
+      if (fromAgent) {
+        const badge = document.createElement('span')
+        badge.className = 'badge agent'
+        badge.textContent = 'agent'
+        badge.title = 'This one says it is a computer helper, not a person'
+        sender.append(badge)
+      }
       // Whose agent wrote this, from the proof carried on the message and
       // verified as at its send time - see ChatMessage.owner.
-      if (m.owner) who.append(ownerRun(m.owner))
-      p.append(who, m.text)
+      if (m.owner) sender.append(ownerRun(m.owner))
+      row.append(sender)
     }
-    for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
-    log.append(p)
+
+    const bubble = document.createElement('div')
+    bubble.className = 'bubble'
+    const text = document.createElement('span')
+    text.className = 'text'
+    // textContent, never innerHTML: this is somebody else's text. The line
+    // breaks in it are kept - the box people type into makes them now - and
+    // the names in it are marked, including yours.
+    appendWithMentions(text, m.text, mentions, namesOfMine)
+    bubble.append(text)
+    for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
+    // Where every messaging app puts it: in the corner of the bubble, not
+    // in a column of its own down the side.
+    bubble.append(timeChip(m.sentAt))
+    row.append(bubble)
+    log.append(row)
   }
   systemUpTo(Number.POSITIVE_INFINITY)
   if (countId) $(countId).textContent = messages.length ? `(${messages.length})` : ''
@@ -3869,7 +4280,13 @@ async function startSession(): Promise<void> {
     const roomLabelNow = () => roomLabel({ roomId: joinedRoomId, name: roomName })
     const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel })
     s.chat.onChange((messages) => {
-      renderChat(messages)
+      // Only when the main chat is the conversation on screen. Repainting
+      // regardless put the main chat under whichever tab was selected and
+      // left the tab lit, so the page said one thing and showed another.
+      if (currentChannel === undefined) renderChat(messages)
+      // The dot on the Chat tab is how somebody standing elsewhere learns
+      // there is something to come back to.
+      renderChannels()
       noteChatRead(messages)
       notifyChat(messages)
     })
@@ -3927,6 +4344,9 @@ async function startSession(): Promise<void> {
     joinBtn.hidden = true
     $('identity').hidden = true
     $('roomArea').hidden = false
+    // "Invitation accepted. Go in when you are ready." has been acted on.
+    // A line about getting in is stale the moment you are in.
+    setStatus('')
     showRoomTools()
     renderNudgeChoice()
     // The offer starts at whatever the person has already chosen, which is
@@ -4058,6 +4478,7 @@ function showRoomsList(): void {
   // notification switch belongs on it. It is hidden only in the gap between
   // opening a link and going in, where it is one more thing in the way.
   $('notify').hidden = false
+  renderWayBack()
   const rooms = knownRooms(deviceStore)
   for (const room of rooms) watchKnownRoom(room)
   renderRooms()
@@ -4201,12 +4622,80 @@ function forgetKnownRoom(room: KnownRoom): void {
   renderRooms()
 }
 
+// ---------------------------------------------------------------------------
+// The way back
+//
+// "Your rooms" leaves the room AND takes the invitation off the address
+// bar, and the list it lands on has no link on it anywhere. For a browser
+// that made the room that is survivable; for one that was admitted on a
+// link it was the end of the session, because on that path the link IS the
+// key and there was no second copy of it on the page, in the list, or in
+// the history. One press, no warning, no way back.
+//
+// So the link is written down before it is taken off the address bar, and
+// offered on the list as a button. Session storage: it is about this visit,
+// and it must not outlive the tab that held the room.
+// ---------------------------------------------------------------------------
+
+const WAY_BACK_KEY = 'kithmoot.way-back'
+
+/** The link that opens the room this page is in, and what to call it. */
+let wayBackLink: string | undefined
+
+function rememberWayBack(): void {
+  const roomId = currentRoomId()
+  if (!roomId) return
+  try {
+    sessionStorage.setItem(
+      WAY_BACK_KEY,
+      JSON.stringify({ link: encodeRoomUrl(joinLinkBase(), relays, iceUrls), name: roomLabel({ roomId, name: roomName }) }),
+    )
+  } catch {
+    // No storage. The room may still be on the list below; there is just no
+    // button at the top of it.
+  }
+}
+
+function forgetWayBack(): void {
+  wayBackLink = undefined
+  try {
+    sessionStorage.removeItem(WAY_BACK_KEY)
+  } catch {
+    // Nothing kept, nothing to forget.
+  }
+}
+
+/** The button at the top of the list, when this tab left a room to get
+ *  here. Named after the room, so it reads as where you came from rather
+ *  than as another way in. */
+function renderWayBack(): void {
+  const button = $('backToRoom')
+  let kept: { link?: unknown; name?: unknown } | undefined
+  try {
+    const raw = sessionStorage.getItem(WAY_BACK_KEY)
+    kept = raw ? (JSON.parse(raw) as { link?: unknown; name?: unknown }) : undefined
+  } catch {
+    kept = undefined
+  }
+  wayBackLink = typeof kept?.link === 'string' ? kept.link : undefined
+  button.hidden = wayBackLink === undefined
+  if (wayBackLink === undefined) return
+  const name = typeof kept?.name === 'string' && kept.name ? kept.name : 'the room you were in'
+  button.textContent = `Back to ${name}`
+  // Already on the list, so the way to it is not the thing to offer.
+  $('backToRooms').hidden = true
+  $('roomNav').hidden = false
+}
+
 /** Back to the list: leave the room if in it, and open the app with no
  *  link on it. A reload for the same reason `leaveRoom` reloads. */
 function backToRooms(): void {
   const s = session
   session = undefined
   sessionTransport = undefined
+  // Written down BEFORE the link comes off the address bar, because after
+  // that this page no longer knows it.
+  rememberWayBack()
   s?.leave()
   history.replaceState(null, '', joinLinkBase())
   location.reload()
@@ -4393,7 +4882,29 @@ async function setNudge(on: boolean): Promise<void> {
 // Wiring
 // ---------------------------------------------------------------------------
 
+// Where the room starts, kept current. A rotation, a keyboard opening, a
+// room name wrapping onto a second line: all of them move it, and the
+// conversation is sized from it.
+measureShell()
+window.addEventListener('resize', measureShell)
+window.addEventListener('orientationchange', measureShell)
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => measureShell()).observe(document.documentElement)
+
 $('backToRooms').addEventListener('click', backToRooms)
+
+// The way back into the room this tab just left. A fragment-only change is
+// a same-document navigation and never re-runs this module, so the reload
+// is what reads the link - the same two lines `openKnownRoom` uses.
+$('backToRoom').addEventListener('click', () => {
+  const link = wayBackLink
+  if (!link) return
+  try {
+    history.replaceState(null, '', link)
+  } catch {
+    location.href = link
+  }
+  location.reload()
+})
 
 renderNotifyChoice()
 $('toggleNotify').addEventListener('click', () => {
@@ -4646,9 +5157,201 @@ $('toggleAgentsHear').addEventListener('click', () => setAgentsMayHear(!agentsMa
 // nobody should have to answer. There is one now, and the tab above it says
 // which conversation it is writing to - see `activeChat`.
 
+/**
+ * The box grows with what is written in it.
+ *
+ * It was one line that scrolled sideways, so a message longer than the box
+ * could not be read back before it was sent - and somebody who cannot
+ * re-read what they wrote sends it anyway and finds the typo afterwards.
+ * Six lines is enough for a paragraph; past that it scrolls, because a box
+ * that grows without limit eats the conversation above it.
+ */
+const COMPOSER_MAX_LINES = 6
+
+function growComposer(box: HTMLTextAreaElement): void {
+  // A hidden box measures as nothing, and writing that measurement back
+  // would leave it nothing once it is shown again.
+  if (!box.isConnected || box.offsetParent === null) return
+  box.style.height = 'auto'
+  const style = getComputedStyle(box)
+  const line = Number.parseFloat(style.lineHeight) || 20
+  const padding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0)
+  const borders = (Number.parseFloat(style.borderTopWidth) || 0) + (Number.parseFloat(style.borderBottomWidth) || 0)
+  const most = line * COMPOSER_MAX_LINES + padding + borders
+  box.style.height = `${Math.min(box.scrollHeight + borders, most)}px`
+}
+
+// ---------------------------------------------------------------------------
+// Typing somebody's name
+//
+// An `@` opens the room. It filters as you keep typing, a tap or Enter puts
+// the name in, Escape closes it. What goes into the box is the display name
+// EXACTLY as the roster spells it - not slugified, not stripped of spaces,
+// not lowercased - because the agent side matches on that string and a
+// transformed one silently never matches. "The moot" is a real name in a
+// real room and `@The moot` has to work.
+//
+// The list opens UPWARDS, above the box. Below the box on a phone is where
+// the keyboard is, and a picker behind a keyboard does not exist.
+// ---------------------------------------------------------------------------
+
+interface MentionChoice {
+  name: string
+  agent: boolean
+}
+
+/** Where the `@` being completed sits in the box, or -1 for closed. */
+let mentionAt = -1
+let mentionChoices: MentionChoice[] = []
+let mentionCursor = 0
+
+/** How much text after an `@` is still plausibly a name being typed. Names
+ *  can carry spaces, so this cannot stop at the first one; it stops when
+ *  what has been typed is longer than any name could reasonably be. */
+const MENTION_QUERY_LIMIT = 48
+
+function closeMentionPicker(): void {
+  if (mentionAt === -1) return
+  mentionAt = -1
+  mentionChoices = []
+  mentionCursor = 0
+  const box = $('mentions')
+  box.hidden = true
+  box.innerHTML = ''
+  $('chatInput').setAttribute('aria-expanded', 'false')
+}
+
+/** Everybody in the room bar yourself, people and agents alike, ordered so
+ *  that what you have typed so far leads the list. */
+function mentionCandidates(query: string): MentionChoice[] {
+  const wanted = query.trim().toLowerCase()
+  const seen = new Set<string>()
+  const all: MentionChoice[] = []
+  for (const view of session?.participants() ?? []) {
+    const name = view.name?.trim()
+    if (!name || view.participant === meParticipant) continue
+    if (seen.has(name.toLowerCase())) continue
+    seen.add(name.toLowerCase())
+    all.push({ name, agent: view.agent === true })
+  }
+  if (!wanted) return all
+  const starts = all.filter((c) => c.name.toLowerCase().startsWith(wanted))
+  const contains = all.filter((c) => !c.name.toLowerCase().startsWith(wanted) && c.name.toLowerCase().includes(wanted))
+  return [...starts, ...contains]
+}
+
+/**
+ * Decide whether an `@` is being completed right now, and draw the list.
+ *
+ * Run on every keystroke and every move of the caret. The `@` counts only
+ * at the start of a word, so an email address in the middle of a sentence
+ * does not open a picker.
+ */
+function renderMentionPicker(): void {
+  const box = $('chatInput')
+  if (!(box instanceof HTMLTextAreaElement) || !session) {
+    closeMentionPicker()
+    return
+  }
+  const caret = box.selectionStart ?? 0
+  const before = box.value.slice(0, caret)
+  const at = before.lastIndexOf('@')
+  const priorChar = at > 0 ? before[at - 1] ?? '' : ''
+  const startsWord = at === 0 || /[^\p{L}\p{N}_]/u.test(priorChar)
+  const query = at === -1 ? '' : before.slice(at + 1)
+  if (at === -1 || !startsWord || query.includes('\n') || query.length > MENTION_QUERY_LIMIT) {
+    closeMentionPicker()
+    return
+  }
+  const choices = mentionCandidates(query)
+  if (choices.length === 0) {
+    closeMentionPicker()
+    return
+  }
+  const reopened = mentionAt !== at
+  mentionAt = at
+  mentionChoices = choices
+  mentionCursor = reopened ? 0 : Math.min(mentionCursor, choices.length - 1)
+
+  const list = $('mentions')
+  list.innerHTML = ''
+  choices.forEach((choice, i) => {
+    const option = document.createElement('button')
+    option.type = 'button'
+    option.setAttribute('role', 'option')
+    option.setAttribute('aria-selected', String(i === mentionCursor))
+    const name = document.createElement('span')
+    name.className = 'name'
+    name.textContent = choice.name
+    option.append(name)
+    // The same tag in the same colour as on the roster and on the bubbles,
+    // so "this one is a program" is one idea told one way everywhere.
+    if (choice.agent) {
+      const badge = document.createElement('span')
+      badge.className = 'badge agent'
+      badge.textContent = 'agent'
+      option.append(badge)
+    }
+    // Pointer down rather than click: a tap takes focus off the box, and a
+    // box that has lost focus has no caret to insert at.
+    option.addEventListener('pointerdown', (event) => {
+      event.preventDefault()
+      chooseMention(i)
+    })
+    list.append(option)
+  })
+  list.hidden = false
+  box.setAttribute('aria-expanded', 'true')
+  list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
+}
+
+/** Put the chosen name in, spelled exactly as the roster spells it, with a
+ *  space after it so the next word is not stuck to the name. */
+function chooseMention(index: number): void {
+  const box = $('chatInput')
+  const choice = mentionChoices[index]
+  if (!(box instanceof HTMLTextAreaElement) || !choice || mentionAt === -1) return
+  const caret = box.selectionStart ?? 0
+  const inserted = `@${choice.name} `
+  box.value = box.value.slice(0, mentionAt) + inserted + box.value.slice(caret)
+  const after = mentionAt + inserted.length
+  closeMentionPicker()
+  box.focus()
+  box.setSelectionRange(after, after)
+  growComposer(box)
+}
+
+function moveMentionCursor(by: number): void {
+  if (mentionChoices.length === 0) return
+  mentionCursor = (mentionCursor + by + mentionChoices.length) % mentionChoices.length
+  const options = $('mentions').querySelectorAll('[role="option"]')
+  options.forEach((option, i) => option.setAttribute('aria-selected', String(i === mentionCursor)))
+  options[mentionCursor]?.scrollIntoView({ block: 'nearest' })
+}
+
+/**
+ * Say what will come of a typed `!minutes`, either way.
+ *
+ * The Minutes tab printed that instruction unconditionally, and in a room
+ * with no scribe in it typing the words posted a plain message and produced
+ * nothing: no minutes, no refusal, no error. Silence after following a
+ * written instruction reads as "I did it wrong", which is the worst answer
+ * a first-time reader can be given. The tab no longer prints the
+ * instruction when nothing can answer it, and this answers anybody who
+ * types it anyway - or who was told the words by somebody else.
+ */
+function acknowledgeMinutesRequest(): void {
+  addSystemLine(
+    minuteTakerHere()
+      ? 'You asked for the minutes. They appear on the Minutes tab once the agent has written them.'
+      : 'Nothing in this room writes minutes at the moment, so nobody is going to answer that. ' +
+          'Minutes are written by an agent somebody brings in, and the Agents tab says who is here.',
+  )
+}
+
 $('chatForm').addEventListener('submit', (event) => {
   event.preventDefault()
-  const input = $('chatInput') as HTMLInputElement
+  const input = $('chatInput') as HTMLTextAreaElement
   const typed = input.value.trim()
   const attachments = stagedAttachments
   if ((!typed && attachments.length === 0) || !session) return
@@ -4660,12 +5363,64 @@ $('chatForm').addEventListener('submit', (event) => {
       ? `Shared a file${attachments[0]?.name ? `: ${attachments[0].name}` : ''}`
       : `Shared ${attachments.length} files`)
   input.value = ''
+  growComposer(input)
+  closeMentionPicker()
   stagedAttachments = []
   renderStaged()
   // Into whichever conversation is on screen, which is the main chat until
   // somebody picks another.
   const log = activeChat() ?? session.chat
   log.send(text, attachments.length ? { attachments } : {}).catch((err) => setStatus(describeError(err)))
+  if (currentChannel === undefined && asksForMinutes(typed)) acknowledgeMinutesRequest()
+})
+
+// The box grows as it is typed into, and Enter sends. Shift and Enter start
+// a new line, which is the pair of habits every chat box has and the reason
+// a multi-line box costs nothing to use.
+$('chatInput').addEventListener('input', () => {
+  growComposer($('chatInput') as HTMLTextAreaElement)
+  renderMentionPicker()
+})
+// The caret can move without a keystroke - a tap, a drag, an arrow key -
+// and whether an `@` is being completed depends on where it is.
+for (const kind of ['click', 'keyup', 'select'] as const) {
+  $('chatInput').addEventListener(kind, () => renderMentionPicker())
+}
+$('chatInput').addEventListener('blur', () => closeMentionPicker())
+
+$('chatInput').addEventListener('keydown', (event) => {
+  if (!(event instanceof KeyboardEvent)) return
+  // Mid-composition in an IME, these keys belong to the IME.
+  if (event.isComposing) return
+
+  // While the picker is open it has the keys it needs, and Enter picks a
+  // name rather than sending a half-typed one.
+  if (mentionAt !== -1) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      moveMentionCursor(1)
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      moveMentionCursor(-1)
+      return
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault()
+      chooseMention(mentionCursor)
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeMentionPicker()
+      return
+    }
+  }
+
+  if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return
+  event.preventDefault()
+  ;($('chatForm') as HTMLFormElement).requestSubmit()
 })
 
 $('channelNew').addEventListener('submit', (event) => {
@@ -4726,7 +5481,11 @@ function renderStaged(): void {
     chip.append(remove)
     box.append(chip)
   })
-  $('attachToggle').textContent = stagedAttachments.length ? `Attach (${stagedAttachments.length})` : 'Attach'
+  // One name, whatever the state. The button used to be "Add a file" in the
+  // markup and "Attach" the moment anything re-rendered it, so a control a
+  // person had already found went and a different one appeared in its
+  // place. The count is the only thing that changes.
+  $('attachToggle').textContent = stagedAttachments.length ? `Add a file (${stagedAttachments.length})` : 'Add a file'
 }
 
 /**
@@ -4901,7 +5660,7 @@ async function shareDroppedFiles(files: FileList | File[] | null): Promise<void>
     }
   }
   $('attachPanel').hidden = true
-  ;($('chatInput') as HTMLInputElement).focus()
+  ;($('chatInput') as HTMLTextAreaElement).focus()
 }
 
 ;($('attachServer') as HTMLInputElement).value = blossomServer()
@@ -4970,14 +5729,14 @@ $('attachAdd').addEventListener('click', async () => {
     status.textContent = ''
     renderStaged()
     $('attachPanel').hidden = true
-    ;($('chatInput') as HTMLInputElement).focus()
+    ;($('chatInput') as HTMLTextAreaElement).focus()
   } catch (err) {
     // Shown here, not through setStatus, which also writes to the console.
     status.textContent = describeError(err)
   }
 })
 
-;($('chatInput') as HTMLInputElement).maxLength = MAX_CHAT_TEXT_LENGTH
+;($('chatInput') as HTMLTextAreaElement).maxLength = MAX_CHAT_TEXT_LENGTH
 
 // The effect controls start where the constants say they start, rather than
 // where index.html happens to say they do: BLUR_ON_BY_DEFAULT is a product
@@ -4988,10 +5747,30 @@ markSegmented('voicePresets', 'preset', DEFAULT_VOICE_PRESET)
 $('effectMode').textContent = BLUR_ON_BY_DEFAULT ? 'blur' : 'off'
 $('voiceMode').textContent = DEFAULT_VOICE_PRESET
 
+// What kind of visit this is, said before the relays are asked.
+//
+// The page used to paint the setup furniture first - a name box, "Start a
+// room", a place to paste a link - because that is what index.html said,
+// and only replace it with the invitation screen once the admission had
+// come back over a relay. On a cold arrival that is seconds of being shown
+// a console for making a room you have never heard of, followed by the page
+// changing under you.
+//
+// Nothing is replaced now. The way in is on screen from the first paint,
+// this says what the page is doing with the link, and `showRoomUi` firms
+// the same sentence up into who invited you and to what. The setup section
+// is added underneath only if there turns out to be no link at all.
+if (location.hash.length > 1) {
+  const lead = $('arrivalLead')
+  lead.textContent = 'Opening the link somebody sent you.'
+  lead.hidden = false
+}
+
 roomFromLocation()
   .then((found) => {
     if (!found) {
       // No link: the front page, with the rooms this device has been in.
+      $('setup').hidden = false
       showRoomsList()
       return
     }
@@ -5010,6 +5789,10 @@ roomFromLocation()
   })
   .catch((err) => {
     setStatus(describeError(err))
+    // The link did not open. Everything the person could do instead is in
+    // the setup section, so that is the moment to put it on screen.
+    $('arrivalLead').hidden = true
+    $('setup').hidden = false
     showRoomsList()
   })
 
