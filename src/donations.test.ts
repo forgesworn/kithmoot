@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
 import {
@@ -336,7 +336,12 @@ class SpyTransport implements RelayTransport {
   }
 }
 
-/** Lets a sweep's settling window elapse. */
+/**
+ * Lets a sweep's settling window elapse. Only for the claims that something
+ * did NOT happen: those need a window to pass, and a wait for a condition
+ * would return before the window had run. Everywhere the claim is that an
+ * answer arrived, `vi.waitFor` waits for the answer itself.
+ */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 function ledgerFixture(overrides: { address?: string; recipient?: string; body?: unknown } = {}) {
@@ -400,19 +405,19 @@ describe('the ledger', () => {
     // Nothing is known yet, and the caller was not made to wait for it.
     expect(fixture.ledger.sats(donor)).toBeUndefined()
 
-    await settle()
-    expect(fixture.ledger.sats(donor)).toBe(150_000)
-    expect(fixture.ledger.sats(otherDonor)).toBe(200)
-    // Asked about and nothing found: nought, so no ring, and no re-query.
-    expect(fixture.ledger.sats(stranger)).toBe(0)
-    expect(fixture.changes()).toBeGreaterThan(0)
+    await vi.waitFor(() => {
+      expect(fixture.ledger.sats(donor)).toBe(150_000)
+      expect(fixture.ledger.sats(otherDonor)).toBe(200)
+      // Asked about and nothing found: nought, so no ring, and no re-query.
+      expect(fixture.ledger.sats(stranger)).toBe(0)
+      expect(fixture.changes()).toBeGreaterThan(0)
+    })
   })
 
   it('never puts a participant pubkey in a relay filter', async () => {
     const fixture = ledgerFixture()
     fixture.ledger.want([donor, otherDonor, stranger])
-    await settle()
-    expect(SpyTransport.filters).toEqual([{ kinds: [9735], '#p': [recipient] }])
+    await vi.waitFor(() => expect(SpyTransport.filters).toEqual([{ kinds: [9735], '#p': [recipient] }]))
     // Said plainly, because it is the whole of the privacy claim: the only
     // key that goes to a relay is the project's own.
     const asked = JSON.stringify(SpyTransport.filters)
@@ -423,9 +428,16 @@ describe('the ledger', () => {
     const fixture = ledgerFixture()
     fixture.relay.publish(zapReceipt({ request: zapRequest(donorSk), bolt11: invoiceWith('lnbc1500u') }))
     fixture.ledger.want([donor])
-    await settle()
-    expect(SpyTransport.built).toBe(1)
-    expect(fixture.fetches()).toBe(1)
+    // `#settle` stamps everybody asked about once the sweep's window has run
+    // and redraws, so the sats being known is the sweep having finished. A
+    // baseline read mid-sweep measures nothing, and the counts below are all
+    // relative to this one.
+    await vi.waitFor(() => {
+      expect(SpyTransport.built).toBe(1)
+      expect(fixture.fetches()).toBe(1)
+      expect(fixture.ledger.sats(donor)).toBe(150_000)
+      expect(fixture.changes()).toBeGreaterThan(0)
+    })
     const subscriptions = SpyTransport.filters.length
 
     // Called again on the next render, and again with somebody who was
@@ -439,8 +451,11 @@ describe('the ledger', () => {
     // Somebody new walking in is one more sweep, and the endpoint is not
     // asked twice.
     fixture.ledger.want([otherDonor])
-    await settle()
-    expect(SpyTransport.filters.length).toBe(subscriptions + 1)
+    // Settled at nought is this sweep's own finishing line, the same way.
+    await vi.waitFor(() => {
+      expect(SpyTransport.filters.length).toBe(subscriptions + 1)
+      expect(fixture.ledger.sats(otherDonor)).toBe(0)
+    })
     expect(fixture.fetches()).toBe(1)
     expect(SpyTransport.built).toBe(1)
 
@@ -448,18 +463,17 @@ describe('the ledger', () => {
     // during a meeting shows up in the same meeting.
     fixture.advance(60_001)
     fixture.ledger.want([donor])
-    await settle()
-    expect(SpyTransport.filters.length).toBe(subscriptions + 2)
+    await vi.waitFor(() => expect(SpyTransport.filters.length).toBe(subscriptions + 2))
   })
 
   it('goes dark when the address advertises no signer', async () => {
     const fixture = ledgerFixture({ body: { allowsNostr: false } })
     fixture.relay.publish(zapReceipt({ request: zapRequest(donorSk), bolt11: invoiceWith('lnbc1500u') }))
     fixture.ledger.want([donor])
-    await settle()
+    // Nought is the settled answer, so waiting for it waits for the sweep.
+    await vi.waitFor(() => expect(fixture.ledger.sats(donor)).toBe(0))
     // Nothing was read, because there is no key to read it against.
     expect(SpyTransport.filters).toEqual([])
-    expect(fixture.ledger.sats(donor)).toBe(0)
   })
 
   it('credits nothing from a relay full of forgeries', async () => {
@@ -471,8 +485,7 @@ describe('the ledger', () => {
     fixture.relay.publish(zapReceipt({ request: { ...zapRequest(otherDonorSk), pubkey: donor }, bolt11: invoiceWith('lnbc9m') }))
     fixture.relay.publish(zapReceipt({ request: zapRequest(donorSk, { to: stranger }), to: stranger, bolt11: invoiceWith('lnbc9m') }))
     fixture.ledger.want([donor])
-    await settle()
-    expect(fixture.ledger.sats(donor)).toBe(0)
+    await vi.waitFor(() => expect(fixture.ledger.sats(donor)).toBe(0))
     expect(ringTier({ nostr: true, sats: fixture.ledger.sats(donor) })).toBeUndefined()
   })
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { RoomAgent, MINUTES_CHANNEL } from '../agent.js'
 import { MAX_CHAT_TEXT_LENGTH } from '../chat.js'
 import { SimRelay, SimTransport } from '../../test/sim-relay.js'
@@ -96,10 +96,12 @@ async function room(opts: { brain?: SummarisingBrain; callEndsAfterMs?: number; 
   }
   const say = async (n = 1) => {
     for (let i = 0; i < n; i++) {
+      const before = person.transcripts.messages().length
       feed!({ pcm: new Float32Array(16_000), sampleRate: 16_000, startedAt: 0, endedAt: 1000 })
-      await settle()
-      await wait(10)
-      await settle()
+      // The line reaching the room is the utterance having been heard. A
+      // sleep here would say only that time had passed, and on a busy machine
+      // it can outlast the quiet period and end the call it is speaking into.
+      await vi.waitFor(() => expect(person.transcripts.messages().length).toBeGreaterThan(before))
     }
   }
   const minutes = () => person.minutes.messages().map((m) => m.text)
@@ -157,7 +159,13 @@ describe('Scribe', () => {
 
   it('writes minutes once when the call ends, and not when the media merely flaps', async () => {
     const brain = new SummarisingBrain()
-    const r = await room({ brain, callEndsAfterMs: 40 })
+    // A long quiet period on purpose. The flap below has to fall inside it,
+    // and the only way to put a sleep inside a window is to make the window
+    // much larger than the worst the scheduler will stretch the sleep to. At
+    // 40ms a 15ms flap had 25ms of slack, and a machine that is also building
+    // ate it: the call really ended, minutes really were written, and the
+    // test failed for saying so.
+    const r = await room({ brain, callEndsAfterMs: 400 })
     await r.hear()
     expect(r.scribe.inCall).toBe(false)
 
@@ -186,10 +194,14 @@ describe('Scribe', () => {
     expect(r.minutes()).toHaveLength(1)
     expect(brain.prompts).toHaveLength(1)
 
-    // A call in which nothing reached the scribe leaves nothing behind.
+    // A call in which nothing reached the scribe leaves nothing behind. The
+    // wait has to outlast the quiet period, or the call has not ended yet and
+    // the silence proves nothing.
     await r.person.advertise(MIC)
     await settle()
+    expect(r.scribe.inCall).toBe(true)
     await r.person.advertise([])
+    await until(() => !r.scribe.inCall)
     await wait(100)
     expect(r.minutes()).toHaveLength(1)
     expect(r.chat().some((t) => t.startsWith('Nothing to minute'))).toBe(false)
@@ -254,7 +266,7 @@ describe('Scribe', () => {
 
     // The call ends. There was a call, and there is nothing to minute.
     await r.person.advertise([])
-    await wait(100)
+    await until(() => !r.scribe.inCall)
     expect(r.scribe.inCall).toBe(false)
     expect(r.person.transcripts.messages()).toEqual([])
     expect(r.minutes()).toEqual([])

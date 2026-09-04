@@ -902,10 +902,10 @@ describe('RoomSession presence lifetime', () => {
     await mine.join([], {})
     const afterJoin = relay.published.filter((e) => e.kind === KINDS.ROSTER).length
 
-    await new Promise((r) => setTimeout(r, 40))
-    const afterWaiting = relay.published.filter((e) => e.kind === KINDS.ROSTER).length
-
-    expect(afterWaiting).toBeGreaterThan(afterJoin)
+    await vi.waitFor(() => {
+      const afterWaiting = relay.published.filter((e) => e.kind === KINDS.ROSTER).length
+      expect(afterWaiting).toBeGreaterThan(afterJoin)
+    })
     mine.leave()
   })
 

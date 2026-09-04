@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { Peer, MAX_PENDING_CANDIDATES } from './peer.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
 import type { SignalBody } from './signal.js'
@@ -395,9 +395,11 @@ describe('Peer', () => {
       await settle()
       expect(offers(signals)).toHaveLength(1)
 
-      await wait(60)
       // Two more and then no more: a peer that never answers is the route
-      // ladder's problem, not something to be asked for ever.
+      // ladder's problem, not something to be asked for ever. The arrival is
+      // waited for; the silence after it still needs a window to elapse.
+      await vi.waitFor(() => expect(offers(signals).length).toBeGreaterThanOrEqual(3))
+      await wait(60)
       expect(offers(signals)).toHaveLength(3)
       const sdps = new Set(offers(signals).map((s) => s.sdp))
       expect(sdps.size, 'a re-sent offer must be the same offer, not a new negotiation').toBe(1)
@@ -516,8 +518,7 @@ describe('Peer', () => {
       expect(factoryImpolite.instances[0]!.calls.some((c) => c.method === 'setRemoteDescription')).toBe(false)
 
       // Now the wire works again, and the re-sent offer gets through.
-      await wait(20)
-      expect(offers(fromImpolite).length).toBeGreaterThan(1)
+      await vi.waitFor(() => expect(offers(fromImpolite).length).toBeGreaterThan(1))
       await polite.handleSignal(offers(fromImpolite)[1]!)
 
       const politePc = factoryPolite.instances[0]!
@@ -615,9 +616,7 @@ describe('Peer', () => {
       pc.onconnectionstatechange?.()
       // Not yet: most disconnections heal themselves inside the grace.
       expect(restarts(pc)).toBe(0)
-      await new Promise((r) => setTimeout(r, 20))
-
-      expect(restarts(pc)).toBe(1)
+      await vi.waitFor(() => expect(restarts(pc)).toBe(1))
       expect(pc.closed).toBe(false)
       expect(states).toEqual(['connected', 'disconnected'])
     })
@@ -628,6 +627,9 @@ describe('Peer', () => {
       pc.onconnectionstatechange?.()
       pc.connectionState = 'connected'
       pc.onconnectionstatechange?.()
+      // Twice the grace, deliberately: the claim is that no restart happens,
+      // and only an elapsed window can show that. Waiting for a condition
+      // would return at once and prove nothing.
       await new Promise((r) => setTimeout(r, 40))
 
       expect(restarts(pc)).toBe(0)
@@ -648,9 +650,7 @@ describe('Peer', () => {
       const { pc, states } = connected({ timeoutMs: 5 })
       pc.connectionState = 'failed'
       pc.onconnectionstatechange?.()
-      await new Promise((r) => setTimeout(r, 20))
-
-      expect(states).toEqual(['connected', 'failed'])
+      await vi.waitFor(() => expect(states).toEqual(['connected', 'failed']))
       expect(pc.closed).toBe(true)
       expect(restarts(pc)).toBe(1)
     })

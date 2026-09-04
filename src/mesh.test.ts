@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
 import type { MeshSession } from './mesh.js'
@@ -396,6 +396,12 @@ describe('Mesh', () => {
     mesh.close()
   })
 
+  // Flooding the guard means sealing and opening `MAX_SIGNALS_PER_WINDOW + 11`
+  // real NIP-44 signals, which is a couple of seconds of genuine cryptography
+  // rather than a wait for anything. That leaves it too close to vitest's
+  // default budget to survive a machine that is also building, so the budget
+  // is stated. It is a ceiling on real work, not cover for a race: nothing
+  // here sleeps before asserting.
   it('BUG (I5): one device cannot flood the mesh with signals', async () => {
     const session = new FakeSession()
     const factory = createFakeFactory()
@@ -429,7 +435,7 @@ describe('Mesh', () => {
     // The offer used one of the budget, so the candidates get the rest.
     expect(pc.calls.filter((c) => c.method === 'addIceCandidate')).toHaveLength(MAX_SIGNALS_PER_WINDOW - 1)
     mesh.close()
-  })
+  }, 15_000)
 
   it('two meshes wired through a shared relay actually exchange signals', async () => {
     const relay = new SimRelay()
@@ -670,9 +676,8 @@ describe('Mesh promotion to a forwarder', () => {
     await settle()
     expect(mesh.forwarding).toBe('trying')
 
-    await new Promise((resolve) => setTimeout(resolve, 40))
+    await vi.waitFor(() => expect(mesh.forwarding).toBe('failed'))
 
-    expect(mesh.forwarding).toBe('failed')
     // The forwarder's own connection is gone...
     expect(factory.instances[forwarderPcIndex()]!.closed).toBe(true)
     // ...and all four people are still reachable directly. Degraded - every
@@ -715,9 +720,7 @@ describe('Mesh promotion to a forwarder', () => {
   it('does not thrash back to a forwarder that has already failed', async () => {
     const { session, factory, mesh } = build({ uplink: TIGHT, forwarders: FORWARDERS, forwarderTimeoutMs: 20 })
     fill(session, 6)
-    await settle()
-    await new Promise((resolve) => setTimeout(resolve, 40))
-    expect(mesh.forwarding).toBe('failed')
+    await vi.waitFor(() => expect(mesh.forwarding).toBe('failed'))
 
     // Another roster change, still well over capacity. A room that retried on
     // every roster change would spend the call cycling through a forwarder
@@ -733,9 +736,7 @@ describe('Mesh promotion to a forwarder', () => {
   it('tries again when the room names a forwarder it has not already failed', async () => {
     const { session, mesh } = build({ uplink: TIGHT, forwarders: FORWARDERS, forwarderTimeoutMs: 20 })
     fill(session, 6)
-    await settle()
-    await new Promise((resolve) => setTimeout(resolve, 40))
-    expect(mesh.forwarding).toBe('failed')
+    await vi.waitFor(() => expect(mesh.forwarding).toBe('failed'))
 
     mesh.setForwarders([{ url: 'wss://other.example', pubkey: SPARE_FORWARDER }])
     await settle()

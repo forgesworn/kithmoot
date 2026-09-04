@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -136,11 +136,10 @@ describe('AgentHost', () => {
 
     // Dismissed: the process is stopped and the room told.
     await control.send(encodeControl({ op: 'dismiss', host: hostAgent.participant, agent: 'ada' }))
-    await settle()
-    await new Promise((r) => setTimeout(r, 5))
-    await settle()
-    expect(host.running()).toHaveLength(0)
-    expect(heard.some((c) => c.op === 'dismissed' && c.agent === 'ada')).toBe(true)
+    await vi.waitFor(() => {
+      expect(host.running()).toHaveLength(0)
+      expect(heard.some((c) => c.op === 'dismissed' && c.agent === 'ada')).toBe(true)
+    })
     expect(catalogues().length).toBeGreaterThanOrEqual(3)
 
     await host.stop()
@@ -233,11 +232,10 @@ describe('AgentHost', () => {
     expect(host.running()).toHaveLength(1)
 
     await other.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'dismiss', host: hostAgent.participant, agent: 'ada' }))
-    await settle()
-    await new Promise((r) => setTimeout(r, 5))
-    await settle()
-    expect(host.running()).toHaveLength(0)
-    expect(heard.some((c) => c.op === 'dismissed' && c.agent === 'ada')).toBe(true)
+    await vi.waitFor(() => {
+      expect(host.running()).toHaveLength(0)
+      expect(heard.some((c) => c.op === 'dismissed' && c.agent === 'ada')).toBe(true)
+    })
 
     // Stopping is theirs; starting is not, so they cannot put it back.
     await other.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
 import { RoomAgent } from '../agent.js'
 import { SimRelay, SimTransport } from '../../test/sim-relay.js'
@@ -114,12 +114,9 @@ describe('AgentRuntime', () => {
     expect(feed).toBeDefined()
 
     feed!({ pcm: new Float32Array(16_000), sampleRate: 16_000, startedAt: 0, endedAt: 1000 })
-    await settle()
-    await new Promise((r) => setTimeout(r, 10))
-    await settle()
+    await vi.waitFor(() => expect(heard.some((e) => e.type === 'transcript')).toBe(true))
 
     const transcript = heard.find((e) => e.type === 'transcript')
-    expect(transcript).toBeDefined()
     expect(transcript!.type === 'transcript' && transcript!.message).toMatchObject({
       kind: 'transcript',
       speaker: keeper.participant,
@@ -158,9 +155,7 @@ describe('ModelBrain', () => {
     expect(brain.prompts).toHaveLength(0)
 
     await keeper.chat.send('Ada, can you look into this?')
-    await new Promise((r) => setTimeout(r, 20))
-    await settle()
-    expect(brain.prompts).toHaveLength(1)
+    await vi.waitFor(() => expect(brain.prompts).toHaveLength(1))
     expect(brain.prompts[0]).toContain('New since your last turn')
     expect(brain.prompts[0]).toContain('Ada, can you look into this?')
     expect(keeper.chat.messages().map((m) => m.text)).toContain('On it.')
@@ -177,10 +172,10 @@ describe('ModelBrain', () => {
     const stop = await brain.start(runtime)
     keeper.chat
     await keeper.chat.send('anyone?')
-    await new Promise((r) => setTimeout(r, 20))
-    await settle()
-    expect(keeper.chat.messages().map((m) => m.text).sort()).toEqual(['anyone?', 'sure'])
-    // Its own reply must not trigger another turn.
+    await vi.waitFor(() => expect(keeper.chat.messages().map((m) => m.text).sort()).toEqual(['anyone?', 'sure']))
+    // Its own reply must not trigger another turn. A window has to elapse to
+    // show that: waiting for a condition would return on the turn already
+    // taken and say nothing about the one that must not happen.
     await new Promise((r) => setTimeout(r, 20))
     await settle()
     expect(brain.prompts).toHaveLength(1)
@@ -204,6 +199,9 @@ describe('ModelBrain', () => {
     const stopB = await bobBrain.start(bobRuntime)
     keeper.backchannel
     await adaRuntime.whisper('shall we?')
+    // A fixed window on purpose: the claim is that the two of them stop
+    // talking, and an absence of further messages only shows up in elapsed
+    // time. There is no condition to wait for when nothing more must arrive.
     for (let i = 0; i < 12; i++) {
       await new Promise((r) => setTimeout(r, 10))
       await settle()
@@ -241,15 +239,15 @@ describe('StdioBrain', () => {
 
     input.write(JSON.stringify({ op: 'say', text: 'hello from the pipe' }) + '\n')
     input.write(JSON.stringify({ op: 'roster' }) + '\n')
-    await new Promise((r) => setTimeout(r, 20))
+    const parsed = () => lines.map((l) => JSON.parse(l) as { type: string; op?: string; text?: string; participants?: unknown[] })
+    await vi.waitFor(() => {
+      expect(parsed().some((e) => e.type === 'ok' && e.op === 'say')).toBe(true)
+      expect(parsed().some((e) => e.type === 'roster' && (e.participants?.length ?? 0) >= 2)).toBe(true)
+    })
     await keeper.chat.send('hi Ada')
-    await settle()
+    await vi.waitFor(() => expect(parsed().some((e) => e.type === 'chat' && e.text === 'hi Ada')).toBe(true))
 
-    const parsed = lines.map((l) => JSON.parse(l) as { type: string; op?: string; text?: string; participants?: unknown[] })
-    expect(parsed[0]!.type).toBe('ready')
-    expect(parsed.some((e) => e.type === 'ok' && e.op === 'say')).toBe(true)
-    expect(parsed.some((e) => e.type === 'roster' && (e.participants?.length ?? 0) >= 2)).toBe(true)
-    expect(parsed.some((e) => e.type === 'chat' && e.text === 'hi Ada')).toBe(true)
+    expect(parsed()[0]!.type).toBe('ready')
     expect(keeper.chat.messages().map((m) => m.text)).toContain('hello from the pipe')
     await stop()
     await runtime.close()

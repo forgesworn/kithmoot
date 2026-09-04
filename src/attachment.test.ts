@@ -478,6 +478,10 @@ describe('encryptEnvelope on its own', () => {
     expect(() => encryptEnvelope(picture.subarray(0, 1), { name: 'x', type: 'a\u0000b' })).toThrow(/media type/)
   })
 
+  // The cap is 64 MiB, and proving a caller may raise it means encrypting a
+  // buffer that size for real. Same reasoning as the vectors above: seconds
+  // of genuine work, close enough to vitest's default to go red on a busy
+  // machine, so the budget is written down rather than left to luck.
   it('refuses an empty file, a file over the cap, and the wrong-size secrets', () => {
     expect(() => encryptEnvelope(new Uint8Array(0), { name: 'x', type: '' })).toThrow(/empty/)
     expect(() => encryptEnvelope(picture, { name: 'x', type: '' }, { maxSourceBytes: CHUNK })).toThrow(/larger than 1 MiB/)
@@ -494,7 +498,7 @@ describe('encryptEnvelope on its own', () => {
     expect(() => encryptEnvelope(picture, { name: 'x', type: '' }, { noncePrefix: new Uint8Array(12) })).toThrow(
       /nonce prefix must be 8/,
     )
-  })
+  }, 30_000)
 
   it('what it writes, the reader refuses when anybody touches it', () => {
     const sealed = encryptEnvelope(picture, { name: 'p.bin', type: '' })

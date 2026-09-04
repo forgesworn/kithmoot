@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { getPublicKey, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from './agent.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
@@ -9,6 +9,12 @@ const BASE = 'https://example.test/j/'
 const transportFor = (relay: SimRelay) => () => new SimTransport(relay)
 const FWD = { url: 'wss://relay.example', pubkey: getPublicKey(generateSecretKey()), label: 'the box' }
 
+/**
+ * Drains the queued work. The quarter-second on the end is only for the claim
+ * that no descriptor is published at all: that needs a window to pass, and
+ * nothing shorter than a real wait can show an absence. Where the claim is
+ * that a descriptor arrived, `vi.waitFor` waits for the descriptor itself.
+ */
 async function settle(): Promise<void> {
   for (let i = 0; i < 12; i++) await new Promise((r) => setTimeout(r, 0))
   await new Promise((r) => setTimeout(r, 250))
@@ -18,17 +24,17 @@ describe('a keeper publishes the forwarder descriptor', () => {
   it('at start, again for an arrival, and again under the new key after a rekey', async () => {
     const relay = new SimRelay()
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, forwarders: [FWD] })
-    await settle()
     const published = () => relay.published.filter((e) => e.kind === KINDS.DESCRIPTOR)
-    expect(published()).toHaveLength(1)
+    await vi.waitFor(() => expect(published()).toHaveLength(1))
     expect(keeper.forwarders).toEqual([FWD])
 
     // A joiner arrives after the start-time descriptor, which is ephemeral
     // and was sent to nobody: the keeper says it again, and the joiner has it.
     const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0 })
-    await settle()
-    expect(published().length).toBeGreaterThanOrEqual(2)
-    expect(ada.session.descriptor?.forwarders).toEqual([FWD])
+    await vi.waitFor(() => {
+      expect(published().length).toBeGreaterThanOrEqual(2)
+      expect(ada.session.descriptor?.forwarders).toEqual([FWD])
+    })
     expect(ada.session.descriptor?.participant).toBe(keeper.participant)
 
     // A rekey: the descriptor rides the epoch key, so it is published again
@@ -37,9 +43,8 @@ describe('a keeper publishes the forwarder descriptor', () => {
     const bob = await RoomAgent.join({ link: keeper.url, name: 'Bob', transport: transportFor(relay), announceJitterMs: 0 })
     await settle()
     await keeper.remove(bob.participant)
-    await settle()
+    await vi.waitFor(() => expect(published().length).toBeGreaterThan(before))
     const after = published()
-    expect(after.length).toBeGreaterThan(before)
     const epochId = keeper.session.epochKeys().id
     expect(after.at(-1)!.tags[0]).toEqual(['d', epochId])
     expect(epochId).not.toBe(keeper.roomId)

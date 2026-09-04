@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { RoomAgent } from './agent.js'
@@ -140,9 +140,7 @@ describe('approvals in the room', () => {
     const stop = await brain.start(runtime)
 
     input.write(JSON.stringify({ op: 'approval-request', id: 'pipe-1', text: 'Merge it?', options: ['merge', 'wait'], ttlSeconds: 60 }) + '\n')
-    await new Promise((r) => setTimeout(r, 20))
-    await settle()
-    expect(lines.map((l) => JSON.parse(l) as { type: string; op?: string; id?: string }).some((e) => e.type === 'ok' && e.op === 'approval-request' && e.id === 'pipe-1')).toBe(true)
+    await vi.waitFor(() => expect(lines.map((l) => JSON.parse(l) as { type: string; op?: string; id?: string }).some((e) => e.type === 'ok' && e.op === 'approval-request' && e.id === 'pipe-1')).toBe(true))
     await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'approval', id: 'pipe-1', verdict: 'merge' }))
     await settle()
     const events = lines.map((l) => JSON.parse(l) as Record<string, unknown>)
