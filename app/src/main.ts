@@ -1745,6 +1745,9 @@ function showRoomUi(): void {
   $('backToRoom').hidden = true
   forgetWayBack()
   renderRoomTitle()
+  // The tagline has just gone and the way back has just appeared, so where
+  // the room starts is not where it started a moment ago.
+  remeasureShell()
   renderKeepChoice()
   renderArrival()
   $('join').hidden = false
@@ -1761,6 +1764,7 @@ function showRoomUi(): void {
 /** Everything that is not the conversation, revealed once there is a
  *  conversation for it to be about. */
 function showRoomTools(): void {
+  remeasureShell()
   $('notify').hidden = false
   $('deviceControls').hidden = false
   $('roomTools').hidden = false
@@ -1787,6 +1791,22 @@ function measureShell(): void {
   if (top === shellTop || top < 0) return
   shellTop = top
   document.documentElement.style.setProperty('--shell-top', `${top}px`)
+}
+
+/**
+ * Measure AFTER the browser has laid the change out, not during it.
+ *
+ * Going into a room moves the masthead twice in one tick - the tagline
+ * goes, the way back appears - and a measurement taken in the middle of
+ * that records a number that was true for a moment. It stayed recorded,
+ * because the value only gets written when it changes, and the room was
+ * then sized against a masthead fifty points taller than the one on
+ * screen: the box to reply in sat below the fold with the section under it
+ * overlapping. Two frames is enough for style, layout and the room's own
+ * first render to have happened.
+ */
+function remeasureShell(): void {
+  requestAnimationFrame(() => requestAnimationFrame(measureShell))
 }
 
 /**
@@ -2340,6 +2360,13 @@ function participantIsAgent(participant: string): boolean {
 }
 
 function render(views: ParticipantView[], me: string): void {
+  // Cheap, and the one hook that is guaranteed to run after the room is
+  // actually on screen: one rectangle read, and it writes nothing unless
+  // the answer has changed. Two animation frames after the join turned out
+  // not to be late enough for the masthead's own style change to have
+  // landed, and a shell measured against the join screen sizes the room
+  // fifty points too short for the rest of its life.
+  measureShell()
   for (const view of views) if (view.agent) agentParticipants.add(view.participant)
   const mine = views.find((v) => v.participant === me)
 
@@ -4348,6 +4375,9 @@ async function startSession(): Promise<void> {
     // A line about getting in is stale the moment you are in.
     setStatus('')
     showRoomTools()
+    // The join screen has gone and the room is on: the last chance for the
+    // masthead to have changed height.
+    remeasureShell()
     renderNudgeChoice()
     // The offer starts at whatever the person has already chosen, which is
     // off unless they turned it on before joining.
@@ -4888,7 +4918,43 @@ async function setNudge(on: boolean): Promise<void> {
 measureShell()
 window.addEventListener('resize', measureShell)
 window.addEventListener('orientationchange', measureShell)
-if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => measureShell()).observe(document.documentElement)
+if (typeof ResizeObserver !== 'undefined') {
+  const watchShell = new ResizeObserver(() => measureShell())
+  watchShell.observe(document.documentElement)
+  // The masthead itself, because what moves the room down the page is the
+  // masthead changing height, and that is not a change in the page's own
+  // size.
+  const header = document.querySelector('header')
+  if (header) watchShell.observe(header)
+  watchShell.observe($('roomNav'))
+}
+
+/**
+ * Opening the settings drawer says so.
+ *
+ * It unfolds downwards, and it used to be the last thing on the page, so a
+ * tap on it changed nothing a person could see: the content appeared below
+ * the fold and the tap read as a miss. The tester pressed it, saw nothing
+ * move, and concluded they had hit the wrong thing. It is written higher up
+ * the document now, and this brings whatever it just revealed onto the
+ * screen when it would otherwise open out of sight.
+ *
+ * Listening for the click on the summary rather than for `toggle` on the
+ * details, because `toggle` also fires when the page opens the drawer
+ * itself on a wide screen, and nothing should scroll for that.
+ */
+$('roomToolsSummary').addEventListener('click', () => {
+  const panel = $('roomToolsPanel') as HTMLDetailsElement
+  // This runs before the element flips, so `open` is the state it is
+  // leaving. Closing needs no help finding the screen.
+  if (panel.open) return
+  // From here on the width no longer decides: the person has.
+  toolsTouched = true
+  requestAnimationFrame(() => {
+    if (panel.getBoundingClientRect().bottom <= window.innerHeight) return
+    panel.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  })
+})
 
 $('backToRooms').addEventListener('click', backToRooms)
 

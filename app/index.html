@@ -65,14 +65,19 @@
              bottom of the screen - and bounding the names and the sentence
              about them separately left the sentence sandwiched between two
              scrollbars. See `#whoIsHere` in style.css. -->
+        <!-- What the `agent` tag means, above the names carrying it. The
+             full explanation is on the Agents tab and it is a good one, but
+             a person who has just been handed a link has no reason to open
+             a tab: they read the names, and three of them were programs. So
+             the one sentence that matters is said here.
+
+             OUTSIDE the box that bounds the names, and deliberately: on a
+             phone that box scrolls, and a sentence cut off in the middle of
+             a word is worse than no sentence at all. The names can be
+             scrolled to. This cannot. Filled in by `render` in
+             app/src/main.ts. -->
+        <p id="agentsExplain" class="agentsExplain" hidden></p>
         <div id="whoIsHere">
-          <!-- What the `agent` tag means, above the names carrying it. The
-               full explanation is on the Agents tab and it is a good one,
-               but a person who has just been handed a link has no reason to
-               open a tab: they read the names, and three of them were
-               programs. So the one sentence that matters is said here.
-               Filled in by `render` in app/src/main.ts. -->
-          <p id="agentsExplain" class="agentsExplain" hidden></p>
           <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
           <div id="room"></div>
         </div>
@@ -308,53 +313,16 @@
         </div>
       </section>
 
-      <!-- Lending your connection to other people. Not folded away with the
-           settings on purpose: while it is on, this device is spending its
-           owner's internet on somebody else's call, and that is not
-           something you should have to go hunting for. -->
-      <section id="assist" hidden>
-        <div class="toggles">
-          <button id="toggleAssist" class="toggle" data-on="false" aria-pressed="false" hidden>
-            Help other people connect
-          </button>
-        </div>
-        <p id="assistIndicator" class="indicator" aria-live="polite"></p>
-        <details id="assistCost">
-          <summary>What helping costs you</summary>
-          <p class="note" id="assistCostNote"></p>
-          <p class="note">
-            Two people who cannot reach each other directly are one pair.
-            This device will help three pairs at most, and stops being asked
-            once it is full.
-          </p>
-          <p class="note warn">
-            The people you would be helping are already in the room with you.
-            You can see and hear them now, and passing their video along
-            gives you nothing you did not already have. What it does not let
-            you do is pass one person off as another: every picture and voice
-            is signed by whoever sent it, and a relabelled one is thrown out
-            at the other end.
-          </p>
-          <p class="note">
-            Turn it off whenever you like, even in the middle of a call.
-            Anybody you were helping finds another way round on their own,
-            and neither your call nor theirs stops.
-          </p>
-        </details>
-      </section>
+      <!-- Invite people, and the rest of the settings.
 
-      <!-- Notifications come from this open app and nowhere else: there is
-           no server to push from. Per device, off until asked for, and what
-           reaches the operating system is the room and the sender unless
-           the second switch says the words may go too. -->
-      <section id="notify">
-        <div class="toggles switchRow">
-          <button id="toggleNotify" class="toggle" data-on="false" aria-pressed="false">Tell me when somebody writes</button>
-          <button id="toggleNotifyText" class="toggle" data-on="false" aria-pressed="false" hidden>Include what they said</button>
-          <span id="notifyNote" class="note inline"></span>
-        </div>
-      </section>
-
+           Written here, directly under the camera buttons, rather than
+           last on the page. It was the final element, roughly four
+           screenfuls down past the media controls and a long passage
+           about lending your connection - which is a long way to travel
+           for the link that lets anybody else in at all. It is moved in
+           the document rather than with `order`, because a screen reader
+           and the tab key walk the written sequence and a divergence
+           between the two is worse than the distance was. -->
       <!-- One drawer for the rest. Closed on a phone and open beside the
            room on a wide screen, because in a sidebar it costs the
            conversation nothing. See `openToolsForWidth` in main.ts. -->
@@ -474,6 +442,54 @@
             <textarea id="diagnosticsOut" readonly hidden rows="8" aria-label="Bug report"></textarea>
           </details>
         </details>
+      </section>
+
+
+      <!-- Lending your connection to other people. Not folded away with the
+           settings on purpose: while it is on, this device is spending its
+           owner's internet on somebody else's call, and that is not
+           something you should have to go hunting for. -->
+      <section id="assist" hidden>
+        <div class="toggles">
+          <button id="toggleAssist" class="toggle" data-on="false" aria-pressed="false" hidden>
+            Help other people connect
+          </button>
+        </div>
+        <p id="assistIndicator" class="indicator" aria-live="polite"></p>
+        <details id="assistCost">
+          <summary>What helping costs you</summary>
+          <p class="note" id="assistCostNote"></p>
+          <p class="note">
+            Two people who cannot reach each other directly are one pair.
+            This device will help three pairs at most, and stops being asked
+            once it is full.
+          </p>
+          <p class="note warn">
+            The people you would be helping are already in the room with you.
+            You can see and hear them now, and passing their video along
+            gives you nothing you did not already have. What it does not let
+            you do is pass one person off as another: every picture and voice
+            is signed by whoever sent it, and a relabelled one is thrown out
+            at the other end.
+          </p>
+          <p class="note">
+            Turn it off whenever you like, even in the middle of a call.
+            Anybody you were helping finds another way round on their own,
+            and neither your call nor theirs stops.
+          </p>
+        </details>
+      </section>
+
+      <!-- Notifications come from this open app and nowhere else: there is
+           no server to push from. Per device, off until asked for, and what
+           reaches the operating system is the room and the sender unless
+           the second switch says the words may go too. -->
+      <section id="notify">
+        <div class="toggles switchRow">
+          <button id="toggleNotify" class="toggle" data-on="false" aria-pressed="false">Tell me when somebody writes</button>
+          <button id="toggleNotifyText" class="toggle" data-on="false" aria-pressed="false" hidden>Include what they said</button>
+          <span id="notifyNote" class="note inline"></span>
+        </div>
       </section>
 
       <!-- Where a picture waits while it is off screen. Off the room's
