@@ -219,9 +219,20 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-function setStatus(message: string): void {
-  $('status').textContent = message
-  if (message) console.error(message)
+/**
+ * The one line the page uses to say something went wrong, or that something
+ * is happening.
+ *
+ * It is painted in the danger colour, which is right for a failure and
+ * wrong for "hold on". A person following a link met "Opening the private
+ * room…" in red before they had done anything, and red on a first screen
+ * says you have broken it. So a message can say which of the two it is.
+ */
+function setStatus(message: string, tone: 'problem' | 'progress' = 'problem'): void {
+  const el = $('status')
+  el.textContent = message
+  el.classList.toggle('progress', tone === 'progress')
+  if (message && tone === 'problem') console.error(message)
 }
 
 // ---------------------------------------------------------------------------
@@ -749,8 +760,8 @@ function renderKeepChoice(): void {
   setToggle('toggleKeep', on)
   $('toggleKeep').setAttribute('aria-pressed', String(on))
   $('keepNote').textContent = on
-    ? 'On: this device keeps the room\u2019s key for twelve hours from each visit, so the rooms list and notifications can read it with no tab open here. Forgetting the room removes it.'
-    : 'Off: this device holds the room\u2019s key only while a tab is open on it. Until then the rooms list cannot read this room, and nothing here notifies for it.'
+    ? 'On: this device keeps the room\u2019s key for twelve hours after each visit, so your rooms list can check for new messages and tell you about them with no tab open. Forgetting the room throws the key away.'
+    : 'Off: this device only holds the room\u2019s key while a tab is open on it. Until you switch this on, your rooms list cannot check this room and nothing will tell you about it.'
 }
 
 function stopInvitationHost(): void {
@@ -790,7 +801,7 @@ function serveCurrentInvitation(): void {
         invitationDelegation = []
         const rotate = document.getElementById('rotateShare') as HTMLButtonElement | null
         if (rotate) rotate.hidden = true
-        setStatus('This invitation was retired by its creator. The live room is unchanged.')
+        setStatus('Whoever made this link has replaced it, so it no longer lets anybody new in. The room itself carries on as it was.')
       },
     })
   } catch {
@@ -816,7 +827,7 @@ window.addEventListener('storage', (event) => {
   invitationAuthoritySk = undefined
   const rotate = document.getElementById('rotateShare') as HTMLButtonElement | null
   if (rotate) rotate.hidden = true
-  setStatus('This copy of the invitation was retired in another tab. The live room is unchanged.')
+  setStatus('This link was replaced in another tab, so it no longer lets anybody new in. The room itself carries on as it was.')
 })
 
 let session: RoomSession | undefined
@@ -1006,8 +1017,8 @@ function ownerRun(owner: { principal: string; label?: string }): DocumentFragmen
   const run = document.createDocumentFragment()
   const of = document.createElement('span')
   of.className = 'ownerOf'
-  of.textContent = ' agent of '
-  of.title = owner.label ? `Its principal calls it ${owner.label}. Signed by the principal's key.` : "Signed by the principal's key."
+  of.textContent = ' works for '
+  of.title = owner.label ? `The person it works for calls it ${owner.label}, and signed to say so.` : 'The person it works for signed to say so.'
   run.append(of)
   const principalName = session?.participants().find((v) => v.participant === owner.principal)?.name
   run.append(identityRun(shownAs(owner.principal, principalName), owner.principal === meParticipant))
@@ -1031,7 +1042,16 @@ function renderIdentity(): void {
   const name = joiningName()
   const participant = currentParticipant()
 
-  line.append('Joining as ')
+  // Nothing to say until there is a name or a key to say it about. An
+  // identity line that reads "nobody in particular yet" is two lines of the
+  // entry screen spent telling somebody what they already know.
+  line.hidden = name === undefined && participant === undefined
+  if (line.hidden) {
+    renderNudgeChoice()
+    return
+  }
+
+  line.append('Going in as ')
 
   if (participant) {
     line.append(identityRun(shownAs(participant, name), false))
@@ -1051,14 +1071,14 @@ function renderIdentity(): void {
   const how = document.createElement('span')
   how.className = 'note inline'
   if (loadCredential()) {
-    how.textContent = 'This device is paired to another of yours, so it joins as that person.'
+    how.textContent = 'This device has been paired with another one of yours, so it goes in as the same person.'
   } else if (nostrSession) {
-    how.textContent = 'Signed in with Nostr. Your key stays in your signer; this page never holds it.'
+    how.textContent = 'Signed in with Nostr. Your key stays where it is kept; this page never holds it.'
   } else if (participant) {
-    how.textContent = 'A name only. Anyone can type any name, so the key beside it is what identifies you.'
+    how.textContent = 'A name only. Anybody can type any name, so the short code beside it is the part that says which one is you.'
   } else {
     how.textContent =
-      'A name only. You get a key of your own the first time you join, and it shows here beside the name.'
+      'A name only. Your device makes a code of its own the first time you go in, and it will show here beside your name.'
   }
   line.append(how)
   renderNudgeChoice()
@@ -1185,7 +1205,7 @@ async function roomFromLocation(): Promise<boolean> {
         cacheAdmission(invitation, cached)
         serveCurrentInvitation()
       } else {
-        setStatus('Opening the private room…')
+        setStatus('Getting you in…', 'progress')
         const transport = new NostrRelayPool(relays)
         try {
           const admission = await requestRoomAdmissionCapability({ transport, invitation })
@@ -1194,7 +1214,6 @@ async function roomFromLocation(): Promise<boolean> {
           invitationDelegation = admission.delegate.chain
           expectedEpoch = admission.epoch
           cacheAdmission(invitation, admission)
-          setStatus('Invitation accepted. No account was needed.')
         } finally {
           transport.close()
         }
@@ -1496,11 +1515,11 @@ function nameOfDevice(device: string): string {
 function costSentence(): string {
   const perPair = costPerPairBps()
   if (perPair <= 0) {
-    return 'Nothing has been measured yet. Once there is media moving, this says what a pair would cost in real numbers rather than in typical ones.'
+    return 'Nothing has been measured yet. Once there is video or sound moving, this will say what helping one pair really costs, instead of guessing.'
   }
   return (
-    `About ${bitrate(perPair)} of your upload for each pair you carry, and the same again coming in. ` +
-    `Three pairs at full stretch is about ${bitrate(perPair * MAX_ASSISTED_PAIRS)} up.`
+    `About ${bitrate(perPair)} of what you send, for each pair you help, and the same again coming in. ` +
+    `Three pairs at full stretch is about ${bitrate(perPair * MAX_ASSISTED_PAIRS)} going out.`
   )
 }
 
@@ -1509,9 +1528,9 @@ function costSentence(): string {
 function blockSentence(block: AssistBlock): string {
   switch (block) {
     case 'no-relay-support':
-      return 'This browser cannot pass on encoded video without decoding it first, so it cannot carry anybody. Chrome and Edge can. Safari and Firefox have the API but have not been shown to move a frame through it.'
+      return 'This browser cannot pass video on without unpacking it first, so it cannot help anybody. Chrome and Edge can. Safari and Firefox look like they can but have never actually managed it.'
     case 'not-publicly-reachable':
-      return 'Nobody behind a home router could reach this device directly, measured from the addresses it gathered. An offer would point at a path that does not exist.'
+      return 'Other people cannot reach this device directly through your router, going by the addresses it found. Offering to help would point them at a way in that is not there.'
     case 'no-spare-uplink':
       return uplink.measured()
         ? 'Your connection has nothing left over once your own call is paid for.'
@@ -1519,11 +1538,11 @@ function blockSentence(block: AssistBlock): string {
     case 'mobile':
       return formFactor() === undefined
         ? 'This browser will not say whether it is a phone. If it is, leave this off.'
-        : 'This is a phone. Carrying somebody costs it battery and radio for as long as they need it.'
+        : 'This is a phone. Helping somebody uses its battery and its signal for as long as they need it.'
     case 'on-battery':
-      return 'Running on battery. Carrying somebody is sustained upload and CPU, and it will show.'
+      return 'Running on battery. Helping somebody means sending steadily and working hard, and you will notice.'
     case 'metered':
-      return 'This connection is metered, or you have asked for data saving. Somebody is paying by the byte.'
+      return 'This connection is one you pay for by the amount used, or you have asked to save data. Somebody is paying for every byte.'
   }
 }
 
@@ -1549,7 +1568,7 @@ function renderAssist(): void {
     button.hidden = true
     $('assistCost').hidden = true
     indicator.textContent =
-      'Not offered on a phone on mobile data. Carrying somebody would spend your allowance and your battery on their call.'
+      'Not offered on a phone using mobile data. Helping somebody would spend your data and your battery on their call.'
     indicator.classList.remove('mine')
     return
   }
@@ -1574,7 +1593,7 @@ function renderAssist(): void {
   if (!assistEnabled) {
     indicator.textContent = soft.length
       ? soft.map(blockSentence).join(' ')
-      : `Your connection has room to carry other people through it. ${costSentence()}`
+      : `Your connection has room to spare, so it could help other people get through. ${costSentence()}`
     indicator.classList.remove('mine')
     return
   }
@@ -1582,8 +1601,8 @@ function renderAssist(): void {
   const pairs = peerRelay.pairs
   if (pairs.length === 0) {
     indicator.textContent = soft.length
-      ? `Offering to carry. Nobody has needed it yet. ${soft.map(blockSentence).join(' ')}`
-      : 'Offering to carry. Nobody has needed it yet.'
+      ? `Offering to help. Nobody has needed it yet. ${soft.map(blockSentence).join(' ')}`
+      : 'Offering to help. Nobody has needed it yet.'
     indicator.classList.remove('mine')
     return
   }
@@ -1593,8 +1612,8 @@ function renderAssist(): void {
   const carried = pairs.map((pair) => `${nameOfDevice(pair.a)} and ${nameOfDevice(pair.b)}`).join(', ')
   const stats = peerRelay.stats
   indicator.textContent =
-    `Carrying ${pairs.length} of ${peerRelay.max}: ${carried}. ` +
-    `About ${bitrate(costPerPairBps() * pairs.length)} up, ${quantity(stats.bytesOut)} passed on so far.`
+    `Helping ${pairs.length} of ${peerRelay.max}: ${carried}. ` +
+    `About ${bitrate(costPerPairBps() * pairs.length)} going out, ${quantity(stats.bytesOut)} passed on so far.`
   indicator.classList.add('mine')
 }
 
@@ -1669,7 +1688,14 @@ async function toggleAssist(): Promise<void> {
   renderAssist()
 }
 
+/** Whether this browser is the one that opened this room, as opposed to
+ *  one that followed a link into it. A joiner is handed a delegated key of
+ *  its own, so the presence of a key says nothing about which of the two
+ *  you are; only having been here when the room was made does. */
+let startedHere = false
+
 function startNewRoom(): void {
+  startedHere = true
   roomSecret = generateRoomSecret()
   const created = createRoomInvitation()
   roomInvitationCapability = created.invitation
@@ -1684,19 +1710,70 @@ function startNewRoom(): void {
   rememberCurrentRoom()
 }
 
+/**
+ * The door, and only the door.
+ *
+ * A person handed a link came to read what was said and to say something
+ * back. Everything used to set a room UP - the camera, the share link, the
+ * pairing pass, the notification switch - waits behind `showRoomTools()`
+ * until they are actually inside, because until then none of it has
+ * anything to be about. What is left is a name and a way in.
+ */
 function showRoomUi(): void {
   $('setup').hidden = true
+  $('notify').hidden = true
   hideRoomsList()
   $('roomNav').hidden = false
   renderRoomTitle()
   renderKeepChoice()
-  $('deviceControls').hidden = false
+  renderArrival()
   $('join').hidden = false
-  $('links').hidden = false
   ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
     roomInvitationCapability === undefined || invitationAuthoritySk === undefined || invitationDelegation.length !== 0
+}
+
+/** Everything that is not the conversation, revealed once there is a
+ *  conversation for it to be about. */
+function showRoomTools(): void {
+  $('notify').hidden = false
+  $('deviceControls').hidden = false
+  $('roomTools').hidden = false
+  openToolsForWidth()
+}
+
+/**
+ * The drawer starts open on a wide screen and closed on a phone.
+ *
+ * On a wide screen it lives in the second column beside the room, so being
+ * open costs the conversation nothing and saves a click. In one column it
+ * would push the chat down the page, which is the whole thing this rewrite
+ * was for. Once somebody opens or closes it themselves that is their
+ * choice, and this stops adjusting it.
+ */
+let toolsTouched = false
+function openToolsForWidth(): void {
+  if (toolsTouched) return
+  const panel = $('roomToolsPanel') as HTMLDetailsElement
+  panel.open = window.matchMedia('(min-width: 1100px)').matches
+}
+
+/** Who invited you, and to what, in the one sentence somebody needs before
+ *  they type their name in. A room you started yourself says so instead:
+ *  "you have been invited" is not true of your own room. */
+function renderArrival(): void {
+  const lead = $('arrivalLead')
+  const roomId = currentRoomId()
+  if (!roomId) {
+    lead.hidden = true
+    return
+  }
+  const named = roomName ? `“${roomName}”` : 'a room'
+  lead.textContent = startedHere
+    ? `Your room ${named} is ready. Put a name in and go in, then send people the link.`
+    : `You have been invited to ${named}. Put in a name and go in.`
+  lead.hidden = false
 }
 
 /** What this room is called, and enough of its id to tell it from another
@@ -1725,7 +1802,7 @@ function copyInput(id: string): void {
     document.execCommand('copy')
   })
   if (id === 'shareUrl') {
-    setStatus('Room link copied. Anyone it is forwarded to can enter until you rotate it.')
+    setStatus('Link copied. Anybody it gets passed on to can come in, until you make a new one.')
   }
 }
 
@@ -1741,7 +1818,7 @@ async function shareRoomLink(): Promise<void> {
       text: 'Join this private KithMoot room. Anyone forwarded this link can enter while it is current.',
       url,
     })
-    setStatus('Room invitation shared.')
+    setStatus('Link shared.')
   } catch (err) {
     // Closing the platform share sheet is a choice, not an error.
     if (!(err instanceof DOMException && err.name === 'AbortError')) throw err
@@ -2136,7 +2213,7 @@ function setAgentsMayHear(on: boolean): void {
   }
   setToggle('toggleAgentsHear', on)
   $('agentsHearNote').textContent = on
-    ? 'On: agents receive your camera and microphone like anybody else, and a listening one writes what you say into the transcript.'
+    ? 'On: agents get your camera and microphone like anybody else does, and one that is listening writes what you say into the transcript.'
     : 'Off: nothing that says it is an agent is sent your camera or microphone. It never leaves this device for them.'
   publishActiveTracks()
 }
@@ -2242,7 +2319,7 @@ function render(views: ParticipantView[], me: string): void {
       const badge = document.createElement('span')
       badge.className = 'badge agent'
       badge.textContent = 'agent'
-      badge.title = 'This participant says it is an automated agent'
+      badge.title = 'This one says it is a computer helper, not a person'
       chip.append(badge)
       if (view.owner) chip.append(ownerRun(view.owner))
       agentsRow.append(chip)
@@ -2267,7 +2344,13 @@ function render(views: ParticipantView[], me: string): void {
     // The picture comes with the identity run now, ringed by what this
     // person has put in - see `pictureOf`.
     heading.append(identityRun(shown, view.participant === me))
-    heading.append(` · ${view.devices.length} device${view.devices.length === 1 ? '' : 's'}`)
+    // In its own element so a tile with no picture in it can drop the
+    // device count and stay one line wide. See `#room .participant` in
+    // style.css for why that matters more than it sounds like it does.
+    const devices = document.createElement('span')
+    devices.className = 'devices'
+    devices.textContent = ` · ${view.devices.length} device${view.devices.length === 1 ? '' : 's'}`
+    heading.append(devices)
     if (view.devices.length > 1) {
       const badge = document.createElement('span')
       badge.className = 'badge'
@@ -2400,6 +2483,9 @@ let currentChannel: string | undefined
 /** Channels this client has already opened a log for, so switching back to
  *  one does not resubscribe. */
 const channelLogs = new Map<string, ReturnType<NonNullable<typeof session>['channel']>>()
+/** How much has been said in each one, so a tab can show that there is
+ *  something behind it without being opened first. */
+const channelCounts = new Map<string, number>()
 /** The keeper's own participant, from its announcement. Not somebody an
  *  admin can remove: removing the keeper is closing the room. */
 let keeperParticipant: string | undefined
@@ -2597,7 +2683,7 @@ function renderHost(): void {
     if (view.participant === keeperParticipant) {
       const note = document.createElement('span')
       note.className = 'note'
-      note.textContent = 'the keeper'
+      note.textContent = 'looks after this room'
       row.append(note)
       list.append(row)
       continue
@@ -2605,7 +2691,7 @@ function renderHost(): void {
     const mute = document.createElement('button')
     mute.type = 'button'
     mute.textContent = 'Mute'
-    mute.title = 'Ask their client to turn its camera and microphone off. A request; nothing can force it.'
+    mute.title = 'Ask their app to switch their camera and microphone off. It is a request, and nothing here can make them.'
     mute.addEventListener('click', () => sendHostControl({ op: 'mute', participant: view.participant }, `Asked ${label} to mute.`))
     const remove = document.createElement('button')
     remove.type = 'button'
@@ -2726,10 +2812,24 @@ function ingestControl(messages: ChatMessage[]): void {
 
 /** Which hosts are actually here. A catalogue from a host that has left is
  *  a menu for a kitchen that has closed. */
+/**
+ * How an agent gets into a room.
+ *
+ * This used to be hidden entirely whenever no computer in the room was
+ * offering one, so somebody looking for "how do I invite an agent" found an
+ * empty space and concluded the feature did not exist. An empty list with a
+ * sentence saying why it is empty answers the question; no list at all
+ * answers nothing. It lives on the Agents tab, which is where somebody
+ * thinking about agents already is.
+ */
 function renderInvites(): void {
   const box = $('inviteAgents')
   const list = $('inviteList')
   list.innerHTML = ''
+  if (currentChannel !== AGENT_CHANNEL || !session) {
+    box.hidden = true
+    return
+  }
   const present = new Set(session?.participants().map((v) => v.participant) ?? [])
   let rows = 0
   for (const [host, catalogue] of catalogues) {
@@ -2767,7 +2867,15 @@ function renderInvites(): void {
       rows++
     }
   }
-  box.hidden = rows === 0
+  if (rows === 0) {
+    const none = document.createElement('p')
+    none.className = 'note'
+    none.textContent =
+      'Nobody here is offering one at the moment. An agent runs on somebody’s own computer, ' +
+      'so one can only be asked in while that person has their agent host running and is in this room.'
+    list.append(none)
+  }
+  box.hidden = false
 }
 
 // ---------------------------------------------------------------------------
@@ -2865,7 +2973,11 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
 }
 
 function renderChat(messages: ChatMessage[]): void {
-  renderLog('chatLog', undefined, messages, systemLines)
+  // Minutes are written in paragraphs with their line breaks doing the
+  // structural work, so the one log has to know which conversation it is
+  // showing. See `#chatLog.minutes` in style.css.
+  $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
+  renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
 }
 
 // ---------------------------------------------------------------------------
@@ -2891,10 +3003,13 @@ function activeChat(): NonNullable<typeof session>['chat'] | undefined {
   if (currentChannel === undefined) return s.chat
   let log = channelLogs.get(currentChannel)
   if (!log) {
-    log = s.channel(currentChannel)
-    channelLogs.set(currentChannel, log)
+    const name = currentChannel
+    log = s.channel(name)
+    channelLogs.set(name, log)
     log.onChange((messages) => {
-      if (currentChannel !== undefined && channelLogs.get(currentChannel) === log) renderChat(messages)
+      channelCounts.set(name, messages.length)
+      if (currentChannel === name) renderChat(messages)
+      renderChannels()
     })
   }
   return log
@@ -2910,29 +3025,67 @@ function selectChannel(name: string | undefined): void {
   if (input instanceof HTMLInputElement) {
     input.placeholder = name === undefined ? 'Say something' : `Say something in ${name}`
   }
+  // Asking an agent in belongs on the tab about agents, and nowhere else.
+  renderInvites()
+}
+
+/**
+ * What each tab is for, in words that do not assume you already know.
+ *
+ * Every one of these used to be a paragraph inside a collapsed panel below
+ * the chat, which is to say nobody read them. One sentence, on the tab it
+ * is about, is worth four paragraphs nobody opens.
+ */
+function channelPurpose(name: string | undefined): string {
+  if (name === undefined) return 'Everybody in this room can read this, and can write here too.'
+  if (name === AGENT_CHANNEL) {
+    return (
+      'Agents are computer helpers that come into a room like people do. ' +
+      'This is what they say to each other, and everybody here can read it: ' +
+      'a helper working for you does not get a private conversation you cannot see. You can join in.'
+    )
+  }
+  if (name === TRANSCRIPT_CHANNEL) {
+    return (
+      'If an agent was allowed to listen, what people said out loud is written down here. ' +
+      'Nothing appears from anybody who has “Let agents hear me” switched off, and who said what is ' +
+      'what the agent reckons, not proof.'
+    )
+  }
+  if (name === MINUTES_CHANNEL) {
+    return (
+      'A short write-up of what a call came to: who was there, what was decided, who is doing what. ' +
+      'Type !minutes in the chat to ask for one now. Like the transcript it is one agent’s account, not proof.'
+    )
+  }
+  return `A separate conversation in this room called ${name}. Everybody here can read it.`
 }
 
 function renderChannels(): void {
   const bar = $('channelBar')
   const s = session
-  // Reserved channels every room has, whether or not a keeper announced
-  // them. `agents` is where agents talk among themselves, and a principal
-  // being able to read it is the whole reason it exists, so it is a tab
-  // beside the conversation rather than something you have to know about.
+  // Reserved conversations every room has, whether or not a keeper has
+  // announced them. `agents` is where agents talk among themselves, and a
+  // person being able to read that is the whole reason it exists.
   //
-  // Deliberately not filtered by whether anything has been said there yet:
-  // an empty tab tells you the place exists and that nothing is being said
-  // out of your sight, which is the question it answers.
-  const reserved: Array<[string, string]> = [['agents', 'Agents']]
-  for (const name of ['transcript', 'minutes']) {
+  // These stay on the bar when they are empty, and the reason is not the
+  // obvious one. An always-present tab answers a question only its absence
+  // could raise - "is something being said out of my sight?" - and a tab
+  // that vanishes when quiet can never answer it. But an empty tab that
+  // says nothing about itself reads as broken, which is worse for a first-
+  // time reader than never seeing it. So: always there, and never silent
+  // about what it is. `channelPurpose` says what the place is for and
+  // `renderChannelHint` says out loud when nothing has been said in it yet.
+  const reserved: Array<[string, string]> = [[AGENT_CHANNEL, 'Agents']]
+  for (const name of [TRANSCRIPT_CHANNEL, MINUTES_CHANNEL]) {
     if (channels.includes(name)) continue
-    if (name === 'minutes' || name === 'transcript') reserved.push([name, name === 'minutes' ? 'Minutes' : 'Transcript'])
+    reserved.push([name, name === MINUTES_CHANNEL ? 'Minutes' : 'Transcript'])
   }
   const named = channels.filter((c) => !reserved.some(([n]) => n === c))
-  const tabs: Array<[string | undefined, string]> = [[undefined, 'Main'], ...reserved, ...named.map((c) => [c, c] as [string, string])]
+  const tabs: Array<[string | undefined, string]> = [[undefined, 'Chat'], ...reserved, ...named.map((c) => [c, c] as [string, string])]
 
   // The bar is worth showing whenever there is somewhere else to go, which
-  // with the reserved channels is always, in a room that has a session.
+  // with the reserved conversations is always, in a room that has a session.
   bar.hidden = !s
   bar.innerHTML = ''
   if (!bar.hidden) {
@@ -2940,12 +3093,24 @@ function renderChannels(): void {
       const tab = document.createElement('button')
       tab.type = 'button'
       tab.setAttribute('role', 'tab')
-      tab.setAttribute('aria-selected', String(currentChannel === name))
-      tab.textContent = label
+      const on = currentChannel === name
+      tab.setAttribute('aria-selected', String(on))
+      tab.append(label)
+      // A dot on a tab that has something behind it. Nothing on one that
+      // does not, so an eye landing on this bar for the first time goes to
+      // the places where somebody has actually said something.
+      const said = name === undefined ? (session?.chat.messages().length ?? 0) : (channelCounts.get(name) ?? 0)
+      if (said > 0) {
+        const dot = document.createElement('span')
+        dot.className = 'tabDot'
+        dot.setAttribute('aria-label', 'has messages')
+        tab.append(dot)
+      }
       tab.addEventListener('click', () => selectChannel(name))
       bar.append(tab)
     }
   }
+  renderChannelHint()
 
   // Creating and closing a channel is structure, so it is an admin's to do
   // and the controls are absent rather than disabled for everybody else.
@@ -2963,6 +3128,32 @@ function renderChannels(): void {
   const close = $('channelClose')
   close.hidden = !isAdmin || currentChannel === undefined
   if (!close.hidden && close.dataset.arm !== currentChannel) close.textContent = `Close ${currentChannel}`
+}
+
+/**
+ * The line under the tabs: what this conversation is for, and whether
+ * anything has been said in it.
+ *
+ * "Nothing here yet" is the sentence that makes an always-present tab
+ * honest. Without it an empty Agents tab looks like something that failed
+ * to load, and a person who has never used the app has no way to tell the
+ * difference between "quiet" and "broken".
+ */
+function renderChannelHint(): void {
+  const hint = $('channelHint')
+  if (!session) {
+    hint.textContent = ''
+    hint.hidden = true
+    return
+  }
+  const name = currentChannel
+  const said = name === undefined ? session.chat.messages().length : (channelCounts.get(name) ?? 0)
+  const empty =
+    name === undefined
+      ? ' Nobody has said anything yet. Go on, you can be first.'
+      : ' Nothing has been said here yet.'
+  hint.textContent = channelPurpose(name) + (said === 0 ? empty : '')
+  hint.hidden = false
 }
 
 /** Ask the keeper to open or close one. A request, not an announcement:
@@ -3109,16 +3300,16 @@ function verifyChip(view: ParticipantView, name: string): HTMLElement {
   chip.classList.add(seen.status)
 
   if (seen.status === 'verified') {
-    chip.textContent = 'verified'
-    chip.title = `You verified this key on ${new Date((seen.verifiedAt ?? 0) * 1000).toLocaleDateString()}`
+    chip.textContent = 'checked'
+    chip.title = `You checked this was really them on ${new Date((seen.verifiedAt ?? 0) * 1000).toLocaleDateString()}`
   } else if (seen.status === 'key-changed') {
-    chip.textContent = 'key changed'
+    chip.textContent = 'code changed'
     chip.title =
-      `You verified a DIFFERENT key under this name (${short(seen.expected ?? '')}). ` +
-      'Either they are on a new device or key, or this is not them. Check before you trust it.'
+      `Last time, this name had a DIFFERENT code (${short(seen.expected ?? '')}). ` +
+      'Either they have a new device, or this is somebody else. Check before you trust it.'
   } else {
-    chip.textContent = 'not verified'
-    chip.title = 'You have not checked this key against the person. Click to see the words to say.'
+    chip.textContent = 'not checked'
+    chip.title = 'You have not checked yet that this is really them. Tap to see the words to say out loud.'
   }
 
   chip.addEventListener('click', () => showVerification(view, name, seen.status))
@@ -3685,32 +3876,32 @@ async function startSession(): Promise<void> {
     renderChat(s.chat.messages())
     noteChatRead(s.chat.messages())
     notifyChat(s.chat.messages())
-    // The side channels: what the agents say to each other, and what a
-    // listening agent heard. Opened now rather than on demand, because a
-    // relay replays a durable kind to a subscriber but a person opening
-    // the panel an hour in should not have to wait for that.
-    const agents = s.channel(AGENT_CHANNEL)
-    const notifyAgents = notifier.follow({ roomId: joinedRoomId, channel: 'agents', room: roomLabelNow, sender: senderLabel })
-    agents.onChange((messages) => {
-      renderLog('agentLog', 'agentsCount', messages)
-      notifyAgents(messages)
-    })
-    renderLog('agentLog', 'agentsCount', agents.messages())
-    notifyAgents(agents.messages())
-    const transcript = s.channel(TRANSCRIPT_CHANNEL)
-    transcript.onChange((messages) => renderLog('transcriptLog', 'transcriptCount', messages))
-    renderLog('transcriptLog', 'transcriptCount', transcript.messages())
-    // And what a scribe made of the transcript. Asked for with !minutes in
-    // the chat, which goes out as an ordinary message, so any scribe that
-    // is listening sees it.
-    const minutes = s.channel(MINUTES_CHANNEL)
-    const notifyMinutes = notifier.follow({ roomId: joinedRoomId, channel: 'minutes', room: roomLabelNow, sender: senderLabel })
-    minutes.onChange((messages) => {
-      renderLog('minutesLog', 'minutesCount', messages)
-      notifyMinutes(messages)
-    })
-    renderLog('minutesLog', 'minutesCount', minutes.messages())
-    notifyMinutes(minutes.messages())
+    // The side conversations: what the agents say to each other, what a
+    // listening agent heard, and what a scribe made of it. Subscribed now
+    // rather than when somebody opens the tab, because a relay replays a
+    // durable kind to a new subscriber and an hour's backlog arriving after
+    // a click reads as a broken tab.
+    //
+    // They used to be three panels stacked under the chat AS WELL AS three
+    // tabs above it, so the same words were on the page twice and neither
+    // copy said it was the same conversation. Now the tab is the only
+    // place, and this only has to keep the tab's count and repaint the log
+    // when the tab somebody is looking at is the one that changed.
+    const followChannel = (name: string, notify?: (messages: ChatMessage[]) => void): void => {
+      const log = s.channel(name)
+      channelLogs.set(name, log)
+      const arrived = (messages: ChatMessage[]): void => {
+        channelCounts.set(name, messages.length)
+        notify?.(messages)
+        if (currentChannel === name) renderChat(messages)
+        renderChannels()
+      }
+      log.onChange(arrived)
+      arrived(log.messages())
+    }
+    followChannel(AGENT_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'agents', room: roomLabelNow, sender: senderLabel }))
+    followChannel(TRANSCRIPT_CHANNEL)
+    followChannel(MINUTES_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'minutes', room: roomLabelNow, sender: senderLabel }))
     // Agent hosts say what they can run on the control channel; a person
     // asks on it. Asked once on arrival, so a host that has been quiet for
     // an hour says again.
@@ -3718,7 +3909,16 @@ async function startSession(): Promise<void> {
     control.onChange((messages) => ingestControl(messages))
     ingestControl(control.messages())
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
-    if (s.epoch > 0) addSystemLine(`This room is in epoch ${s.epoch}.`)
+    // "Epoch 3" means nothing to somebody who has just arrived. What it
+    // actually tells them is that the room has changed its lock since it
+    // started, so anybody removed along the way cannot read this.
+    if (s.epoch > 0) {
+      addSystemLine(
+        s.epoch === 1
+          ? 'This room has changed its lock once since it started. Anybody who was removed cannot read what is said from here on.'
+          : `This room has changed its lock ${s.epoch} times since it started. Anybody who was removed cannot read what is said from here on.`,
+      )
+    }
     renderHost()
     // Empty until the keeper answers the `catalogue?` above with its signed
     // list, which is the only thing this client will believe.
@@ -3727,6 +3927,7 @@ async function startSession(): Promise<void> {
     joinBtn.hidden = true
     $('identity').hidden = true
     $('roomArea').hidden = false
+    showRoomTools()
     renderNudgeChoice()
     // The offer starts at whatever the person has already chosen, which is
     // off unless they turned it on before joining.
@@ -3739,7 +3940,7 @@ async function startSession(): Promise<void> {
     const message = describeError(err)
     if (message.includes('expired')) {
       forgetCredential()
-      setStatus('This device\u2019s credential has expired. Ask your other device for a new pairing link.')
+      setStatus('This device\u2019s pass for this room has run out. Ask your other device for a new one.')
     } else {
       setStatus(message)
     }
@@ -3853,6 +4054,10 @@ function stopWatching(roomId: string): void {
 
 function showRoomsList(): void {
   roomsListShown = true
+  // The front page is where watching a list of rooms is the point, so the
+  // notification switch belongs on it. It is hidden only in the gap between
+  // opening a link and going in, where it is one more thing in the way.
+  $('notify').hidden = false
   const rooms = knownRooms(deviceStore)
   for (const room of rooms) watchKnownRoom(room)
   renderRooms()
@@ -4115,14 +4320,14 @@ function renderNotifyChoice(): void {
   if (!supported) {
     note.textContent = 'This browser cannot show notifications.'
   } else if (Notification.permission === 'denied') {
-    note.textContent = 'Notifications are blocked for this site in the browser\u2019s settings; allow them there first.'
+    note.textContent = 'Your browser is blocking notifications for this site. You will have to allow them in the browser\u2019s own settings first.'
   } else if (on) {
     note.textContent = settings.showText
-      ? 'On: a message in a room you are not looking at is shown by the system with the room, who spoke, and what they said.'
-      : 'On: a message in a room you are not looking at is shown by the system with the room and who spoke. The text stays in the app unless you say otherwise.'
+      ? 'On: when somebody writes in a room you are not looking at, your device shows you the room, who wrote, and what they said.'
+      : 'On: when somebody writes in a room you are not looking at, your device shows you the room and who wrote. What they actually said stays in here unless you ask for it.'
   } else {
     note.textContent =
-      'Off. On, this open app tells you about a message in a room you are not looking at - a tab in the background, or a room on your list. There is no server to push from, so a closed app tells you nothing.'
+      'Off. Switched on, this page tells you when somebody writes in a room you are not looking at, whether that is a tab behind this one or a room on your list. It is this page that tells you and nothing else, so if you close it you hear nothing.'
   }
 }
 
@@ -4181,7 +4386,7 @@ async function setNudge(on: boolean): Promise<void> {
     // Storage may be unavailable; the keeper still heard.
   }
   renderNudgeChoice()
-  setStatus(on ? 'Asked the room\u2019s keeper to nudge you when you miss messages.' : 'Asked the room\u2019s keeper to stop nudging you.')
+  setStatus(on ? 'Asked the computer that looks after this room to nudge you when you miss messages.' : 'Asked it to stop nudging you.')
 }
 
 // ---------------------------------------------------------------------------
@@ -4436,18 +4641,10 @@ window.addEventListener('pagehide', () => {
 setToggle('toggleAgentsHear', agentsMayHear)
 $('toggleAgentsHear').addEventListener('click', () => setAgentsMayHear(!agentsMayHear))
 
-$('agentForm').addEventListener('submit', (event) => {
-  event.preventDefault()
-  const input = $('agentInput') as HTMLInputElement
-  const text = input.value.trim()
-  if (!text || !session) return
-  input.value = ''
-  session
-    .channel(AGENT_CHANNEL)
-    .send(text)
-    .catch((err) => setStatus(describeError(err)))
-})
-;($('agentInput') as HTMLInputElement).maxLength = MAX_CHAT_TEXT_LENGTH
+// The agents' conversation had its own box to type in, under the chat's
+// own box, on the same screen. Two writing boxes on one page is a question
+// nobody should have to answer. There is one now, and the tab above it says
+// which conversation it is writing to - see `activeChat`.
 
 $('chatForm').addEventListener('submit', (event) => {
   event.preventDefault()

@@ -65,6 +65,23 @@ h2 {
   color: var(--muted);
 }
 
+/* In a room, the masthead steps back.
+
+   On the front page the name and the line under it are the whole
+   introduction and they earn their space. Once somebody is inside a room
+   they know what the app is called, and on a phone that block was costing
+   about a hundred and twenty pixels at the top of every screen - which came
+   straight out of the conversation underneath it. The name stays, because a
+   page with no name on it is a page you cannot tell anybody about. */
+body:has(#roomArea:not([hidden])) h1 {
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+body:has(#roomArea:not([hidden])) .tagline {
+  display: none;
+}
+
 button {
   font-size: 1rem;
   padding: 0.6rem 1rem;
@@ -183,6 +200,12 @@ details#roomSettings label {
   font-size: 1rem;
 }
 
+/* "Getting you in..." is not a failure, and the danger colour said it was.
+   See setStatus in app/src/main.ts. */
+#status.progress {
+  color: var(--muted);
+}
+
 /* Toggles - the microphone, camera and screen-share controls. An "on" toggle
    gets the accent colour so the room's own state (who is bringing what) is
    readable at a glance without reading label text. */
@@ -201,6 +224,41 @@ details#roomSettings label {
 
 .roomHead h2 {
   margin: 0;
+  font-size: 1.25rem;
+}
+
+/* A label over the row of names, not a heading competing with the room's
+   own name beside it. */
+.miniHead {
+  margin: 0.6rem 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Present for a screen reader, absent for everybody else. Used where the
+   visible furniture already says what a heading would say - the tab bar
+   names the conversation, so a second "Conversation" above it is noise on
+   screen and structure off it. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The one sentence a person reads before they type their name in. */
+.lead {
+  font-size: 1.15rem;
+  line-height: 1.45;
+  margin: 0 0 0.75rem;
 }
 
 #leave {
@@ -252,6 +310,58 @@ details#roomSettings label {
   border: 2px solid #4a4;
   border-radius: 8px;
   padding: 0.75rem;
+}
+
+/* A person with no picture on screen is a NAME, and a name costs a line,
+   not a card.
+
+   This was the single most expensive thing on the page. Six people sitting
+   in a room with their cameras off drew six full-width cards on a phone,
+   about six hundred pixels of mostly empty box, and the first message of
+   the conversation sat underneath all of it. The same six now sit on two
+   wrapped lines.
+
+   Nothing is hidden and nothing is behind a click: the name, the short
+   code and the "not checked" chip are all still on screen. A tile grows
+   back into a card the moment a picture arrives in it, which is exactly
+   when a card is worth the room it takes. */
+#room:not(:has(video)) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+#room .participant:not(:has(video)) {
+  padding: 0.25rem 0.55rem;
+  border-width: 1px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+#room .participant:not(:has(video)) h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  flex-wrap: wrap;
+}
+
+/* The short code is the honest part of a name and it stays on the chip.
+   It is set smaller than the name because it is read only when somebody is
+   actually checking who they are talking to, and at full size it was
+   costing a whole row per person on a phone. */
+#room .participant:not(:has(video)) .pubkey,
+.agentChip .pubkey {
+  font-size: 0.78rem;
+}
+
+/* The device count is worth a card's space and not a chip's: on a chip it
+   is the same nine characters after every single name. The claim it makes
+   - one person, two devices - is carried by the `linked` badge and the
+   accent border, which are still here. */
+#room .participant:not(:has(video)) h3 .devices {
+  display: none;
 }
 
 .participant.linked {
@@ -370,11 +480,22 @@ video {
   margin-right: 0.4rem;
 }
 
-#chatForm,
-#agentForm {
+#chatForm {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
+
+/* The two buttons beside the box keep to one line. "Add a file" broken
+   across two lines made the whole row taller than the box it sits next to,
+   which is a lot of screen spent on the least used control in the room. */
+#chatForm button {
+  margin: 0;
+  white-space: nowrap;
+}
+
+#chatForm input {
+  min-width: 0;
 }
 
 /* A file shared through Wildbloom, under the message that carried it.
@@ -473,29 +594,82 @@ video {
   margin: 0.5rem 0;
 }
 
-/* The side channels: the same log as the chat, folded away until wanted. */
-#agentsPanel,
-#transcriptPanel,
-#minutesPanel {
-  margin-top: 1rem;
+/* ---------------------------------------------------------------------------
+   The settings drawer
+
+   One place for everything that is not the conversation: the room's link,
+   the pass for your own second device, the nudge switch, the admin controls
+   and the bug report. All of it was on the page before the first message,
+   and all of it is still here - one disclosure in, which is where a thing
+   you use once belongs.
+
+   The summary names what is inside rather than calling itself "Settings",
+   because "invite people" is what somebody is actually looking for and a
+   word like "settings" gives them no reason to think it is in there. */
+#roomTools {
+  margin: 0.5rem 0;
 }
 
-#agentsPanel summary,
-#transcriptPanel summary,
-#minutesPanel summary {
+#roomToolsPanel > summary {
   cursor: pointer;
   font-weight: 600;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+#roomToolsPanel[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+#roomToolsPanel > *:not(summary) {
+  margin-bottom: 1rem;
+}
+
+.toolRow {
+  margin-top: 0.75rem;
+}
+
+/* The one thing on the screen you are meant to press. There is exactly one
+   at a time: "Go in" before you are in a room, "Start a room" on the front
+   page. Anything more and none of them is the obvious next move. */
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  padding: 0.6rem 1.4rem;
+}
+
+button.primary:hover:not(:disabled) {
+  border-color: var(--accent);
+  filter: brightness(1.25);
 }
 
 /* Minutes are written in paragraphs and headed sections; the line breaks
-   are the structure, so they stay. Taller too, because a set of minutes is
-   several screens of a chat log. */
-#minutesLog {
-  max-height: 420px;
+   are the structure, so they stay. The chat log is the one log now, so this
+   hangs off the conversation it is showing rather than off a panel of its
+   own. See `renderChat` in app/src/main.ts. */
+#chatLog.minutes p {
+  white-space: pre-wrap;
 }
 
-#minutesLog p {
-  white-space: pre-wrap;
+/* A conversation nobody has used yet does not need a screen-tall empty box
+   under the sentence explaining that nobody has used it. Enough height to
+   read as a place messages will appear, and no more. */
+#chatLog:empty {
+  height: auto;
+  min-height: 3rem;
+}
+
+/* Asking an agent in, on the tab about agents: a line you can open, not
+   four paragraphs above the conversation you came to read. */
+#inviteAgents > summary {
+  cursor: pointer;
+  color: var(--accent);
+  margin-bottom: 0.4rem;
 }
 
 .log {
@@ -756,15 +930,27 @@ video {
   background: var(--panel);
 }
 
+/* The question, not a caption. This is the only thing the page asks before
+   it lets somebody in, so it reads at the size of a question. */
 #identity label {
   display: block;
   margin-bottom: 0.4rem;
-  color: var(--muted);
-  font-size: 1rem;
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 600;
 }
 
 #identity input {
   font-family: system-ui, sans-serif;
+  font-size: 1.05rem;
+  padding: 0.6rem 0.7rem;
+}
+
+/* Name, then the way in, directly under it. A person who has typed a name
+   should not have to look for what to press next. */
+#identity #join {
+  display: block;
+  margin: 0.75rem 0 0;
 }
 
 #identity summary {
@@ -1194,12 +1380,26 @@ label.note {
   margin-bottom: 0.5rem;
 }
 
+/* The room's name, at the top of the room. It is a NAME, so it is not
+   shouted in capitals and not greyed out the way the section headings in
+   this sheet are: it is the answer to "where am I", which is the first
+   question somebody arriving on a link has. The short code beside it is
+   what tells two rooms called the same thing apart, so it stays, quietly. */
 .roomTitle {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
   flex-wrap: wrap;
-  font-size: 1.05rem;
+  font-size: 1.25rem;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  margin-top: 0;
+}
+
+.roomHead .roomTitle .pubkey {
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 /* The host panel: one row per person, and the room-wide action apart. */
@@ -1255,49 +1455,27 @@ label.note {
    Nothing here is about width. The layout already fits a phone: the body is
    fluid under its 820px cap, every row wraps, and an audit at 320, 360 and
    390px finds not one element spilling past the viewport. What was wrong on a
-   phone was the ORDER.
+   phone was the ORDER, and the order is now written into the document
+   rather than repaired here: the room is the first thing in `<main>` and
+   the setup furniture follows it. See the comment at the top of
+   app/index.html.
 
-   A room page is setup furniture followed by the room: the media buttons, the
-   share link with the three paragraphs explaining what a link does and does
-   not carry, the pairing panel, the notification switch and the carrying
-   offer - and only then the roster, the chat and the agents. On a desktop
-   that costs a glance, because a wide column makes each of those blocks two
-   or three lines. On a phone the same words become paragraphs, and the
-   conversation starts about seventeen hundred pixels down: two screens of
-   explanation to reach a message, with the agents panel last on the page.
+   An earlier pass moved the room with `order: -2` at this width, which
+   painted the right sequence but left a screen reader and the tab key
+   walking the written one - a divergence worth having only while the
+   document itself could not be changed. It can, so the rules are gone.
 
-   So on a narrow screen the room comes first and the furniture follows it.
-   The media buttons stay second, because a call is the one thing you want
-   within reach of the chat you were reading when somebody suggested one.
-
-   This reorders what is PAINTED, not what is READ: the DOM order is
-   unchanged, so a screen reader and the tab key still walk the sections in
-   their written order. That divergence is the reason to move exactly one
-   section rather than shuffle them all.
-
-   Kept off tablets deliberately. At 768px the text is already wide enough
-   that the furniture costs about what it costs on a desktop. */
+   What is left here is genuinely about a narrow screen. */
 @media (max-width: 700px) {
   main {
     display: flex;
     flex-direction: column;
   }
 
-  /* The room, then the way into a call, then everything else in the order it
-     is written. Only these two are named: a section with no `order` sits at
-     0 and keeps its place relative to its siblings. */
-  #roomArea {
-    order: -2;
-  }
-
-  #deviceControls {
-    order: -1;
-  }
-
   /* A flex container does not collapse the margins between its children, so
-     the gaps the block layout used to fold together would otherwise stack up
-     and undo some of what the reorder just bought. One explicit gap instead,
-     and the section margins that fed the old collapsing are dropped. */
+     the gaps the block layout used to fold together would otherwise stack up.
+     One explicit gap instead, and the section margins that fed the old
+     collapsing are dropped. */
   main > section,
   main > p {
     margin-block: 0;
@@ -1305,14 +1483,6 @@ label.note {
 
   main {
     gap: 1.25rem;
-  }
-
-  /* The agents' own channel is the reason several of these rooms exist, and a
-     collapsed row of text at the foot of a long page reads as a feature that
-     was never built. Give it the same weight as the chat it sits under. */
-  #agentsPanel > summary {
-    padding: 0.5rem 0;
-    font-size: 1rem;
   }
 
   /* A log that can only ever be 220px tall wastes a phone screen, and one
@@ -1330,16 +1500,64 @@ label.note {
     min-height: 4.5rem;
   }
 
-  /* "In the room" is three words and a phone breaks it across two lines to
-     make room for two buttons beside it, which leaves the heading colliding
-     with the controls. Keep the heading whole and let the buttons drop to
-     their own row when they no longer fit. */
+  /* The conversation has to clear the fold on a phone WITH the box to reply
+     in, not just the messages: a person who can read but cannot see where to
+     answer has got halfway. Sized so that who is here, the tabs, several
+     messages and the box are all on one screen of a 390x844 phone. */
+  #chatLog {
+    height: clamp(180px, 26vh, 300px);
+  }
+
+  /* Who is here is bounded, and the conversation is not.
+
+     A room holds as many people as it holds, and a list that grows without
+     limit puts the chat back below the fold at the exact moment a room gets
+     busy enough to be worth reading. So on a phone the names take a third
+     of the screen at most and scroll among themselves after that. Nobody is
+     hidden and nothing is behind a click; the guarantee moves to the thing
+     that needs it, which is that there is always a message and a box to
+     answer in on the first screen. */
+  #agentsRow,
+  #room:not(:has(video)) {
+    max-height: 22vh;
+    overflow-y: auto;
+  }
+
+  /* Every row above the conversation is paid for out of it, so the ones
+     that are only signposts are made small. Nothing is removed: the way
+     back to your rooms, the label over the names and the gap under them
+     are all still there, just not at desktop weight. */
+  #roomNav {
+    margin-top: 0.4rem;
+  }
+
+  #roomNav button {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.95rem;
+  }
+
+  .miniHead {
+    margin: 0.4rem 0 0.25rem;
+  }
+
+  .agentsRow {
+    margin-bottom: 0.5rem;
+  }
+
+  .channelHint {
+    margin-bottom: 0.4rem;
+  }
+
+  /* A room name and a Leave button beside it. Let the button drop to its
+     own row rather than squeezing the name, but let a long name wrap
+     instead of running off the side. */
   .roomHead {
     flex-wrap: wrap;
   }
 
   .roomHead h2 {
-    white-space: nowrap;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -1352,14 +1570,14 @@ label.note {
    down behind the setup furniture.
 
    So on a wide screen the room and its furniture become two columns. The
-   room - roster, video grid, chat, and the agents' own channel - takes the
-   larger column and the whole height. Everything used once to set the room
-   up goes into a sidebar beside it: the media buttons, the share link, the
-   notification switch and the carrying offer.
+   room - who is here, any video, and the conversation with its tabs - takes
+   the larger column and the whole height. Everything used to set the room up
+   goes into a sidebar beside it: the media buttons, the settings drawer with
+   the share link in it, and the notification switch.
 
-   The result is that on a desktop the roster, the chat and the agents
-   channel are all above the fold at once, which is the thing that could not
-   be true in one column at any width.
+   The result is that on a desktop who is here, the conversation and the box
+   you type into are all above the fold at once, which is the thing that
+   could not be true in one column at any width.
 
    Only when there is a room to show. `:has()` keeps the front page - where
    `#roomArea` is still hidden - as the single column it should be, rather
@@ -1427,6 +1645,31 @@ label.note {
   border-color: var(--accent);
   color: var(--text);
   background: var(--accent-dim);
+}
+
+/* A dot on a tab that has something behind it. The tabs for the reserved
+   conversations are always on the bar - see `renderChannels` for why - so
+   this is what tells a first-time reader which of them anybody has
+   actually used, without making the empty ones disappear. */
+.tabDot {
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-left: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 0.08em;
+}
+
+/* What the tab you are on is for, and whether anything is in it. One line
+   under the bar, always there, because a person who has never seen this app
+   should not have to open a panel to find out what "Minutes" means. */
+.channelHint {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--muted);
+  max-width: 60ch;
 }
 
 /* Admin only, and hidden entirely for everybody else rather than shown
