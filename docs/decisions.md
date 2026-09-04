@@ -991,3 +991,60 @@ and nothing else. Receipts arrive addressed to the project and which of
 them belong to the people in this room is decided in the browser. So the
 trade in `profiles.ts` is inherited exactly as described and is not made
 worse, and it stays the owner's to settle.
+
+## An agent in a room is handed names, and the key has to reach it too
+
+Everything above about impersonation assumes a person is looking at a screen.
+A name never renders alone, a short pubkey sits beside it, and a name verified
+once in a call turns red when it comes back on a different key. Those are
+sound defences and every one of them is a defence of a rendering.
+
+An agent is not looking at a rendering. It is handed text by whatever host
+runs it, and that text is the whole of what it can reason about. The cheapest
+thing for a host to hand it is the name on its own, because that is what reads
+well in a transcript. An agent given `sender: Robin` and nothing else has been
+told a claim and told nothing at all about who made it, and it will answer as
+though it knows.
+
+**The key is never lost on the wire.** A chat message carries the participant
+key, the device key and a device credential the reader verified at decode, all
+inside the ciphertext, for the reasons set out further up. A roster entry
+carries the same, plus a verified ownership proof in a room that requires one.
+Everything needed to answer "which key said this" is present at the moment a
+host builds an agent's prompt. Discarding it is a choice the host makes and
+not one the protocol forces on it.
+
+**An agent gets this wrong differently from a person.** Somebody who cannot
+tell two Robins apart hesitates and asks. An agent asked to act on a name will
+either act or refuse, and both are wrong when the name is all the evidence it
+has. The failure that is easy to miss is the second one. An agent handed no
+keys will say so honestly, and then treat the limit of what it was handed as a
+fact about the room: a true statement about who is present becomes, to it,
+something nobody could know and therefore a lie. Declining to act on an
+unverified claim is right. Concluding that the speaker must be an impostor is
+not, and both come out of the same missing field.
+
+So the rule for anything driving an agent from a room is to pass the
+participant key with every message, and the roster too where the host has it.
+A short prefix is enough if a full key reads badly. What matters is that the
+name and the key arrive together, so the name can be handled as the claim it
+is rather than as the only thing there is.
+
+**An agent must be told its own key rather than ask for it.** An identity that
+comes from a file path, an environment variable, or a default that mints a
+fresh key when the file is missing can be wrong in a way that still works: the
+process starts, joins, chats and signs, and nothing downstream notices,
+because from the protocol's side a key is a key. Asking the agent does not
+help. It answers from its tooling, with complete confidence, and its tooling
+is the thing that is wrong. So `kithmoot-agent` asserts instead of reporting:
+`--expect-pubkey` for an agent whose npub is written down anywhere,
+`--forbid-pubkey` for every human key that must never end up on an agent, and
+the resolved npub printed before it joins anything. `docs/agents.md` has the
+detail, including why the agent must never be the principal.
+
+**What none of this does, and will not.** Nothing here says which key belongs
+to whom. There is no registry, deliberately, so a key is bound to a person out
+of band, once, by a person. What the protocol offers is that the binding, once
+made, stays checkable by everybody afterwards without asking anyone. An agent
+can be told which key its principal is and compare against it. It cannot be
+told who anybody is.
