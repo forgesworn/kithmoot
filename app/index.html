@@ -21,16 +21,9 @@
       <p class="tagline">A town hall nobody owns.</p>
     </header>
 
-    <!-- The way back to the list of rooms, shown whenever a room is on
-         screen. Leaving a room to look at the list is leaving it, and says
-         so; the list is the front page with no link on it.
-
-         And the way back INTO the room you just left, because leaving used
-         to be one-way: the button took the invitation off the address bar,
-         and a device that was admitted rather than holding the key had no
-         second way in. The link is put down before the page reloads and
-         offered here as a button. See `backToRooms` and `renderWayBack` in
-         app/src/main.ts. -->
+    <!-- The room picker stays inside the current visit. Only selecting a
+         different room or the dashboard leaves it. The dashboard also
+         offers the previous invitation as a way back. -->
     <nav id="roomNav" hidden>
       <!-- The way back to the list, at the door of a room and on the list
            itself. Once you are IN a room the room's own bar carries it, and
@@ -38,7 +31,7 @@
            this, somebody who followed a link and had not gone in yet was in
            a room with no way out of it - the same dead end, one screen
            earlier. -->
-      <button id="doorToRooms" type="button" class="quiet" hidden>Your rooms</button>
+      <button id="doorToRooms" type="button" class="quiet" aria-haspopup="dialog" hidden>Rooms</button>
       <button id="backToRoom" type="button" class="quiet" hidden></button>
     </nav>
 
@@ -76,9 +69,7 @@
       <section id="roomArea" hidden>
         <!-- One line. Back, who and where you are, a call, and the rest. -->
         <div class="roomBar">
-          <button id="backToRooms" type="button" class="barBack" aria-label="Back to your rooms">
-            <span aria-hidden="true">&#8249;</span>
-          </button>
+          <button id="backToRooms" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="roomSwitcher">Rooms</button>
           <!-- The name and the who-is-here line are one control, because
                they answer the same question and a reader who wants more
                about either taps the thing they are looking at. -->
@@ -408,6 +399,21 @@
          before answering, so blocking is right, and showModal() gives the
          focus trap and Escape-to-close for free. Filled in by
          showVerification in app/src/main.ts. -->
+    <dialog id="roomSwitcher" aria-labelledby="roomSwitcherTitle">
+      <div class="sheetBar">
+        <h2 id="roomSwitcherTitle">Switch rooms</h2>
+        <button id="roomSwitcherClose" type="button" autofocus>Close</button>
+      </div>
+      <div class="sheetBody">
+        <p id="roomSwitcherNote" class="note"></p>
+        <label for="roomSearch">Find a room</label>
+        <input id="roomSearch" type="search" placeholder="Room name or code" autocomplete="off" />
+        <ul id="roomSwitcherList" class="roomList"></ul>
+        <p id="roomSwitcherEmpty" class="note" hidden>No matching rooms. Rooms you open while signed in appear here.</p>
+        <button id="roomSwitcherHome" type="button" class="quiet">All rooms / Start a room</button>
+      </div>
+    </dialog>
+
     <dialog id="verifyDialog" aria-labelledby="verifyTitle">
       <form method="dialog" class="verifyForm">
         <h2 id="verifyTitle">Is this really them?</h2>

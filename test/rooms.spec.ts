@@ -77,6 +77,7 @@ test('the front page lists every room this device has been in, with what is new 
     // of a room, which is where this page is. Once you are inside, the
     // room's own bar carries the way out; this is the way out before that.
     await page.locator('#doorToRooms').click()
+    await page.locator('#roomSwitcherHome').click()
     await expect(page.locator('#rooms')).toBeVisible()
     const rows = page.locator('#roomList .roomRow')
     await expect(rows).toHaveCount(2)
@@ -122,6 +123,7 @@ test('the front page lists every room this device has been in, with what is new 
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#chatLog')).toContainText('hello town hall', { timeout: 60_000 })
     await page.locator('#backToRooms').click()
+    await page.locator('#roomSwitcherHome').click()
     await expect(page.locator('#rooms')).toBeVisible()
     await expect(townHallRow.locator('.unread')).toHaveText('nothing new', { timeout: 60_000 })
 

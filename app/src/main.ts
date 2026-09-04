@@ -4780,6 +4780,7 @@ function hideRoomsList(): void {
 }
 
 function renderRooms(): void {
+  if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   if (!roomsListShown) return
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
@@ -4914,6 +4915,84 @@ function openKnownRoom(room: KnownRoom): void {
   const parsed = new URL(room.link, location.href)
   history.replaceState(null, '', joinLinkBase() + parsed.hash)
   location.reload()
+}
+
+const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
+
+function openRoomSwitcher(): void {
+  const dialog = $('roomSwitcher') as HTMLDialogElement
+  if (dialog.open) return
+  ;($('roomSearch') as HTMLInputElement).value = ''
+  renderRoomSwitcher()
+  dialog.showModal()
+}
+
+function renderRoomSwitcher(): void {
+  const current = currentRoomId()
+  const rooms = knownRooms(roomStore())
+  if (current && !rooms.some(room => room.roomId === current)) {
+    rooms.unshift({ roomId: current, name: roomName, link: encodeRoomUrl(joinLinkBase(), relays, iceUrls), openedAt: nowSeconds(), readAt: 0 })
+  }
+  const query = ($('roomSearch') as HTMLInputElement).value.trim().toLocaleLowerCase()
+  const filtered = rooms.filter(room => `${roomLabel(room)} ${room.roomId}`.toLocaleLowerCase().includes(query))
+  const busy = hasUnsentWork()
+  $('roomSwitcherNote').textContent = busy
+    ? 'You have unfinished messages or files. Open another room in a new tab to keep them here, or close this picker and finish sending first.'
+    : callIsLive()
+      ? 'Your call stays connected while you browse. Switching will ask before leaving it; a new tab keeps this call here.'
+      : 'Choose a room to go straight to its conversation. Closing this picker keeps you where you are.'
+  const list = $('roomSwitcherList')
+  list.replaceChildren()
+  for (const room of filtered) {
+    const row = document.createElement('li')
+    row.className = 'roomRow'
+    row.dataset.room = room.roomId
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'switchRoom'
+    const name = document.createElement('span')
+    name.textContent = roomLabel(room)
+    const detail = document.createElement('span')
+    detail.className = 'switchRoomCode'
+    detail.textContent = `${room.roomId.slice(0, 12)}…${room.roomId === current ? ' · Current room' : ''}`
+    button.append(name, detail)
+    if (room.roomId === current) button.setAttribute('aria-current', 'true')
+    button.disabled = busy && room.roomId !== current
+    button.addEventListener('click', () => switchRoom(room))
+    row.append(button)
+    if (room.roomId !== current) {
+      const link = document.createElement('a')
+      link.className = 'switchRoomNewTab'
+      link.href = joinLinkBase() + new URL(room.link, location.href).hash
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
+      link.textContent = 'New tab'
+      link.setAttribute('aria-label', `Open ${roomLabel(room)} in a new tab`)
+      row.append(link)
+    }
+    list.append(row)
+  }
+  $('roomSwitcherEmpty').hidden = filtered.length > 0
+  // A trip to the dashboard must not silently discard unfinished work.
+  ;($('roomSwitcherHome') as HTMLButtonElement).disabled = busy
+}
+
+function switchRoom(room: KnownRoom): void {
+  if (room.roomId === currentRoomId()) {
+    ;($('roomSwitcher') as HTMLDialogElement).close()
+    return
+  }
+  if (hasUnsentWork()) { renderRoomSwitcher(); return }
+  if (callIsLive() && !confirm(`Switch to ${roomLabel(room)} and leave this call? Your microphone and camera will be off in the other room.`)) return
+  try {
+    sessionStorage.setItem(ROOM_SWITCH_KEY, JSON.stringify({
+      hash: new URL(room.link, location.href).hash, account: nostrSession?.pubkey ?? null, at: Date.now(),
+    }))
+  } catch {
+    // Without tab storage the normal door is still a safe way in.
+  }
+  session?.leave()
+  openKnownRoom(room)
 }
 
 function forgetKnownRoom(room: KnownRoom): void {
@@ -5186,8 +5265,18 @@ async function setNudge(on: boolean): Promise<void> {
 // ---------------------------------------------------------------------------
 
 // The bar: back, who and where, the call, and everything else.
-$('backToRooms').addEventListener('click', backToRooms)
-$('doorToRooms').addEventListener('click', backToRooms)
+$('backToRooms').addEventListener('click', openRoomSwitcher)
+$('doorToRooms').addEventListener('click', openRoomSwitcher)
+$('roomSwitcherClose').addEventListener('click', () => ($('roomSwitcher') as HTMLDialogElement).close())
+$('roomSearch').addEventListener('input', renderRoomSwitcher)
+$('roomSwitcherHome').addEventListener('click', () => {
+  if (hasUnsentWork()) { renderRoomSwitcher(); return }
+  if (callIsLive() && !confirm('Leave this call and go to all rooms?')) return
+  backToRooms()
+})
+$('roomSwitcher').addEventListener('click', event => {
+  if (event.target === $('roomSwitcher')) ($('roomSwitcher') as HTMLDialogElement).close()
+})
 $('roomIdentity').addEventListener('click', openRoomSheet)
 $('roomMenu').addEventListener('click', openRoomSheet)
 $('roomSheetClose').addEventListener('click', closeRoomSheet)
@@ -6094,7 +6183,15 @@ if (location.hash.length > 1) {
   lead.hidden = false
 }
 
-roomFromLocation()
+const pendingRoomSwitch = (() => {
+  try {
+    const raw = sessionStorage.getItem(ROOM_SWITCH_KEY)
+    sessionStorage.removeItem(ROOM_SWITCH_KEY)
+    return raw
+  } catch { return null }
+})()
+const roomArrival = roomFromLocation()
+roomArrival
   .then((found) => {
     if (!found) {
       // No link: the front page, with the rooms this device has been in.
@@ -6133,7 +6230,7 @@ renderIdentity()
 // awaited before the page is usable: a bunker over a relay can take seconds,
 // and a name-only join must never wait on it. renderIdentity() runs again
 // when it lands.
-restoreSession()
+const identityReady = restoreSession()
   .then((session) => {
     if (identityGeneration !== 0) return
     if (!session?.signer.capabilities.canSignEvents) {
@@ -6157,6 +6254,21 @@ restoreSession()
     identityRestoring = false
     if (rememberAfterRestore) rememberCurrentRoom()
   })
+
+// Only an explicit switch in this tab skips the door. A normal invitation
+// never auto-joins, and a failed/different Nostr restore never joins as a guest.
+Promise.all([roomArrival, identityReady]).then(([found]) => {
+  const raw = pendingRoomSwitch
+  if (!raw || !found || session || ($('join') as HTMLButtonElement).disabled) return
+  const intent = JSON.parse(raw) as { hash?: string; account?: string | null; at?: number }
+  const age = Date.now() - (intent.at ?? 0)
+  if (intent.hash !== location.hash || age < 0 || age > 120_000) return
+  if (intent.account !== (nostrSession?.pubkey ?? null)) {
+    setStatus('Check your sign-in before entering: the account used to switch rooms is not available.')
+    return
+  }
+  return startSession()
+}).catch(() => { /* Admission/sign-in failures leave the normal door available. */ })
 
 // The pubkey we would join as, so the identity line is right before the
 // first room is ever opened.

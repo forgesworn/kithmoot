@@ -82,6 +82,7 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     await expect(guest.locator('#whoami')).toContainText('Visiting Ada')
 
     await returning.locator('#doorToRooms').click()
+    await returning.locator('#roomSwitcherHome').click()
     await expect(returning.locator('#roomList .roomName')).toHaveText('Standing town hall')
     await returning.locator('#signOut').click()
     await expect(returning.locator('#roomList .roomRow')).toHaveCount(0)
@@ -101,6 +102,7 @@ test('forgetting an account bookmark removes it on the other signed-in device', 
     await creator.locator('#create').click()
     await expect(creator.locator('#roomSyncStatus')).toContainText('accepted by a relay')
     await creator.locator('#doorToRooms').click()
+    await creator.locator('#roomSwitcherHome').click()
     const other = await b.newPage()
     await other.goto(baseURL! + '?signin=nostr')
     await other.getByRole('button', { name: /Browser extension/ }).click()
@@ -128,6 +130,7 @@ test('a signer without encryption gets honest local-only rooms, and no private-k
     await page.locator('#create').click()
     await expect(page.locator('#roomSyncStatus')).toContainText('browser only')
     await page.locator('#doorToRooms').click()
+    await page.locator('#roomSwitcherHome').click()
     await expect(page.locator('#roomList .roomName')).toHaveText('Local account room')
   } finally { await context.close() }
 })
@@ -142,6 +145,7 @@ test('existing browser rooms are imported only after explicit confirmation', asy
     await page.locator('#roomName').fill('A browser shortcut')
     await page.locator('#create').click()
     await page.locator('#doorToRooms').click()
+    await page.locator('#roomSwitcherHome').click()
     await expect(page.locator('#roomList .roomName')).toHaveText('A browser shortcut')
     await page.locator('#signIn').click()
     await page.getByRole('button', { name: /Browser extension/ }).click()
@@ -159,4 +163,29 @@ test('existing browser rooms are imported only after explicit confirmation', asy
     await other.getByRole('button', { name: /Browser extension/ }).click()
     await expect(other.locator('#roomList .roomName')).toHaveText('A browser shortcut')
   } finally { await a.close(); await b.close() }
+})
+
+test('switching conversations restores the same Nostr identity before entering', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const context = await device(browser, baseURL!, secret)
+  try {
+    const first = await context.newPage()
+    await signIn(first, baseURL!)
+    await first.locator('#roomName').fill('First account room')
+    await first.locator('#create').click()
+    await expect(first.locator('#roomSyncStatus')).toContainText('accepted by a relay')
+    const host = await context.newPage()
+    await host.goto(baseURL!)
+    await expect(host.locator('#signOut')).toBeVisible()
+    await host.locator('#roomName').fill('Second account room')
+    await host.locator('#create').click()
+    await expect(host.locator('#roomSyncStatus')).toContainText('accepted by a relay')
+    await first.locator('#join').click()
+    await expect(first.locator('#roomArea')).toBeVisible()
+    await first.locator('#backToRooms').click()
+    await first.locator('#roomSwitcherList').getByRole('button', { name: /Second account room/ }).click()
+    await expect(first.locator('#roomTitle')).toHaveText('Second account room')
+    await expect(first.locator('#roomArea')).toBeVisible()
+    await expect(first.locator('#whoami')).toContainText(getPublicKey(secret).slice(0, 8))
+  } finally { await context.close() }
 })

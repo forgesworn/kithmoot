@@ -166,6 +166,14 @@ to make that one thing true.
   Signing out hides that account's list, but does not erase the browser's
   local cache; do not treat sign-out as a shared-device data wipe.
 
+  The **Rooms** button in a conversation opens a searchable picker without
+  leaving the room or interrupting a call. Pick another room to enter its
+  conversation directly, still subject to admission and restoring the same
+  account. Switching away from a live call asks first and starts the next
+  room with camera and microphone off. With unfinished messages or files,
+  use **New tab** to keep that work in its original tab. **All rooms / Start
+  a room** in the picker opens the full dashboard.
+
   Without sign-in, the front page lists the rooms this browser has been in,
   by the name on their link, with how many chat messages are newer than
   this device last read and who is in the room now, agents marked. The
