@@ -201,8 +201,18 @@ export async function newDeviceContext(browser: Browser, baseURL: string): Promi
 export async function createRoom(page: Page, baseURL: string): Promise<string> {
   await page.goto(baseURL)
   await page.locator('#create').click()
-  await expect(page.locator('#links')).toBeVisible()
-  return pinToTestRelays(await page.locator('#shareUrl').inputValue())
+  // Wait for the link itself rather than the box that used to hold it. The
+  // entry page was rebuilt to put the conversation first and `#links` went
+  // with it; this waits for the thing the next line actually reads, which
+  // cannot be removed without this failing honestly.
+  // The link exists as soon as the room does, but the drawer around it stays
+  // hidden until somebody joins, because the rebuilt page shows nothing that
+  // is not the conversation until there is a conversation. So wait for the
+  // value rather than for it to be on screen: waiting for visibility here
+  // would be asserting a thing the page deliberately does not do yet.
+  const share = page.locator('#shareUrl')
+  await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
+  return pinToTestRelays(await share.inputValue())
 }
 
 /** Opens the room with camera and microphone on, and joins. */
