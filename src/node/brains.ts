@@ -85,6 +85,21 @@ export type StdioCommand =
   | { op: 'refuse'; agent?: string; message: string }
   | { op: 'leave' }
 
+/** Does this text name the agent?
+ *
+ *  `@name` is the convention people already use and the one the app offers,
+ *  so it always counts. A bare name counts too, because people typed names
+ *  long before there was an `@` to type, but only as a whole word: a
+ *  substring test wakes Tally on "totally", Wren on "wrench" and Quill on
+ *  "quilling", and an agent that answers a word it merely appears inside is
+ *  an agent people mute. `text` is already lowercased by the caller. */
+export function namesAgent(text: string, name: string): boolean {
+  const wanted = name.trim().toLowerCase()
+  if (!wanted) return false
+  const literal = wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|[^\\p{L}\\p{N}_])@?${literal}(?![\\p{L}\\p{N}_])`, 'u').test(text)
+}
+
 /**
  * The simplest possible first-class access: events out, commands in, one
  * JSON line each. Whatever can read and write a pipe can be in the room -
@@ -339,7 +354,7 @@ export abstract class ModelBrain implements Brain {
   #wants(runtime: AgentRuntime, event: RuntimeEvent, fromAgent: boolean): boolean {
     if (event.type === 'roster' || event.type === 'approval' || event.type === 'presence') return false
     const text = event.message.text.toLowerCase()
-    const named = text.includes(runtime.persona.name.toLowerCase())
+    const named = namesAgent(text, runtime.persona.name)
     if (event.type === 'backchannel') {
       // Another agent, among agents: answer if named, or if there is still
       // room in the budget for a conversation nobody is steering.
