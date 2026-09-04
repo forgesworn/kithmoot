@@ -251,6 +251,18 @@
            in. Everything else waits until you are inside and can see what
            it is for. -->
       <section id="identity">
+        <div id="accountHome" hidden>
+          <h2 id="accountHeading">Your rooms, wherever you sign in</h2>
+          <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open an invitation; no account needed.</p>
+          <button id="signIn" type="button" class="primary">Sign in with Nostr</button>
+          <button id="signOut" type="button" hidden>Sign out</button>
+          <details>
+            <summary>Room sync and privacy</summary>
+            <p id="accountHelp" class="note">Your signer encrypts room names and links. Relays see your public key and that you use KithMoot.</p>
+            <p id="roomSyncStatus" class="note" role="status"></p>
+            <button id="retryRoomSync" type="button" class="quiet" hidden>Retry room sync</button>
+          </details>
+        </div>
         <p id="arrivalLead" class="lead" hidden></p>
         <label for="displayName">What should we call you?</label>
         <input
@@ -267,13 +279,14 @@
       </section>
 
       <section id="rooms" hidden>
-        <h2>Your rooms</h2>
+        <h2 id="roomsHeading">Your rooms</h2>
+        <p id="roomsEmpty" class="note" hidden>No saved rooms here yet. Start a room or open an invitation while signed in. If you expected rooms, your signer or relays may still be loading them.</p>
         <ul id="roomList" class="roomList" aria-live="polite"></ul>
         <!-- Under the list rather than over it. Somebody who comes back here
              comes back for the rooms, and three lines about how the list is
              read were three lines between them and the first one - enough,
              on a 375 by 540 phone, to leave no room visible at all. -->
-        <p class="note">
+        <p id="roomsNote" class="note">
           The rooms this device has been in. We look for new messages using
           the key this device already has, and we send nothing out to do it,
           so nobody in the room can tell that you looked.
@@ -350,8 +363,6 @@
             another device of yours. Public names and pictures can be loaded
             from Room details after you join.
           </p>
-          <button id="signIn" type="button">Sign in with Nostr</button>
-          <button id="signOut" type="button" hidden>Sign out</button>
         </details>
       </section>
 

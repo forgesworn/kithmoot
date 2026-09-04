@@ -15,6 +15,7 @@ import {
 } from './device-store.js'
 import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { RoomWatch } from './room-watch.js'
+import { RoomBookmarks } from './room-bookmarks.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
@@ -296,6 +297,10 @@ const deviceStore = browserDeviceStore(localStorage)
 forgetLegacyStorage(deviceStore)
 
 const nowSeconds = () => Math.floor(Date.now() / 1000)
+let identityRestoring = true
+let rememberAfterRestore = false
+let identityGeneration = 0
+let loginBusy = false
 
 /** The room this page is in, once a link has been read. Everything a device
  *  keeps is keyed on it; before a room is known there is nothing to keep. */
@@ -307,15 +312,19 @@ function currentRoomId(): string | undefined {
  *  see `app/src/rooms-store.ts`. The link kept is the one this app would
  *  hand on, which never carries a pairing code. */
 function rememberCurrentRoom(): void {
+  // Admission need not wait for a signer, but storing its bookmark must
+  // wait until we know whether this is the visitor or the account's visit.
+  if (identityRestoring) { rememberAfterRestore = true; return }
   const roomId = currentRoomId()
   if (!roomId) return
   try {
-    rememberRoom(deviceStore, {
+    const room = rememberRoom(roomStore(), {
       roomId,
       name: roomName,
       link: encodeRoomUrl(joinLinkBase(), relays, iceUrls),
       openedAt: nowSeconds(),
     })
+    bookmarks?.save(room)
   } catch {
     // Storage may be unavailable. The room still opens; it is only the way
     // back to it that goes unwritten.
@@ -419,7 +428,14 @@ function currentParticipant(): string | undefined {
 }
 
 async function signInWithNostr(): Promise<void> {
-  const session = await login({ appName: 'KithMoot', relayUrls: RELAYS })
+  if (loginBusy) return
+  loginBusy = true
+  identityGeneration++
+  let session: SignetSession | null
+  try {
+    session = await login({ appName: 'KithMoot', relayUrls: RELAYS,
+      methods: ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect'] })
+  } finally { loginBusy = false }
   if (!session) return // cancelled or timed out - leave the page as it was
 
   // An auth-only session proves who somebody is and then cannot sign
@@ -435,15 +451,55 @@ async function signInWithNostr(): Promise<void> {
   }
 
   nostrSession = session
+  startRoomBookmarks(session)
   profiles.want([session.pubkey])
   renderIdentity()
 }
 
 async function signOutOfNostr(): Promise<void> {
+  identityGeneration++
   const session = nostrSession
+  bookmarks?.close()
+  bookmarks = undefined
   nostrSession = undefined
+  sessionStorage.removeItem(WAY_BACK_KEY)
+  $('roomSyncStatus').textContent = ''
+  refreshAccountRooms()
   renderIdentity()
   if (session) await logout(session)
+}
+
+let bookmarks: RoomBookmarks | undefined
+function roomStore() { return bookmarks?.rooms ?? deviceStore }
+
+function refreshAccountRooms(): void {
+  for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
+  if (roomsListShown) showRoomsList()
+}
+
+function startRoomBookmarks(account: SignetSession): void {
+  bookmarks?.close()
+  bookmarks = new RoomBookmarks(deviceStore, account.signer, new NostrRelayPool(RELAYS), () => {
+    if (roomsListShown) {
+      const rooms = knownRooms(roomStore())
+      const ids = new Set(rooms.map(room => room.roomId))
+      for (const roomId of roomWatches.keys()) if (!ids.has(roomId)) stopWatching(roomId)
+      for (const room of rooms) watchKnownRoom(room)
+      if (rooms.length && roomsTimer === undefined) roomsTimer = setInterval(renderRooms, 5000)
+      renderRooms()
+    }
+  }, message => {
+    $('roomSyncStatus').textContent = message
+    if (message.includes('not confirmed') || message.includes('not synced') || message.includes('browser only')) {
+      const details = $('roomSyncStatus').closest('details')
+      if (details) details.open = true
+      if (!roomsListShown) setStatus(message)
+    }
+  })
+  refreshAccountRooms()
+  bookmarks.start()
+  // A sign-in at the door saves this room, not the visitor's past rooms.
+  rememberCurrentRoom()
 }
 
 // ---------------------------------------------------------------------------
@@ -739,7 +795,7 @@ function refreshKeptAdmission(): void {
   const roomId = currentRoomId()
   const invitation = roomInvitationCapability
   if (!roomId || !invitation) return
-  if (!knownRoom(deviceStore, roomId)?.keep) return
+  if (!knownRoom(roomStore(), roomId)?.keep) return
   const admission = currentJoinerAdmission()
   if (!admission) return
   try {
@@ -753,9 +809,9 @@ function refreshKeptAdmission(): void {
 function setKeepRoomChoice(on: boolean): void {
   const roomId = currentRoomId()
   if (!roomId || !roomInvitationCapability) return
-  if (!setKeepRoom(deviceStore, roomId, on)) {
+  if (!setKeepRoom(roomStore(), roomId, on)) {
     rememberCurrentRoom()
-    setKeepRoom(deviceStore, roomId, on)
+    setKeepRoom(roomStore(), roomId, on)
   }
   if (on) refreshKeptAdmission()
   renderKeepChoice()
@@ -767,7 +823,7 @@ function setKeepRoomChoice(on: boolean): void {
 function renderKeepChoice(): void {
   const row = $('keepRow')
   const roomId = currentRoomId()
-  const on = roomId !== undefined && knownRoom(deviceStore, roomId)?.keep === true
+  const on = roomId !== undefined && knownRoom(roomStore(), roomId)?.keep === true
   row.hidden = !roomId || !roomInvitationCapability || (!currentJoinerAdmission() && !on)
   setToggle('toggleKeep', on)
   $('toggleKeep').setAttribute('aria-pressed', String(on))
@@ -1084,6 +1140,15 @@ function renderIdentity(): void {
 
   ;($('signIn') as HTMLButtonElement).hidden = nostrSession !== undefined
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
+  $('retryRoomSync').hidden = nostrSession === undefined
+  $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Your rooms, wherever you sign in'
+  $('accountLead').textContent = nostrSession
+    ? `Signed in as ${shortKey(nostrSession.pubkey)}. Your room links follow this key.`
+    : 'Sign in to find your rooms across devices. Just visiting? Open an invitation; no account needed.'
+  $('accountHelp').textContent = nostrSession
+    ? 'Rooms you open while signed in are saved to this account. Your signer encrypts their names and links; relays can see your public key and that you use KithMoot. Visitor history is not uploaded.'
+    : 'Sign in to find your rooms across devices. Your signer keeps your key and encrypts your room bookmarks. Visiting someone else? Open their invitation link; no sign-in is needed.'
+  renderRooms()
 
   const line = $('whoami')
   line.textContent = ''
@@ -1763,6 +1828,9 @@ function startNewRoom(): void {
  * anything to be about. What is left is a name and a way in.
  */
 function showRoomUi(): void {
+  $('nostrOption').hidden = false
+  $('nostrOption').append($('accountHome'))
+  $('accountHome').hidden = false
   $('setup').hidden = true
   $('notify').hidden = true
   hideRoomsList()
@@ -4586,7 +4654,7 @@ function noteChatRead(messages: ChatMessage[]): void {
   if (!roomId) return
   let newest = 0
   for (const m of messages) if (m.sentAt > newest) newest = m.sentAt
-  if (newest > 0) markRead(deviceStore, roomId, newest)
+  if (newest > 0) markRead(roomStore(), roomId, newest)
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -4655,7 +4723,7 @@ function watchKnownRoom(room: KnownRoom): void {
   const notify = notifier.follow({
     roomId,
     channel: 'chat',
-    room: () => roomLabel(knownRoom(deviceStore, roomId) ?? room),
+    room: () => roomLabel(knownRoom(roomStore(), roomId) ?? room),
     sender: senderLabel,
   })
   const watch = new RoomWatch({
@@ -4681,13 +4749,17 @@ function stopWatching(roomId: string): void {
 }
 
 function showRoomsList(): void {
+  $('nostrOption').hidden = true
+  $('identity').prepend($('accountHome'))
+  $('accountHome').after($('rooms'))
+  $('accountHome').hidden = false
   roomsListShown = true
   // The front page is where watching a list of rooms is the point, so the
   // notification switch belongs on it. It is hidden only in the gap between
   // opening a link and going in, where it is one more thing in the way.
   $('notify').hidden = false
   renderWayBack()
-  const rooms = knownRooms(deviceStore)
+  const rooms = knownRooms(roomStore())
   for (const room of rooms) watchKnownRoom(room)
   renderRooms()
   // Presence lapses by the clock, not by an event, so the list is redrawn
@@ -4709,8 +4781,13 @@ function hideRoomsList(): void {
 
 function renderRooms(): void {
   if (!roomsListShown) return
-  const rooms = knownRooms(deviceStore)
-  $('rooms').hidden = rooms.length === 0
+  const rooms = knownRooms(roomStore())
+  $('rooms').hidden = rooms.length === 0 && !nostrSession
+  $('roomsHeading').textContent = nostrSession ? 'Your rooms' : 'Rooms on this browser'
+  $('roomsEmpty').hidden = rooms.length !== 0
+  $('roomsNote').textContent = nostrSession
+    ? 'These bookmarks belong to your Nostr account. An invitation can expire or be retired; a bookmark does not grant permanent access. Unread counts use only keys held by this device.'
+    : 'Saved on this browser only. You can also bookmark the invitation link. No account is needed.'
   const list = $('roomList')
   list.innerHTML = ''
   for (const room of rooms) list.append(roomRow(room))
@@ -4815,18 +4892,17 @@ function roomMeta(room: KnownRoom): HTMLDivElement {
 function openKnownRoom(room: KnownRoom): void {
   // A fragment-only change is a same-document navigation, which never
   // re-runs this module; the reload is what reads the link.
-  try {
-    history.replaceState(null, '', room.link)
-  } catch {
-    location.href = room.link
-  }
+  // A synced bookmark is data, not a redirect to a different website.
+  const parsed = new URL(room.link, location.href)
+  history.replaceState(null, '', joinLinkBase() + parsed.hash)
   location.reload()
 }
 
 function forgetKnownRoom(room: KnownRoom): void {
-  if (!confirm(`Forget ${roomLabel(room)} on this device? Its link goes with it; you would need to be sent it again to come back.`)) return
+  if (!confirm(`Forget ${roomLabel(room)} ${nostrSession ? 'from your Nostr room bookmarks on all devices' : 'on this device'}? You would need its invitation link to come back. This does not revoke access or erase relay history.`)) return
   stopWatching(room.roomId)
-  forgetRoom(deviceStore, room.roomId)
+  if (bookmarks) bookmarks.remove(room.roomId)
+  else forgetRoom(deviceStore, room.roomId)
   renderRooms()
 }
 
@@ -4948,7 +5024,7 @@ const notifier = new Notifier({
  */
 async function deliverNotification(content: NotificationContent, arrival: Arrival): Promise<void> {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  const url = knownRoom(deviceStore, arrival.roomId)?.link
+  const url = knownRoom(roomStore(), arrival.roomId)?.link
   const options: NotificationOptions = { body: content.body, tag: content.tag, data: { url } }
   let registration: ServiceWorkerRegistration | undefined
   try {
@@ -5160,6 +5236,7 @@ $('signIn').addEventListener('click', () => {
 $('signOut').addEventListener('click', () => {
   signOutOfNostr().catch((err) => setStatus(describeError(err)))
 })
+$('retryRoomSync').addEventListener('click', () => { void bookmarks?.retry() })
 
 $('create').addEventListener('click', () => {
   startNewRoom()
@@ -6037,8 +6114,16 @@ renderIdentity()
 // when it lands.
 restoreSession()
   .then((session) => {
-    if (!session?.signer.capabilities.canSignEvents) return
+    if (identityGeneration !== 0) return
+    if (!session?.signer.capabilities.canSignEvents) {
+      if (!location.hash && new URL(location.href).searchParams.get('signin') === 'nostr') {
+        history.replaceState(null, '', joinLinkBase())
+        return signInWithNostr()
+      }
+      return
+    }
     nostrSession = session
+    startRoomBookmarks(session)
     profiles.want([session.pubkey])
     renderIdentity()
     renderNudgeChoice()
@@ -6046,6 +6131,10 @@ restoreSession()
   .catch(() => {
     // No stored session, or a signer that is not answering today. Either
     // way this page still works: type a name and join.
+  })
+  .finally(() => {
+    identityRestoring = false
+    if (rememberAfterRestore) rememberCurrentRoom()
   })
 
 // The pubkey we would join as, so the identity line is right before the

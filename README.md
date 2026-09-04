@@ -151,15 +151,34 @@ to make that one thing true.
   admits people for as long as it runs; its state persists across restarts,
   so the same link reopens the same room, and `deploy/keeper-deploy.sh`
   installs one as a service.
-- **Your rooms.** The front page lists the rooms this device has been in,
+- **Your rooms.** Sign in with Nostr from the website or app home to see
+  your account's room bookmarks across browsers and devices. Rooms opened
+  while signed in are encrypted to your own key using your signer's NIP-44
+  support, then saved as separate kind-30078 records. Visitor history is
+  not imported, and visitors can still open or bookmark a direct link
+  without signing in. Signers without encryption get clearly labelled
+  local-only bookmarks. Failed saves remain local with an explicit retry;
+  an accepted save means at least one relay acknowledged it, not guaranteed
+  permanent storage. Names and links are encrypted; relays still see the
+  account's public key, KithMoot use and update timing. Device credentials,
+  read positions and the choice to keep an admission are not synced.
+  Signing out hides that account's list, but does not erase the browser's
+  local cache; do not treat sign-out as a shared-device data wipe.
+
+  Without sign-in, the front page lists the rooms this browser has been in,
   by the name on their link, with how many chat messages are newer than
   this device last read and who is in the room now, agents marked. The
   counts are read off the room's relays without joining and without
   publishing anything, using the key this device already holds: a room it
   created, for twelve hours; a room it was admitted to, for the tab's
   session. A room whose key it does not hold says so, and opening it is
-  what gets the key back. Open is opening the link; Forget drops the room
-  from this device and nothing else. A room can be named when it is
+  what requests admission again. A bookmark is not permanent access: an
+  invitation may expire or be retired, and a member may need to be online.
+  Open uses the invitation in this app, not a redirect to a bookmark's
+  original host. Forget removes a visitor bookmark on this device, or
+  publishes an encrypted tombstone for a signed-in account's bookmark.
+  It does not revoke room access or erase old relay copies.
+  A room can be named when it is
   started, and the name rides in the link, so every device that opens it
   calls it the same thing.
 - **A member can be removed, and the room closed.** Rotation retired a link;
