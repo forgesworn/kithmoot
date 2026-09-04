@@ -155,7 +155,8 @@ to make that one thing true.
   your account's room bookmarks across browsers and devices. Rooms opened
   while signed in are encrypted to your own key using your signer's NIP-44
   support, then saved as separate kind-30078 records. Visitor history is
-  not imported, and visitors can still open or bookmark a direct link
+  not imported automatically; **Add rooms from this browser** asks before
+  saving existing shortcuts to the account. Visitors can still open or bookmark a direct link
   without signing in. Signers without encryption get clearly labelled
   local-only bookmarks. Failed saves remain local with an explicit retry;
   an accepted save means at least one relay acknowledged it, not guaranteed

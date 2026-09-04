@@ -131,3 +131,32 @@ test('a signer without encryption gets honest local-only rooms, and no private-k
     await expect(page.locator('#roomList .roomName')).toHaveText('Local account room')
   } finally { await context.close() }
 })
+
+test('existing browser rooms are imported only after explicit confirmation', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const a = await device(browser, baseURL!, secret)
+  const b = await device(browser, baseURL!, secret)
+  try {
+    const page = await a.newPage()
+    await page.goto(baseURL!)
+    await page.locator('#roomName').fill('A browser shortcut')
+    await page.locator('#create').click()
+    await page.locator('#doorToRooms').click()
+    await expect(page.locator('#roomList .roomName')).toHaveText('A browser shortcut')
+    await page.locator('#signIn').click()
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+    await expect(page.locator('#importBrowserRooms')).toHaveText('Add 1 room from this browser')
+    page.once('dialog', dialog => dialog.dismiss())
+    await page.locator('#importBrowserRooms').click()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+    page.once('dialog', dialog => dialog.accept())
+    await page.locator('#importBrowserRooms').click()
+    await expect(page.locator('#roomList .roomName')).toHaveText('A browser shortcut')
+    await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
+    const other = await b.newPage()
+    await other.goto(baseURL! + '?signin=nostr')
+    await other.getByRole('button', { name: /Browser extension/ }).click()
+    await expect(other.locator('#roomList .roomName')).toHaveText('A browser shortcut')
+  } finally { await a.close(); await b.close() }
+})

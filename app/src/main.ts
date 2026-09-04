@@ -1143,7 +1143,7 @@ function renderIdentity(): void {
   $('retryRoomSync').hidden = nostrSession === undefined
   $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Your rooms, wherever you sign in'
   $('accountLead').textContent = nostrSession
-    ? `Signed in as ${shortKey(nostrSession.pubkey)}. Your room links follow this key.`
+    ? `Signed in as ${shortKey(nostrSession.pubkey)}. ${nostrSession.signer.nip44 ? 'Your room links follow this key.' : 'Rooms are saved in this browser only with this signer.'}`
     : 'Sign in to find your rooms across devices. Just visiting? Open an invitation; no account needed.'
   $('accountHelp').textContent = nostrSession
     ? 'Rooms you open while signed in are saved to this account. Your signer encrypts their names and links; relays can see your public key and that you use KithMoot. Visitor history is not uploaded.'
@@ -4781,6 +4781,9 @@ function hideRoomsList(): void {
 
 function renderRooms(): void {
   if (!roomsListShown) return
+  const importable = browserRoomsToImport()
+  $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
+  $('importBrowserRooms').textContent = `Add ${importable.length} ${importable.length === 1 ? 'room' : 'rooms'} from this browser`
   const rooms = knownRooms(roomStore())
   $('rooms').hidden = rooms.length === 0 && !nostrSession
   $('roomsHeading').textContent = nostrSession ? 'Your rooms' : 'Rooms on this browser'
@@ -4791,6 +4794,21 @@ function renderRooms(): void {
   const list = $('roomList')
   list.innerHTML = ''
   for (const room of rooms) list.append(roomRow(room))
+}
+
+function browserRoomsToImport(): KnownRoom[] {
+  return nostrSession ? knownRooms(deviceStore).filter(room => !knownRoom(roomStore(), room.roomId)) : []
+}
+
+function importBrowserRooms(): void {
+  const rooms = browserRoomsToImport()
+  if (!bookmarks || !rooms.length) return
+  const destination = nostrSession?.signer.nip44
+    ? 'Their names and invitation links will be encrypted to your Nostr key and sent to relays.'
+    : 'This signer cannot encrypt, so these bookmarks will stay in this browser only.'
+  if (!confirm(`Add these browser rooms to this Nostr account?\n\n${rooms.map(roomLabel).join('\n')}\n\n${destination} Only continue if these are rooms you want saved to this account.`)) return
+  for (const room of rooms) bookmarks.save(room)
+  renderRooms()
 }
 
 function roomRow(room: KnownRoom): HTMLLIElement {
@@ -5237,6 +5255,9 @@ $('signOut').addEventListener('click', () => {
   signOutOfNostr().catch((err) => setStatus(describeError(err)))
 })
 $('retryRoomSync').addEventListener('click', () => { void bookmarks?.retry() })
+$('importBrowserRooms').addEventListener('click', () => {
+  try { importBrowserRooms() } catch (error) { setStatus(describeError(error)) }
+})
 
 $('create').addEventListener('click', () => {
   startNewRoom()
