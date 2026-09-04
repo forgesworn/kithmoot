@@ -2356,3 +2356,25 @@ label.note {
     padding-bottom: max(2rem, env(safe-area-inset-bottom));
   }
 }
+/* Recovery controls stay bounded on a phone, even with several failed sends. */
+#updateNotice {
+  padding: .5rem 1rem;
+  flex: 0 0 auto;
+}
+#outbox {
+  max-height: 25vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.outboxItem {
+  padding: .5rem;
+  border: 1px solid currentColor;
+  border-radius: .5rem;
+  margin: .25rem 0;
+  overflow-wrap: anywhere;
+}
+.outboxItem p { margin: .25rem 0; white-space: pre-wrap; }
+.outboxItem button { margin-right: .5rem; }
+#newMessages { align-self: center; flex-shrink: 0; }
+.profileChoice { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
+#lookupProfiles { min-height: 0; width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }

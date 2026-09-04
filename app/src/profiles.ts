@@ -30,13 +30,10 @@ import type { Event } from 'nostr-tools/pure'
  * room id and the timing of its roster events, and - because of this file
  * and nothing else - can also learn which participant keys are in it.
  *
- * That is a real correlation and it is not mitigated here. It is written
- * down rather than fixed because every fix costs something a reader should
- * get to weigh: looking profiles up on unrelated relays weakens the link
- * without breaking it and contradicts the reason room relays were chosen;
- * padding the filter with decoy authors costs bandwidth and only raises the
- * work; and not looking them up at all removes the one signal that
- * distinguishes a published identity from a key made five seconds ago.
+ * Lookups are therefore disabled until the reader opts in for this visit.
+ * Disabling them closes outstanding subscriptions and removes cached
+ * profiles, including externally hosted pictures. It cannot undo disclosure
+ * from a request already sent. No preference carries into another visit.
  *
  * Anything built on top of this - a lookup keyed on participant pubkeys for
  * any other purpose - inherits the same cost and does not add a new one.
@@ -71,15 +68,27 @@ export class ProfileBook {
   readonly #asked = new Set<string>()
   readonly #found = new Map<string, { profile: Profile; createdAt: number }>()
   #closed = false
+  #enabled = false
 
   constructor(opts: ProfileBookOptions) {
     this.#opts = opts
   }
 
+  setEnabled(enabled: boolean): void {
+    this.#enabled = enabled
+    if (enabled) return
+    for (const unsub of this.#unsubs) unsub()
+    this.#unsubs.clear()
+    this.#pool?.close()
+    this.#pool = undefined
+    this.#asked.clear()
+    this.#found.clear()
+  }
+
   /** Look up any of these we have not already asked about. Cheap to call
    *  on every render; it does nothing for a pubkey it has already seen. */
   want(pubkeys: string[]): void {
-    if (this.#closed) return
+    if (this.#closed || !this.#enabled) return
     const fresh = [...new Set(pubkeys)].filter((p) => !this.#asked.has(p))
     if (fresh.length === 0) return
     for (const pubkey of fresh) this.#asked.add(pubkey)
@@ -101,7 +110,7 @@ export class ProfileBook {
   }
 
   get(pubkey: string): Profile | undefined {
-    return this.#found.get(pubkey)?.profile
+    return this.#enabled ? this.#found.get(pubkey)?.profile : undefined
   }
 
   close(): void {
@@ -115,6 +124,7 @@ export class ProfileBook {
   /** Never throws: this runs inside a relay subscription handler. */
   #ingest(event: Event): void {
     try {
+      if (this.#closed || !this.#enabled) return
       if (event.kind !== 0) return
       if (!this.#asked.has(event.pubkey)) return
       // The pool filters by author, but a relay is not obliged to honour a

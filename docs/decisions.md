@@ -278,8 +278,14 @@ key a browser generated a moment ago. The two are the same 32 bytes, and no
 protocol change could tell them apart without a registry.
 
 What *can* be observed is whether a key has published a kind-0 profile. The
-app looks one up for every participant, and marks a key that has one `nostr`.
+app offers a per-visit opt-in to look one up for every participant, and marks a key that has one `nostr`.
 That is a fact about the key, so the label says what it is and no more.
+
+Lookup starts disabled. Enabling it discloses the participant keys to the
+room's relays in plaintext author queries; pictures also contact their
+hosts. Room details explains this before the switch. Disabling it closes
+subscriptions and clears loaded profiles. This limits this browser's
+disclosure, not what another member can choose to disclose.
 
 It is deliberately never called "verified". A kind-0 `name` is self-asserted
 in exactly the way a typed name is. It says "the holder of this key calls

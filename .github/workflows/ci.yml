@@ -43,6 +43,9 @@ jobs:
       - name: Build app
         run: npm run build
 
+      - name: Check packaged library entry points
+        run: node test/package-smoke.mjs
+
   # The acceptance tests: the built app in a real browser, two or three
   # devices in a room, measured off decoded pixels and audio energy. The
   # unit suite cannot catch a room that negotiates media perfectly and puts
@@ -53,6 +56,10 @@ jobs:
   acceptance:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -68,13 +75,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install browser
+        run: npx playwright install --with-deps ${{ matrix.browser }}
 
       # playwright.config.ts builds the app, serves it, and - because
       # E2E_RELAYS=local - starts the test relay beside it.
       - name: Acceptance tests
-        run: npx playwright test test/media.spec.ts test/e2e.spec.ts test/effects.spec.ts test/relay-capability.spec.ts test/peer-assist.spec.ts test/rooms.spec.ts
+        run: npx playwright test --project=${{ matrix.browser }}
         env:
           E2E_RELAYS: local
 
@@ -82,7 +89,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: playwright-traces
+          name: playwright-traces-${{ matrix.browser }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7

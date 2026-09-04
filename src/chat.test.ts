@@ -251,6 +251,43 @@ describe('encodeChatEvent / decodeChatEvent', () => {
 })
 
 describe('ChatLog', () => {
+  it('retries the identical event after delivery with a lost acknowledgement', async () => {
+    const f = await fixture()
+    const transport = new SimTransport(new SimRelay())
+    const events: Event[] = []
+    const publish = transport.publish.bind(transport)
+    transport.publish = async (event) => {
+      events.push(event)
+      await publish(event)
+      if (events.length === 1) throw new Error('acknowledgement lost')
+    }
+    const log = new ChatLog({ ...f, transport, now: () => NOW })
+    const attachment = {
+      event: 'aa'.repeat(32), url: `https://blossom.example/${'bb'.repeat(32)}`,
+      sha256: 'bb'.repeat(32), key: 'cc'.repeat(32), name: 'kept.txt',
+    }
+    const retry = log.prepareSend('do this once', { attachments: [attachment] })
+    await expect(retry()).rejects.toThrow('acknowledgement lost')
+    await retry()
+    expect(events).toHaveLength(2)
+    expect(events[1]).toEqual(events[0])
+    expect(log.messages()).toHaveLength(1)
+    expect(log.messages()[0]!.attachments).toEqual([attachment])
+    log.close()
+  })
+
+  it('refuses prepared sends after rekeying or closing their conversation', async () => {
+    const f = await fixture()
+    const log = new ChatLog({ ...f, transport: new SimTransport(new SimRelay()), now: () => NOW })
+    const old = log.prepareSend('old key')
+    log.rekey({ id: 'a'.repeat(64), key: new Uint8Array(32).fill(12) })
+    await expect(old()).rejects.toThrow('changed its key')
+    const current = log.prepareSend('current key')
+    log.close()
+    await expect(current()).rejects.toThrow('closed')
+    await expect(log.send('closed')).rejects.toThrow('closed')
+  })
+
   it('send() publishes a message that shows up in messages()', async () => {
     const relay = new SimRelay()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))

@@ -511,6 +511,7 @@ export class ChatLog {
   readonly #seen = new Set<string>()
   readonly #senderTimes = new Map<string, number[]>()
   readonly #listeners = new Set<(messages: ChatMessage[]) => void>()
+  #closed = false
   #unsub: () => void
   /** The epoch this log reads and writes. Undefined is epoch 0. */
   #epoch?: EpochRoot
@@ -556,6 +557,14 @@ export class ChatLog {
   }
 
   async send(text: string, sendOpts: SendOptions = {}): Promise<void> {
+    await this.prepareSend(text, sendOpts)()
+  }
+
+  /** Prepare one signed event. Explicit retries publish exactly the same
+   * event, including after an acknowledgement was lost. A room or channel
+   * that has closed or changed its key must not publish the old event. */
+  prepareSend(text: string, sendOpts: SendOptions = {}): () => Promise<void> {
+    if (this.#closed) throw new Error('this conversation has closed')
     const credential = this.#credential
     const deviceSk = this.#opts.deviceSk
     if (!credential || !deviceSk) throw new Error('this log only reads; it was opened without a credential')
@@ -603,7 +612,13 @@ export class ChatLog {
       channel: this.#opts.channel,
       ...(this.#epoch ? { epoch: this.#epoch } : {}),
     })
-    await this.#opts.transport.publish(event)
+    const epoch = this.#epoch
+    return async () => {
+      if (this.#closed || this.#epoch !== epoch) {
+        throw new Error('This conversation has closed or changed its key. Copy your message into the current conversation to send it.')
+      }
+      await this.#opts.transport.publish(event)
+    }
   }
 
   /**
@@ -633,6 +648,7 @@ export class ChatLog {
   }
 
   close(): void {
+    this.#closed = true
     this.#unsub()
     this.#listeners.clear()
   }

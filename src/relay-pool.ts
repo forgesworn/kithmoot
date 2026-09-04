@@ -9,7 +9,7 @@ import type { Filter } from 'nostr-tools/filter'
  */
 export interface RelayTransport {
   publish(event: Event): Promise<void>
-  subscribe(filters: Filter[], onEvent: (event: Event) => void): () => void
+  subscribe(filters: Filter[], onEvent: (event: Event) => void, onEose?: () => void): () => void
   close(): void
 }
 
@@ -47,7 +47,7 @@ export class NostrRelayPool implements RelayTransport {
     }
   }
 
-  subscribe(filters: Filter[], onEvent: (event: Event) => void): () => void {
+  subscribe(filters: Filter[], onEvent: (event: Event) => void, onEose?: () => void): () => void {
     if (this.#closed) throw new Error('pool is closed')
     // Belt and braces. `subscribeMap` de-duplicates across the relays of one
     // subscription itself, so removing this changes nothing observable today -
@@ -61,6 +61,7 @@ export class NostrRelayPool implements RelayTransport {
     // NIP-01 OR semantics.
     const requests = this.#relays.flatMap((url) => filters.map((filter) => ({ url, filter })))
     const sub = this.#pool.subscribeMap(requests, {
+      oneose: onEose,
       onevent(event) {
         // Hear each event once, however many relays deliver it.
         if (seen.has(event.id)) return

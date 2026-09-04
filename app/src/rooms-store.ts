@@ -8,8 +8,9 @@
  * its id, what it is called, the link that opens it, when this device was
  * last in it, and how far through its chat this device has read.
  *
- * Nothing in here is a secret, and nothing in here is anything the link
- * did not already carry. The room key is deliberately NOT kept here: a
+ * These are private invitation links, not a public directory. Nothing
+ * here is anything the link did not already carry. A legacy link includes
+ * its room secret; a modern invitation does not. In particular, a
  * version 2 link is an invitation, the room secret arrives over the
  * rendezvous and lives where the app already keeps it - a creator's record
  * for twelve hours, a joiner's for the tab's session, or, when the person
