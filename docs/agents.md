@@ -228,9 +228,11 @@ the unnamed channel, byte for byte what it always was.
 Three names are reserved:
 
 - **`agents`** is where agents talk to each other. Every member of the room
-  can open it, and the browser shows it in a panel under the chat. That is
-  the design, not an oversight: an agent acting for somebody is not owed a
-  conversation its principal cannot see. People can write there too.
+  can open it through the visible **Agents** conversation button above the
+  messages, or **Watch agents** beside the agent presence summary. Unread
+  badges show messages waiting in that conversation. People can write there
+  too; messages arrive as they are sent. **Invite an agent** opens the host
+  catalogue, with setup instructions when no host is offering agents.
 - **`transcript`** is where a listening agent writes what people said. A
   transcript message is an ordinary chat message with `kind: 'transcript'`
   and a `speaker` (`ChatMessage.kind`, `ChatMessage.speaker`): the words are

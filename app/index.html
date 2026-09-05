@@ -36,38 +36,18 @@
       <button id="backToRoom" type="button" class="quiet" hidden></button>
     </nav>
 
-    <!-- ===================================================================
-         Reading order is the whole design.
-
-         Somebody who was sent a link came to read what people said and to
-         say something back. So the room is written first and everything
-         used to SET a room up is written after it, in the order you would
-         reach for it. The page used to open on nine pieces of setup, and a
-         first message sat a thousand pixels below the fold on a phone.
-
-         Nothing has been taken away. Every control that was here is still
-         here, further down or one disclosure in, because people do come
-         back for them - just not before they have read a word.
-         =================================================================== -->
     <main>
       <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
-      <!-- ===============================================================
-           The message screen: a bar, the conversation, the box to write in.
-
-           That is the whole inventory, and it is the inventory every
-           messaging app a person already uses has settled on. What used to
-           be here as well - a sentence about agents, a strip of participant
-           chips, four conversation tabs, a line explaining the tab, camera
-           and microphone and screen-share buttons, an invite drawer, a
-           notification switch and a way back to the rooms list - each
-           earned its place by being reasonable on its own. Together they
-           were the reason the room read as busy, and no amount of tightening
-           spacing fixes that, because the problem is the NUMBER of things
-           asking to be read, not their size.
-
-           Every one of them is one tap away in the room details sheet at
-           the bottom of this file, and not one sentence of it was deleted.
-           =============================================================== -->
+      <aside id="workspaceNav" aria-label="Projects and rooms" hidden>
+        <div class="workspaceBrand">KithMoot</div>
+        <button id="workspaceSwitch" type="button" aria-haspopup="dialog" aria-controls="roomSwitcher">Find a room <kbd>⌘ / Ctrl K</kbd></button>
+        <label class="sr-only" for="workspaceQuery">Filter projects and rooms</label>
+        <input id="workspaceQuery" type="search" placeholder="Filter projects and rooms" autocomplete="off" />
+        <div id="workspaceRooms"></div>
+        <p id="workspaceEmpty" class="note" hidden>No matching rooms.</p>
+        <button id="workspaceHome" type="button" class="quiet">All rooms / Start a room</button>
+        <p id="workspaceNote" class="note"></p>
+      </aside>
       <section id="roomArea" hidden>
         <!-- One line. Back, who and where you are, a call, and the rest. -->
         <div class="roomBar">
@@ -85,6 +65,13 @@
                   aria-label="Room details">
             <span aria-hidden="true">&#8943;</span>
           </button>
+        </div>
+
+        <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
+        <div id="agentActivity" class="agentActivity" hidden>
+          <div><strong id="agentActivityTitle"></strong><span id="agentActivityNote"></span></div>
+          <button id="watchAgents" type="button">Watch agents</button>
+          <button id="manageAgents" type="button" hidden>Invite an agent</button>
         </div>
 
         <!-- The call. Absent until there is one, the way a phone shows call
@@ -173,13 +160,13 @@
           <div id="room"></div>
         </div>
 
-        <h3 class="sr-only">Conversation</h3>
+        <h3 id="conversationHeading" class="sr-only">Chat</h3>
         <div class="conversationTools" aria-label="Conversation tools">
           <button id="chatSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search messages</button>
           <button id="chatProfiles" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures: off</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
-        <div id="chatLog" aria-label="Conversation" aria-live="polite"></div>
+        <div id="chatLog" role="region" aria-label="Conversation" aria-live="polite" tabindex="0"></div>
         <button id="newMessages" type="button" hidden>New messages ↓</button>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
         <!-- Said where the box would be, on the conversations nobody types
@@ -299,11 +286,15 @@
         <h2 id="roomsHeading">Your rooms</h2>
         <div id="homeRoomSearch" class="roomSearchRow" hidden>
           <label for="homeRoomQuery" class="sr-only">Search saved rooms</label>
-          <input id="homeRoomQuery" type="search" placeholder="Search saved rooms" autocomplete="off" spellcheck="false" />
+          <input id="homeRoomQuery" type="search" placeholder="Search rooms or projects" autocomplete="off" spellcheck="false" />
           <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
         </div>
         <p id="homeRoomResults" class="note" role="status" hidden></p>
         <p id="roomsEmpty" class="note" hidden>No saved rooms yet. Start a room or open an invitation. Check Room sync and privacy below if you expected rooms from another device.</p>
+        <div id="homeProjectFilter" class="projectFilter" hidden>
+          <label for="homeProject">Project</label>
+          <select id="homeProject"><option value="*">All projects</option></select>
+        </div>
         <ul id="roomList" class="roomList" aria-live="polite"></ul>
         <!-- Under the list rather than over it. Somebody who comes back here
              comes back for the rooms, and three lines about how the list is
@@ -433,7 +424,8 @@
       <div class="sheetBody">
         <p id="roomSwitcherNote" class="note"></p>
         <label for="roomSearch">Find a room</label>
-        <input id="roomSearch" type="search" placeholder="Room name or code" autocomplete="off" />
+        <input id="roomSearch" type="search" placeholder="Room, project or code" autocomplete="off" />
+        <div class="projectFilter"><label for="switcherProject">Project</label><select id="switcherProject"><option value="*">All projects</option></select></div>
         <ul id="roomSwitcherList" class="roomList"></ul>
         <p id="roomSwitcherEmpty" class="note" hidden>No matching rooms. Rooms you open while signed in appear here.</p>
         <button id="roomSwitcherHome" type="button" class="quiet">All rooms / Start a room</button>
@@ -484,6 +476,25 @@
          Reachable and dismissible by thumb: a Close button that stays on
          screen, Escape, and a tap on the backdrop.
          ===================================================================== -->
+    <dialog id="projectEditor" aria-labelledby="projectEditorTitle">
+      <form id="projectForm">
+        <div class="sheetBar">
+          <h2 id="projectEditorTitle">Organise room</h2>
+          <button id="projectCancel" type="button">Cancel</button>
+        </div>
+        <div class="sheetBody">
+          <p id="projectRoomName"></p>
+          <label for="projectName">Project name</label>
+          <input id="projectName" list="projectSuggestions" maxlength="64" placeholder="e.g. KithMoot" autocomplete="off" />
+          <datalist id="projectSuggestions"></datalist>
+          <p class="note">Choose an existing project or name a new one. Leave blank to remove this room from its project.</p>
+          <p class="note">Projects organise your rooms on this browser only. They do not change who can join a room.</p>
+          <p id="projectError" class="formError" role="alert" hidden></p>
+          <button type="submit" class="primary">Save project</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="conversationSearch" aria-labelledby="messageSearchTitle" aria-describedby="messageSearchScope">
       <div class="sheetBar">
         <h2 id="messageSearchTitle">Search this conversation</h2>
@@ -521,13 +532,7 @@
 
         <h3 class="sheetHead">Conversations</h3>
         <button id="searchConversation" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search this conversation</button>
-        <!-- The room's conversations. These used to be a row of tabs above
-             the messages, which is a thing no messaging app does: you are
-             only ever reading one of them, so the other three were three
-             permanent invitations to be somewhere else. Picking one here
-             closes this sheet and takes you to it, and the bar at the top
-             of the room says which one you are in. -->
-        <div id="channelBar" class="channelBar" role="tablist" aria-label="Conversations"></div>
+        <div id="channelBar" class="channelBar" aria-label="Conversations"></div>
         <p id="draftHelp" class="note" hidden>Drafts stay with their conversations in this tab. Leaving or reloading discards them.</p>
         <button id="discardDraft" type="button" hidden>Discard this draft</button>
 

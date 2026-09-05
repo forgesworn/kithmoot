@@ -183,7 +183,7 @@ test('switching conversations restores the same Nostr identity before entering',
     await first.locator('#join').click()
     await expect(first.locator('#roomArea')).toBeVisible()
     await first.locator('#backToRooms').click()
-    await first.locator('#roomSwitcherList').getByRole('button', { name: /Second account room/ }).click()
+    await first.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Second account room', exact: true }).click()
     await expect(first.locator('#roomTitle')).toHaveText('Second account room')
     await expect(first.locator('#roomArea')).toBeVisible()
     await expect(first.locator('#whoami')).toContainText(getPublicKey(secret).slice(0, 8))
