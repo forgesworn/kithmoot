@@ -212,7 +212,10 @@ export interface RekeyNotice {
    *  device that was removed, or that was not in the room when the
    *  authority rekeyed. */
   secret?: Uint8Array
-  /** The authority's clock when it rekeyed. */
+  /** True for a current-state grant, whose removed list is cumulative.
+   *  It synchronises this session; it does not describe a new removal. */
+  catchUp?: true
+  /** The authority's clock when it rekeyed, or receipt time for catch-up. */
   at: number
 }
 

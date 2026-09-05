@@ -57,6 +57,7 @@ describe('room epochs', () => {
     const notice = await keeper.rekey({ authoritySk, removed: [bob.participant], by: admin })
     await settle()
     expect(notice.epoch).toBe(1)
+    expect(notice.catchUp).toBeUndefined()
     expect(epochs.map((n) => n.epoch)).toEqual([1])
     expect(keeper.epoch).toBe(1)
     expect(alice.epoch).toBe(1)
@@ -168,11 +169,14 @@ describe('room epochs', () => {
     // Carol arrives with nothing but the room secret and the authority's
     // pubkey: told nothing about the epoch, she reads the replayed rekey,
     // cannot open it, asks, and lands in epoch 1.
-    const carol = member(relay, 'Carol', authority)
+    const caughtUp: RekeyNotice[] = []
+    const carol = member(relay, 'Carol', authority, { onEpoch: notice => caughtUp.push(notice) })
     await carol.join([], {})
     await settle()
     expect(carol.epoch).toBe(1)
     expect(carol.removed.has(bobIdentity.pubkey)).toBe(true)
+    expect(caughtUp).toHaveLength(1)
+    expect(caughtUp[0]).toMatchObject({ epoch: 1, removed: [bobIdentity.pubkey], catchUp: true })
     expect(keeper.participants().map((v) => v.name).sort()).toEqual(['Carol', 'Keeper'])
     // Nothing of Carol's was ever said under epoch 0.
     const { roomId } = deriveRoom(SECRET)

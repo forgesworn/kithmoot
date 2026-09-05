@@ -2898,10 +2898,10 @@ interface SystemLine {
 }
 const systemLines: SystemLine[] = []
 
-function addSystemLine(text: string): void {
-  systemLines.push({ at: nowSeconds(), text })
-  // An epoch can move while the session is still joining, before its chat
-  // exists; the line is kept, and the first render after join shows it.
+function addSystemLine(text: string, at = nowSeconds()): void {
+  systemLines.push({ at, text })
+  systemLines.sort((a, b) => a.at - b.at)
+  // Keep local status lines until the chat exists and can render them.
   // Only the conversation on screen is repainted - the line belongs to the
   // main chat and waits there for somebody standing on another tab.
   try {
@@ -2911,13 +2911,27 @@ function addSystemLine(text: string): void {
   }
 }
 
+function renderRoomLockState(): void {
+  const epoch = session?.epoch ?? 0
+  const state = $('roomLockState')
+  state.hidden = epoch === 0
+  state.textContent = epoch > 0
+    ? `The room lock has changed ${epoch === 1 ? 'once' : `${epoch} times`}. Removed members cannot read new messages.`
+    : ''
+}
+
 function onEpochChange(notice: RekeyNotice): void {
+  renderRoomLockState()
+  renderHost()
+  // Joining replays old rekeys; a state grant includes everyone ever
+  // removed. Neither is a new event to announce in this visit's chat.
+  if ($('roomArea').hidden || notice.catchUp) return
   const by = notice.by ? ` by ${personLabel(notice.by)}` : ''
-  for (const p of notice.removed) addSystemLine(`${personLabel(p)} was removed${by}.`)
+  for (const p of notice.removed) addSystemLine(`${personLabel(p)} was removed${by}.`, notice.at)
   addSystemLine(
     `The room moved to epoch ${notice.epoch}.${notice.removed.length ? ' Nothing from here on reaches who was removed; what they already read stays theirs.' : ''}`,
+    notice.at,
   )
-  renderHost()
 }
 
 const NOTICE_STORAGE_KEY = 'kithmoot.notice'
@@ -4898,16 +4912,7 @@ async function startSession(): Promise<void> {
     control.onChange((messages) => ingestControl(messages))
     ingestControl(control.messages())
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
-    // "Epoch 3" means nothing to somebody who has just arrived. What it
-    // actually tells them is that the room has changed its lock since it
-    // started, so anybody removed along the way cannot read this.
-    if (s.epoch > 0) {
-      addSystemLine(
-        s.epoch === 1
-          ? 'This room has changed its lock once since it started. Anybody who was removed cannot read what is said from here on.'
-          : `This room has changed its lock ${s.epoch} times since it started. Anybody who was removed cannot read what is said from here on.`,
-      )
-    }
+    renderRoomLockState()
     renderHost()
     // Empty until the keeper answers the `catalogue?` above with its signed
     // list, which is the only thing this client will believe.
