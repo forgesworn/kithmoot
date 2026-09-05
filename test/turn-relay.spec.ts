@@ -132,6 +132,7 @@ async function newDeviceContext(browser: Browser, baseURL: string): Promise<Brow
 
 async function createRoom(page: Page, baseURL: string): Promise<string> {
   await page.goto(baseURL)
+  await page.locator('#roomType').selectOption('temporary')
   await page.locator('#create').click()
   // The link, not the box it used to sit in. The entry page was rebuilt to
   // put the conversation first and the drawer holding the link stays shut

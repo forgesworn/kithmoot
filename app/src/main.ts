@@ -13,12 +13,15 @@ import {
   deviceKeyFor,
   forgetCredentialFor,
   forgetLegacyStorage,
+  forgetKeptAdmission,
   isPairedSecondary,
   loadCredentialFor,
   loadKeptAdmission,
   storeCredentialFor,
   storeKeptAdmission,
+  type SavedRoomAdmission,
 } from './device-store.js'
+import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { roomProject, setRoomProject } from './room-projects.js'
 import { RoomWatch } from './room-watch.js'
@@ -37,6 +40,8 @@ import {
   deriveInvitationId,
   hostRoomInvitation,
   requestRoomAdmissionCapability,
+  requestPersistentRoomAdmission,
+  encodePersistentInvitation,
   encodeInvitationRetirement,
   createPairingCode,
   hostPairing,
@@ -343,6 +348,7 @@ function rememberCurrentRoom(): void {
       openedAt: nowSeconds(),
     })
     bookmarks?.save(room)
+    refreshKeptAdmission()
   } catch {
     // Storage may be unavailable. The room still opens; it is only the way
     // back to it that goes unwritten.
@@ -544,7 +550,7 @@ function startRoomBookmarks(account: SignetSession): void {
 
 interface RoomUrlPayload {
   /** Version 2 is an invitation. Absence means a legacy room-secret link. */
-  v?: 2
+  v?: 2 | 3
   /** Legacy v1 room traffic secret. Never emitted for a new room. */
   s?: string
   /** Version 2 invitation bearer. */
@@ -586,7 +592,7 @@ function safeIceUrls(urls: string[]): string[] {
 function encodePayload(relays: string[], urls: string[], pairingCode?: Uint8Array): string {
   const payload: RoomUrlPayload = roomInvitationCapability
     ? {
-        v: 2,
+        v: roomInvitationCapability.persistent ? 3 : 2,
         j: base64urlnopad.encode(roomInvitationCapability.bearer),
         h: roomInvitationCapability.inviter,
         r: relays,
@@ -665,76 +671,24 @@ function roomAuthority(): string | undefined {
   return roomInvitationCapability?.inviter
 }
 
-const INVITATION_OWNER_PREFIX = 'kithmoot.invitation-owner.v1.'
 const ADMISSION_CACHE_PREFIX = 'kithmoot.admission.v1.'
-const INVITATION_OWNER_TTL_SECONDS = 12 * 60 * 60
-
-interface StoredInvitationOwner {
-  roomSecret: string
-  inviterSk: string
-  createdAt: number
-}
+let admittedRoom: SavedRoomAdmission | undefined
 
 function ownerStorageKey(invitation: RoomInvitation): string {
   return INVITATION_OWNER_PREFIX + deriveInvitationId(invitation)
 }
 
-/**
- * Keep the creator able to answer the link after a reload or reopened tab.
- *
- * This is deliberately localStorage rather than putting either secret back
- * in the URL. It expires after the same twelve-hour horizon as a device
- * credential, and rotating the link removes it immediately.
- */
 function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, hostSk: Uint8Array): void {
-  try {
-    const value: StoredInvitationOwner = {
-      roomSecret: bytesToHex(room),
-      inviterSk: bytesToHex(hostSk),
-      createdAt: nowSeconds(),
-    }
-    localStorage.setItem(ownerStorageKey(invitation), JSON.stringify(value))
-  } catch {
-    // Storage may be unavailable in a locked-down browser. The invitation
-    // still works for as long as this page stays open; only reload recovery
-    // is lost.
+  try { writeInvitationOwner(deviceStore, invitation, room, hostSk, nowSeconds()) }
+  catch (error) {
+    // A temporary meeting can still run entirely in this tab. A group must
+    // retain its creator authority before offering durable access to others.
+    if (invitation.persistent) throw error
   }
 }
 
 function loadInvitationOwner(invitation: RoomInvitation): { roomSecret: Uint8Array; inviterSk: Uint8Array } | undefined {
-  const key = ownerStorageKey(invitation)
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return undefined
-    const value = JSON.parse(raw) as Partial<StoredInvitationOwner>
-    if (
-      typeof value.roomSecret !== 'string' ||
-      typeof value.inviterSk !== 'string' ||
-      typeof value.createdAt !== 'number' ||
-      value.createdAt + INVITATION_OWNER_TTL_SECONDS <= nowSeconds()
-    ) {
-      localStorage.removeItem(key)
-      return undefined
-    }
-    const storedRoomSecret = hexToBytes(value.roomSecret)
-    const storedInviterSk = hexToBytes(value.inviterSk)
-    if (
-      storedRoomSecret.length !== 32 ||
-      storedInviterSk.length !== 32 ||
-      getPublicKey(storedInviterSk) !== invitation.inviter
-    ) {
-      localStorage.removeItem(key)
-      return undefined
-    }
-    return { roomSecret: storedRoomSecret, inviterSk: storedInviterSk }
-  } catch {
-    try {
-      localStorage.removeItem(key)
-    } catch {
-      // Nothing else to recover.
-    }
-    return undefined
-  }
+  try { return readInvitationOwner(deviceStore, invitation, nowSeconds()) } catch { return undefined }
 }
 
 function forgetInvitationOwner(invitation: RoomInvitation): void {
@@ -747,18 +701,20 @@ function forgetInvitationOwner(invitation: RoomInvitation): void {
 
 interface StoredAdmission {
   roomSecret: string
-  delegateSk: string
-  delegation: InvitationDelegation[]
+  delegateSk?: string
+  delegation?: InvitationDelegation[]
+  persistent?: true
   /** What the responder said the room's epoch was. See `RoomAdmission.epoch`. */
   epoch?: number
 }
 
-function cacheAdmission(invitation: RoomInvitation, admission: RoomAdmission): void {
+function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission): void {
   try {
     const value: StoredAdmission = {
       roomSecret: bytesToHex(admission.secret),
-      delegateSk: bytesToHex(admission.delegate.delegateSk),
-      delegation: admission.delegate.chain,
+      ...('delegate' in admission
+        ? { delegateSk: bytesToHex(admission.delegate.delegateSk), delegation: admission.delegate.chain }
+        : { persistent: true as const }),
       ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
     }
     sessionStorage.setItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation), JSON.stringify(value))
@@ -767,17 +723,18 @@ function cacheAdmission(invitation: RoomInvitation, admission: RoomAdmission): v
   }
 }
 
-function loadCachedAdmission(invitation: RoomInvitation): RoomAdmission | undefined {
+function loadCachedAdmission(invitation: RoomInvitation): SavedRoomAdmission | undefined {
   try {
     const raw = sessionStorage.getItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation))
     if (!raw) return undefined
     const value = JSON.parse(raw) as Partial<StoredAdmission>
     if (
-      typeof value.roomSecret !== 'string' ||
-      typeof value.delegateSk !== 'string' ||
-      !Array.isArray(value.delegation)
+      typeof value.roomSecret !== 'string'
     ) return undefined
     const secret = hexToBytes(value.roomSecret)
+    if (secret.length !== 32) return undefined
+    if (value.persistent === true && invitation.persistent && value.epoch === 0) return { secret, persistent: true, epoch: 0 }
+    if (typeof value.delegateSk !== 'string' || !Array.isArray(value.delegation)) return undefined
     const delegateSk = hexToBytes(value.delegateSk)
     if (secret.length !== 32 || delegateSk.length !== 32) return undefined
     const admission: RoomAdmission = { secret, delegate: { delegateSk, chain: value.delegation } }
@@ -791,26 +748,18 @@ function loadCachedAdmission(invitation: RoomInvitation): RoomAdmission | undefi
 // ---------------------------------------------------------------------------
 // Keeping a room on this device
 //
-// A joiner's admission lives in sessionStorage above: the tab's lifetime,
-// and no longer, which is the right default for a key a stranger's link
-// handed over. But the rooms list and a notification both need the room
-// key with no tab open on the room, so a person may choose, per room, to
-// keep it here on the creator's terms - twelve hours from each visit, gone
-// when the room is forgotten. The choice is written in the rooms store;
-// the admission itself is written here, by the page that holds it. See
-// `storeKeptAdmission` and docs/decisions.md.
+// Temporary meetings default to tab storage, with an optional twelve-hour
+// local admission. Groups retain membership by default until forgotten, with
+// a per-room opt-out. In both cases the tab cache supports ordinary reloads.
 // ---------------------------------------------------------------------------
 
-/** The admission this page holds as a joiner: the secret, and the delegated
- *  responder key with its chain. Undefined on the creator's page, on a
- *  legacy link, and on a page whose delegation has been retired. */
-function currentJoinerAdmission(): RoomAdmission | undefined {
-  if (!roomInvitationCapability || !invitationAuthoritySk || invitationDelegation.length === 0) return undefined
-  return { secret: roomSecret, delegate: { delegateSk: invitationAuthoritySk, chain: invitationDelegation } }
+/** Membership held by a joiner, separate from any expiring permission to
+ * answer temporary invitations. A group member needs no responder key. */
+function currentJoinerAdmission(): SavedRoomAdmission | undefined {
+  return admittedRoom
 }
 
-/** Write the admission down again if the room is one the person chose to
- *  keep, so the twelve hours run from this visit. */
+/** Refresh locally remembered membership. Only temporary admissions expire. */
 function refreshKeptAdmission(): void {
   const roomId = currentRoomId()
   const invitation = roomInvitationCapability
@@ -834,6 +783,7 @@ function setKeepRoomChoice(on: boolean): void {
     setKeepRoom(roomStore(), roomId, on)
   }
   if (on) refreshKeptAdmission()
+  else forgetKeptAdmission(deviceStore, deriveInvitationId(roomInvitationCapability))
   renderKeepChoice()
 }
 
@@ -844,10 +794,15 @@ function renderKeepChoice(): void {
   const row = $('keepRow')
   const roomId = currentRoomId()
   const on = roomId !== undefined && knownRoom(roomStore(), roomId)?.keep === true
-  row.hidden = !roomId || !roomInvitationCapability || (!currentJoinerAdmission() && !on)
+  const creator = invitationAuthoritySk !== undefined && invitationDelegation.length === 0
+  row.hidden = creator || !roomId || !roomInvitationCapability || (!currentJoinerAdmission() && !on)
   setToggle('toggleKeep', on)
   $('toggleKeep').setAttribute('aria-pressed', String(on))
-  $('keepNote').textContent = on
+  $('keepNote').textContent = roomInvitationCapability?.persistent
+    ? on
+      ? 'This device remembers your membership until you forget the room. You can return when everyone else is offline.'
+      : 'Membership is kept only for this tab. You can use the group invitation to return later.'
+    : on
     ? 'On: this device keeps the room\u2019s key for twelve hours after each visit, so your rooms list can check for new messages and tell you about them with no tab open. Forgetting the room throws the key away.'
     : 'Off: this device only holds the room\u2019s key while a tab is open on it. Until you switch this on, your rooms list cannot check this room and nothing will tell you about it.'
 }
@@ -862,7 +817,7 @@ function stopInvitationHost(): void {
 function serveCurrentInvitation(): void {
   stopInvitationHost()
   const invitation = roomInvitationCapability
-  if (!invitation || !invitationAuthoritySk) return
+  if (!invitation || !invitationAuthoritySk || invitation.persistent) return
   invitationTransport = new NostrRelayPool(relays)
   try {
     invitationHost = hostRoomInvitation({
@@ -1273,18 +1228,7 @@ function fragmentPayload(url: string): Partial<RoomUrlPayload> {
 }
 
 function invitationFromLocation(url: string): RoomInvitation | undefined {
-  const payload = fragmentPayload(url)
-  if (payload.v !== 2) return undefined
-  if (typeof payload.j !== 'string' || typeof payload.h !== 'string') {
-    throw new Error('join URL carries a malformed invitation')
-  }
-  let bearer: Uint8Array
-  try {
-    bearer = base64urlnopad.decode(payload.j)
-  } catch {
-    throw new Error('join URL carries a malformed invitation')
-  }
-  return roomInvitation(bearer, payload.h)
+  return parseRoomLink(url).invitation
 }
 
 /**
@@ -1332,11 +1276,15 @@ async function roomFromLocation(): Promise<boolean> {
     } else {
       // This tab's session first, then what the person chose to keep on
       // this device, then the live rendezvous.
-      const cached = loadCachedAdmission(invitation) ?? loadKeptAdmission(deviceStore, deriveInvitationId(invitation), nowSeconds())
+      const saved = loadCachedAdmission(invitation) ?? loadKeptAdmission(deviceStore, deriveInvitationId(invitation), nowSeconds())
+      // An updated group link must load its signed durable invitation once,
+      // so an earlier temporary grant cannot keep the twelve-hour storage rule.
+      const cached = invitation.persistent && saved && 'delegate' in saved ? undefined : saved
       if (cached) {
         roomSecret = cached.secret
-        invitationAuthoritySk = cached.delegate.delegateSk
-        invitationDelegation = cached.delegate.chain
+        admittedRoom = cached
+        invitationAuthoritySk = 'delegate' in cached ? cached.delegate.delegateSk : undefined
+        invitationDelegation = 'delegate' in cached ? cached.delegate.chain : []
         expectedEpoch = cached.epoch
         cacheAdmission(invitation, cached)
         serveCurrentInvitation()
@@ -1344,10 +1292,13 @@ async function roomFromLocation(): Promise<boolean> {
         setStatus('Getting you in…', 'progress')
         const transport = new NostrRelayPool(relays)
         try {
-          const admission = await requestRoomAdmissionCapability({ transport, invitation })
+          const admission = invitation.persistent
+            ? await requestPersistentRoomAdmission({ transport, invitation })
+            : await requestRoomAdmissionCapability({ transport, invitation })
           roomSecret = admission.secret
-          invitationAuthoritySk = admission.delegate.delegateSk
-          invitationDelegation = admission.delegate.chain
+          admittedRoom = admission
+          invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : undefined
+          invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
           expectedEpoch = admission.epoch
           cacheAdmission(invitation, admission)
           // The ending to "Getting you in…". It says the waiting is over
@@ -1835,17 +1786,25 @@ async function toggleAssist(): Promise<void> {
  *  you are; only having been here when the room was made does. */
 let startedHere = false
 
-function startNewRoom(): void {
+async function startNewRoom(): Promise<void> {
+  const persistent = ($('roomType') as HTMLSelectElement).value === 'persistent'
+  const secret = generateRoomSecret()
+  const created = createRoomInvitation(persistent)
+  // Persist the owner's recovery before publishing. Failure leaves the form
+  // usable and never offers a link whose asynchronous admission was not saved.
+  storeInvitationOwner(created.invitation, secret, created.inviterSk)
+  if (persistent) await publishGroupInvitation(created.invitation, secret, created.inviterSk, RELAYS)
   startedHere = true
-  roomSecret = generateRoomSecret()
-  const created = createRoomInvitation()
+  admittedRoom = undefined
+  expectedEpoch = 0
+  roomPolicy = undefined
+  roomSecret = secret
   roomInvitationCapability = created.invitation
   invitationAuthoritySk = created.inviterSk
   invitationDelegation = []
   relays = RELAYS
   iceUrls = parseIceInput()
   roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
-  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk)
   serveCurrentInvitation()
   history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
   rememberCurrentRoom()
@@ -1894,6 +1853,10 @@ function showRoomUi(): void {
   // Only the browser that opened the room has that button, so everybody
   // else was reading about a control that was not on their page.
   $('rotateNote').hidden = ($('rotateShare') as HTMLButtonElement).hidden
+  $('makePersistent').hidden = Boolean(roomInvitationCapability?.persistent) || $('rotateNote').hidden
+  $('invitationAvailability').textContent = roomInvitationCapability?.persistent
+    ? 'This group stays available when everyone closes the app. Anyone with this invitation can join and read its shared history.'
+    : 'Keep a member’s tab open to admit newcomers. Temporary invitation permissions last up to twelve hours.'
 }
 
 /** Everything that is not the conversation, revealed once there is a
@@ -1980,7 +1943,9 @@ function renderArrival(): void {
   $('arrivalTitle').textContent = roomName ?? (startedHere ? 'Your new room' : 'Join the room')
   lead.textContent = startedHere
     ? 'Your room is ready. Choose a name, then invite your people from Room details.'
-    : 'Choose how you appear to the people in this room.'
+    : roomInvitationCapability?.persistent
+      ? 'Choose your name. This device will remember the group so you can come back later.'
+      : 'Choose how you appear to the people in this room.'
   lead.hidden = false
 }
 
@@ -2065,7 +2030,9 @@ async function rotateRoomInvitation(): Promise<void> {
   }
   const retired = roomInvitationCapability
   const retiringSk = invitationAuthoritySk
-  const created = createRoomInvitation()
+  const created = createRoomInvitation(retired.persistent === true)
+  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk)
+  if (created.invitation.persistent) await publishGroupInvitation(created.invitation, roomSecret, created.inviterSk, relays)
 
   // Tell every cooperative delegated responder before replacing local
   // state. The event is durable, so an offline member learns the retirement
@@ -2097,6 +2064,42 @@ async function rotateRoomInvitation(): Promise<void> {
     renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
   }
   setStatus('A fresh link is ready. Current clients will no longer answer the old link. Existing members stay.')
+}
+
+async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[]): Promise<void> {
+  const pool = new NostrRelayPool(relayUrls)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      pool.publish(encodePersistentInvitation({ invitation, roomSecret: secret, inviterSk, now: nowSeconds() })),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('the relays did not save the group invitation')), 15_000) }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+    pool.close()
+  }
+}
+
+async function makeRoomPersistent(): Promise<void> {
+  if (!roomInvitationCapability || roomInvitationCapability.persistent || !invitationAuthoritySk || invitationDelegation.length) return
+  // A fresh bearer prevents an old, never-used meeting link from silently
+  // becoming durable access. Keep the room's authority and conversation.
+  const invitation: RoomInvitation = {
+    ...createRoomInvitation(true).invitation,
+    inviter: roomInvitationCapability.inviter,
+  }
+  await publishGroupInvitation(invitation, roomSecret, invitationAuthoritySk, relays)
+  storeInvitationOwner(invitation, roomSecret, invitationAuthoritySk)
+  stopInvitationHost()
+  roomInvitationCapability = invitation
+  const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+  history.replaceState(null, '', url)
+  ;($('shareUrl') as HTMLInputElement).value = url
+  $('makePersistent').hidden = true
+  $('invitationAvailability').textContent = 'This group stays available when everyone closes the app. Share the updated group invitation so people can join later.'
+  rememberCurrentRoom()
+  if (($('shareQrDetails') as HTMLDetailsElement).open) await renderQr($('shareQr') as HTMLCanvasElement, url)
+  setStatus('This is now a persistent group. Share the updated invitation; old temporary links still need an online member.')
 }
 
 // ---------------------------------------------------------------------------
@@ -5013,8 +5016,8 @@ $('chatLog').addEventListener('scroll', () => {
 // on it. Each is watched from outside while the list is on screen - see
 // app/src/room-watch.ts - which needs the room key, and this list holds no
 // keys of its own: it uses whatever the app already keeps. A room this
-// device created has its key here for twelve hours; a room it was admitted
-// to has it for the tab's session; a legacy link carries it. A room whose
+// device created or joined as a group retains its key until forgotten;
+// temporary rooms retain their shorter local lifetimes. A room whose
 // key this device does not hold right now says so, and opening it is what
 // gets the key back.
 // ---------------------------------------------------------------------------
@@ -5479,6 +5482,8 @@ function switchRoom(room: KnownRoom): void {
 function forgetKnownRoom(room: KnownRoom): void {
   if (!confirm(`Forget ${roomLabel(room)} ${nostrSession ? 'from your Nostr room bookmarks on all devices' : 'on this device'}? You would need its invitation link to come back. This does not revoke access or erase relay history.`)) return
   stopWatching(room.roomId)
+  forgetRoomAccess(deviceStore, room.roomId)
+  forgetRoomAccess(browserDeviceStore(sessionStorage), room.roomId)
   if (bookmarks) bookmarks.remove(room.roomId)
   else forgetRoom(deviceStore, room.roomId)
   renderRooms()
@@ -5906,15 +5911,28 @@ $('importBrowserRooms').addEventListener('click', () => {
   try { importBrowserRooms() } catch (error) { setStatus(describeError(error)) }
 })
 
-$('createRoomForm').addEventListener('submit', event => {
+$('createRoomForm').addEventListener('submit', async event => {
   event.preventDefault()
+  const button = $('create') as HTMLButtonElement
+  if (button.disabled) return
+  button.disabled = true
+  button.textContent = 'Creating…'
+  $('createError').hidden = true
   try {
-    startNewRoom()
+    await startNewRoom()
     setStatus('')
     showRoomUi()
     $('identity').scrollIntoView({ block: 'start' })
     ;(typedName ? $('join') : $('displayName')).focus({ preventScroll: true })
-  } catch (error) { setStatus(describeError(error)) }
+  } catch (error) {
+    $('createError').textContent = `Could not create the room. ${describeError(error)}. Try again when connected.`
+    $('createError').hidden = false
+  } finally { button.disabled = false; button.textContent = 'Start a room' }
+})
+$('roomType').addEventListener('change', () => {
+  $('roomTypeNote').textContent = ($('roomType') as HTMLSelectElement).value === 'persistent'
+    ? 'Groups remember your access and let people join when everyone is offline.'
+    : 'For a one-off meeting. New arrivals need an online member with current invitation permission.'
 })
 
 $('openRoomForm').addEventListener('submit', event => {
@@ -6021,6 +6039,12 @@ $('shareRoom').addEventListener('click', () => {
 $('rotateShare').addEventListener('click', () => {
   if (!confirm('Replace the room link? This retires it in current KithMoot clients; existing members stay.')) return
   rotateRoomInvitation().catch((err) => setStatus(describeError(err)))
+})
+$('makePersistent').addEventListener('click', async () => {
+  const button = $('makePersistent') as HTMLButtonElement
+  button.disabled = true
+  try { await makeRoomPersistent() } catch (error) { setStatus(describeError(error)) }
+  finally { button.disabled = false }
 })
 
 // The join link's QR is rendered lazily, on the first open of its
@@ -6927,11 +6951,14 @@ roomArrival
     let valid = false
     try { parseRoomLink(location.href); valid = true } catch { /* Incomplete or malformed invitation. */ }
     const retired = reason.includes('retired')
-    $('arrivalTitle').textContent = retired ? 'This invitation is no longer valid' : valid ? 'The room has not answered' : 'This invitation is incomplete'
+    const persistent = valid && parseRoomLink(location.href).invitation?.persistent
+    $('arrivalTitle').textContent = retired ? 'This invitation is no longer valid' : valid ? persistent ? 'The group invitation could not be loaded' : 'The room has not answered' : 'This invitation is incomplete'
     $('arrivalLead').textContent = retired
       ? 'Ask somebody in the room for its current invitation link.'
       : valid
-        ? 'Check your connection and ask somebody with access to keep the room open while you try again.'
+        ? persistent
+          ? 'Check your connection and try again. If it still cannot be found, ask for a current group invitation.'
+          : 'Check your connection and ask somebody with access to keep the room open while you try again.'
         : 'Copy the whole invitation, including everything after #, then open it again.'
     $('arrivalLead').hidden = false
     $('joinRoomForm').hidden = true

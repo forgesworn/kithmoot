@@ -153,7 +153,21 @@ to make that one thing true.
   carry never walks the ladder at all. `test/soak.spec.ts` takes the relay
   away for ninety seconds under a live call and requires the picture to
   keep moving; before these fixes the far tile went at seventy-six seconds.
-- **Standing rooms.** A primary device re-mints its credential halfway
+- **Persistent groups.** New web rooms default to a group that people can
+  return to without a keeper. Its version 3 invitation is signed by the
+  creator and stored encrypted on the relays before the share link is
+  offered. New arrivals can join with every member offline. Membership and
+  creator authority stay on this device until forgotten; an expiring device
+  credential is renewed separately. Choose **Temporary meeting** for the
+  original live invitation, or **Keep as a group** in Room details to convert
+  a meeting you created. Share the updated group link after conversion.
+  Anyone holding a group link and its stored invitation can learn its
+  original traffic key and shared history. Link replacement stops admission
+  in cooperative clients; it cannot erase copied keys or remove a member.
+  Relays still need to retain and serve the encrypted invitation and chat.
+  V3 needs an updated client; the separate Android app has not been updated
+  by this change. See `docs/persistent-groups.md` for the protocol and limits.
+- **Long calls and managed rooms.** A primary device re-mints its credential halfway
   through its twelve-hour life and restates itself, so a room left open for
   days does not lose every member at the twelve-hour mark. A joined page
   re-fetches its TURN credential every forty minutes, so a pair that needs
@@ -165,7 +179,9 @@ to make that one thing true.
   goodbye. A keeper (`kithmoot-agent create`) holds the root inviter key and
   admits people for as long as it runs; its state persists across restarts,
   so the same link reopens the same room, and `deploy/keeper-deploy.sh`
-  installs one as a service.
+  installs one as a service. Keepers remain useful for managed-room services
+  such as removal, named channels and nudges; basic persistent group admission
+  does not require one.
 - **Your rooms.** Sign in with Nostr from the website or app home to see
   your account's room bookmarks across browsers and devices. Rooms opened
   while signed in are encrypted to your own key using your signer's NIP-44

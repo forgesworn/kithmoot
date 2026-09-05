@@ -117,8 +117,8 @@ describe('per-room device keys', () => {
       storeKeptAdmission(store, INVITATION, kept, NOW)
       const back = loadKeptAdmission(store, INVITATION, NOW + 60)
       expect(back?.secret).toEqual(kept.secret)
-      expect(back?.delegate.delegateSk).toEqual(kept.delegate.delegateSk)
-      expect(back?.delegate.chain).toEqual(kept.delegate.chain)
+      expect(back && 'delegate' in back && back.delegate.delegateSk).toEqual(kept.delegate.delegateSk)
+      expect(back && 'delegate' in back && back.delegate.chain).toEqual(kept.delegate.chain)
       expect(back?.epoch).toBeUndefined()
       // The epoch hint rides along when the responder gave one.
       storeKeptAdmission(store, INVITATION, { ...kept, epoch: 2 }, NOW)

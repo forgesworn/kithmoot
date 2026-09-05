@@ -54,6 +54,12 @@ meant to stay open for days wants: the keeper is the room's availability, and
 people and their agents drift in and out around it. `--room-name` puts a
 name on the link, so everybody sent it calls the room the same thing.
 
+For basic group chat and calls, the web app can instead create a persistent
+v3 group.  `kithmoot-agent join` reads its stored encrypted invitation with
+every member offline, without receiving an inviter signing key.  A keeper
+is still used for the managed services below, but is no longer required for
+basic group availability.  See [Persistent groups](persistent-groups.md).
+
 **Nudge.** A keeper started with `--nudge` (or `KITHMOOT_NUDGE=1`) tells
 absent members there is something to read. A member who signed in with a
 Nostr key turns on **Nudge me when I'm away** in the room, which sends the
