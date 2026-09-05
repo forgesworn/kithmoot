@@ -174,7 +174,7 @@
 
         <h3 class="sr-only">Conversation</h3>
         <div id="approvals" aria-live="polite"></div>
-        <div id="chatLog" aria-live="polite"></div>
+        <div id="chatLog" aria-label="Conversation" aria-live="polite"></div>
         <button id="newMessages" type="button" hidden>New messages ↓</button>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
         <!-- Said where the box would be, on the conversations nobody types
@@ -229,12 +229,13 @@
             Or a file already shared through Wildbloom: paste what Wildbloom
             gave you, and the key that opens it.
           </p>
-          <input id="attachEvent" placeholder="What Wildbloom showed you: an id, note1, nevent1, or the JSON" autocomplete="off" spellcheck="false" />
-          <input id="attachKey" type="password" placeholder="Key that opens it (wbk1_…)" autocomplete="off" spellcheck="false" />
+          <input id="attachEvent" aria-label="Wildbloom file event" placeholder="What Wildbloom showed you: an id, note1, nevent1, or the JSON" autocomplete="off" spellcheck="false" />
+          <input id="attachKey" type="password" aria-label="File recovery key" placeholder="Key that opens it (wbk1_…)" autocomplete="off" spellcheck="false" />
           <div class="attachRow">
             <button type="button" id="attachAdd">Add to message</button>
             <button type="button" id="attachCancel">Cancel</button>
-            <span id="attachStatus" class="note"></span>
+            <button type="button" id="cancelFileWork" hidden>Stop adding files</button>
+            <span id="attachStatus" class="note" role="status"></span>
           </div>
         </div>
       </section>
@@ -503,6 +504,8 @@
              closes this sheet and takes you to it, and the bar at the top
              of the room says which one you are in. -->
         <div id="channelBar" class="channelBar" role="tablist" aria-label="Conversations"></div>
+        <p id="draftHelp" class="note" hidden>Drafts stay with their conversations in this tab. Leaving or reloading discards them.</p>
+        <button id="discardDraft" type="button" hidden>Discard this draft</button>
 
         <form id="channelNew" class="channelNew" hidden>
           <label for="channelName" class="note">

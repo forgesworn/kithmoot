@@ -3,6 +3,7 @@ import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { ChatScroll } from './chat-scroll.js'
 import { ConversationSearch } from './conversation-search.js'
+import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
   browserDeviceStore,
   deviceKeyFor,
@@ -111,10 +112,17 @@ import { base64urlnopad } from '@scure/base'
 const outbox = new Outbox(document.getElementById('outbox')!)
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
 const conversationSearch = new ConversationSearch(document)
-installUpdates(() => Boolean(session) || hasUnsentWork())
+const drafts = new ConversationDrafts()
+let navigationApproved = false
+function approvedReload(): void {
+  navigationApproved = true
+  location.reload()
+}
+installUpdates(() => Boolean(session) || hasUnsentWork(), approvedReload)
 
 function hasUnsentWork(): boolean {
-  return outbox.pending || Boolean(($('chatInput') as HTMLTextAreaElement).value) || stagedAttachments.length > 0
+  captureDraft()
+  return outbox.pending || drafts.pending().length > 0
 }
 
 // Relays confirmed live for this room kind. relay.trotters.cc is the
@@ -3084,10 +3092,9 @@ function ingestControl(messages: ChatMessage[]): void {
         if (m.sentAt < channelsAt) break
         channels = control.channels
         channelsAt = m.sentAt
-        // Somebody standing in a channel that has just been closed is put
-        // back in the main chat rather than left looking at a conversation
-        // the room no longer lists.
-        if (currentChannel !== undefined && !channels.includes(currentChannel)) selectChannel(undefined)
+        // Keep unfinished work reachable when its conversation closes.
+        // An empty conversation can return straight to the main chat.
+        if (currentChannel !== undefined && !channelAvailable(currentChannel) && !draftHasWork(captureDraft())) selectChannel(undefined)
         else renderChannels()
         break
       }
@@ -3278,6 +3285,7 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
         card.append(img)
       }
       const save = document.createElement('a')
+      save.dataset.focusKey = `attachment-${index}`
       save.href = opened.url
       save.download = opened.name
       save.textContent = `Save ${opened.name} (${formatBytes(opened.size)})`
@@ -3287,6 +3295,7 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
     const button = document.createElement('button')
     button.type = 'button'
     button.textContent = opened ? 'Try again' : 'Show'
+    button.dataset.focusKey = `attachment-${index}`
     button.title = 'Fetch the encrypted file from where it is stored, check it, and open it here'
     button.addEventListener('click', async () => {
       button.disabled = true
@@ -3384,7 +3393,9 @@ function activeChat(): NonNullable<typeof session>['chat'] | undefined {
 }
 
 function selectChannel(name: string | undefined): void {
+  captureDraft()
   currentChannel = name
+  restoreDraft()
   delete $('channelClose').dataset.arm
   renderChannels()
   const log = activeChat()
@@ -3399,6 +3410,66 @@ function selectChannel(name: string | undefined): void {
   renderRoomWho()
   // You picked it: you are done with the sheet you picked it in.
   closeRoomSheet()
+  // Chromium resets a revealed textarea's selection after this click has
+  // finished. Restore it on the next frame, unless the reader moved on.
+  if (input instanceof HTMLTextAreaElement) {
+    const draft = drafts.get(currentChannel)
+    const { text, selectionStart, selectionEnd, selectionDirection } = draft
+    requestAnimationFrame(() => {
+      if (currentChannel !== name || input.value !== text || document.activeElement === input) return
+      input.setSelectionRange(selectionStart, selectionEnd, selectionDirection)
+    })
+  }
+}
+
+function channelAvailable(name: string | undefined): boolean {
+  return name === undefined || [AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL].includes(name) || channels.includes(name)
+}
+
+function captureDraft(): ConversationDraft {
+  const draft = drafts.get(currentChannel)
+  const input = $('chatInput') as HTMLTextAreaElement
+  draft.text = input.value
+  draft.selectionStart = input.selectionStart
+  draft.selectionEnd = input.selectionEnd
+  draft.selectionDirection = input.selectionDirection
+  draft.event = ($('attachEvent') as HTMLInputElement).value
+  draft.key = ($('attachKey') as HTMLInputElement).value
+  return draft
+}
+
+function restoreDraft(): void {
+  const draft = drafts.get(currentChannel)
+  const input = $('chatInput') as HTMLTextAreaElement
+  closeMentionPicker()
+  input.value = draft.text
+  input.setSelectionRange(draft.selectionStart, draft.selectionEnd, draft.selectionDirection)
+  ;($('attachEvent') as HTMLInputElement).value = draft.event
+  ;($('attachKey') as HTMLInputElement).value = draft.key
+  renderStaged()
+  $('attachStatus').textContent = draft.status
+}
+
+function renderDraftBadges(): void {
+  for (const tab of $('channelBar').querySelectorAll<HTMLButtonElement>('button[data-channel]')) {
+    const name = tab.dataset.channel || undefined
+    const draft = drafts.get(name)
+    const badge = tab.querySelector<HTMLElement>('.draftBadge')!
+    badge.textContent = !channelAvailable(name) ? 'Closed · Draft' : draft.job ? 'Adding files' : 'Draft'
+    badge.hidden = !draftHasWork(draft)
+  }
+}
+
+/** Async work may finish while another draft is on screen. Update its badge
+ * without changing the current editor, attachment panel or keyboard focus. */
+function draftChanged(draft: ConversationDraft): void {
+  if (draft === drafts.get(currentChannel)) {
+    renderStaged()
+    $('attachStatus').textContent = draft.status
+    renderComposer()
+  }
+  renderDraftBadges()
+  if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
 }
 
 /**
@@ -3481,6 +3552,8 @@ function asksForMinutes(text: string): boolean {
 
 function renderChannels(): void {
   const bar = $('channelBar')
+  const focused = document.activeElement as HTMLElement | null
+  const focusedChannel = focused && bar.contains(focused) ? focused.closest<HTMLButtonElement>('button[data-channel]')?.dataset.channel : undefined
   const s = session
   // Reserved conversations every room has, whether or not a keeper has
   // announced them. `agents` is where agents talk among themselves, and a
@@ -3501,6 +3574,11 @@ function renderChannels(): void {
     reserved.push([name, name === MINUTES_CHANNEL ? 'Minutes' : 'Transcript'])
   }
   const named = channels.filter((c) => !reserved.some(([n]) => n === c))
+  // A closed conversation with unfinished work stays reachable so its
+  // draft can be copied or discarded, without sending it somewhere else.
+  for (const draft of drafts.pending()) {
+    if (draft.channel !== undefined && !channelAvailable(draft.channel)) named.push(draft.channel)
+  }
   const tabs: Array<[string | undefined, string]> = [[undefined, 'Chat'], ...reserved, ...named.map((c) => [c, c] as [string, string])]
 
   bar.hidden = !s
@@ -3509,12 +3587,16 @@ function renderChannels(): void {
     for (const [name, label] of tabs) {
       const tab = document.createElement('button')
       tab.type = 'button'
+      tab.dataset.channel = name ?? ''
       tab.setAttribute('role', 'tab')
       const on = currentChannel === name
       tab.setAttribute('aria-selected', String(on))
       const heading = document.createElement('span')
       heading.className = 'channelName'
       heading.append(label)
+      const draftBadge = document.createElement('span')
+      draftBadge.className = 'draftBadge'
+      heading.append(draftBadge)
       // A dot beside a conversation that has something in it. Nothing beside
       // one that does not, so an eye running down this list for the first
       // time goes to the places where somebody has actually said something.
@@ -3533,6 +3615,11 @@ function renderChannels(): void {
       bar.append(tab)
     }
   }
+  renderDraftBadges()
+  if (focusedChannel !== undefined) {
+    const replacement = Array.from(bar.querySelectorAll<HTMLButtonElement>('button[data-channel]')).find(button => button.dataset.channel === focusedChannel)
+    ;(replacement ?? $('roomSheetClose')).focus({ preventScroll: true })
+  }
   renderComposer()
   renderRoomWho()
 
@@ -3550,7 +3637,7 @@ function renderChannels(): void {
   const isAdmin = s !== undefined && admins.has(meParticipant) && keeperParticipant !== undefined
   $('channelNew').hidden = !isAdmin
   const close = $('channelClose')
-  close.hidden = !isAdmin || currentChannel === undefined
+  close.hidden = !isAdmin || currentChannel === undefined || !channelAvailable(currentChannel)
   if (!close.hidden && close.dataset.arm !== currentChannel) close.textContent = `Close ${currentChannel}`
 }
 
@@ -3615,9 +3702,27 @@ const WRITTEN_BY_AGENTS: readonly string[] = [TRANSCRIPT_CHANNEL, MINUTES_CHANNE
  */
 function renderComposer(): void {
   const readOnly = currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel)
+  const closed = !channelAvailable(currentChannel)
+  const draft = drafts.get(currentChannel)
   $('chatForm').hidden = readOnly
+  ;($('chatInput') as HTMLTextAreaElement).readOnly = closed
+  ;($('attachToggle') as HTMLButtonElement).disabled = closed
+  ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job)
+  $('attachStaged').hidden = readOnly
+  $('attachPanel').hidden = readOnly || !draft.panelOpen
+  for (const id of ['attachFile', 'attachAdd', 'attachEvent', 'attachKey']) {
+    ;($(id) as HTMLInputElement | HTMLButtonElement).disabled = closed || Boolean(draft.job)
+  }
+  $('cancelFileWork').hidden = !draft.job
+  const discard = $('discardDraft') as HTMLButtonElement
+  discard.hidden = !draftHasWork(draft)
+  $('draftHelp').hidden = drafts.pending().length === 0
   const note = $('readOnlyNote')
-  note.hidden = !readOnly
+  note.hidden = !readOnly && !closed
+  if (closed) {
+    note.textContent = 'This conversation is closed. Your draft stays here for you to copy. You can discard it from Room details.'
+    return
+  }
   if (!readOnly) return
   note.textContent =
     currentChannel === MINUTES_CHANNEL
@@ -5087,7 +5192,7 @@ function backToRooms(): void {
   rememberWayBack()
   s?.leave()
   history.replaceState(null, '', joinLinkBase())
-  location.reload()
+  approvedReload()
 }
 
 // ---------------------------------------------------------------------------
@@ -5173,8 +5278,9 @@ function openLink(url: string): void {
   }
   if (target.origin !== location.origin || !target.href.startsWith(joinLinkBase())) return
   if (alreadyHere(target.href)) return
+  if ((hasUnsentWork() || callIsLive()) && !confirm('Open the other room? This leaves your call and discards unfinished messages and files in this tab.')) return
   history.replaceState(null, '', target.href)
-  location.reload()
+  approvedReload()
 }
 
 navigator.serviceWorker?.addEventListener('message', (event) => {
@@ -5533,6 +5639,7 @@ $('join').addEventListener('click', () => {
  * light on with nobody watching, which is worse than a flicker.
  */
 async function leaveRoom(): Promise<void> {
+  drafts.close()
   const s = session
   session = undefined
   sessionTransport = undefined
@@ -5550,7 +5657,7 @@ async function leaveRoom(): Promise<void> {
   const button = $('leave')
   if (button instanceof HTMLButtonElement) button.disabled = true
   await s?.leave()
-  location.reload()
+  approvedReload()
 }
 
 $('leave').addEventListener('click', () => {
@@ -5562,7 +5669,13 @@ $('leave').addEventListener('click', () => {
 // is a departure too, and a silent one costs everybody else the whole
 // presence timeout. Best effort: the farewell is one small publish over
 // sockets that are already open, and the page is gone whatever happens.
+window.addEventListener('beforeunload', event => {
+  if (navigationApproved || !hasUnsentWork()) return
+  event.preventDefault()
+  event.returnValue = ''
+})
 window.addEventListener('pagehide', () => {
+  drafts.close()
   session?.leave()
   stopInvitationHost()
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
@@ -5770,9 +5883,11 @@ function acknowledgeMinutesRequest(): void {
 
 $('chatForm').addEventListener('submit', (event) => {
   event.preventDefault()
+  const draft = captureDraft()
+  if (draft.job || !channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const input = $('chatInput') as HTMLTextAreaElement
   const typed = input.value.trim()
-  const attachments = stagedAttachments
+  const attachments = draft.attachments
   if ((!typed && attachments.length === 0) || !session) return
   // A file with nothing said about it still gets a caption, because the
   // caption is all a client that has never heard of attachments will show.
@@ -5790,10 +5905,12 @@ $('chatForm').addEventListener('submit', (event) => {
     return
   }
   input.value = ''
+  draft.text = ''
+  draft.selectionStart = draft.selectionEnd = 0
   growComposer(input)
   closeMentionPicker()
-  stagedAttachments = []
-  renderStaged()
+  draft.attachments = []
+  draftChanged(draft)
   // Into whichever conversation is on screen, which is the main chat until
   // somebody picks another.
   outbox.send(text, currentChannel ?? 'Chat', publish, attachments.map(a => a.name ?? 'Encrypted file'))
@@ -5805,8 +5922,12 @@ $('chatForm').addEventListener('submit', (event) => {
 // a new line, which is the pair of habits every chat box has and the reason
 // a multi-line box costs nothing to use.
 $('chatInput').addEventListener('input', () => {
+  const draft = captureDraft()
   growComposer($('chatInput') as HTMLTextAreaElement)
   renderMentionPicker()
+  renderDraftBadges()
+  ;($('discardDraft') as HTMLButtonElement).hidden = !draftHasWork(draft)
+  $('draftHelp').hidden = drafts.pending().length === 0
 })
 // The caret can move without a keystroke - a tap, a drag, an arrow key -
 // and whether an `@` is being completed depends on where it is.
@@ -5887,14 +6008,11 @@ $('channelClose').addEventListener('click', () => {
 // Attaching a Wildbloom share to a message
 // ---------------------------------------------------------------------------
 
-/** What the next message will carry. Held here, not in the form, so the
- *  key is in one place until it is in the message and then nowhere. */
-let stagedAttachments: ChatAttachment[] = []
-
 function renderStaged(): void {
+  const draft = drafts.get(currentChannel)
   const box = $('attachStaged')
   box.innerHTML = ''
-  stagedAttachments.forEach((a, i) => {
+  draft.attachments.forEach((a, i) => {
     const chip = document.createElement('span')
     chip.className = 'attachChip'
     chip.textContent = `${a.name ?? 'Encrypted file'}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''} `
@@ -5902,8 +6020,8 @@ function renderStaged(): void {
     remove.type = 'button'
     remove.textContent = 'remove'
     remove.addEventListener('click', () => {
-      stagedAttachments.splice(i, 1)
-      renderStaged()
+      draft.attachments.splice(i, 1)
+      draftChanged(draft)
     })
     chip.append(remove)
     box.append(chip)
@@ -5913,7 +6031,7 @@ function renderStaged(): void {
   // person had already found went and a different one appeared in its
   // place. Only the count changes, and it has a span of its own so that
   // neither the label nor the accessible name is touched.
-  $('attachCount').textContent = stagedAttachments.length ? ` (${stagedAttachments.length})` : ''
+  $('attachCount').textContent = draft.attachments.length ? ` (${draft.attachments.length})` : ''
 }
 
 /**
@@ -5922,7 +6040,8 @@ function renderStaged(): void {
  * its uploader the id, so that is the common case; the JSON is for when the
  * event was published somewhere these relays never saw.
  */
-async function resolveFileEvent(text: string): Promise<NostrEvent> {
+async function resolveFileEvent(text: string, signal?: AbortSignal): Promise<NostrEvent> {
+  signal?.throwIfAborted()
   const value = text.trim()
   if (value.startsWith('{')) {
     let event: NostrEvent
@@ -5948,14 +6067,20 @@ async function resolveFileEvent(text: string): Promise<NostrEvent> {
   try {
     return await new Promise<NostrEvent>((resolve, reject) => {
       let off = (): void => {}
-      const timer = setTimeout(() => {
-        off()
-        reject(new Error('The room\'s relays do not have that event. Paste the event JSON instead.'))
-      }, 8_000)
-      off = transport.subscribe([{ ids: [id] }], (event) => {
-        if (event.id !== id || !verifyEventUncached(event)) return
+      const stop = (): void => {
         clearTimeout(timer)
         off()
+        signal?.removeEventListener('abort', cancel)
+      }
+      const cancel = (): void => { stop(); reject(new Error('Stopped adding the file.')) }
+      const timer = setTimeout(() => {
+        stop()
+        reject(new Error('The room\'s relays do not have that event. Paste the event JSON instead.'))
+      }, 8_000)
+      signal?.addEventListener('abort', cancel, { once: true })
+      off = transport.subscribe([{ ids: [id] }], (event) => {
+        if (event.id !== id || !verifyEventUncached(event)) return
+        stop()
         resolve(event)
       })
     })
@@ -6006,8 +6131,9 @@ function storeBlossomServer(value: string): void {
 /** Something to look at while a file is sealed and sent. Stage by stage
  *  rather than byte by byte: fetch gives no upload progress, and a stage
  *  line with the file's name and size says what is being waited for. */
-function dropProgress(stage: string, file: File): void {
-  $('attachStatus').textContent = `${stage} ${file.name} (${formatBytes(file.size)})…`
+function dropProgress(draft: ConversationDraft, stage: string, file: File): void {
+  draft.status = `${stage} ${file.name} (${formatBytes(file.size)})…`
+  draftChanged(draft)
 }
 
 /**
@@ -6019,42 +6145,43 @@ function dropProgress(stage: string, file: File): void {
  * relay learns only that this device shared some encrypted bytes. The key
  * goes into the staged attachment and nowhere else.
  */
-async function shareDroppedFile(file: File): Promise<void> {
-  const status = $('attachStatus')
+async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string): Promise<void> {
+  signal.throwIfAborted()
   const transport = sessionTransport
   if (!session || !transport) throw new Error('Join the room first.')
   if (file.size > MAX_UPLOAD_SOURCE_BYTES) {
     throw new Error(`${file.name} is ${formatBytes(file.size)}; a room sends up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)}.`)
   }
   if (file.size === 0) throw new Error(`${file.name} is empty.`)
-  const server = blossomServer()
   if (!server) {
-    $('attachPanel').hidden = false
-    ;($('attachServer') as HTMLInputElement).focus()
     throw new Error('Name a Blossom server to put files on, then drop the file again.')
   }
   const origin = normaliseBlossomServer(server)
   const deviceSk = deviceKey()
 
-  dropProgress('Encrypting', file)
+  dropProgress(draft, 'Encrypting', file)
   // Let the line above paint before the main thread is busy sealing.
   await new Promise((resolve) => setTimeout(resolve, 0))
   const source = new Uint8Array(await file.arrayBuffer())
   let sealed: EncryptedEnvelope
   try {
+    signal.throwIfAborted()
     sealed = encryptEnvelope(source, { name: file.name, type: file.type })
   } finally {
     source.fill(0)
   }
 
-  dropProgress(`Uploading to ${new URL(origin).hostname}:`, file)
-  const descriptor = await uploadEnvelope(origin, sealed.envelope, { sign: (t) => finalizeEvent(t, deviceSk) })
+  signal.throwIfAborted()
+  dropProgress(draft, `Uploading to ${new URL(origin).hostname}:`, file)
+  const descriptor = await uploadEnvelope(origin, sealed.envelope, { sign: (t) => finalizeEvent(t, deviceSk), signal })
 
-  dropProgress('Announcing', file)
+  signal.throwIfAborted()
+  dropProgress(draft, 'Announcing', file)
   const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
   await transport.publish(event)
 
-  stagedAttachments.push({
+  signal.throwIfAborted()
+  draft.attachments.push({
     event: event.id,
     url: descriptor.url,
     sha256: descriptor.sha256,
@@ -6063,44 +6190,74 @@ async function shareDroppedFile(file: File): Promise<void> {
     type: sealed.type,
     size: sealed.envelope.length,
   })
-  renderStaged()
-  status.textContent = ''
+  draft.status = ''
+  draftChanged(draft)
+}
+
+/** A conversation has one file operation at a time, covering its whole
+ * batch. Switching conversations does not change that operation's owner. */
+async function fileWork(draft: ConversationDraft, work: (signal: AbortSignal) => Promise<void>): Promise<void> {
+  if (draft.job || !channelAvailable(draft.channel) || (draft.channel !== undefined && WRITTEN_BY_AGENTS.includes(draft.channel))) return
+  const job = new AbortController()
+  draft.job = job
+  draft.panelOpen = true
+  draftChanged(draft)
+  // A relay publish has no abort API. Release the editor immediately while
+  // the operation's signal checks keep any late result out of this draft.
+  let onAbort!: () => void
+  const cancelled = new Promise<never>((_, reject) => {
+    onAbort = () => reject(job.signal.reason)
+    job.signal.addEventListener('abort', onAbort, { once: true })
+  })
+  try {
+    await Promise.race([work(job.signal), cancelled])
+    if (draft.job !== job) return
+    draft.status = ''
+    draft.panelOpen = false
+  } catch (error) {
+    if (draft.job !== job) return
+    draft.status = job.signal.aborted
+      ? 'Stopped adding files. Completed files stay in this draft. The store may already hold encrypted bytes; nothing was sent to the conversation.'
+      : describeError(error)
+  } finally {
+    job.signal.removeEventListener('abort', onAbort)
+    if (draft.job === job) {
+      draft.job = undefined
+      draftChanged(draft)
+    }
+  }
 }
 
 /** Files from a drop or the file input, one after another, stopping at the
  *  first that fails so the reason is the last thing on the line. */
 async function shareDroppedFiles(files: FileList | File[] | null): Promise<void> {
-  const status = $('attachStatus')
+  const draft = captureDraft()
   const list = Array.from(files ?? [])
   if (!list.length) return
-  $('attachPanel').hidden = false
-  for (const file of list) {
-    if (stagedAttachments.length >= MAX_CHAT_ATTACHMENTS) {
-      status.textContent = `A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`
-      return
+  const server = blossomServer()
+  await fileWork(draft, async signal => {
+    for (const file of list) {
+      signal.throwIfAborted()
+      if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) {
+        throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
+      }
+      await shareDroppedFile(file, draft, signal, server)
     }
-    try {
-      await shareDroppedFile(file)
-    } catch (err) {
-      // Shown here, not through setStatus, which also writes to the console.
-      status.textContent = describeError(err)
-      return
-    }
-  }
-  $('attachPanel').hidden = true
-  ;($('chatInput') as HTMLTextAreaElement).focus()
+  })
 }
 
 ;($('attachServer') as HTMLInputElement).value = blossomServer()
 $('attachServer').addEventListener('change', () => {
   const input = $('attachServer') as HTMLInputElement
+  const draft = captureDraft()
   try {
     storeBlossomServer(input.value)
     input.value = blossomServer()
-    $('attachStatus').textContent = ''
+    draft.status = ''
   } catch (err) {
-    $('attachStatus').textContent = describeError(err)
+    draft.status = describeError(err)
   }
+  draftChanged(draft)
 })
 $('attachFile').addEventListener('change', () => {
   const input = $('attachFile') as HTMLInputElement
@@ -6131,37 +6288,51 @@ chatForm.addEventListener('drop', (event) => {
 })
 
 $('attachToggle').addEventListener('click', () => {
-  const panel = $('attachPanel')
-  panel.hidden = !panel.hidden
-  if (!panel.hidden) $('attachFile').focus()
+  const draft = captureDraft()
+  draft.panelOpen = !draft.panelOpen
+  draftChanged(draft)
+  if (draft.panelOpen) $('attachFile').focus()
 })
 $('attachCancel').addEventListener('click', () => {
-  $('attachPanel').hidden = true
+  const draft = captureDraft()
+  draft.panelOpen = false
+  draftChanged(draft)
+  $('attachToggle').focus()
 })
 $('attachAdd').addEventListener('click', async () => {
-  const status = $('attachStatus')
-  const eventInput = $('attachEvent') as HTMLInputElement
-  const keyInput = $('attachKey') as HTMLInputElement
-  if (stagedAttachments.length >= MAX_CHAT_ATTACHMENTS) {
-    status.textContent = `A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`
-    return
-  }
-  status.textContent = 'Checking\u2026'
-  try {
-    const keyHex = parseRecoveryKey(keyInput.value)
-    const event = await resolveFileEvent(eventInput.value)
-    stagedAttachments.push(shareFromEvent(event, keyHex))
-    // The key is in the staged message now and nowhere else on the page.
-    keyInput.value = ''
-    eventInput.value = ''
-    status.textContent = ''
-    renderStaged()
-    $('attachPanel').hidden = true
-    ;($('chatInput') as HTMLTextAreaElement).focus()
-  } catch (err) {
-    // Shown here, not through setStatus, which also writes to the console.
-    status.textContent = describeError(err)
-  }
+  const draft = captureDraft()
+  const key = draft.key
+  const sourceEvent = draft.event
+  await fileWork(draft, async signal => {
+    if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
+    draft.status = 'Checking…'
+    draftChanged(draft)
+    const keyHex = parseRecoveryKey(key)
+    const event = await resolveFileEvent(sourceEvent, signal)
+    signal.throwIfAborted()
+    draft.attachments.push(shareFromEvent(event, keyHex))
+    draft.key = draft.event = ''
+    if (draft === drafts.get(currentChannel)) {
+      ;($('attachKey') as HTMLInputElement).value = ''
+      ;($('attachEvent') as HTMLInputElement).value = ''
+    }
+  })
+})
+
+for (const id of ['attachEvent', 'attachKey']) {
+  $(id).addEventListener('input', () => {
+    captureDraft()
+    renderDraftBadges()
+  })
+}
+$('cancelFileWork').addEventListener('click', () => drafts.get(currentChannel).job?.abort())
+$('discardDraft').addEventListener('click', () => {
+  const draft = captureDraft()
+  if (!draftHasWork(draft) || !confirm('Discard this conversation’s draft and stop any files still being added? Uploaded encrypted files are not deleted from their store.')) return
+  drafts.discard(draft)
+  restoreDraft()
+  if (!channelAvailable(currentChannel)) selectChannel(undefined)
+  else renderChannels()
 })
 
 ;($('chatInput') as HTMLTextAreaElement).maxLength = MAX_CHAT_TEXT_LENGTH

@@ -2170,6 +2170,18 @@ label.note {
   background: var(--accent-dim);
 }
 
+.draftBadge {
+  display: inline-block;
+  margin-left: .6rem;
+  padding: .08rem .45rem;
+  border-radius: 4px;
+  font-size: .78rem;
+  font-weight: 600;
+  background: var(--accent-dim);
+  color: var(--text);
+}
+#discardDraft { margin-block: .5rem 1rem; }
+
 .channelName {
   font-weight: 600;
 }

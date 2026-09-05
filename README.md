@@ -127,6 +127,13 @@ to make that one thing true.
   message in place. It covers the active conversation's loaded history,
   bounded by the 30-day query window and 500-message retention cap; it does
   not query a separate archive or search inside files.
+- **Drafts stay with their conversation.** Switch between Chat, Agents and
+  named conversations without carrying unfinished text or files into the
+  wrong place. An upload finishes in the draft it started in, and can be
+  stopped. Room details marks conversations with drafts and lets you
+  discard the current one. A closed conversation keeps its draft available
+  to copy. Drafts stay in this tab's memory; leaving or reloading discards
+  them, with a warning before a normal browser navigation.
 - **Leaving is instant, and so is a dropped connection coming back.** A
   device that hangs up, closes the tab or navigates away says goodbye, and
   everybody else drops it at once rather than after the presence timeout. A

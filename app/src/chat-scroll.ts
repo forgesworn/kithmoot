@@ -32,6 +32,11 @@ export class ChatScroll {
   before(channel: string): () => void {
     const log = this.#log
     const changed = this.#channel !== channel
+    const selectedId = changed ? undefined : log.querySelector<HTMLElement>('.searchTarget')?.dataset.messageId
+    const active = log.ownerDocument.activeElement as HTMLElement | null
+    const focusedMessage = !changed && active && log.contains(active) ? active.closest<HTMLElement>('[data-message-id]') : null
+    const focusedId = focusedMessage?.dataset.messageId
+    const focusKey = active?.dataset.focusKey
     const follow = changed || this.#atBottom()
     const top = log.scrollTop
     const edge = log.getBoundingClientRect().top
@@ -45,6 +50,11 @@ export class ChatScroll {
       const ids = new Set(messages.map(el => el.dataset.messageId!))
       const added = messages.some(el => !this.#ids.has(el.dataset.messageId!))
       this.#ids = ids
+      const selected = messages.find(el => el.dataset.messageId === selectedId)
+      if (selected) {
+        selected.classList.add('searchTarget')
+        selected.tabIndex = -1
+      }
       if (follow) {
         log.scrollTop = log.scrollHeight
         this.#button.hidden = true
@@ -54,6 +64,15 @@ export class ChatScroll {
           ? log.scrollTop + replacement.getBoundingClientRect().top - log.getBoundingClientRect().top - offset
           : top
         if (added) this.#button.hidden = false
+      }
+      if (focusedId) {
+        const message = messages.find(el => el.dataset.messageId === focusedId)
+        const control = focusKey && message
+          ? Array.from(message.querySelectorAll<HTMLElement>('[data-focus-key]')).find(el => el.dataset.focusKey === focusKey)
+          : undefined
+        const target = control ?? message ?? log
+        if (!control) target.tabIndex = -1
+        target.focus({ preventScroll: true })
       }
     }
   }
