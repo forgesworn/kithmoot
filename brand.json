@@ -1,6 +1,6 @@
 {
   "name": "KithMoot",
-  "tagline": "A town hall nobody owns.",
+  "tagline": "A workspace nobody owns.",
   "tone": {
     "personality": ["plain-spoken", "precise about limits", "unceremonious", "warm about people, cold about infrastructure"],
     "voice": {

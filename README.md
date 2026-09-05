@@ -1,11 +1,66 @@
 # KithMoot
 
-**A town hall nobody owns.**
+**A workspace nobody owns.**
 
-KithMoot is a conference room protocol built on Nostr. There is no account to
-register and no operator who holds the guest list. Drop an invitation link in
-a Signal or Telegram group; anybody it reaches can enter in one tap while
-that link is current.
+KithMoot is an open Slack with agents, built on Nostr, and it has
+Jitsi-grade calls. Rooms, files, calls and agents in one workspace,
+encrypted end to end, with no account to register and no operator who
+holds the guest list. Drop an invitation link in a Signal or Telegram
+group; anybody it reaches can enter in one tap while that link is current,
+and a group stays open for the next arrival with every member away.
+
+Three things hold through every rewrite:
+
+- **The person, not the device, is the member.** Bring a phone for camera
+  and mic and a laptop for a screen share, and everyone else sees one
+  participant with three tracks, not two strangers who happen to share a
+  room.
+- **The link is a capability.** Nobody registers and nobody holds a guest
+  list. Relays, forwarders, TURN and keepers are plural, swappable and
+  optional, and nothing that carries media holds the key.
+- **An agent is a member too.** It joins from the same link a person was
+  sent, carries a proof of whose it is that every reader checks, hears
+  nothing you did not switch on, and asks for approval in the room where
+  everybody sees the answer.
+
+**Live at [kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/).** The app
+is at [`/j`](https://kithmoot.forgesworn.dev/j/); the root is a page explaining
+what this is. `/j` is short on purpose: invitation and network hints still
+have to fit in a QR code, and every character in the path costs density.
+
+## The claim
+
+Every incumbent gets identity wrong, Jitsi and Slack included: it is
+per-connection or per-login, so the same person on a laptop and a phone is
+two tiles, two names, two mute buttons, and two unread counts. KithMoot
+groups by participant instead of by connection. A device is a credential a
+person holds, and a room knows the person.
+
+Every incumbent also has an operator. Slack holds the member list and the
+history; a Matrix homeserver holds the room state; a NIP-29 relay holds the
+group. KithMoot has none. Membership is who holds the key, and the key is
+handed out by whoever holds the link, so there is no server whose removal
+takes the workspace with it, and no server that can read it. The trade-offs
+that buys are written down in `docs/decisions.md`, starting with why this
+is not built on NIP-29 or on Marmot.
+
+And every incumbent bolts agents on through an operator's API. Here an
+agent is a member on the same terms as a person, with one addition: it says
+it is one, and it proves whose it is.
+
+## Where it is
+
+Today: groups that stay open with nobody online, channels inside each,
+encrypted files, calls with screen share, and agents as attested members,
+including a scribe that writes the minutes. Not yet: threads and replies,
+editing or retracting a message, direct messages, mentions on the wire,
+history beyond thirty days and five hundred messages, search beyond what a
+tab has loaded, and a push to a phone in a pocket. Those are being built
+in that order, on the wire first, before the protocol is frozen and written
+up as a NIP. `CHANGELOG.md` records what has shipped and
+[what does not work yet](#what-does-not-work-yet) is the honest list.
+
+## The link, and what a relay sees
 
 The link is an admission capability, not the room's traffic key. It stays in
 the URL fragment, proves itself over an encrypted relay rendezvous, and pins a
@@ -21,6 +76,8 @@ link-preview fetchers, not from the service carrying the message. In an
 end-to-end encrypted conversation that service cannot read the link; in a
 cloud-hosted group it can. Treat the messaging group's confidentiality as part
 of the invitation's threat model.
+
+## No operator, not no infrastructure
 
 **No operator is mandated**, which is not the same as no infrastructure.
 Signalling rides Nostr relays that already exist, and media goes device to
@@ -41,24 +98,6 @@ a plural, swappable list. Self-host coturn, point at somebody else's, or name
 none and accept that some pairs will not connect. Nobody is required, and no
 single party can be removed to take the system down. That is the claim, and it
 is narrower than "nothing to run".
-
-**Live at [kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/).** The app
-is at [`/j`](https://kithmoot.forgesworn.dev/j/); the root is a page explaining
-what this is. `/j` is short on purpose: invitation and network hints still
-have to fit in a QR code, and every character in the path costs density.
-
-## The claim
-
-A person, not a device, is the unit that joins a room. Bring a phone for
-camera and mic and a laptop for a screen share, and everyone else sees **one
-participant** with three tracks, not two strangers who happen to share a
-room.
-
-Every incumbent gets this wrong, Jitsi included: identity is per-connection,
-so the same person joining from a laptop and a phone shows up as two separate
-tiles, two names, two mute buttons. KithMoot groups by participant instead of
-by connection. That's the whole product; everything else in this repo exists
-to make that one thing true.
 
 ## What works today
 
@@ -488,8 +527,30 @@ one-parameter inverse.
 
 ## What does not work yet
 
-Stated plainly, before anyone else finds it:
+Stated plainly, before anyone else finds it. The workspace gaps come first,
+because a team is what this is now judged against:
 
+- **No threads or replies.** A message cannot name a parent. Every channel
+  is one flat stream.
+- **No edit and no retract.** A message, once sent, is what it is. A
+  cooperative tombstone, author-signed and honest about being cooperative,
+  is designed but not on the wire.
+- **No direct messages.** Two people who want a private word open another
+  room. The design is a two-member group created from the member
+  directory; it is not built.
+- **Mentions are a string match.** The composer offers names, but what
+  lights up as a mention, and what an agent answers to, is a name found in
+  the text rather than a participant named on the wire.
+- **History is a window, not an archive.** A client asks for thirty days
+  and keeps five hundred messages, and search covers only what the tab has
+  loaded. A workspace ninety days old cannot show its first message.
+- **No push.** A phone in a pocket learns nothing until the app is opened.
+  A keeper can nudge a signed-in member over Nostr, and that is all.
+- **Named channels, removal and roles need a keeper.** A group admits and
+  chats without one, but creating a channel, removing a member and naming
+  an admin are keeper commands, not something a member does from a phone.
+- **Read positions are per device.** Unread is not the same on your phone
+  and your laptop.
 - **No iOS app.** See above. It is the largest gap.
 - **Forwarder trees are two levels deep.** Enough for a room of about 21;
   beyond that nobody has measured anything. One process can now serve several

@@ -168,7 +168,7 @@ export default defineConfig({
       manifest: {
         name: 'KithMoot',
         short_name: 'KithMoot',
-        description: 'A town hall nobody owns.',
+        description: 'A workspace nobody owns.',
         start_url: '.',
         display: 'standalone',
         background_color: '#101114',

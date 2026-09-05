@@ -1,7 +1,7 @@
 {
   "name": "kithmoot",
   "version": "0.3.0",
-  "description": "Multi-device conference rooms over Nostr - a town hall nobody owns",
+  "description": "An open Slack with agents over Nostr - a workspace nobody owns",
   "author": "TheCryptoDonkey",
   "license": "MIT",
   "type": "module",

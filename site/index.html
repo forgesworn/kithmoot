@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>KithMoot: a town hall nobody owns</title>
-    <meta name="description" content="A room for your people, with chat, calls and shared files. Bring your phone and laptop as one participant. Open an invitation in your browser, or sign in with Nostr to find your rooms across devices." />
+    <title>KithMoot: a workspace nobody owns</title>
+    <meta name="description" content="An open workspace with rooms, files, calls and agents, over Nostr and encrypted end to end. No account to register and no company holding the guest list. Your phone and laptop join as one person." />
     <meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
@@ -12,8 +12,8 @@
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="canonical" href="https://kithmoot.forgesworn.dev/" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="KithMoot: a town hall nobody owns" />
-    <meta property="og:description" content="Chat, calls and shared files for your people. Your phone and laptop join as one participant. No account needed to visit." />
+    <meta property="og:title" content="KithMoot: a workspace nobody owns" />
+    <meta property="og:description" content="Rooms, files, calls and agents for your people, encrypted end to end. Your phone and laptop join as one person. No account needed to visit." />
     <meta property="og:url" content="https://kithmoot.forgesworn.dev/" />
     <meta property="og:image" content="https://kithmoot.forgesworn.dev/pwa-512x512.png" />
     <meta name="twitter:card" content="summary" />
@@ -33,9 +33,9 @@
     <main id="main">
       <section class="hero wrap" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="eyebrow">Your people. Your room.</p>
-          <h1 id="hero-title">A town hall <br />nobody owns.</h1>
-          <p class="lead">A place to talk, share files and get on a call. Bring your phone and laptop along. Everyone sees one person.</p>
+          <p class="eyebrow">Your people. Your workspace.</p>
+          <h1 id="hero-title">A workspace <br />nobody owns.</h1>
+          <p class="lead">Rooms, shared files and calls for your team, with agents that sit in them as members. Encrypted end to end, with no company in the middle.</p>
           <div class="actions">
             <a class="button primary" href="j/">Open KithMoot <span aria-hidden="true">↗</span></a>
             <a class="button" href="j/?signin=nostr">Sign in with Nostr</a>
@@ -50,22 +50,22 @@
       </section>
 
       <div class="proof-strip wrap" aria-label="About KithMoot">
-        <span>Open source · MIT licence</span><span>Room-encrypted chat</span><span>Built on Nostr</span>
+        <span>Open source · MIT licence</span><span>Encrypted end to end</span><span>Agents as members</span><span>Built on Nostr</span>
       </div>
 
       <section id="what" class="section wrap" aria-labelledby="features-title">
         <div class="section-intro">
-          <p class="eyebrow">More than a call link</p>
-          <h2 id="features-title">A room you can come back to.</h2>
-          <p>Keep the conversation together between calls. Pick up a message, find a shared file, or move to another room when you're ready.</p>
+          <p class="eyebrow">Not a meeting link</p>
+          <h2 id="features-title">A workspace you come back to.</h2>
+          <p>The conversation, the files and the people stay put between calls. Pick up where you left off, from whichever device is in your hand.</p>
         </div>
         <div class="feature-grid">
-          <article><span class="feature-number" aria-hidden="true">01</span><h3>Talk, however suits you</h3><p>Start with chat. Turn on your microphone or camera when you want to, or share your screen from a supported desktop browser.</p></article>
-          <article><span class="feature-number" aria-hidden="true">02</span><h3>One person, several devices</h3><p>Use your phone for the camera and your laptop for a screen share. Pair them from Room details and appear together as one participant, with one active microphone.</p></article>
-          <article><span class="feature-number" aria-hidden="true">03</span><h3>Find what was said</h3><p>Search the messages already loaded in a conversation by words, person or file name. Jump straight back to the message with its context around it.</p></article>
-          <article><span class="feature-number" aria-hidden="true">04</span><h3>Share a file privately</h3><p>Files are encrypted on your device before upload. Their keys travel inside the room's encrypted messages. Opening a conversation doesn't download its files.</p></article>
-          <article><span class="feature-number" aria-hidden="true">05</span><h3>Your rooms, across devices</h3><p>Sign in with Nostr to save encrypted room bookmarks through your signer. Visitors can keep shortcuts in this browser. A bookmark still needs a working invitation.</p></article>
-          <article><span class="feature-number" aria-hidden="true">06</span><h3>Give an agent a place</h3><p>An agent host can offer helpers in the room, including a scribe for minutes. Agents are labelled, and this device shares its microphone and camera with them only when you allow it.</p></article>
+          <article><span class="feature-number" aria-hidden="true">01</span><h3>Rooms that stay open</h3><p>A new room is a group by default. It can sit empty for days and still let the next person in from the link. Come back to the messages, the files and the channels inside it.</p></article>
+          <article><span class="feature-number" aria-hidden="true">02</span><h3>Give an agent a place</h3><p>An agent joins from the same link a person does, labelled as an agent and carrying proof of whose it is. It hears your microphone only when you switch that on, and it asks permission in the room, where everybody sees the answer. A scribe can write the minutes.</p></article>
+          <article><span class="feature-number" aria-hidden="true">03</span><h3>One person, several devices</h3><p>Use your phone for the camera and your laptop for a screen share. Pair them from Room details and appear together as one participant, with one active microphone.</p></article>
+          <article><span class="feature-number" aria-hidden="true">04</span><h3>Calls, when you want them</h3><p>Turn on your microphone or camera from the room you're already in, or share your screen from a supported desktop browser. Calls go device to device where the network allows, and anything that has to carry them in between is never given the room's key.</p></article>
+          <article><span class="feature-number" aria-hidden="true">05</span><h3>Share a file privately</h3><p>Files are encrypted on your device before upload. Their keys travel inside the room's encrypted messages. Opening a conversation doesn't download its files.</p></article>
+          <article><span class="feature-number" aria-hidden="true">06</span><h3>Your rooms, across devices</h3><p>Sign in with Nostr to save encrypted room bookmarks through your signer. Visitors can keep shortcuts in this browser. Search a conversation by words, person or file name and jump back to the message.</p></article>
         </div>
       </section>
 
@@ -73,27 +73,27 @@
         <div class="wrap">
           <div class="section-intro"><p class="eyebrow">Room's open. Send the link.</p><h2>From a link to a conversation.</h2></div>
           <ol class="steps">
-            <li><h3>Start a room</h3><p>Open KithMoot, give your room a name if you like, and choose what people should call you.</p></li>
+            <li><h3>Start a room</h3><p>Open KithMoot, give your room a name if you like, and choose what people should call you. It's a group by default, so it stays open when everybody leaves.</p></li>
             <li><h3>Invite your people</h3><p>Go in, open Room details and share the invitation. Anyone who receives it can request admission, so send it through a conversation you trust.</p></li>
-            <li><h3>Make yourself at home</h3><p>Write a message or open the call controls. Camera and microphone start off. Keep an admitted member online to let the next person in.</p></li>
+            <li><h3>Make yourself at home</h3><p>Write a message, drop in a file, invite an agent or open the call controls. Camera and microphone start off. A group admits the next person with nobody online; a temporary meeting needs a member around to answer its link.</p></li>
           </ol>
           <a class="button primary" href="j/">Start a room <span aria-hidden="true">↗</span></a>
         </div>
       </section>
 
       <section id="privacy" class="section wrap split" aria-labelledby="privacy-title">
-        <div class="section-intro"><p class="eyebrow">Know what you're sharing</p><h2 id="privacy-title">Private conversations. <br />Clear limits.</h2><p>KithMoot uses infrastructure you can choose. The room names its relays and connection helpers, and the code is open to inspect.</p><a href="https://github.com/forgesworn/kithmoot#the-claim">Read how it works <span aria-hidden="true">↗</span></a></div>
+        <div class="section-intro"><p class="eyebrow">Know what you're sharing</p><h2 id="privacy-title">Private conversations. <br />Clear limits.</h2><p>KithMoot uses infrastructure you can choose. A room names its relays and connection helpers, none of them holds the guest list, and the code is open to inspect.</p><a href="https://github.com/forgesworn/kithmoot#the-claim">Read how it works <span aria-hidden="true">↗</span></a></div>
         <div class="privacy-list">
           <article><h3>Room contents are encrypted</h3><p>Relays can't read room messages or participant names from room events. They can still see device keys, opaque room identifiers, timing and traffic volume.</p></article>
           <article><h3>An invitation gives access</h3><p>The part after the # stays out of ordinary website requests. Whoever receives the full link can use it. Changing the invitation stops future use by cooperating clients; it doesn't remove people already admitted.</p></article>
-          <article><h3>You choose what leaves the device</h3><p>Camera and microphone start off. Public profile lookups and notifications are optional. Background blur can miss edges and movement, and a failed effect can show the unmodified camera.</p></article>
+          <article><h3>You choose what leaves the device</h3><p>Camera and microphone start off, and agents hear neither until you switch that on. Public profile lookups and notifications are optional. Background blur can miss edges and movement, and a failed effect can show the unmodified camera.</p></article>
         </div>
       </section>
 
       <section id="platforms" class="section wrap" aria-labelledby="platforms-title">
         <div class="section-intro"><p class="eyebrow">Use the screen you've got</p><h2 id="platforms-title">In your browser. On your home screen.</h2><p>The web app is the quickest way into a room. The native Android client is an earlier implementation with fewer features.</p></div>
         <div class="platform-grid">
-          <article class="platform web-platform"><p class="platform-label">Web app</p><h3>Open a room and go in.</h3><p>Chat and calls in your browser, with desktop screen sharing where supported. Install KithMoot from your browser's menu to keep it on your home screen or dock.</p><a class="button primary" href="j/">Open the web app</a><p class="under">An internet connection is needed to reach the room. Installation caches the app's shell, not an offline copy of your conversations.</p></article>
+          <article class="platform web-platform"><p class="platform-label">Web app</p><h3>Open a room and go in.</h3><p>Rooms, files and calls in your browser, with desktop screen sharing where supported. Install KithMoot from your browser's menu to keep it on your home screen or dock.</p><a class="button primary" href="j/">Open the web app</a><p class="under">An internet connection is needed to reach the room. Installation caches the app's shell, not an offline copy of your conversations.</p></article>
           <article id="android" class="platform"><p class="platform-label">Android · preview</p><h3>A native client for your phone.</h3><p>Android 8.0 or later. Version 0.4.0 adds persistent groups: join while everyone is away and return to your saved rooms. Searchable chat, emoji reactions and the expandable screen viewer are included.</p><p class="release-note"><strong>Debug-signed preview.</strong> This is a development build with incomplete feature coverage. You'll need to uninstall it before moving to a build signed with a release key.</p><a class="button" href="apk/kithmoot-latest.apk?download=1">Download Android preview</a><a class="source-link" href="https://github.com/forgesworn/kithmoot-android/releases">Release notes and source <span aria-hidden="true">↗</span></a></article>
         </div>
       </section>
@@ -101,15 +101,16 @@
       <section id="help" class="section wrap split" aria-labelledby="help-title">
         <div class="section-intro"><p class="eyebrow">A few practical questions</p><h2 id="help-title">Before you go in.</h2><p>Something isn't behaving as expected? Room details has a bug-report tool. You can also <a href="https://github.com/forgesworn/kithmoot/issues">report an issue on GitHub</a>.</p></div>
         <div class="questions">
+          <details><summary>Is this a Slack replacement?</summary><p>That's the aim: rooms, files, calls and agents, with no company running it. Threads, message editing, direct messages, a full archive and phone notifications aren't built yet. They're next, in that order, and the <a href="https://github.com/forgesworn/kithmoot/blob/main/CHANGELOG.md">changelog</a> says what has shipped.</p></details>
           <details><summary>Do I need a Nostr account?</summary><p>No. Follow an invitation and choose a name. If you already have a Nostr key, sign in through your signer to use that identity and save room bookmarks across devices. Signers without encryption support keep bookmarks local.</p></details>
           <details><summary>Why won't my invitation open?</summary><p>The invitation may have expired or been replaced, or there may be nobody online to answer it. Ask the person who sent it to open the room and send you a current link. Saving a room bookmark doesn't guarantee future access.</p></details>
           <details><summary>Can I use an iPhone or iPad?</summary><p>You can open the web app for chat and calls. Screen sharing from iOS isn't supported by this app. There isn't a native iOS app yet.</p></details>
-          <details><summary>Does the room stay open when I leave?</summary><p>Other admitted members can keep talking and admit people through the current invitation. If everybody leaves, an invitation needs a responder online again. A keeper can hold a standing room open; it runs on somebody's own computer or server.</p></details>
+          <details><summary>Does the room stay open when I leave?</summary><p>A group does: it admits the next person from the link with nobody online. A temporary meeting needs an admitted member online to answer its link. A keeper can run a room with named channels, removals and nudges; it runs on somebody's own computer or server.</p></details>
           <details><summary>Can I remove somebody?</summary><p>A room run by a keeper can name hosts who remove members or close the room. Removal changes the room key for the remaining devices. It can't erase messages somebody already received. Changing a normal invitation alone doesn't remove members.</p></details>
-          <details><summary>What are the current limits?</summary><p>Chat loads up to 500 messages from the last 30 days; relays may retain older encrypted events. Large calls depend on available bandwidth and routing, and haven't been validated at arbitrary room sizes. Android has fewer features, including incomplete support for room key changes. These are limits to check for your use, not promises covered by a green test suite.</p></details>
+          <details><summary>What are the current limits?</summary><p>Chat loads up to 500 messages from the last 30 days; relays may retain older encrypted events. Search covers what the conversation has loaded. Large calls depend on available bandwidth and routing, and haven't been validated at arbitrary room sizes. Android has fewer features, including incomplete support for room key changes. These are limits to check for your use, not promises covered by a green test suite.</p></details>
         </div>
       </section>
-      <section class="closing wrap" aria-labelledby="closing-title"><h2 id="closing-title">Bring your people into a room.</h2><a class="button primary" href="j/">Open KithMoot <span aria-hidden="true">↗</span></a></section>
+      <section class="closing wrap" aria-labelledby="closing-title"><h2 id="closing-title">Bring your people into a workspace.</h2><a class="button primary" href="j/">Open KithMoot <span aria-hidden="true">↗</span></a></section>
     </main>
     <footer class="wrap">
       <a class="brand" href="./"><img src="favicon.svg" width="30" height="30" alt="" />KithMoot</a>

@@ -44,6 +44,13 @@ outside this portfolio).
 
 ## Tagline
 
+> **A workspace nobody owns.**
+
+Changed on 6 September 2026, when the product was repositioned as an open
+Slack with agents. The five-word shape and the no-operator claim are kept;
+"town hall" said a meeting, and the thing people come back to is a
+workspace. The original, and the reasoning behind it, follow.
+
 > **A town hall nobody owns.**
 
 Chosen because it carries the "citadel town hall meeting" feeling without the

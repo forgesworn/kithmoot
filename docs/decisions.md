@@ -1135,3 +1135,75 @@ hosted agent trustworthy: the principal can still start something that
 behaves badly, and everything above about weighing what an agent says still
 holds. It is the narrowest answer to one question, which is whose machine
 gets spent.
+
+## Not NIP-29, and not Marmot
+
+KithMoot is an open Slack with agents, and the first question a Nostr
+developer asks of anything that calls itself that is why it is not built
+on one of the two group layers the ecosystem already has. Both were
+considered, both were refused, for different reasons, and neither refusal
+is about quality.
+
+**NIP-29 makes the relay the operator.** A relay-based group lives on one
+relay, and that relay is the authority on it: it holds the member list,
+enforces who may write, signs the group's metadata, admin and member
+events under its own key, and serves a private group's history only to the
+members it has on file. That is a well-defined and honest design, and it
+is exactly the shape this product exists to avoid. The point of the
+link-as-capability model is that nobody holds the guest list. In a NIP-29
+group the relay holds it in plaintext, every message is a plaintext event
+with an `h` tag unless a client layers its own encryption on top, and a
+group cannot be moved: the `<host>'<id>` identifier binds it to the relay
+that created it, and an unmanaged group drops the enforcement but not the
+address. Take the relay away and the group is gone. That is an operator
+with the name changed. KithMoot's relays learn opaque ids, timing, sizes
+and device keys; they are named in the link as a plural list that every
+event is published to, so losing one loses nothing the others do not
+carry. Membership is who holds the epoch key, and an epoch is issued by
+whoever holds the room's authority, which is a browser or a keeper the
+members chose and not a server anybody else runs.
+
+What NIP-29 has that this does not, stated so nobody thinks it was
+missed: a group the relay administers moderates itself with no member's
+browser open, a relay can refuse to serve a private group to a stranger
+who guessed its id, and there are several clients already. The first two
+are what a keeper provides here, optionally. The third is the price of
+not being NIP-29.
+
+**Marmot moves the key schedule, and only the key schedule.** Marmot is
+MLS over Nostr: a key package per client, a welcome per invitee, and a
+group event per message encrypted under the MLS epoch's exporter secret,
+with forward secrecy and post-compromise security from the ratchet. Those
+two properties are real and KithMoot does not have them: an epoch key
+here is a static secret until the next rekey, so a device compromised
+today reads everything since the last removal. That gap is acknowledged,
+and it is the one thing worth borrowing.
+
+What Marmot is not is a workspace layer, and the things this product is
+built on are not in it. An MLS member is a client, one leaf per device, so
+a person on a phone and a laptop is two members and the tree has no notion
+that they are one; KithMoot's whole claim is that they are. MLS knows who
+is in a group; it does not know who is here, so presence, calls, a device
+carrying media for another and channels inside a group would all be built
+beside it rather than on it, which is where they are built now. Group
+changes are commits that every member processes in order, so a member
+away for a week replays a stack before it can read, and an agent that
+comes and goes twenty times a day churns the tree for everybody. And a
+welcome is addressed to one key package, so "drop this link in a group
+chat and anyone it reaches can enter" is not something MLS can express
+without an admitting party online to issue welcomes, which is the keeper
+dependency the v3 group invitation was built to remove.
+
+So the group layer stays as it is: a room key per epoch, sealed to every
+device that stays and none that does not, with the roster, chat, channels,
+descriptor and media keys all derived from it. When forward secrecy is
+worth its cost here, the change is to ratchet the epoch key between rekeys,
+per message or per interval. That is a change to `epoch.ts` and a vector
+group, not a change of foundation.
+
+**Why this is recorded as a refusal and not an open question.** Both
+answers change everything downstream. NIP-29 puts the guest list on a
+server and ends the no-operator claim; Marmot puts the device, not the
+person, at the centre of the model. Either would be a different product,
+and this entry exists so the next person to ask does not have to
+reconstruct why it was not built that way.
