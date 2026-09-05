@@ -119,6 +119,21 @@ to make that one thing true.
   key, and stages it for the next message.
 - **Names, and optionally a real Nostr identity.** Type a name and join, or
   sign in with a key you already have. See below.
+- **Search a conversation.** Open Room details and choose **Search this
+  conversation** to find words, people or file names in the history already
+  loaded in this tab. **Files only** lists messages with shared files, and
+  selecting a result returns to the original message. Search stays on the
+  device, downloads no files and keeps the current call and unfinished
+  message in place. It covers the active conversation's loaded history,
+  bounded by the 30-day query window and 500-message retention cap; it does
+  not query a separate archive or search inside files.
+- **Drafts stay with their conversation.** Switch between Chat, Agents and
+  named conversations without carrying unfinished text or files into the
+  wrong place. An upload finishes in the draft it started in, and can be
+  stopped. Room details marks conversations with drafts and lets you
+  discard the current one. A closed conversation keeps its draft available
+  to copy. Drafts stay in this tab's memory; leaving or reloading discards
+  them, with a warning before a normal browser navigation.
 - **Leaving is instant, and so is a dropped connection coming back.** A
   device that hangs up, closes the tab or navigates away says goodbye, and
   everybody else drops it at once rather than after the presence timeout. A
@@ -165,6 +180,15 @@ to make that one thing true.
   read positions and the choice to keep an admission are not synced.
   Signing out hides that account's list, but does not erase the browser's
   local cache; do not treat sign-out as a shared-device data wipe.
+
+  The home page puts saved rooms first, with a search by name or room code.
+  Start a named room or paste a complete invitation below the list; sign-in
+  is optional. Invitations from another host can open in this app with their
+  relay and admission settings intact. Incomplete links stay beside the
+  input for correction. An unanswered invitation offers a retry, and a
+  retired invitation asks for a current link. Joining keeps camera and
+  microphone off and lets you retry a failed connection with your name
+  still in place.
 
   The **Rooms** button in a conversation opens a searchable picker without
   leaving the room or interrupting a call. Pick another room to enter its
@@ -466,9 +490,9 @@ Stated plainly, before anyone else finds it:
 ## Running it
 
 ```bash
-npm install
-npm run build:lib # the forwarder and its tests import the library from dist/
-npm test          # 1028 tests, in-process relay simulator, no network
+npm ci
+npm run build:lib # build the library and declarations in dist/
+npm test          # unit and protocol tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, against the test
                   # relay in test/ws-relay.mjs: deterministic, offline, the gate
@@ -482,12 +506,9 @@ npm run build      # production PWA build, to app/dist
 npm run agent -- --help   # kithmoot-agent: be in a room without a browser
 ```
 
-`npm run build:lib` comes first on a fresh clone. `server/forwarder.mjs` and
-two of the test files import the library from `dist/`, which is a `tsc` output
-and is not committed; without it `npm test` quietly loads 391 tests instead of
-454, because three suites fail to resolve their imports rather than failing an
-assertion. Once `dist/` exists it stays, which is why this is easy to miss
-locally and impossible to miss in CI.
+`npm test` builds the library automatically through its `pretest` script.
+The forwarder and some acceptance fixtures import from `dist/`, which is
+not committed; build the library first when running those files directly.
 
 `npm run test:live` needs the network, and real relays have real weather, so
 it is excluded from `npm test`. `npm run test:e2e` drives real browsers and is
@@ -534,18 +555,18 @@ This is the whole of the product's claim, checked by hand and, since stage 2,
 repeated on every run by `npm run test:e2e`, and against real public relays
 by `E2E_RELAYS=live npm run test:e2e`:
 
-1. On a **laptop**, open the app, click **Start a room**, then **Screen
-   share**. Pick a window, and click **Join room**.
-2. Click **Add a device**. Copy that link, not the plain room link above
+1. On a **laptop**, open the app, choose **Start a room**, enter your name
+   and choose **Go in**. Open **Call**, then **Screen share**, and pick a window.
+2. Open **Room details**, then **Add a device**. Copy that link, not the plain room link above
    it, and send it to a **phone**. Leave the laptop page open: it is what
    answers the phone, and closing it retires the link.
 3. On the phone, open the pairing link. The laptop asks you to confirm the
-   new device; say yes. The phone then waits for its credential: **Join
-   room** stays greyed out until it arrives. Once it lights up, click
-   **Microphone**, **Camera**, then **Join room**.
+   new device; say yes. The phone then waits for its credential: **Go in**
+   stays greyed out until it arrives. Once available, choose **Go in**, open
+   **Call**, then turn on **Microphone** and **Camera**.
 4. On a **third** browser (a different device, or a private window with a
-   fresh profile), open the plain room link from step 1, and click **Join
-   room**.
+   fresh profile), open the plain room link, enter a name and choose **Go in**.
+   Open **Call** to see the devices together.
 
 The pairing link grants a credential for **that room only**, expiring after
 twelve hours. It does not carry your identity. The participant key never

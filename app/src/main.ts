@@ -1,7 +1,12 @@
+import { EmojiPicker } from './emoji-picker.js'
+import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { ChatScroll } from './chat-scroll.js'
+import { ConversationSearch } from './conversation-search.js'
+import { ShareViewer, type ShareSource } from './share-viewer.js'
+import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
   browserDeviceStore,
   deviceKeyFor,
@@ -109,10 +114,21 @@ import { base64urlnopad } from '@scure/base'
 
 const outbox = new Outbox(document.getElementById('outbox')!)
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
-installUpdates(() => Boolean(session) || hasUnsentWork())
+const conversationSearch = new ConversationSearch(document)
+const shareViewer = new ShareViewer()
+const emojiPicker = new EmojiPicker()
+window.addEventListener('pagehide', () => shareViewer.close())
+const drafts = new ConversationDrafts()
+let navigationApproved = false
+function approvedReload(): void {
+  navigationApproved = true
+  location.reload()
+}
+installUpdates(() => Boolean(session) || hasUnsentWork(), approvedReload)
 
 function hasUnsentWork(): boolean {
-  return outbox.pending || Boolean(($('chatInput') as HTMLTextAreaElement).value) || stagedAttachments.length > 0
+  captureDraft()
+  return outbox.pending || drafts.pending().length > 0
 }
 
 // Relays confirmed live for this room kind. relay.trotters.cc is the
@@ -899,6 +915,8 @@ window.addEventListener('storage', (event) => {
 })
 
 let session: RoomSession | undefined
+let joining = false
+let iceRefreshTimer: ReturnType<typeof setInterval> | undefined
 /** The relay pool the session publishes through, for a file dropped into
  *  the chat to announce itself on. Set and cleared with `session`. */
 let sessionTransport: RelayTransport | undefined
@@ -937,7 +955,9 @@ const profiles = new ProfileBook({
 })
 
 $('lookupProfiles').addEventListener('change', () => {
-  profiles.setEnabled(($('lookupProfiles') as HTMLInputElement).checked)
+  const enabled = ($('lookupProfiles') as HTMLInputElement).checked
+  profiles.setEnabled(enabled)
+  $('chatProfiles').textContent = `Profile pictures: ${enabled ? 'on' : 'off'}`
   if (session) {
     render(session.participants(), meParticipant)
     repaintActiveChat()
@@ -1025,16 +1045,25 @@ const SATS = new Intl.NumberFormat(undefined, { useGrouping: true })
  * key gets no ring and no placeholder either, because it has no identity a
  * payment could be attributed to.
  */
-function pictureOf(shown: Shown): HTMLElement | undefined {
-  if (shown.picture === undefined) return undefined
+function pictureOf(shown: Shown, withFallback = false): HTMLElement | undefined {
+  const fallback = document.createElement('span')
+  fallback.className = 'avatar initials'
+  fallback.setAttribute('aria-hidden', 'true')
+  fallback.textContent = [...(shown.name?.trim() || shown.short)][0]?.toLocaleUpperCase() ?? '?'
+  if (shown.picture === undefined) return withFallback ? fallback : undefined
   const avatar = document.createElement('img')
   avatar.className = 'avatar'
   avatar.src = shown.picture
   avatar.alt = ''
   avatar.loading = 'lazy'
+  avatar.referrerPolicy = 'no-referrer'
   // A picture that will not load must not leave a broken icon sitting where
   // a person's face was supposed to be, nor an empty ring around nothing.
-  avatar.addEventListener('error', () => (avatar.closest('.donorRing') ?? avatar).remove())
+  avatar.addEventListener('error', () => {
+    const picture = avatar.closest('.donorRing') ?? avatar
+    if (withFallback) picture.replaceWith(fallback)
+    else picture.remove()
+  })
 
   const tier = ringTier(shown)
   if (tier === undefined) return avatar
@@ -1052,13 +1081,13 @@ function pictureOf(shown: Shown): HTMLElement | undefined {
 /** Build the name-and-key run that identifies one person. Deliberately the
  *  only place that decides what a person looks like, so a tile and a chat
  *  line can never drift apart on it. */
-function identityRun(shown: Shown, isSelf: boolean): DocumentFragment {
+function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false): DocumentFragment {
   const run = document.createDocumentFragment()
 
   // The picture, and the donor ring around it, live here rather than in one
   // caller, so that "wherever this person is drawn" is a single decision and
   // the ring reads as part of the same system as the badges below it.
-  const picture = pictureOf(shown)
+  const picture = pictureOf(shown, withAvatarFallback)
   if (picture) run.append(picture)
 
   if (shown.name !== undefined) {
@@ -1141,10 +1170,10 @@ function renderIdentity(): void {
   ;($('signIn') as HTMLButtonElement).hidden = nostrSession !== undefined
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
   $('retryRoomSync').hidden = nostrSession === undefined
-  $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Your rooms, wherever you sign in'
+  $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Keep your rooms with you'
   $('accountLead').textContent = nostrSession
     ? `Signed in as ${shortKey(nostrSession.pubkey)}. ${nostrSession.signer.nip44 ? 'Your room links follow this key.' : 'Rooms are saved in this browser only with this signer.'}`
-    : 'Sign in to find your rooms across devices. Just visiting? Open an invitation; no account needed.'
+    : 'Optional: sign in with Nostr to find your rooms on other devices. You can start and join rooms without an account.'
   $('accountHelp').textContent = nostrSession
     ? 'Rooms you open while signed in are saved to this account. Your signer encrypts their names and links; relays can see your public key and that you use KithMoot. Visitor history is not uploaded.'
     : 'Sign in to find your rooms across devices. Your signer keeps your key and encrypts your room bookmarks. Visiting someone else? Open their invitation link; no sign-in is needed.'
@@ -1828,6 +1857,12 @@ function startNewRoom(): void {
  * anything to be about. What is left is a name and a way in.
  */
 function showRoomUi(): void {
+  $('home').hidden = true
+  $('identity').hidden = false
+  $('identityMore').hidden = false
+  $('joinRoomForm').hidden = false
+  $('arrivalActions').hidden = true
+  $('arrivalActions').before($('status'))
   $('nostrOption').hidden = false
   $('nostrOption').append($('accountHome'))
   $('accountHome').hidden = false
@@ -1936,10 +1971,10 @@ function renderArrival(): void {
     lead.hidden = true
     return
   }
-  const named = roomName ? `“${roomName}”` : 'a room'
+  $('arrivalTitle').textContent = roomName ?? (startedHere ? 'Your new room' : 'Join the room')
   lead.textContent = startedHere
-    ? `Your room ${named} is ready. Put a name in and go in, then send people the link.`
-    : `You have been invited to ${named}. Put in a name and go in.`
+    ? 'Your room is ready. Choose a name, then invite your people from Room details.'
+    : 'Choose how you appear to the people in this room.'
   lead.hidden = false
 }
 
@@ -2446,6 +2481,7 @@ function publishActiveTracks(): void {
 
 function setToggle(id: string, on: boolean): void {
   $(id).dataset.on = String(on)
+  $(id).setAttribute('aria-pressed', String(on))
 }
 
 function updateUi(): void {
@@ -2608,6 +2644,20 @@ function render(views: ParticipantView[], me: string): void {
       )
     }
 
+    const sharedDevices = new Set(view.tracks.filter(track => track.role === 'screen').map(track => track.device))
+    if (view.participant === me && screenTrack) sharedDevices.add(myDeviceId)
+    for (const device of sharedDevices) {
+      const source = () => screenSource(view.participant, device)
+      const available = source()
+      if (!available) continue
+      const expand = document.createElement('button')
+      expand.type = 'button'; expand.className = 'shareExpand'; expand.textContent = 'Expand screen share'
+      expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? shown.short}`)
+      expand.addEventListener('click', () => shareViewer.open(source, expand))
+      box.append(expand)
+      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(`${device}|${available.track.id}`)?.el
+      if (preview) { preview.classList.add('screenPreview'); preview.ondblclick = () => shareViewer.open(source, expand) }
+    }
     root.append(box)
   }
 
@@ -3081,10 +3131,9 @@ function ingestControl(messages: ChatMessage[]): void {
         if (m.sentAt < channelsAt) break
         channels = control.channels
         channelsAt = m.sentAt
-        // Somebody standing in a channel that has just been closed is put
-        // back in the main chat rather than left looking at a conversation
-        // the room no longer lists.
-        if (currentChannel !== undefined && !channels.includes(currentChannel)) selectChannel(undefined)
+        // Keep unfinished work reachable when its conversation closes.
+        // An empty conversation can return straight to the main chat.
+        if (currentChannel !== undefined && !channelAvailable(currentChannel) && !draftHasWork(captureDraft())) selectChannel(undefined)
         else renderChannels()
         break
       }
@@ -3275,6 +3324,7 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
         card.append(img)
       }
       const save = document.createElement('a')
+      save.dataset.focusKey = `attachment-${index}`
       save.href = opened.url
       save.download = opened.name
       save.textContent = `Save ${opened.name} (${formatBytes(opened.size)})`
@@ -3284,6 +3334,7 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
     const button = document.createElement('button')
     button.type = 'button'
     button.textContent = opened ? 'Try again' : 'Show'
+    button.dataset.focusKey = `attachment-${index}`
     button.title = 'Fetch the encrypted file from where it is stored, check it, and open it here'
     button.addEventListener('click', async () => {
       button.disabled = true
@@ -3316,6 +3367,10 @@ function renderChat(messages: ChatMessage[]): void {
   // showing. See `#chatLog.minutes` in style.css.
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
+  conversationSearch.update(messages, currentChannel ?? 'Chat', message => {
+    if (message.participant === meParticipant) return message.name ? `${message.name} (you)` : 'You'
+    return shownAs(message.participant, message.name).name ?? message.participant.slice(0, 8)
+  })
   if (currentChannel === undefined) noteChatRead(messages)
 }
 
@@ -3377,7 +3432,9 @@ function activeChat(): NonNullable<typeof session>['chat'] | undefined {
 }
 
 function selectChannel(name: string | undefined): void {
+  captureDraft()
   currentChannel = name
+  restoreDraft()
   delete $('channelClose').dataset.arm
   renderChannels()
   const log = activeChat()
@@ -3392,6 +3449,66 @@ function selectChannel(name: string | undefined): void {
   renderRoomWho()
   // You picked it: you are done with the sheet you picked it in.
   closeRoomSheet()
+  // Chromium resets a revealed textarea's selection after this click has
+  // finished. Restore it on the next frame, unless the reader moved on.
+  if (input instanceof HTMLTextAreaElement) {
+    const draft = drafts.get(currentChannel)
+    const { text, selectionStart, selectionEnd, selectionDirection } = draft
+    requestAnimationFrame(() => {
+      if (currentChannel !== name || input.value !== text || document.activeElement === input) return
+      input.setSelectionRange(selectionStart, selectionEnd, selectionDirection)
+    })
+  }
+}
+
+function channelAvailable(name: string | undefined): boolean {
+  return name === undefined || [AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL].includes(name) || channels.includes(name)
+}
+
+function captureDraft(): ConversationDraft {
+  const draft = drafts.get(currentChannel)
+  const input = $('chatInput') as HTMLTextAreaElement
+  draft.text = input.value
+  draft.selectionStart = input.selectionStart
+  draft.selectionEnd = input.selectionEnd
+  draft.selectionDirection = input.selectionDirection
+  draft.event = ($('attachEvent') as HTMLInputElement).value
+  draft.key = ($('attachKey') as HTMLInputElement).value
+  return draft
+}
+
+function restoreDraft(): void {
+  const draft = drafts.get(currentChannel)
+  const input = $('chatInput') as HTMLTextAreaElement
+  closeMentionPicker()
+  input.value = draft.text
+  input.setSelectionRange(draft.selectionStart, draft.selectionEnd, draft.selectionDirection)
+  ;($('attachEvent') as HTMLInputElement).value = draft.event
+  ;($('attachKey') as HTMLInputElement).value = draft.key
+  renderStaged()
+  $('attachStatus').textContent = draft.status
+}
+
+function renderDraftBadges(): void {
+  for (const tab of $('channelBar').querySelectorAll<HTMLButtonElement>('button[data-channel]')) {
+    const name = tab.dataset.channel || undefined
+    const draft = drafts.get(name)
+    const badge = tab.querySelector<HTMLElement>('.draftBadge')!
+    badge.textContent = !channelAvailable(name) ? 'Closed · Draft' : draft.job ? 'Adding files' : 'Draft'
+    badge.hidden = !draftHasWork(draft)
+  }
+}
+
+/** Async work may finish while another draft is on screen. Update its badge
+ * without changing the current editor, attachment panel or keyboard focus. */
+function draftChanged(draft: ConversationDraft): void {
+  if (draft === drafts.get(currentChannel)) {
+    renderStaged()
+    $('attachStatus').textContent = draft.status
+    renderComposer()
+  }
+  renderDraftBadges()
+  if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
 }
 
 /**
@@ -3474,6 +3591,8 @@ function asksForMinutes(text: string): boolean {
 
 function renderChannels(): void {
   const bar = $('channelBar')
+  const focused = document.activeElement as HTMLElement | null
+  const focusedChannel = focused && bar.contains(focused) ? focused.closest<HTMLButtonElement>('button[data-channel]')?.dataset.channel : undefined
   const s = session
   // Reserved conversations every room has, whether or not a keeper has
   // announced them. `agents` is where agents talk among themselves, and a
@@ -3494,6 +3613,11 @@ function renderChannels(): void {
     reserved.push([name, name === MINUTES_CHANNEL ? 'Minutes' : 'Transcript'])
   }
   const named = channels.filter((c) => !reserved.some(([n]) => n === c))
+  // A closed conversation with unfinished work stays reachable so its
+  // draft can be copied or discarded, without sending it somewhere else.
+  for (const draft of drafts.pending()) {
+    if (draft.channel !== undefined && !channelAvailable(draft.channel)) named.push(draft.channel)
+  }
   const tabs: Array<[string | undefined, string]> = [[undefined, 'Chat'], ...reserved, ...named.map((c) => [c, c] as [string, string])]
 
   bar.hidden = !s
@@ -3502,12 +3626,16 @@ function renderChannels(): void {
     for (const [name, label] of tabs) {
       const tab = document.createElement('button')
       tab.type = 'button'
+      tab.dataset.channel = name ?? ''
       tab.setAttribute('role', 'tab')
       const on = currentChannel === name
       tab.setAttribute('aria-selected', String(on))
       const heading = document.createElement('span')
       heading.className = 'channelName'
       heading.append(label)
+      const draftBadge = document.createElement('span')
+      draftBadge.className = 'draftBadge'
+      heading.append(draftBadge)
       // A dot beside a conversation that has something in it. Nothing beside
       // one that does not, so an eye running down this list for the first
       // time goes to the places where somebody has actually said something.
@@ -3526,6 +3654,11 @@ function renderChannels(): void {
       bar.append(tab)
     }
   }
+  renderDraftBadges()
+  if (focusedChannel !== undefined) {
+    const replacement = Array.from(bar.querySelectorAll<HTMLButtonElement>('button[data-channel]')).find(button => button.dataset.channel === focusedChannel)
+    ;(replacement ?? $('roomSheetClose')).focus({ preventScroll: true })
+  }
   renderComposer()
   renderRoomWho()
 
@@ -3543,7 +3676,7 @@ function renderChannels(): void {
   const isAdmin = s !== undefined && admins.has(meParticipant) && keeperParticipant !== undefined
   $('channelNew').hidden = !isAdmin
   const close = $('channelClose')
-  close.hidden = !isAdmin || currentChannel === undefined
+  close.hidden = !isAdmin || currentChannel === undefined || !channelAvailable(currentChannel)
   if (!close.hidden && close.dataset.arm !== currentChannel) close.textContent = `Close ${currentChannel}`
 }
 
@@ -3608,9 +3741,29 @@ const WRITTEN_BY_AGENTS: readonly string[] = [TRANSCRIPT_CHANNEL, MINUTES_CHANNE
  */
 function renderComposer(): void {
   const readOnly = currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel)
+  const closed = !channelAvailable(currentChannel)
+  const draft = drafts.get(currentChannel)
   $('chatForm').hidden = readOnly
+  ;($('chatInput') as HTMLTextAreaElement).readOnly = closed
+  ;($('emojiToggle') as HTMLButtonElement).disabled = readOnly || closed
+  if (readOnly || closed) emojiPicker.close()
+  ;($('attachToggle') as HTMLButtonElement).disabled = closed
+  ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job)
+  $('attachStaged').hidden = readOnly
+  $('attachPanel').hidden = readOnly || !draft.panelOpen
+  for (const id of ['attachFile', 'attachAdd', 'attachEvent', 'attachKey']) {
+    ;($(id) as HTMLInputElement | HTMLButtonElement).disabled = closed || Boolean(draft.job)
+  }
+  $('cancelFileWork').hidden = !draft.job
+  const discard = $('discardDraft') as HTMLButtonElement
+  discard.hidden = !draftHasWork(draft)
+  $('draftHelp').hidden = drafts.pending().length === 0
   const note = $('readOnlyNote')
-  note.hidden = !readOnly
+  note.hidden = !readOnly && !closed
+  if (closed) {
+    note.textContent = 'This conversation is closed. Your draft stays here for you to copy. You can discard it from Room details.'
+    return
+  }
   if (!readOnly) return
   note.textContent =
     currentChannel === MINUTES_CHANNEL
@@ -3674,7 +3827,15 @@ function whenWords(at: number, now: number = Date.now()): string {
   return then.getFullYear() === today.getFullYear() ? DATE_SHORT.format(then) : DATE_YEAR.format(then)
 }
 
-function timeChip(at: number): HTMLTimeElement {
+function messageWhen(at: number, now: number = Date.now()): string {
+  const moment = new Date(at * 1000)
+  const today = new Date(now)
+  if (sameDay(moment, today)) return CLOCK.format(moment)
+  const date = moment.getFullYear() === today.getFullYear() ? DATE_SHORT : DATE_YEAR
+  return `${date.format(moment)} · ${CLOCK.format(moment)}`
+}
+
+function timeChip(at: number, exact = false): HTMLTimeElement {
   const el = document.createElement('time')
   el.className = 'when'
   const moment = new Date(at * 1000)
@@ -3682,8 +3843,10 @@ function timeChip(at: number): HTMLTimeElement {
   // Kept on the element so the once-a-minute pass can rewrite the words
   // without the log being rebuilt.
   el.dataset.at = String(at)
-  el.textContent = whenWords(at)
+  el.dataset.exact = String(exact)
+  el.textContent = exact ? messageWhen(at) : whenWords(at)
   el.title = DATE_FULL.format(moment)
+  el.setAttribute('aria-label', DATE_FULL.format(moment))
   return el
 }
 
@@ -3693,7 +3856,7 @@ setInterval(() => {
   const now = Date.now()
   for (const el of document.querySelectorAll<HTMLTimeElement>('time.when[data-at]')) {
     const at = Number(el.dataset.at)
-    if (Number.isFinite(at)) el.textContent = whenWords(at, now)
+    if (Number.isFinite(at)) el.textContent = el.dataset.exact === 'true' ? messageWhen(at, now) : whenWords(at, now)
   }
 }, 60_000)
 
@@ -3819,6 +3982,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   }
 
   for (const m of messages) {
+    if (m.reaction) continue
     systemUpTo(m.sentAt)
 
     // A transcript line is not a message somebody sent: it is a note of
@@ -3842,7 +4006,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       by.className = 'who'
       by.append(' · heard by ')
       by.append(identityRun(shownAs(m.participant, m.name), false))
-      p.append(timeChip(m.sentAt), who)
+      p.append(timeChip(m.sentAt, true), who)
       appendWithMentions(p, m.text, mentions, namesOfMine)
       p.append(by)
       for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
@@ -3862,10 +4026,12 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     // is exactly where a name alone would be most convincing and least
     // checkable, so the short pubkey comes with it. The name on the message
     // is the sender's own claim, carried with it (see ChatMessage.name).
-    if (!mine) {
+    const header = document.createElement('div')
+    header.className = 'messageHeader'
+    {
       const sender = document.createElement('div')
       sender.className = 'sender'
-      sender.append(identityRun(shownAs(m.participant, m.name), false))
+      sender.append(identityRun(shownAs(m.participant, m.name), mine, true))
       // The tag, in the same place and the same colour as on the roster, so
       // a bubble from a program is recognisable without reading a word.
       if (fromAgent) {
@@ -3878,8 +4044,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       // Whose agent wrote this, from the proof carried on the message and
       // verified as at its send time - see ChatMessage.owner.
       if (m.owner) sender.append(ownerRun(m.owner))
-      row.append(sender)
+      header.append(sender)
     }
+    header.append(timeChip(m.sentAt, true))
+    row.append(header)
 
     const bubble = document.createElement('div')
     bubble.className = 'bubble'
@@ -3891,14 +4059,38 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     appendWithMentions(text, m.text, mentions, namesOfMine)
     bubble.append(text)
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
-    // Where every messaging app puts it: in the corner of the bubble, not
-    // in a column of its own down the side.
-    bubble.append(timeChip(m.sentAt))
     row.append(bubble)
+    const reactions = reactionsFor(messages, m)
+    const reactionBar = document.createElement('div'); reactionBar.className = 'messageReactions'
+    reactionBar.setAttribute('aria-label', 'Message reactions')
+    const writable = channelAvailable(currentChannel) && !(currentChannel && WRITTEN_BY_AGENTS.includes(currentChannel))
+    for (const emoji of REACTION_EMOJIS) {
+      const entries = reactions.get(emoji)!.filter(entry => entry.reaction!.active)
+      if (!entries.length && !['👍', '❤️', '🤦'].includes(emoji)) continue
+      const button = document.createElement('button'); button.type = 'button'
+      const mine = entries.some(entry => entry.participant === meParticipant)
+      button.textContent = `${emoji}${entries.length ? ` ${entries.length}` : ''}`
+      button.setAttribute('aria-pressed', String(mine))
+      button.setAttribute('aria-label', `${mine ? 'Remove' : 'Add'} ${emoji} reaction${entries.length ? `, ${entries.length}` : ''}`)
+      button.title = entries.length ? entries.map(entry => senderLabel(entry)).join(', ') : `React ${emoji}`
+      button.disabled = !writable
+      button.addEventListener('click', () => {
+        const chat = activeChat() ?? session?.chat
+        if (!chat || !meParticipant) return
+        try {
+          const reaction = toggleReaction(chat.messages(), m, meParticipant, emoji)
+          const text = reactionText(reaction)
+          button.disabled = true
+          outbox.send(text, currentChannel ?? 'Chat', chat.prepareSend(text, { reaction }))
+        } catch (error) { setStatus(describeError(error)); button.disabled = !writable }
+      })
+      reactionBar.append(button)
+    }
+    row.append(reactionBar)
     log.append(row)
   }
   systemUpTo(Number.POSITIVE_INFINITY)
-  if (countId) $(countId).textContent = messages.length ? `(${messages.length})` : ''
+  if (countId) $(countId).textContent = messages.some(m => !m.reaction) ? `(${messages.filter(m => !m.reaction).length})` : ''
   restoreScroll()
 }
 
@@ -3936,6 +4128,18 @@ interface RemoteVideo {
 }
 
 const remoteVideos = new Map<string, RemoteVideo>()
+
+/** Follow the advertised screen role across a track replacement or reconnect. */
+function screenSource(participant: string, device: string): ShareSource | undefined {
+  const person = session?.participants().find(view => view.participant === participant)
+  if (!person) return undefined
+  const advert = person.tracks.find(track => track.device === device && track.role === 'screen')
+  const track = participant === meParticipant && device === myDeviceId
+    ? screenTrack : advert ? remoteVideos.get(`${device}|${advert.trackId}`)?.track : undefined
+  if (!track || track.readyState !== 'live') return undefined
+  const name = participant === meParticipant ? 'Your screen' : `${shownAs(participant, person.name).name ?? shortKey(participant)}’s screen`
+  return { track, title: name }
+}
 const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamTrack }>()
 
 /**
@@ -4383,9 +4587,13 @@ $('diagnostics').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 
 async function startSession(): Promise<void> {
-  setStatus('')
+  if (joining || session) return
+  joining = true
+  setStatus('Joining the room…', 'progress')
   const joinBtn = $('join') as HTMLButtonElement
   joinBtn.disabled = true
+  joinBtn.textContent = 'Joining…'
+  $('joinRoomForm').setAttribute('aria-busy', 'true')
 
   try {
     const deviceSk = deviceKey()
@@ -4423,14 +4631,14 @@ async function startSession(): Promise<void> {
     // person whose Wi-Fi had just changed could not be reached again.
     // Refreshed well inside the credential's life, and never blocking: a
     // refresh that fails leaves the last good list in place.
-    setInterval(() => {
+    const refreshIce = (): void => {
       resolveIceServers(iceUrls)
         .then((fresh) => {
           resolvedIceServers = fresh
           stunOnly = withoutTurn(fresh)
         })
         .catch(() => {})
-    }, ICE_REFRESH_MS)
+    }
     const factory: PeerFactory = (context?: PeerContext) => {
       const iceServers = context?.tier === 'turn' ? resolvedIceServers : stunOnly
       const pc = new RTCPeerConnection({ iceServers })
@@ -4532,6 +4740,7 @@ async function startSession(): Promise<void> {
     s.onRemoteTrack(({ device, track }) => attachRemoteTrack(device, track))
 
     await s.join(currentAdverts(), currentClaims())
+    iceRefreshTimer = setInterval(refreshIce, ICE_REFRESH_MS)
     s.publishTracks(activeTracks(), { audience })
 
     // What lands while this tab is in the background is worth a
@@ -4626,17 +4835,26 @@ async function startSession(): Promise<void> {
     chatScroll.reset()
     repaintActiveChat()
   } catch (err) {
+    const failed = session
+    const failedTransport = sessionTransport
     session = undefined
     sessionTransport = undefined
+    void failed?.leave()
+    failedTransport?.close()
+    if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
+    iceRefreshTimer = undefined
     const message = describeError(err)
     if (message.includes('expired')) {
       forgetCredential()
       setStatus('This device\u2019s pass for this room has run out. Ask your other device for a new one.')
     } else {
-      setStatus(message)
+      setStatus(`Could not join the room. ${message}. Check your connection or sign-in, then try again.`)
     }
   } finally {
+    joining = false
     joinBtn.disabled = false
+    joinBtn.textContent = 'Join room'
+    $('joinRoomForm').removeAttribute('aria-busy')
   }
 }
 
@@ -4750,14 +4968,16 @@ function stopWatching(roomId: string): void {
 
 function showRoomsList(): void {
   $('nostrOption').hidden = true
-  $('identity').prepend($('accountHome'))
-  $('accountHome').after($('rooms'))
+  $('home').hidden = false
+  $('identity').hidden = true
+  $('identityMore').hidden = true
+  $('homeRooms').append($('rooms'))
+  $('homeActions').append($('setup'))
+  $('homeAccount').append($('accountHome'))
+  $('homeStatus').append($('status'))
   $('accountHome').hidden = false
   roomsListShown = true
-  // The front page is where watching a list of rooms is the point, so the
-  // notification switch belongs on it. It is hidden only in the gap between
-  // opening a link and going in, where it is one more thing in the way.
-  $('notify').hidden = false
+  // renderRooms offers notifications when there are saved rooms to follow.
   renderWayBack()
   const rooms = knownRooms(roomStore())
   for (const room of rooms) watchKnownRoom(room)
@@ -4786,15 +5006,33 @@ function renderRooms(): void {
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add ${importable.length} ${importable.length === 1 ? 'room' : 'rooms'} from this browser`
   const rooms = knownRooms(roomStore())
+  const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
+  const filtered = rooms.filter(room => `${roomLabel(room)} ${room.roomId}`.toLocaleLowerCase().includes(query))
   $('rooms').hidden = rooms.length === 0 && !nostrSession
+  $('notify').hidden = rooms.length === 0
+  $('homeHeading').textContent = rooms.length ? 'Pick up the conversation.' : 'Make room for a conversation.'
   $('roomsHeading').textContent = nostrSession ? 'Your rooms' : 'Rooms on this browser'
   $('roomsEmpty').hidden = rooms.length !== 0
+  $('homeRoomSearch').hidden = rooms.length === 0
+  $('clearHomeRoomQuery').hidden = !query
+  $('homeRoomResults').hidden = !query
+  $('homeRoomResults').textContent = filtered.length
+    ? `${filtered.length} ${filtered.length === 1 ? 'room' : 'rooms'} found`
+    : 'No rooms match this search.'
   $('roomsNote').textContent = nostrSession
     ? 'These bookmarks belong to your Nostr account. An invitation can expire or be retired; a bookmark does not grant permanent access. Unread counts use only keys held by this device.'
     : 'Saved on this browser only. You can also bookmark the invitation link. No account is needed.'
   const list = $('roomList')
+  const focused = document.activeElement as HTMLElement | null
+  const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
+  const action = focused?.dataset.action
   list.innerHTML = ''
-  for (const room of rooms) list.append(roomRow(room))
+  for (const room of filtered) list.append(roomRow(room))
+  if (focusedRoom && action) {
+    const row = Array.from(list.children).find(row => (row as HTMLElement).dataset.room === focusedRoom)
+    const replacement = row?.querySelector<HTMLElement>(`[data-action="${action}"]`)
+    ;(replacement ?? $('homeRoomQuery')).focus({ preventScroll: true })
+  }
 }
 
 function browserRoomsToImport(): KnownRoom[] {
@@ -4823,9 +5061,13 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   heading.className = 'roomTitleRow'
   // A name and the id beside it, for the reason a person's name has a key
   // beside it: two rooms can be called the same thing.
-  const name = document.createElement('span')
-  name.className = 'roomName'
+  const name = document.createElement('button')
+  name.type = 'button'
+  name.className = 'roomName open'
+  name.dataset.action = 'open'
+  name.setAttribute('aria-label', `Open ${roomLabel(room)}`)
   name.textContent = roomLabel(room)
+  name.addEventListener('click', () => openKnownRoom(room))
   const id = document.createElement('span')
   id.className = 'pubkey'
   id.textContent = shortKey(room.roomId)
@@ -4835,17 +5077,14 @@ function roomRow(room: KnownRoom): HTMLLIElement {
 
   const actions = document.createElement('div')
   actions.className = 'roomActions'
-  const open = document.createElement('button')
-  open.type = 'button'
-  open.className = 'open'
-  open.textContent = 'Open'
-  open.addEventListener('click', () => openKnownRoom(room))
   const forget = document.createElement('button')
   forget.type = 'button'
   forget.className = 'forget quiet'
+  forget.dataset.action = 'forget'
+  forget.setAttribute('aria-label', `Forget ${roomLabel(room)}`)
   forget.textContent = 'Forget'
   forget.addEventListener('click', () => forgetKnownRoom(room))
-  actions.append(open, forget)
+  actions.append(forget)
 
   row.append(main, actions)
   return row
@@ -5080,7 +5319,7 @@ function backToRooms(): void {
   rememberWayBack()
   s?.leave()
   history.replaceState(null, '', joinLinkBase())
-  location.reload()
+  approvedReload()
 }
 
 // ---------------------------------------------------------------------------
@@ -5166,8 +5405,9 @@ function openLink(url: string): void {
   }
   if (target.origin !== location.origin || !target.href.startsWith(joinLinkBase())) return
   if (alreadyHere(target.href)) return
+  if ((hasUnsentWork() || callIsLive()) && !confirm('Open the other room? This leaves your call and discards unfinished messages and files in this tab.')) return
   history.replaceState(null, '', target.href)
-  location.reload()
+  approvedReload()
 }
 
 navigator.serviceWorker?.addEventListener('message', (event) => {
@@ -5280,6 +5520,22 @@ $('roomSwitcher').addEventListener('click', event => {
 $('roomIdentity').addEventListener('click', openRoomSheet)
 $('roomMenu').addEventListener('click', openRoomSheet)
 $('roomSheetClose').addEventListener('click', closeRoomSheet)
+$('searchConversation').addEventListener('click', () => {
+  closeRoomSheet()
+  conversationSearch.open()
+})
+$('chatSearch').addEventListener('click', () => conversationSearch.open($('chatSearch')))
+let profileReturnFocus: HTMLElement = $('chatProfiles')
+function openProfileSettings(from: HTMLElement): void {
+  profileReturnFocus = from
+  closeRoomSheet()
+  ;($('profileSettings') as HTMLDialogElement).showModal()
+  $('lookupProfiles').focus()
+}
+$('chatProfiles').addEventListener('click', () => openProfileSettings($('chatProfiles')))
+$('roomProfileSettings').addEventListener('click', () => openProfileSettings($('roomMenu')))
+$('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
+$('profileSettings').addEventListener('close', () => profileReturnFocus.focus({ preventScroll: true }))
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
 // dialog element itself fills the screen, so a click that lands ON the
 // dialog and not on anything inside it is a click on the backdrop.
@@ -5348,29 +5604,53 @@ $('importBrowserRooms').addEventListener('click', () => {
   try { importBrowserRooms() } catch (error) { setStatus(describeError(error)) }
 })
 
-$('create').addEventListener('click', () => {
-  startNewRoom()
-  showRoomUi()
+$('createRoomForm').addEventListener('submit', event => {
+  event.preventDefault()
+  try {
+    startNewRoom()
+    setStatus('')
+    showRoomUi()
+    $('identity').scrollIntoView({ block: 'start' })
+    ;(typedName ? $('join') : $('displayName')).focus({ preventScroll: true })
+  } catch (error) { setStatus(describeError(error)) }
 })
 
-$('openUrl').addEventListener('click', () => {
+$('openRoomForm').addEventListener('submit', event => {
+  event.preventDefault()
   const value = ($('url') as HTMLInputElement).value.trim()
-  if (!value) return
-  // A join-link box is exactly where somebody pastes a link a stranger sent
-  // them, and `location.href = value` would run a javascript: URL in this
-  // app's own origin - where the participant key lives.
-  let url: URL
+  const error = $('linkError')
   try {
-    url = new URL(value, location.href)
+    if (!value) throw new Error('Paste the invitation link you were sent.')
+    const url = new URL(value)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('unsupported scheme')
+    parseRoomLink(url.href)
+    // Open its room in this app. A valid invitation from another host
+    // carries its relay and admission settings in the same fragment.
+    history.replaceState(null, '', joinLinkBase() + url.hash)
+    location.reload()
   } catch {
-    setStatus('That does not look like a join link.')
-    return
+    error.textContent = value
+      ? 'This is not a complete KithMoot invitation. Copy the whole link, including everything after #, and try again.'
+      : 'Paste the invitation link you were sent.'
+    error.hidden = false
+    $('url').setAttribute('aria-invalid', 'true')
+    $('url').focus()
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    setStatus('A join link must be an http or https address.')
-    return
-  }
-  location.href = url.href
+})
+$('url').addEventListener('input', () => {
+  $('linkError').hidden = true
+  $('linkError').textContent = ''
+  $('url').removeAttribute('aria-invalid')
+})
+$('homeRoomQuery').addEventListener('input', renderRooms)
+$('clearHomeRoomQuery').addEventListener('click', () => {
+  ;($('homeRoomQuery') as HTMLInputElement).value = ''
+  renderRooms()
+  $('homeRoomQuery').focus()
+})
+$('retryArrival').addEventListener('click', () => location.reload())
+$('arrivalHome').addEventListener('click', () => {
+  history.replaceState(null, '', joinLinkBase())
   location.reload()
 })
 
@@ -5506,7 +5786,9 @@ $('voicePreview').addEventListener('click', () => {
     })
 })
 
-$('join').addEventListener('click', () => {
+$('joinRoomForm').addEventListener('submit', event => {
+  event.preventDefault()
+  if (($('join') as HTMLButtonElement).hidden || ($('join') as HTMLButtonElement).disabled) return
   startSession().catch((err) => setStatus(describeError(err)))
 })
 
@@ -5522,6 +5804,9 @@ $('join').addEventListener('click', () => {
  * light on with nobody watching, which is worse than a flicker.
  */
 async function leaveRoom(): Promise<void> {
+  if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
+  iceRefreshTimer = undefined
+  drafts.close()
   const s = session
   session = undefined
   sessionTransport = undefined
@@ -5539,7 +5824,7 @@ async function leaveRoom(): Promise<void> {
   const button = $('leave')
   if (button instanceof HTMLButtonElement) button.disabled = true
   await s?.leave()
-  location.reload()
+  approvedReload()
 }
 
 $('leave').addEventListener('click', () => {
@@ -5551,7 +5836,13 @@ $('leave').addEventListener('click', () => {
 // is a departure too, and a silent one costs everybody else the whole
 // presence timeout. Best effort: the farewell is one small publish over
 // sockets that are already open, and the page is gone whatever happens.
+window.addEventListener('beforeunload', event => {
+  if (navigationApproved || !hasUnsentWork()) return
+  event.preventDefault()
+  event.returnValue = ''
+})
 window.addEventListener('pagehide', () => {
+  drafts.close()
   session?.leave()
   stopInvitationHost()
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
@@ -5757,11 +6048,29 @@ function acknowledgeMinutesRequest(): void {
   )
 }
 
+$('emojiToggle').addEventListener('click', () => {
+  const input = $('chatInput') as HTMLTextAreaElement
+  if (input.readOnly) return
+  const channel = currentChannel
+  const start = input.selectionStart, end = input.selectionEnd
+  emojiPicker.open(input, emoji => {
+    if (currentChannel !== channel || input.readOnly) return
+    if (input.value.length - (end - start) + emoji.length > MAX_CHAT_TEXT_LENGTH) {
+      setStatus('There is no room for that emoji. Shorten your message first.')
+      return
+    }
+    input.setRangeText(emoji, start, end, 'end')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+})
+
 $('chatForm').addEventListener('submit', (event) => {
   event.preventDefault()
+  const draft = captureDraft()
+  if (draft.job || !channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const input = $('chatInput') as HTMLTextAreaElement
   const typed = input.value.trim()
-  const attachments = stagedAttachments
+  const attachments = draft.attachments
   if ((!typed && attachments.length === 0) || !session) return
   // A file with nothing said about it still gets a caption, because the
   // caption is all a client that has never heard of attachments will show.
@@ -5779,10 +6088,12 @@ $('chatForm').addEventListener('submit', (event) => {
     return
   }
   input.value = ''
+  draft.text = ''
+  draft.selectionStart = draft.selectionEnd = 0
   growComposer(input)
   closeMentionPicker()
-  stagedAttachments = []
-  renderStaged()
+  draft.attachments = []
+  draftChanged(draft)
   // Into whichever conversation is on screen, which is the main chat until
   // somebody picks another.
   outbox.send(text, currentChannel ?? 'Chat', publish, attachments.map(a => a.name ?? 'Encrypted file'))
@@ -5794,8 +6105,12 @@ $('chatForm').addEventListener('submit', (event) => {
 // a new line, which is the pair of habits every chat box has and the reason
 // a multi-line box costs nothing to use.
 $('chatInput').addEventListener('input', () => {
+  const draft = captureDraft()
   growComposer($('chatInput') as HTMLTextAreaElement)
   renderMentionPicker()
+  renderDraftBadges()
+  ;($('discardDraft') as HTMLButtonElement).hidden = !draftHasWork(draft)
+  $('draftHelp').hidden = drafts.pending().length === 0
 })
 // The caret can move without a keystroke - a tap, a drag, an arrow key -
 // and whether an `@` is being completed depends on where it is.
@@ -5876,14 +6191,11 @@ $('channelClose').addEventListener('click', () => {
 // Attaching a Wildbloom share to a message
 // ---------------------------------------------------------------------------
 
-/** What the next message will carry. Held here, not in the form, so the
- *  key is in one place until it is in the message and then nowhere. */
-let stagedAttachments: ChatAttachment[] = []
-
 function renderStaged(): void {
+  const draft = drafts.get(currentChannel)
   const box = $('attachStaged')
   box.innerHTML = ''
-  stagedAttachments.forEach((a, i) => {
+  draft.attachments.forEach((a, i) => {
     const chip = document.createElement('span')
     chip.className = 'attachChip'
     chip.textContent = `${a.name ?? 'Encrypted file'}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''} `
@@ -5891,8 +6203,8 @@ function renderStaged(): void {
     remove.type = 'button'
     remove.textContent = 'remove'
     remove.addEventListener('click', () => {
-      stagedAttachments.splice(i, 1)
-      renderStaged()
+      draft.attachments.splice(i, 1)
+      draftChanged(draft)
     })
     chip.append(remove)
     box.append(chip)
@@ -5902,7 +6214,7 @@ function renderStaged(): void {
   // person had already found went and a different one appeared in its
   // place. Only the count changes, and it has a span of its own so that
   // neither the label nor the accessible name is touched.
-  $('attachCount').textContent = stagedAttachments.length ? ` (${stagedAttachments.length})` : ''
+  $('attachCount').textContent = draft.attachments.length ? ` (${draft.attachments.length})` : ''
 }
 
 /**
@@ -5911,7 +6223,8 @@ function renderStaged(): void {
  * its uploader the id, so that is the common case; the JSON is for when the
  * event was published somewhere these relays never saw.
  */
-async function resolveFileEvent(text: string): Promise<NostrEvent> {
+async function resolveFileEvent(text: string, signal?: AbortSignal): Promise<NostrEvent> {
+  signal?.throwIfAborted()
   const value = text.trim()
   if (value.startsWith('{')) {
     let event: NostrEvent
@@ -5937,14 +6250,20 @@ async function resolveFileEvent(text: string): Promise<NostrEvent> {
   try {
     return await new Promise<NostrEvent>((resolve, reject) => {
       let off = (): void => {}
-      const timer = setTimeout(() => {
-        off()
-        reject(new Error('The room\'s relays do not have that event. Paste the event JSON instead.'))
-      }, 8_000)
-      off = transport.subscribe([{ ids: [id] }], (event) => {
-        if (event.id !== id || !verifyEventUncached(event)) return
+      const stop = (): void => {
         clearTimeout(timer)
         off()
+        signal?.removeEventListener('abort', cancel)
+      }
+      const cancel = (): void => { stop(); reject(new Error('Stopped adding the file.')) }
+      const timer = setTimeout(() => {
+        stop()
+        reject(new Error('The room\'s relays do not have that event. Paste the event JSON instead.'))
+      }, 8_000)
+      signal?.addEventListener('abort', cancel, { once: true })
+      off = transport.subscribe([{ ids: [id] }], (event) => {
+        if (event.id !== id || !verifyEventUncached(event)) return
+        stop()
         resolve(event)
       })
     })
@@ -5995,8 +6314,9 @@ function storeBlossomServer(value: string): void {
 /** Something to look at while a file is sealed and sent. Stage by stage
  *  rather than byte by byte: fetch gives no upload progress, and a stage
  *  line with the file's name and size says what is being waited for. */
-function dropProgress(stage: string, file: File): void {
-  $('attachStatus').textContent = `${stage} ${file.name} (${formatBytes(file.size)})…`
+function dropProgress(draft: ConversationDraft, stage: string, file: File): void {
+  draft.status = `${stage} ${file.name} (${formatBytes(file.size)})…`
+  draftChanged(draft)
 }
 
 /**
@@ -6008,42 +6328,43 @@ function dropProgress(stage: string, file: File): void {
  * relay learns only that this device shared some encrypted bytes. The key
  * goes into the staged attachment and nowhere else.
  */
-async function shareDroppedFile(file: File): Promise<void> {
-  const status = $('attachStatus')
+async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string): Promise<void> {
+  signal.throwIfAborted()
   const transport = sessionTransport
   if (!session || !transport) throw new Error('Join the room first.')
   if (file.size > MAX_UPLOAD_SOURCE_BYTES) {
     throw new Error(`${file.name} is ${formatBytes(file.size)}; a room sends up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)}.`)
   }
   if (file.size === 0) throw new Error(`${file.name} is empty.`)
-  const server = blossomServer()
   if (!server) {
-    $('attachPanel').hidden = false
-    ;($('attachServer') as HTMLInputElement).focus()
     throw new Error('Name a Blossom server to put files on, then drop the file again.')
   }
   const origin = normaliseBlossomServer(server)
   const deviceSk = deviceKey()
 
-  dropProgress('Encrypting', file)
+  dropProgress(draft, 'Encrypting', file)
   // Let the line above paint before the main thread is busy sealing.
   await new Promise((resolve) => setTimeout(resolve, 0))
   const source = new Uint8Array(await file.arrayBuffer())
   let sealed: EncryptedEnvelope
   try {
+    signal.throwIfAborted()
     sealed = encryptEnvelope(source, { name: file.name, type: file.type })
   } finally {
     source.fill(0)
   }
 
-  dropProgress(`Uploading to ${new URL(origin).hostname}:`, file)
-  const descriptor = await uploadEnvelope(origin, sealed.envelope, { sign: (t) => finalizeEvent(t, deviceSk) })
+  signal.throwIfAborted()
+  dropProgress(draft, `Uploading to ${new URL(origin).hostname}:`, file)
+  const descriptor = await uploadEnvelope(origin, sealed.envelope, { sign: (t) => finalizeEvent(t, deviceSk), signal })
 
-  dropProgress('Announcing', file)
+  signal.throwIfAborted()
+  dropProgress(draft, 'Announcing', file)
   const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
   await transport.publish(event)
 
-  stagedAttachments.push({
+  signal.throwIfAborted()
+  draft.attachments.push({
     event: event.id,
     url: descriptor.url,
     sha256: descriptor.sha256,
@@ -6052,44 +6373,74 @@ async function shareDroppedFile(file: File): Promise<void> {
     type: sealed.type,
     size: sealed.envelope.length,
   })
-  renderStaged()
-  status.textContent = ''
+  draft.status = ''
+  draftChanged(draft)
+}
+
+/** A conversation has one file operation at a time, covering its whole
+ * batch. Switching conversations does not change that operation's owner. */
+async function fileWork(draft: ConversationDraft, work: (signal: AbortSignal) => Promise<void>): Promise<void> {
+  if (draft.job || !channelAvailable(draft.channel) || (draft.channel !== undefined && WRITTEN_BY_AGENTS.includes(draft.channel))) return
+  const job = new AbortController()
+  draft.job = job
+  draft.panelOpen = true
+  draftChanged(draft)
+  // A relay publish has no abort API. Release the editor immediately while
+  // the operation's signal checks keep any late result out of this draft.
+  let onAbort!: () => void
+  const cancelled = new Promise<never>((_, reject) => {
+    onAbort = () => reject(job.signal.reason)
+    job.signal.addEventListener('abort', onAbort, { once: true })
+  })
+  try {
+    await Promise.race([work(job.signal), cancelled])
+    if (draft.job !== job) return
+    draft.status = ''
+    draft.panelOpen = false
+  } catch (error) {
+    if (draft.job !== job) return
+    draft.status = job.signal.aborted
+      ? 'Stopped adding files. Completed files stay in this draft. The store may already hold encrypted bytes; nothing was sent to the conversation.'
+      : describeError(error)
+  } finally {
+    job.signal.removeEventListener('abort', onAbort)
+    if (draft.job === job) {
+      draft.job = undefined
+      draftChanged(draft)
+    }
+  }
 }
 
 /** Files from a drop or the file input, one after another, stopping at the
  *  first that fails so the reason is the last thing on the line. */
 async function shareDroppedFiles(files: FileList | File[] | null): Promise<void> {
-  const status = $('attachStatus')
+  const draft = captureDraft()
   const list = Array.from(files ?? [])
   if (!list.length) return
-  $('attachPanel').hidden = false
-  for (const file of list) {
-    if (stagedAttachments.length >= MAX_CHAT_ATTACHMENTS) {
-      status.textContent = `A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`
-      return
+  const server = blossomServer()
+  await fileWork(draft, async signal => {
+    for (const file of list) {
+      signal.throwIfAborted()
+      if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) {
+        throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
+      }
+      await shareDroppedFile(file, draft, signal, server)
     }
-    try {
-      await shareDroppedFile(file)
-    } catch (err) {
-      // Shown here, not through setStatus, which also writes to the console.
-      status.textContent = describeError(err)
-      return
-    }
-  }
-  $('attachPanel').hidden = true
-  ;($('chatInput') as HTMLTextAreaElement).focus()
+  })
 }
 
 ;($('attachServer') as HTMLInputElement).value = blossomServer()
 $('attachServer').addEventListener('change', () => {
   const input = $('attachServer') as HTMLInputElement
+  const draft = captureDraft()
   try {
     storeBlossomServer(input.value)
     input.value = blossomServer()
-    $('attachStatus').textContent = ''
+    draft.status = ''
   } catch (err) {
-    $('attachStatus').textContent = describeError(err)
+    draft.status = describeError(err)
   }
+  draftChanged(draft)
 })
 $('attachFile').addEventListener('change', () => {
   const input = $('attachFile') as HTMLInputElement
@@ -6120,37 +6471,51 @@ chatForm.addEventListener('drop', (event) => {
 })
 
 $('attachToggle').addEventListener('click', () => {
-  const panel = $('attachPanel')
-  panel.hidden = !panel.hidden
-  if (!panel.hidden) $('attachFile').focus()
+  const draft = captureDraft()
+  draft.panelOpen = !draft.panelOpen
+  draftChanged(draft)
+  if (draft.panelOpen) $('attachFile').focus()
 })
 $('attachCancel').addEventListener('click', () => {
-  $('attachPanel').hidden = true
+  const draft = captureDraft()
+  draft.panelOpen = false
+  draftChanged(draft)
+  $('attachToggle').focus()
 })
 $('attachAdd').addEventListener('click', async () => {
-  const status = $('attachStatus')
-  const eventInput = $('attachEvent') as HTMLInputElement
-  const keyInput = $('attachKey') as HTMLInputElement
-  if (stagedAttachments.length >= MAX_CHAT_ATTACHMENTS) {
-    status.textContent = `A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`
-    return
-  }
-  status.textContent = 'Checking\u2026'
-  try {
-    const keyHex = parseRecoveryKey(keyInput.value)
-    const event = await resolveFileEvent(eventInput.value)
-    stagedAttachments.push(shareFromEvent(event, keyHex))
-    // The key is in the staged message now and nowhere else on the page.
-    keyInput.value = ''
-    eventInput.value = ''
-    status.textContent = ''
-    renderStaged()
-    $('attachPanel').hidden = true
-    ;($('chatInput') as HTMLTextAreaElement).focus()
-  } catch (err) {
-    // Shown here, not through setStatus, which also writes to the console.
-    status.textContent = describeError(err)
-  }
+  const draft = captureDraft()
+  const key = draft.key
+  const sourceEvent = draft.event
+  await fileWork(draft, async signal => {
+    if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
+    draft.status = 'Checking…'
+    draftChanged(draft)
+    const keyHex = parseRecoveryKey(key)
+    const event = await resolveFileEvent(sourceEvent, signal)
+    signal.throwIfAborted()
+    draft.attachments.push(shareFromEvent(event, keyHex))
+    draft.key = draft.event = ''
+    if (draft === drafts.get(currentChannel)) {
+      ;($('attachKey') as HTMLInputElement).value = ''
+      ;($('attachEvent') as HTMLInputElement).value = ''
+    }
+  })
+})
+
+for (const id of ['attachEvent', 'attachKey']) {
+  $(id).addEventListener('input', () => {
+    captureDraft()
+    renderDraftBadges()
+  })
+}
+$('cancelFileWork').addEventListener('click', () => drafts.get(currentChannel).job?.abort())
+$('discardDraft').addEventListener('click', () => {
+  const draft = captureDraft()
+  if (!draftHasWork(draft) || !confirm('Discard this conversation’s draft and stop any files still being added? Uploaded encrypted files are not deleted from their store.')) return
+  drafts.discard(draft)
+  restoreDraft()
+  if (!channelAvailable(currentChannel)) selectChannel(undefined)
+  else renderChannels()
 })
 
 ;($('chatInput') as HTMLTextAreaElement).maxLength = MAX_CHAT_TEXT_LENGTH
@@ -6173,11 +6538,11 @@ $('voiceMode').textContent = DEFAULT_VOICE_PRESET
 // a console for making a room you have never heard of, followed by the page
 // changing under you.
 //
-// Nothing is replaced now. The way in is on screen from the first paint,
-// this says what the page is doing with the link, and `showRoomUi` firms
-// the same sentence up into who invited you and to what. The setup section
-// is added underneath only if there turns out to be no link at all.
+// Once the app loads, select its door before waiting for admission. The
+// dashboard stays hidden for an invitation, including one that cannot open.
 if (location.hash.length > 1) {
+  $('identity').hidden = false
+  $('arrivalTitle').textContent = 'Opening your invitation'
   const lead = $('arrivalLead')
   lead.textContent = 'Opening the link somebody sent you.'
   lead.hidden = false
@@ -6213,12 +6578,22 @@ roomArrival
     }
   })
   .catch((err) => {
-    setStatus(describeError(err))
-    // The link did not open. Everything the person could do instead is in
-    // the setup section, so that is the moment to put it on screen.
-    $('arrivalLead').hidden = true
-    $('setup').hidden = false
-    showRoomsList()
+    const reason = describeError(err)
+    let valid = false
+    try { parseRoomLink(location.href); valid = true } catch { /* Incomplete or malformed invitation. */ }
+    const retired = reason.includes('retired')
+    $('arrivalTitle').textContent = retired ? 'This invitation is no longer valid' : valid ? 'The room has not answered' : 'This invitation is incomplete'
+    $('arrivalLead').textContent = retired
+      ? 'Ask somebody in the room for its current invitation link.'
+      : valid
+        ? 'Check your connection and ask somebody with access to keep the room open while you try again.'
+        : 'Copy the whole invitation, including everything after #, then open it again.'
+    $('arrivalLead').hidden = false
+    $('joinRoomForm').hidden = true
+    $('identityMore').hidden = true
+    $('arrivalActions').hidden = false
+    $('retryArrival').hidden = !valid || retired
+    setStatus('')
   })
 
 // Rewrite what is in storage with what a reader would actually see, so a

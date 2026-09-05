@@ -2,7 +2,7 @@ import { registerSW } from 'virtual:pwa-register'
 
 /** Other tabs can activate a worker too. None may reload this page without
  * this user's consent, even when migrating from an auto-update worker. */
-export function installUpdates(hasWork: () => boolean): void {
+export function installUpdates(hasWork: () => boolean, reload: () => void = () => location.reload()): void {
   const notice = document.getElementById('updateNotice')!
   const button = document.getElementById('updateApp') as HTMLButtonElement
   let activated = false
@@ -12,7 +12,7 @@ export function installUpdates(hasWork: () => boolean): void {
     onNeedRefresh: () => { notice.hidden = false },
     onNeedReload: () => {
       activated = true
-      if (approved) location.reload()
+      if (approved) reload()
       else notice.hidden = false
     },
   })
@@ -20,7 +20,7 @@ export function installUpdates(hasWork: () => boolean): void {
     if (hasWork() && !confirm('Reload to update? This ends your call and discards any unsent messages and files.')) return
     approved = true
     if (activated) {
-      location.reload()
+      reload()
       return
     }
     button.disabled = true

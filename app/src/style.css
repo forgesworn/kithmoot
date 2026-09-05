@@ -806,14 +806,37 @@ video {
   overflow-wrap: anywhere;
 }
 
-/* In the corner of the bubble, which is where every messaging app puts it. */
-.bubble .when {
-  display: block;
-  margin: 0.15rem 0 0;
-  text-align: right;
-  font-size: 0.72rem;
-  opacity: 0.85;
-}
+/* Sender and exact time remain visible above each message. */
+.messageHeader { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; max-width: 100%; margin-bottom: 0.3rem; }
+.messageHeader .sender { margin: 0; }
+.messageHeader .when { margin: 0; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.msg.mine .messageHeader { justify-content: flex-end; }
+.conversationTools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; flex: 0 0 auto; }
+.conversationTools button { min-height: 44px; padding: 0.4rem 0.65rem; margin: 0; font-size: 0.85rem; background: transparent; }
+.profileSettings { width: min(30rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); color: var(--text); }
+.profileSettings::backdrop { background: rgb(0 0 0 / 55%); }
+.profileSettingsHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.profileSettingsHeader h2 { font-size: 1.25rem; margin: 0; }
+.profileSettingsHeader button { min-height: 44px; }
+.shareExpand { min-height: 44px; padding: 0.45rem 0.7rem; margin: 0.5rem 0 0; }
+.media video.screenPreview { object-fit: contain; cursor: zoom-in; }
+dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100vw - 2rem); max-width: none; height: calc(100dvh - 2rem); max-height: none; padding: 0; border: 1px solid var(--border); border-radius: 14px; }
+.shareViewer { background: var(--panel); color: var(--text); }
+.shareViewer[open], main.shareViewer { display: flex; flex-direction: column; overflow: hidden; }
+.shareViewer::backdrop { background: rgb(0 0 0 / 70%); }
+.shareViewer:fullscreen { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
+.shareViewerBar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; padding: 0.65rem; flex: 0 0 auto; }
+.shareViewerBar h2 { font-size: 1rem; margin: 0; overflow-wrap: anywhere; }
+.shareViewerControls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.shareViewerControls button { min-height: 44px; min-width: 44px; padding: 0.35rem 0.6rem; font-size: 0.85rem; margin: 0; }
+.shareViewerControls output { min-width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+.shareViewport { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #080b0d; touch-action: none; }
+.shareViewport.zoomed { cursor: grab; }
+.shareViewport.zoomed:active { cursor: grabbing; }
+.shareViewport video { max-width: none; max-height: none; flex: none; object-fit: contain; pointer-events: none; transform-origin: center; border: 0; border-radius: 0; }
+.shareViewerNotice { flex: 0 0 auto; margin: 0; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: var(--muted); }
+body.sharePopup { margin: 0; padding: 0; max-width: none; width: 100vw; height: 100dvh; overflow: hidden; }
+body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding: 0; max-width: none; }
 
 /* When a line was said.
 
@@ -1340,6 +1363,7 @@ button.primary:hover:not(:disabled) {
   background: var(--border);
   display: block;
 }
+.avatar.initials { display: inline-grid; place-items: center; color: var(--text); background: var(--accent-dim); font: 600 0.85rem system-ui, sans-serif; flex: 0 0 auto; }
 
 /* The donor ring
  *
@@ -1406,6 +1430,7 @@ button.primary:hover:not(:disabled) {
   width: 1.2rem;
   height: 1.2rem;
 }
+#chatLog .messageHeader .avatar { width: 1.75rem; height: 1.75rem; }
 
 /* Effects - background blur and voice masking
  *
@@ -2170,6 +2195,18 @@ label.note {
   background: var(--accent-dim);
 }
 
+.draftBadge {
+  display: inline-block;
+  margin-left: .6rem;
+  padding: .08rem .45rem;
+  border-radius: 4px;
+  font-size: .78rem;
+  font-weight: 600;
+  background: var(--accent-dim);
+  color: var(--text);
+}
+#discardDraft { margin-block: .5rem 1rem; }
+
 .channelName {
   font-weight: 600;
 }
@@ -2231,7 +2268,8 @@ label.note {
    scrolling, so it cannot bring back the collapsing-address-bar trouble
    that pinning anything to the page itself would. */
 #roomSheet,
-#roomSwitcher {
+#roomSwitcher,
+#conversationSearch {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2246,7 +2284,8 @@ label.note {
 }
 
 #roomSheet::backdrop,
-#roomSwitcher::backdrop {
+#roomSwitcher::backdrop,
+#conversationSearch::backdrop {
   background: rgb(0 0 0 / 0.55);
 }
 
@@ -2346,7 +2385,8 @@ label.note {
    close control is where a thumb expects it. */
 @media (max-width: 700px) {
   #roomSheet,
-  #roomSwitcher {
+  #roomSwitcher,
+  #conversationSearch {
     width: 100%;
     max-width: 100%;
     height: 100%;
@@ -2388,3 +2428,106 @@ label.note {
 .switchRoomCode { color: var(--muted); font-size: .8rem; }
 .switchRoomNewTab { flex: 0 0 auto; padding: .6rem; color: var(--accent); }
 #roomSwitcherList .roomRow { align-items: center; flex-wrap: wrap; }
+
+/* Search uses the room's sheet so opening it never interrupts the call. */
+#searchConversation { margin-bottom: 1rem; }
+.searchFileFilter { display: flex; align-items: center; gap: .6rem; margin-block: .8rem; min-height: 44px; }
+.searchFileFilter input { width: 1.2rem; height: 1.2rem; margin: 0; }
+.messageSearchResults { list-style: none; margin: 0; padding: 0; }
+.messageSearchResults li + li { margin-top: .6rem; }
+.messageSearchResults button {
+  display: flex; flex-direction: column; gap: .35rem; width: 100%; margin: 0;
+  padding: 1rem; text-align: left; white-space: normal; overflow-wrap: anywhere;
+  background: var(--panel); border: 1px solid var(--field-border); border-radius: 10px;
+}
+.messageSearchResults button:hover { background: var(--control-hover); }
+.searchSender { font-weight: 700; }
+.messageSearchResults time { font-size: .8rem; color: var(--muted); }
+.searchExcerpt { white-space: pre-wrap; }
+.searchFiles { color: var(--accent); font-size: .9rem; }
+#chatLog .searchTarget { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 10px; }
+
+/* Give the dashboard and invitation a reading width on a desktop. */
+body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
+
+/* The home page leads with rooms and their two entry points. Account
+   settings follow the task instead of interrupting it. */
+.homeIntro { margin: 1.5rem 0 2rem; max-width: 38rem; }
+#homeHeading, #arrivalTitle {
+  margin: 0 0 .65rem;
+  color: var(--text);
+  font-size: clamp(1.55rem, 4vw, 2.25rem);
+  line-height: 1.2;
+  letter-spacing: -.025em;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+.homeIntro p { margin: 0; color: var(--muted); }
+.homeActionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.homeCard, #homeAccount {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  background: var(--panel);
+  min-width: 0;
+}
+.homeCard h3 { margin: 0; font-size: 1.2rem; }
+.homeCard > .note { margin: .45rem 0 1rem; }
+.homeCard label { display: block; margin: .8rem 0 .4rem; font-weight: 600; }
+.homeCard input, #homeRoomQuery { font-family: inherit; }
+.homeCard button { margin-top: .8rem; }
+.homeCard #roomNameNote { margin: .5rem 0 0; font-size: .9rem; }
+#homeAccount { margin-top: 1.5rem; }
+#homeAccount h2 { margin-top: 0; }
+#homeAccount details { margin-bottom: 0; }
+#home #rooms { margin-bottom: 1.5rem; }
+#home #roomsHeading { margin-top: 0; }
+.roomSearchRow { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
+.roomSearchRow input { min-width: 0; }
+.roomSearchRow button { margin: 0; }
+#roomList .roomMain { flex-basis: 12rem; }
+#roomList .roomName {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 650;
+  padding: .3rem 0;
+  margin: 0;
+  min-height: 44px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+#roomList .roomName::after { content: ' →'; white-space: nowrap; }
+#roomList .roomName:hover { text-decoration: underline; }
+#roomList .forget { border-color: transparent; }
+#roomList .roomMeta { font-size: .9rem; }
+#roomList .roomActions { align-self: flex-start; }
+#identity { padding: clamp(1rem, 4vw, 2rem); border-radius: 12px; }
+#identity .lead { margin: .5rem 0 1.25rem; color: var(--muted); font-size: 1rem; }
+#identity #status { margin: .75rem 0; }
+#identity #join { width: 100%; min-height: 44px; }
+#joinPrivacy { margin-bottom: 0; }
+.formError { color: var(--danger); font-size: .95rem; }
+@media (max-width: 620px) {
+  .homeActionGrid { grid-template-columns: minmax(0, 1fr); }
+  .homeIntro { margin: .5rem 0 .75rem; }
+  .homeCard { padding: 1rem; }
+}
+
+.emojiPicker { width: min(25rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
+.emojiPicker h2 { margin-top: 0; }
+.emojiPicker input { width: 100%; }
+.emojiGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr)); gap: .35rem; margin: 1rem 0; }
+.emojiGrid button { min-height: 3rem; padding: .35rem; font-size: 1.5rem; }
+.messageReactions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .25rem; }
+.messageReactions button { min-width: 2.75rem; min-height: 2.75rem; padding: .15rem .4rem; background: transparent; border: 1px solid var(--border); border-radius: 2rem; font-size: .95rem; }
+.messageReactions button[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }
+
+.shareViewerContent { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; }
+.shareViewerContent:fullscreen { height: 100dvh; width: 100vw; background: var(--bg); padding: .75rem; box-sizing: border-box; }
+@media (max-width: 600px) {
+  #chatForm { flex-wrap: wrap; }
+  #chatInput { flex: 1 0 100%; width: 100%; }
+  #chatForm button[type=submit] { margin-left: auto; }
+}

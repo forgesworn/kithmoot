@@ -4,6 +4,7 @@ import { hkdf } from '@noble/hashes/hkdf'
 import { sha256 } from '@noble/hashes/sha2'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
+import { normaliseReaction, type ChatReaction } from './reactions.js'
 import { verifyEventUncached } from './verify.js'
 import { verifyDeviceCredential } from './credential.js'
 import { hexEquals, normaliseHex } from './hex.js'
@@ -70,6 +71,8 @@ export interface ChatMessage {
    */
   name?: string
   text: string
+  /** Encrypted reaction update; text is a readable fallback for older clients. */
+  reaction?: ChatReaction
   sentAt: number
   /**
    * `transcript` when `text` is what somebody SAID, written down by the
@@ -281,6 +284,7 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     kind: transcript ? 'transcript' : directive ? 'directive' : undefined,
     speaker: transcript && typeof msg.speaker === 'string' ? normaliseHex(msg.speaker) : undefined,
     attachments: honestAttachments(msg.attachments),
+    reaction: msg.reaction === undefined ? undefined : normaliseReaction(msg.reaction),
     owner: msg.owner ? normaliseAgentOwnership(msg.owner) ?? undefined : undefined,
   })
   const root = rootOf(opts)
@@ -371,6 +375,12 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     const name = sanitiseDisplayName(msg.name)
     if (name === undefined) delete msg.name
     else msg.name = name
+
+    if (msg.reaction !== undefined) {
+      const reaction = normaliseReaction(msg.reaction)
+      if (!reaction || msg.kind !== undefined || msg.attachments !== undefined) return null
+      msg.reaction = reaction
+    }
 
     // Only the one honest shape reads as a transcript; anything else is an
     // ordinary message, which is what it would be to a client that never
@@ -480,6 +490,7 @@ export interface ChatLogOptions {
 
 /** What `send` may say beyond the text. */
 export interface SendOptions {
+  reaction?: ChatReaction
   /** Mark the message a transcript of `speaker`'s words. See
    *  `ChatMessage.kind`. */
   transcriptOf?: string
@@ -572,6 +583,10 @@ export class ChatLog {
     if (text.length > MAX_CHAT_TEXT_LENGTH) {
       throw new Error(`chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`)
     }
+    const reaction = sendOpts.reaction === undefined ? undefined : normaliseReaction(sendOpts.reaction)
+    if (sendOpts.reaction !== undefined && (!reaction || sendOpts.transcriptOf !== undefined || sendOpts.directive || sendOpts.attachments !== undefined)) {
+      throw new Error('invalid reaction')
+    }
     const name = sanitiseDisplayName(this.#opts.name)
     // A caller's attachment that does not check out is a bug in the caller,
     // and one that would be silently dropped here would be a file the
@@ -601,6 +616,7 @@ export class ChatLog {
           ? { kind: 'directive' as const }
           : {}),
       text,
+      ...(reaction ? { reaction } : {}),
       sentAt: this.#now(),
       ...(attachments ? { attachments } : {}),
       ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),

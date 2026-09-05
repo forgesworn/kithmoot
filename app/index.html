@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#101114" />
+    <meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
     <meta name="referrer" content="no-referrer" />
     <meta name="description" content="A town hall nobody owns." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -49,6 +50,7 @@
          back for them - just not before they have read a word.
          =================================================================== -->
     <main>
+      <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
       <!-- ===============================================================
            The message screen: a bar, the conversation, the box to write in.
 
@@ -92,9 +94,9 @@
           <section id="deviceControls" hidden>
             <p>Turn on your camera or microphone:</p>
             <div class="toggles">
-              <button id="toggleMic" class="toggle" data-on="false">Microphone</button>
-              <button id="toggleCamera" class="toggle" data-on="false">Camera</button>
-              <button id="toggleScreen" class="toggle" data-on="false">Screen share</button>
+              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false">Microphone</button>
+              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false">Camera</button>
+              <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false">Screen share</button>
             </div>
             <p id="micIndicator" class="indicator"></p>
 
@@ -153,7 +155,7 @@
 
             <div id="local"></div>
             <div class="toggles agentsHear">
-              <button id="toggleAgentsHear" class="toggle" data-on="false">Let agents hear me</button>
+              <button id="toggleAgentsHear" class="toggle" data-on="false" aria-pressed="false">Let agents hear me</button>
               <span id="agentsHearNote" class="note inline">
                 Off: nothing that says it is an agent is sent your camera or
                 microphone. It never leaves this device for them.
@@ -172,8 +174,12 @@
         </div>
 
         <h3 class="sr-only">Conversation</h3>
+        <div class="conversationTools" aria-label="Conversation tools">
+          <button id="chatSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search messages</button>
+          <button id="chatProfiles" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures: off</button>
+        </div>
         <div id="approvals" aria-live="polite"></div>
-        <div id="chatLog" aria-live="polite"></div>
+        <div id="chatLog" aria-label="Conversation" aria-live="polite"></div>
         <button id="newMessages" type="button" hidden>New messages ↓</button>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
         <!-- Said where the box would be, on the conversations nobody types
@@ -203,6 +209,7 @@
                NOT allowed to rename itself as you use it - the count goes
                in its own span - because a control that changes identity
                under a person is a control they stop trusting. -->
+          <button type="button" id="emojiToggle" aria-label="Choose an emoji" title="Emoji">😊</button>
           <button type="button" id="attachToggle" aria-label="Add a file"
                   title="Send a file: drop one here, or pick one">
             <span class="attachIcon" aria-hidden="true">+</span>
@@ -228,24 +235,35 @@
             Or a file already shared through Wildbloom: paste what Wildbloom
             gave you, and the key that opens it.
           </p>
-          <input id="attachEvent" placeholder="What Wildbloom showed you: an id, note1, nevent1, or the JSON" autocomplete="off" spellcheck="false" />
-          <input id="attachKey" type="password" placeholder="Key that opens it (wbk1_…)" autocomplete="off" spellcheck="false" />
+          <input id="attachEvent" aria-label="Wildbloom file event" placeholder="What Wildbloom showed you: an id, note1, nevent1, or the JSON" autocomplete="off" spellcheck="false" />
+          <input id="attachKey" type="password" aria-label="File recovery key" placeholder="Key that opens it (wbk1_…)" autocomplete="off" spellcheck="false" />
           <div class="attachRow">
             <button type="button" id="attachAdd">Add to message</button>
             <button type="button" id="attachCancel">Cancel</button>
-            <span id="attachStatus" class="note"></span>
+            <button type="button" id="cancelFileWork" hidden>Stop adding files</button>
+            <span id="attachStatus" class="note" role="status"></span>
           </div>
         </div>
       </section>
 
-      <!-- Before you go in, the least we can ask for: a name, and the way
-           in. Everything else waits until you are inside and can see what
-           it is for. -->
-      <section id="identity">
+      <!-- The dashboard and invitation door share their existing controls;
+           boot moves each group into the screen for this visit. -->
+      <section id="home" hidden aria-labelledby="homeHeading">
+        <div class="homeIntro">
+          <h2 id="homeHeading">Make room for a conversation.</h2>
+          <p>Messages, files and calls for your people. Start with a room or an invitation.</p>
+        </div>
+        <div id="homeStatus"></div>
+        <div id="homeRooms"></div>
+        <div id="homeActions"></div>
+        <div id="homeAccount"></div>
+      </section>
+
+      <section id="identity" hidden aria-labelledby="arrivalTitle">
         <div id="accountHome" hidden>
-          <h2 id="accountHeading">Your rooms, wherever you sign in</h2>
+          <h2 id="accountHeading">Keep your rooms with you</h2>
           <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open an invitation; no account needed.</p>
-          <button id="signIn" type="button" class="primary">Sign in with Nostr</button>
+          <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
           <button id="importBrowserRooms" type="button" class="quiet" hidden>Add rooms from this browser</button>
           <details>
@@ -255,24 +273,37 @@
             <button id="retryRoomSync" type="button" class="quiet" hidden>Retry room sync</button>
           </details>
         </div>
+        <h2 id="arrivalTitle">Open your room</h2>
         <p id="arrivalLead" class="lead" hidden></p>
-        <label for="displayName">What should we call you?</label>
-        <input
-          id="displayName"
-          placeholder="Your name"
-          maxlength="64"
-          autocomplete="nickname"
-          enterkeyhint="go"
-        />
-        <button id="join" class="primary" hidden>Go in</button>
-        <!-- Straight under the action, because it is the answer to "who am
-             I about to be" and it says which of the ways in you are on. -->
-        <p id="whoami" class="whoami"></p>
+        <p id="status" role="status"></p>
+        <div id="arrivalActions" hidden>
+          <button id="retryArrival" type="button">Try invitation again</button>
+          <button id="arrivalHome" type="button" class="quiet">Back to rooms</button>
+        </div>
+        <form id="joinRoomForm">
+          <label for="displayName">What should we call you?</label>
+          <input
+            id="displayName"
+            placeholder="Your name"
+            maxlength="64"
+            autocomplete="nickname"
+            enterkeyhint="go"
+          />
+          <button id="join" type="submit" class="primary" hidden>Join room</button>
+          <p id="whoami" class="whoami"></p>
+          <p id="joinPrivacy" class="note">Your camera and microphone stay off until you turn them on.</p>
+        </form>
       </section>
 
       <section id="rooms" hidden>
         <h2 id="roomsHeading">Your rooms</h2>
-        <p id="roomsEmpty" class="note" hidden>No saved rooms here yet. Start a room or open an invitation while signed in. If you expected rooms, your signer or relays may still be loading them.</p>
+        <div id="homeRoomSearch" class="roomSearchRow" hidden>
+          <label for="homeRoomQuery" class="sr-only">Search saved rooms</label>
+          <input id="homeRoomQuery" type="search" placeholder="Search saved rooms" autocomplete="off" spellcheck="false" />
+          <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
+        </div>
+        <p id="homeRoomResults" class="note" role="status" hidden></p>
+        <p id="roomsEmpty" class="note" hidden>No saved rooms yet. Start a room or open an invitation. Check Room sync and privacy below if you expected rooms from another device.</p>
         <ul id="roomList" class="roomList" aria-live="polite"></ul>
         <!-- Under the list rather than over it. Somebody who comes back here
              comes back for the rooms, and three lines about how the list is
@@ -285,33 +316,30 @@
         </p>
       </section>
 
-      <!-- Hidden until the page knows which kind of visit this is.
-           Somebody arriving on a link used to be shown this first - a name
-           box, "Start a room", and a place to paste a link - for as long as
-           the admission took to come back over a relay, and only then the
-           invitation screen. Two different screens, the first of them
-           offering to make a room they had never heard of. Now nothing is
-           replaced: the way in is on screen from the first paint, and this
-           is added underneath only when there turns out to be no link. See
-           the boot block at the bottom of app/src/main.ts. -->
+      <!-- These actions belong to the dashboard. Following an invitation
+           opens its door directly, including while admission is pending. -->
       <section id="setup" hidden>
-        <!-- The field and the action first, and what the field is for
-             underneath them. Three lines of explanation above a button is
-             three lines of the only screen a first-time visitor gets, and
-             the button was landing exactly on the fold of a real phone. The
-             sentence is not gone: it is under the button it belongs to, and
-             the field still carries it for a screen reader. -->
-        <input id="roomName" placeholder="Room name (optional)" maxlength="64" autocomplete="off"
+        <div class="homeActionGrid">
+        <form id="createRoomForm" class="homeCard">
+        <h3>Start a room</h3>
+        <p class="note">A place to talk, with an invitation you can share.</p>
+        <label for="roomName">Room name <span class="note">(optional)</span></label>
+        <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
                aria-label="Room name" aria-describedby="roomNameNote" />
-        <button id="create" class="primary">Start a room</button>
+        <button id="create" type="submit" class="primary">Start a room</button>
         <p id="roomNameNote" class="note">
-          Give the room a name if it is one you will come back to. The name
-          travels inside the link, so everybody you send it to sees the same
-          one.
+          No account needed. Choose your display name next.
         </p>
-        <p>or paste a link somebody sent you:</p>
-        <input id="url" placeholder="https://…#…" />
-        <button id="openUrl">Open</button>
+        </form>
+        <form id="openRoomForm" class="homeCard" novalidate>
+        <h3>Have an invitation?</h3>
+        <p class="note">Open a room link somebody sent you.</p>
+        <label for="url">Invitation link</label>
+        <input id="url" type="url" placeholder="https://…#…" autocomplete="off" spellcheck="false" aria-describedby="linkError" />
+        <button id="openUrl" type="submit">Open invitation</button>
+        <p id="linkError" class="formError" role="alert" hidden></p>
+        </form>
+        </div>
 
         <details id="roomSettings">
           <summary>Room settings</summary>
@@ -357,8 +385,6 @@
           </p>
         </details>
       </section>
-
-      <p id="status" role="status"></p>
 
       <!-- ===============================================================
            After the conversation: the things you reach for once you are
@@ -458,6 +484,21 @@
          Reachable and dismissible by thumb: a Close button that stays on
          screen, Escape, and a tap on the backdrop.
          ===================================================================== -->
+    <dialog id="conversationSearch" aria-labelledby="messageSearchTitle" aria-describedby="messageSearchScope">
+      <div class="sheetBar">
+        <h2 id="messageSearchTitle">Search this conversation</h2>
+        <button id="messageSearchClose" type="button" class="primary">Close</button>
+      </div>
+      <div class="sheetBody">
+        <label for="messageSearchQuery">Message, person or file name</label>
+        <input id="messageSearchQuery" type="search" maxlength="200" autocomplete="off" spellcheck="false" />
+        <label class="searchFileFilter"><input id="messageSearchFiles" type="checkbox" /> Files only</label>
+        <p id="messageSearchScope" class="note"></p>
+        <p id="messageSearchStatus" role="status" class="note"></p>
+        <ol id="messageSearchResults" class="messageSearchResults" aria-label="Matching messages"></ol>
+      </div>
+    </dialog>
+
     <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
       <div class="sheetBar">
         <h2 id="roomSheetTitle">Room details</h2>
@@ -479,6 +520,7 @@
         </p>
 
         <h3 class="sheetHead">Conversations</h3>
+        <button id="searchConversation" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search this conversation</button>
         <!-- The room's conversations. These used to be a row of tabs above
              the messages, which is a thing no messaging app does: you are
              only ever reading one of them, so the other three were three
@@ -486,6 +528,8 @@
              closes this sheet and takes you to it, and the bar at the top
              of the room says which one you are in. -->
         <div id="channelBar" class="channelBar" role="tablist" aria-label="Conversations"></div>
+        <p id="draftHelp" class="note" hidden>Drafts stay with their conversations in this tab. Leaving or reloading discards them.</p>
+        <button id="discardDraft" type="button" hidden>Discard this draft</button>
 
         <form id="channelNew" class="channelNew" hidden>
           <label for="channelName" class="note">
@@ -508,13 +552,7 @@
         </details>
 
         <h3 class="sheetHead">Who is here</h3>
-        <label class="profileChoice"><input id="lookupProfiles" type="checkbox" /> Look up public profiles for this visit</label>
-        <p class="note">
-          Off by default. Turning this on sends the participant keys in this room
-          to its relays and loads profile pictures from their hosts. Those services
-          can connect these requests with your visit. Turning it off stops further
-          lookups; it cannot take back requests already sent.
-        </p>
+        <button id="roomProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
         <!-- What the `agent` tag means. It is said again as the first note
              in every conversation, where a first-time reader actually meets
              it, and it lives here permanently for anybody who comes looking.
@@ -662,6 +700,17 @@
           <button id="leave" type="button" class="danger">Leave this room</button>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="profileSettings" class="profileSettings" aria-labelledby="profileSettingsTitle">
+      <div class="profileSettingsHeader">
+        <h2 id="profileSettingsTitle">Profile pictures and names</h2>
+        <button id="profileSettingsClose" type="button" aria-label="Close profile settings">Close</button>
+      </div>
+      <label class="profileChoice"><input id="lookupProfiles" type="checkbox" /> Look up public profiles for this visit</label>
+      <p class="note">Show the picture and name published by each participant’s Nostr key. Names are chosen by their owners.</p>
+      <p class="note">This sends participant keys to the room’s relays and loads pictures from their hosts. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles.</p>
+      <p class="note">A new room identity may not have a public profile. It keeps its name and short code here.</p>
     </dialog>
 
     <script type="module" src="/src/main.ts"></script>
