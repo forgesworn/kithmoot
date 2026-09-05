@@ -22,6 +22,13 @@ export interface CatalogueEntry {
   description?: string
   /** Whether it transcribes what it is allowed to hear. */
   listens?: boolean
+  /** Model shortcuts this host has enabled for this agent's tasks. */
+  models?: ModelShortcut[]
+}
+
+export interface ModelShortcut {
+  id: string
+  label: string
 }
 
 /** One agent a host is running now. */
@@ -186,6 +193,19 @@ export function decodeControl(text: string): ControlMessage | null {
         const d = str(x.description, MAX_DESCRIPTION)
         if (d) entry.description = d
         if (x.listens === true) entry.listens = true
+        if (x.models !== undefined) {
+          if (!Array.isArray(x.models) || x.models.length > 8) continue
+          const models: ModelShortcut[] = []
+          for (const model of x.models) {
+            if (!model || typeof model !== 'object') break
+            const id = str(model.id, 32)
+            const label = str(model.label, 64)
+            if (!id || !ID.test(id) || !label || /[\r\n\t]/.test(label) || models.some(m => m.id === id)) break
+            models.push({ id, label })
+          }
+          if (models.length !== x.models.length) continue
+          entry.models = models
+        }
         agents.push(entry)
       }
       const running: RunningAgent[] = []

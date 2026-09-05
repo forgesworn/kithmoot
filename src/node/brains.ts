@@ -1,4 +1,4 @@
-import type { CatalogueEntry, RunningAgent } from '../control.js'
+import { decodeControl, encodeControl, type CatalogueEntry, type RunningAgent } from '../control.js'
 import type { ChatAttachment, ChatMessageKind } from '../chat.js'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
@@ -196,6 +196,26 @@ export class StdioBrain implements Brain {
           void pending.catch(() => {})
           const chosen = await opened
           write({ type: 'ok', op: 'approval-request', ...(chosen ? { id: chosen } : {}) })
+          return
+        }
+        case 'announce': {
+          const control = decodeControl(encodeControl({
+            op: 'catalogue', host: runtime.agent.participant, name: runtime.persona.name,
+            agents: command.agents, running: command.running ?? [],
+          }))
+          if (!control || control.op !== 'catalogue') throw new Error('invalid catalogue')
+          await runtime.agent.sendControl(control)
+          write({ type: 'ok', op: 'announce' })
+          return
+        }
+        case 'refuse': {
+          const control = decodeControl(encodeControl({
+            op: 'error', host: runtime.agent.participant,
+            ...(command.agent ? { agent: command.agent } : {}), message: String(command.message),
+          }))
+          if (!control || control.op !== 'error') throw new Error('invalid refusal')
+          await runtime.agent.sendControl(control)
+          write({ type: 'ok', op: 'refuse' })
           return
         }
         case 'leave':
