@@ -50,6 +50,7 @@
          back for them - just not before they have read a word.
          =================================================================== -->
     <main>
+      <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
       <!-- ===============================================================
            The message screen: a bar, the conversation, the box to write in.
 
@@ -240,14 +241,24 @@
         </div>
       </section>
 
-      <!-- Before you go in, the least we can ask for: a name, and the way
-           in. Everything else waits until you are inside and can see what
-           it is for. -->
-      <section id="identity">
+      <!-- The dashboard and invitation door share their existing controls;
+           boot moves each group into the screen for this visit. -->
+      <section id="home" hidden aria-labelledby="homeHeading">
+        <div class="homeIntro">
+          <h2 id="homeHeading">Make room for a conversation.</h2>
+          <p>Messages, files and calls for your people. Start with a room or an invitation.</p>
+        </div>
+        <div id="homeStatus"></div>
+        <div id="homeRooms"></div>
+        <div id="homeActions"></div>
+        <div id="homeAccount"></div>
+      </section>
+
+      <section id="identity" hidden aria-labelledby="arrivalTitle">
         <div id="accountHome" hidden>
-          <h2 id="accountHeading">Your rooms, wherever you sign in</h2>
+          <h2 id="accountHeading">Keep your rooms with you</h2>
           <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open an invitation; no account needed.</p>
-          <button id="signIn" type="button" class="primary">Sign in with Nostr</button>
+          <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
           <button id="importBrowserRooms" type="button" class="quiet" hidden>Add rooms from this browser</button>
           <details>
@@ -257,24 +268,37 @@
             <button id="retryRoomSync" type="button" class="quiet" hidden>Retry room sync</button>
           </details>
         </div>
+        <h2 id="arrivalTitle">Open your room</h2>
         <p id="arrivalLead" class="lead" hidden></p>
-        <label for="displayName">What should we call you?</label>
-        <input
-          id="displayName"
-          placeholder="Your name"
-          maxlength="64"
-          autocomplete="nickname"
-          enterkeyhint="go"
-        />
-        <button id="join" class="primary" hidden>Go in</button>
-        <!-- Straight under the action, because it is the answer to "who am
-             I about to be" and it says which of the ways in you are on. -->
-        <p id="whoami" class="whoami"></p>
+        <p id="status" role="status"></p>
+        <div id="arrivalActions" hidden>
+          <button id="retryArrival" type="button">Try invitation again</button>
+          <button id="arrivalHome" type="button" class="quiet">Back to rooms</button>
+        </div>
+        <form id="joinRoomForm">
+          <label for="displayName">What should we call you?</label>
+          <input
+            id="displayName"
+            placeholder="Your name"
+            maxlength="64"
+            autocomplete="nickname"
+            enterkeyhint="go"
+          />
+          <button id="join" type="submit" class="primary" hidden>Join room</button>
+          <p id="whoami" class="whoami"></p>
+          <p id="joinPrivacy" class="note">Your camera and microphone stay off until you turn them on.</p>
+        </form>
       </section>
 
       <section id="rooms" hidden>
         <h2 id="roomsHeading">Your rooms</h2>
-        <p id="roomsEmpty" class="note" hidden>No saved rooms here yet. Start a room or open an invitation while signed in. If you expected rooms, your signer or relays may still be loading them.</p>
+        <div id="homeRoomSearch" class="roomSearchRow" hidden>
+          <label for="homeRoomQuery" class="sr-only">Search saved rooms</label>
+          <input id="homeRoomQuery" type="search" placeholder="Search saved rooms" autocomplete="off" spellcheck="false" />
+          <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
+        </div>
+        <p id="homeRoomResults" class="note" role="status" hidden></p>
+        <p id="roomsEmpty" class="note" hidden>No saved rooms yet. Start a room or open an invitation. Check Room sync and privacy below if you expected rooms from another device.</p>
         <ul id="roomList" class="roomList" aria-live="polite"></ul>
         <!-- Under the list rather than over it. Somebody who comes back here
              comes back for the rooms, and three lines about how the list is
@@ -287,33 +311,30 @@
         </p>
       </section>
 
-      <!-- Hidden until the page knows which kind of visit this is.
-           Somebody arriving on a link used to be shown this first - a name
-           box, "Start a room", and a place to paste a link - for as long as
-           the admission took to come back over a relay, and only then the
-           invitation screen. Two different screens, the first of them
-           offering to make a room they had never heard of. Now nothing is
-           replaced: the way in is on screen from the first paint, and this
-           is added underneath only when there turns out to be no link. See
-           the boot block at the bottom of app/src/main.ts. -->
+      <!-- These actions belong to the dashboard. Following an invitation
+           opens its door directly, including while admission is pending. -->
       <section id="setup" hidden>
-        <!-- The field and the action first, and what the field is for
-             underneath them. Three lines of explanation above a button is
-             three lines of the only screen a first-time visitor gets, and
-             the button was landing exactly on the fold of a real phone. The
-             sentence is not gone: it is under the button it belongs to, and
-             the field still carries it for a screen reader. -->
-        <input id="roomName" placeholder="Room name (optional)" maxlength="64" autocomplete="off"
+        <div class="homeActionGrid">
+        <form id="createRoomForm" class="homeCard">
+        <h3>Start a room</h3>
+        <p class="note">A place to talk, with an invitation you can share.</p>
+        <label for="roomName">Room name <span class="note">(optional)</span></label>
+        <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
                aria-label="Room name" aria-describedby="roomNameNote" />
-        <button id="create" class="primary">Start a room</button>
+        <button id="create" type="submit" class="primary">Start a room</button>
         <p id="roomNameNote" class="note">
-          Give the room a name if it is one you will come back to. The name
-          travels inside the link, so everybody you send it to sees the same
-          one.
+          No account needed. Choose your display name next.
         </p>
-        <p>or paste a link somebody sent you:</p>
-        <input id="url" placeholder="https://…#…" />
-        <button id="openUrl">Open</button>
+        </form>
+        <form id="openRoomForm" class="homeCard" novalidate>
+        <h3>Have an invitation?</h3>
+        <p class="note">Open a room link somebody sent you.</p>
+        <label for="url">Invitation link</label>
+        <input id="url" type="url" placeholder="https://…#…" autocomplete="off" spellcheck="false" aria-describedby="linkError" />
+        <button id="openUrl" type="submit">Open invitation</button>
+        <p id="linkError" class="formError" role="alert" hidden></p>
+        </form>
+        </div>
 
         <details id="roomSettings">
           <summary>Room settings</summary>
@@ -359,8 +380,6 @@
           </p>
         </details>
       </section>
-
-      <p id="status" role="status"></p>
 
       <!-- ===============================================================
            After the conversation: the things you reach for once you are

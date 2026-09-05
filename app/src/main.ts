@@ -909,6 +909,8 @@ window.addEventListener('storage', (event) => {
 })
 
 let session: RoomSession | undefined
+let joining = false
+let iceRefreshTimer: ReturnType<typeof setInterval> | undefined
 /** The relay pool the session publishes through, for a file dropped into
  *  the chat to announce itself on. Set and cleared with `session`. */
 let sessionTransport: RelayTransport | undefined
@@ -1151,10 +1153,10 @@ function renderIdentity(): void {
   ;($('signIn') as HTMLButtonElement).hidden = nostrSession !== undefined
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
   $('retryRoomSync').hidden = nostrSession === undefined
-  $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Your rooms, wherever you sign in'
+  $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Keep your rooms with you'
   $('accountLead').textContent = nostrSession
     ? `Signed in as ${shortKey(nostrSession.pubkey)}. ${nostrSession.signer.nip44 ? 'Your room links follow this key.' : 'Rooms are saved in this browser only with this signer.'}`
-    : 'Sign in to find your rooms across devices. Just visiting? Open an invitation; no account needed.'
+    : 'Optional: sign in with Nostr to find your rooms on other devices. You can start and join rooms without an account.'
   $('accountHelp').textContent = nostrSession
     ? 'Rooms you open while signed in are saved to this account. Your signer encrypts their names and links; relays can see your public key and that you use KithMoot. Visitor history is not uploaded.'
     : 'Sign in to find your rooms across devices. Your signer keeps your key and encrypts your room bookmarks. Visiting someone else? Open their invitation link; no sign-in is needed.'
@@ -1838,6 +1840,12 @@ function startNewRoom(): void {
  * anything to be about. What is left is a name and a way in.
  */
 function showRoomUi(): void {
+  $('home').hidden = true
+  $('identity').hidden = false
+  $('identityMore').hidden = false
+  $('joinRoomForm').hidden = false
+  $('arrivalActions').hidden = true
+  $('arrivalActions').before($('status'))
   $('nostrOption').hidden = false
   $('nostrOption').append($('accountHome'))
   $('accountHome').hidden = false
@@ -1946,10 +1954,10 @@ function renderArrival(): void {
     lead.hidden = true
     return
   }
-  const named = roomName ? `“${roomName}”` : 'a room'
+  $('arrivalTitle').textContent = roomName ?? (startedHere ? 'Your new room' : 'Join the room')
   lead.textContent = startedHere
-    ? `Your room ${named} is ready. Put a name in and go in, then send people the link.`
-    : `You have been invited to ${named}. Put in a name and go in.`
+    ? 'Your room is ready. Choose a name, then invite your people from Room details.'
+    : 'Choose how you appear to the people in this room.'
   lead.hidden = false
 }
 
@@ -4495,9 +4503,13 @@ $('diagnostics').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 
 async function startSession(): Promise<void> {
-  setStatus('')
+  if (joining || session) return
+  joining = true
+  setStatus('Joining the room…', 'progress')
   const joinBtn = $('join') as HTMLButtonElement
   joinBtn.disabled = true
+  joinBtn.textContent = 'Joining…'
+  $('joinRoomForm').setAttribute('aria-busy', 'true')
 
   try {
     const deviceSk = deviceKey()
@@ -4535,14 +4547,14 @@ async function startSession(): Promise<void> {
     // person whose Wi-Fi had just changed could not be reached again.
     // Refreshed well inside the credential's life, and never blocking: a
     // refresh that fails leaves the last good list in place.
-    setInterval(() => {
+    const refreshIce = (): void => {
       resolveIceServers(iceUrls)
         .then((fresh) => {
           resolvedIceServers = fresh
           stunOnly = withoutTurn(fresh)
         })
         .catch(() => {})
-    }, ICE_REFRESH_MS)
+    }
     const factory: PeerFactory = (context?: PeerContext) => {
       const iceServers = context?.tier === 'turn' ? resolvedIceServers : stunOnly
       const pc = new RTCPeerConnection({ iceServers })
@@ -4644,6 +4656,7 @@ async function startSession(): Promise<void> {
     s.onRemoteTrack(({ device, track }) => attachRemoteTrack(device, track))
 
     await s.join(currentAdverts(), currentClaims())
+    iceRefreshTimer = setInterval(refreshIce, ICE_REFRESH_MS)
     s.publishTracks(activeTracks(), { audience })
 
     // What lands while this tab is in the background is worth a
@@ -4738,17 +4751,26 @@ async function startSession(): Promise<void> {
     chatScroll.reset()
     repaintActiveChat()
   } catch (err) {
+    const failed = session
+    const failedTransport = sessionTransport
     session = undefined
     sessionTransport = undefined
+    void failed?.leave()
+    failedTransport?.close()
+    if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
+    iceRefreshTimer = undefined
     const message = describeError(err)
     if (message.includes('expired')) {
       forgetCredential()
       setStatus('This device\u2019s pass for this room has run out. Ask your other device for a new one.')
     } else {
-      setStatus(message)
+      setStatus(`Could not join the room. ${message}. Check your connection or sign-in, then try again.`)
     }
   } finally {
+    joining = false
     joinBtn.disabled = false
+    joinBtn.textContent = 'Join room'
+    $('joinRoomForm').removeAttribute('aria-busy')
   }
 }
 
@@ -4862,14 +4884,16 @@ function stopWatching(roomId: string): void {
 
 function showRoomsList(): void {
   $('nostrOption').hidden = true
-  $('identity').prepend($('accountHome'))
-  $('accountHome').after($('rooms'))
+  $('home').hidden = false
+  $('identity').hidden = true
+  $('identityMore').hidden = true
+  $('homeRooms').append($('rooms'))
+  $('homeActions').append($('setup'))
+  $('homeAccount').append($('accountHome'))
+  $('homeStatus').append($('status'))
   $('accountHome').hidden = false
   roomsListShown = true
-  // The front page is where watching a list of rooms is the point, so the
-  // notification switch belongs on it. It is hidden only in the gap between
-  // opening a link and going in, where it is one more thing in the way.
-  $('notify').hidden = false
+  // renderRooms offers notifications when there are saved rooms to follow.
   renderWayBack()
   const rooms = knownRooms(roomStore())
   for (const room of rooms) watchKnownRoom(room)
@@ -4898,15 +4922,33 @@ function renderRooms(): void {
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add ${importable.length} ${importable.length === 1 ? 'room' : 'rooms'} from this browser`
   const rooms = knownRooms(roomStore())
+  const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
+  const filtered = rooms.filter(room => `${roomLabel(room)} ${room.roomId}`.toLocaleLowerCase().includes(query))
   $('rooms').hidden = rooms.length === 0 && !nostrSession
+  $('notify').hidden = rooms.length === 0
+  $('homeHeading').textContent = rooms.length ? 'Pick up the conversation.' : 'Make room for a conversation.'
   $('roomsHeading').textContent = nostrSession ? 'Your rooms' : 'Rooms on this browser'
   $('roomsEmpty').hidden = rooms.length !== 0
+  $('homeRoomSearch').hidden = rooms.length === 0
+  $('clearHomeRoomQuery').hidden = !query
+  $('homeRoomResults').hidden = !query
+  $('homeRoomResults').textContent = filtered.length
+    ? `${filtered.length} ${filtered.length === 1 ? 'room' : 'rooms'} found`
+    : 'No rooms match this search.'
   $('roomsNote').textContent = nostrSession
     ? 'These bookmarks belong to your Nostr account. An invitation can expire or be retired; a bookmark does not grant permanent access. Unread counts use only keys held by this device.'
     : 'Saved on this browser only. You can also bookmark the invitation link. No account is needed.'
   const list = $('roomList')
+  const focused = document.activeElement as HTMLElement | null
+  const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
+  const action = focused?.dataset.action
   list.innerHTML = ''
-  for (const room of rooms) list.append(roomRow(room))
+  for (const room of filtered) list.append(roomRow(room))
+  if (focusedRoom && action) {
+    const row = Array.from(list.children).find(row => (row as HTMLElement).dataset.room === focusedRoom)
+    const replacement = row?.querySelector<HTMLElement>(`[data-action="${action}"]`)
+    ;(replacement ?? $('homeRoomQuery')).focus({ preventScroll: true })
+  }
 }
 
 function browserRoomsToImport(): KnownRoom[] {
@@ -4935,9 +4977,13 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   heading.className = 'roomTitleRow'
   // A name and the id beside it, for the reason a person's name has a key
   // beside it: two rooms can be called the same thing.
-  const name = document.createElement('span')
-  name.className = 'roomName'
+  const name = document.createElement('button')
+  name.type = 'button'
+  name.className = 'roomName open'
+  name.dataset.action = 'open'
+  name.setAttribute('aria-label', `Open ${roomLabel(room)}`)
   name.textContent = roomLabel(room)
+  name.addEventListener('click', () => openKnownRoom(room))
   const id = document.createElement('span')
   id.className = 'pubkey'
   id.textContent = shortKey(room.roomId)
@@ -4947,17 +4993,14 @@ function roomRow(room: KnownRoom): HTMLLIElement {
 
   const actions = document.createElement('div')
   actions.className = 'roomActions'
-  const open = document.createElement('button')
-  open.type = 'button'
-  open.className = 'open'
-  open.textContent = 'Open'
-  open.addEventListener('click', () => openKnownRoom(room))
   const forget = document.createElement('button')
   forget.type = 'button'
   forget.className = 'forget quiet'
+  forget.dataset.action = 'forget'
+  forget.setAttribute('aria-label', `Forget ${roomLabel(room)}`)
   forget.textContent = 'Forget'
   forget.addEventListener('click', () => forgetKnownRoom(room))
-  actions.append(open, forget)
+  actions.append(forget)
 
   row.append(main, actions)
   return row
@@ -5465,29 +5508,53 @@ $('importBrowserRooms').addEventListener('click', () => {
   try { importBrowserRooms() } catch (error) { setStatus(describeError(error)) }
 })
 
-$('create').addEventListener('click', () => {
-  startNewRoom()
-  showRoomUi()
+$('createRoomForm').addEventListener('submit', event => {
+  event.preventDefault()
+  try {
+    startNewRoom()
+    setStatus('')
+    showRoomUi()
+    $('identity').scrollIntoView({ block: 'start' })
+    ;(typedName ? $('join') : $('displayName')).focus({ preventScroll: true })
+  } catch (error) { setStatus(describeError(error)) }
 })
 
-$('openUrl').addEventListener('click', () => {
+$('openRoomForm').addEventListener('submit', event => {
+  event.preventDefault()
   const value = ($('url') as HTMLInputElement).value.trim()
-  if (!value) return
-  // A join-link box is exactly where somebody pastes a link a stranger sent
-  // them, and `location.href = value` would run a javascript: URL in this
-  // app's own origin - where the participant key lives.
-  let url: URL
+  const error = $('linkError')
   try {
-    url = new URL(value, location.href)
+    if (!value) throw new Error('Paste the invitation link you were sent.')
+    const url = new URL(value)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('unsupported scheme')
+    parseRoomLink(url.href)
+    // Open its room in this app. A valid invitation from another host
+    // carries its relay and admission settings in the same fragment.
+    history.replaceState(null, '', joinLinkBase() + url.hash)
+    location.reload()
   } catch {
-    setStatus('That does not look like a join link.')
-    return
+    error.textContent = value
+      ? 'This is not a complete KithMoot invitation. Copy the whole link, including everything after #, and try again.'
+      : 'Paste the invitation link you were sent.'
+    error.hidden = false
+    $('url').setAttribute('aria-invalid', 'true')
+    $('url').focus()
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    setStatus('A join link must be an http or https address.')
-    return
-  }
-  location.href = url.href
+})
+$('url').addEventListener('input', () => {
+  $('linkError').hidden = true
+  $('linkError').textContent = ''
+  $('url').removeAttribute('aria-invalid')
+})
+$('homeRoomQuery').addEventListener('input', renderRooms)
+$('clearHomeRoomQuery').addEventListener('click', () => {
+  ;($('homeRoomQuery') as HTMLInputElement).value = ''
+  renderRooms()
+  $('homeRoomQuery').focus()
+})
+$('retryArrival').addEventListener('click', () => location.reload())
+$('arrivalHome').addEventListener('click', () => {
+  history.replaceState(null, '', joinLinkBase())
   location.reload()
 })
 
@@ -5623,7 +5690,9 @@ $('voicePreview').addEventListener('click', () => {
     })
 })
 
-$('join').addEventListener('click', () => {
+$('joinRoomForm').addEventListener('submit', event => {
+  event.preventDefault()
+  if (($('join') as HTMLButtonElement).hidden || ($('join') as HTMLButtonElement).disabled) return
   startSession().catch((err) => setStatus(describeError(err)))
 })
 
@@ -5639,6 +5708,8 @@ $('join').addEventListener('click', () => {
  * light on with nobody watching, which is worse than a flicker.
  */
 async function leaveRoom(): Promise<void> {
+  if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
+  iceRefreshTimer = undefined
   drafts.close()
   const s = session
   session = undefined
@@ -6355,11 +6426,11 @@ $('voiceMode').textContent = DEFAULT_VOICE_PRESET
 // a console for making a room you have never heard of, followed by the page
 // changing under you.
 //
-// Nothing is replaced now. The way in is on screen from the first paint,
-// this says what the page is doing with the link, and `showRoomUi` firms
-// the same sentence up into who invited you and to what. The setup section
-// is added underneath only if there turns out to be no link at all.
+// Once the app loads, select its door before waiting for admission. The
+// dashboard stays hidden for an invitation, including one that cannot open.
 if (location.hash.length > 1) {
+  $('identity').hidden = false
+  $('arrivalTitle').textContent = 'Opening your invitation'
   const lead = $('arrivalLead')
   lead.textContent = 'Opening the link somebody sent you.'
   lead.hidden = false
@@ -6395,12 +6466,22 @@ roomArrival
     }
   })
   .catch((err) => {
-    setStatus(describeError(err))
-    // The link did not open. Everything the person could do instead is in
-    // the setup section, so that is the moment to put it on screen.
-    $('arrivalLead').hidden = true
-    $('setup').hidden = false
-    showRoomsList()
+    const reason = describeError(err)
+    let valid = false
+    try { parseRoomLink(location.href); valid = true } catch { /* Incomplete or malformed invitation. */ }
+    const retired = reason.includes('retired')
+    $('arrivalTitle').textContent = retired ? 'This invitation is no longer valid' : valid ? 'The room has not answered' : 'This invitation is incomplete'
+    $('arrivalLead').textContent = retired
+      ? 'Ask somebody in the room for its current invitation link.'
+      : valid
+        ? 'Check your connection and ask somebody with access to keep the room open while you try again.'
+        : 'Copy the whole invitation, including everything after #, then open it again.'
+    $('arrivalLead').hidden = false
+    $('joinRoomForm').hidden = true
+    $('identityMore').hidden = true
+    $('arrivalActions').hidden = false
+    $('retryArrival').hidden = !valid || retired
+    setStatus('')
   })
 
 // Rewrite what is in storage with what a reader would actually see, so a

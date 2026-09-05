@@ -181,6 +181,15 @@ to make that one thing true.
   Signing out hides that account's list, but does not erase the browser's
   local cache; do not treat sign-out as a shared-device data wipe.
 
+  The home page puts saved rooms first, with a search by name or room code.
+  Start a named room or paste a complete invitation below the list; sign-in
+  is optional. Invitations from another host can open in this app with their
+  relay and admission settings intact. Incomplete links stay beside the
+  input for correction. An unanswered invitation offers a retry, and a
+  retired invitation asks for a current link. Joining keeps camera and
+  microphone off and lets you retry a failed connection with your name
+  still in place.
+
   The **Rooms** button in a conversation opens a searchable picker without
   leaving the room or interrupting a call. Pick another room to enter its
   conversation directly, still subject to admission and restoring the same
@@ -481,8 +490,8 @@ Stated plainly, before anyone else finds it:
 ## Running it
 
 ```bash
-npm install
-npm run build:lib # the forwarder and its tests import the library from dist/
+npm ci
+npm run build:lib # build the library and declarations in dist/
 npm test          # unit and protocol tests, in-process relay simulator, no network
 npm run test:live # wire format against real public relays
 npm run test:e2e  # the acceptance tests, in a real browser, against the test
@@ -497,12 +506,9 @@ npm run build      # production PWA build, to app/dist
 npm run agent -- --help   # kithmoot-agent: be in a room without a browser
 ```
 
-`npm run build:lib` comes first on a fresh clone. `server/forwarder.mjs` and
-two of the test files import the library from `dist/`, which is a `tsc` output
-and is not committed; without it `npm test` quietly loads 391 tests instead of
-454, because three suites fail to resolve their imports rather than failing an
-assertion. Once `dist/` exists it stays, which is why this is easy to miss
-locally and impossible to miss in CI.
+`npm test` builds the library automatically through its `pretest` script.
+The forwarder and some acceptance fixtures import from `dist/`, which is
+not committed; build the library first when running those files directly.
 
 `npm run test:live` needs the network, and real relays have real weather, so
 it is excluded from `npm test`. `npm run test:e2e` drives real browsers and is

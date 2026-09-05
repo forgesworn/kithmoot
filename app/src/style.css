@@ -2424,3 +2424,68 @@ label.note {
 
 /* Give the dashboard and invitation a reading width on a desktop. */
 body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
+
+/* The home page leads with rooms and their two entry points. Account
+   settings follow the task instead of interrupting it. */
+.homeIntro { margin: 1.5rem 0 2rem; max-width: 38rem; }
+#homeHeading, #arrivalTitle {
+  margin: 0 0 .65rem;
+  color: var(--text);
+  font-size: clamp(1.55rem, 4vw, 2.25rem);
+  line-height: 1.2;
+  letter-spacing: -.025em;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+.homeIntro p { margin: 0; color: var(--muted); }
+.homeActionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.homeCard, #homeAccount {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  background: var(--panel);
+  min-width: 0;
+}
+.homeCard h3 { margin: 0; font-size: 1.2rem; }
+.homeCard > .note { margin: .45rem 0 1rem; }
+.homeCard label { display: block; margin: .8rem 0 .4rem; font-weight: 600; }
+.homeCard input, #homeRoomQuery { font-family: inherit; }
+.homeCard button { margin-top: .8rem; }
+.homeCard #roomNameNote { margin: .5rem 0 0; font-size: .9rem; }
+#homeAccount { margin-top: 1.5rem; }
+#homeAccount h2 { margin-top: 0; }
+#homeAccount details { margin-bottom: 0; }
+#home #rooms { margin-bottom: 1.5rem; }
+#home #roomsHeading { margin-top: 0; }
+.roomSearchRow { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
+.roomSearchRow input { min-width: 0; }
+.roomSearchRow button { margin: 0; }
+#roomList .roomMain { flex-basis: 12rem; }
+#roomList .roomName {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 650;
+  padding: .3rem 0;
+  margin: 0;
+  min-height: 44px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+#roomList .roomName::after { content: ' →'; white-space: nowrap; }
+#roomList .roomName:hover { text-decoration: underline; }
+#roomList .forget { border-color: transparent; }
+#roomList .roomMeta { font-size: .9rem; }
+#roomList .roomActions { align-self: flex-start; }
+#identity { padding: clamp(1rem, 4vw, 2rem); border-radius: 12px; }
+#identity .lead { margin: .5rem 0 1.25rem; color: var(--muted); font-size: 1rem; }
+#identity #status { margin: .75rem 0; }
+#identity #join { width: 100%; min-height: 44px; }
+#joinPrivacy { margin-bottom: 0; }
+.formError { color: var(--danger); font-size: .95rem; }
+@media (max-width: 620px) {
+  .homeActionGrid { grid-template-columns: minmax(0, 1fr); }
+  .homeIntro { margin: 1.1rem 0 1.5rem; }
+  .homeCard { padding: 1rem; }
+}
