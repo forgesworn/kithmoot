@@ -8,18 +8,12 @@
  * its id, what it is called, the link that opens it, when this device was
  * last in it, and how far through its chat this device has read.
  *
- * These are private invitation links, not a public directory. Nothing
- * here is anything the link did not already carry. A legacy link includes
- * its room secret; a modern invitation does not. In particular, a
- * version 2 link is an invitation, the room secret arrives over the
- * rendezvous and lives where the app already keeps it - a creator's record
- * for twelve hours, a joiner's for the tab's session, or, when the person
- * has chosen to keep the room on this device, a joiner's record on the
- * creator's terms (see `storeKeptAdmission` in device-store.ts). What this
- * keeps is the way back in, which is the link itself, and whether that
- * choice was made. A pairing link is refused outright: its code is
- * single-use and a kept copy is a code sitting somewhere it could be
- * forwarded by accident.
+ * These are private invitation links, not a public directory. A v2 link
+ * uses live admission; a v3 link resolves a signed, encrypted group invitation
+ * on the relays. Neither carries the traffic secret. Membership is retained
+ * separately by device-store.ts. A new group remembers membership by default;
+ * a temporary meeting asks first and keeps its twelve-hour storage lifetime.
+ * Pairing links are single-use and must never be stored here.
  *
  * Pure functions over the same injected `DeviceStore` the device keys use,
  * so the rules are tested with no browser.
@@ -28,6 +22,7 @@ import { parseRoomLink } from '../../src/link.js'
 import { deriveInvitationId } from '../../src/invitation.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
 import { forgetKeptAdmission, type DeviceStore } from './device-store.js'
+import { forgetRoomAccess } from './invitation-store.js'
 
 export const ROOM_PREFIX = 'kithmoot.room.'
 
@@ -79,7 +74,7 @@ function readRoom(store: DeviceStore, roomId: string): KnownRoom | undefined {
       openedAt: parsed.openedAt,
       readAt: typeof parsed.readAt === 'number' && Number.isFinite(parsed.readAt) ? parsed.readAt : 0,
     }
-    if (parsed.keep === true) room.keep = true
+    if (typeof parsed.keep === 'boolean') room.keep = parsed.keep
     // Sanitised on the way out of storage as well as on the way in, because
     // a stored value is only as trustworthy as whatever wrote it.
     const name = sanitiseDisplayName(parsed.name)
@@ -136,7 +131,8 @@ export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
   }
   const name = sanitiseDisplayName(visit.name) ?? link.name ?? existing?.name
   if (name !== undefined) room.name = name
-  if (existing?.keep) room.keep = true
+  if (existing?.keep !== undefined) room.keep = existing.keep
+  else if (link.invitation?.persistent) room.keep = true
   writeRoom(store, room)
   return room
 }
@@ -152,7 +148,8 @@ export function setKeepRoom(store: DeviceStore, roomId: string, keep: boolean): 
   const room = knownRoom(store, roomId)
   if (!room) return false
   const { keep: _was, ...rest } = room
-  writeRoom(store, keep ? { ...rest, keep: true } : rest)
+  const persistent = parseRoomLink(room.link).invitation?.persistent === true
+  writeRoom(store, keep ? { ...rest, keep: true } : persistent ? { ...rest, keep: false } : rest)
   if (!keep) forgetKeptFor(store, room.link)
   return true
 }
@@ -179,6 +176,7 @@ export function forgetRoom(store: DeviceStore, roomId: string): void {
   if (!ROOM_ID.test(roomId)) return
   const room = readRoom(store, roomId)
   if (room) forgetKeptFor(store, room.link)
+  forgetRoomAccess(store, roomId)
   store.remove(keyFor(roomId))
 }
 

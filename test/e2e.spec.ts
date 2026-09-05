@@ -97,6 +97,7 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
   await page.goto(baseURL)
   // #iceServers sits inside a collapsed <details> and already defaults to
   // a public STUN server (app/index.html) - nothing to change here.
+  await page.locator('#roomType').selectOption('temporary')
   await page.locator('#create').click()
   // The room's own link exists as soon as the room does, but the drawer
   // holding it stays shut until somebody has gone in - the entry page shows

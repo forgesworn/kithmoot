@@ -50,6 +50,7 @@ test('the home page leads with room actions, fits both themes and starts a named
     await page.setViewportSize({ width: 390, height: 540 })
     const start = await page.locator('#create').boundingBox()
     expect(start!.y + start!.height).toBeLessThanOrEqual(540)
+    await page.locator('#roomType').selectOption('temporary')
     await page.locator('#roomName').fill('Saturday workshop')
     await page.locator('#roomName').press('Enter')
     await expect(page.locator('#arrivalTitle')).toHaveText('Saturday workshop')

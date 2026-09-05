@@ -5,6 +5,7 @@ import type { RelayTransport } from './relay-pool.js'
 import { NostrRelayPool } from './relay-pool.js'
 import { parseRoomLink, encodeRoomLink } from './link.js'
 import type { RoomLink } from './link.js'
+import { requestPersistentRoomAdmission } from './persistent-invitation.js'
 import {
   createRoomInvitation,
   encodeInvitationRetirement,
@@ -340,9 +341,11 @@ export class RoomAgent {
     if (link.invitation) {
       const transport = makeTransport(relays)
       try {
-        const admission = await requestRoomAdmissionCapability({ transport, invitation: link.invitation, now })
+        const admission = link.invitation.persistent
+          ? await requestPersistentRoomAdmission({ transport, invitation: link.invitation })
+          : await requestRoomAdmissionCapability({ transport, invitation: link.invitation, now })
         secret = admission.secret
-        authority = { inviterSk: admission.delegate.delegateSk, delegation: admission.delegate.chain }
+        if ('delegate' in admission) authority = { inviterSk: admission.delegate.delegateSk, delegation: admission.delegate.chain }
         expectedEpoch = admission.epoch
       } finally {
         transport.close()

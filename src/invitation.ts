@@ -32,6 +32,8 @@ export const MAX_INVITATION_DELEGATION_DEPTH = 16
 export interface RoomInvitation {
   bearer: Uint8Array
   inviter: string
+  /** Version 3 group link: admission is stored encrypted on the relays. */
+  persistent?: true
 }
 
 /** The private half retained by the browser that created an invitation. */
@@ -95,18 +97,18 @@ function requirePubkey(pubkey: string): string {
 }
 
 /** Create a bearer plus a fresh, unlinkable inviter key for one share URL. */
-export function createRoomInvitation(): RoomInvitationHost {
+export function createRoomInvitation(persistent = false): RoomInvitationHost {
   const inviterSk = generateSecretKey()
   return {
-    invitation: { bearer: randomBytes(32), inviter: getPublicKey(inviterSk) },
+    invitation: { bearer: randomBytes(32), inviter: getPublicKey(inviterSk), ...(persistent ? { persistent: true } : {}) },
     inviterSk,
   }
 }
 
 /** Validate and canonicalise an invitation crossing a URL/storage boundary. */
-export function roomInvitation(bearer: Uint8Array, inviter: string): RoomInvitation {
+export function roomInvitation(bearer: Uint8Array, inviter: string, persistent = false): RoomInvitation {
   require32(bearer, 'invitation bearer')
-  return { bearer, inviter: requirePubkey(inviter) }
+  return { bearer, inviter: requirePubkey(inviter), ...(persistent ? { persistent: true } : {}) }
 }
 
 /** Public rendezvous id. Relays see this and timing, but cannot derive the bearer. */

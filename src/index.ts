@@ -84,6 +84,8 @@ export type {
   RequestRoomAdmissionOptions,
 } from './invitation.js'
 export { createDeviceCredential, verifyDeviceCredential } from './credential.js'
+export { encodePersistentInvitation, decodePersistentInvitation, requestPersistentRoomAdmission } from './persistent-invitation.js'
+export type { PersistentRoomAdmission } from './persistent-invitation.js'
 export type { CreateCredentialOptions, VerifyResult } from './credential.js'
 export { localIdentity } from './identity.js'
 export { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from './display-name.js'

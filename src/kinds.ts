@@ -72,6 +72,11 @@ export const KINDS = {
    * the link has to learn that fact before it starts answering the old link
    * again. The invitation id is unique, so one valid retirement is final. */
   INVITATION_RETIREMENT: 1461,
+  /** A persistent group's invitation, signed by the pinned inviter and
+   * encrypted under a separate bearer-derived key. Regular stored event:
+   * newcomers can enter with every member offline. Contains epoch 0 only;
+   * it never grants authority to rekey or bypass a later removal. */
+  GROUP_INVITATION: 1463,
   /** A room moving to a new epoch: a fresh traffic secret, sealed per
    * remaining device, with the participants removed at this step named.
    *

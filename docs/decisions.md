@@ -41,6 +41,12 @@ question.
 
 ## A join link is an invitation, not the room traffic secret
 
+This section describes **v2 temporary meeting invitations**.  Persistent
+groups now use an explicit v3 stored invitation and durable device
+membership; see [Persistent groups](persistent-groups.md) for the different
+availability and bearer-capability properties.  V2 rooms are not silently
+made persistent.
+
 The original v1 fragment carried the 32-byte room secret directly. That made
 joining wonderfully simple, but it also made the link permanent cryptographic
 membership: copying it once was enough to decrypt and publish room traffic for

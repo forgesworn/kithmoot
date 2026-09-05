@@ -2506,6 +2506,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .homeCard > .note { margin: .45rem 0 1rem; }
 .homeCard label { display: block; margin: .8rem 0 .4rem; font-weight: 600; }
 .homeCard input, #homeRoomQuery { font-family: inherit; }
+.homeCard select { width: 100%; min-width: 0; max-width: 100%; margin-top: .6rem; }
 .homeCard button { margin-top: .8rem; }
 .homeCard #roomNameNote { margin: .5rem 0 0; font-size: .9rem; }
 #homeAccount { margin-top: 1.5rem; }
