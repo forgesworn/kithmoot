@@ -1,5 +1,34 @@
 import { registerSW } from 'virtual:pwa-register'
 
+/** Activation can finish without controllerchange on an uncontrolled first
+ * visit. Observe the worker itself, and never leave a failed attempt pending. */
+function activateUpdate(registration: ServiceWorkerRegistration): Promise<void> {
+  // active can still be activating, or already activated by another tab.
+  const worker = registration.waiting ?? registration.installing ?? registration.active
+  if (!worker) return Promise.reject(new Error('No update is ready'))
+  return new Promise((resolve, reject) => {
+    let requested = false
+    const finish = (error?: Error) => {
+      clearTimeout(timeout)
+      worker.removeEventListener('statechange', changed)
+      if (error) reject(error)
+      else resolve()
+    }
+    const changed = () => {
+      if (worker.state === 'activated') finish()
+      else if (worker.state === 'redundant') finish(new Error('Update became redundant'))
+      else if (worker.state === 'installed' && !requested) {
+        requested = true
+        try { worker.postMessage({ type: 'SKIP_WAITING' }) }
+        catch { finish(new Error('Could not activate update')) }
+      }
+    }
+    const timeout = setTimeout(() => finish(new Error('Update timed out')), 10_000)
+    worker.addEventListener('statechange', changed)
+    changed()
+  })
+}
+
 /** Other tabs can activate a worker too. None may reload this page without
  * this user's consent, even when migrating from an auto-update worker. */
 export function installUpdates(hasWork: () => boolean, reload: () => void = () => location.reload()): void {
@@ -7,25 +36,34 @@ export function installUpdates(hasWork: () => boolean, reload: () => void = () =
   const button = document.getElementById('updateApp') as HTMLButtonElement
   let activated = false
   let approved = false
-  const update = registerSW({
+  let reloading = false
+  let registration: ServiceWorkerRegistration | undefined
+  const reloadOnce = () => {
+    if (reloading) return
+    reloading = true
+    approved = false
+    reload()
+  }
+  registerSW({
     immediate: true,
     onNeedRefresh: () => { notice.hidden = false },
     onNeedReload: () => {
       activated = true
-      if (approved) reload()
+      if (approved) reloadOnce()
       else notice.hidden = false
     },
-    onRegisteredSW: (_url, registration) => {
-      if (!registration) return
+    onRegisteredSW: (_url, registered) => {
+      if (!registered) return
+      registration = registered
       let checking = false
       const check = async () => {
         if (checking || document.visibilityState !== 'visible' || !navigator.onLine) return
-        // Let onNeedRefresh reveal the button once its activation handler
-        // is attached, including when a worker was already waiting on load.
-        if (registration.waiting || registration.installing) return
+        // A pending worker already represents an update. Let onNeedRefresh
+        // reveal it, including when one was already waiting on load.
+        if (registered.waiting || registered.installing) return
         checking = true
         try {
-          await registration.update()
+          await registered.update()
         } catch {
           // Keep the current app usable offline and retry on the next check.
         } finally {
@@ -43,20 +81,21 @@ export function installUpdates(hasWork: () => boolean, reload: () => void = () =
     },
   })
   button.addEventListener('click', async () => {
+    if (approved || reloading) return
     if (hasWork() && !confirm('Reload to update? This ends your call and discards any unsent messages and files.')) return
     approved = true
-    if (activated) {
-      reload()
-      return
-    }
     button.disabled = true
     button.textContent = 'Updating…'
     try {
-      await update()
+      if (registration) await activateUpdate(registration)
+      else if (!activated) throw new Error('Registration is not ready')
+      if (approved) reloadOnce()
     } catch {
+      if (reloading) return
       approved = false
       button.disabled = false
       button.textContent = 'Try updating again'
+      notice.querySelector('span')!.textContent = 'The update did not finish. Try again.'
     }
   })
 }

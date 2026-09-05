@@ -7,6 +7,7 @@ import { LOCAL_TEST_RELAY } from './relays.js'
 
 async function releaseServer() {
   let revision = 1
+  let delayActivation = false
   const root = resolve('app/dist')
   const mime: Record<string, string> = { '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' }
   const server = createServer(async (req, res) => {
@@ -16,7 +17,15 @@ async function releaseServer() {
       const file = resolve(root, relative)
       if (!file.startsWith(root + '/')) { res.writeHead(404).end(); return }
       let body: Buffer | string = await readFile(file)
-      if (relative === 'sw.js') body = `/* release ${revision} */\n${body.toString()}`
+      if (relative === 'sw.js') {
+        body = `/* release ${revision} */\n${body.toString()}`
+        if (delayActivation) {
+          // A worker that receives the request but cannot finish promptly.
+          // Keep the real browser lifecycle; only delay the activation call.
+          if (!body.includes('self.skipWaiting()')) throw new Error('Missing activation handler')
+          body = body.replace('self.skipWaiting()', 'setTimeout(() => self.skipWaiting(), 15000)')
+        }
+      }
       res.writeHead(200, { 'content-type': mime[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
       res.end(body)
     } catch { res.writeHead(404).end() }
@@ -25,13 +34,79 @@ async function releaseServer() {
   const address = server.address() as { port: number }
   return {
     base: `http://127.0.0.1:${address.port}/j/`,
-    publish: () => { revision++ },
+    publish: (options: { delayActivation?: boolean } = {}) => {
+      revision++
+      delayActivation = options.delayActivation ?? false
+    },
     close: async () => {
       server.closeAllConnections()
       await new Promise<void>((r, reject) => server.close(err => err ? reject(err) : r()))
     },
   }
 }
+
+test('an update on the first visit completes without an existing controller', async ({ browser }) => {
+  const release = await releaseServer()
+  const context = await browser.newContext({ serviceWorkers: 'allow' })
+  await context.routeWebSocket(/.*/, ws => ws.close())
+  try {
+    const page = await context.newPage()
+    await page.goto(release.base)
+    await page.evaluate(async () => { await navigator.serviceWorker.ready })
+    // A newly installed worker does not control the already-open first visit.
+    // This is also possible when the PWA is installed without being reopened.
+    expect(await page.evaluate(() => navigator.serviceWorker.controller)).toBeNull()
+    release.publish()
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('#updateNotice')).toBeVisible()
+    await Promise.all([
+      page.waitForEvent('load', { timeout: 5_000 }),
+      page.locator('#updateApp').click(),
+    ])
+    await expect(page.locator('#updateNotice')).toBeHidden()
+    expect(await page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true)
+  } finally {
+    await context.close()
+    await release.close()
+  }
+})
+
+test('a stalled update offers a retry and late activation still needs consent', async ({ browser }) => {
+  const release = await releaseServer()
+  const context = await browser.newContext({ serviceWorkers: 'allow' })
+  await context.routeWebSocket(/wss:\/\/.*/, ws => ws.close())
+  try {
+    const page = await context.newPage()
+    await page.goto(encodeJoinUrl(release.base, generateRoomSecret(), [LOCAL_TEST_RELAY]))
+    await page.evaluate(async () => { await navigator.serviceWorker.ready })
+    await page.reload()
+    await page.locator('#displayName').fill('Update retry reader')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#chatInput').fill('Keep this while an update is stuck')
+    release.publish({ delayActivation: true })
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('#updateNotice')).toBeVisible()
+    page.once('dialog', dialog => dialog.accept())
+    await page.locator('#updateApp').click()
+    await expect(page.locator('#updateApp')).toHaveText('Updating…')
+    await expect(page.locator('#updateApp')).toHaveText('Try updating again', { timeout: 12_000 })
+    await expect(page.locator('#updateApp')).toBeEnabled()
+    await expect(page.locator('#chatInput')).toHaveValue('Keep this while an update is stuck')
+    await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.ready).waiting === null)).toBe(true)
+    // The timed-out approval cannot authorise a late background reload.
+    await expect(page.locator('#chatInput')).toHaveValue('Keep this while an update is stuck')
+    page.once('dialog', dialog => dialog.dismiss())
+    await page.locator('#updateApp').click()
+    await expect(page.locator('#chatInput')).toHaveValue('Keep this while an update is stuck')
+    page.once('dialog', dialog => dialog.accept())
+    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+    await expect(page.locator('#updateNotice')).toBeHidden()
+  } finally {
+    await context.close()
+    await release.close()
+  }
+})
 
 test('a real service-worker update preserves the room and draft until the reader accepts', async ({ browser }, testInfo) => {
   const release = await releaseServer()
