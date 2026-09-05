@@ -2521,8 +2521,8 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .emojiGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr)); gap: .35rem; margin: 1rem 0; }
 .emojiGrid button { min-height: 3rem; padding: .35rem; font-size: 1.5rem; }
 .messageReactions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .25rem; }
-.messageReactions button { min-width: 2.75rem; min-height: 2.75rem; padding: .15rem .4rem; background: transparent; border: 1px solid var(--line); border-radius: 2rem; font-size: .95rem; }
-.messageReactions button[aria-pressed=true] { border-color: var(--accent); background: var(--surface); }
+.messageReactions button { min-width: 2.75rem; min-height: 2.75rem; padding: .15rem .4rem; background: transparent; border: 1px solid var(--border); border-radius: 2rem; font-size: .95rem; }
+.messageReactions button[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }
 
 .shareViewerContent { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; }
 .shareViewerContent:fullscreen { height: 100dvh; width: 100vw; background: var(--bg); padding: .75rem; box-sizing: border-box; }
