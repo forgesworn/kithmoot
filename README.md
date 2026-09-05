@@ -292,7 +292,9 @@ to make that one thing true.
   participant key, the one that identifies a person, only ever rides inside
   the room-key ciphertext.
 - An installable PWA. Add it to a home screen or dock, and a service worker
-  carries the shell offline.
+  carries the shell offline. While open, it checks for updates every minute
+  and when you return or reconnect. An **Update ready** banner offers
+  **Reload to update**; calls and unfinished messages ask for confirmation.
 - **Background blur and replacement**, on by default the first time you turn
   the camera on. Read the honest limits below before trusting it.
 - **Voice masking**: pitch and formants shifted independently, in four

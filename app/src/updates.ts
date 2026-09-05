@@ -15,6 +15,31 @@ export function installUpdates(hasWork: () => boolean, reload: () => void = () =
       if (approved) reload()
       else notice.hidden = false
     },
+    onRegisteredSW: (_url, registration) => {
+      if (!registration) return
+      let checking = false
+      const check = async () => {
+        if (checking || document.visibilityState !== 'visible' || !navigator.onLine) return
+        if (registration.waiting) { notice.hidden = false; return }
+        if (registration.installing) return
+        checking = true
+        try {
+          await registration.update()
+        } catch {
+          // Keep the current app usable offline and retry on the next check.
+        } finally {
+          checking = false
+        }
+      }
+      // An installed PWA can stay open for days without a navigation. Check
+      // during use and on return; registering once does not detect a deploy.
+      window.setInterval(check, 60_000)
+      window.addEventListener('focus', check)
+      window.addEventListener('pageshow', check)
+      window.addEventListener('online', check)
+      document.addEventListener('visibilitychange', check)
+      void check()
+    },
   })
   button.addEventListener('click', async () => {
     if (hasWork() && !confirm('Reload to update? This ends your call and discards any unsent messages and files.')) return
@@ -24,6 +49,7 @@ export function installUpdates(hasWork: () => boolean, reload: () => void = () =
       return
     }
     button.disabled = true
+    button.textContent = 'Updating…'
     try {
       await update()
     } catch {

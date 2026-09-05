@@ -14,8 +14,9 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <aside id="updateNotice" hidden role="status">
-      An update is ready. <button id="updateApp" type="button">Update and reload</button>
+    <aside id="updateNotice" hidden role="status" aria-atomic="true">
+      <div><strong>Update ready</strong><span>Reload to use the latest KithMoot.</span></div>
+      <button id="updateApp" type="button">Reload to update</button>
     </aside>
     <header>
       <h1>KithMoot</h1>
