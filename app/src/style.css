@@ -147,6 +147,8 @@ main > p {
 }
 
 h1 {
+  font-size: clamp(1.5rem, 8vw, 2rem);
+  overflow-wrap: anywhere;
   margin-bottom: 0;
 }
 
@@ -2412,9 +2414,26 @@ label.note {
 }
 /* Recovery controls stay bounded on a phone, even with several failed sends. */
 #updateNotice {
-  padding: .5rem 1rem;
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  padding: .65rem 1rem;
+  margin-bottom: .75rem;
+  border: 1px solid var(--accent);
+  border-radius: .5rem;
+  background: var(--accent-dim);
+  color: var(--text);
   flex: 0 0 auto;
 }
+#updateNotice > div { flex: 1 1 15rem; min-width: 0; }
+#updateNotice strong, #updateNotice span { display: block; }
+#updateNotice span { font-size: .85rem; }
+#updateApp { flex: 0 1 auto; margin: 0; background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 #outbox {
   max-height: 25vh;
   overflow-y: auto;
@@ -2481,6 +2500,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   padding: 1.25rem;
   background: var(--panel);
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .homeCard h3 { margin: 0; font-size: 1.2rem; }
 .homeCard > .note { margin: .45rem 0 1rem; }
