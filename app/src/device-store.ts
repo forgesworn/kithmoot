@@ -22,6 +22,9 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import type { DeviceCredential } from '../../src/types.js'
 import type { InvitationDelegation, RoomAdmission } from '../../src/invitation.js'
+import type { PersistentRoomAdmission } from '../../src/persistent-invitation.js'
+
+export type SavedRoomAdmission = RoomAdmission | PersistentRoomAdmission
 
 export interface DeviceStore {
   get(key: string): string | null
@@ -37,7 +40,7 @@ export const CREDENTIAL_PREFIX = 'kithmoot.credential.'
  *  from a link before the room's id can be known. */
 export const KEPT_ADMISSION_PREFIX = 'kithmoot.admission-kept.v1.'
 
-/** How long a kept admission lasts: the same twelve hours as the creator's
+/** Temporary meeting admissions last the same twelve hours as the creator's
  *  record and a device credential, counted from when it was last kept,
  *  which is every time the room is opened with the choice still on. */
 export const KEPT_ADMISSION_TTL_SECONDS = 12 * 60 * 60
@@ -149,33 +152,25 @@ export function forgetLegacyStorage(store: DeviceStore): void {
 
 interface StoredKeptAdmission {
   roomSecret: string
-  delegateSk: string
-  delegation: InvitationDelegation[]
+  delegateSk?: string
+  delegation?: InvitationDelegation[]
+  persistent?: true
   /** What the responder said the room's epoch was. See `RoomAdmission.epoch`. */
   epoch?: number
   /** Unix seconds it was kept, or last kept again. */
   createdAt: number
 }
 
-/**
- * Keep a joiner's admission on this device, beyond the tab.
- *
- * A version 2 link is an invitation; the room secret arrives over the
- * rendezvous and, for a joiner, lived only in the tab's session until now.
- * That is the right default: a browser that was handed a room key for an
- * afternoon should not hold it for ever unasked. But the rooms list and a
- * notification both need the key with no tab open on the room, so a person
- * can choose, per room, to keep it here - in the same shape and on the
- * same clock as the creator's own record: the secret, the responder key
- * and its delegation chain, hex, for twelve hours from the last time the
- * room was opened. Forgetting the room removes it; so does turning the
- * choice off.
- */
-export function storeKeptAdmission(store: DeviceStore, invitationId: string, admission: RoomAdmission, now: number): void {
+/** Keep membership beyond the tab. Temporary meeting admissions retain their
+ * twelve-hour local lifetime; explicit group memberships last until forgotten
+ * or the person switches remembering off. This storage lifetime never extends
+ * a delegated responder certificate or a paired device credential. */
+export function storeKeptAdmission(store: DeviceStore, invitationId: string, admission: SavedRoomAdmission, now: number): void {
   const value: StoredKeptAdmission = {
     roomSecret: bytesToHex(admission.secret),
-    delegateSk: bytesToHex(admission.delegate.delegateSk),
-    delegation: admission.delegate.chain,
+    ...('delegate' in admission
+      ? { delegateSk: bytesToHex(admission.delegate.delegateSk), delegation: admission.delegate.chain }
+      : { persistent: true as const }),
     ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
     createdAt: now,
   }
@@ -184,7 +179,7 @@ export function storeKeptAdmission(store: DeviceStore, invitationId: string, adm
 
 /** The kept admission for an invitation, or undefined. One that has lapsed
  *  or does not parse is removed on the way through. */
-export function loadKeptAdmission(store: DeviceStore, invitationId: string, now: number): RoomAdmission | undefined {
+export function loadKeptAdmission(store: DeviceStore, invitationId: string, now: number): SavedRoomAdmission | undefined {
   const key = KEPT_ADMISSION_PREFIX + invitationId
   const raw = store.get(key)
   if (!raw) return undefined
@@ -192,16 +187,20 @@ export function loadKeptAdmission(store: DeviceStore, invitationId: string, now:
     const value = JSON.parse(raw) as Partial<StoredKeptAdmission>
     if (
       typeof value.roomSecret !== 'string' ||
-      typeof value.delegateSk !== 'string' ||
-      !Array.isArray(value.delegation) ||
       typeof value.createdAt !== 'number' ||
       !Number.isFinite(value.createdAt) ||
-      value.createdAt + KEPT_ADMISSION_TTL_SECONDS <= now
+      (value.persistent !== true && value.createdAt + KEPT_ADMISSION_TTL_SECONDS <= now)
     ) {
       store.remove(key)
       return undefined
     }
     const secret = hexToBytes(value.roomSecret)
+    if (secret.length !== 32) throw new Error('invalid room secret')
+    if (value.persistent === true) {
+      if (value.epoch !== 0 || value.delegateSk !== undefined || value.delegation !== undefined) throw new Error('invalid group membership')
+      return { secret, persistent: true, epoch: 0 }
+    }
+    if (typeof value.delegateSk !== 'string' || !Array.isArray(value.delegation)) throw new Error('invalid delegation')
     const delegateSk = hexToBytes(value.delegateSk)
     if (secret.length !== 32 || delegateSk.length !== 32) {
       store.remove(key)

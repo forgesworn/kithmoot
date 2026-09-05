@@ -16,11 +16,11 @@ import type { RoomPolicy } from './types.js'
  * library concern from here on: one parser, shared by the page and by
  * anything else that is handed a link.
  *
- * Exactly one of `invitation` (version 2, the bearer rendezvous) and
+ * Exactly one of `invitation` (v2 live rendezvous or v3 stored group) and
  * `secret` (legacy version 1, the room traffic secret itself) is present.
  */
 export interface RoomLink {
-  /** Version 2: the invitation to present at the rendezvous. */
+  /** V2 meeting invitation or v3 persistent group invitation. */
   invitation?: RoomInvitation
   /** Version 1: the room traffic secret, in the link. Legacy. */
   secret?: Uint8Array
@@ -47,7 +47,7 @@ export interface RoomLink {
 /** The fragment payload as written. Field names are short because the
  *  whole link has to fit in a QR code. */
 interface RoomLinkPayload {
-  v?: 2
+  v?: 2 | 3
   s?: string
   j?: string
   h?: string
@@ -91,6 +91,7 @@ export function parseRoomLink(url: string): RoomLink {
     throw new Error('join URL fragment is not valid')
   }
   if (typeof payload !== 'object' || payload === null) throw new Error('join URL fragment is not valid')
+  if (payload.v !== undefined && payload.v !== 2 && payload.v !== 3) throw new Error('join URL uses an unsupported version')
 
   const link: RoomLink = {
     relays: relayList(payload.r),
@@ -110,7 +111,7 @@ export function parseRoomLink(url: string): RoomLink {
     }
   }
 
-  if (payload.v === 2) {
+  if (payload.v === 2 || payload.v === 3) {
     if (typeof payload.j !== 'string' || typeof payload.h !== 'string') {
       throw new Error('join URL carries a malformed invitation')
     }
@@ -120,7 +121,7 @@ export function parseRoomLink(url: string): RoomLink {
     } catch {
       throw new Error('join URL carries a malformed invitation')
     }
-    link.invitation = roomInvitation(bearer, payload.h)
+    link.invitation = roomInvitation(bearer, payload.h, payload.v === 3)
     return link
   }
 
@@ -139,7 +140,7 @@ export function parseRoomLink(url: string): RoomLink {
 /** Write a room link, in the same envelope the app writes. */
 export function encodeRoomLink(base: string, link: RoomLink): string {
   const payload: RoomLinkPayload & { r: string[]; i: string[] } = link.invitation
-    ? { v: 2, j: base64urlnopad.encode(link.invitation.bearer), h: link.invitation.inviter, r: link.relays, i: link.iceUrls }
+    ? { v: link.invitation.persistent ? 3 : 2, j: base64urlnopad.encode(link.invitation.bearer), h: link.invitation.inviter, r: link.relays, i: link.iceUrls }
     : { s: base64urlnopad.encode(link.secret ?? invalid()), r: link.relays, i: link.iceUrls }
   if (link.policy) payload.a = link.policy
   if (link.pairingCode) payload.c = bytesToHex(link.pairingCode)

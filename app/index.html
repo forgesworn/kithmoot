@@ -314,11 +314,17 @@
         <div class="homeActionGrid">
         <form id="createRoomForm" class="homeCard">
         <h3>Start a room</h3>
-        <p class="note">A place to talk, with an invitation you can share.</p>
         <label for="roomName">Room name <span class="note">(optional)</span></label>
         <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
                aria-label="Room name" aria-describedby="roomNameNote" />
+        <label for="roomType" class="sr-only">Room type</label>
+        <select id="roomType" aria-describedby="roomTypeNote">
+          <option value="persistent">Group: come back any time</option>
+          <option value="temporary">Temporary meeting</option>
+        </select>
         <button id="create" type="submit" class="primary">Start a room</button>
+        <p id="createError" class="formError" role="alert" hidden></p>
+        <p id="roomTypeNote" class="note">Groups remember your access and let people join when everyone is offline.</p>
         <p id="roomNameNote" class="note">
           No account needed. Choose your display name next.
         </p>
@@ -580,7 +586,7 @@
             so we never see it. The app you send it with can still read the
             whole thing, unless that chat is private from end to end.
           </p>
-          <p class="note">
+          <p id="invitationAvailability" class="note">
             Leave this tab open. It is what lets the next person in when
             they follow the link.
           </p>
@@ -592,6 +598,7 @@
           <button id="shareRoom" type="button" hidden>Share</button>
           <button id="copyShare" type="button">Copy</button>
           <button id="rotateShare" type="button" hidden>New link</button>
+          <button id="makePersistent" type="button" hidden>Keep as a group</button>
           <!-- Hidden with the button it describes. Only the browser that
                opened the room can make a new link, and everybody else was
                reading a sentence about a control that was not on their

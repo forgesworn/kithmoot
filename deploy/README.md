@@ -612,6 +612,12 @@ before.
 
 ## Running a keeper
 
+Basic web **persistent groups** no longer need a keeper for admission.
+They publish an encrypted v3 invitation on the relays and retain membership
+on the device.  The keeper below remains the managed-room service for
+removal, named channels, nudges and v2 live invitations.  See
+[`docs/persistent-groups.md`](../docs/persistent-groups.md).
+
 A room admits newcomers for as long as somebody who can answer the link is
 online. The creator's browser can; every admitted member can, for twelve
 hours from the creator's grant and no longer, because a delegation is

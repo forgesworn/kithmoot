@@ -29,6 +29,7 @@ import { newDeviceContext } from './browser.js'
 async function startNamedRoom(page: Page, baseURL: string, name: string): Promise<string> {
   await page.goto(baseURL)
   await page.locator('#roomName').fill(name)
+  await page.locator('#roomType').selectOption('temporary')
   await page.locator('#create').click()
   // The link exists the moment the room does, but the drawer holding it
   // stays shut until somebody is inside. So this waits for the value, not

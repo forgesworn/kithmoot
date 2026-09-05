@@ -264,6 +264,7 @@ export async function newDeviceContext(browser: Browser, baseURL: string): Promi
 
 export async function createRoom(page: Page, baseURL: string): Promise<string> {
   await page.goto(baseURL)
+  await page.locator('#roomType').selectOption('temporary')
   await page.locator('#create').click()
   // Wait for the link itself rather than the box that used to hold it. The
   // entry page was rebuilt to put the conversation first and `#links` went
