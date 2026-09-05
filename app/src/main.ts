@@ -19,6 +19,7 @@ import {
   storeKeptAdmission,
 } from './device-store.js'
 import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { roomProject, setRoomProject } from './room-projects.js'
 import { RoomWatch } from './room-watch.js'
 import { RoomBookmarks } from './room-bookmarks.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
@@ -504,6 +505,8 @@ function startRoomBookmarks(account: SignetSession): void {
       if (rooms.length && roomsTimer === undefined) roomsTimer = setInterval(renderRooms, 5000)
       renderRooms()
     }
+    renderWorkspace()
+    if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   }, message => {
     $('roomSyncStatus').textContent = message
     if (message.includes('not confirmed') || message.includes('not synced') || message.includes('browser only')) {
@@ -1899,6 +1902,8 @@ function showRoomTools(): void {
   // In the room now, and the room's own bar carries the way out of it.
   $('roomNav').hidden = true
   $('doorToRooms').hidden = true
+  $('workspaceNav').hidden = false
+  renderWorkspace()
   // Notifications are a front-page control as well as a room one, so the
   // markup lives in `main` for the rooms list. In a room it belongs in the
   // details with everything else, and it is moved rather than duplicated:
@@ -2747,14 +2752,15 @@ function renderAgentsExplain(views: ParticipantView[]): void {
 function renderRoomWho(): void {
   const line = $('roomWho')
   const views = session?.participants() ?? []
-  const where = currentChannel === undefined ? 'Chat' : currentChannel
+  const where = conversationLabel(currentChannel)
+  renderAgentActivity()
   if (views.length === 0) {
     line.textContent = where
     return
   }
   const agents = views.filter((v) => v.agent).length
   const here = `${views.length} here`
-  line.textContent = agents === 0 ? `${where} · ${here}` : `${where} · ${here}, ${agents} of them agent${agents === 1 ? '' : 's'}`
+  line.textContent = agents === 0 ? `${where} · ${here}` : `${where} · ${views.length - agents} ${views.length - agents === 1 ? 'person' : 'people'}, ${agents} agent${agents === 1 ? '' : 's'}`
 }
 
 /**
@@ -2867,6 +2873,7 @@ const channelLogs = new Map<string, ReturnType<NonNullable<typeof session>['chan
 /** How much has been said in each one, so a tab can show that there is
  *  something behind it without being opened first. */
 const channelCounts = new Map<string, number>()
+const conversationRead = new Map<string, Set<string>>()
 /** The keeper's own participant, from its announcement. Not somebody an
  *  admin can remove: removing the keeper is closing the room. */
 let keeperParticipant: string | undefined
@@ -3131,6 +3138,8 @@ function ingestControl(messages: ChatMessage[]): void {
         if (m.sentAt < channelsAt) break
         channels = control.channels
         channelsAt = m.sentAt
+        for (const name of channels) followNamedConversation(name)
+        if (!$('roomArea').hidden) restoreConversation()
         // Keep unfinished work reachable when its conversation closes.
         // An empty conversation can return straight to the main chat.
         if (currentChannel !== undefined && !channelAvailable(currentChannel) && !draftHasWork(captureDraft())) selectChannel(undefined)
@@ -3260,7 +3269,12 @@ function renderInvites(): void {
     none.textContent =
       'Nobody here is offering one at the moment. An agent runs on somebody’s own computer, ' +
       'so one can only be asked in while that person has their agent host running and is in this room.'
-    list.append(none)
+    const guide = document.createElement('a')
+    guide.href = 'https://github.com/ForgeSworn/kithmoot/blob/main/docs/agents.md'
+    guide.target = '_blank'
+    guide.rel = 'noopener noreferrer'
+    guide.textContent = 'Agent setup guide ↗'
+    list.append(none, guide)
   }
   box.hidden = false
 }
@@ -3372,6 +3386,7 @@ function renderChat(messages: ChatMessage[]): void {
     return shownAs(message.participant, message.name).name ?? message.participant.slice(0, 8)
   })
   if (currentChannel === undefined) noteChatRead(messages)
+  markConversationRead()
 }
 
 /**
@@ -3409,20 +3424,23 @@ function repaintActiveChat(): void {
 // has no name, and `deriveChannel` already spells that `undefined`.
 // ---------------------------------------------------------------------------
 
-/** The log the chat box is reading and writing: a named channel, or the
- *  room's own chat. Opened on first use rather than all at once, because a
- *  room with a dozen channels should not open a dozen subscriptions to show
- *  one of them. */
+/** The log currently shown by the composer. Named logs are followed when
+ * the room announces them, so unread activity is visible before a click. */
 function activeChat(): NonNullable<typeof session>['chat'] | undefined {
   const s = session
   if (!s) return undefined
   if (currentChannel === undefined) return s.chat
-  let log = channelLogs.get(currentChannel)
+  return followNamedConversation(currentChannel)
+}
+
+function followNamedConversation(name: string): ReturnType<RoomSession['channel']> | undefined {
+  if (!session) return undefined
+  let log = channelLogs.get(name)
   if (!log) {
-    const name = currentChannel
-    log = s.channel(name)
+    log = session.channel(name)
     channelLogs.set(name, log)
-    log.onChange((messages) => {
+    channelCounts.set(name, log.messages().length)
+    log.onChange(messages => {
       channelCounts.set(name, messages.length)
       if (currentChannel === name) renderChat(messages)
       renderChannels()
@@ -3431,9 +3449,25 @@ function activeChat(): NonNullable<typeof session>['chat'] | undefined {
   return log
 }
 
+function conversationStorageKey(): string {
+  return `kithmoot.conversation.v1.${nostrSession?.pubkey ?? 'visitor'}.${currentRoomId()}`
+}
+
+function restoreConversation(): void {
+  if (currentChannel !== undefined) return
+  try {
+    const name = sessionStorage.getItem(conversationStorageKey())
+    if (name && channelAvailable(name)) selectChannel(name)
+  } catch {
+    // Storage may be unavailable; Chat remains a usable starting point.
+  }
+}
+
 function selectChannel(name: string | undefined): void {
   captureDraft()
+  try { sessionStorage.setItem(conversationStorageKey(), name ?? '') } catch { /* Optional tab preference. */ }
   currentChannel = name
+  $('conversationHeading').textContent = conversationLabel(name)
   restoreDraft()
   delete $('channelClose').dataset.arm
   renderChannels()
@@ -3449,6 +3483,8 @@ function selectChannel(name: string | undefined): void {
   renderRoomWho()
   // You picked it: you are done with the sheet you picked it in.
   closeRoomSheet()
+  markConversationRead()
+  renderConversationNav()
   // Chromium resets a revealed textarea's selection after this click has
   // finished. Restore it on the next frame, unless the reader moved on.
   if (input instanceof HTMLTextAreaElement) {
@@ -3490,7 +3526,7 @@ function restoreDraft(): void {
 }
 
 function renderDraftBadges(): void {
-  for (const tab of $('channelBar').querySelectorAll<HTMLButtonElement>('button[data-channel]')) {
+  for (const tab of document.querySelectorAll<HTMLButtonElement>('#channelBar button[data-channel], #conversationNav button[data-channel]')) {
     const name = tab.dataset.channel || undefined
     const draft = drafts.get(name)
     const badge = tab.querySelector<HTMLElement>('.draftBadge')!
@@ -3509,6 +3545,7 @@ function draftChanged(draft: ConversationDraft): void {
   }
   renderDraftBadges()
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
+  renderWorkspace()
 }
 
 /**
@@ -3522,9 +3559,8 @@ function channelPurpose(name: string | undefined): string {
   if (name === undefined) return 'Everybody in this room can read this, and can write here too.'
   if (name === AGENT_CHANNEL) {
     return (
-      'Agents are computer helpers that come into a room like people do. ' +
-      'This is what they say to each other, and everybody here can read it: ' +
-      'a helper working for you does not get a private conversation you cannot see. You can join in.'
+      'The computer helpers’ shared conversation. Messages appear here as they arrive. ' +
+      'Everybody in this room can read and reply.'
     )
   }
   if (name === TRANSCRIPT_CHANNEL) {
@@ -3589,36 +3625,94 @@ function asksForMinutes(text: string): boolean {
   return (text.trim().split(/\s+/)[0] ?? '').toLowerCase() === '!minutes'
 }
 
+function conversationLabel(name: string | undefined): string {
+  if (name === undefined) return 'Chat'
+  if (name === AGENT_CHANNEL) return 'Agents'
+  if (name === TRANSCRIPT_CHANNEL) return 'Transcript'
+  if (name === MINUTES_CHANNEL) return 'Minutes'
+  return name
+}
+
+function conversationTabs(): Array<[string | undefined, string]> {
+  const names = new Set([AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, ...channels])
+  for (const draft of drafts.pending()) if (draft.channel !== undefined) names.add(draft.channel)
+  return [[undefined, 'Chat'], ...Array.from(names, name => [name, conversationLabel(name)] as [string, string])]
+}
+
+function conversationMessages(name: string | undefined): ChatMessage[] {
+  return (name === undefined ? session?.chat : channelLogs.get(name))?.messages() ?? []
+}
+
+function conversationUnread(name: string | undefined): number {
+  const read = conversationRead.get(name ?? '')
+  return conversationMessages(name).filter(message => !message.reaction && message.participant !== meParticipant && !read?.has(message.id)).length
+}
+
+function markConversationRead(): boolean {
+  const log = $('chatLog')
+  if ($('roomArea').hidden || document.visibilityState !== 'visible' || document.querySelector('dialog[open]') || log.scrollHeight - log.scrollTop - log.clientHeight > 48) return false
+  const key = currentChannel ?? ''
+  const messages = conversationMessages(currentChannel)
+  const previous = conversationRead.get(key)
+  if (previous?.size === messages.length && messages.every(message => previous.has(message.id))) return false
+  conversationRead.set(key, new Set(messages.map(message => message.id)))
+  return true
+}
+
+function renderConversationNav(): void {
+  const nav = $('conversationNav')
+  const focused = document.activeElement as HTMLElement | null
+  const focusedChannel = focused && nav.contains(focused) ? focused.closest<HTMLElement>('[data-channel]')?.dataset.channel : undefined
+  const scroll = nav.scrollLeft
+  nav.replaceChildren()
+  for (const [name, label] of conversationTabs()) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.dataset.channel = name ?? ''
+    button.title = channelSummary(name)
+    button.setAttribute('aria-pressed', String(name === currentChannel))
+    button.append(label)
+    const count = conversationUnread(name)
+    if (count > 0) {
+      const badge = document.createElement('span')
+      badge.className = 'conversationUnread'
+      badge.textContent = count > 99 ? '99+' : String(count)
+      badge.setAttribute('aria-label', `${count} unread messages`)
+      button.append(badge)
+    }
+    const draft = document.createElement('span')
+    draft.className = 'draftBadge'
+    button.append(draft)
+    button.addEventListener('click', () => selectChannel(name))
+    nav.append(button)
+  }
+  renderDraftBadges()
+  nav.scrollLeft = scroll
+  if (focusedChannel !== undefined) {
+    Array.from(nav.querySelectorAll<HTMLButtonElement>('button')).find(button => button.dataset.channel === focusedChannel)?.focus({ preventScroll: true })
+  }
+}
+
+function renderAgentActivity(): void {
+  const agents = (session?.participants() ?? []).filter(view => view.agent)
+  const watching = currentChannel === AGENT_CHANNEL
+  const activity = $('agentActivity')
+  activity.hidden = !watching && agents.length === 0
+  $('agentActivityTitle').textContent = agents.length ? `${agents.length} agent${agents.length === 1 ? '' : 's'} in this room` : 'No agents here yet'
+  const names = agents.slice(0, 3).map(view => shownAs(view.participant, view.name).name ?? shortKey(view.participant)).join(', ')
+  $('agentActivityNote').textContent = watching
+    ? agents.length ? `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''}` : 'Invite an agent, or read earlier messages here.'
+    : `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''} · Read what they say to each other.`
+  $('watchAgents').hidden = watching
+  $('manageAgents').hidden = !watching
+}
+
 function renderChannels(): void {
   const bar = $('channelBar')
   const focused = document.activeElement as HTMLElement | null
   const focusedChannel = focused && bar.contains(focused) ? focused.closest<HTMLButtonElement>('button[data-channel]')?.dataset.channel : undefined
   const s = session
-  // Reserved conversations every room has, whether or not a keeper has
-  // announced them. `agents` is where agents talk among themselves, and a
-  // person being able to read that is the whole reason it exists.
-  //
-  // These stay on the list when they are empty, and the reason is not the
-  // obvious one. An always-present conversation answers a question only its
-  // absence could raise - "is something being said out of my sight?" - and
-  // one that vanishes when quiet can never answer it. But an empty one that
-  // says nothing about itself reads as broken, which is worse for a first-
-  // time reader than never seeing it. So: always listed, and never silent
-  // about what it is. `channelSummary` says what each one is for in the
-  // list, `channelPurpose` says it properly at the head of the conversation
-  // itself, and the note there says out loud when nothing has been said.
-  const reserved: Array<[string, string]> = [[AGENT_CHANNEL, 'Agents']]
-  for (const name of [TRANSCRIPT_CHANNEL, MINUTES_CHANNEL]) {
-    if (channels.includes(name)) continue
-    reserved.push([name, name === MINUTES_CHANNEL ? 'Minutes' : 'Transcript'])
-  }
-  const named = channels.filter((c) => !reserved.some(([n]) => n === c))
-  // A closed conversation with unfinished work stays reachable so its
-  // draft can be copied or discarded, without sending it somewhere else.
-  for (const draft of drafts.pending()) {
-    if (draft.channel !== undefined && !channelAvailable(draft.channel)) named.push(draft.channel)
-  }
-  const tabs: Array<[string | undefined, string]> = [[undefined, 'Chat'], ...reserved, ...named.map((c) => [c, c] as [string, string])]
+  const tabs = conversationTabs()
 
   bar.hidden = !s
   bar.innerHTML = ''
@@ -3627,9 +3721,8 @@ function renderChannels(): void {
       const tab = document.createElement('button')
       tab.type = 'button'
       tab.dataset.channel = name ?? ''
-      tab.setAttribute('role', 'tab')
       const on = currentChannel === name
-      tab.setAttribute('aria-selected', String(on))
+      tab.setAttribute('aria-pressed', String(on))
       const heading = document.createElement('span')
       heading.className = 'channelName'
       heading.append(label)
@@ -3661,6 +3754,7 @@ function renderChannels(): void {
   }
   renderComposer()
   renderRoomWho()
+  renderConversationNav()
 
   // Creating and closing a channel is structure, so it is an admin's to do
   // and the controls are absent rather than disabled for everybody else.
@@ -4833,6 +4927,7 @@ async function startSession(): Promise<void> {
     // History may have arrived while the join screen still hid the log.
     // Start at the latest message once the conversation can be measured.
     chatScroll.reset()
+    restoreConversation()
     repaintActiveChat()
   } catch (err) {
     const failed = session
@@ -5001,13 +5096,17 @@ function hideRoomsList(): void {
 
 function renderRooms(): void {
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
+  renderWorkspace()
   if (!roomsListShown) return
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add ${importable.length} ${importable.length === 1 ? 'room' : 'rooms'} from this browser`
   const rooms = knownRooms(roomStore())
   const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
-  const filtered = rooms.filter(room => `${roomLabel(room)} ${room.roomId}`.toLocaleLowerCase().includes(query))
+  fillProjectFilter('homeProject', rooms)
+  const project = ($('homeProject') as HTMLSelectElement).value
+  const filtered = rooms.filter(room => matchesRoom(room, query, project))
+  $('homeProjectFilter').hidden = !rooms.some(room => projectOf(room))
   $('rooms').hidden = rooms.length === 0 && !nostrSession
   $('notify').hidden = rooms.length === 0
   $('homeHeading').textContent = rooms.length ? 'Pick up the conversation.' : 'Make room for a conversation.'
@@ -5015,7 +5114,7 @@ function renderRooms(): void {
   $('roomsEmpty').hidden = rooms.length !== 0
   $('homeRoomSearch').hidden = rooms.length === 0
   $('clearHomeRoomQuery').hidden = !query
-  $('homeRoomResults').hidden = !query
+  $('homeRoomResults').hidden = !query && project === '*'
   $('homeRoomResults').textContent = filtered.length
     ? `${filtered.length} ${filtered.length === 1 ? 'room' : 'rooms'} found`
     : 'No rooms match this search.'
@@ -5073,7 +5172,10 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   id.textContent = shortKey(room.roomId)
   id.title = room.roomId
   heading.append(name, id)
-  main.append(heading, roomMeta(room))
+  main.append(heading)
+  const project = projectOf(room)
+  if (project) { const label = document.createElement('span'); label.className = 'roomProject'; label.textContent = project; main.append(label) }
+  main.append(roomMeta(room))
 
   const actions = document.createElement('div')
   actions.className = 'roomActions'
@@ -5084,7 +5186,7 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   forget.setAttribute('aria-label', `Forget ${roomLabel(room)}`)
   forget.textContent = 'Forget'
   forget.addEventListener('click', () => forgetKnownRoom(room))
-  actions.append(forget)
+  actions.append(projectButton(room), forget)
 
   row.append(main, actions)
   return row
@@ -5156,24 +5258,132 @@ function openKnownRoom(room: KnownRoom): void {
   location.reload()
 }
 
-const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
+function projectOf(room: Pick<KnownRoom, 'roomId'>): string | undefined {
+  return roomProject(deviceStore, nostrSession?.pubkey, room.roomId)
+}
 
-function openRoomSwitcher(): void {
+function navigationRooms(): KnownRoom[] {
+  const rooms = knownRooms(roomStore())
+  const current = currentRoomId()
+  if (current && !rooms.some(room => room.roomId === current)) {
+    rooms.unshift({ roomId: current, name: roomName, link: encodeRoomUrl(joinLinkBase(), relays, iceUrls), openedAt: nowSeconds(), readAt: 0 })
+  }
+  return rooms
+}
+
+function matchesRoom(room: KnownRoom, query: string, project = '*'): boolean {
+  return (project === '*' || (projectOf(room) ? `project:${projectOf(room)}` : '') === project)
+    && `${roomLabel(room)} ${room.roomId} ${projectOf(room) ?? ''}`.toLocaleLowerCase().includes(query)
+}
+
+function projectNames(rooms: KnownRoom[]): string[] {
+  return [...new Set(rooms.map(projectOf).filter((name): name is string => Boolean(name)))].sort((a, b) => a.localeCompare(b))
+}
+
+function fillProjectFilter(id: string, rooms: KnownRoom[]): void {
+  const select = $(id) as HTMLSelectElement
+  const value = select.value
+  const options: Array<[string, string]> = [['*', 'All projects'], ...projectNames(rooms).map(name => [`project:${name}`, name] as [string, string]), ['', 'No project']]
+  // Do not replace a native select while the person is choosing from it.
+  if (Array.from(select.options).map(option => option.value).join('\n') === options.map(([value]) => value).join('\n')) return
+  select.replaceChildren(...options.map(([value, label]) => new Option(label, value)))
+  select.value = options.some(([key]) => key === value) ? value : '*'
+}
+
+function projectButton(room: KnownRoom): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'quiet organiseRoom'
+  button.dataset.action = 'project'
+  button.textContent = 'Project'
+  button.setAttribute('aria-label', `Set project for ${roomLabel(room)}`)
+  button.addEventListener('click', () => openProjectEditor(room, button))
+  return button
+}
+
+let projectRoom: KnownRoom | undefined
+let projectReturn: HTMLElement | undefined
+let projectReturnList: HTMLElement | undefined
+function openProjectEditor(room: KnownRoom, opener: HTMLElement): void {
+  projectRoom = room
+  projectReturn = opener
+  projectReturnList = opener.closest<HTMLElement>('#workspaceRooms, #roomSwitcherList, #roomList') ?? undefined
+  $('projectRoomName').textContent = roomLabel(room)
+  ;($('projectName') as HTMLInputElement).value = projectOf(room) ?? ''
+  $('projectSuggestions').replaceChildren(...projectNames(navigationRooms()).map(name => new Option(name, name)))
+  $('projectError').hidden = true
+  ;($('projectEditor') as HTMLDialogElement).showModal()
+  $('projectName').focus()
+}
+
+function renderWorkspace(): void {
+  if ($('workspaceNav').hidden) return
+  const list = $('workspaceRooms')
+  const focused = document.activeElement as HTMLElement | null
+  const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
+  const action = focused?.dataset.action
+  const query = ($('workspaceQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
+  const rooms = navigationRooms().filter(room => matchesRoom(room, query))
+  const current = currentRoomId()
+  const busy = hasUnsentWork()
+  const groups = [...projectNames(rooms), ...(rooms.some(room => !projectOf(room)) ? [''] : [])]
+  list.replaceChildren()
+  for (const project of groups) {
+    const group = document.createElement('section')
+    const heading = document.createElement('h3')
+    heading.textContent = project || 'No project'
+    group.append(heading)
+    for (const room of rooms.filter(room => (projectOf(room) ?? '') === project)) {
+      const row = document.createElement('div')
+      row.className = 'workspaceRoom'
+      row.dataset.room = room.roomId
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'workspaceRoomLink'
+      button.dataset.action = 'switch'
+      button.textContent = roomLabel(room)
+      button.title = `${roomLabel(room)} · ${shortKey(room.roomId)}`
+      if (room.roomId === current) button.setAttribute('aria-current', 'true')
+      // An unfinished draft is kept in its tab; the picker offers a new tab.
+      button.addEventListener('click', () => {
+        if (hasUnsentWork() && room.roomId !== current) openRoomSwitcher()
+        else switchRoom(room)
+      })
+      const organise = projectButton(room)
+      organise.textContent = '⋯'
+      row.append(button, organise)
+      group.append(row)
+    }
+    list.append(group)
+  }
+  $('workspaceEmpty').hidden = rooms.length > 0
+  $('workspaceNote').textContent = busy ? 'Drafts stay here. Open another room in a new tab from Find a room.' : 'Projects are saved on this browser. Use ⋯ beside a room to organise it.'
+  if (focusedRoom && action) {
+    const row = Array.from(list.querySelectorAll<HTMLElement>('[data-room]')).find(row => row.dataset.room === focusedRoom)
+    ;(row?.querySelector<HTMLElement>(`[data-action="${action}"]`) ?? $('workspaceQuery')).focus({ preventScroll: true })
+  }
+}
+
+const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
+let roomSwitcherReturn: HTMLElement | undefined
+
+function openRoomSwitcher(event?: Event): void {
   const dialog = $('roomSwitcher') as HTMLDialogElement
   if (dialog.open) return
+  roomSwitcherReturn = event?.currentTarget instanceof HTMLElement ? event.currentTarget : document.activeElement instanceof HTMLElement ? document.activeElement : undefined
   ;($('roomSearch') as HTMLInputElement).value = ''
   renderRoomSwitcher()
   dialog.showModal()
+  $('roomSearch').focus()
 }
 
 function renderRoomSwitcher(): void {
   const current = currentRoomId()
-  const rooms = knownRooms(roomStore())
-  if (current && !rooms.some(room => room.roomId === current)) {
-    rooms.unshift({ roomId: current, name: roomName, link: encodeRoomUrl(joinLinkBase(), relays, iceUrls), openedAt: nowSeconds(), readAt: 0 })
-  }
+  const rooms = navigationRooms()
   const query = ($('roomSearch') as HTMLInputElement).value.trim().toLocaleLowerCase()
-  const filtered = rooms.filter(room => `${roomLabel(room)} ${room.roomId}`.toLocaleLowerCase().includes(query))
+  fillProjectFilter('switcherProject', rooms)
+  const project = ($('switcherProject') as HTMLSelectElement).value
+  const filtered = rooms.filter(room => matchesRoom(room, query, project))
   const busy = hasUnsentWork()
   $('roomSwitcherNote').textContent = busy
     ? 'You have unfinished messages or files. Open another room in a new tab to keep them here, or close this picker and finish sending first.'
@@ -5181,6 +5391,9 @@ function renderRoomSwitcher(): void {
       ? 'Your call stays connected while you browse. Switching will ask before leaving it; a new tab keeps this call here.'
       : 'Choose a room to go straight to its conversation. Closing this picker keeps you where you are.'
   const list = $('roomSwitcherList')
+  const focused = document.activeElement as HTMLElement | null
+  const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
+  const focusedAction = focused?.dataset.action
   list.replaceChildren()
   for (const room of filtered) {
     const row = document.createElement('li')
@@ -5189,11 +5402,13 @@ function renderRoomSwitcher(): void {
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'switchRoom'
+    button.dataset.action = 'switch'
+    button.setAttribute('aria-label', `Switch to ${roomLabel(room)}`)
     const name = document.createElement('span')
     name.textContent = roomLabel(room)
     const detail = document.createElement('span')
     detail.className = 'switchRoomCode'
-    detail.textContent = `${room.roomId.slice(0, 12)}…${room.roomId === current ? ' · Current room' : ''}`
+    detail.textContent = `${projectOf(room) ?? 'No project'} · ${room.roomId.slice(0, 12)}…${room.roomId === current ? ' · Current room' : ''}`
     button.append(name, detail)
     if (room.roomId === current) button.setAttribute('aria-current', 'true')
     button.disabled = busy && room.roomId !== current
@@ -5202,6 +5417,7 @@ function renderRoomSwitcher(): void {
     if (room.roomId !== current) {
       const link = document.createElement('a')
       link.className = 'switchRoomNewTab'
+      link.dataset.action = 'new-tab'
       link.href = joinLinkBase() + new URL(room.link, location.href).hash
       link.target = '_blank'
       link.rel = 'noopener noreferrer'
@@ -5209,7 +5425,12 @@ function renderRoomSwitcher(): void {
       link.setAttribute('aria-label', `Open ${roomLabel(room)} in a new tab`)
       row.append(link)
     }
+    row.append(projectButton(room))
     list.append(row)
+  }
+  if (focusedRoom && focusedAction) {
+    const row = Array.from(list.children).find(row => (row as HTMLElement).dataset.room === focusedRoom)
+    ;(row?.querySelector<HTMLElement>(`[data-action="${focusedAction}"]`) ?? $('roomSearch')).focus({ preventScroll: true })
   }
   $('roomSwitcherEmpty').hidden = filtered.length > 0
   // A trip to the dashboard must not silently discard unfinished work.
@@ -5507,6 +5728,66 @@ async function setNudge(on: boolean): Promise<void> {
 // The bar: back, who and where, the call, and everything else.
 $('backToRooms').addEventListener('click', openRoomSwitcher)
 $('doorToRooms').addEventListener('click', openRoomSwitcher)
+$('watchAgents').addEventListener('click', () => selectChannel(AGENT_CHANNEL))
+$('manageAgents').addEventListener('click', () => {
+  openRoomSheet()
+  ;($('inviteAgents') as HTMLDetailsElement).open = true
+  $('inviteAgents').scrollIntoView({ block: 'start' })
+  $('inviteAgents').querySelector('summary')?.focus()
+})
+$('chatLog').addEventListener('scroll', () => { if (markConversationRead()) renderConversationNav() }, { passive: true })
+document.addEventListener('visibilitychange', () => { if (markConversationRead()) renderConversationNav() })
+for (const dialog of document.querySelectorAll('dialog')) {
+  dialog.addEventListener('close', () => { if (markConversationRead()) renderConversationNav() })
+}
+$('conversationNav').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  const buttons = Array.from($('conversationNav').querySelectorAll<HTMLButtonElement>('button'))
+  const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+  if (index < 0) return
+  event.preventDefault()
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
+  buttons[next]?.focus()
+})
+$('workspaceSwitch').addEventListener('click', openRoomSwitcher)
+$('workspaceQuery').addEventListener('input', renderWorkspace)
+$('workspaceHome').addEventListener('click', () => {
+  if (hasUnsentWork()) { openRoomSwitcher(); return }
+  $('roomSwitcherHome').click()
+})
+$('homeProject').addEventListener('change', renderRooms)
+$('switcherProject').addEventListener('change', renderRoomSwitcher)
+$('projectCancel').addEventListener('click', () => ($('projectEditor') as HTMLDialogElement).close())
+$('projectEditor').addEventListener('close', () => {
+  if (projectReturn?.isConnected) { projectReturn.focus({ preventScroll: true }); return }
+  const row = Array.from(projectReturnList?.querySelectorAll<HTMLElement>('[data-room]') ?? []).find(row => row.dataset.room === projectRoom?.roomId)
+  const target = row?.querySelector<HTMLElement>('[data-action=project]')
+  ;(target ?? (($('roomSwitcher') as HTMLDialogElement).open ? $('roomSearch') : !$('workspaceNav').hidden && $('workspaceNav').offsetWidth ? $('workspaceQuery') : $('homeRoomQuery'))).focus({ preventScroll: true })
+})
+$('projectForm').addEventListener('submit', event => {
+  event.preventDefault()
+  if (!projectRoom) return
+  try {
+    setRoomProject(deviceStore, nostrSession?.pubkey, projectRoom.roomId, ($('projectName') as HTMLInputElement).value)
+    ;($('projectEditor') as HTMLDialogElement).close()
+    renderRooms()
+  } catch {
+    $('projectError').textContent = 'This browser could not save the project. Try again after allowing storage for this site.'
+    $('projectError').hidden = false
+  }
+})
+document.addEventListener('keydown', event => {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'k') return
+  if (document.querySelector('dialog[open]') || (!session && !currentRoomId())) return
+  event.preventDefault()
+  openRoomSwitcher()
+})
+window.addEventListener('storage', event => {
+  if (event.key?.startsWith('kithmoot.project.v1.')) renderRooms()
+})
+$('roomSwitcher').addEventListener('close', () => {
+  if (roomSwitcherReturn?.isConnected) roomSwitcherReturn.focus({ preventScroll: true })
+})
 $('roomSwitcherClose').addEventListener('click', () => ($('roomSwitcher') as HTMLDialogElement).close())
 $('roomSearch').addEventListener('input', renderRoomSwitcher)
 $('roomSwitcherHome').addEventListener('click', () => {
@@ -6109,6 +6390,7 @@ $('chatInput').addEventListener('input', () => {
   growComposer($('chatInput') as HTMLTextAreaElement)
   renderMentionPicker()
   renderDraftBadges()
+  renderWorkspace()
   ;($('discardDraft') as HTMLButtonElement).hidden = !draftHasWork(draft)
   $('draftHelp').hidden = drafts.pending().length === 0
 })

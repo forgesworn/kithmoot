@@ -196,7 +196,26 @@ to make that one thing true.
   account. Switching away from a live call asks first and starts the next
   room with camera and microphone off. With unfinished messages or files,
   use **New tab** to keep that work in its original tab. **All rooms / Start
-  a room** in the picker opens the full dashboard.
+  a room** in the picker opens the full dashboard. **Ctrl K / ⌘ K** opens
+  the picker from a room; its search field is ready to type in. Returning to
+  a room in the same tab restores its last conversation when still available.
+
+  On a desktop, a sidebar keeps saved rooms visible beside the conversation.
+  Use **⋯** beside a room to assign a project. The mobile picker and home
+  list offer the same **Project** action and a project filter. Search matches
+  project names as well as room names and codes. Project labels stay on this
+  browser, separate for each signed-in account and visitors; they do not sync
+  or change room membership.
+
+  **Chat, Agents, Transcript and Minutes** are visible above the messages,
+  alongside named conversations announced by the room. Unread badges count
+  other participants' loaded messages not yet read in this visit; opening a
+  conversation at its latest messages clears its badge. They do not report
+  activity in other rooms. **Watch agents** opens their shared conversation,
+  where messages arrive as they are sent and people can join in. The presence
+  summary shows who is here without claiming that an agent is thinking or
+  working. **Invite an agent** opens the available hosts; when none are
+  offering agents, it explains why and links to setup instructions.
 
   Without sign-in, the front page lists the rooms this browser has been in,
   by the name on their link, with how many chat messages are newer than
@@ -252,7 +271,8 @@ to make that one thing true.
   Through the stdio brain as an event, and the MCP brain as a tool.
 - **Invite an agent with one click.** An agent host (`kithmoot-agent host`)
   sits in the room with a catalogue of personas; every person sees the
-  catalogue under the agents panel and starts or stops one with a button.
+  catalogue through **Agents → Invite an agent** and starts or stops one
+  with a button.
   The agent runs on the host's machine and joins through the room's link
   like anybody else.
 - **Minutes, with nobody typing them.** `kithmoot-agent scribe` sits in a

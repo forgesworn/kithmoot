@@ -33,7 +33,9 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await page.locator('#chatProfiles').click(); await page.locator('#lookupProfiles').check()
     await page.locator('#profileSettingsClose').click()
     await expect(row.locator('img.avatar')).toHaveAttribute('src', pictureURL)
-    await expect.poll(() => row.locator('img.avatar').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(32)
+    // WebKit reports an SVG's rendered intrinsic size here. Verify decoding
+    // independently of that engine-specific size; the source is checked above.
+    await expect.poll(() => row.locator('img.avatar').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0)).toBe(true)
     expect(pictureRequests).toBeGreaterThan(0)
     await page.locator('#chatProfiles').click(); await page.locator('#lookupProfiles').uncheck(); await page.locator('#profileSettingsClose').click()
     await expect(row.locator('.avatar.initials')).toBeVisible()

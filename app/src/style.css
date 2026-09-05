@@ -2190,7 +2190,7 @@ label.note {
   text-align: left;
 }
 
-.channelBar button[aria-selected='true'] {
+.channelBar button[aria-pressed='true'] {
   border-color: var(--accent);
   background: var(--accent-dim);
 }
@@ -2530,4 +2530,138 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   #chatForm { flex-wrap: wrap; }
   #chatInput { flex: 1 0 100%; width: 100%; }
   #chatForm button[type=submit] { margin-left: auto; }
+}
+
+/* Primary navigation stays beside the room on a desktop and within thumb
+   reach above the conversation on a phone. */
+.conversationNav {
+  display: flex;
+  flex: 0 0 auto;
+  gap: .3rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: .1rem 0 .5rem;
+  margin-bottom: .3rem;
+  min-width: 0;
+}
+.conversationNav button {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  min-height: 44px;
+  margin: 0;
+  padding: .5rem .8rem;
+  white-space: nowrap;
+  background: transparent;
+  border-color: transparent;
+  font-size: .9rem;
+}
+.conversationNav button[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+.conversationUnread {
+  min-width: 1.4rem;
+  padding: 0 .35rem;
+  border-radius: 1rem;
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+.conversationNav .draftBadge { margin: 0; }
+.agentActivity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem .8rem;
+  padding: .6rem .85rem;
+  margin-bottom: .6rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--agent);
+  border-radius: 8px;
+  background: var(--agent-bubble);
+  font-size: .85rem;
+}
+.agentActivity > div { flex: 1 1 14rem; min-width: 0; }
+.agentActivity strong, .agentActivity span { display: block; overflow-wrap: anywhere; }
+.agentActivity span { color: var(--muted); }
+.agentActivity button { margin: 0; min-height: 44px; font-size: .85rem; background: var(--panel); }
+.projectFilter { display: flex; gap: .7rem; align-items: center; margin: .7rem 0; }
+.projectFilter label { margin: 0; flex: 0 0 auto; }
+.projectFilter select { flex: 1; min-width: 0; max-width: 100%; }
+select {
+  font: inherit;
+  min-height: 44px;
+  padding: .5rem;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--field);
+}
+.roomProject { display: inline-block; font-size: .8rem; color: var(--accent); margin-bottom: .25rem; }
+#projectEditor { width: min(34rem, calc(100vw - 2rem)); padding: 0; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 12px; max-height: calc(100svh - 2rem); }
+#projectEditor::backdrop { background: rgb(0 0 0 / 55%); }
+#projectRoomName { font-weight: 650; overflow-wrap: anywhere; }
+#projectName { font-family: inherit; }
+.organiseRoom { margin: 0; font-size: .85rem; min-height: 44px; }
+#workspaceNav { display: none; }
+
+/* At intermediate widths the conversation still uses the available height. */
+body:has(#roomArea:not([hidden])) { display: flex; flex-direction: column; min-height: 100svh; }
+body:has(#roomArea:not([hidden])) > main { flex: 1 1 auto; min-width: 0; width: 100%; }
+main:has(#roomArea:not([hidden])) { display: flex; flex-direction: column; }
+#roomArea { min-width: 0; }
+main:has(#roomArea:not([hidden])) > #roomArea { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-height: 10rem; }
+
+@media (min-width: 1100px) {
+  body:has(#roomArea:not([hidden])) > header { display: none; }
+  body:has(#roomArea:not([hidden])) { padding-top: 1.25rem; }
+  main:has(#roomArea:not([hidden])) {
+    max-width: none;
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: stretch;
+  }
+  #workspaceNav:not([hidden]) { display: flex; flex-direction: column; min-width: 0; padding-right: 1rem; border-right: 1px solid var(--border); }
+  .workspaceBrand { font-size: 1.3rem; font-weight: 750; letter-spacing: -.035em; margin: .2rem 0 1.25rem; }
+  #workspaceSwitch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .3rem; margin: 0 0 .75rem; font-size: .9rem; }
+  #workspaceSwitch kbd { font: .65rem system-ui, sans-serif; color: var(--muted); }
+  #workspaceQuery { font: .85rem system-ui, sans-serif; margin-bottom: .75rem; }
+  #workspaceRooms { flex: 1; }
+  #workspaceRooms section { margin: 0 0 1rem; }
+  #workspaceRooms h3 { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; overflow-wrap: anywhere; margin: .65rem .5rem; }
+  .workspaceRoom { display: flex; align-items: center; gap: .2rem; margin-bottom: .15rem; }
+  .workspaceRoomLink { flex: 1; min-width: 0; text-align: left; margin: 0; border-color: transparent; background: transparent; font-size: .9rem; padding: .55rem .6rem; overflow-wrap: anywhere; }
+  .workspaceRoomLink[aria-current='true'] { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); font-weight: 650; }
+  .workspaceRoom .organiseRoom { border: 0; background: transparent; padding: .3rem; min-width: 32px; }
+  #workspaceHome { font-size: .85rem; margin-top: 1rem; }
+  #workspaceNote { font-size: .75rem; margin: .5rem 0; }
+}
+
+@media (max-width: 540px) {
+  .conversationNav { gap: 0; }
+  .conversationNav button { padding-inline: .6rem; font-size: .8rem; }
+  .agentActivity { padding: .4rem .6rem; }
+  .agentActivity > div { flex-basis: 10rem; }
+  .agentActivity span { font-size: .75rem; }
+}
+@media (max-width: 700px) {
+  .roomBar { flex-wrap: wrap; }
+  .roomIdentity { flex-basis: 6rem; }
+  main:has(#roomArea:not([hidden])) #chatLog { min-height: 6rem; }
+}
+@media (min-width: 1100px) {
+  #workspaceRooms { overflow-y: auto; max-height: calc(100svh - 18rem); }
+}
+
+/* Keep a full line visible when text size changes after the composer was
+   measured. The inline pixel height must not clip larger type. */
+#chatInput { min-height: calc(1.45em + 1.1rem + 2px); }
+@media (max-width: 540px) {
+  .agentActivity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; }
+  .agentActivity button { padding: .4rem .5rem; font-size: .75rem; }
 }
