@@ -1,4 +1,5 @@
 import { EmojiPicker } from './emoji-picker.js'
+import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
 import './style.css'
 import { installUpdates } from './updates.js'
@@ -2529,6 +2530,10 @@ function participantIsAgent(participant: string): boolean {
 }
 
 function render(views: ParticipantView[], me: string): void {
+  // A catalogue can arrive before its participant's roster entry. Refresh
+  // an open completion when presence catches up, or the ^ menu stays empty
+  // until the person types again.
+  if (document.activeElement === $('chatInput')) renderMentionPicker()
   for (const view of views) if (view.agent) agentParticipants.add(view.participant)
   const mine = views.find((v) => v.participant === me)
 
@@ -3198,7 +3203,10 @@ function ingestControl(messages: ChatMessage[]): void {
         break
     }
   }
-  if (changed) renderInvites()
+  if (changed) {
+    renderInvites()
+    if (document.activeElement === $('chatInput')) renderMentionPicker()
+  }
 }
 
 /** Which hosts are actually here. A catalogue from a host that has left is
@@ -6178,6 +6186,7 @@ function growComposer(box: HTMLTextAreaElement): void {
 interface MentionChoice {
   name: string
   agent: boolean
+  model?: ComposerModel
 }
 
 /** Where the `@` being completed sits in the box, or -1 for closed. */
@@ -6199,6 +6208,11 @@ function closeMentionPicker(): void {
   box.hidden = true
   box.innerHTML = ''
   $('chatInput').setAttribute('aria-expanded', 'false')
+  $('chatInput').removeAttribute('aria-activedescendant')
+}
+
+function availableComposerModels(): ComposerModel[] {
+  return composerModels(catalogues.values(), session?.participants() ?? [])
 }
 
 /** Everybody in the room bar yourself, people and agents alike, ordered so
@@ -6234,16 +6248,19 @@ function renderMentionPicker(): void {
     return
   }
   const caret = box.selectionStart ?? 0
+  if (box.selectionEnd !== caret) { closeMentionPicker(); return }
   const before = box.value.slice(0, caret)
-  const at = before.lastIndexOf('@')
+  const models = modelCompletions(before, availableComposerModels(), rosterNames())
+  const at = models === undefined ? before.lastIndexOf('@') : 0
   const priorChar = at > 0 ? before[at - 1] ?? '' : ''
   const startsWord = at === 0 || /[^\p{L}\p{N}_]/u.test(priorChar)
   const query = at === -1 ? '' : before.slice(at + 1)
-  if (at === -1 || !startsWord || query.includes('\n') || query.length > MENTION_QUERY_LIMIT) {
+  if (models === undefined && (at === -1 || !startsWord || query.includes('\n') || query.length > MENTION_QUERY_LIMIT)) {
     closeMentionPicker()
     return
   }
-  const choices = mentionCandidates(query)
+  const choices: MentionChoice[] = models === undefined ? mentionCandidates(query) :
+    models.map(model => ({ name: `^${model.id}`, agent: true, model }))
   if (choices.length === 0) {
     closeMentionPicker()
     return
@@ -6254,19 +6271,28 @@ function renderMentionPicker(): void {
   mentionCursor = reopened ? 0 : Math.min(mentionCursor, choices.length - 1)
 
   const list = $('mentions')
+  list.setAttribute('aria-label', models === undefined ? 'People and agents in this room' : 'Models available for this task')
   list.innerHTML = ''
   choices.forEach((choice, i) => {
     const option = document.createElement('button')
     option.type = 'button'
+    option.id = `composer-choice-${i}`
     option.setAttribute('role', 'option')
     option.setAttribute('aria-selected', String(i === mentionCursor))
     const name = document.createElement('span')
     name.className = 'name'
     name.textContent = choice.name
     option.append(name)
+    if (choice.model) {
+      option.className = 'model-choice'
+      const detail = document.createElement('span')
+      detail.className = 'model-label'
+      detail.textContent = `${choice.model.label} · ${choice.model.agent}`
+      option.append(detail)
+    }
     // The same tag in the same colour as on the roster and on the bubbles,
     // so "this one is a program" is one idea told one way everywhere.
-    if (choice.agent) {
+    if (choice.agent && !choice.model) {
       const badge = document.createElement('span')
       badge.className = 'badge agent'
       badge.textContent = 'agent'
@@ -6282,6 +6308,7 @@ function renderMentionPicker(): void {
   })
   list.hidden = false
   box.setAttribute('aria-expanded', 'true')
+  box.setAttribute('aria-activedescendant', `composer-choice-${mentionCursor}`)
   list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
 }
 
@@ -6292,13 +6319,14 @@ function chooseMention(index: number): void {
   const choice = mentionChoices[index]
   if (!(box instanceof HTMLTextAreaElement) || !choice || mentionAt === -1) return
   const caret = box.selectionStart ?? 0
-  const inserted = `@${choice.name} `
+  const inserted = choice.model ? `@${choice.model.agent} ^${choice.model.id} ` : `@${choice.name} `
   box.value = box.value.slice(0, mentionAt) + inserted + box.value.slice(caret)
   const after = mentionAt + inserted.length
   closeMentionPicker()
   box.focus()
   box.setSelectionRange(after, after)
   growComposer(box)
+  captureDraft()
 }
 
 function moveMentionCursor(by: number): void {
@@ -6306,6 +6334,7 @@ function moveMentionCursor(by: number): void {
   mentionCursor = (mentionCursor + by + mentionChoices.length) % mentionChoices.length
   const options = $('mentions').querySelectorAll('[role="option"]')
   options.forEach((option, i) => option.setAttribute('aria-selected', String(i === mentionCursor)))
+  $('chatInput').setAttribute('aria-activedescendant', `composer-choice-${mentionCursor}`)
   options[mentionCursor]?.scrollIntoView({ block: 'nearest' })
 }
 
@@ -6350,7 +6379,13 @@ $('chatForm').addEventListener('submit', (event) => {
   const draft = captureDraft()
   if (draft.job || !channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const input = $('chatInput') as HTMLTextAreaElement
-  const typed = input.value.trim()
+  let typed = input.value.trim()
+  try {
+    typed = prepareModelMessage(typed, availableComposerModels(), rosterNames())
+  } catch (err) {
+    setStatus(describeError(err))
+    return
+  }
   const attachments = draft.attachments
   if ((!typed && attachments.length === 0) || !session) return
   // A file with nothing said about it still gets a caption, because the
@@ -6397,7 +6432,10 @@ $('chatInput').addEventListener('input', () => {
 // The caret can move without a keystroke - a tap, a drag, an arrow key -
 // and whether an `@` is being completed depends on where it is.
 for (const kind of ['click', 'keyup', 'select'] as const) {
-  $('chatInput').addEventListener(kind, () => renderMentionPicker())
+  $('chatInput').addEventListener(kind, event => {
+    if (event instanceof KeyboardEvent && event.key === 'Escape') return
+    renderMentionPicker()
+  })
 }
 $('chatInput').addEventListener('blur', () => closeMentionPicker())
 
