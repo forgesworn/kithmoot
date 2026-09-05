@@ -182,9 +182,14 @@ kithmoot.forgesworn.dev {
 	@noCache path /j/sw.js /j/index.html /j/ /j /j/manifest.webmanifest
 	header @noCache Cache-Control "no-cache, no-store, must-revalidate"
 
-	# An APK filename carries its version, so a given file never changes.
-	@apk path /apk/*.apk
+	# Versioned APKs never change. The moving latest link must be re-fetched.
+	@apk {
+		path /apk/*.apk
+		not path /apk/kithmoot-latest.apk
+	}
 	header @apk Cache-Control "public, max-age=604800"
+	@apkLatest path /apk/kithmoot-latest.apk
+	header @apkLatest Cache-Control "no-cache, no-store, must-revalidate"
 
 	# No access logs, matching every other conf.d drop-in on this box
 	# (cambium, flock, farrier-kit, heartwood, meatchat) and matching what

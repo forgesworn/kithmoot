@@ -68,8 +68,9 @@ use the existing keeper.  This change removes the keeper requirement for
 basic group membership, chat and calls; it does not add distributed group
 administration or mobile push delivery.
 
-The JS library and web app read v3.  The separately maintained Android app
-needs its own protocol and persistence update before using these links.
+The JS library and web app read v3.  Android 0.4.0 also reads and creates v3
+groups, with encrypted membership recovery on the device. Older Android builds
+need updating before using these links.
 
 ## Evidence
 
