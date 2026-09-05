@@ -4712,6 +4712,14 @@ async function startSession(): Promise<void> {
   $('joinRoomForm').setAttribute('aria-busy', 'true')
 
   try {
+    // A restored signer can arrive after the invitation. Joining first
+    // would mint a visitor identity that a known-contact clerk rejects,
+    // even though the account UI subsequently says we are signed in.
+    if (identityRestoring) {
+      setStatus('Reconnecting your sign-in…', 'progress')
+      await identityReady
+      setStatus('Joining the room…', 'progress')
+    }
     const deviceSk = deviceKey()
     myDeviceId = getPublicKey(deviceSk)
     const credential = loadCredential()
@@ -6939,9 +6947,9 @@ storeName(typedName)
 renderIdentity()
 
 // A signer paired on an earlier visit reconnects itself. Deliberately not
-// awaited before the page is usable: a bunker over a relay can take seconds,
-// and a name-only join must never wait on it. renderIdentity() runs again
-// when it lands.
+// awaited before the page is usable: a bunker over a relay can take seconds.
+// Joining waits for it so the room uses the same identity the account UI
+// shows. renderIdentity() runs again when it lands.
 const identityReady = restoreSession()
   .then((session) => {
     if (identityGeneration !== 0) return
