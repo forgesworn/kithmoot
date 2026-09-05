@@ -147,6 +147,8 @@ main > p {
 }
 
 h1 {
+  font-size: clamp(1.5rem, 8vw, 2rem);
+  overflow-wrap: anywhere;
   margin-bottom: 0;
 }
 
@@ -2487,6 +2489,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   padding: 1.25rem;
   background: var(--panel);
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .homeCard h3 { margin: 0; font-size: 1.2rem; }
 .homeCard > .note { margin: .45rem 0 1rem; }
