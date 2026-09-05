@@ -1,12 +1,15 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
+import { RoomAgent } from '../src/agent.js'
+import { generateRoomSecret } from '../src/room.js'
+import { encodeRoomLink } from '../src/link.js'
 
 /** A test NIP-07 provider: signing keys stay in Node, never in the app. */
-async function device(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true): Promise<BrowserContext> {
+async function device(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {}): Promise<BrowserContext> {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   const pubkey = getPublicKey(secret)
-  await context.exposeFunction('testPublicKey', () => pubkey)
+  await context.exposeFunction('testPublicKey', async () => { await beforePublicKey(); return pubkey })
   await context.exposeFunction('testSign', (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, secret))
   await context.exposeFunction('testEncrypt', (peer: string, plaintext: string) => encrypt(plaintext, getConversationKey(secret, peer)))
   await context.exposeFunction('testDecrypt', (peer: string, ciphertext: string) => decrypt(ciphertext, getConversationKey(secret, peer)))
@@ -43,6 +46,36 @@ async function signIn(page: Page, baseURL: string) {
   await expect(page.locator('#signOut')).toBeVisible()
   await expect(page.locator('#roomsEmpty')).toBeVisible()
 }
+
+test('joining waits for the saved Nostr identity before sending to a clerk', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  let gate = Promise.resolve()
+  let release = () => {}
+  let restoring = false
+  const context = await device(browser, baseURL!, secret, true, async () => { restoring = true; await gate })
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Clerk identity check', relays: [relay.href], iceUrls: [] })
+  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  try {
+    const signedInPage = await context.newPage()
+    await signIn(signedInPage, baseURL!)
+    restoring = false
+    gate = new Promise<void>(resolve => { release = resolve })
+    const page = await context.newPage()
+    await page.goto(link)
+    await expect.poll(() => restoring).toBe(true)
+    await page.locator('#displayName').fill('Returning principal')
+    await page.locator('#join').click()
+    await expect(page.locator('#status')).toContainText('Reconnecting your sign-in')
+    await expect(page.locator('#roomArea')).toBeHidden()
+    release()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#chatInput').fill('Tally, check my signed identity')
+    await page.locator('#chatInput').press('Enter')
+    await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, check my signed identity')?.participant).toBe(getPublicKey(secret))
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
+  } finally { release(); await context.close(); await clerk.leave() }
+})
 
 test('Nostr rooms follow the identity across browsers; direct-link visitors need no sign-in', async ({ browser, baseURL }) => {
   const secret = generateSecretKey()
