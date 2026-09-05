@@ -806,14 +806,37 @@ video {
   overflow-wrap: anywhere;
 }
 
-/* In the corner of the bubble, which is where every messaging app puts it. */
-.bubble .when {
-  display: block;
-  margin: 0.15rem 0 0;
-  text-align: right;
-  font-size: 0.72rem;
-  opacity: 0.85;
-}
+/* Sender and exact time remain visible above each message. */
+.messageHeader { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; max-width: 100%; margin-bottom: 0.3rem; }
+.messageHeader .sender { margin: 0; }
+.messageHeader .when { margin: 0; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.msg.mine .messageHeader { justify-content: flex-end; }
+.conversationTools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; flex: 0 0 auto; }
+.conversationTools button { min-height: 44px; padding: 0.4rem 0.65rem; margin: 0; font-size: 0.85rem; background: transparent; }
+.profileSettings { width: min(30rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); color: var(--text); }
+.profileSettings::backdrop { background: rgb(0 0 0 / 55%); }
+.profileSettingsHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.profileSettingsHeader h2 { font-size: 1.25rem; margin: 0; }
+.profileSettingsHeader button { min-height: 44px; }
+.shareExpand { min-height: 44px; padding: 0.45rem 0.7rem; margin: 0.5rem 0 0; }
+.media video.screenPreview { object-fit: contain; cursor: zoom-in; }
+dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100vw - 2rem); max-width: none; height: calc(100dvh - 2rem); max-height: none; padding: 0; border: 1px solid var(--border); border-radius: 14px; }
+.shareViewer { background: var(--panel); color: var(--text); }
+.shareViewer[open], main.shareViewer { display: flex; flex-direction: column; overflow: hidden; }
+.shareViewer::backdrop { background: rgb(0 0 0 / 70%); }
+.shareViewer:fullscreen { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
+.shareViewerBar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; padding: 0.65rem; flex: 0 0 auto; }
+.shareViewerBar h2 { font-size: 1rem; margin: 0; overflow-wrap: anywhere; }
+.shareViewerControls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.shareViewerControls button { min-height: 44px; min-width: 44px; padding: 0.35rem 0.6rem; font-size: 0.85rem; margin: 0; }
+.shareViewerControls output { min-width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+.shareViewport { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #080b0d; touch-action: none; }
+.shareViewport.zoomed { cursor: grab; }
+.shareViewport.zoomed:active { cursor: grabbing; }
+.shareViewport video { max-width: none; max-height: none; flex: none; object-fit: contain; pointer-events: none; transform-origin: center; border: 0; border-radius: 0; }
+.shareViewerNotice { flex: 0 0 auto; margin: 0; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: var(--muted); }
+body.sharePopup { margin: 0; padding: 0; max-width: none; width: 100vw; height: 100dvh; overflow: hidden; }
+body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding: 0; max-width: none; }
 
 /* When a line was said.
 
@@ -1340,6 +1363,7 @@ button.primary:hover:not(:disabled) {
   background: var(--border);
   display: block;
 }
+.avatar.initials { display: inline-grid; place-items: center; color: var(--text); background: var(--accent-dim); font: 600 0.85rem system-ui, sans-serif; flex: 0 0 auto; }
 
 /* The donor ring
  *
@@ -1406,6 +1430,7 @@ button.primary:hover:not(:disabled) {
   width: 1.2rem;
   height: 1.2rem;
 }
+#chatLog .messageHeader .avatar { width: 1.75rem; height: 1.75rem; }
 
 /* Effects - background blur and voice masking
  *
@@ -2488,4 +2513,21 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   .homeActionGrid { grid-template-columns: minmax(0, 1fr); }
   .homeIntro { margin: .5rem 0 .75rem; }
   .homeCard { padding: 1rem; }
+}
+
+.emojiPicker { width: min(25rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
+.emojiPicker h2 { margin-top: 0; }
+.emojiPicker input { width: 100%; }
+.emojiGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr)); gap: .35rem; margin: 1rem 0; }
+.emojiGrid button { min-height: 3rem; padding: .35rem; font-size: 1.5rem; }
+.messageReactions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .25rem; }
+.messageReactions button { min-width: 2.75rem; min-height: 2.75rem; padding: .15rem .4rem; background: transparent; border: 1px solid var(--line); border-radius: 2rem; font-size: .95rem; }
+.messageReactions button[aria-pressed=true] { border-color: var(--accent); background: var(--surface); }
+
+.shareViewerContent { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; }
+.shareViewerContent:fullscreen { height: 100dvh; width: 100vw; background: var(--bg); padding: .75rem; box-sizing: border-box; }
+@media (max-width: 600px) {
+  #chatForm { flex-wrap: wrap; }
+  #chatInput { flex: 1 0 100%; width: 100%; }
+  #chatForm button[type=submit] { margin-left: auto; }
 }

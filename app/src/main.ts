@@ -1,8 +1,11 @@
+import { EmojiPicker } from './emoji-picker.js'
+import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { ChatScroll } from './chat-scroll.js'
 import { ConversationSearch } from './conversation-search.js'
+import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
   browserDeviceStore,
@@ -112,6 +115,9 @@ import { base64urlnopad } from '@scure/base'
 const outbox = new Outbox(document.getElementById('outbox')!)
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
 const conversationSearch = new ConversationSearch(document)
+const shareViewer = new ShareViewer()
+const emojiPicker = new EmojiPicker()
+window.addEventListener('pagehide', () => shareViewer.close())
 const drafts = new ConversationDrafts()
 let navigationApproved = false
 function approvedReload(): void {
@@ -949,7 +955,9 @@ const profiles = new ProfileBook({
 })
 
 $('lookupProfiles').addEventListener('change', () => {
-  profiles.setEnabled(($('lookupProfiles') as HTMLInputElement).checked)
+  const enabled = ($('lookupProfiles') as HTMLInputElement).checked
+  profiles.setEnabled(enabled)
+  $('chatProfiles').textContent = `Profile pictures: ${enabled ? 'on' : 'off'}`
   if (session) {
     render(session.participants(), meParticipant)
     repaintActiveChat()
@@ -1037,16 +1045,25 @@ const SATS = new Intl.NumberFormat(undefined, { useGrouping: true })
  * key gets no ring and no placeholder either, because it has no identity a
  * payment could be attributed to.
  */
-function pictureOf(shown: Shown): HTMLElement | undefined {
-  if (shown.picture === undefined) return undefined
+function pictureOf(shown: Shown, withFallback = false): HTMLElement | undefined {
+  const fallback = document.createElement('span')
+  fallback.className = 'avatar initials'
+  fallback.setAttribute('aria-hidden', 'true')
+  fallback.textContent = [...(shown.name?.trim() || shown.short)][0]?.toLocaleUpperCase() ?? '?'
+  if (shown.picture === undefined) return withFallback ? fallback : undefined
   const avatar = document.createElement('img')
   avatar.className = 'avatar'
   avatar.src = shown.picture
   avatar.alt = ''
   avatar.loading = 'lazy'
+  avatar.referrerPolicy = 'no-referrer'
   // A picture that will not load must not leave a broken icon sitting where
   // a person's face was supposed to be, nor an empty ring around nothing.
-  avatar.addEventListener('error', () => (avatar.closest('.donorRing') ?? avatar).remove())
+  avatar.addEventListener('error', () => {
+    const picture = avatar.closest('.donorRing') ?? avatar
+    if (withFallback) picture.replaceWith(fallback)
+    else picture.remove()
+  })
 
   const tier = ringTier(shown)
   if (tier === undefined) return avatar
@@ -1064,13 +1081,13 @@ function pictureOf(shown: Shown): HTMLElement | undefined {
 /** Build the name-and-key run that identifies one person. Deliberately the
  *  only place that decides what a person looks like, so a tile and a chat
  *  line can never drift apart on it. */
-function identityRun(shown: Shown, isSelf: boolean): DocumentFragment {
+function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false): DocumentFragment {
   const run = document.createDocumentFragment()
 
   // The picture, and the donor ring around it, live here rather than in one
   // caller, so that "wherever this person is drawn" is a single decision and
   // the ring reads as part of the same system as the badges below it.
-  const picture = pictureOf(shown)
+  const picture = pictureOf(shown, withAvatarFallback)
   if (picture) run.append(picture)
 
   if (shown.name !== undefined) {
@@ -2627,6 +2644,20 @@ function render(views: ParticipantView[], me: string): void {
       )
     }
 
+    const sharedDevices = new Set(view.tracks.filter(track => track.role === 'screen').map(track => track.device))
+    if (view.participant === me && screenTrack) sharedDevices.add(myDeviceId)
+    for (const device of sharedDevices) {
+      const source = () => screenSource(view.participant, device)
+      const available = source()
+      if (!available) continue
+      const expand = document.createElement('button')
+      expand.type = 'button'; expand.className = 'shareExpand'; expand.textContent = 'Expand screen share'
+      expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? shown.short}`)
+      expand.addEventListener('click', () => shareViewer.open(source, expand))
+      box.append(expand)
+      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(`${device}|${available.track.id}`)?.el
+      if (preview) { preview.classList.add('screenPreview'); preview.ondblclick = () => shareViewer.open(source, expand) }
+    }
     root.append(box)
   }
 
@@ -3714,6 +3745,8 @@ function renderComposer(): void {
   const draft = drafts.get(currentChannel)
   $('chatForm').hidden = readOnly
   ;($('chatInput') as HTMLTextAreaElement).readOnly = closed
+  ;($('emojiToggle') as HTMLButtonElement).disabled = readOnly || closed
+  if (readOnly || closed) emojiPicker.close()
   ;($('attachToggle') as HTMLButtonElement).disabled = closed
   ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job)
   $('attachStaged').hidden = readOnly
@@ -3794,7 +3827,15 @@ function whenWords(at: number, now: number = Date.now()): string {
   return then.getFullYear() === today.getFullYear() ? DATE_SHORT.format(then) : DATE_YEAR.format(then)
 }
 
-function timeChip(at: number): HTMLTimeElement {
+function messageWhen(at: number, now: number = Date.now()): string {
+  const moment = new Date(at * 1000)
+  const today = new Date(now)
+  if (sameDay(moment, today)) return CLOCK.format(moment)
+  const date = moment.getFullYear() === today.getFullYear() ? DATE_SHORT : DATE_YEAR
+  return `${date.format(moment)} · ${CLOCK.format(moment)}`
+}
+
+function timeChip(at: number, exact = false): HTMLTimeElement {
   const el = document.createElement('time')
   el.className = 'when'
   const moment = new Date(at * 1000)
@@ -3802,8 +3843,10 @@ function timeChip(at: number): HTMLTimeElement {
   // Kept on the element so the once-a-minute pass can rewrite the words
   // without the log being rebuilt.
   el.dataset.at = String(at)
-  el.textContent = whenWords(at)
+  el.dataset.exact = String(exact)
+  el.textContent = exact ? messageWhen(at) : whenWords(at)
   el.title = DATE_FULL.format(moment)
+  el.setAttribute('aria-label', DATE_FULL.format(moment))
   return el
 }
 
@@ -3813,7 +3856,7 @@ setInterval(() => {
   const now = Date.now()
   for (const el of document.querySelectorAll<HTMLTimeElement>('time.when[data-at]')) {
     const at = Number(el.dataset.at)
-    if (Number.isFinite(at)) el.textContent = whenWords(at, now)
+    if (Number.isFinite(at)) el.textContent = el.dataset.exact === 'true' ? messageWhen(at, now) : whenWords(at, now)
   }
 }, 60_000)
 
@@ -3939,6 +3982,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   }
 
   for (const m of messages) {
+    if (m.reaction) continue
     systemUpTo(m.sentAt)
 
     // A transcript line is not a message somebody sent: it is a note of
@@ -3962,7 +4006,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       by.className = 'who'
       by.append(' · heard by ')
       by.append(identityRun(shownAs(m.participant, m.name), false))
-      p.append(timeChip(m.sentAt), who)
+      p.append(timeChip(m.sentAt, true), who)
       appendWithMentions(p, m.text, mentions, namesOfMine)
       p.append(by)
       for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
@@ -3982,10 +4026,12 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     // is exactly where a name alone would be most convincing and least
     // checkable, so the short pubkey comes with it. The name on the message
     // is the sender's own claim, carried with it (see ChatMessage.name).
-    if (!mine) {
+    const header = document.createElement('div')
+    header.className = 'messageHeader'
+    {
       const sender = document.createElement('div')
       sender.className = 'sender'
-      sender.append(identityRun(shownAs(m.participant, m.name), false))
+      sender.append(identityRun(shownAs(m.participant, m.name), mine, true))
       // The tag, in the same place and the same colour as on the roster, so
       // a bubble from a program is recognisable without reading a word.
       if (fromAgent) {
@@ -3998,8 +4044,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       // Whose agent wrote this, from the proof carried on the message and
       // verified as at its send time - see ChatMessage.owner.
       if (m.owner) sender.append(ownerRun(m.owner))
-      row.append(sender)
+      header.append(sender)
     }
+    header.append(timeChip(m.sentAt, true))
+    row.append(header)
 
     const bubble = document.createElement('div')
     bubble.className = 'bubble'
@@ -4011,14 +4059,38 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     appendWithMentions(text, m.text, mentions, namesOfMine)
     bubble.append(text)
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
-    // Where every messaging app puts it: in the corner of the bubble, not
-    // in a column of its own down the side.
-    bubble.append(timeChip(m.sentAt))
     row.append(bubble)
+    const reactions = reactionsFor(messages, m)
+    const reactionBar = document.createElement('div'); reactionBar.className = 'messageReactions'
+    reactionBar.setAttribute('aria-label', 'Message reactions')
+    const writable = channelAvailable(currentChannel) && !(currentChannel && WRITTEN_BY_AGENTS.includes(currentChannel))
+    for (const emoji of REACTION_EMOJIS) {
+      const entries = reactions.get(emoji)!.filter(entry => entry.reaction!.active)
+      if (!entries.length && !['👍', '❤️', '🤦'].includes(emoji)) continue
+      const button = document.createElement('button'); button.type = 'button'
+      const mine = entries.some(entry => entry.participant === meParticipant)
+      button.textContent = `${emoji}${entries.length ? ` ${entries.length}` : ''}`
+      button.setAttribute('aria-pressed', String(mine))
+      button.setAttribute('aria-label', `${mine ? 'Remove' : 'Add'} ${emoji} reaction${entries.length ? `, ${entries.length}` : ''}`)
+      button.title = entries.length ? entries.map(entry => senderLabel(entry)).join(', ') : `React ${emoji}`
+      button.disabled = !writable
+      button.addEventListener('click', () => {
+        const chat = activeChat() ?? session?.chat
+        if (!chat || !meParticipant) return
+        try {
+          const reaction = toggleReaction(chat.messages(), m, meParticipant, emoji)
+          const text = reactionText(reaction)
+          button.disabled = true
+          outbox.send(text, currentChannel ?? 'Chat', chat.prepareSend(text, { reaction }))
+        } catch (error) { setStatus(describeError(error)); button.disabled = !writable }
+      })
+      reactionBar.append(button)
+    }
+    row.append(reactionBar)
     log.append(row)
   }
   systemUpTo(Number.POSITIVE_INFINITY)
-  if (countId) $(countId).textContent = messages.length ? `(${messages.length})` : ''
+  if (countId) $(countId).textContent = messages.some(m => !m.reaction) ? `(${messages.filter(m => !m.reaction).length})` : ''
   restoreScroll()
 }
 
@@ -4056,6 +4128,18 @@ interface RemoteVideo {
 }
 
 const remoteVideos = new Map<string, RemoteVideo>()
+
+/** Follow the advertised screen role across a track replacement or reconnect. */
+function screenSource(participant: string, device: string): ShareSource | undefined {
+  const person = session?.participants().find(view => view.participant === participant)
+  if (!person) return undefined
+  const advert = person.tracks.find(track => track.device === device && track.role === 'screen')
+  const track = participant === meParticipant && device === myDeviceId
+    ? screenTrack : advert ? remoteVideos.get(`${device}|${advert.trackId}`)?.track : undefined
+  if (!track || track.readyState !== 'live') return undefined
+  const name = participant === meParticipant ? 'Your screen' : `${shownAs(participant, person.name).name ?? shortKey(participant)}’s screen`
+  return { track, title: name }
+}
 const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamTrack }>()
 
 /**
@@ -5440,6 +5524,18 @@ $('searchConversation').addEventListener('click', () => {
   closeRoomSheet()
   conversationSearch.open()
 })
+$('chatSearch').addEventListener('click', () => conversationSearch.open($('chatSearch')))
+let profileReturnFocus: HTMLElement = $('chatProfiles')
+function openProfileSettings(from: HTMLElement): void {
+  profileReturnFocus = from
+  closeRoomSheet()
+  ;($('profileSettings') as HTMLDialogElement).showModal()
+  $('lookupProfiles').focus()
+}
+$('chatProfiles').addEventListener('click', () => openProfileSettings($('chatProfiles')))
+$('roomProfileSettings').addEventListener('click', () => openProfileSettings($('roomMenu')))
+$('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
+$('profileSettings').addEventListener('close', () => profileReturnFocus.focus({ preventScroll: true }))
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
 // dialog element itself fills the screen, so a click that lands ON the
 // dialog and not on anything inside it is a click on the backdrop.
@@ -5951,6 +6047,22 @@ function acknowledgeMinutesRequest(): void {
           'Minutes are written by an agent somebody brings in, and the Agents tab says who is here.',
   )
 }
+
+$('emojiToggle').addEventListener('click', () => {
+  const input = $('chatInput') as HTMLTextAreaElement
+  if (input.readOnly) return
+  const channel = currentChannel
+  const start = input.selectionStart, end = input.selectionEnd
+  emojiPicker.open(input, emoji => {
+    if (currentChannel !== channel || input.readOnly) return
+    if (input.value.length - (end - start) + emoji.length > MAX_CHAT_TEXT_LENGTH) {
+      setStatus('There is no room for that emoji. Shorten your message first.')
+      return
+    }
+    input.setRangeText(emoji, start, end, 'end')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+})
 
 $('chatForm').addEventListener('submit', (event) => {
   event.preventDefault()

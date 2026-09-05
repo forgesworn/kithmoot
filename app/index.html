@@ -174,6 +174,10 @@
         </div>
 
         <h3 class="sr-only">Conversation</h3>
+        <div class="conversationTools" aria-label="Conversation tools">
+          <button id="chatSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search messages</button>
+          <button id="chatProfiles" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures: off</button>
+        </div>
         <div id="approvals" aria-live="polite"></div>
         <div id="chatLog" aria-label="Conversation" aria-live="polite"></div>
         <button id="newMessages" type="button" hidden>New messages ↓</button>
@@ -205,6 +209,7 @@
                NOT allowed to rename itself as you use it - the count goes
                in its own span - because a control that changes identity
                under a person is a control they stop trusting. -->
+          <button type="button" id="emojiToggle" aria-label="Choose an emoji" title="Emoji">😊</button>
           <button type="button" id="attachToggle" aria-label="Add a file"
                   title="Send a file: drop one here, or pick one">
             <span class="attachIcon" aria-hidden="true">+</span>
@@ -547,13 +552,7 @@
         </details>
 
         <h3 class="sheetHead">Who is here</h3>
-        <label class="profileChoice"><input id="lookupProfiles" type="checkbox" /> Look up public profiles for this visit</label>
-        <p class="note">
-          Off by default. Turning this on sends the participant keys in this room
-          to its relays and loads profile pictures from their hosts. Those services
-          can connect these requests with your visit. Turning it off stops further
-          lookups; it cannot take back requests already sent.
-        </p>
+        <button id="roomProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
         <!-- What the `agent` tag means. It is said again as the first note
              in every conversation, where a first-time reader actually meets
              it, and it lives here permanently for anybody who comes looking.
@@ -701,6 +700,17 @@
           <button id="leave" type="button" class="danger">Leave this room</button>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="profileSettings" class="profileSettings" aria-labelledby="profileSettingsTitle">
+      <div class="profileSettingsHeader">
+        <h2 id="profileSettingsTitle">Profile pictures and names</h2>
+        <button id="profileSettingsClose" type="button" aria-label="Close profile settings">Close</button>
+      </div>
+      <label class="profileChoice"><input id="lookupProfiles" type="checkbox" /> Look up public profiles for this visit</label>
+      <p class="note">Show the picture and name published by each participant’s Nostr key. Names are chosen by their owners.</p>
+      <p class="note">This sends participant keys to the room’s relays and loads pictures from their hosts. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles.</p>
+      <p class="note">A new room identity may not have a public profile. It keeps its name and short code here.</p>
     </dialog>
 
     <script type="module" src="/src/main.ts"></script>

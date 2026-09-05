@@ -8,7 +8,7 @@ export class ConversationSearch {
   readonly #files: HTMLInputElement
   readonly #results: HTMLElement
   readonly #status: HTMLElement
-  readonly #returnFocus: HTMLElement
+  #returnFocus: HTMLElement
   readonly #log: HTMLElement
   #messages: ChatMessage[] = []
   #name: (message: ChatMessage) => string = message => message.name ?? message.participant.slice(0, 8)
@@ -41,6 +41,7 @@ export class ConversationSearch {
   }
 
   update(messages: ChatMessage[], label: string, name: (message: ChatMessage) => string): void {
+    messages = messages.filter(message => !message.reaction)
     this.#messages = messages
     this.#name = name
     this.#dialog.querySelector('#messageSearchScope')!.textContent =
@@ -49,8 +50,9 @@ export class ConversationSearch {
     if (this.#dialog.open) this.#render()
   }
 
-  open(): void {
+  open(returnFocus?: HTMLElement): void {
     if (this.#dialog.open) return
+    this.#returnFocus = returnFocus ?? this.#dialog.ownerDocument.getElementById('roomMenu')!
     this.#render()
     this.#dialog.showModal()
     this.#query.focus()

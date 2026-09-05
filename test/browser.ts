@@ -42,6 +42,27 @@ export const SYNTHETIC_MIC = () => {
   }
 }
 
+/** Synthetic presentation only: tests never capture the machine's desktop. */
+export const SYNTHETIC_SCREEN = () => {
+  navigator.mediaDevices.getDisplayMedia = async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 1600; canvas.height = 900
+    const ctx = canvas.getContext('2d')!
+    let frame = 0
+    const draw = () => {
+      ctx.fillStyle = '#123047'; ctx.fillRect(0, 0, 1600, 900)
+      ctx.fillStyle = '#fff'; ctx.font = '70px sans-serif'; ctx.fillText('Synthetic workshop presentation', 65, 150)
+      ctx.fillStyle = '#efb64c'; ctx.fillRect((frame++ * 7) % 1300, 300, 250, 350)
+      ctx.fillStyle = '#65dfba'; ctx.fillRect(1500, 0, 100, 900)
+    }
+    draw(); const timer = setInterval(draw, 80)
+    const stream = canvas.captureStream(12)
+    const track = stream.getVideoTracks()[0]!
+    const stop = track.stop.bind(track)
+    track.stop = () => { clearInterval(timer); stop() }
+    return stream
+  }
+}
+
 /** Reaches every RTCPeerConnection the app builds without the app having to
  *  expose one. Installed before any page script runs. */
 export const INSTRUMENT = () => {
@@ -237,6 +258,7 @@ export async function newDeviceContext(browser: Browser, baseURL: string): Promi
   const context = await browser.newContext()
   await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL).origin })
   await context.addInitScript(INSTRUMENT)
+  await context.addInitScript(SYNTHETIC_SCREEN)
   return context
 }
 

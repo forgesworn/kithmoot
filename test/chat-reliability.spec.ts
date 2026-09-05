@@ -128,7 +128,7 @@ test('public profiles require opt-in and the choice does not survive a new visit
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('No public lookup needed')
     expect(queries).toHaveLength(0)
-    await page.locator('#roomMenu').click()
+    await page.locator('#chatProfiles').click()
     await page.locator('#lookupProfiles').check()
     await expect.poll(() => queries.length).toBeGreaterThan(0)
     await page.locator('#lookupProfiles').uncheck()
@@ -136,7 +136,7 @@ test('public profiles require opt-in and the choice does not survive a new visit
     await page.reload()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await page.locator('#roomMenu').click()
+    await page.locator('#chatProfiles').click()
     await expect(page.locator('#lookupProfiles')).not.toBeChecked()
     expect(queries).toHaveLength(count)
   } finally { await context.close() }

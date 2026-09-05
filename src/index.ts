@@ -359,3 +359,5 @@ export type {
 
 export { verificationWords, verificationStatus, VERIFY_NAMESPACE } from './verification.js'
 export type { KnownParticipant, VerificationStatus, VerificationView, VerificationWords } from './verification.js'
+
+export { REACTION_EMOJIS, normaliseReaction, reactionsFor, toggleReaction, reactionText, type ChatReaction } from './reactions.js'
