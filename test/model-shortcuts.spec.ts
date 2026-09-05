@@ -60,5 +60,11 @@ test('model menu supports keyboard and touch, sends the selector and rejects sta
     await page.setViewportSize({ width: 320, height: 700 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: `/tmp/kithmoot-model-shortcuts-withdrawn-${test.info().project.name}.png` })
+    await clerk.leave()
+    await expect(page.locator('#mentions')).toBeHidden()
+    await input.fill('@Tally ^opus5 review after departure')
+    await input.press('Enter')
+    await expect(input).toHaveValue('@Tally ^opus5 review after departure')
+    await expect(page.getByText(/\^opus5 is not available here/)).toBeVisible()
   } finally { off(); await clerk.leave(); await context.close() }
 })

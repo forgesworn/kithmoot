@@ -6215,6 +6215,18 @@ function availableComposerModels(): ComposerModel[] {
   return composerModels(catalogues.values(), session?.participants() ?? [])
 }
 
+function modelClerkNames(): string[] {
+  // Remember the addressed clerk after it leaves so a draft's selector is
+  // still validated, rather than becoming ordinary text when the roster shrinks.
+  const names = new Set(rosterNames())
+  for (const catalogue of catalogues.values()) {
+    for (const entry of catalogue.agents) {
+      if (entry.models && catalogue.running.some(r => r.id === entry.id && r.participant === catalogue.host)) names.add(entry.name)
+    }
+  }
+  return [...names]
+}
+
 /** Everybody in the room bar yourself, people and agents alike, ordered so
  *  that what you have typed so far leads the list. */
 function mentionCandidates(query: string): MentionChoice[] {
@@ -6250,7 +6262,7 @@ function renderMentionPicker(): void {
   const caret = box.selectionStart ?? 0
   if (box.selectionEnd !== caret) { closeMentionPicker(); return }
   const before = box.value.slice(0, caret)
-  const models = modelCompletions(before, availableComposerModels(), rosterNames())
+  const models = modelCompletions(before, availableComposerModels(), modelClerkNames())
   const at = models === undefined ? before.lastIndexOf('@') : 0
   const priorChar = at > 0 ? before[at - 1] ?? '' : ''
   const startsWord = at === 0 || /[^\p{L}\p{N}_]/u.test(priorChar)
@@ -6381,7 +6393,7 @@ $('chatForm').addEventListener('submit', (event) => {
   const input = $('chatInput') as HTMLTextAreaElement
   let typed = input.value.trim()
   try {
-    typed = prepareModelMessage(typed, availableComposerModels(), rosterNames())
+    typed = prepareModelMessage(typed, availableComposerModels(), modelClerkNames())
   } catch (err) {
     setStatus(describeError(err))
     return
