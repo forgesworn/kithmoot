@@ -112,6 +112,10 @@ test('an open PWA finds updates automatically and checks again after reconnectin
     await page.clock.fastForward(60_000)
     await expect(page.getByRole('status').filter({ hasText: 'Update ready' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Reload to update', exact: true })).toBeVisible()
+    const returning = await context.newPage()
+    await returning.goto(release.base)
+    await expect(returning.locator('#updateNotice')).toBeVisible()
+    await returning.close()
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme })
       for (const width of [320, 1440]) {

@@ -20,8 +20,9 @@ export function installUpdates(hasWork: () => boolean, reload: () => void = () =
       let checking = false
       const check = async () => {
         if (checking || document.visibilityState !== 'visible' || !navigator.onLine) return
-        if (registration.waiting) { notice.hidden = false; return }
-        if (registration.installing) return
+        // Let onNeedRefresh reveal the button once its activation handler
+        // is attached, including when a worker was already waiting on load.
+        if (registration.waiting || registration.installing) return
         checking = true
         try {
           await registration.update()
