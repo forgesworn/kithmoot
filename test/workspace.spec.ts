@@ -154,3 +154,57 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     await expect(page.locator('#inviteList')).toContainText('Nobody here is offering one')
   } finally { agent.leave(); keeper.leave(); await context.close() }
 })
+
+test('refreshing a rekeyed room restores its lock state without announcing old removals again', async ({ browser, baseURL }) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  // A small clock difference proves notices use the authority's timestamp,
+  // not the time this browser renders them.
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Standing room', relays: ['ws://127.0.0.1:7777'], now: () => Math.floor(Date.now() / 1000) - 5 })
+  const former = await RoomAgent.join({ link: keeper.url, name: 'Former member' })
+  let next: RoomAgent | undefined
+  try {
+    await keeper.remove(former.participant)
+    former.leave()
+    await join(page, withRelays(keeper.url, [relay]))
+
+    const notices = page.locator('#chatLog > .system:not(.intro)')
+    const checkRestored = async (epoch: number, message: string) => {
+      await expect(page.locator('#roomArea')).toBeVisible()
+      await keeper.session.chat.send(message)
+      await expect(page.locator('#chatLog')).toContainText(message)
+      await expect(notices).toHaveCount(0)
+      expect(keeper.session.epoch).toBe(epoch)
+      await page.locator('#roomMenu').click()
+      await expect(page.locator('#roomLockState')).toContainText(epoch === 1 ? 'changed once' : `changed ${epoch} times`)
+      await page.locator('#roomSheetClose').click()
+    }
+    await checkRestored(1, 'The existing lock is working.')
+    for (let i = 0; i < 2; i++) {
+      await page.reload()
+      await page.locator('#displayName').fill('Ada')
+      await page.locator('#join').click()
+      await checkRestored(1, `Still in the same epoch after refresh ${i + 1}.`)
+    }
+
+    // A removal made while this reader is present must still be announced.
+    next = await RoomAgent.join({ link: keeper.url, name: 'Leaving member' })
+    await expect.poll(() => keeper.session.participants().some(view => view.name === 'Ada')).toBe(true)
+    let changedAt = 0
+    keeper.onEpoch(notice => { changedAt = notice.at })
+    await keeper.remove(next.participant)
+    await expect(notices.filter({ hasText: 'was removed.' })).toHaveCount(1)
+    const changed = notices.filter({ hasText: 'The room moved to epoch 2.' })
+    await expect(changed).toHaveCount(1)
+    await expect(changed.locator('time')).toHaveAttribute('datetime', new Date(changedAt * 1000).toISOString())
+
+    await page.reload()
+    await page.locator('#displayName').fill('Ada')
+    await page.locator('#join').click()
+    await checkRestored(2, 'The new lock also survives a refresh.')
+  } finally {
+    next?.leave()
+    former.leave()
+    keeper.leave()
+    await context.close()
+  }
+})

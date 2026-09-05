@@ -196,7 +196,8 @@ export interface RoomSessionBaseOptions {
   epochRequestTimeoutMs?: number
   /** Called on every epoch this session moves to, with what the rekey said:
    *  the number, who was removed and by whom. Also on this session's own
-   *  rekeys, when it is the authority. */
+   *  rekeys, when it is the authority. A current-state grant is marked
+   *  `catchUp`: its cumulative removed list is not a new removal event. */
   onEpoch?: (notice: RekeyNotice) => void
   /** Called when this participant was removed: a rekey named it, or the
    *  authority refused it the current epoch. The session stays where it
@@ -841,7 +842,7 @@ export class RoomSession {
         for (const p of grant.removed) this.#removed.add(p)
         if (grant.epoch.epoch > this.#epoch.epoch) {
           const epoch = grant.epoch as RoomEpoch
-          this.#moveToEpoch(epoch, { epoch: epoch.epoch, removed: grant.removed, closed: false, at: this.#now() })
+          this.#moveToEpoch(epoch, { epoch: epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() })
         }
         // Anything past what the authority handed over is readable now.
         for (const epoch of [...this.#pendingRekeys.keys()]) if (epoch <= this.#epoch.epoch) this.#pendingRekeys.delete(epoch)
