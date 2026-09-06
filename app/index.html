@@ -62,6 +62,7 @@
           </button>
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
                   title="Camera, microphone and screen share">Call</button>
+          <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
           <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
                   aria-label="Room details">
             <span aria-hidden="true">&#8943;</span>
@@ -806,6 +807,26 @@
       <p class="note">Connected means the socket is open. Accepted writes show the latest relay acknowledgement; connection alone does not prove a message was saved.</p>
     </dialog>
 
+    <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">
+      <div class="sheetBar"><h2 id="assignmentTitle">Shared work</h2><button id="assignmentClose" type="button">Close</button></div>
+      <p id="assignmentStatus" role="status">Connecting assignments…</p>
+      <button id="assignmentRetry" type="button">Retry pending update</button>
+      <details>
+        <summary>New assignment</summary>
+        <form id="assignmentCreate">
+          <fieldset id="assignmentFields">
+            <label>What needs doing?<textarea name="objective" required maxlength="1000"></textarea></label>
+            <label>What will count as done?<textarea name="criteria" required maxlength="2000"></textarea></label>
+            <label>Owner<select id="assignmentOwner" required></select></label>
+            <label>Action<select id="assignmentAction"></select></label>
+            <div id="assignmentInputs"></div>
+            <p class="note">The room will receive this objective, acceptance criteria, owner and any action inputs. An assignment grants no additional permission to spend, publish or deploy.</p>
+            <button type="submit">Share assignment with this room</button>
+          </fieldset>
+        </form>
+      </details>
+      <div id="assignmentCards"></div>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

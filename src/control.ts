@@ -1,5 +1,6 @@
 import { MAX_CHAT_TEXT_LENGTH } from './chat.js'
 import { canonicalChannels } from './epoch.js'
+import { validateAssignmentActions, type AssignmentAction } from './assignments.js'
 
 /**
  * The channel a room's agent hosts and its people use to ask for agents.
@@ -24,6 +25,7 @@ export interface CatalogueEntry {
   listens?: boolean
   /** Model shortcuts this host has enabled for this agent's tasks. */
   models?: ModelShortcut[]
+  actions?: AssignmentAction[]
 }
 
 export interface ModelShortcut {
@@ -193,6 +195,11 @@ export function decodeControl(text: string): ControlMessage | null {
         const d = str(x.description, MAX_DESCRIPTION)
         if (d) entry.description = d
         if (x.listens === true) entry.listens = true
+        if (x.actions !== undefined) {
+          const actions = validateAssignmentActions(x.actions)
+          if (!actions) continue
+          entry.actions = actions
+        }
         if (x.models !== undefined) {
           if (!Array.isArray(x.models) || x.models.length > 8) continue
           const models: ModelShortcut[] = []

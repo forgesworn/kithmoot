@@ -86,9 +86,11 @@ export class SimTransport implements RelayTransport {
     this.#relay.publish(event)
   }
 
-  subscribe(filters: Filter[], onEvent: (event: Event) => void): () => void {
+  subscribe(filters: Filter[], onEvent: (event: Event) => void, onEose?: () => void): () => void {
     if (this.#closed) throw new Error('transport is closed')
-    return this.#relay.subscribe(filters, onEvent)
+    const off = this.#relay.subscribe(filters, onEvent)
+    onEose?.()
+    return off
   }
 
   close(): void {

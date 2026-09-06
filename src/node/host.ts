@@ -9,6 +9,7 @@ import type { ChatMessage } from '../chat.js'
 import { CONTROL_CHANNEL, decodeControl, encodeControl, mayCommandHost } from '../control.js'
 import type { CatalogueEntry, ControlMessage, HostCommand, RunningAgent } from '../control.js'
 import { verifyAgentOwnership } from '../ownership.js'
+import { validateAssignmentActions } from '../assignments.js'
 
 /**
  * One agent a host knows how to run: a persona and the way it is driven.
@@ -111,10 +112,11 @@ export class AgentHost {
 
   /** What it can run, as the room sees it. */
   catalogue(): CatalogueEntry[] {
-    return [...this.#catalogue.values()].map(({ id, name, description, listen }) => ({
+    return [...this.#catalogue.values()].map(({ id, name, description, listen, actions }) => ({
       id,
       name,
       ...(description ? { description } : {}),
+      ...(actions ? { actions } : {}),
       ...(listen ? { listens: true } : {}),
     }))
   }
@@ -249,7 +251,7 @@ export class AgentHost {
       if (config.whisperx) args.push('--whisperx', config.whisperx)
       if (config.language) args.push('--language', config.language)
       const child = this.#spawn(this.#command.file, args, {
-        env: { ...this.#env, KITHMOOT_LINK: this.#agent.url },
+        env: { ...this.#env, KITHMOOT_LINK: this.#agent.url, KITHMOOT_ASSIGNMENT_ACTIONS: JSON.stringify(config.actions ?? []) },
         stdio: ['ignore', 'ignore', 'pipe'],
       })
       const since = this.#now()
@@ -313,6 +315,7 @@ export async function loadCatalogue(dir: string): Promise<HostedAgentConfig[]> {
     const raw = JSON.parse(await readFile(join(dir, file), 'utf8')) as Partial<HostedAgentConfig>
     const id = file.slice(0, -'.json'.length)
     if (!raw.name) throw new Error(`${file}: needs a name`)
+    if (raw.actions !== undefined && !validateAssignmentActions(raw.actions)) throw new Error(`${file}: invalid assignment actions`)
     if (!raw.brain || !['ollama', 'anthropic', 'none'].includes(raw.brain)) throw new Error(`${file}: brain must be ollama, anthropic or none`)
     if (raw.brain === 'ollama' && !raw.model) throw new Error(`${file}: an ollama agent needs a model`)
     out.push({

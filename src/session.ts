@@ -4,6 +4,7 @@ import { deriveRoom } from './room.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import type { ParticipantIdentity } from './identity.js'
+import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { encodeRosterEvent, decodeRosterEvent } from './roster.js'
 import { resolveSingularRoles } from './roles.js'
@@ -347,6 +348,8 @@ export class RoomSession {
   #chat?: ChatLog
   /** Side channels opened on demand - see `channel()`. */
   readonly #channels = new Map<string, ChatLog>()
+  #assignments?: AssignmentLog
+  #assignmentsOpening?: Promise<AssignmentLog>
   /** What this device is currently advertising, so an answer to a new
    *  arrival carries the same state as the announcement did. */
   #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>> }
@@ -902,6 +905,7 @@ export class RoomSession {
     const root = this.#epochRoot()!
     this.#chat?.rekey(root)
     for (const log of this.#channels.values()) log.rekey(root)
+    this.#assignments?.rekey(root)
     try {
       this.#opts.onEpoch?.(notice)
     } catch {
@@ -1327,6 +1331,24 @@ export class RoomSession {
    * to each other, by design: an agent acting for somebody is not owed a
    * conversation its principal cannot see. See `deriveChannel`.
    */
+  async assignments(storage: AssignmentStorage): Promise<AssignmentLog> {
+    if (!this.#chat || this.#left) throw new Error('Join the room before opening assignments')
+    if (this.#assignmentsOpening) return this.#assignmentsOpening
+    if (this.#assignments) return this.#assignments
+    const log = new AssignmentLog({
+      roomId: this.roomId, roomKey: this.#roomKey, transport: this.#opts.transport,
+      deviceSk: this.#opts.deviceSk, identity: this.#opts.identity,
+      credential: () => this.#self?.credential, name: this.#name,
+      policy: this.#opts.policy, proof: this.#opts.proof, owner: this.#ownerToCarry(),
+      now: this.#now, epoch: this.#epochRoot(), storage,
+    })
+    this.#assignments = log
+    this.#assignmentsOpening = log.open().then(() => log).catch(e => {
+      log.close(); this.#assignments = undefined; throw e
+    }).finally(() => { this.#assignmentsOpening = undefined })
+    return this.#assignmentsOpening
+  }
+
   channel(name: string): ChatLog {
     if (!this.#chat) throw new Error('join the room before using a channel')
     const existing = this.#channels.get(name)
@@ -1562,6 +1584,7 @@ export class RoomSession {
     this.#pendingRekeys.clear()
     this.#mesh?.close()
     this.#chat?.close()
+    this.#assignments?.close()
     for (const log of this.#channels.values()) log.close()
     this.#channels.clear()
     this.#listeners.clear()

@@ -407,4 +407,7 @@ export { localPeerCrypt, dmPolicy, isDmPolicy, dmPeer, sealInvite, openInvite, p
 export type { PeerCrypt, SealInviteOptions, OpenInviteOptions } from './dm.js'
 
 export { ContextVault } from './context.js'
+export * from './assignments.js'
+export { AssignmentLog } from './assignment-log.js'
+export type { AssignmentStorage, AssignmentLogOptions, AssignmentLogSnapshot } from './assignment-log.js'
 export type { ContextScope, ContextRole, ContextIdentity, ContextGrant, ContextPolicy, ContextRecord, ContextPointer, ContextView, ContextVaultOptions } from './context.js'

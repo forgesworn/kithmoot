@@ -30,6 +30,7 @@ import { Scribe } from './scribe.js'
 import { Nudger, nip17Sender } from './nudge.js'
 import type { NudgeStore } from './nudge.js'
 import { NostrRelayPool } from '../relay-pool.js'
+import { validateAssignmentActions } from '../assignments.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
@@ -360,6 +361,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   const context = values.context ? new ContextFileStore(values.context, { identity: { ...identity, ...localPeerCrypt(participantSk) }, room: agent.roomId, servers: values['context-server'] }) : undefined
   const runtime = new AgentRuntime(agent, { persona, memoryDir: common.memory, context }).start()
+  const assignmentActions = validateAssignmentActions(JSON.parse(process.env.KITHMOOT_ASSIGNMENT_ACTIONS ?? '[]'))
+  if (!assignmentActions) throw new Error('KITHMOOT_ASSIGNMENT_ACTIONS is not a valid action catalogue')
+  await runtime.enableAssignments(join(common.memory ?? join(homedir(), '.kithmoot', 'agents', agent.participant), 'assignments', agent.roomId), assignmentActions)
 
   // The keeper nudges members who asked. Only a keeper: a joiner is not
   // the room's availability, and two nudgers would be two DMs.

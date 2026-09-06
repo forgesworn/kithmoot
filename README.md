@@ -105,6 +105,10 @@ Encrypted personal, Kin and Kith context is available in Room details → Contex
 with the same MIT library exposed through CLI and MCP. See [the context guide](docs/context.md)
 for grants, explicit sharing, backups and current limits.
 
+Den can link a private task to shared room work, with agent execution, questions,
+handoffs and exact-result review. See [shared assignments with Den](docs/den-assignments.md)
+for the supported flow, worker tools, verification and recovery limits.
+
 - Room creation and one-tap join by URL. New links carry a bearer invitation
   and a pinned, per-link inviter pubkey in the fragment, never the room
   traffic secret. A response returns that secret encrypted only to the
