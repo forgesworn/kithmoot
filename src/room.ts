@@ -4,6 +4,7 @@ import { randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 import { normaliseHex } from './hex.js'
 import type { AccessTier, RoomPolicy } from './types.js'
+import { MAX_RELAY_HINTS, safeRelayUrls } from './network-hints.js'
 
 const ROOM_ID_INFO = 'kithmoot/v1/room-id'
 const ROOM_KEY_INFO = 'kithmoot/v1/room-key'
@@ -42,6 +43,7 @@ interface JoinPayload {
 
 const TIERS: AccessTier[] = ['open', 'ken', 'kith', 'kin']
 const AGENT_RULES = ['owned-by-members']
+const MAX_POLICY_KEYS = 256
 
 /**
  * Parse an access policy out of a URL fragment, which is untrusted input.
@@ -56,14 +58,15 @@ export function parseRoomPolicy(raw: unknown): RoomPolicy | undefined {
   const policy = raw as RoomPolicy
   if (!TIERS.includes(policy.tier)) throw new Error('join URL carries an access policy at an unknown tier')
   if (policy.admitted !== undefined) {
-    if (!Array.isArray(policy.admitted) || !policy.admitted.every((a) => typeof a === 'string')) {
+    if (!Array.isArray(policy.admitted) || policy.admitted.length > MAX_POLICY_KEYS ||
+        !policy.admitted.every((a) => typeof a === 'string' && /^[0-9a-fA-F]{64}$/.test(a))) {
       throw new Error('join URL carries a malformed access policy')
     }
   }
   // A members list is a closed door, so a malformed one is refused rather
   // than dropped: dropping it would open the room to anybody with the link.
   if (policy.members !== undefined) {
-    if (!Array.isArray(policy.members) || policy.members.length === 0 ||
+    if (!Array.isArray(policy.members) || policy.members.length === 0 || policy.members.length > MAX_POLICY_KEYS ||
         !policy.members.every((m) => typeof m === 'string' && /^[0-9a-fA-F]{64}$/.test(m))) {
       throw new Error('join URL carries a malformed members list')
     }
@@ -124,6 +127,7 @@ export function decodeJoinUrl(url: string): {
 } {
   const hash = new URL(url).hash.slice(1)
   if (!hash) throw new Error('join URL has no fragment')
+  if (hash.length > 16_384) throw new Error('join URL fragment is too large')
   let payload: JoinPayload
   try {
     payload = JSON.parse(utf8Decoder.decode(base64urlnopad.decode(hash))) as JoinPayload
@@ -138,7 +142,9 @@ export function decodeJoinUrl(url: string): {
     throw new Error('join URL carries a malformed secret')
   }
   if (secret.length !== 32) throw new Error('join URL carries a malformed secret')
+  if (Array.isArray(payload.r) && payload.r.length > MAX_RELAY_HINTS) throw new Error('join URL carries too many relay hints')
 
   const policy = parseRoomPolicy(payload.a)
-  return policy ? { secret, relays: payload.r ?? [], policy } : { secret, relays: payload.r ?? [] }
+  const relays = safeRelayUrls(payload.r)
+  return policy ? { secret, relays, policy } : { secret, relays }
 }

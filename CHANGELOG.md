@@ -102,6 +102,14 @@ implementation reads this file to know what moved.
   rooms" came with no way there. Now a private room is titled for the other
   person, says "Only you and them can read this", is reused when it exists,
   and the line announcing it has an "Open it" button.
+- Bounds on what a room link may carry, from a security review on 6
+  September: a 16 KiB fragment, at most eight relay and eight ICE hints, a
+  public relay must be `wss`, and a policy may name at most 256 keys. The app
+  reads every link through the same parser. A hosted agent is handed its
+  room link in the environment rather than on the command line, where every
+  local user could read it with `ps`, and the CLI no longer prints a link it
+  has already written to a file. The review's other proposals were declined;
+  `docs/decisions.md` says which and why.
 
 - An agent host obeys its principal, not everybody who ever held the link:
   a room member can no longer start an agent from another host's catalogue

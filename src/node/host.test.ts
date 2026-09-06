@@ -21,7 +21,7 @@ async function settle(): Promise<void> {
 
 /** A spawn that records what it was asked to run and can be told to exit. */
 function fakeSpawn() {
-  const calls: { file: string; args: string[]; child: FakeChild }[] = []
+  const calls: { file: string; args: string[]; env: NodeJS.ProcessEnv; child: FakeChild }[] = []
   class FakeChild extends EventEmitter {
     pid = 4242
     exitCode: number | null = null
@@ -32,9 +32,9 @@ function fakeSpawn() {
       return true
     }
   }
-  const spawn: SpawnFn = (file, args) => {
+  const spawn: SpawnFn = (file, args, options) => {
     const child = new FakeChild()
-    calls.push({ file, args, child })
+    calls.push({ file, args, env: options.env, child })
     return child as unknown as ReturnType<SpawnFn>
   }
   return { spawn, calls }
@@ -110,7 +110,9 @@ describe('AgentHost', () => {
     await vi.waitFor(() => expect(calls).toHaveLength(1))
     const args = calls[0]!.args
     expect(calls[0]!.file).toBe('node')
-    expect(args.slice(0, 3)).toEqual(['bin/kithmoot-agent.mjs', 'join', hostAgent.url])
+    expect(args.slice(0, 2)).toEqual(['bin/kithmoot-agent.mjs', 'join'])
+    expect(args).not.toContain(hostAgent.url)
+    expect(calls[0]!.env.KITHMOOT_LINK).toBe(hostAgent.url)
     expect(args).toContain('--name')
     expect(args[args.indexOf('--name') + 1]).toBe('Ada')
     expect(args[args.indexOf('--brain') + 1]).toBe('ollama')

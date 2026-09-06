@@ -239,13 +239,19 @@ export class AgentHost {
       const participant = await this.#identityAt(identity)
       // Not --quiet: what a hosted agent logs is the only account of why it
       // did or did not speak, and it comes back here on stderr under its name.
-      const args = [...this.#command.args, 'join', this.#agent.url, '--name', config.name, '--identity', identity, '--brain', config.brain, '--respond', config.respond ?? 'mentions', '--memory', config.memory ?? join(dir, 'memory')]
+      // The invitation is a capability. Keep it out of argv, which is
+      // visible to every local user through ps/proc, and hand it to the
+      // child through the CLI's existing KITHMOOT_LINK input instead.
+      const args = [...this.#command.args, 'join', '--name', config.name, '--identity', identity, '--brain', config.brain, '--respond', config.respond ?? 'mentions', '--memory', config.memory ?? join(dir, 'memory')]
       if (config.persona) args.push('--persona', config.persona)
       if (config.model) args.push('--model', config.model)
       if (config.listen) args.push('--listen')
       if (config.whisperx) args.push('--whisperx', config.whisperx)
       if (config.language) args.push('--language', config.language)
-      const child = this.#spawn(this.#command.file, args, { env: this.#env, stdio: ['ignore', 'ignore', 'pipe'] })
+      const child = this.#spawn(this.#command.file, args, {
+        env: { ...this.#env, KITHMOOT_LINK: this.#agent.url },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      })
       const since = this.#now()
       this.#running.set(id, { child, since, participant })
       child.stderr?.on('data', (chunk: Buffer) => this.#log(`${config.name}: ${chunk.toString().trim()}`))

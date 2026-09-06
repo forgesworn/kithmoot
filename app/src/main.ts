@@ -1289,29 +1289,20 @@ function invitationFromLocation(url: string): RoomInvitation | undefined {
  */
 async function roomFromLocation(): Promise<boolean> {
   if (location.hash.length <= 1) return false
+  // One parser for every link the app opens, so the bounds it enforces -
+  // fragment size, how many relays and ICE servers a link may name, and
+  // that a public relay is wss - hold here as they do in the library.
+  const parsedLink = parseRoomLink(location.href)
 
   // The room's name, when the link says. Text a stranger wrote, so it gets
   // the display-name treatment before it lands anywhere.
-  roomName = sanitiseDisplayName(fragmentPayload(location.href).n)
+  roomName = parsedLink.name
 
-  const invitation = invitationFromLocation(location.href)
+  const invitation = parsedLink.invitation
   if (invitation) {
-    const payload = fragmentPayload(location.href)
     roomInvitationCapability = invitation
-    relays = Array.isArray(payload.r) && payload.r.every((relay) => typeof relay === 'string') && payload.r.length
-      ? payload.r
-      : RELAYS
-    // Reuse the library's strict policy parser by presenting it a temporary
-    // legacy-shaped fragment. A malformed gate must never silently become an
-    // open room merely because this is a v2 link.
-    if (payload.a !== undefined) {
-      const policyPayload = base64urlnopad.encode(
-        new TextEncoder().encode(JSON.stringify({ s: base64urlnopad.encode(new Uint8Array(32)), r: [], a: payload.a })),
-      )
-      roomPolicy = decodeJoinUrl(`${joinLinkBase()}#${policyPayload}`).policy
-    } else {
-      roomPolicy = undefined
-    }
+    relays = parsedLink.relays.length ? parsedLink.relays : RELAYS
+    roomPolicy = parsedLink.policy
 
     const owner = loadInvitationOwner(invitation)
     if (owner) {
@@ -1362,7 +1353,8 @@ async function roomFromLocation(): Promise<boolean> {
       }
     }
   } else {
-    const { secret, relays: hinted, policy } = decodeJoinUrl(location.href)
+    const { secret, relays: hinted, policy } = parsedLink
+    if (!secret) throw new Error('join URL carries neither an invitation nor a secret')
     roomSecret = secret
     relays = hinted.length ? hinted : RELAYS
     roomPolicy = policy
@@ -1371,13 +1363,12 @@ async function roomFromLocation(): Promise<boolean> {
     invitationDelegation = []
   }
 
-  const extras = decodeExtras(location.href)
-  iceUrls = extras.iceUrls
+  iceUrls = parsedLink.iceUrls.length ? parsedLink.iceUrls : DEFAULT_ICE_URLS
 
-  if (extras.pairingCode) {
+  if (parsedLink.pairingCode) {
     // Drop the code out of the address bar first: it is single-use and there
     // is no reason for it to sit somewhere it could be forwarded by accident.
-    const code = extras.pairingCode
+    const code = parsedLink.pairingCode
     history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
     pairWithPrimary(code).catch((err) => setStatus(describeError(err)))
   }

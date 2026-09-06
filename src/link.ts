@@ -5,6 +5,13 @@ import { roomInvitation } from './invitation.js'
 import { sanitiseDisplayName } from './display-name.js'
 import type { RoomInvitation } from './invitation.js'
 import type { RoomPolicy } from './types.js'
+import { assertNetworkHintBounds, safeIceUrls, safeRelayUrls } from './network-hints.js'
+
+export { safeIceUrls, safeRelayUrls } from './network-hints.js'
+
+/** A normal room link is small enough for a QR code. This generous ceiling
+ * stops a fragment from becoming an unbounded base64/JSON allocation. */
+export const MAX_ROOM_LINK_FRAGMENT_LENGTH = 16_384
 
 /**
  * Everything a room link carries, whichever version it is.
@@ -58,23 +65,6 @@ interface RoomLinkPayload {
   n?: unknown
 }
 
-/** Only these schemes reach an RTCPeerConnection. The room author is
- *  already trusted with the room, so this is a small hole, but a link
- *  should not be able to name anything else at all. */
-const ICE_SCHEMES = ['stun:', 'stuns:', 'turn:', 'turns:']
-
-export function safeIceUrls(urls: unknown): string[] {
-  if (!Array.isArray(urls)) return []
-  return urls.filter(
-    (u): u is string => typeof u === 'string' && ICE_SCHEMES.some((scheme) => u.toLowerCase().startsWith(scheme)),
-  )
-}
-
-function relayList(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return []
-  return raw.filter((r): r is string => typeof r === 'string')
-}
-
 /**
  * Read a room link. Throws on a link that does not parse, and on one that
  * carries an admission rule it cannot read - a dropped rule is an open
@@ -84,6 +74,7 @@ function relayList(raw: unknown): string[] {
 export function parseRoomLink(url: string): RoomLink {
   const hash = new URL(url).hash.slice(1)
   if (!hash) throw new Error('join URL has no fragment')
+  if (hash.length > MAX_ROOM_LINK_FRAGMENT_LENGTH) throw new Error('join URL fragment is too large')
   let payload: RoomLinkPayload
   try {
     payload = JSON.parse(new TextDecoder().decode(base64urlnopad.decode(hash))) as RoomLinkPayload
@@ -92,9 +83,10 @@ export function parseRoomLink(url: string): RoomLink {
   }
   if (typeof payload !== 'object' || payload === null) throw new Error('join URL fragment is not valid')
   if (payload.v !== undefined && payload.v !== 2 && payload.v !== 3) throw new Error('join URL uses an unsupported version')
+  assertNetworkHintBounds(payload.r, payload.i)
 
   const link: RoomLink = {
-    relays: relayList(payload.r),
+    relays: safeRelayUrls(payload.r),
     iceUrls: safeIceUrls(payload.i),
   }
   const policy = parseRoomPolicy(payload.a)
@@ -139,16 +131,21 @@ export function parseRoomLink(url: string): RoomLink {
 
 /** Write a room link, in the same envelope the app writes. */
 export function encodeRoomLink(base: string, link: RoomLink): string {
+  assertNetworkHintBounds(link.relays, link.iceUrls)
+  const relays = safeRelayUrls(link.relays)
+  const iceUrls = safeIceUrls(link.iceUrls)
   const payload: RoomLinkPayload & { r: string[]; i: string[] } = link.invitation
-    ? { v: link.invitation.persistent ? 3 : 2, j: base64urlnopad.encode(link.invitation.bearer), h: link.invitation.inviter, r: link.relays, i: link.iceUrls }
-    : { s: base64urlnopad.encode(link.secret ?? invalid()), r: link.relays, i: link.iceUrls }
+    ? { v: link.invitation.persistent ? 3 : 2, j: base64urlnopad.encode(link.invitation.bearer), h: link.invitation.inviter, r: relays, i: iceUrls }
+    : { s: base64urlnopad.encode(link.secret ?? invalid()), r: relays, i: iceUrls }
   if (link.policy) payload.a = link.policy
   if (link.pairingCode) payload.c = bytesToHex(link.pairingCode)
   // Written only when there is one, so a link to an unnamed room is
   // byte-identical to one written before rooms had names.
   const name = sanitiseDisplayName(link.name)
   if (name !== undefined) payload.n = name
-  return `${base}#${base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))}`
+  const fragment = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))
+  if (fragment.length > MAX_ROOM_LINK_FRAGMENT_LENGTH) throw new Error('room link fragment is too large')
+  return `${base}#${fragment}`
 }
 
 function invalid(): never {

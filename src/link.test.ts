@@ -63,6 +63,25 @@ describe('room links', () => {
     expect(parseRoomLink(url).iceUrls).toEqual(['stun:ok.example'])
   })
 
+  it('drops unsafe and duplicate relay hints', () => {
+    const { invitation } = createRoomInvitation()
+    const payload = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify({
+      v: 2, j: base64urlnopad.encode(invitation.bearer), h: invitation.inviter,
+      r: ['https://not-a-relay.example', 'ws://public.example', 'wss://relay.example', 'wss://relay.example'], i: [],
+    })))
+    expect(parseRoomLink(`${BASE}#${payload}`).relays).toEqual(['wss://relay.example'])
+  })
+
+  it('refuses oversized fragments and hint arrays', () => {
+    expect(() => parseRoomLink(`${BASE}#${'a'.repeat(16_385)}`)).toThrow(/too large/)
+    const { invitation } = createRoomInvitation()
+    const payload = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify({
+      v: 2, j: base64urlnopad.encode(invitation.bearer), h: invitation.inviter,
+      r: Array.from({ length: 9 }, (_, i) => `wss://r${i}.example`), i: [],
+    })))
+    expect(() => parseRoomLink(`${BASE}#${payload}`)).toThrow(/too many relay/)
+  })
+
   it('refuses a link whose admission rule it cannot read, rather than opening the room', () => {
     const payload = base64urlnopad.encode(
       new TextEncoder().encode(JSON.stringify({ v: 2, j: base64urlnopad.encode(new Uint8Array(32)), h: 'ab'.repeat(32), r: [], i: [], a: { tier: 'vip' } })),

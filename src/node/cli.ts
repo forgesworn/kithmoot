@@ -315,13 +315,20 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       await writeFile(`${statePath}.link`, agent.url + '\n', { mode: 0o600 })
     }
     const epoch = agent.session.epoch
-    log(`room ${agent.roomId.slice(0, 8)} open${state ? ' again' : ''}${epoch ? `, epoch ${epoch}` : ''}. link: ${agent.url}`)
+    log(
+      statePath
+        ? `room ${agent.roomId.slice(0, 8)} open${state ? ' again' : ''}${epoch ? `, epoch ${epoch}` : ''}. link written to ${statePath}.link`
+        : `room ${agent.roomId.slice(0, 8)} open${epoch ? `, epoch ${epoch}` : ''}. link: ${agent.url}`,
+    )
     if (admins.length) log(`admins: ${admins.map((a) => a.slice(0, 8)).join(', ')}`)
     else log('no admins: only this process can remove a member or close the room')
     for (const f of forwarders) log(`forwarder: ${f.url}${f.pubkey ? ` (${f.pubkey.slice(0, 8)})` : ''}${f.label ? ` ${f.label}` : ''}, in the room descriptor`)
     agent.onEpoch((notice) => {
       const who = notice.removed.map((p) => p.slice(0, 8)).join(', ')
-      log(`epoch ${notice.epoch}${who ? `: removed ${who}` : ''}${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}. link: ${agent.url}`)
+      log(
+        `epoch ${notice.epoch}${who ? `: removed ${who}` : ''}${notice.by ? ` by ${notice.by.slice(0, 8)}` : ''}` +
+          (statePath ? `. link written to ${statePath}.link` : `. link: ${agent.url}`),
+      )
     })
   } else {
     const link = positionals[1] ?? env('LINK')

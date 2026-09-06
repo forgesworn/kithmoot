@@ -1239,3 +1239,60 @@ any device that holds the identity and by nothing that does not, and a relay
 cannot tie it to a room id it carries. The limit is inherited honestly: a
 signer without NIP-44 keeps its positions in one browser, exactly as it
 keeps its bookmarks.
+
+## Three security-review proposals declined, 6 September 2026
+
+A security review of the app, the box and the deploy kit came back with a
+branch that fixed real things and proposed three others. The real things
+are on main: bounds on what a link may carry, the room link out of a hosted
+agent's argv, the CLI not printing a link it has written to a file. The
+three below were declined, and the reasoning is written down here because
+each will be proposed again by the next review that reads the code without
+reading the product.
+
+**Capability material is not scoped to the tab.** The proposal moved the
+participant key, the device keys, memberships, the rooms list and the
+bookmarks from `localStorage` to `sessionStorage`, and deleted the
+persistent copies on first load, so that a copied browser profile or the
+next person at a shared machine inherits nothing. The cost is the product.
+The person, not the device, is the member, and a person whose identity
+evaporates when a tab closes is not a member of anything: every room they
+were in, every private conversation, every read position and every agent
+they own is keyed to that identity. "Rooms that stay open" and "your rooms,
+and your place in them" are the claims on the front page. The threat is
+real and has an answer that does not cost the product: sign in with a
+signer, which already keeps the secret out of the browser entirely, and a
+keystore lock for the local identity, which is on the M8 list. Until then
+the local identity stays where a browser keeps things a person expects to
+find again.
+
+**The public app keeps its TURN endpoint.** The proposal put a bearer token
+on the credential minter and set the app's endpoint to nothing, with a note
+that a trusted provisioner would place credentials in the encrypted room
+descriptor. No such provisioner exists, so the change as written is calls
+that fail on the fifth of networks where STUN alone cannot connect two
+peers, in exchange for closing a bandwidth-theft exposure that is already
+bounded by coturn's quotas and documented as a deliberate trade in
+`deploy/README.md`. A minter that the app cannot call is not a minter. When
+the room descriptor does carry credentials from a keeper, the endpoint can
+be gated then, as one change that keeps calls working.
+
+**The Blossom server takes uploads from any key, signed by the device.** The
+proposal restricted the box's Blossom server to one participant pubkey,
+signed uploads with the participant identity rather than the per-room device
+key, and replaced the pinned server with a Deno source build. One uploader
+is a workspace in which one person can share files. Signing with the
+identity lets the box tie a blob to a person, which the device key exists to
+prevent, and asks a hardware-signer user to press a button per file. The
+existing bounds, one media type, a per-blob cap, a fixed-size filesystem and
+an expiry, are the allowlist there is nobody to write, and they stay. A
+member-gated upload is a fine idea when there is a member directory to gate
+on, which is M4, and it will be gated on membership, not on one key.
+
+The fourth proposal, a short-lived room-authority ticket that a forwarder
+checks before it allocates a peer slot, is not wrong. It is a wire change: a
+new kind, a field on the descriptor's forwarder entry and one on the first
+offer, and a forwarder that refuses offers without it. It waits for M2,
+where kinds are allocated, vectors are cut and Android is synced, and it
+lands with a migration for forwarders already running. It is parked as a
+commit on the review's branch.
