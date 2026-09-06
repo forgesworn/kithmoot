@@ -2703,6 +2703,10 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
 @media (min-width: 1100px) {
   #workspaceRooms { overflow-y: auto; max-height: calc(100svh - 18rem); }
 }
+@media (max-width: 700px) and (max-height: 600px) {
+  /* Wrapped room actions must leave the composer reachable on short phones. */
+  main:has(#roomArea:not([hidden])) #chatLog { min-height: 3rem; }
+}
 
 /* Keep a full line visible when text size changes after the composer was
    measured. The inline pixel height must not clip larger type. */
