@@ -81,6 +81,11 @@ export function evaluateAccess(
   now: number,
   roomId: string,
 ): { admitted: boolean; reason: string } {
+  // A members list closes the door before any tier is considered: a
+  // direct message is open in tier and shut to everybody but its two.
+  if (policy.members !== undefined && !policy.members.some((m) => hexEquals(m, participant))) {
+    return { admitted: false, reason: 'not a member' }
+  }
   if (policy.tier === 'open') return { admitted: true, reason: 'open room' }
   if (!proof) return { admitted: false, reason: 'no kindred proof' }
   // Hex, compared case-insensitively throughout this function: see

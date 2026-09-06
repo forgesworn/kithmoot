@@ -51,13 +51,13 @@ it is one, and it proves whose it is.
 ## Where it is
 
 Today: groups that stay open with nobody online, channels inside each,
-encrypted files, calls with screen share, and agents as attested members,
-including a scribe that writes the minutes. Not yet: threads and replies,
-editing or retracting a message, direct messages, mentions on the wire,
-history beyond thirty days and five hundred messages, search beyond what a
-tab has loaded, and a push to a phone in a pocket. Those are being built
-in that order, on the wire first, before the protocol is frozen and written
-up as a NIP. `CHANGELOG.md` records what has shipped and
+threads, edits and retractions, mentions on the wire, direct messages, read
+positions that follow you between devices, encrypted files, calls with
+screen share, and agents as attested members, including a scribe that
+writes the minutes. Not yet: a frozen protocol, history beyond thirty days
+and five hundred messages, search beyond what a tab has loaded, and a push
+to a phone in a pocket. Those are next, in that order. `CHANGELOG.md`
+records what has shipped and
 [what does not work yet](#what-does-not-work-yet) is the honest list.
 
 ## The link, and what a relay sees
@@ -530,27 +530,29 @@ one-parameter inverse.
 Stated plainly, before anyone else finds it. The workspace gaps come first,
 because a team is what this is now judged against:
 
-- **No threads or replies.** A message cannot name a parent. Every channel
-  is one flat stream.
-- **No edit and no retract.** A message, once sent, is what it is. A
-  cooperative tombstone, author-signed and honest about being cooperative,
-  is designed but not on the wire.
-- **No direct messages.** Two people who want a private word open another
-  room. The design is a two-member group created from the member
-  directory; it is not built.
-- **Mentions are a string match.** The composer offers names, but what
-  lights up as a mention, and what an agent answers to, is a name found in
-  the text rather than a participant named on the wire.
+- **The message layer is on the wire and not yet frozen.** Replies and
+  threads, edits, retractions, mentions, direct messages and read positions
+  are fields of the chat payload, vectored and read by both clients; see
+  `docs/messages.md`. The kinds are still provisional, the legacy
+  name-match for a message with no `mentions` field is still applied, and
+  Android reads every shape but writes only the ones it always did. Threads
+  are one level deep on screen: a reply to a reply sits in the same thread
+  and says which message it answers.
 - **History is a window, not an archive.** A client asks for thirty days
-  and keeps five hundred messages, and search covers only what the tab has
-  loaded. A workspace ninety days old cannot show its first message.
+  and keeps five hundred messages, edits and reactions included, and search
+  covers only what the tab has loaded. A workspace ninety days old cannot
+  show its first message.
 - **No push.** A phone in a pocket learns nothing until the app is opened.
   A keeper can nudge a signed-in member over Nostr, and that is all.
 - **Named channels, removal and roles need a keeper.** A group admits and
   chats without one, but creating a channel, removing a member and naming
   an admin are keeper commands, not something a member does from a phone.
-- **Read positions are per device.** Unread is not the same on your phone
-  and your laptop.
+- **Read positions follow a signer, not a visitor.** They sync between
+  devices that hold the same Nostr identity with NIP-44, the way bookmarks
+  do. A visitor's key lives in one browser, so its positions stay there,
+  and a paired secondary device keeps its own.
+- **A retraction is cooperative.** Every device that received the message
+  keeps it, and the relays keep the ciphertext; the interface says so.
 - **No iOS app.** See above. It is the largest gap.
 - **Forwarder trees are two levels deep.** Enough for a room of about 21;
   beyond that nobody has measured anything. One process can now serve several

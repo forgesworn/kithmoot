@@ -125,6 +125,12 @@ directly, with no reimplementation involved.
 | `chatAttachment` | a Wildbloom share riding in a kind-1460 message, what a reader defuses, and the envelope's own arithmetic | `src/attachment.ts`, `src/chat.ts` |
 | `approvalControl` | an agent's approval request and the answer, on the room's `control` channel | `src/control.ts` |
 | `verificationWords` | the three words each of a pair says aloud to check they are looking at the same participant keys | `src/verification.ts` |
+| `chatThread` | a reply naming its parent and its thread root by id and author, and how a reader nests, orphans and drops them | `src/messages.ts`, `src/chat.ts` |
+| `chatEdit` | an edit naming its original, same author; which of several is shown; what a stranger's edit becomes | `src/messages.ts`, `src/chat.ts` |
+| `chatRetract` | an author's tombstone, beating every edit whatever the times, keeping replies, ignored from anybody else | `src/messages.ts`, `src/chat.ts` |
+| `chatMention` | who a message addresses, on the wire and by the legacy name match, and what an agent answers to | `src/messages.ts` |
+| `chatInvite` | a DM room's link sealed to one member, opened by the pair and nobody else; a two-member policy | `src/dm.ts`, `src/access.ts` |
+| `readPosition` | a participant's read positions per room: the derived `d` tag, the record, its refusals, and the merge | `src/read-position.ts` |
 
 **A note on scope:** the brief for stage 1 described the join URL as
 carrying "secret + relays + ICE list". The join URL does not carry an ICE
@@ -457,7 +463,26 @@ diffing (see the stage-2 vectors report for the result).
 if a derivation string, tag name, encoding, or rejection reason changes in
 `src/`, it fails here first.
 
-## What the four newest groups exist to pin
+## What the message-layer groups exist to pin
+
+Six groups, one wire change, from `docs/messages.md`. Every shape is a
+field inside the kind-1460 ciphertext and every reference names a message by
+its id AND its author, so the codec vectors are built exactly as
+`chatAttachment` is; what these groups add is the reader's **resolution**,
+frozen as a `conversation` summary another language can compare without
+porting the type. Read `chatEdit/edit-by-somebody-else-ignored` and
+`chatRetract/retract` first: the first is what keeps anybody from putting
+words in anybody else's mouth, and the second says a retraction beats an edit
+sent after it, so a reader that applies statements in arrival order gets a
+different answer from one that applies them in time order, and only the
+latter is right. `chatMention/mentions-on-the-wire` pins the one rule that
+keeps people and agents honest with each other: Tally as a person is
+addressed by `everyone`, Tally as an agent is not. `chatInvite/invite` opens
+for the addressee and for the sender's own other devices, and for nobody
+else without a decrypt being tried. `readPosition` derives its `d` tag from
+the room key so a relay cannot tie the record to a room id it carries.
+
+## What the four earlier groups exist to pin
 
 **`roomEpoch`.** Removal is the one thing rotation could never do, and the
 mechanism is easy to implement almost-right. Three things the vectors hold a

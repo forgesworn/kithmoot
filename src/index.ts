@@ -363,3 +363,44 @@ export { verificationWords, verificationStatus, VERIFY_NAMESPACE } from './verif
 export type { KnownParticipant, VerificationStatus, VerificationView, VerificationWords } from './verification.js'
 
 export { REACTION_EMOJIS, normaliseReaction, reactionsFor, toggleReaction, reactionText, type ChatReaction } from './reactions.js'
+
+export {
+  normaliseMessageRef,
+  refOf,
+  refKey,
+  sameRef,
+  validMessageId,
+  MAX_MESSAGE_ID_LENGTH,
+  EVERYONE,
+  MAX_MENTIONS,
+  normaliseMentions,
+  normaliseInvite,
+  MAX_INVITE_LINK_LENGTH,
+  namesInText,
+  mentionsOf,
+  mentionedBy,
+  isConversation,
+  later,
+  resolveConversation,
+  retractionText,
+  inviteText,
+} from './messages.js'
+export type { MessageRef, ChatInvite, Named, ResolvedMessage, Conversation } from './messages.js'
+
+export {
+  READ_POSITION_KIND,
+  READ_POSITION_LABEL,
+  readPositionId,
+  readPositionPlaintext,
+  localSelfCrypt,
+  signerSelfCrypt,
+  encodeReadPositions,
+  encodeReadPositionsLocal,
+  decodeReadPositions,
+  furtherOn,
+  mergeReadPositions,
+} from './read-position.js'
+export type { ReadPosition, ReadPositions, ReadPositionRecord, SelfCrypt, EncodeReadPositionOptions, DecodeReadPositionOptions } from './read-position.js'
+
+export { localPeerCrypt, dmPolicy, isDmPolicy, dmPeer, sealInvite, openInvite, preferredDm, peerCryptPubkey } from './dm.js'
+export type { PeerCrypt, SealInviteOptions, OpenInviteOptions } from './dm.js'

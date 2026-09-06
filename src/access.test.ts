@@ -165,3 +165,16 @@ describe('access tiers', () => {
     expect(evaluateAccess(policy, guest, proof, NOW, roomId.toUpperCase()).admitted).toBe(true)
   })
 })
+
+describe('members', () => {
+  it('a members list shuts the door before any tier is considered', () => {
+    const a = 'a'.repeat(64)
+    const b = 'b'.repeat(64)
+    expect(evaluateAccess({ tier: 'open', members: [a, b] }, a, undefined, NOW, ROOM).admitted).toBe(true)
+    expect(evaluateAccess({ tier: 'open', members: [a, b] }, 'c'.repeat(64), undefined, NOW, ROOM)).toEqual({ admitted: false, reason: 'not a member' })
+    // Case-insensitively, like every other identifier here.
+    expect(evaluateAccess({ tier: 'open', members: [a.toUpperCase()] }, a, undefined, NOW, ROOM).admitted).toBe(true)
+    // A member still needs the tier's proof when the room is gated.
+    expect(evaluateAccess({ tier: 'kith', members: [a] }, a, undefined, NOW, ROOM)).toEqual({ admitted: false, reason: 'no kindred proof' })
+  })
+})

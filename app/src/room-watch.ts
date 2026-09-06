@@ -23,6 +23,7 @@
  * no relay.
  */
 import type { Event } from 'nostr-tools/pure'
+import { isConversation } from '../../src/messages.js'
 import { KINDS } from '../../src/kinds.js'
 import { decodeRosterEvent } from '../../src/roster.js'
 import { evaluateAccess } from '../../src/access.js'
@@ -160,6 +161,11 @@ export class RoomWatch {
     )
   }
 
+  /** The key this watch reads the room with. */
+  get roomKey(): Uint8Array {
+    return this.#opts.roomKey
+  }
+
   /** The room's chat as decoded here, oldest first. */
   messages(): ChatMessage[] {
     return this.#chat.messages()
@@ -168,7 +174,7 @@ export class RoomWatch {
   /** How many messages are newer than `readAt`. */
   unread(readAt: number): number {
     let count = 0
-    for (const message of this.#chat.messages()) if (message.sentAt > readAt) count++
+    for (const message of this.#chat.messages()) if (message.sentAt > readAt && isConversation(message)) count++
     return count
   }
 

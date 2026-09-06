@@ -75,6 +75,17 @@ describe('join URLs', () => {
     expect(decodeJoinUrl(url).policy).toEqual(policy)
   })
 
+  it('round-trips a members list, normalised, and refuses a malformed one', () => {
+    const a = 'A'.repeat(64)
+    const b = 'b'.repeat(64)
+    const url = encodeJoinUrl('https://kithmoot.com/j', secret, relays, { tier: 'open', members: [a, b, b] })
+    expect(decodeJoinUrl(url).policy).toEqual({ tier: 'open', members: [a.toLowerCase(), b] })
+    for (const members of [[], ['rowan'], 'ab'] as unknown as string[][]) {
+      const bad = encodeJoinUrl('https://kithmoot.com/j', secret, relays, { tier: 'open', members })
+      expect(() => decodeJoinUrl(bad)).toThrow(/members/)
+    }
+  })
+
   it('leaves the policy undefined when the link does not set one', () => {
     const url = encodeJoinUrl('https://kithmoot.com/j', secret, relays)
     expect(decodeJoinUrl(url).policy).toBeUndefined()

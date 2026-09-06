@@ -181,6 +181,10 @@
                where the keyboard is, and a picker behind a keyboard does
                not exist. Filled in by `renderMentionPicker` in
                app/src/main.ts. -->
+          <!-- What the box is doing besides saying something new: answering
+               a message, or replacing one of yours. Filled in by
+               `renderComposerContext` in app/src/main.ts. -->
+          <div id="composerContext" class="composerContext" hidden></div>
           <div id="mentions" class="mentions" role="listbox" aria-label="People and agents in this room" hidden></div>
           <!-- A box, not a line. It was one line that scrolled sideways, so
                a long message could not be read back before it was sent -

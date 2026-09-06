@@ -867,6 +867,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
 }
 
 #chatForm {
+  flex-wrap: wrap;
   display: flex;
   gap: 0.5rem;
   margin-top: 0.5rem;
@@ -952,8 +953,9 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
    agent it is what decides whether it answers at all - so a reader should
    be able to see which words in a message are doing that. A mention of the
    reader gets more than a tint, because that is the one thing anybody scans
-   a busy room for. The rule for what counts is `namesAgent` in
-   src/node/brains.ts, read back in `mentionPattern`. */
+   a busy room for. Who a message addresses is `mentionedBy` in
+   src/messages.ts, the same function every agent uses; `mentionPattern`
+   marks the names in the text. */
 .mention {
   color: var(--accent);
   font-weight: 600;
@@ -2697,3 +2699,55 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
   .agentActivity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; }
   .agentActivity button { padding: .4rem .5rem; font-size: .75rem; }
 }
+
+/* The message layer: threads, edits, retractions, mentions on the wire.
+   See docs/messages.md. */
+.thread {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: -0.25rem 0 0.35rem 0.9rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border);
+}
+.thread .msg { max-width: min(96%, 44rem); }
+.msg .chip {
+  font-size: 0.75rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  white-space: nowrap;
+}
+.msg .chip.replyTo { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.messageActions { display: flex; gap: 0.15rem; }
+.messageActions button {
+  min-height: 2rem;
+  padding: 0.1rem 0.5rem;
+  margin: 0;
+  font-size: 0.8rem;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+}
+.messageActions button:hover,
+.messageActions button:focus-visible { border-color: var(--border); color: var(--text); }
+.msg.retracted .bubble { opacity: 0.7; font-style: italic; }
+.msg.mentionsMe .bubble { box-shadow: inset 3px 0 0 var(--accent); }
+.composerContext {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  min-width: 0;
+}
+.composerContext .contextLabel { font-weight: 600; white-space: nowrap; }
+.composerContext .contextExcerpt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composerContext button { min-height: 2rem; padding: 0.1rem 0.6rem; margin: 0; font-size: 0.8rem; }
+.rosterRow .dmButton { margin-left: auto; font-size: 0.85rem; padding: 0.3rem 0.6rem; min-height: 2.25rem; }

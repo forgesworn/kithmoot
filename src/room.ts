@@ -60,6 +60,14 @@ export function parseRoomPolicy(raw: unknown): RoomPolicy | undefined {
       throw new Error('join URL carries a malformed access policy')
     }
   }
+  // A members list is a closed door, so a malformed one is refused rather
+  // than dropped: dropping it would open the room to anybody with the link.
+  if (policy.members !== undefined) {
+    if (!Array.isArray(policy.members) || policy.members.length === 0 ||
+        !policy.members.every((m) => typeof m === 'string' && /^[0-9a-fA-F]{64}$/.test(m))) {
+      throw new Error('join URL carries a malformed members list')
+    }
+  }
   // An agent rule this reader does not know is refused for the same reason
   // an unknown tier is: dropping it would admit what the room meant to keep
   // out.
@@ -74,6 +82,7 @@ export function parseRoomPolicy(raw: unknown): RoomPolicy | undefined {
     ? { tier: policy.tier, admitted: policy.admitted.map(normaliseHex) }
     : { tier: policy.tier }
   if (policy.agents !== undefined) parsed.agents = policy.agents
+  if (policy.members !== undefined) parsed.members = [...new Set(policy.members.map(normaliseHex))]
   return parsed
 }
 

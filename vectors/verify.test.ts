@@ -49,6 +49,10 @@ import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAu
 import { encodeControl, decodeControl } from '../src/control.js'
 import type { RoomPolicy } from '../src/types.js'
 import { verificationWords } from '../src/verification.js'
+import { resolveConversation, mentionsOf, mentionedBy, type ResolvedMessage, type Named } from '../src/messages.js'
+import type { ChatMessage } from '../src/chat.js'
+import { decodeReadPositions, readPositionId, readPositionPlaintext, localSelfCrypt, mergeReadPositions, type ReadPositions } from '../src/read-position.js'
+import { openInvite, localPeerCrypt } from '../src/dm.js'
 
 interface Vector {
   name: string
@@ -86,7 +90,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'agentOwnership', 'chatAttachment', 'approvalControl']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -878,5 +882,150 @@ describe('verification words', () => {
     const ab = groups.verificationWords.find((v) => v.name === 'pair-a-b')!
     const ba = groups.verificationWords.find((v) => v.name === 'pair-b-a-same-as-a-b')!
     expect(ab.output).toEqual(ba.output)
+  })
+})
+
+// The message layer: every statement one message makes about another, and
+// the reader's resolution of them, frozen in a shape another language can
+// compare without porting the type. See docs/messages.md.
+describe('the message layer', () => {
+  function chatArgs(decode: Record<string, unknown>) {
+    return { roomId: decode.roomId as string, roomKey: hexToBytes(decode.roomKeyHex as string), now: decode.now as number }
+  }
+  function summarise(messages: ChatMessage[]): unknown[] {
+    const summary = (r: ResolvedMessage): unknown => ({
+      id: r.original.id,
+      participant: r.original.participant,
+      text: r.shown.text,
+      edited: r.edited,
+      edits: r.edits.map((e) => e.id),
+      retracted: r.retracted,
+      orphan: r.orphan,
+      thread: r.thread ?? null,
+      reply: r.reply ?? null,
+      replies: r.replies.map(summary),
+    })
+    return resolveConversation(messages).stream.map(summary)
+  }
+  const conversationGroups = ['chatThread', 'chatEdit', 'chatRetract'] as const
+  for (const group of conversationGroups) {
+    for (const v of groups[group]) {
+      it(`${group}/${v.name}: every event decodes as frozen, and the conversation resolves as frozen`, () => {
+        const events = v.input.events as Array<{ event: Event }>
+        const results = events.map((e) => decodeChatEvent(e.event, chatArgs(v.input.decode as Record<string, unknown>)))
+        expect(results).toEqual(v.output.results)
+        if (v.kind === 'negative') expect(results.some((r) => r === null)).toBe(true)
+        const accepted = results.filter((r): r is ChatMessage => r !== null)
+        expect(summarise(accepted)).toEqual(v.output.conversation)
+      })
+    }
+  }
+
+  it('an edit is shown on the original frame: same id, sender and time, new text', () => {
+    const v = vec('chatEdit', 'edit')
+    const conversation = v.output.conversation as Array<{ id: string; text: string; edited: boolean }>
+    expect(conversation).toHaveLength(1)
+    expect(conversation[0]!.id).toBe('root-1')
+    expect(conversation[0]!.edited).toBe(true)
+    expect(conversation[0]!.text).toBe('Shall we ship on Thursday?')
+  })
+
+  it('a retraction beats an edit sent after it', () => {
+    const v = vec('chatRetract', 'retract')
+    const conversation = v.output.conversation as Array<{ retracted: boolean }>
+    expect(conversation).toHaveLength(1)
+    expect(conversation[0]!.retracted).toBe(true)
+  })
+
+  for (const v of groups.chatMention) {
+    it(`chatMention/${v.name}`, () => {
+      const result = decodeChatEvent(v.input.event as Event, chatArgs(v.input.decode as Record<string, unknown>))
+      expect(result).toEqual(v.output.result)
+      if (v.kind === 'negative') {
+        expect(result).toBeNull()
+        return
+      }
+      const roster = v.input.roster as Named[]
+      expect({
+        mentionsOf: mentionsOf(result!, roster),
+        rowanAsPerson: mentionedBy(result!, fx.PARTICIPANT_B, roster),
+        tallyAsPerson: mentionedBy(result!, fx.PARTICIPANT_C, roster),
+        tallyAsAgent: mentionedBy(result!, fx.PARTICIPANT_C, roster, { agent: true }),
+      }).toEqual(v.output.addressed)
+    })
+  }
+
+  it('what shows as a mention is exactly what an agent answers to', () => {
+    const v = vec('chatMention', 'mentions-on-the-wire')
+    const addressed = v.output.addressed as Record<string, unknown>
+    expect(addressed.rowanAsPerson).toBe(true)
+    expect(addressed.tallyAsPerson).toBe(true)
+    expect(addressed.tallyAsAgent).toBe(false)
+  })
+
+  it('chatInvite/invite: opens for the addressee and the sender, and for nobody else', async () => {
+    const v = vec('chatInvite', 'invite')
+    const result = decodeChatEvent(v.input.event as Event, chatArgs(v.input.decode as Record<string, unknown>))
+    expect(result).toEqual(v.output.result)
+    const wire = JSON.stringify(v.input.event)
+    expect(wire).not.toContain(v.input.link as string)
+    expect(JSON.stringify(result)).not.toContain(v.input.link as string)
+    const invite = result!.invite!
+    expect(invite.room).toBe(v.input.dmRoomId)
+    const opened = {
+      byRowan: await openInvite(invite, { self: fx.PARTICIPANT_B, sender: fx.PARTICIPANT_A, crypt: localPeerCrypt(fx.PARTICIPANT_B_SK) }),
+      byAdaOtherDevice: await openInvite(invite, { self: fx.PARTICIPANT_A, sender: fx.PARTICIPANT_A, crypt: localPeerCrypt(fx.PARTICIPANT_A_SK) }),
+      byTally: await openInvite(invite, { self: fx.PARTICIPANT_C, sender: fx.PARTICIPANT_A, crypt: localPeerCrypt(fx.PARTICIPANT_C_SK) }),
+    }
+    expect(opened).toEqual(v.output.opened)
+    expect(opened.byRowan).toBe(v.input.link)
+    // The link admits the two of them and nobody else.
+    const policy = decodeJoinUrl(opened.byRowan!).policy!
+    expect(policy.members).toEqual([fx.PARTICIPANT_A, fx.PARTICIPANT_B].sort())
+    expect(evaluateAccess(policy, fx.PARTICIPANT_C, undefined, fx.NOW, v.input.dmRoomId as string).admitted).toBe(false)
+  })
+
+  for (const v of groups.chatInvite.filter((x) => x.kind === 'negative')) {
+    it(`chatInvite/${v.name}`, () => {
+      const events = v.input.events as Array<{ event: Event }>
+      const results = events.map((e) => decodeChatEvent(e.event, chatArgs(v.input.decode as Record<string, unknown>)))
+      expect(results).toEqual(v.output.results)
+      expect(results.every((r) => r === null)).toBe(true)
+    })
+  }
+
+  it('readPosition/read-position-id-derivation', () => {
+    const v = vec('readPosition', 'read-position-id-derivation')
+    expect(readPositionId(hexToBytes(v.input.roomKeyHex as string))).toBe(v.output.idHex)
+  })
+
+  it('readPosition/read-position: reproduces the exact record and reads it back', async () => {
+    const v = vec('readPosition', 'read-position')
+    const decode = v.input.decode as Record<string, string>
+    const key = nip44.v2.utils.getConversationKey(fx.PARTICIPANT_A_SK, fx.PARTICIPANT_A)
+    const content = nip44.v2.encrypt(v.input.plaintext as string, key, hexToBytes(v.input.nonceHex as string))
+    const rebuilt = finalizeDeterministic(
+      { kind: 30078, created_at: (v.input.event as Event).created_at, tags: (v.input.event as Event).tags, content },
+      fx.PARTICIPANT_A_SK,
+      hexToBytes(v.input.auxRandHex as string),
+    )
+    expect(rebuilt).toEqual(v.input.event)
+    const result = await decodeReadPositions(v.input.event as Event, { participant: decode.participant!, roomId: decode.roomId!, roomKey: hexToBytes(decode.roomKeyHex!), crypt: localSelfCrypt(fx.PARTICIPANT_A_SK) })
+    expect(result).toEqual(v.output.result)
+    expect(readPositionPlaintext(result!)).toBe(v.input.plaintext)
+    expect(JSON.stringify(v.input.event)).not.toContain(decode.roomId)
+  })
+
+  for (const v of groups.readPosition.filter((x) => x.kind === 'negative')) {
+    it(`readPosition/${v.name}`, async () => {
+      const decode = v.input.decode as Record<string, string>
+      const result = await decodeReadPositions(v.input.event as Event, { participant: decode.participant!, roomId: decode.roomId!, roomKey: hexToBytes(decode.roomKeyHex!), crypt: localSelfCrypt(fx.PARTICIPANT_A_SK) })
+      expect(result).toBeNull()
+    })
+  }
+
+  it('readPosition/read-position-merge', () => {
+    const v = vec('readPosition', 'read-position-merge')
+    expect(mergeReadPositions(v.input.local as ReadPositions, v.input.remote as ReadPositions)).toEqual(v.output)
   })
 })

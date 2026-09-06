@@ -9,6 +9,12 @@ implementation reads this file to know what moved.
 
 ## Unreleased
 
+### Vectors
+
+- 136 interop vectors across 21 groups, up from 101 across 15: `chatThread`,
+  `chatEdit`, `chatRetract`, `chatMention`, `chatInvite` and `readPosition`,
+  with a two-member policy in `joinUrl` and `accessEvaluation`.
+
 ### Positioning
 
 - KithMoot is an open Slack with agents, and it has Jitsi-grade calls. The
@@ -19,6 +25,26 @@ implementation reads this file to know what moved.
 
 ### Added
 
+- **The message layer, on the wire.** Six shapes, each an optional field of
+  the encrypted kind-1460 chat payload, so an older client shows the text
+  and nothing breaks. Wire change, with vectors for every shape and the
+  Android client reading all of them. See `docs/messages.md`.
+  - **Replies and threads.** `reply` and `thread` name a message by id and
+    author. Replies sit under their root; a reply to a reply says which
+    message it answers.
+  - **Edit.** `replaces` names the original, same author. Readers show the
+    latest and keep the chain, marked edited.
+  - **Retract.** `retracts`, an author-signed tombstone that beats every
+    edit. Cooperative, and the interface says so.
+  - **Mentions.** `mentions`, participant keys and `everyone`, so what shows
+    as a mention is exactly what an agent answers to. `@everyone` addresses
+    the room and not the agents.
+  - **Direct messages.** A DM is a room whose policy lists two `members`;
+    the link travels sealed between the two participant keys as an `invite`
+    inside a room both are in. Started from a person's row in Room details.
+  - **Read positions.** A kind-30078 record per room, signed by the
+    participant key and encrypted to it, `d` derived from the room key, so
+    unread is the same on every device that holds the identity.
 - **Persistent groups without a keeper.** A new room is a group by default
   and admits the next arrival with every member offline. Wire change: a v3
   invitation link (`v: 3`, bearer, pinned inviter, no traffic secret) and a

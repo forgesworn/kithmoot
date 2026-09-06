@@ -771,3 +771,116 @@ describe('attachments', () => {
     log.close()
   })
 })
+
+describe('the message layer on the wire', () => {
+  const OTHER = 'b'.repeat(64)
+
+  it('carries a reply, a thread and mentions, and is byte-identical without them', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const plain = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
+    const ref = { messageId: 'root-1', participant: OTHER }
+    const withAll = encodeChatEvent({ ...msg, reply: ref, thread: ref, mentions: [OTHER, 'everyone'] }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(withAll, { roomId, roomKey, now: NOW })
+    expect(decoded!.reply).toEqual(ref)
+    expect(decoded!.thread).toEqual(ref)
+    expect(decoded!.mentions).toEqual([OTHER, 'everyone'])
+    const decodedPlain = decodeChatEvent(plain, { roomId, roomKey, now: NOW })
+    expect(decodedPlain).not.toHaveProperty('reply')
+    expect(decodedPlain).not.toHaveProperty('mentions')
+  })
+
+  it('drops a malformed reference and a bad mention, and keeps the message', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const event = encodeChatEvent({ ...msg, reply: { messageId: '', participant: OTHER } as never, mentions: ['Ada', OTHER] }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded!.text).toBe(msg.text)
+    expect(decoded).not.toHaveProperty('reply')
+    expect(decoded!.mentions).toEqual([OTHER])
+  })
+
+  it('refuses more mentions than a message may name', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const key = nip44.v2.utils.getConversationKey
+    void key
+    const plaintext = JSON.stringify({ ...msg, mentions: Array.from({ length: 33 }, (_, i) => i.toString(16).padStart(64, '0')) })
+    const event = finalizeEvent({ kind: KINDS.CHAT, created_at: msg.sentAt, tags: [['d', roomId]], content: nip44.v2.encrypt(plaintext, roomKey) }, deviceSk)
+    expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
+  })
+
+  it('carries an edit and a retraction, and refuses one that names nothing', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const edit = decodeChatEvent(encodeChatEvent({ ...msg, id: 'e1', replaces: 'msg-1' }, { roomId, roomKey, deviceSk }), { roomId, roomKey, now: NOW })
+    expect(edit!.replaces).toBe('msg-1')
+    const retract = decodeChatEvent(encodeChatEvent({ ...msg, id: 'r1', retracts: 'msg-1' }, { roomId, roomKey, deviceSk }), { roomId, roomKey, now: NOW })
+    expect(retract!.retracts).toBe('msg-1')
+    for (const bad of [{ replaces: '' }, { retracts: 'x'.repeat(129) }, { replaces: 7 }]) {
+      const plaintext = JSON.stringify({ ...msg, ...bad })
+      const event = finalizeEvent({ kind: KINDS.CHAT, created_at: msg.sentAt, tags: [['d', roomId]], content: nip44.v2.encrypt(plaintext, roomKey) }, deviceSk)
+      expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
+    }
+  })
+
+  it('refuses two statements in one message, and a statement beside conversation', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const reaction = { messageId: 'msg-0', participant: OTHER, emoji: '👍', active: true, revision: 1 }
+    const invite = { to: OTHER, room: 'd'.repeat(64), link: 'sealed' }
+    const ref = { messageId: 'root-1', participant: OTHER }
+    const bad: Array<Partial<ChatMessage>> = [
+      { replaces: 'm', retracts: 'm' },
+      { reaction, replaces: 'm' },
+      { invite, reaction },
+      { retracts: 'm', attachments: [] },
+      { retracts: 'm', mentions: [OTHER] },
+      { retracts: 'm', reply: ref },
+      { invite, kind: 'directive' },
+      { invite, thread: ref },
+      { replaces: 'm', reply: ref },
+      { replaces: 'm', kind: 'transcript', speaker: OTHER },
+      { reaction, mentions: [OTHER] },
+    ]
+    for (const extra of bad) {
+      const plaintext = JSON.stringify({ ...msg, ...extra })
+      const event = finalizeEvent({ kind: KINDS.CHAT, created_at: msg.sentAt, tags: [['d', roomId]], content: nip44.v2.encrypt(plaintext, roomKey) }, deviceSk)
+      expect(decodeChatEvent(event, { roomId, roomKey, now: NOW }), JSON.stringify(extra)).toBeNull()
+    }
+    // An edit may carry the new attachments and mentions: it is the whole new message.
+    const ok = decodeChatEvent(encodeChatEvent({ ...msg, replaces: 'm', mentions: [OTHER] }, { roomId, roomKey, deviceSk }), { roomId, roomKey, now: NOW })
+    expect(ok!.mentions).toEqual([OTHER])
+  })
+
+  it('carries an invitation and refuses a malformed one', async () => {
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const invite = { to: OTHER.toUpperCase(), room: 'd'.repeat(64), link: 'sealed' }
+    const decoded = decodeChatEvent(encodeChatEvent({ ...msg, invite }, { roomId, roomKey, deviceSk }), { roomId, roomKey, now: NOW })
+    expect(decoded!.invite).toEqual({ to: OTHER, room: 'd'.repeat(64), link: 'sealed' })
+    const plaintext = JSON.stringify({ ...msg, invite: { to: 'rowan', room: 'd'.repeat(64), link: 'sealed' } })
+    const event = finalizeEvent({ kind: KINDS.CHAT, created_at: msg.sentAt, tags: [['d', roomId]], content: nip44.v2.encrypt(plaintext, roomKey) }, deviceSk)
+    expect(decodeChatEvent(event, { roomId, roomKey, now: NOW })).toBeNull()
+  })
+
+  it('ChatLog.send works out the thread root, and refuses a caller mixing statements', async () => {
+    const { roomId, roomKey, deviceSk, credential } = await fixture()
+    const relay = new SimRelay()
+    const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
+    await log.send('root')
+    const root = log.messages()[0]!
+    await log.send('reply', { replyTo: root, mentions: [OTHER] })
+    const reply = log.messages().find((m) => m.text === 'reply')!
+    expect(reply.reply).toEqual({ messageId: root.id, participant: root.participant })
+    expect(reply.thread).toEqual(reply.reply)
+    await log.send('deeper', { replyTo: reply })
+    const deeper = log.messages().find((m) => m.text === 'deeper')!
+    expect(deeper.thread).toEqual({ messageId: root.id, participant: root.participant })
+    expect(deeper.reply).toEqual({ messageId: reply.id, participant: reply.participant })
+    await log.send('root, corrected', { replaces: root.id })
+    await log.send('Retracted a message', { retracts: reply.id })
+    expect(log.messages().some((m) => m.replaces === root.id)).toBe(true)
+    expect(log.messages().some((m) => m.retracts === reply.id)).toBe(true)
+    expect(() => log.prepareSend('x', { replaces: root.id, retracts: root.id })).toThrow()
+    expect(() => log.prepareSend('x', { retracts: root.id, replyTo: root })).toThrow()
+    expect(() => log.prepareSend('x', { retracts: root.id, mentions: [OTHER] })).toThrow()
+    expect(() => log.prepareSend('x', { replaces: root.id, directive: true })).toThrow()
+    expect(() => log.prepareSend('x', { mentions: Array.from({ length: 33 }, () => OTHER) })).toThrow()
+    log.close()
+  })
+})

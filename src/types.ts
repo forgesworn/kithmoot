@@ -32,6 +32,10 @@ export interface RoomPolicy {
   tier: AccessTier
   admitted?: string[]
   agents?: AgentRule
+  /** When present, the only participants admitted, whatever the tier
+   *  says. A direct message is a room whose policy lists two. See
+   *  `docs/messages.md`. */
+  members?: string[]
 }
 
 /**

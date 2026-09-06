@@ -74,11 +74,14 @@ import { normaliseAgentOwnership, verifyAgentOwnership } from '../dist/src/owner
 import { decodeChatEvent } from '../dist/src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../dist/src/attachment.js'
 import { encodeControl, decodeControl } from '../dist/src/control.js'
+import { resolveConversation, mentionsOf, mentionedBy } from '../dist/src/messages.js'
+import { decodeReadPositions, readPositionId, readPositionPlaintext, localSelfCrypt, mergeReadPositions, READ_POSITION_KIND, READ_POSITION_LABEL } from '../dist/src/read-position.js'
+import { openInvite, localPeerCrypt, dmPolicy } from '../dist/src/dm.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -141,6 +144,7 @@ joinUrlPositive('basic-no-policy', 'The common case: a secret and two relay hint
 joinUrlPositive('kith-policy-with-admitted-issuer', 'A kith-gated policy round-trips its admitted-issuer allow-list.', fx.ROOM_SECRET_1, ['wss://relay.damus.io'], { tier: 'kith', admitted: [fx.HOST] })
 joinUrlPositive('open-policy-has-no-admitted-list', "An 'open' policy carries no admitted list at all - decodeJoinUrl must not invent one.", fx.ROOM_SECRET_2, RELAYS, { tier: 'open' })
 joinUrlPositive('empty-relay-list', 'Edge case: an empty relay list is a valid, if useless, join URL.', fx.ROOM_SECRET_1, [], undefined)
+joinUrlPositive('members-policy-round-trip', 'A two-member policy, the shape of a direct message, round-trips with its members list normalised to lower case. A malformed list is refused rather than dropped, because a dropped list is an open room.', fx.ROOM_SECRET_2, RELAYS, { tier: 'open', members: [fx.PARTICIPANT_A, fx.PARTICIPANT_B] })
 
 {
   const url = 'https://kithmoot.com/j#not-valid-base64url!!!'
@@ -987,6 +991,13 @@ accessVector('kith-room-admits-kith-proof', 'positive', 'A kith-gated room admit
 accessVector('kith-room-admits-kin-proof', 'positive', 'A kith-gated room also admits a kin proof - kin is closer than kith.', KITH_POLICY, kinProof.proof)
 accessVector('kith-room-rejects-ken-proof', 'negative', "A kith-gated room refuses a ken proof - ken is one-way recognition and never satisfies a kith gate ('tier too low').", KITH_POLICY, kenProof.proof)
 accessVector('kith-room-rejects-untrusted-issuer', 'negative', 'A kith-gated room refuses a well-formed, correctly-signed kith proof from an issuer not on its allow-list.', KITH_POLICY, untrustedKithProof.proof)
+
+// A members list closes the door before any tier is considered. A direct
+// message is a room whose policy lists two; see docs/messages.md.
+accessVector('members-admit-a-listed-participant', 'positive', 'An open room with a members list admits a participant on the list, with no proof, as an open room does.', { tier: 'open', members: [fx.HOST, fx.GUEST] }, undefined)
+accessVector('members-refuse-a-stranger', 'negative', "A members list shuts the door to anybody not on it, whatever the tier says ('not a member'). This is what makes a two-member room a direct message.", { tier: 'open', members: [fx.HOST, fx.PARTICIPANT_A] }, undefined)
+accessVector('members-compared-case-insensitively', 'positive', 'A members entry in upper-case hex names the same participant. The rule every hex identifier here follows.', { tier: 'open', members: [fx.GUEST.toUpperCase()] }, undefined)
+accessVector('members-still-need-the-tier', 'negative', "A listed member of a kith-gated room still needs a kith proof ('no kindred proof'): the list narrows who may enter, it never widens what they must show.", { tier: 'kith', admitted: [fx.HOST], members: [fx.GUEST] }, undefined)
 
 // Hex identifiers in this protocol are compared case-insensitively (see
 // "Hex identifiers are compared case-insensitively" in vectors/README.md).
@@ -2017,6 +2028,293 @@ for (const [name, roomKey, a, b, note] of [
     note,
     input: { roomKeyHex: bytesToHex(roomKey), a, b },
     output: { throws: threw },
+  })
+}
+
+// ===========================================================================
+// The message layer: replies and threads, edits, retractions, mentions, DM
+// invitations and read positions (docs/messages.md)
+// ===========================================================================
+//
+// Each is a field inside the kind-1460 ciphertext, so the events below are
+// built exactly as the attachment vectors are; what these groups add is the
+// reader's resolution: which edit is shown, what a retraction hides, where a
+// reply sits, who a message addresses. `resolveConversation` is run on the
+// decoded messages and its answer is frozen as `conversation`, in a shape an
+// implementation in another language can compare without porting the type.
+{
+  const room = deriveRoom(fx.ROOM_SECRET_1)
+  const credentialA = buildCredential({
+    participantSk: fx.PARTICIPANT_A_SK,
+    devicePubkey: fx.DEVICE_A,
+    roomId: room.roomId,
+    createdAt: fx.CREDENTIAL_CREATED_AT,
+    expiresAt: fx.CREDENTIAL_EXPIRES_AT,
+    auxRandLabel: 'message-credential-a',
+  })
+  const credentialB = buildCredential({
+    participantSk: fx.PARTICIPANT_B_SK,
+    devicePubkey: fx.DEVICE_B,
+    roomId: room.roomId,
+    createdAt: fx.CREDENTIAL_CREATED_AT,
+    expiresAt: fx.CREDENTIAL_EXPIRES_AT,
+    auxRandLabel: 'message-credential-b',
+  })
+  const decodeArgs = { roomId: room.roomId, roomKeyHex: bytesToHex(room.roomKey), now: fx.NOW }
+  const decodeOpts = { roomId: room.roomId, roomKey: room.roomKey, now: fx.NOW }
+
+  function buildMessage({ message, label }) {
+    const content = nip44.v2.encrypt(JSON.stringify(message), room.roomKey, seed32(`${label}-nonce`))
+    const deviceSk = message.device === fx.DEVICE_A ? fx.DEVICE_A_SK : fx.DEVICE_B_SK
+    const event = finalizeDeterministic(
+      { kind: KINDS.CHAT, created_at: message.sentAt, tags: [['d', room.roomId]], content },
+      deviceSk,
+      seed32(`${label}-auxrand`),
+    )
+    return { event, nonceHex: bytesToHex(seed32(`${label}-nonce`)), auxRandHex: bytesToHex(seed32(`${label}-auxrand`)) }
+  }
+  const fromA = (id, text, sentAt, extra = {}) => ({ id, participant: fx.PARTICIPANT_A, device: fx.DEVICE_A, credential: credentialA.event, text, sentAt, ...extra })
+  const fromB = (id, text, sentAt, extra = {}) => ({ id, participant: fx.PARTICIPANT_B, device: fx.DEVICE_B, credential: credentialB.event, text, sentAt, ...extra })
+  const ref = (m) => ({ messageId: m.id, participant: m.participant })
+
+  /** The frozen shape of a resolved conversation: ids and flags only. */
+  function summarise(messages) {
+    const summary = (r) => ({
+      id: r.original.id,
+      participant: r.original.participant,
+      text: r.shown.text,
+      edited: r.edited,
+      edits: r.edits.map((e) => e.id),
+      retracted: r.retracted,
+      orphan: r.orphan,
+      thread: r.thread ?? null,
+      reply: r.reply ?? null,
+      replies: r.replies.map(summary),
+    })
+    return resolveConversation(messages).stream.map(summary)
+  }
+
+  /** One vector: the events, what each decodes to, and the conversation. */
+  function conversationVector(group, name, kind, note, labelled, extra = {}) {
+    const built = labelled.map(([label, message]) => ({ label, message, ...buildMessage({ message, label }) }))
+    const decoded = built.map((b) => decodeChatEvent(b.event, decodeOpts))
+    const accepted = decoded.filter((m) => m !== null)
+    const vector = {
+      name,
+      kind,
+      note,
+      input: { events: built.map((b) => ({ event: b.event, nonceHex: b.nonceHex, auxRandHex: b.auxRandHex })), decode: decodeArgs, ...extra.input },
+      output: { results: decoded, conversation: summarise(accepted), ...extra.output },
+    }
+    vectors[group].push(vector)
+    return { built, decoded }
+  }
+
+  const root = fromA('root-1', 'Shall we ship on Friday?', fx.MESSAGE_CREATED_AT)
+  const reply = fromB('reply-1', 'Yes, if the vectors are green', fx.MESSAGE_CREATED_AT + 10, { reply: ref(root), thread: ref(root) })
+  const deeper = fromA('reply-2', 'They will be', fx.MESSAGE_CREATED_AT + 20, { reply: ref(reply), thread: ref(root) })
+
+  // --- Threads -------------------------------------------------------------
+  conversationVector('chatThread', 'reply-to-root', 'positive',
+    'B answers A. A reply to a root carries `reply` and `thread`, equal, each naming the target by id AND author: an id is chosen by its sender, so an id alone is anybody\'s to reuse. The reader nests the reply under the root and the main stream shows one message.',
+    [['thread-root', root], ['thread-reply', reply]])
+
+  conversationVector('chatThread', 'reply-deeper-in-a-thread', 'positive',
+    'A answers B\'s reply. `thread` still names the root; `reply` names the message answered. Both replies sit under the root, in time order, and the second records which message it answered.',
+    [['thread-root', root], ['thread-reply', reply], ['thread-deeper', deeper]])
+
+  conversationVector('chatThread', 'reply-with-no-thread-field', 'positive',
+    'A reply that names only a parent: the parent is the root. Walked up through loaded messages, so a reply to a reply with no `thread` still lands under the top of the thread.',
+    [['thread-root', root], ['thread-parent-only', fromB('reply-3', 'parent only', fx.MESSAGE_CREATED_AT + 30, { reply: ref(root) })],
+     ['thread-grandchild', fromA('reply-4', 'grandchild', fx.MESSAGE_CREATED_AT + 40, { reply: { messageId: 'reply-3', participant: fx.PARTICIPANT_B } })]])
+
+  conversationVector('chatThread', 'reply-to-a-root-not-loaded', 'positive',
+    'A reply whose root this reader does not hold. The reference is kept, the message stays in the main stream marked `orphan`, and it moves under the root when the root arrives. Nothing somebody said disappears because the message it answered is older than the window.',
+    [['thread-orphan', fromB('reply-5', 'answering something older', fx.MESSAGE_CREATED_AT + 50, { thread: { messageId: 'gone-1', participant: fx.PARTICIPANT_A } })]])
+
+  conversationVector('chatThread', 'malformed-reference-dropped', 'positive',
+    'A `reply` that does not check out - here the author is not a key - is dropped and the message stays, which is exactly what an older client shows. The decoded message carries no `reply` and no `thread`.',
+    [['thread-malformed', fromB('reply-6', 'still a message', fx.MESSAGE_CREATED_AT + 60, { reply: { messageId: 'root-1', participant: 'not-a-key' }, thread: { messageId: '', participant: fx.PARTICIPANT_A } })]])
+
+  conversationVector('chatThread', 'reply-beside-a-reaction-refused', 'negative',
+    'A reaction is not a message and cannot answer one. A payload carrying both is refused whole; the check is on the keys as they arrived.',
+    [['thread-reaction', fromB('bad-1', 'Reacted 👍 to message root-1', fx.MESSAGE_CREATED_AT + 70, { reaction: { messageId: 'root-1', participant: fx.PARTICIPANT_A, emoji: '👍', active: true, revision: 1 }, reply: ref(root) })]])
+
+  // --- Edits -----------------------------------------------------------------
+  const edit1 = fromA('edit-1', 'Shall we ship on Thursday?', fx.MESSAGE_CREATED_AT + 100, { replaces: 'root-1' })
+  const edit2 = fromA('edit-2', 'Shall we ship on Thursday, early?', fx.MESSAGE_CREATED_AT + 100, { replaces: 'root-1', mentions: [fx.PARTICIPANT_B] })
+  conversationVector('chatEdit', 'edit', 'positive',
+    'A replaces its own message. `replaces` names the ORIGINAL\'s id; the author is the message\'s own participant, so same-author is structural. The reader shows the edit\'s text on the original\'s frame - id, sender, time, place - marks it edited, and keeps the chain.',
+    [['edit-original', root], ['edit-first', edit1]])
+
+  conversationVector('chatEdit', 'edit-latest-wins', 'positive',
+    'Two edits of one message in the same second: the greater id wins, exactly as reactions resolve. The winning edit\'s mentions replace the original\'s.',
+    [['edit-original', root], ['edit-first', edit1], ['edit-second', edit2]])
+
+  conversationVector('chatEdit', 'edit-of-an-edit-lands-on-the-original', 'positive',
+    'An edit that names an earlier edit rather than the original is read as naming that edit\'s original, so a client that got the rule wrong still converges.',
+    [['edit-original', root], ['edit-first', edit1], ['edit-of-edit', fromA('edit-3', 'Shall we ship on Wednesday?', fx.MESSAGE_CREATED_AT + 110, { replaces: 'edit-1' })]])
+
+  conversationVector('chatEdit', 'edit-by-somebody-else-ignored', 'positive',
+    'B "edits" A\'s message. It decodes - it is a well-formed message from B - but it names a message B never sent, so the original is untouched and B\'s edit stands as its own message, marked edited. Nobody puts words in anyone else\'s mouth.',
+    [['edit-original', root], ['edit-forged', fromB('edit-4', 'Ship never', fx.MESSAGE_CREATED_AT + 120, { replaces: 'root-1' })]])
+
+  conversationVector('chatEdit', 'edit-of-a-message-not-loaded', 'positive',
+    'An edit whose original this reader does not hold stands in for it, marked edited: a correction is still something somebody said.',
+    [['edit-orphan', fromA('edit-5', 'corrected, original older than the window', fx.MESSAGE_CREATED_AT + 130, { replaces: 'gone-2' })]])
+
+  conversationVector('chatEdit', 'edit-naming-nothing-refused', 'negative',
+    'An edit with an empty `replaces` is refused whole. Shown as a message it would duplicate what it meant to replace.',
+    [['edit-empty', fromA('edit-6', 'x', fx.MESSAGE_CREATED_AT + 140, { replaces: '' })]])
+
+  conversationVector('chatEdit', 'edit-with-a-thread-refused', 'negative',
+    'An edit keeps the original\'s place in a thread and its kind; one that carries `reply`, `thread` or `kind` of its own is refused.',
+    [['edit-threaded', fromA('edit-7', 'x', fx.MESSAGE_CREATED_AT + 150, { replaces: 'root-1', thread: ref(root) })]])
+
+  // --- Retractions -------------------------------------------------------------
+  const retract = fromA('retract-1', 'Retracted a message', fx.MESSAGE_CREATED_AT + 200, { retracts: 'root-1' })
+  conversationVector('chatRetract', 'retract', 'positive',
+    'A retracts its own message. The original and every edit of it are shown as one retracted placeholder, whatever their times: here the edit was sent AFTER the retraction and is still hidden. Once retracted, always retracted. Cooperative, like every deletion here: every admitted device already holds the plaintext.',
+    [['retract-original', root], ['retract-tombstone', retract], ['retract-late-edit', fromA('edit-8', 'too late', fx.MESSAGE_CREATED_AT + 300, { replaces: 'root-1' })]])
+
+  conversationVector('chatRetract', 'retract-keeps-replies', 'positive',
+    'Replies to a retracted root stay under it. The root shows as retracted; what people said in answer is theirs.',
+    [['retract-original', root], ['retract-reply', reply], ['retract-tombstone', retract]])
+
+  conversationVector('chatRetract', 'retract-by-somebody-else-ignored', 'positive',
+    'B "retracts" A\'s message. It decodes and does nothing: the tombstone names a message B never sent. A reader never shows a retraction as a message either; it is a statement, not conversation.',
+    [['retract-original', root], ['retract-forged', fromB('retract-2', 'Retracted a message', fx.MESSAGE_CREATED_AT + 210, { retracts: 'root-1' })]])
+
+  conversationVector('chatRetract', 'retract-with-attachments-refused', 'negative',
+    'A retraction carries nothing else. One with attachments, mentions, a reference or a kind is refused whole.',
+    [['retract-loaded', fromA('retract-3', 'Retracted a message', fx.MESSAGE_CREATED_AT + 220, { retracts: 'root-1', attachments: [] })]])
+
+  // --- Mentions ----------------------------------------------------------------
+  const roster = [
+    { participant: fx.PARTICIPANT_A, name: 'Ada' },
+    { participant: fx.PARTICIPANT_B, name: 'Rowan' },
+    { participant: fx.PARTICIPANT_C, name: 'Tally' },
+  ]
+  function mentionVector(name, kind, note, message, label) {
+    const built = buildMessage({ message, label })
+    const decoded = decodeChatEvent(built.event, decodeOpts)
+    const addressed = decoded
+      ? {
+          mentionsOf: mentionsOf(decoded, roster),
+          rowanAsPerson: mentionedBy(decoded, fx.PARTICIPANT_B, roster),
+          tallyAsPerson: mentionedBy(decoded, fx.PARTICIPANT_C, roster),
+          tallyAsAgent: mentionedBy(decoded, fx.PARTICIPANT_C, roster, { agent: true }),
+        }
+      : null
+    vectors.chatMention.push({
+      name,
+      kind,
+      note,
+      input: { event: built.event, nonceHex: built.nonceHex, auxRandHex: built.auxRandHex, decode: decodeArgs, roster },
+      output: { result: decoded, addressed },
+    })
+  }
+  mentionVector('mentions-on-the-wire', 'positive',
+    'The sender names who this addresses: Rowan by key, and everyone. What lights up as a mention is exactly what an agent answers to, because both read this field. `everyone` addresses a person and not an agent: Tally as a person is addressed, Tally as an agent is not.',
+    fromA('mention-1', '@Rowan and everyone: the vectors are green', fx.MESSAGE_CREATED_AT, { mentions: [fx.PARTICIPANT_B, 'everyone'] }), 'mention-wire')
+  mentionVector('mentions-by-name-when-the-field-is-absent', 'positive',
+    'A message from before the field existed is read by name: a whole word in the text that matches a roster name, with or without an @. Legacy, and it goes when the wire freezes. "Rowan" is named; "Tally" is not, because "totally" is not Tally.',
+    fromA('mention-2', 'Rowan, this is totally fine', fx.MESSAGE_CREATED_AT + 10), 'mention-legacy')
+  mentionVector('mentions-normalised', 'positive',
+    'Keys lower-cased, repeats dropped, anything that is neither a key nor `everyone` dropped. The field goes altogether when nothing valid is left; here two entries survive.',
+    fromA('mention-3', 'names, tidied', fx.MESSAGE_CREATED_AT + 20, { mentions: [fx.PARTICIPANT_B.toUpperCase(), fx.PARTICIPANT_B, 'Ada', 'everyone', 'EVERYONE'] }), 'mention-messy')
+  mentionVector('mentions-over-the-cap-refused', 'negative',
+    'More than 32 names is not something a conformant client sends, and the message is refused whole rather than trimmed.',
+    fromA('mention-4', 'too many', fx.MESSAGE_CREATED_AT + 30, { mentions: Array.from({ length: 33 }, (_, i) => i.toString(16).padStart(64, '0')) }), 'mention-cap')
+
+  // --- DM invitations ------------------------------------------------------------
+  const dmRoom = deriveRoom(fx.ROOM_SECRET_2)
+  const dmLink = encodeJoinUrl(fx.BASE_URL, fx.ROOM_SECRET_2, RELAYS, dmPolicy(fx.PARTICIPANT_A, fx.PARTICIPANT_B))
+  const sealed = nip44.v2.encrypt(dmLink, nip44.v2.utils.getConversationKey(fx.PARTICIPANT_A_SK, fx.PARTICIPANT_B), seed32('invite-link-nonce'))
+  const inviteMessage = fromA('invite-1', 'Started a private conversation', fx.MESSAGE_CREATED_AT, { invite: { to: fx.PARTICIPANT_B, room: dmRoom.roomId, link: sealed } })
+  {
+    const built = buildMessage({ message: inviteMessage, label: 'invite' })
+    const decoded = decodeChatEvent(built.event, decodeOpts)
+    const opened = {
+      byRowan: await openInvite(decoded.invite, { self: fx.PARTICIPANT_B, sender: fx.PARTICIPANT_A, crypt: localPeerCrypt(fx.PARTICIPANT_B_SK) }),
+      byAdaOtherDevice: await openInvite(decoded.invite, { self: fx.PARTICIPANT_A, sender: fx.PARTICIPANT_A, crypt: localPeerCrypt(fx.PARTICIPANT_A_SK) }),
+      byTally: await openInvite(decoded.invite, { self: fx.PARTICIPANT_C, sender: fx.PARTICIPANT_A, crypt: localPeerCrypt(fx.PARTICIPANT_C_SK) }),
+    }
+    vectors.chatInvite.push({
+      name: 'invite',
+      kind: 'positive',
+      note: 'A invites B to a direct message: a room whose link admits the two of them and nobody else. The link is NIP-44 v2 between A\'s participant key and B\'s, so B opens it, and so does any other device holding A\'s identity - the conversation key is the same from either end - and C, holding the shared room\'s key and reading the message, gets null without a decrypt being tried. The text names nobody. `linkNonceHex` is the NIP-44 nonce the link was sealed with.',
+      input: { event: built.event, nonceHex: built.nonceHex, auxRandHex: built.auxRandHex, linkNonceHex: bytesToHex(seed32('invite-link-nonce')), decode: decodeArgs, link: dmLink, dmRoomId: dmRoom.roomId, senderSkHex: bytesToHex(fx.PARTICIPANT_A_SK), recipientSkHex: bytesToHex(fx.PARTICIPANT_B_SK), strangerSkHex: bytesToHex(fx.PARTICIPANT_C_SK) },
+      output: { result: decoded, opened },
+    })
+  }
+  conversationVector('chatInvite', 'invite-beside-a-reaction-refused', 'negative',
+    'An invitation is a statement about a room, a reaction a statement about a message; a payload carrying both is refused whole.',
+    [['invite-reaction', fromA('invite-2', 'x', fx.MESSAGE_CREATED_AT + 10, { invite: inviteMessage.invite, reaction: { messageId: 'root-1', participant: fx.PARTICIPANT_A, emoji: '👍', active: true, revision: 1 } })]])
+  conversationVector('chatInvite', 'invite-malformed-refused', 'negative',
+    'An invitation whose addressee is not a key is refused whole: there is nobody to show it to and nothing honest to show instead.',
+    [['invite-malformed', fromA('invite-3', 'x', fx.MESSAGE_CREATED_AT + 20, { invite: { to: 'rowan', room: dmRoom.roomId, link: sealed } })]])
+
+  // --- Read positions --------------------------------------------------------------
+  const read = { '': { at: fx.MESSAGE_CREATED_AT + 20, id: 'reply-2' }, minutes: { at: fx.MESSAGE_CREATED_AT } }
+  const plaintext = readPositionPlaintext({ room: room.roomId, read })
+  function buildReadPosition({ roomKey, participantSk, label, tags }) {
+    const key = nip44.v2.utils.getConversationKey(participantSk, getPublicKey(participantSk))
+    const content = nip44.v2.encrypt(plaintext, key, seed32(`${label}-nonce`))
+    const event = finalizeDeterministic(
+      { kind: READ_POSITION_KIND, created_at: fx.READ_POSITION_CREATED_AT, tags: tags ?? [['d', readPositionId(roomKey)], ['l', READ_POSITION_LABEL]], content },
+      participantSk,
+      seed32(`${label}-auxrand`),
+    )
+    return { event, nonceHex: bytesToHex(seed32(`${label}-nonce`)), auxRandHex: bytesToHex(seed32(`${label}-auxrand`)) }
+  }
+  const record = buildReadPosition({ roomKey: room.roomKey, participantSk: fx.PARTICIPANT_A_SK, label: 'read-position' })
+  const readDecodeArgs = { participant: fx.PARTICIPANT_A, roomId: room.roomId, roomKeyHex: bytesToHex(room.roomKey) }
+  vectors.readPosition.push({
+    name: 'read-position-id-derivation',
+    kind: 'positive',
+    note: 'The `d` tag for a room: HKDF-SHA256 of the room\'s epoch-0 key with the info string `kithmoot/v1/read-position-id`, 32 bytes, hex. Every member can compute it and no relay can, so a relay cannot tie the record to a room id it carries.',
+    input: { roomKeyHex: bytesToHex(room.roomKey) },
+    output: { idHex: readPositionId(room.roomKey) },
+  })
+  vectors.readPosition.push({
+    name: 'read-position',
+    kind: 'positive',
+    note: 'A\'s read positions for one room: a kind-30078 record signed by the participant key, replaceable per room by the derived `d` tag, labelled `l: kithmoot.read.v1`, and NIP-44 v2 to A\'s own key. The main chat is the channel named `""`. `plaintext` is the canonical body both implementations write: channels sorted, `id` only when there is one.',
+    input: { event: record.event, nonceHex: record.nonceHex, auxRandHex: record.auxRandHex, decode: readDecodeArgs, plaintext, participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK) },
+    output: { result: await decodeReadPositions(record.event, { participant: fx.PARTICIPANT_A, roomId: room.roomId, roomKey: room.roomKey, crypt: localSelfCrypt(fx.PARTICIPANT_A_SK) }) },
+  })
+  const otherRoom = deriveRoom(fx.ROOM_SECRET_2)
+  vectors.readPosition.push({
+    name: 'read-position-wrong-room-refused',
+    kind: 'negative',
+    note: 'The same record read against another room: the `d` tag does not match that room\'s derived id, so it is refused before anything is decrypted.',
+    input: { event: record.event, decode: { participant: fx.PARTICIPANT_A, roomId: otherRoom.roomId, roomKeyHex: bytesToHex(otherRoom.roomKey) }, participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK) },
+    output: { result: null },
+  })
+  vectors.readPosition.push({
+    name: 'read-position-somebody-elses-refused',
+    kind: 'negative',
+    note: 'A record expected from B and signed by A: refused on the envelope. The author is the participant key, in the clear, and a reader only ever asks for its own.',
+    input: { event: record.event, decode: { participant: fx.PARTICIPANT_B, roomId: room.roomId, roomKeyHex: bytesToHex(room.roomKey) }, participantSkHex: bytesToHex(fx.PARTICIPANT_B_SK) },
+    output: { result: null },
+  })
+  const unlabelled = buildReadPosition({ roomKey: room.roomKey, participantSk: fx.PARTICIPANT_A_SK, label: 'read-position-unlabelled', tags: [['d', readPositionId(room.roomKey)]] })
+  vectors.readPosition.push({
+    name: 'read-position-without-label-refused',
+    kind: 'negative',
+    note: 'The `l` tag is what a reader subscribes on and what says this kind-30078 record is a KithMoot read position rather than some other application\'s data under a colliding `d`. Without it the record is refused.',
+    input: { event: unlabelled.event, nonceHex: unlabelled.nonceHex, auxRandHex: unlabelled.auxRandHex, decode: readDecodeArgs, participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK) },
+    output: { result: null },
+  })
+  const local = { '': { at: 10, id: 'b' }, minutes: { at: 3 } }
+  const remote = { '': { at: 10, id: 'a' }, transcript: { at: 7 } }
+  vectors.readPosition.push({
+    name: 'read-position-merge',
+    kind: 'positive',
+    note: 'Two devices, merged: the greater position per channel wins, `at` first and then `id`. `localAhead` says this device knew something the record did not, so it republishes; `remoteAhead` says the record moved this device on.',
+    input: { local, remote },
+    output: mergeReadPositions(local, remote),
   })
 }
 

@@ -81,12 +81,32 @@ import {
   buildFileEvent,
   normaliseBlossomServer,
   parseRoomLink,
+  encodeRoomLink,
   type RoomLink,
   type RelayTransport,
   type EncryptedEnvelope,
   DonationLedger,
   ringTier,
+  resolveConversation,
+  mentionedBy,
+  namesInText,
+  sameRef,
+  refKey,
+  retractionText,
+  inviteText,
+  EVERYONE,
+  MAX_MENTIONS,
+  dmPolicy,
+  dmPeer,
+  sealInvite,
+  openInvite,
+  localPeerCrypt,
+  signerSelfCrypt,
+  type ResolvedMessage,
+  type SendOptions,
+  type PeerCrypt,
 } from '../../src/index.js'
+import { ReadPositionSync } from './read-positions.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
 import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from '../../src/peer.js'
@@ -485,6 +505,8 @@ async function signOutOfNostr(): Promise<void> {
   const session = nostrSession
   bookmarks?.close()
   bookmarks = undefined
+  readSync?.close()
+  readSync = undefined
   nostrSession = undefined
   sessionStorage.removeItem(WAY_BACK_KEY)
   $('roomSyncStatus').textContent = ''
@@ -495,6 +517,18 @@ async function signOutOfNostr(): Promise<void> {
 
 let bookmarks: RoomBookmarks | undefined
 function roomStore() { return bookmarks?.rooms ?? deviceStore }
+
+/**
+ * Read positions, kept the same on every device that holds this identity.
+ * Gated exactly as bookmarks are: a signer with NIP-44. A visitor's key
+ * lives in one browser, so there is nothing to keep in step and no reason
+ * to tell a relay what that key has read. See app/src/read-positions.ts.
+ */
+let readSync: ReadPositionSync | undefined
+
+function followReadPositions(roomId: string, roomKey: Uint8Array): void {
+  readSync?.follow(roomId, roomKey, { '': { at: knownRoom(roomStore(), roomId)?.readAt ?? 0 } })
+}
 
 function refreshAccountRooms(): void {
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
@@ -524,6 +558,20 @@ function startRoomBookmarks(account: SignetSession): void {
   })
   refreshAccountRooms()
   bookmarks.start()
+  readSync?.close()
+  readSync = account.signer.nip44
+    ? new ReadPositionSync(account.signer, signerSelfCrypt({ pubkey: account.signer.pubkey, nip44: account.signer.nip44 }), new NostrRelayPool(RELAYS), (roomId, positions) => {
+        const at = positions['']?.at
+        if (at === undefined) return
+        markRead(roomStore(), roomId, at)
+        if (roomsListShown) renderRooms()
+      })
+    : undefined
+  // The room this page is in, and every room the list is watching, from
+  // wherever this identity had read to on another device.
+  const current = currentRoomId()
+  if (current && (roomSecret as Uint8Array | undefined)) followReadPositions(current, deriveRoom(roomSecret).roomKey)
+  for (const [roomId, watched] of roomWatches) followReadPositions(roomId, watched.watch.roomKey)
   // A sign-in at the door saves this room, not the visitor's past rooms.
   rememberCurrentRoom()
 }
@@ -1969,8 +2017,10 @@ function renderRoomTitle(): void {
   title.textContent = ''
   title.hidden = roomId === undefined
   if (!roomId) return
-  title.textContent = roomName ?? 'Room'
-  title.title = roomName ?? `Room ${shortKey(roomId)}`
+  const me = meParticipant || currentParticipant()
+  const peer = me ? dmPeer(roomPolicy, me) : undefined
+  title.textContent = peer ? currentRoomLabel() : roomName ?? 'Room'
+  title.title = peer ? currentRoomLabel() : roomName ?? `Room ${shortKey(roomId)}`
   renderSheetRoom()
 }
 
@@ -2802,7 +2852,122 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       row.append(badge)
     }
     if (view.participant !== me) row.append(verifyChip(view, shown.name ?? ''))
+    // A word in private, from the room you are both in. A DM is a room of
+    // two; see docs/messages.md. Not offered on a room that already is one.
+    if (view.participant !== me && !view.agent && !dmPeer(roomPolicy, me)) {
+      const dm = document.createElement('button')
+      dm.type = 'button'
+      dm.className = 'dmButton quiet'
+      dm.textContent = 'Message privately'
+      dm.setAttribute('aria-label', `Message ${shown.name ?? shown.short} privately`)
+      dm.addEventListener('click', () => { void startDirectMessage(view.participant, shown.name) })
+      row.append(dm)
+    }
     list.append(row)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Direct messages
+//
+// A DM is a room: a persistent group whose link admits two people and
+// nobody else. Starting one makes that room and sends its link, sealed to
+// the other person, as a message in the room you are both already in. The
+// person's other devices, and the recipient's, open it from there. See
+// docs/messages.md and src/dm.ts.
+// ---------------------------------------------------------------------------
+
+/** NIP-44 between this participant and another: the signer's, or the local
+ *  key's. Undefined on a paired secondary, which holds no participant key,
+ *  and on a signer with no NIP-44. */
+function peerCrypt(): PeerCrypt | undefined {
+  if (nostrSession) {
+    const nip44 = nostrSession.signer.nip44
+    if (!nip44) return undefined
+    return { encrypt: (peer, text) => nip44.encrypt(peer, text), decrypt: (peer, text) => nip44.decrypt(peer, text) }
+  }
+  try {
+    return localPeerCrypt(participantKey())
+  } catch {
+    return undefined
+  }
+}
+
+let startingDm = false
+async function startDirectMessage(peer: string, peerName: string | undefined): Promise<void> {
+  const s = session
+  const me = meParticipant
+  if (!s || !me || startingDm) return
+  const who = peerName ?? shortKey(peer)
+  const crypt = peerCrypt()
+  if (!crypt) {
+    setStatus(nostrSession
+      ? 'This signer cannot encrypt, so it cannot send a private invitation. Sign in with a signer that supports NIP-44.'
+      : 'A paired device cannot start a private conversation. Use the device that holds your identity.')
+    return
+  }
+  startingDm = true
+  try {
+    setStatus(`Starting a private conversation with ${who}…`, 'progress')
+    const secret = generateRoomSecret()
+    const created = createRoomInvitation(true)
+    const { roomId } = deriveRoom(secret)
+    storeInvitationOwner(created.invitation, secret, created.inviterSk)
+    await publishGroupInvitation(created.invitation, secret, created.inviterSk, relays)
+    const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays, iceUrls, policy: dmPolicy(me, peer) })
+    const invite = await sealInvite(link, { to: peer, room: roomId, crypt })
+    const text = inviteText()
+    outbox.send(text, 'Chat', s.chat.prepareSend(text, { invite }))
+    const room = rememberRoom(roomStore(), { roomId, link, openedAt: nowSeconds(), ...(peerName ? { name: peerName } : {}) })
+    bookmarks?.save(room)
+    setStatus(`Private conversation with ${who} started. It is in your rooms; ${who} will find it in theirs.`, 'done')
+  } catch (err) {
+    setStatus(describeError(err))
+  } finally {
+    startingDm = false
+  }
+}
+
+/** Invitations this page has already acted on, by message id. */
+const handledInvites = new Set<string>()
+
+/**
+ * Open every invitation in the main chat that is for this identity: one
+ * addressed to it, or one it sent from another device. The room goes on
+ * the list and, when signed in, into the bookmarks, and the chat says so
+ * where the invitation sits.
+ */
+async function handleInvites(messages: ChatMessage[]): Promise<void> {
+  const me = meParticipant
+  if (!me) return
+  for (const m of messages) {
+    if (!m.invite || handledInvites.has(m.id)) continue
+    if (m.invite.to !== me && m.participant !== me) continue
+    if (knownRoom(roomStore(), m.invite.room)) { handledInvites.add(m.id); continue }
+    // No key to open it with yet - a signer still restoring - is not a
+    // decision, so the invitation is left for the next repaint.
+    const crypt = peerCrypt()
+    if (!crypt) continue
+    handledInvites.add(m.id)
+    const link = await openInvite(m.invite, { self: me, sender: m.participant, crypt })
+    if (!link) continue
+    try {
+      parseRoomLink(link)
+    } catch {
+      continue
+    }
+    // Named for the other person: the sender's name on the message when it
+    // was sent to us, and the addressee's roster name when we sent it from
+    // another device.
+    const peerName = m.participant === me
+      ? session?.participants().find((v) => v.participant === m.invite!.to)?.name
+      : m.name ?? shownAs(m.participant).name
+    const room = rememberRoom(roomStore(), { roomId: m.invite.room, link, openedAt: m.sentAt, ...(peerName ? { name: peerName } : {}) })
+    bookmarks?.save(room)
+    addSystemLine(m.participant === me
+      ? 'You started a private conversation from another device. It is in your rooms.'
+      : `${senderLabel(m)} started a private conversation with you. It is in your rooms.`, m.sentAt)
+    if (roomsListShown) renderRooms()
   }
 }
 
@@ -3406,6 +3571,7 @@ function renderChat(messages: ChatMessage[]): void {
   // showing. See `#chatLog.minutes` in style.css.
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
+  if (currentChannel === undefined) void handleInvites(messages)
   conversationSearch.update(messages, currentChannel ?? 'Chat', message => {
     if (message.participant === meParticipant) return message.name ? `${message.name} (you)` : 'You'
     return shownAs(message.participant, message.name).name ?? message.participant.slice(0, 8)
@@ -3983,13 +4149,14 @@ setInterval(() => {
 // Mentions
 //
 // Saying somebody's name is how you address them, and for an agent it is
-// what decides whether it answers at all. The rule lives on the agent side
-// in `namesAgent` (src/node/brains.ts): an `@` before the name, or the name
-// on its own as a whole word, matched without regard to case, with the name
-// escaped so a name full of punctuation matches itself rather than
-// everything. What follows is the same rule read back, so what the room
-// SHOWS as a mention is exactly what an agent would ANSWER to. If the two
-// ever drift, a person reads a highlighted name and gets no reply.
+// what decides whether it answers at all. Who a message addresses is now on
+// the wire (`ChatMessage.mentions`, see docs/messages.md), and one function,
+// `mentionedBy` in src/messages.ts, reads it for the room and for every
+// agent, so what the room SHOWS as addressed is exactly what an agent
+// ANSWERS to. A message from before the field existed is read by name: an
+// `@` before the name, or the name on its own as a whole word, without
+// regard to case. What follows marks the names in the text either way, so a
+// name still reads as a name in a room full of them.
 //
 // Bare names count deliberately: people were typing names here long before
 // there was an @ to type, and the picker is there to make the good path
@@ -4081,6 +4248,13 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   // thing that only shows up in a room with a thousand messages in it.
   const mentions = mentionPattern(rosterNames())
   const namesOfMine = myNames()
+  const roster = session?.participants() ?? []
+  // The log as a person reads it rather than as the relay holds it: the
+  // latest edit's words on each message, a retracted one shown as such,
+  // replies under the message they answer. See `resolveConversation` and
+  // docs/messages.md.
+  const conversation = resolveConversation(messages)
+  const writable = channelAvailable(currentChannel) && !(currentChannel && WRITTEN_BY_AGENTS.includes(currentChannel))
 
   // System lines sit in the log where they happened, and look like nothing
   // anybody sent: no name, no key, because nobody did.
@@ -4100,9 +4274,18 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     }
   }
 
-  for (const m of messages) {
-    if (m.reaction) continue
-    systemUpTo(m.sentAt)
+  const chip = (text: string, title: string, kind: string): HTMLSpanElement => {
+    const span = document.createElement('span')
+    span.className = `chip ${kind}`
+    span.textContent = text
+    span.title = title
+    return span
+  }
+
+  const paint = (r: ResolvedMessage, into: HTMLElement, nested: boolean): void => {
+    const m = r.shown
+    const original = r.original
+    if (!nested) systemUpTo(original.sentAt)
 
     // A transcript line is not a message somebody sent: it is a note of
     // what a microphone heard, written down by a third party. It keeps the
@@ -4111,7 +4294,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     if (m.kind === 'transcript') {
       const p = document.createElement('p')
       p.className = 'transcript'
-      p.dataset.messageId = m.id
+      p.dataset.messageId = original.id
       const who = document.createElement('span')
       who.className = 'who'
       if (m.speaker) {
@@ -4125,19 +4308,23 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       by.className = 'who'
       by.append(' · heard by ')
       by.append(identityRun(shownAs(m.participant, m.name), false))
-      p.append(timeChip(m.sentAt, true), who)
+      p.append(timeChip(original.sentAt, true), who)
       appendWithMentions(p, m.text, mentions, namesOfMine)
       p.append(by)
       for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
-      log.append(p)
-      continue
+      into.append(p)
+      return
     }
 
-    const mine = m.participant === meParticipant
-    const fromAgent = participantIsAgent(m.participant)
+    const mine = original.participant === meParticipant
+    const fromAgent = participantIsAgent(original.participant)
     const row = document.createElement('div')
-    row.className = `msg ${mine ? 'mine' : 'theirs'}${fromAgent ? ' fromAgent' : ''}`
-    row.dataset.messageId = m.id
+    row.className = `msg ${mine ? 'mine' : 'theirs'}${fromAgent ? ' fromAgent' : ''}${r.retracted ? ' retracted' : ''}`
+    row.dataset.messageId = original.id
+    // Addressed to the reader, by the field on the wire or by name on a
+    // message from before the field existed: the one thing a person scans
+    // a busy room for, and exactly what an agent would answer to.
+    if (!r.retracted && meParticipant && mentionedBy(m, meParticipant, roster)) row.classList.add('mentionsMe')
 
     // Who said it, above the bubble, the way every group chat does it.
     // Left-alignment says "not you"; in a room of six it does not say WHO,
@@ -4150,7 +4337,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     {
       const sender = document.createElement('div')
       sender.className = 'sender'
-      sender.append(identityRun(shownAs(m.participant, m.name), mine, true))
+      sender.append(identityRun(shownAs(original.participant, original.name), mine, true))
       // The tag, in the same place and the same colour as on the roster, so
       // a bubble from a program is recognisable without reading a word.
       if (fromAgent) {
@@ -4162,16 +4349,64 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       }
       // Whose agent wrote this, from the proof carried on the message and
       // verified as at its send time - see ChatMessage.owner.
-      if (m.owner) sender.append(ownerRun(m.owner))
+      if (original.owner) sender.append(ownerRun(original.owner))
       header.append(sender)
     }
-    header.append(timeChip(m.sentAt, true))
+    // The time it was first said. An edit does not move a message.
+    header.append(timeChip(original.sentAt, true))
+    if (r.edited && !r.retracted) {
+      header.append(chip('edited', `Edited${r.edits.length > 1 ? ` ${r.edits.length} times` : ''}. Earlier versions are kept on every device that received them.`, 'edited'))
+    }
+    if (r.orphan) header.append(chip('in a thread', 'Part of a thread whose first message is not loaded here.', 'orphan'))
+    if (nested && r.reply && r.thread && !sameRef(r.reply, r.thread)) {
+      const target = conversation.byKey.get(refKey(r.reply))
+      header.append(chip(`replying to ${target ? senderLabel(target.original) : personLabel(r.reply.participant)}`, 'Answers a message further up this thread.', 'replyTo'))
+    }
+    if (writable && !r.retracted) {
+      const actions = document.createElement('div')
+      actions.className = 'messageActions'
+      const reply = document.createElement('button')
+      reply.type = 'button'
+      reply.textContent = 'Reply'
+      reply.setAttribute('aria-label', `Reply to ${senderLabel(original)}`)
+      reply.addEventListener('click', () => setComposing({ replyTo: original }))
+      actions.append(reply)
+      // Only the author edits or retracts, and only something they typed:
+      // a transcript is a note of somebody else's words, and a directive
+      // was said aloud.
+      if (mine && !original.kind) {
+        const edit = document.createElement('button')
+        edit.type = 'button'
+        edit.textContent = 'Edit'
+        edit.setAttribute('aria-label', 'Edit this message')
+        edit.addEventListener('click', () => setComposing({ editing: original }, m))
+        const retract = document.createElement('button')
+        retract.type = 'button'
+        retract.textContent = 'Retract'
+        retract.setAttribute('aria-label', 'Retract this message')
+        retract.addEventListener('click', () => retractMessage(original))
+        actions.append(edit, retract)
+      }
+      header.append(actions)
+    }
     row.append(header)
 
     const bubble = document.createElement('div')
     bubble.className = 'bubble'
     const text = document.createElement('span')
     text.className = 'text'
+    if (r.retracted) {
+      // A placeholder rather than nothing: something was said here, and a
+      // gap where a message was is a thing people argue about. Cooperative,
+      // and the title says so.
+      text.textContent = 'Message retracted'
+      bubble.title = 'Retracted by its author. Every device that already received it still holds it, and the relays hold it encrypted; it is marked, not erased.'
+      bubble.append(text)
+      row.append(bubble)
+      into.append(row)
+      if (!nested && r.replies.length) paintThread(r, into)
+      return
+    }
     // textContent, never innerHTML: this is somebody else's text. The line
     // breaks in it are kept - the box people type into makes them now - and
     // the names in it are marked, including yours.
@@ -4179,37 +4414,51 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     bubble.append(text)
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
     row.append(bubble)
-    const reactions = reactionsFor(messages, m)
+    const reactions = reactionsFor(messages, original)
     const reactionBar = document.createElement('div'); reactionBar.className = 'messageReactions'
     reactionBar.setAttribute('aria-label', 'Message reactions')
-    const writable = channelAvailable(currentChannel) && !(currentChannel && WRITTEN_BY_AGENTS.includes(currentChannel))
     for (const emoji of REACTION_EMOJIS) {
       const entries = reactions.get(emoji)!.filter(entry => entry.reaction!.active)
       if (!entries.length && !['👍', '❤️', '🤦'].includes(emoji)) continue
       const button = document.createElement('button'); button.type = 'button'
-      const mine = entries.some(entry => entry.participant === meParticipant)
+      const mineToo = entries.some(entry => entry.participant === meParticipant)
       button.textContent = `${emoji}${entries.length ? ` ${entries.length}` : ''}`
-      button.setAttribute('aria-pressed', String(mine))
-      button.setAttribute('aria-label', `${mine ? 'Remove' : 'Add'} ${emoji} reaction${entries.length ? `, ${entries.length}` : ''}`)
+      button.setAttribute('aria-pressed', String(mineToo))
+      button.setAttribute('aria-label', `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction${entries.length ? `, ${entries.length}` : ''}`)
       button.title = entries.length ? entries.map(entry => senderLabel(entry)).join(', ') : `React ${emoji}`
       button.disabled = !writable
       button.addEventListener('click', () => {
         const chat = activeChat() ?? session?.chat
         if (!chat || !meParticipant) return
         try {
-          const reaction = toggleReaction(chat.messages(), m, meParticipant, emoji)
-          const text = reactionText(reaction)
+          const reaction = toggleReaction(chat.messages(), original, meParticipant, emoji)
+          const reactionSaid = reactionText(reaction)
           button.disabled = true
-          outbox.send(text, currentChannel ?? 'Chat', chat.prepareSend(text, { reaction }))
+          outbox.send(reactionSaid, currentChannel ?? 'Chat', chat.prepareSend(reactionSaid, { reaction }))
         } catch (error) { setStatus(describeError(error)); button.disabled = !writable }
       })
       reactionBar.append(button)
     }
     row.append(reactionBar)
-    log.append(row)
+    into.append(row)
+    if (!nested && r.replies.length) paintThread(r, into)
   }
+
+  // Replies sit under their root, indented and ruled, in time order. One
+  // level: a reply to a reply still sits in the same thread and says which
+  // message it answers in a chip, which is how Slack shows the same thing.
+  const paintThread = (root: ResolvedMessage, into: HTMLElement): void => {
+    const thread = document.createElement('div')
+    thread.className = 'thread'
+    thread.setAttribute('role', 'group')
+    thread.setAttribute('aria-label', `${root.replies.length} ${root.replies.length === 1 ? 'reply' : 'replies'}`)
+    for (const reply of root.replies) paint(reply, thread, true)
+    into.append(thread)
+  }
+
+  for (const r of conversation.stream) paint(r, log, false)
   systemUpTo(Number.POSITIVE_INFINITY)
-  if (countId) $(countId).textContent = messages.some(m => !m.reaction) ? `(${messages.filter(m => !m.reaction).length})` : ''
+  if (countId) $(countId).textContent = conversation.byKey.size ? `(${conversation.byKey.size})` : ''
   restoreScroll()
 }
 
@@ -4874,7 +5123,8 @@ async function startSession(): Promise<void> {
     // notification, if the person asked for them. Followed from now, so
     // the history the log replays on open is never news.
     const joinedRoomId = currentRoomId() ?? s.roomId
-    const roomLabelNow = () => roomLabel({ roomId: joinedRoomId, name: roomName })
+    const roomLabelNow = () => currentRoomLabel()
+    followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey)
     const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel })
     s.chat.onChange((messages) => {
       // Only when the main chat is the conversation on screen. Repainting
@@ -4990,8 +5240,17 @@ function noteChatRead(messages: ChatMessage[]): void {
   const roomId = currentRoomId()
   if (!roomId) return
   let newest = 0
-  for (const m of messages) if (m.sentAt > newest) newest = m.sentAt
-  if (newest > 0) markRead(roomStore(), roomId, newest)
+  let newestId: string | undefined
+  for (const m of messages) {
+    if (m.sentAt > newest || (m.sentAt === newest && newestId !== undefined && m.id > newestId)) {
+      newest = m.sentAt
+      newestId = m.id
+    }
+  }
+  if (newest > 0) {
+    markRead(roomStore(), roomId, newest)
+    readSync?.note(roomId, { '': newestId ? { at: newest, id: newestId } : { at: newest } })
+  }
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -5060,7 +5319,7 @@ function watchKnownRoom(room: KnownRoom): void {
   const notify = notifier.follow({
     roomId,
     channel: 'chat',
-    room: () => roomLabel(knownRoom(roomStore(), roomId) ?? room),
+    room: () => knownRoomLabel(knownRoom(roomStore(), roomId) ?? room),
     sender: senderLabel,
   })
   const watch = new RoomWatch({
@@ -5075,6 +5334,7 @@ function watchKnownRoom(room: KnownRoom): void {
   })
   notify(watch.messages())
   roomWatches.set(room.roomId, { pool, watch })
+  followReadPositions(roomId, roomKey)
 }
 
 function stopWatching(roomId: string): void {
@@ -5168,7 +5428,7 @@ function importBrowserRooms(): void {
   const destination = nostrSession?.signer.nip44
     ? 'Their names and invitation links will be encrypted to your Nostr key and sent to relays.'
     : 'This signer cannot encrypt, so these bookmarks will stay in this browser only.'
-  if (!confirm(`Add these browser rooms to this Nostr account?\n\n${rooms.map(roomLabel).join('\n')}\n\n${destination} Only continue if these are rooms you want saved to this account.`)) return
+  if (!confirm(`Add these browser rooms to this Nostr account?\n\n${rooms.map(knownRoomLabel).join('\n')}\n\n${destination} Only continue if these are rooms you want saved to this account.`)) return
   for (const room of rooms) bookmarks.save(room)
   renderRooms()
 }
@@ -5188,8 +5448,8 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   name.type = 'button'
   name.className = 'roomName open'
   name.dataset.action = 'open'
-  name.setAttribute('aria-label', `Open ${roomLabel(room)}`)
-  name.textContent = roomLabel(room)
+  name.setAttribute('aria-label', `Open ${knownRoomLabel(room)}`)
+  name.textContent = knownRoomLabel(room)
   name.addEventListener('click', () => openKnownRoom(room))
   const id = document.createElement('span')
   id.className = 'pubkey'
@@ -5207,7 +5467,7 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   forget.type = 'button'
   forget.className = 'forget quiet'
   forget.dataset.action = 'forget'
-  forget.setAttribute('aria-label', `Forget ${roomLabel(room)}`)
+  forget.setAttribute('aria-label', `Forget ${knownRoomLabel(room)}`)
   forget.textContent = 'Forget'
   forget.addEventListener('click', () => forgetKnownRoom(room))
   actions.append(projectButton(room), forget)
@@ -5273,6 +5533,40 @@ function roomMeta(room: KnownRoom): HTMLDivElement {
 }
 
 /** Opening a room from the list is opening its link. */
+/** The other member of a direct message this identity is in, off the
+ *  room's link, or undefined for any other room. Cached by link, because
+ *  the rooms list asks on every repaint. */
+const dmPeerCache = new Map<string, string | undefined>()
+function dmPeerOf(room: Pick<KnownRoom, 'link'>): string | undefined {
+  const me = meParticipant || currentParticipant()
+  if (!me) return undefined
+  const key = `${me}:${room.link}`
+  if (!dmPeerCache.has(key)) {
+    let peer: string | undefined
+    try { peer = dmPeer(parseRoomLink(room.link).policy, me) } catch { peer = undefined }
+    dmPeerCache.set(key, peer)
+  }
+  return dmPeerCache.get(key)
+}
+
+/** What to call a room on the list: a direct message is named for the
+ *  person on the other end, everything else by `roomLabel`. */
+function knownRoomLabel(room: KnownRoom): string {
+  const peer = dmPeerOf(room)
+  if (!peer) return roomLabel(room)
+  // The name remembered when the conversation was started or received, then
+  // whatever a profile says, then the key. A DM link carries no room name.
+  return `Private: ${room.name ?? shownAs(peer).name ?? shortKey(peer)}`
+}
+
+/** The room this page is in, named the same way. */
+function currentRoomLabel(): string {
+  const me = meParticipant || currentParticipant()
+  const peer = me ? dmPeer(roomPolicy, me) : undefined
+  if (peer) return `Private: ${shownAs(peer, session?.participants().find((v) => v.participant === peer)?.name).name ?? shortKey(peer)}`
+  return roomLabel({ roomId: currentRoomId() ?? '', name: roomName })
+}
+
 function openKnownRoom(room: KnownRoom): void {
   // A fragment-only change is a same-document navigation, which never
   // re-runs this module; the reload is what reads the link.
@@ -5297,7 +5591,7 @@ function navigationRooms(): KnownRoom[] {
 
 function matchesRoom(room: KnownRoom, query: string, project = '*'): boolean {
   return (project === '*' || (projectOf(room) ? `project:${projectOf(room)}` : '') === project)
-    && `${roomLabel(room)} ${room.roomId} ${projectOf(room) ?? ''}`.toLocaleLowerCase().includes(query)
+    && `${knownRoomLabel(room)} ${room.roomId} ${projectOf(room) ?? ''}`.toLocaleLowerCase().includes(query)
 }
 
 function projectNames(rooms: KnownRoom[]): string[] {
@@ -5320,7 +5614,7 @@ function projectButton(room: KnownRoom): HTMLButtonElement {
   button.className = 'quiet organiseRoom'
   button.dataset.action = 'project'
   button.textContent = 'Project'
-  button.setAttribute('aria-label', `Set project for ${roomLabel(room)}`)
+  button.setAttribute('aria-label', `Set project for ${knownRoomLabel(room)}`)
   button.addEventListener('click', () => openProjectEditor(room, button))
   return button
 }
@@ -5332,7 +5626,7 @@ function openProjectEditor(room: KnownRoom, opener: HTMLElement): void {
   projectRoom = room
   projectReturn = opener
   projectReturnList = opener.closest<HTMLElement>('#workspaceRooms, #roomSwitcherList, #roomList') ?? undefined
-  $('projectRoomName').textContent = roomLabel(room)
+  $('projectRoomName').textContent = knownRoomLabel(room)
   ;($('projectName') as HTMLInputElement).value = projectOf(room) ?? ''
   $('projectSuggestions').replaceChildren(...projectNames(navigationRooms()).map(name => new Option(name, name)))
   $('projectError').hidden = true
@@ -5365,8 +5659,8 @@ function renderWorkspace(): void {
       button.type = 'button'
       button.className = 'workspaceRoomLink'
       button.dataset.action = 'switch'
-      button.textContent = roomLabel(room)
-      button.title = `${roomLabel(room)} · ${shortKey(room.roomId)}`
+      button.textContent = knownRoomLabel(room)
+      button.title = `${knownRoomLabel(room)} · ${shortKey(room.roomId)}`
       if (room.roomId === current) button.setAttribute('aria-current', 'true')
       // An unfinished draft is kept in its tab; the picker offers a new tab.
       button.addEventListener('click', () => {
@@ -5427,9 +5721,9 @@ function renderRoomSwitcher(): void {
     button.type = 'button'
     button.className = 'switchRoom'
     button.dataset.action = 'switch'
-    button.setAttribute('aria-label', `Switch to ${roomLabel(room)}`)
+    button.setAttribute('aria-label', `Switch to ${knownRoomLabel(room)}`)
     const name = document.createElement('span')
-    name.textContent = roomLabel(room)
+    name.textContent = knownRoomLabel(room)
     const detail = document.createElement('span')
     detail.className = 'switchRoomCode'
     detail.textContent = `${projectOf(room) ?? 'No project'} · ${room.roomId.slice(0, 12)}…${room.roomId === current ? ' · Current room' : ''}`
@@ -5446,7 +5740,7 @@ function renderRoomSwitcher(): void {
       link.target = '_blank'
       link.rel = 'noopener noreferrer'
       link.textContent = 'New tab'
-      link.setAttribute('aria-label', `Open ${roomLabel(room)} in a new tab`)
+      link.setAttribute('aria-label', `Open ${knownRoomLabel(room)} in a new tab`)
       row.append(link)
     }
     row.append(projectButton(room))
@@ -5467,7 +5761,7 @@ function switchRoom(room: KnownRoom): void {
     return
   }
   if (hasUnsentWork()) { renderRoomSwitcher(); return }
-  if (callIsLive() && !confirm(`Switch to ${roomLabel(room)} and leave this call? Your microphone and camera will be off in the other room.`)) return
+  if (callIsLive() && !confirm(`Switch to ${knownRoomLabel(room)} and leave this call? Your microphone and camera will be off in the other room.`)) return
   try {
     sessionStorage.setItem(ROOM_SWITCH_KEY, JSON.stringify({
       hash: new URL(room.link, location.href).hash, account: nostrSession?.pubkey ?? null, at: Date.now(),
@@ -5480,7 +5774,7 @@ function switchRoom(room: KnownRoom): void {
 }
 
 function forgetKnownRoom(room: KnownRoom): void {
-  if (!confirm(`Forget ${roomLabel(room)} ${nostrSession ? 'from your Nostr room bookmarks on all devices' : 'on this device'}? You would need its invitation link to come back. This does not revoke access or erase relay history.`)) return
+  if (!confirm(`Forget ${knownRoomLabel(room)} ${nostrSession ? 'from your Nostr room bookmarks on all devices' : 'on this device'}? You would need its invitation link to come back. This does not revoke access or erase relay history.`)) return
   stopWatching(room.roomId)
   forgetRoomAccess(deviceStore, room.roomId)
   forgetRoomAccess(browserDeviceStore(sessionStorage), room.roomId)
@@ -6277,6 +6571,8 @@ function mentionCandidates(query: string): MentionChoice[] {
     seen.add(name.toLowerCase())
     all.push({ name, agent: view.agent === true })
   }
+  // The whole room, last, so a name still leads when one matches.
+  all.push({ name: EVERYONE, agent: false })
   if (!wanted) return all
   const starts = all.filter((c) => c.name.toLowerCase().startsWith(wanted))
   const contains = all.filter((c) => !c.name.toLowerCase().startsWith(wanted) && c.name.toLowerCase().includes(wanted))
@@ -6423,6 +6719,99 @@ $('emojiToggle').addEventListener('click', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// What the box is doing besides saying something new
+//
+// Answering a message puts the reply in its thread; editing replaces one of
+// ours. Either is shown above the box with a way out, and cleared when the
+// message goes. Not kept in the draft: a reply half-typed and abandoned is
+// a draft, but the message it was answering may be gone by tomorrow.
+// ---------------------------------------------------------------------------
+
+let composing: { replyTo?: ChatMessage; editing?: ChatMessage } = {}
+
+function setComposing(next: { replyTo?: ChatMessage; editing?: ChatMessage }, shown?: ChatMessage): void {
+  composing = next
+  const box = $('chatInput') as HTMLTextAreaElement
+  if (next.editing && shown) {
+    // The message as it reads now, to correct, with its files staged so
+    // an edit that says nothing about them keeps them. An edit is the
+    // whole new message; see docs/messages.md.
+    const draft = captureDraft()
+    box.value = shown.text
+    draft.text = shown.text
+    draft.attachments = [...(shown.attachments ?? [])]
+    draftChanged(draft)
+    growComposer(box)
+  }
+  renderComposerContext()
+  box.focus()
+}
+
+function renderComposerContext(): void {
+  const bar = $('composerContext')
+  bar.innerHTML = ''
+  const target = composing.editing ?? composing.replyTo
+  if (!target) {
+    bar.hidden = true
+    return
+  }
+  const label = document.createElement('span')
+  label.className = 'contextLabel'
+  label.textContent = composing.editing ? 'Editing your message' : `Replying to ${senderLabel(target)}`
+  const excerpt = document.createElement('span')
+  excerpt.className = 'contextExcerpt'
+  excerpt.textContent = target.text
+  const cancel = document.createElement('button')
+  cancel.type = 'button'
+  cancel.className = 'quiet'
+  cancel.textContent = 'Cancel'
+  cancel.setAttribute('aria-label', composing.editing ? 'Stop editing' : 'Stop replying')
+  cancel.addEventListener('click', () => {
+    if (composing.editing) {
+      const box = $('chatInput') as HTMLTextAreaElement
+      const draft = captureDraft()
+      box.value = ''
+      draft.text = ''
+      draft.attachments = []
+      draftChanged(draft)
+      growComposer(box)
+    }
+    setComposing({})
+  })
+  bar.append(label, excerpt, cancel)
+  bar.hidden = false
+}
+
+/**
+ * Who the typed text addresses, declared on the wire: everybody on the
+ * roster it names as a whole word, with or without the @, which is the
+ * rule readers have always applied, and `everyone` when it says @everyone
+ * and only then, because "everyone is here" is not a call to the room.
+ */
+function mentionsInDraft(text: string): string[] {
+  const out: string[] = []
+  for (const view of session?.participants() ?? []) {
+    if (view.participant === meParticipant) continue
+    const name = view.name?.trim()
+    if (name && namesInText(text, name) && !out.includes(view.participant)) out.push(view.participant)
+  }
+  if (/(^|[^\p{L}\p{N}_])@everyone(?![\p{L}\p{N}_])/iu.test(text)) out.push(EVERYONE)
+  return out.slice(0, MAX_MENTIONS)
+}
+
+function retractMessage(original: ChatMessage): void {
+  const chat = activeChat() ?? session?.chat
+  if (!chat) return
+  if (!confirm('Retract this message? Everybody who already received it keeps their copy. It will be marked retracted, not erased.')) return
+  try {
+    const text = retractionText()
+    outbox.send(text, currentChannel ?? 'Chat', chat.prepareSend(text, { retracts: original.id }))
+  } catch (err) {
+    setStatus(describeError(err))
+  }
+}
+
 $('chatForm').addEventListener('submit', (event) => {
   event.preventDefault()
   const draft = captureDraft()
@@ -6445,9 +6834,14 @@ $('chatForm').addEventListener('submit', (event) => {
       ? `Shared a file${attachments[0]?.name ? `: ${attachments[0].name}` : ''}`
       : `Shared ${attachments.length} files`)
   const log = activeChat() ?? session.chat
+  const sendOpts: SendOptions = attachments.length ? { attachments } : {}
+  const mentions = mentionsInDraft(typed)
+  if (mentions.length) sendOpts.mentions = mentions
+  if (composing.editing) sendOpts.replaces = composing.editing.id
+  else if (composing.replyTo) sendOpts.replyTo = composing.replyTo
   let publish: () => Promise<void>
   try {
-    publish = log.prepareSend(text, attachments.length ? { attachments } : {})
+    publish = log.prepareSend(text, sendOpts)
   } catch (err) {
     setStatus(describeError(err))
     return
@@ -6459,6 +6853,7 @@ $('chatForm').addEventListener('submit', (event) => {
   closeMentionPicker()
   draft.attachments = []
   draftChanged(draft)
+  setComposing({})
   // Into whichever conversation is on screen, which is the main chat until
   // somebody picks another.
   outbox.send(text, currentChannel ?? 'Chat', publish, attachments.map(a => a.name ?? 'Encrypted file'))

@@ -161,3 +161,13 @@ export const ATTACHMENT_KEY = 'c3'.repeat(32)
 export const ATTACHMENT_SALT = seed32('attachment-salt')
 export const ATTACHMENT_NONCE_PREFIX = seed32('attachment-nonce-prefix').slice(0, 8)
 export const ATTACHMENT_CREATED_AT = 1_799_999_800
+
+// --- The message layer ----------------------------------------------------
+// Replies, edits, retractions, mentions, DM invitations and read positions
+// all ride as fields of a chat message or as a record signed by the
+// participant key. A second device key for participant B, so a thread can
+// have two people in it, and one fixed time for the conversation.
+export const DEVICE_B_SK = deriveSecretKey('device-b')
+export const DEVICE_B = getPublicKey(DEVICE_B_SK)
+export const MESSAGE_CREATED_AT = 1_799_999_700
+export const READ_POSITION_CREATED_AT = 1_799_999_900

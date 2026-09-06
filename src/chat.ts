@@ -5,6 +5,15 @@ import { sha256 } from '@noble/hashes/sha2'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
 import { normaliseReaction, type ChatReaction } from './reactions.js'
+import {
+  normaliseInvite,
+  normaliseMentions,
+  normaliseMessageRef,
+  validMessageId,
+  MAX_MENTIONS,
+  type ChatInvite,
+  type MessageRef,
+} from './messages.js'
 import { verifyEventUncached } from './verify.js'
 import { verifyDeviceCredential } from './credential.js'
 import { hexEquals, normaliseHex } from './hex.js'
@@ -121,6 +130,40 @@ export interface ChatMessage {
    * and dropped if it does not hold. See `AgentOwnership`.
    */
   owner?: AgentOwnership
+  /**
+   * The message this one answers, and the root of the thread it belongs
+   * to. A reply to a root carries both, equal; deeper in a thread `thread`
+   * is the root and `reply` the message answered. `thread` absent with
+   * `reply` present means the parent is the root. A malformed reference
+   * is dropped and the message stays. See `docs/messages.md`.
+   */
+  reply?: MessageRef
+  thread?: MessageRef
+  /**
+   * The id of the ORIGINAL message this one replaces, same author, same
+   * channel. The whole new message: text, attachments and mentions. A
+   * message carrying this is an edit, not a message, and a reader shows
+   * the latest edit on the original's frame; see `resolveConversation`.
+   */
+  replaces?: string
+  /**
+   * The id of the original this retracts, same author. An author-signed
+   * tombstone, cooperative like every deletion here: every admitted device
+   * already holds the plaintext. Carries nothing else.
+   */
+  retracts?: string
+  /**
+   * Who this addresses: participant keys, and `everyone`. The sender's
+   * declaration, on the wire, so what shows as a mention is exactly what
+   * an agent answers to. Absent on a message from before the field
+   * existed, which readers match by name instead; see `mentionsOf`.
+   */
+  mentions?: string[]
+  /**
+   * A direct-message invitation, sealed to one member of this room. Not
+   * conversation; shown to nobody but `to`. See `ChatInvite` and `dm.ts`.
+   */
+  invite?: ChatInvite
 }
 
 /**
@@ -228,6 +271,15 @@ function honestAttachments(raw: unknown): ChatAttachment[] | undefined {
   return kept.length ? kept : undefined
 }
 
+/** The mentions of a message in their honest shape, or undefined if none
+ *  are worth carrying. Throws over the cap, for the reason attachments do. */
+function honestMentions(raw: unknown): string[] | undefined {
+  if (raw === undefined || !Array.isArray(raw)) return undefined
+  if (raw.length > MAX_MENTIONS) throw new Error(`a message names at most ${MAX_MENTIONS} participants`)
+  const kept = normaliseMentions(raw)
+  return kept.length ? kept : undefined
+}
+
 /**
  * The id and key a room's traffic rides under in its current epoch. Omitted
  * in epoch 0, where they are the room id and the room key and the wire is
@@ -286,6 +338,15 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     attachments: honestAttachments(msg.attachments),
     reaction: msg.reaction === undefined ? undefined : normaliseReaction(msg.reaction),
     owner: msg.owner ? normaliseAgentOwnership(msg.owner) ?? undefined : undefined,
+    // The message layer's fields, each in its one honest shape or absent,
+    // so a message that says nothing about another is byte-identical to
+    // one encoded before any of them existed.
+    reply: msg.reply === undefined ? undefined : normaliseMessageRef(msg.reply) ?? undefined,
+    thread: msg.thread === undefined ? undefined : normaliseMessageRef(msg.thread) ?? undefined,
+    replaces: validMessageId(msg.replaces) ? msg.replaces : undefined,
+    retracts: validMessageId(msg.retracts) ? msg.retracts : undefined,
+    mentions: honestMentions(msg.mentions),
+    invite: msg.invite === undefined ? undefined : normaliseInvite(msg.invite) ?? undefined,
   })
   const root = rootOf(opts)
   const { id, key } = deriveChannel(root.id, root.key, opts.channel)
@@ -376,10 +437,58 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     if (name === undefined) delete msg.name
     else msg.name = name
 
+    // One statement per message. A reaction, an edit, a retraction and an
+    // invitation each say one thing about one other message, and a
+    // payload that carries two of them, or one of them beside conversation
+    // it has no business carrying, is not a shape any client sends. It is
+    // refused whole rather than read charitably, and the check is on the
+    // keys as they arrived, so a malformed extra says nothing in its
+    // favour.
+    const raw = msg as unknown as Record<string, unknown>
+    const has = (field: string): boolean => raw[field] !== undefined
+    const statements = ['reaction', 'replaces', 'retracts', 'invite'].filter(has)
+    if (statements.length > 1) return null
+    if ((has('reaction') || has('retracts') || has('invite')) &&
+        (has('kind') || has('attachments') || has('reply') || has('thread') || has('mentions'))) return null
+    if (has('replaces') && (has('kind') || has('reply') || has('thread'))) return null
+
     if (msg.reaction !== undefined) {
       const reaction = normaliseReaction(msg.reaction)
-      if (!reaction || msg.kind !== undefined || msg.attachments !== undefined) return null
+      if (!reaction) return null
       msg.reaction = reaction
+    }
+
+    // An edit or a retraction that does not say which message is not one
+    // to make the best of: shown as a message it would duplicate what it
+    // meant to replace.
+    if (msg.replaces !== undefined && !validMessageId(msg.replaces)) return null
+    if (msg.retracts !== undefined && !validMessageId(msg.retracts)) return null
+    if (msg.invite !== undefined) {
+      const invite = normaliseInvite(msg.invite)
+      if (!invite) return null
+      msg.invite = invite
+    }
+
+    // A reference that does not check out is dropped and the message
+    // stays, which is exactly what an older client shows.
+    for (const field of ['reply', 'thread'] as const) {
+      if (msg[field] === undefined) continue
+      const ref = normaliseMessageRef(msg[field])
+      if (ref) msg[field] = ref
+      else delete msg[field]
+    }
+
+    // Mentions off a relay: bad entries dropped, the field gone unless
+    // something is left, more than the cap refused, exactly as attachments.
+    if (msg.mentions !== undefined) {
+      if (!Array.isArray(msg.mentions)) {
+        delete msg.mentions
+      } else {
+        if (msg.mentions.length > MAX_MENTIONS) return null
+        const kept = normaliseMentions(msg.mentions)
+        if (kept.length) msg.mentions = kept
+        else delete msg.mentions
+      }
     }
 
     // Only the one honest shape reads as a transcript; anything else is an
@@ -505,6 +614,17 @@ export interface SendOptions {
   /** Files shared through Wildbloom to carry with the text. See
    *  `ChatAttachment`. The text is the caption and is still required. */
   attachments?: ChatAttachment[]
+  /** Answer this message. The thread root is worked out here: the target's
+   *  own root when it is in a thread, the target itself otherwise. */
+  replyTo?: Pick<ChatMessage, 'id' | 'participant' | 'thread' | 'reply'>
+  /** Replace this message of ours with the text and attachments given. */
+  replaces?: string
+  /** Retract this message of ours. The text is the readable fallback. */
+  retracts?: string
+  /** Who the text addresses. See `ChatMessage.mentions`. */
+  mentions?: string[]
+  /** Carry a sealed DM invitation. See `dm.ts`. */
+  invite?: ChatInvite
 }
 
 /**
@@ -587,6 +707,32 @@ export class ChatLog {
     if (sendOpts.reaction !== undefined && (!reaction || sendOpts.transcriptOf !== undefined || sendOpts.directive || sendOpts.attachments !== undefined)) {
       throw new Error('invalid reaction')
     }
+    // One statement per message, checked here as a caller's mistake so it
+    // is never silently sent as something else. See `decodeChatEvent`.
+    const statements = [sendOpts.reaction, sendOpts.replaces, sendOpts.retracts, sendOpts.invite].filter((x) => x !== undefined)
+    if (statements.length > 1) throw new Error('a message says one thing about another message, not two')
+    const isConversation = statements.length === 0
+    if (!isConversation && sendOpts.replyTo !== undefined) throw new Error('only a message can answer another')
+    if ((sendOpts.reaction !== undefined || sendOpts.retracts !== undefined || sendOpts.invite !== undefined) &&
+        (sendOpts.mentions !== undefined || sendOpts.attachments !== undefined || sendOpts.transcriptOf !== undefined || sendOpts.directive)) {
+      throw new Error('a reaction, a retraction or an invitation carries nothing else')
+    }
+    if (sendOpts.replaces !== undefined && (sendOpts.transcriptOf !== undefined || sendOpts.directive)) {
+      throw new Error('an edit keeps the kind of the message it replaces')
+    }
+    if (sendOpts.replaces !== undefined && !validMessageId(sendOpts.replaces)) throw new Error('an edit must name the message it replaces')
+    if (sendOpts.retracts !== undefined && !validMessageId(sendOpts.retracts)) throw new Error('a retraction must name the message it retracts')
+    const invite = sendOpts.invite === undefined ? undefined : normaliseInvite(sendOpts.invite)
+    if (sendOpts.invite !== undefined && !invite) throw new Error('invalid invitation')
+    const mentions = honestMentions(sendOpts.mentions)
+    let reply: MessageRef | undefined
+    let thread: MessageRef | undefined
+    if (sendOpts.replyTo !== undefined) {
+      const target = sendOpts.replyTo
+      reply = normaliseMessageRef({ messageId: target.id, participant: target.participant }) ?? undefined
+      if (!reply) throw new Error('a reply must name the message it answers')
+      thread = target.thread ?? target.reply ?? reply
+    }
     const name = sanitiseDisplayName(this.#opts.name)
     // A caller's attachment that does not check out is a bug in the caller,
     // and one that would be silently dropped here would be a file the
@@ -620,6 +766,12 @@ export class ChatLog {
       sentAt: this.#now(),
       ...(attachments ? { attachments } : {}),
       ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),
+      ...(reply ? { reply } : {}),
+      ...(thread ? { thread } : {}),
+      ...(sendOpts.replaces !== undefined ? { replaces: sendOpts.replaces } : {}),
+      ...(sendOpts.retracts !== undefined ? { retracts: sendOpts.retracts } : {}),
+      ...(mentions ? { mentions } : {}),
+      ...(invite ? { invite } : {}),
     }
     const event = encodeChatEvent(msg, {
       roomId: this.#opts.roomId,

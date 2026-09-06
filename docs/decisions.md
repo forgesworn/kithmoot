@@ -1207,3 +1207,35 @@ server and ends the no-operator claim; Marmot puts the device, not the
 person, at the centre of the model. Either would be a different product,
 and this entry exists so the next person to ask does not have to
 reconstruct why it was not built that way.
+
+## A DM is a room, and a read position is a bookmark-shaped record
+
+The message layer (`docs/messages.md`) needed two designs that could have
+gone several ways, and both were settled by asking what already existed.
+
+**A direct message is a persistent group with two members.** The
+alternative was a second kind of conversation: NIP-17-style gift wraps
+between two participant keys, outside any room. That would have meant a
+second codec, a second key schedule, no calls, no files, no agents and no
+channels in a DM, and it would have put a participant pubkey on a relay in
+the clear as the addressee of every wrap, which the roster goes to some
+trouble never to do. A room already has all of those, and the only thing a
+room lacked was a way to be shut to everybody but two people: `members` on
+the policy, checked before any tier. The cost is that the link has to reach
+the other person, and it reaches them the way everything else here does,
+inside a room both are already in, sealed between the two participant keys.
+`to` is explicit so only one signer is asked to decrypt; the room's other
+members learn that a private conversation was started and with whom, and
+that is stated rather than hidden, because hiding it would have meant every
+member's signer trying every invitation.
+
+**A read position is a kind-30078 record encrypted to self**, the shape the
+bookmarks already take, rather than a message in the room or a field on a
+device's roster entry. In the room it would count against the history cap
+and be readable by every member; on the roster it would be per device,
+which is the problem it exists to solve. Signed by the participant key,
+replaceable per room by a `d` tag derived from the room key, it is found by
+any device that holds the identity and by nothing that does not, and a relay
+cannot tie it to a room id it carries. The limit is inherited honestly: a
+signer without NIP-44 keeps its positions in one browser, exactly as it
+keeps its bookmarks.

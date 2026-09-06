@@ -1,4 +1,5 @@
 import { decodeControl, encodeControl, type CatalogueEntry, type RunningAgent } from '../control.js'
+import { mentionedBy, namesInText } from '../messages.js'
 import type { ChatAttachment, ChatMessageKind } from '../chat.js'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
@@ -94,10 +95,7 @@ export type StdioCommand =
  *  "quilling", and an agent that answers a word it merely appears inside is
  *  an agent people mute. `text` is already lowercased by the caller. */
 export function namesAgent(text: string, name: string): boolean {
-  const wanted = name.trim().toLowerCase()
-  if (!wanted) return false
-  const literal = wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`(^|[^\\p{L}\\p{N}_])@?${literal}(?![\\p{L}\\p{N}_])`, 'u').test(text)
+  return namesInText(text, name)
 }
 
 /**
@@ -373,8 +371,13 @@ export abstract class ModelBrain implements Brain {
 
   #wants(runtime: AgentRuntime, event: RuntimeEvent, fromAgent: boolean): boolean {
     if (event.type === 'roster' || event.type === 'approval' || event.type === 'presence') return false
-    const text = event.message.text.toLowerCase()
-    const named = namesAgent(text, runtime.persona.name)
+    // The wire field when the sender wrote one, the name in the text when
+    // not: `mentionedBy` is the one function the room's readers use too,
+    // so what shows as a mention is exactly what this agent answers to.
+    // `everyone` does not count: a call for everybody is not an
+    // instruction to a machine.
+    const named = mentionedBy(event.message, runtime.agent.participant,
+      [{ participant: runtime.agent.participant, name: runtime.persona.name }], { agent: true })
     if (event.type === 'backchannel') {
       // Another agent, among agents: answer if named, or if there is still
       // room in the budget for a conversation nobody is steering.

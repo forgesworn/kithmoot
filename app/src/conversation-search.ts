@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../../src/chat.js'
+import { resolveConversation, type ResolvedMessage } from '../../src/messages.js'
 
 /** Searches only the conversation already decrypted in this tab. No relay
  * queries, attachment downloads or persisted search history. */
@@ -41,7 +42,16 @@ export class ConversationSearch {
   }
 
   update(messages: ChatMessage[], label: string, name: (message: ChatMessage) => string): void {
-    messages = messages.filter(message => !message.reaction)
+    // What a person would scroll past, not what the log holds: the latest
+    // edit's words on each message, nothing retracted, and no statements
+    // about other messages. Replies are searched where they sit.
+    const flat: ChatMessage[] = []
+    const walk = (r: ResolvedMessage): void => {
+      if (!r.retracted) flat.push(r.shown)
+      for (const reply of r.replies) walk(reply)
+    }
+    for (const r of resolveConversation(messages).stream) walk(r)
+    messages = flat
     this.#messages = messages
     this.#name = name
     this.#dialog.querySelector('#messageSearchScope')!.textContent =

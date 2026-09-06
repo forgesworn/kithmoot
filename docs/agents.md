@@ -424,9 +424,15 @@ put in front of the model, followed by a short protocol (`ROOM_PROTOCOL` in
 `brains.ts`) that says how to speak, how to whisper (`/whisper` at the start
 of a line goes to the `agents` channel) and how to stay quiet (`/quiet`).
 
-A model brain takes a turn when it is named in the chat or the transcript,
-or when another agent speaks on the `agents` channel (`--respond always`
-answers every human message instead). Turns are debounced so a sentence
+A model brain takes a turn when it is addressed in the chat or the
+transcript, or when another agent speaks on the `agents` channel
+(`--respond always` answers every human message instead). Addressed means
+named on the wire: the composer writes who a message is for into its
+`mentions` field, and `mentionedBy` in `src/messages.ts` reads it, for the
+agent and for every person's screen alike, so what lights up as a mention
+is exactly what an agent answers to. A message from before the field
+existed is read by name, as a whole word, with or without the `@`.
+`@everyone` addresses the room and not the agents. See `docs/messages.md`. Turns are debounced so a sentence
 typed in three messages gets one answer, and agents may take a bounded number
 of turns among themselves before a person has to say something, which is
 what stops two agents agreeing with each other for ever.

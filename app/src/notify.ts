@@ -19,6 +19,7 @@
  * room on screen and the delivery, and this decides.
  */
 import type { ChatMessage } from '../../src/chat.js'
+import { isConversation } from '../../src/messages.js'
 import type { DeviceStore } from './device-store.js'
 
 export const NOTIFY_STORAGE_KEY = 'kithmoot.notify'
@@ -210,6 +211,9 @@ export class Notifier {
       for (const message of messages) {
         if (this.#seen.has(message.id)) continue
         this.#seen.add(message.id)
+        // A reaction, an edit, a retraction or an invitation is a statement
+        // about another message, not a message: nothing to ring about.
+        if (!isConversation(message)) continue
         const arrival: Arrival = { roomId: follow.roomId, message }
         const settings = this.#opts.settings()
         if (!settings.enabled) continue
