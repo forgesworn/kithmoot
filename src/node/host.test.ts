@@ -100,16 +100,14 @@ describe('AgentHost', () => {
       spawn,
     })
     await host.start()
-    await settle()
     // Looked for, never "the last": messages inside one second order by
     // random id, so position says nothing.
     const catalogues = () => heard.filter((c): c is Extract<ControlMessage, { op: 'catalogue' }> => c.op === 'catalogue')
+    await vi.waitFor(() => expect(catalogues().length).toBeGreaterThan(0))
     expect(catalogues().at(0)).toMatchObject({ op: 'catalogue', host: hostAgent.participant, name: 'Laptop', agents: [{ id: 'ada', name: 'Ada', description: 'Research' }], running: [] })
 
     await control.send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
-    await settle()
-    await settle()
-    expect(calls).toHaveLength(1)
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
     const args = calls[0]!.args
     expect(calls[0]!.file).toBe('node')
     expect(args.slice(0, 3)).toEqual(['bin/kithmoot-agent.mjs', 'join', hostAgent.url])
@@ -207,9 +205,7 @@ describe('AgentHost', () => {
     // The same message from the principal is obeyed, so this is a rule
     // about who asked and not a host that has stopped working.
     await control.send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
-    await settle()
-    await settle()
-    expect(calls).toHaveLength(1)
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
     expect(host.running()).toHaveLength(1)
 
     await host.stop()
@@ -227,9 +223,7 @@ describe('AgentHost', () => {
     await settle()
 
     await control.send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
-    await settle()
-    await settle()
-    expect(host.running()).toHaveLength(1)
+    await vi.waitFor(() => expect(host.running()).toHaveLength(1))
 
     await other.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'dismiss', host: hostAgent.participant, agent: 'ada' }))
     await vi.waitFor(() => {
@@ -237,7 +231,9 @@ describe('AgentHost', () => {
       expect(heard.some((c) => c.op === 'dismissed' && c.agent === 'ada')).toBe(true)
     })
 
-    // Stopping is theirs; starting is not, so they cannot put it back.
+    // Stopping is theirs; starting is not, so they cannot put it back. A
+    // fixed wait here, deliberately: this asserts that nothing happens, and
+    // waiting for a count that is already right would prove nothing.
     await other.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'invite', host: hostAgent.participant, agent: 'ada' }))
     await settle()
     await settle()
