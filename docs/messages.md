@@ -111,6 +111,8 @@ when the target arrives. Reactions already name their target this way.
   recognises these explicit calls too. Ordinary prose and email addresses do
   not broadcast. Agent hosts still enforce their caller permissions before
   acknowledging or running a job; a mention grants no additional access.
+  The composer also includes the keys of agents currently on the roster,
+  within the 32-entry cap, so older agent clients can recognise the call.
 
 ## Direct messages
 

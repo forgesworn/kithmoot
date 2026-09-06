@@ -80,7 +80,12 @@ test('Chip completes by name and @all receives acknowledgements from both agents
     await expect(receipt).toHaveAttribute('title', /Chip.*received/)
     await expect(receipt).toHaveAttribute('title', /Tally.*received/)
     await expect(row.locator('.mention.me')).toHaveText('@all')
-    for (const agent of [tally, chip]) expect(agent.channel('workshop').messages().find(m => m.text === '@all please acknowledge the fixture')?.mentions).toEqual(['everyone'])
+    for (const agent of [tally, chip]) {
+      // Explicit keys also address an older agent whose runtime still
+      // interprets the room sentinel as a call for people only.
+      expect(agent.channel('workshop').messages().find(m => m.text === '@all please acknowledge the fixture')?.mentions?.sort())
+        .toEqual(['everyone', tally.participant, chip.participant].sort())
+    }
     await tally.channel('workshop').send('@all fixture received', { mentions: ['everyone'] })
     await expect(page.locator('#chatLog .msg').filter({ hasText: '@all fixture received' })).toHaveClass(/mentionsMe/)
     expect(failures).toEqual([])

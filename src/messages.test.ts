@@ -66,6 +66,7 @@ describe('mentions', () => {
       expect(mentionsOf({ text })).toEqual([])
     }
     expect(mentionsOf({ text: '@all', mentions: [ADA] })).toEqual([ADA])
+    expect(mentionsOf({ text: '@all' }, [{ participant: ADA, name: 'Ada' }, { participant: TALLY, name: 'Tally', agent: true }])).toEqual([EVERYONE, TALLY])
     expect(mentionedBy({ text: '@all', mentions: [] }, TALLY, [], { agent: true })).toBe(false)
     const roster = Array.from({ length: 40 }, (_, i) => ({ name: `Person${i}`, participant: i.toString(16).padStart(64, '0') }))
     expect(mentionsOf({ text: `${roster.map(p => `@${p.name}`).join(' ')} @all` }, roster).slice(0, 32)).toContain(EVERYONE)

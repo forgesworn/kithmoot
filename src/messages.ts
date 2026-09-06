@@ -110,6 +110,7 @@ export function namesInText(text: string, name: string): boolean {
 export interface Named {
   participant: string
   name?: string
+  agent?: boolean
 }
 
 /**
@@ -123,6 +124,11 @@ export interface Named {
 export function mentionsOf(message: Pick<ChatMessage, 'text' | 'mentions'>, roster: readonly Named[] = []): string[] {
   if (message.mentions !== undefined) return message.mentions
   const out: string[] = ROOM_MENTION_PATTERN.test(message.text) ? [EVERYONE] : []
+  // Name the currently present agents as well, so a new composer can reach
+  // older agent clients that treated the room sentinel as people-only.
+  if (out.includes(EVERYONE)) {
+    for (const entry of roster) if (entry.agent && !out.includes(entry.participant)) out.push(entry.participant)
+  }
   for (const entry of roster) {
     if (entry.name && namesInText(message.text, entry.name) && !out.includes(entry.participant)) out.push(entry.participant)
   }
