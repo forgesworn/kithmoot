@@ -2215,7 +2215,7 @@ for (const [name, roomKey, a, b, note] of [
     })
   }
   mentionVector('mentions-on-the-wire', 'positive',
-    'The sender names who this addresses: Rowan by key, and everyone. What lights up as a mention is exactly what an agent answers to, because both read this field. `everyone` addresses a person and not an agent: Tally as a person is addressed, Tally as an agent is not.',
+    'The sender names who this addresses: Rowan by key, and everyone. What lights up as a mention is exactly what an agent answers to, because both read this field. `everyone` addresses every participant, including agents. Caller permissions are enforced separately by the host.',
     fromA('mention-1', '@Rowan and everyone: the vectors are green', fx.MESSAGE_CREATED_AT, { mentions: [fx.PARTICIPANT_B, 'everyone'] }), 'mention-wire')
   mentionVector('mentions-by-name-when-the-field-is-absent', 'positive',
     'A message from before the field existed is read by name: a whole word in the text that matches a roster name, with or without an @. Legacy, and it goes when the wire freezes. "Rowan" is named; "Tally" is not, because "totally" is not Tally.',

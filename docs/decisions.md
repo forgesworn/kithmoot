@@ -284,12 +284,13 @@ key a browser generated a moment ago. The two are the same 32 bytes, and no
 protocol change could tell them apart without a registry.
 
 What *can* be observed is whether a key has published a kind-0 profile. The
-app offers a per-visit opt-in to look one up for every participant, and marks a key that has one `nostr`.
+app looks one up for every participant by default and marks a key that has one `nostr`.
+A persistent device preference can disable lookups and remove loaded profiles.
 That is a fact about the key, so the label says what it is and no more.
 
-Lookup starts disabled. Enabling it discloses the participant keys to the
-room's relays in plaintext author queries; pictures also contact their
-hosts. Room details explains this before the switch. Disabling it closes
+Lookup starts enabled. It discloses participant keys to the room's readable
+relays in plaintext author queries; pictures also contact their hosts.
+Profile settings explains this beside the persistent switch. Disabling it closes
 subscriptions and clears loaded profiles. This limits this browser's
 disclosure, not what another member can choose to disclose.
 
@@ -1296,3 +1297,20 @@ offer, and a forwarder that refuses offers without it. It waits for M2,
 where kinds are allocated, vectors are cut and Android is synced, and it
 lands with a migration for forwarders already running. It is parked as a
 commit on the review's branch.
+
+
+## Relay preferences belong to this device
+
+Nostr relay settings offer a list for the current room and a separate default
+list for new rooms and account synchronisation. Invitation hints remain the
+starting point for an existing room until the reader saves an override.
+Each relay can read and write, read only, or write only. Applying settings
+rebinds existing subscriptions without leaving the room; removed sockets
+close and already seen events are not delivered again. At least one readable
+and one writable relay must remain. Permissions are local preferences, not
+claims about what the relay server allows or settings imposed on other members.
+
+Health reports the actual socket state and the last accepted write with its
+acknowledgement time. A rejected write can coexist with a connected socket.
+Reconnect retries the saved endpoints, including one unavailable at join time.
+No synthetic room messages are published merely to test connectivity.

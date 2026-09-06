@@ -51,11 +51,24 @@ describe('mentions', () => {
     expect(mentionsOf({ text: '@Rowan look' }, roster)).toEqual([ROWAN])
     expect(mentionsOf({ text: 'nobody' }, roster)).toEqual([])
   })
-  it('everyone addresses a person and not an agent', () => {
+  it('a room call addresses people and agents', () => {
     expect(mentionedBy({ text: 'hi', mentions: [EVERYONE] }, ADA)).toBe(true)
-    expect(mentionedBy({ text: 'hi', mentions: [EVERYONE] }, TALLY, [], { agent: true })).toBe(false)
+    expect(mentionedBy({ text: 'hi', mentions: [EVERYONE] }, TALLY, [], { agent: true })).toBe(true)
     expect(mentionedBy({ text: 'hi', mentions: [TALLY] }, TALLY, [], { agent: true })).toBe(true)
     expect(mentionedBy({ text: '@Tally do it' }, TALLY, [{ participant: TALLY, name: 'Tally' }], { agent: true })).toBe(true)
+  })
+  it('recognises explicit room calls without broadcasting prose, names or email addresses', () => {
+    for (const text of ['@all help', 'Hello @ALL!', '@everyone, please look', 'Thanks @all.']) {
+      expect(mentionsOf({ text })).toEqual([EVERYONE])
+      expect(mentionedBy({ text }, TALLY, [], { agent: true })).toBe(true)
+    }
+    for (const text of ['all done', 'everyone is here', '@allison', 'mail@all.example', 'mail+@all.example', '@all.example', '@all-team', '@everyone_else']) {
+      expect(mentionsOf({ text })).toEqual([])
+    }
+    expect(mentionsOf({ text: '@all', mentions: [ADA] })).toEqual([ADA])
+    expect(mentionedBy({ text: '@all', mentions: [] }, TALLY, [], { agent: true })).toBe(false)
+    const roster = Array.from({ length: 40 }, (_, i) => ({ name: `Person${i}`, participant: i.toString(16).padStart(64, '0') }))
+    expect(mentionsOf({ text: `${roster.map(p => `@${p.name}`).join(' ')} @all` }, roster).slice(0, 32)).toContain(EVERYONE)
   })
 })
 

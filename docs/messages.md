@@ -98,7 +98,7 @@ when the target arrives. Reactions already name their target this way.
   pubkeys, plus the literal `everyone`. At most 32, deduplicated,
   normalised. Invalid entries are dropped; more than the cap is refused.
 - A reader marks the message as addressed to it when its participant is
-  listed, or `everyone` is. An agent answers when it is listed. What shows
+  listed, or `everyone` is. This includes agents. What shows
   as a mention is exactly what an agent answers to, because both call the
   same function, `mentionedBy` in `src/messages.ts`.
 - The text still carries `@Name`, inserted by the composer when a name is
@@ -106,8 +106,11 @@ when the target arrives. Reactions already name their target this way.
 - A message with no `mentions` field is read by name, matched as a whole
   word against the roster, which is how every message before this field
   existed was read. That fallback is legacy and goes when the wire freezes.
-- `everyone` addresses the room and does not address an agent: an agent
-  answers to its own key, not to a call for everybody.
+- `@all` (also `@everyone`) writes the existing `everyone` wire value and
+  addresses everyone in this room, including agents. The legacy text fallback
+  recognises these explicit calls too. Ordinary prose and email addresses do
+  not broadcast. Agent hosts still enforce their caller permissions before
+  acknowledging or running a job; a mention grants no additional access.
 
 ## Direct messages
 

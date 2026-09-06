@@ -52,6 +52,9 @@ export function sameRef(a: MessageRef, b: MessageRef): boolean {
 export const EVERYONE = 'everyone'
 export const MAX_MENTIONS = 32
 
+/** Explicit room calls only: ordinary prose and email addresses do not broadcast. */
+export const ROOM_MENTION_PATTERN = /(?<![\p{L}\p{N}_@.+-])@(?:all|everyone)(?![\p{L}\p{N}_@-]|\.[\p{L}\p{N}_])/iu
+
 /**
  * Participant keys and `everyone`, deduplicated and normalised. Anything
  * else is dropped: the sender's declaration is only worth what it names.
@@ -119,7 +122,7 @@ export interface Named {
  */
 export function mentionsOf(message: Pick<ChatMessage, 'text' | 'mentions'>, roster: readonly Named[] = []): string[] {
   if (message.mentions !== undefined) return message.mentions
-  const out: string[] = []
+  const out: string[] = ROOM_MENTION_PATTERN.test(message.text) ? [EVERYONE] : []
   for (const entry of roster) {
     if (entry.name && namesInText(message.text, entry.name) && !out.includes(entry.participant)) out.push(entry.participant)
   }
@@ -127,19 +130,18 @@ export function mentionsOf(message: Pick<ChatMessage, 'text' | 'mentions'>, rost
 }
 
 /**
- * Whether the message addresses `self`. `everyone` counts for a person and
- * not for an agent: a call for everybody is not an instruction to a
- * machine, so an agent passes `agent: true` and answers only to its key.
+ * Whether the message addresses `self`. A room call includes agents;
+ * addressing does not grant the sender permission to run an agent's tools.
  */
 export function mentionedBy(
   message: Pick<ChatMessage, 'text' | 'mentions'>,
   self: string,
   roster: readonly Named[] = [],
-  opts: { agent?: boolean } = {},
+  _opts: { agent?: boolean } = {},
 ): boolean {
   const named = mentionsOf(message, roster)
   if (named.some((p) => p !== EVERYONE && hexEquals(p, self))) return true
-  return !opts.agent && named.includes(EVERYONE)
+  return named.includes(EVERYONE)
 }
 
 /** Whether a message is something somebody said, rather than a statement

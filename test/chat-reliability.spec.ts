@@ -105,7 +105,7 @@ test('incoming chat preserves the reading position and offers a way to the lates
   } finally { await a.close(); await b.close() }
 })
 
-test('public profiles require opt-in and the choice does not survive a new visit', async ({ browser, baseURL }) => {
+test('public profiles start enabled and an opt-out survives a new visit', async ({ browser, baseURL }) => {
   const context = await contextFor(browser, baseURL!)
   const relay = testRelay(baseURL!)
   const queries: string[][] = []
@@ -127,10 +127,9 @@ test('public profiles require opt-in and the choice does not survive a new visit
     await page.locator('#chatInput').fill('No public lookup needed')
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('No public lookup needed')
-    expect(queries).toHaveLength(0)
-    await page.locator('#chatProfiles').click()
-    await page.locator('#lookupProfiles').check()
     await expect.poll(() => queries.length).toBeGreaterThan(0)
+    await page.locator('#chatProfiles').click()
+    await expect(page.locator('#lookupProfiles')).toBeChecked()
     await page.locator('#lookupProfiles').uncheck()
     const count = queries.length
     await page.reload()
@@ -139,5 +138,7 @@ test('public profiles require opt-in and the choice does not survive a new visit
     await page.locator('#chatProfiles').click()
     await expect(page.locator('#lookupProfiles')).not.toBeChecked()
     expect(queries).toHaveLength(count)
+    await page.locator('#lookupProfiles').check()
+    await expect.poll(() => queries.length).toBeGreaterThan(count)
   } finally { await context.close() }
 })

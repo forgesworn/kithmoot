@@ -188,6 +188,71 @@ describe('NostrRelayPool', () => {
     }
   })
 
+  it('enforces read and write permissions independently', async () => {
+    pool.setRelays([{ url: URL_A, read: true, write: false }, { url: URL_B, read: false, write: true }])
+    const received = evt()
+    a.seed(received)
+    const seen: string[] = []
+    pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
+    await settle()
+    const sent = evt()
+    await pool.publish(sent)
+    expect(seen).toEqual([received.id])
+    expect(a.stored.map(event => event.id)).toEqual([received.id])
+    expect(b.stored.map(event => event.id)).toEqual([sent.id])
+    expect(b.requestedFilters()).toHaveLength(0)
+    pool.setRelays([{ url: URL_A, read: true, write: false }])
+    await expect(pool.publish(evt())).rejects.toThrow('no writable relay')
+  })
+
+  it('moves live subscriptions to added relays, closes removed sockets and does not replay duplicates', async () => {
+    pool.setRelays([URL_A])
+    const first = evt(); a.seed(first); b.seed(first)
+    const second = evt(); b.seed(second)
+    const seen: string[] = []
+    const off = pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
+    await settle()
+    expect(seen).toEqual([first.id])
+    pool.setRelays([URL_B])
+    await settle()
+    expect(a.connections).toBe(0)
+    expect(seen).toEqual([first.id, second.id])
+    await pool.publish(evt())
+    await settle()
+    expect(a.stored).toHaveLength(1)
+    expect(seen).toHaveLength(3)
+    pool.reconnect(); await settle()
+    expect(seen).toHaveLength(3)
+    off(); await settle()
+    expect(b.closedSubscriptions().length).toBeGreaterThan(0)
+  })
+
+  it('reports real connections and accepted or rejected writes separately', async () => {
+    expect(pool.health().every(relay => relay.state === 'idle')).toBe(true)
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await settle()
+    expect(pool.health().every(relay => relay.state === 'connected')).toBe(true)
+    b.rejectPublishes = true
+    await pool.publish(evt())
+    const [first, second] = pool.health()
+    expect(first).toMatchObject({ state: 'connected', lastPublishedAt: expect.any(Number), publishLatencyMs: expect.any(Number) })
+    expect(second).toMatchObject({ state: 'connected', lastError: expect.stringContaining('publish') })
+    expect(second!.lastPublishedAt).toBeUndefined()
+    a.disconnectAll()
+    expect(pool.health()[0]!.state).toBe('disconnected')
+    pool.close()
+    expect(pool.health().every(relay => relay.state === 'closed')).toBe(true)
+  })
+
+  it('refuses invalid URLs and duplicate permissions without altering current connections', () => {
+    for (const url of ['https://relay.test', 'ws://public.test', 'wss://user:secret@relay.test', 'wss://relay.test/#key']) {
+      expect(() => pool.setRelays([url])).toThrow()
+    }
+    expect(() => pool.setRelays([URL_A, `${URL_A}/`])).toThrow('already')
+    expect(() => pool.setRelays([{ url: URL_A, read: false, write: false }])).toThrow('reading or writing')
+    expect(pool.configuration().map(relay => relay.url)).toEqual([`${URL_A}/`, `${URL_B}/`])
+  })
+
   it('ignores an event that matches no filter', async () => {
     a.seed(evt(1460))
 

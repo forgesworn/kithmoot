@@ -6211,7 +6211,7 @@
       {
         "name": "mentions-on-the-wire",
         "kind": "positive",
-        "note": "The sender names who this addresses: Rowan by key, and everyone. What lights up as a mention is exactly what an agent answers to, because both read this field. `everyone` addresses a person and not an agent: Tally as a person is addressed, Tally as an agent is not.",
+        "note": "The sender names who this addresses: Rowan by key, and everyone. What lights up as a mention is exactly what an agent answers to, because both read this field. `everyone` addresses every participant, including agents. Caller permissions are enforced separately by the host.",
         "input": {
           "event": {
             "kind": 1460,
@@ -6290,7 +6290,7 @@
             ],
             "rowanAsPerson": true,
             "tallyAsPerson": true,
-            "tallyAsAgent": false
+            "tallyAsAgent": true
           }
         }
       },
@@ -6457,7 +6457,7 @@
             ],
             "rowanAsPerson": true,
             "tallyAsPerson": true,
-            "tallyAsAgent": false
+            "tallyAsAgent": true
           }
         }
       },

@@ -30,10 +30,9 @@ import type { Event } from 'nostr-tools/pure'
  * room id and the timing of its roster events, and - because of this file
  * and nothing else - can also learn which participant keys are in it.
  *
- * Lookups are therefore disabled until the reader opts in for this visit.
- * Disabling them closes outstanding subscriptions and removes cached
- * profiles, including externally hosted pictures. It cannot undo disclosure
- * from a request already sent. No preference carries into another visit.
+ * The app enables lookups by default, with a persistent switch in profile
+ * settings. Disabling closes subscriptions and removes cached profiles and
+ * external pictures. It cannot undo a request already sent.
  *
  * Anything built on top of this - a lookup keyed on participant pubkeys for
  * any other purpose - inherits the same cost and does not add a new one.
@@ -58,6 +57,7 @@ export interface ProfileBookOptions {
   relays: () => string[]
   /** Called when a lookup changed something worth re-rendering. */
   onChange: () => void
+  transport?: (relays: string[]) => NostrRelayPool
 }
 
 export class ProfileBook {
@@ -68,7 +68,7 @@ export class ProfileBook {
   readonly #asked = new Set<string>()
   readonly #found = new Map<string, { profile: Profile; createdAt: number }>()
   #closed = false
-  #enabled = false
+  #enabled = true
 
   constructor(opts: ProfileBookOptions) {
     this.#opts = opts
@@ -94,7 +94,7 @@ export class ProfileBook {
     for (const pubkey of fresh) this.#asked.add(pubkey)
 
     // Lazily, so a browser that never opens a room never opens a socket.
-    this.#pool ??= new NostrRelayPool(this.#opts.relays())
+    this.#pool ??= this.#opts.transport?.(this.#opts.relays()) ?? new NostrRelayPool(this.#opts.relays())
     const unsub = this.#pool.subscribe([{ kinds: [0], authors: fresh }], (event) => this.#ingest(event))
     this.#unsubs.add(unsub)
 

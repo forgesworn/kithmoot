@@ -83,18 +83,18 @@ import {
   parseRoomLink,
   encodeRoomLink,
   type RoomLink,
-  type RelayTransport,
+  type RelayConfig,
   type EncryptedEnvelope,
   DonationLedger,
   ringTier,
   resolveConversation,
   mentionedBy,
-  namesInText,
+  mentionsOf,
+  ROOM_MENTION_PATTERN,
   sameRef,
   refKey,
   retractionText,
   inviteText,
-  EVERYONE,
   MAX_MENTIONS,
   dmPolicy,
   dmPeer,
@@ -133,6 +133,7 @@ import { DEFAULT_VOICE_PRESET, type VoicePreset } from '../../src/voice-effects.
 import { BACKGROUNDS, CameraPipeline, type BackgroundChoice } from './video-pipeline.js'
 import { MicPipeline, type MicState } from './voice-pipeline.js'
 import { ProfileBook, type Profile } from './profiles.js'
+import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay-settings.js'
 import { renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { ContextPanel } from './context-panel.js'
@@ -168,7 +169,17 @@ function hasUnsentWork(): boolean {
 // in its hints, but there is no reason to default new rooms to one that is
 // currently flaky. Change this list, not code elsewhere, if a relay in it
 // goes down again.
-const RELAYS = ['wss://relay.trotters.cc', 'wss://nos.lol', 'wss://relay.primal.net']
+const DEFAULT_RELAYS = ['wss://relay.trotters.cc', 'wss://nos.lol', 'wss://relay.primal.net']
+const relayStorage = {
+  getItem: (key: string) => localStorage.getItem(key),
+  setItem: (key: string, value: string) => localStorage.setItem(key, value),
+}
+const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS)
+let RELAYS = relayConnections.configuration('default').map(relay => relay.url)
+let roomRelayScope = 'default'
+function configuredPool(urls: string[]): NostrRelayPool {
+  return relayConnections.pool(urls === RELAYS ? 'default' : roomRelayScope, urls === RELAYS ? [] : urls === relays ? roomRelayConfig : urls)
+}
 
 // The room names its own STUN/TURN, carried in the join URL like the relay
 // hints already are - hardcoding an operator's server here is exactly the
@@ -541,7 +552,7 @@ function refreshAccountRooms(): void {
 
 function startRoomBookmarks(account: SignetSession): void {
   bookmarks?.close()
-  bookmarks = new RoomBookmarks(deviceStore, account.signer, new NostrRelayPool(RELAYS), () => {
+  bookmarks = new RoomBookmarks(deviceStore, account.signer, relayConnections.pool('default'), () => {
     if (roomsListShown) {
       const rooms = knownRooms(roomStore())
       const ids = new Set(rooms.map(room => room.roomId))
@@ -564,7 +575,7 @@ function startRoomBookmarks(account: SignetSession): void {
   bookmarks.start()
   readSync?.close()
   readSync = account.signer.nip44
-    ? new ReadPositionSync(account.signer, signerSelfCrypt({ pubkey: account.signer.pubkey, nip44: account.signer.nip44 }), new NostrRelayPool(RELAYS), (roomId, positions) => {
+    ? new ReadPositionSync(account.signer, signerSelfCrypt({ pubkey: account.signer.pubkey, nip44: account.signer.nip44 }), relayConnections.pool('default'), (roomId, positions) => {
         const at = positions['']?.at
         if (at === undefined) return
         markRead(roomStore(), roomId, at)
@@ -700,6 +711,11 @@ let roomSecret: Uint8Array
  * link whose fragment still directly contains the room traffic secret. */
 let roomInvitationCapability: RoomInvitation | undefined
 let relays: string[] = RELAYS
+let roomRelayConfig: RelayConfig[] = relayConnections.configuration('default')
+function useRoomRelays(hints: string[] = []): void {
+  roomRelayConfig = relayConnections.configuration(roomRelayScope, hints)
+  relays = roomRelayConfig.map(relay => relay.url)
+}
 let iceUrls: string[] = DEFAULT_ICE_URLS
 
 /** The root inviter key on the creator, or this member's delegated responder
@@ -870,7 +886,7 @@ function serveCurrentInvitation(): void {
   stopInvitationHost()
   const invitation = roomInvitationCapability
   if (!invitation || !invitationAuthoritySk || invitation.persistent) return
-  invitationTransport = new NostrRelayPool(relays)
+  invitationTransport = configuredPool(relays)
   try {
     invitationHost = hostRoomInvitation({
       transport: invitationTransport,
@@ -930,7 +946,7 @@ let joining = false
 let iceRefreshTimer: ReturnType<typeof setInterval> | undefined
 /** The relay pool the session publishes through, for a file dropped into
  *  the chat to announce itself on. Set and cleared with `session`. */
-let sessionTransport: RelayTransport | undefined
+let sessionTransport: NostrRelayPool | undefined
 let meParticipant = ''
 let myDeviceId = ''
 
@@ -952,6 +968,7 @@ let myDeviceId = ''
 
 const profiles = new ProfileBook({
   relays: () => relays,
+  transport: configuredPool,
   onChange: () => {
     renderIdentity()
     if (session) {
@@ -965,8 +982,14 @@ const profiles = new ProfileBook({
   },
 })
 
+let profilesEnabled = profilePreference(relayStorage)
+profiles.setEnabled(profilesEnabled)
+;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
+$('chatProfiles').textContent = `Profile pictures: ${profilesEnabled ? 'on' : 'off'}`
 $('lookupProfiles').addEventListener('change', () => {
   const enabled = ($('lookupProfiles') as HTMLInputElement).checked
+  profilesEnabled = enabled
+  try { localStorage.setItem('kithmoot.profiles.enabled', String(enabled)) } catch { /* The switch still applies to this visit. */ }
   profiles.setEnabled(enabled)
   $('chatProfiles').textContent = `Profile pictures: ${enabled ? 'on' : 'off'}`
   if (session) {
@@ -988,7 +1011,7 @@ const donations = new DonationLedger({
   address: DONATION_ADDRESS,
   recipient: DONATION_RECIPIENT,
   relays: () => relays,
-  transport: (urls) => new NostrRelayPool(urls),
+  transport: (urls) => configuredPool(urls),
   fetch: (...args) => fetch(...args),
   onChange: () => {
     if (session) render(session.participants(), meParticipant)
@@ -1302,9 +1325,11 @@ async function roomFromLocation(): Promise<boolean> {
   roomName = parsedLink.name
 
   const invitation = parsedLink.invitation
+  const knownSecret = secretForKnownRoom(parsedLink)
+  roomRelayScope = `room:${knownSecret ? deriveRoom(knownSecret).roomId : deriveInvitationId(invitation!)}`
   if (invitation) {
     roomInvitationCapability = invitation
-    relays = parsedLink.relays.length ? parsedLink.relays : RELAYS
+    useRoomRelays(parsedLink.relays)
     roomPolicy = parsedLink.policy
 
     const owner = loadInvitationOwner(invitation)
@@ -1333,12 +1358,14 @@ async function roomFromLocation(): Promise<boolean> {
         serveCurrentInvitation()
       } else {
         setStatus('Getting you in…', 'progress')
-        const transport = new NostrRelayPool(relays)
+        const transport = configuredPool(relays)
         try {
           const admission = invitation.persistent
             ? await requestPersistentRoomAdmission({ transport, invitation })
             : await requestRoomAdmissionCapability({ transport, invitation })
           roomSecret = admission.secret
+          roomRelayScope = `room:${deriveRoom(roomSecret).roomId}`
+          useRoomRelays(parsedLink.relays)
           admittedRoom = admission
           invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : undefined
           invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
@@ -1359,13 +1386,14 @@ async function roomFromLocation(): Promise<boolean> {
     const { secret, relays: hinted, policy } = parsedLink
     if (!secret) throw new Error('join URL carries neither an invitation nor a secret')
     roomSecret = secret
-    relays = hinted.length ? hinted : RELAYS
+    useRoomRelays(hinted)
     roomPolicy = policy
     roomInvitationCapability = undefined
     invitationAuthoritySk = undefined
     invitationDelegation = []
   }
 
+  profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
   iceUrls = parsedLink.iceUrls.length ? parsedLink.iceUrls : DEFAULT_ICE_URLS
 
   if (parsedLink.pairingCode) {
@@ -1399,7 +1427,7 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
   setStatus('Asking your other device to add this one\u2026')
 
   const { roomId, roomKey } = deriveRoom(roomSecret)
-  const transport = new NostrRelayPool(relays)
+  const transport = configuredPool(relays)
   try {
     const credential = await requestPairing({
       transport,
@@ -1845,9 +1873,11 @@ async function startNewRoom(): Promise<void> {
   roomInvitationCapability = created.invitation
   invitationAuthoritySk = created.inviterSk
   invitationDelegation = []
-  relays = RELAYS
+  roomRelayScope = `room:${deriveRoom(secret).roomId}`
+  useRoomRelays()
   iceUrls = parseIceInput()
   roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
+  profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
   serveCurrentInvitation()
   history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
   rememberCurrentRoom()
@@ -2082,7 +2112,7 @@ async function rotateRoomInvitation(): Promise<void> {
   // Tell every cooperative delegated responder before replacing local
   // state. The event is durable, so an offline member learns the retirement
   // when it reconnects instead of resurrecting an old group link.
-  const retirementTransport = new NostrRelayPool(relays)
+  const retirementTransport = configuredPool(relays)
   try {
     await retirementTransport.publish(encodeInvitationRetirement({
       invitation: retired,
@@ -2112,7 +2142,7 @@ async function rotateRoomInvitation(): Promise<void> {
 }
 
 async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[]): Promise<void> {
-  const pool = new NostrRelayPool(relayUrls)
+  const pool = configuredPool(relayUrls)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
@@ -4205,10 +4235,10 @@ function myNames(): Set<string> {
  *  still works. */
 function mentionPattern(names: string[]): RegExp | undefined {
   const wanted = [...new Set(names)].sort((a, b) => b.length - a.length)
-  if (wanted.length === 0) return undefined
   const alternatives = wanted.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
   try {
-    return new RegExp(`(^|[^\\p{L}\\p{N}_])(@?(?:${alternatives}))(?![\\p{L}\\p{N}_])`, 'giu')
+    const named = alternatives ? `|(?<![\\p{L}\\p{N}_])@?(?:${alternatives})(?![\\p{L}\\p{N}_])` : ''
+    return new RegExp(`${ROOM_MENTION_PATTERN.source}${named}`, 'giu')
   } catch {
     // A name that will not compile is a name nobody gets highlighted for,
     // which is better than a log that fails to draw.
@@ -4231,13 +4261,12 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
   }
   let at = 0
   for (const match of text.matchAll(pattern)) {
-    const lead = match[1] ?? ''
-    const token = match[2] ?? ''
-    const start = (match.index ?? 0) + lead.length
+    const token = match[0]
+    const start = match.index ?? 0
     if (start > at) into.append(text.slice(at, start))
     const span = document.createElement('span')
     span.className = 'mention'
-    if (mine.has(token.replace(/^@/, '').toLowerCase())) span.classList.add('me')
+    if (ROOM_MENTION_PATTERN.test(token) || mine.has(token.replace(/^@/, '').toLowerCase())) span.classList.add('me')
     span.textContent = token
     into.append(span)
     at = start + token.length
@@ -5074,7 +5103,7 @@ async function startSession(): Promise<void> {
     // Held here as well as inside the session, because a file dropped into
     // the chat announces itself with a kind-1063 event on the room's own
     // relays, through the sockets the room already has open.
-    const transport = new NostrRelayPool(relays)
+    const transport = configuredPool(relays)
     sessionTransport = transport
     const s = credential
       ? new RoomSession({
@@ -5343,7 +5372,7 @@ function watchKnownRoom(room: KnownRoom): void {
   const { roomId, roomKey } = deriveRoom(secret)
   // A key that does not open this room is not this room's key.
   if (roomId !== room.roomId) return
-  const pool = new NostrRelayPool(link.relays.length ? link.relays : RELAYS)
+  const pool = relayConnections.pool(`room:${room.roomId}`, link.relays)
   // A message in a room on the list is a message in a room not on screen,
   // and the list is what this device reads other rooms with.
   const notify = notifier.follow({
@@ -6181,6 +6210,25 @@ function openProfileSettings(from: HTMLElement): void {
 }
 $('chatProfiles').addEventListener('click', () => openProfileSettings($('chatProfiles')))
 $('roomProfileSettings').addEventListener('click', () => openProfileSettings($('roomMenu')))
+const relaySettings = new RelaySettingsPanel(document, relayConnections, {
+  room: () => roomRelayScope === 'default' ? undefined : { scope: roomRelayScope, hints: roomRelayConfig },
+  applied: (scope, entries) => {
+    if (scope === 'default') RELAYS = relayConnections.configuration('default').map(relay => relay.url)
+    if (scope === roomRelayScope) {
+      roomRelayConfig = entries
+      relays = entries.map(relay => relay.url)
+      profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
+      if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
+      renderIdentity()
+      if (currentRoomId()) {
+        ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+        rememberCurrentRoom()
+      }
+    }
+  },
+})
+$('roomRelaySettings').addEventListener('click', () => { closeRoomSheet(); relaySettings.open($('roomMenu')) })
+$('defaultRelaySettings').addEventListener('click', () => relaySettings.open($('defaultRelaySettings')))
 $('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
 $('profileSettings').addEventListener('close', () => profileReturnFocus.focus({ preventScroll: true }))
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
@@ -6327,7 +6375,7 @@ $('addDevice').addEventListener('click', () => {
 
     const code = createPairingCode()
     const { roomId, roomKey } = deriveRoom(roomSecret)
-    pairingTransport = new NostrRelayPool(relays)
+    pairingTransport = configuredPool(relays)
     pairingHost = hostPairing({
       transport: pairingTransport,
       roomId,
@@ -6564,6 +6612,7 @@ function growComposer(box: HTMLTextAreaElement): void {
 interface MentionChoice {
   name: string
   agent: boolean
+  room?: boolean
   model?: ComposerModel
 }
 
@@ -6609,7 +6658,7 @@ function modelClerkNames(): string[] {
  *  that what you have typed so far leads the list. */
 function mentionCandidates(query: string): MentionChoice[] {
   const wanted = query.trim().toLowerCase()
-  const seen = new Set<string>()
+  const seen = new Set<string>(['all', 'everyone'])
   const all: MentionChoice[] = []
   for (const view of session?.participants() ?? []) {
     const name = view.name?.trim()
@@ -6619,7 +6668,8 @@ function mentionCandidates(query: string): MentionChoice[] {
     all.push({ name, agent: view.agent === true })
   }
   // The whole room, last, so a name still leads when one matches.
-  all.push({ name: EVERYONE, agent: false })
+  all.push({ name: 'all', agent: false, room: true })
+  if (wanted && 'everyone'.startsWith(wanted)) all.push({ name: 'everyone', agent: false, room: true })
   if (!wanted) return all
   const starts = all.filter((c) => c.name.toLowerCase().startsWith(wanted))
   const contains = all.filter((c) => !c.name.toLowerCase().startsWith(wanted) && c.name.toLowerCase().includes(wanted))
@@ -6675,6 +6725,12 @@ function renderMentionPicker(): void {
     name.className = 'name'
     name.textContent = choice.name
     option.append(name)
+    if (choice.room) {
+      const detail = document.createElement('span')
+      detail.className = 'model-label'
+      detail.textContent = 'Everyone in this room, including agents'
+      option.append(detail)
+    }
     if (choice.model) {
       option.className = 'model-choice'
       const detail = document.createElement('span')
@@ -6833,18 +6889,12 @@ function renderComposerContext(): void {
 /**
  * Who the typed text addresses, declared on the wire: everybody on the
  * roster it names as a whole word, with or without the @, which is the
- * rule readers have always applied, and `everyone` when it says @everyone
- * and only then, because "everyone is here" is not a call to the room.
+ * rule readers have always applied. Explicit @all and @everyone calls
+ * include the entire room. The broadcast comes first so it survives the cap.
  */
 function mentionsInDraft(text: string): string[] {
-  const out: string[] = []
-  for (const view of session?.participants() ?? []) {
-    if (view.participant === meParticipant) continue
-    const name = view.name?.trim()
-    if (name && namesInText(text, name) && !out.includes(view.participant)) out.push(view.participant)
-  }
-  if (/(^|[^\p{L}\p{N}_])@everyone(?![\p{L}\p{N}_])/iu.test(text)) out.push(EVERYONE)
-  return out.slice(0, MAX_MENTIONS)
+  return mentionsOf({ text }, (session?.participants() ?? []).filter(view => view.participant !== meParticipant))
+    .slice(0, MAX_MENTIONS)
 }
 
 function retractMessage(original: ChatMessage): void {
@@ -7057,7 +7107,7 @@ async function resolveFileEvent(text: string, signal?: AbortSignal): Promise<Nos
     }
   }
   if (!/^[0-9a-f]{64}$/.test(id)) throw new Error('Paste the file event id (64 hex characters) or the event JSON.')
-  const transport = new NostrRelayPool(relays)
+  const transport = configuredPool(relays)
   try {
     return await new Promise<NostrEvent>((resolve, reject) => {
       let off = (): void => {}

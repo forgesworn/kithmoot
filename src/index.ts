@@ -129,8 +129,8 @@ export type {
   HostPairingOptions,
   RequestPairingOptions,
 } from './pairing.js'
-export { NostrRelayPool } from './relay-pool.js'
-export type { RelayTransport } from './relay-pool.js'
+export { NostrRelayPool, normaliseRelayConfig } from './relay-pool.js'
+export type { RelayTransport, RelayConfig, RelayHealth } from './relay-pool.js'
 export { evaluateAccess, evaluateAgentAccess, issueKindredProof } from './access.js'
 export type { IssueKindredProofOptions } from './access.js'
 export type { AccessTier, AgentRule, RoomPolicy, KindredProof, AgentOwnership } from './types.js'
@@ -373,6 +373,7 @@ export {
   MAX_MESSAGE_ID_LENGTH,
   EVERYONE,
   MAX_MENTIONS,
+  ROOM_MENTION_PATTERN,
   normaliseMentions,
   normaliseInvite,
   MAX_INVITE_LINK_LENGTH,
