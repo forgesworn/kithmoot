@@ -1,12 +1,16 @@
 import { test, expect } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { AgentRuntime } from '../src/node/runtime.js'
-import { goToConversation, open, startRelay } from './browser.js'
+import { encodeRoomLink, parseRoomLink } from '../src/link.js'
+import { goToConversation, open } from './browser.js'
 
 test('an agent acknowledges a mention in a named conversation with a visible received time', async ({ browser, baseURL }) => {
   test.setTimeout(45000)
-  const relay = await startRelay(7794)
-  const tally = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: [relay.url] })
+  // WebKit refuses a cleartext WebSocket from this HTTPS page. Both sides
+  // use the same local relay through the browser's existing secure proxy.
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const tally = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: ['ws://127.0.0.1:7777'] })
+  const browserLink = encodeRoomLink(baseURL!, { ...parseRoomLink(tally.url), relays: [relay.href] })
   const runtime = new AgentRuntime(tally, { persona: { name: 'Tally', system: '' } }).start()
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
   const failures: string[] = []
@@ -18,7 +22,7 @@ test('an agent acknowledges a mention in a named conversation with a visible rec
   try {
     await tally.setChannel('security', true)
     const page = await context.newPage()
-    await open(page, tally.url, 'Ada')
+    await open(page, browserLink, 'Ada')
     await page.locator('#join').click()
     await goToConversation(page, 'security')
     await page.locator('#chatInput').fill('@Tally can you look at this?')
@@ -30,5 +34,5 @@ test('an agent acknowledges a mention in a named conversation with a visible rec
     expect(failures).toEqual([])
     await goToConversation(page, 'Chat')
     await expect(page.locator('#chatLog .msg')).toHaveCount(0)
-  } finally { off(); await context.close(); await runtime.close(); await relay.stop() }
+  } finally { off(); await context.close(); await runtime.close() }
 })
