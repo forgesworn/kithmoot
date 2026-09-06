@@ -126,17 +126,20 @@ test('a private conversation is started from a person and reaches them inside th
     await rowan.locator('#backToRooms').click()
     await expect(rowan.locator('#roomSwitcherList')).toContainText('Private: Ada', { timeout: 30_000 })
     await rowan.locator('#roomSwitcherClose').click()
-    // "It is in your rooms" comes with the way there. Inside, the room is
-    // titled for the other person and says who can read it.
-    await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Private: Rowan' }).click()
-    await expect(ada.locator('#roomTitle')).toHaveText('Private: Rowan', { timeout: 30_000 })
-    await expect(ada.locator('#chatLog')).toContainText('Only you and Rowan can read this.')
-    // Started again from the same person, it is the same room, not a second one.
+    // Started again from the same person, it is the same room, not a second
+    // one - and it opens. Done while Ada is still on Rowan's roster: once
+    // either of them leaves the workshop for the private room, the other's
+    // "Message ..." button goes with them.
     await openRoomDetails(rowan)
     await rowan.getByRole('button', { name: /^Message Ada/ }).click()
     await expect(rowan.locator('#roomTitle')).toHaveText('Private: Ada', { timeout: 30_000 })
     await rowan.locator('#backToRooms').click()
     await expect(rowan.locator('#roomSwitcherList .switchRoom').filter({ hasText: 'Private: Ada' })).toHaveCount(1)
+    // "It is in your rooms" comes with the way there. Inside, the room is
+    // titled for the other person and says who can read it.
+    await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Private: Rowan' }).click()
+    await expect(ada.locator('#roomTitle')).toHaveText('Private: Rowan', { timeout: 30_000 })
+    await expect(ada.locator('#chatLog')).toContainText('Only you and Rowan can read this.')
   } finally {
     for (const context of contexts) await context.close()
   }
