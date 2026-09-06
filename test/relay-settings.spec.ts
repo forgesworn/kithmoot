@@ -55,6 +55,23 @@ test('relay settings enforce read-only traffic, show health and persist addition
     await expect.poll(() => closedReads).toBeGreaterThan(beforeRemove)
     await page.reload(); await page.locator('#join').click(); await open()
     await expect(page.locator('#relayList .relayRow')).toHaveCount(1)
+    await page.locator('#relayScope').selectOption('default')
+    while (await page.locator('#relayList .relayRow').count()) await page.locator('#relayList .relayRow button').first().click()
+    for (const [url, mode] of [[relay.href, 'both'], [readRelay, 'read']]) {
+      await page.locator('#relayUrl').fill(url!)
+      await page.locator('#relayMode').selectOption(mode!)
+      await page.getByRole('button', { name: 'Add relay', exact: true }).click()
+    }
+    await page.locator('#relaySave').click()
+    await expect(page.locator('#relaySettingsStatus')).toContainText('Saved on this device')
+    await page.goto(baseURL!)
+    await page.locator('#roomName').fill('Default relay fixture')
+    await page.locator('#create').click()
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await open(); await expect(readRow.locator('select')).toHaveValue('read')
+    await page.reload(); await page.locator('#join').click(); await open()
+    await expect(readRow.locator('select')).toHaveValue('read')
     expect(readFrames.filter(frame => frame[0] === 'EVENT')).toEqual([])
   } finally { await context.close() }
 })
