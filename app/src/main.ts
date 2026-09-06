@@ -98,6 +98,7 @@ import {
   MAX_MENTIONS,
   dmPolicy,
   dmPeer,
+  preferredDm,
   sealInvite,
   openInvite,
   localPeerCrypt,
@@ -2583,6 +2584,9 @@ function participantIsAgent(participant: string): boolean {
 }
 
 function render(views: ParticipantView[], me: string): void {
+  // A private conversation is titled for the other person, whose name
+  // arrives with their presence, not with the link.
+  if (dmPeer(roomPolicy, me) && $('roomTitle').textContent !== currentRoomLabel()) renderRoomTitle()
   // A catalogue can arrive before its participant's roster entry. Refresh
   // an open completion when presence catches up, or the ^ menu stays empty
   // until the person types again.
@@ -2899,6 +2903,17 @@ async function startDirectMessage(peer: string, peerName: string | undefined): P
   const me = meParticipant
   if (!s || !me || startingDm) return
   const who = peerName ?? shortKey(peer)
+  // One conversation per pair. Started twice, or from both ends, it is the
+  // room that already exists - the earliest of them, the same choice every
+  // device makes (see `preferredDm`).
+  const existing = preferredDm(knownRooms(roomStore())
+    .filter((room) => dmPeerOf(room) === peer)
+    .map((room) => ({ room: room.roomId, sentAt: room.openedAt, known: room })))
+  if (existing) {
+    setStatus(`Opening your private conversation with ${who}…`, 'progress')
+    switchRoom(existing.known)
+    return
+  }
   const crypt = peerCrypt()
   if (!crypt) {
     setStatus(nostrSession
@@ -2920,6 +2935,7 @@ async function startDirectMessage(peer: string, peerName: string | undefined): P
     outbox.send(text, 'Chat', s.chat.prepareSend(text, { invite }))
     const room = rememberRoom(roomStore(), { roomId, link, openedAt: nowSeconds(), ...(peerName ? { name: peerName } : {}) })
     bookmarks?.save(room)
+    addSystemLine(`You started a private conversation with ${who}.`, nowSeconds(), room)
     setStatus(`Private conversation with ${who} started. It is in your rooms; ${who} will find it in theirs.`, 'done')
   } catch (err) {
     setStatus(describeError(err))
@@ -2966,7 +2982,7 @@ async function handleInvites(messages: ChatMessage[]): Promise<void> {
     bookmarks?.save(room)
     addSystemLine(m.participant === me
       ? 'You started a private conversation from another device. It is in your rooms.'
-      : `${senderLabel(m)} started a private conversation with you. It is in your rooms.`, m.sentAt)
+      : `${senderLabel(m)} started a private conversation with you. It is in your rooms.`, m.sentAt, room)
     if (roomsListShown) renderRooms()
   }
 }
@@ -3063,11 +3079,13 @@ function personLabel(pubkey: string): string {
 interface SystemLine {
   at: number
   text: string
+  /** A room the line is about, offered as the way to it. */
+  room?: KnownRoom
 }
 const systemLines: SystemLine[] = []
 
-function addSystemLine(text: string, at = nowSeconds()): void {
-  systemLines.push({ at, text })
+function addSystemLine(text: string, at = nowSeconds(), room?: KnownRoom): void {
+  systemLines.push(room ? { at, text, room } : { at, text })
   systemLines.sort((a, b) => a.at - b.at)
   // Keep local status lines until the chat exists and can render them.
   // Only the conversation on screen is repainted - the line belongs to the
@@ -3747,7 +3765,12 @@ function draftChanged(draft: ConversationDraft): void {
  * is about, is worth four paragraphs nobody opens.
  */
 function channelPurpose(name: string | undefined): string {
-  if (name === undefined) return 'Everybody in this room can read this, and can write here too.'
+  if (name === undefined) {
+    const me = meParticipant || currentParticipant()
+    const peer = me ? dmPeer(roomPolicy, me) : undefined
+    if (peer) return `Only you and ${dmPeerName(peer)} can read this.`
+    return 'Everybody in this room can read this, and can write here too.'
+  }
   if (name === AGENT_CHANNEL) {
     return (
       'The computer helpers’ shared conversation. Messages appear here as they arrive. ' +
@@ -4269,6 +4292,17 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const p = document.createElement('p')
       p.className = 'system'
       p.append(timeChip(line.at), line.text)
+      if (line.room) {
+        // "It is in your rooms" is an answer; the way there is a button.
+        const room = line.room
+        const open = document.createElement('button')
+        open.type = 'button'
+        open.className = 'quiet openRoom'
+        open.textContent = 'Open it'
+        open.setAttribute('aria-label', `Open ${knownRoomLabel(room)}`)
+        open.addEventListener('click', () => switchRoom(room))
+        p.append(' ', open)
+      }
       log.append(p)
       nextSystem++
     }
@@ -4323,8 +4357,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     row.dataset.messageId = original.id
     // Addressed to the reader, by the field on the wire or by name on a
     // message from before the field existed: the one thing a person scans
-    // a busy room for, and exactly what an agent would answer to.
-    if (!r.retracted && meParticipant && mentionedBy(m, meParticipant, roster)) row.classList.add('mentionsMe')
+    // a busy room for, and exactly what an agent would answer to. Your own
+    // message is not addressed to you, whatever names it says.
+    if (!mine && !r.retracted && meParticipant && mentionedBy(m, meParticipant, roster)) row.classList.add('mentionsMe')
 
     // Who said it, above the bubble, the way every group chat does it.
     // Left-alignment says "not you"; in a room of six it does not say WHO,
@@ -4409,8 +4444,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     }
     // textContent, never innerHTML: this is somebody else's text. The line
     // breaks in it are kept - the box people type into makes them now - and
-    // the names in it are marked, including yours.
-    appendWithMentions(text, m.text, mentions, namesOfMine)
+    // the names in it are marked. Yours too, except in your own message:
+    // saying your own name is not being addressed.
+    appendWithMentions(text, m.text, mentions, mine ? new Set<string>() : namesOfMine)
     bubble.append(text)
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
     row.append(bubble)
@@ -5560,10 +5596,19 @@ function knownRoomLabel(room: KnownRoom): string {
 }
 
 /** The room this page is in, named the same way. */
+/** What to call the person on the other end of the room this page is in:
+ *  what the roster says, then the name remembered when the conversation
+ *  was started or received, then the key. */
+function dmPeerName(peer: string): string {
+  const onRoster = session?.participants().find((v) => v.participant === peer)?.name
+  const remembered = knownRooms(roomStore()).find((room) => room.roomId === currentRoomId())?.name
+  return shownAs(peer, onRoster ?? remembered).name ?? shortKey(peer)
+}
+
 function currentRoomLabel(): string {
   const me = meParticipant || currentParticipant()
   const peer = me ? dmPeer(roomPolicy, me) : undefined
-  if (peer) return `Private: ${shownAs(peer, session?.participants().find((v) => v.participant === peer)?.name).name ?? shortKey(peer)}`
+  if (peer) return `Private: ${dmPeerName(peer)}`
   return roomLabel({ roomId: currentRoomId() ?? '', name: roomName })
 }
 
@@ -5809,7 +5854,7 @@ function rememberWayBack(): void {
   try {
     sessionStorage.setItem(
       WAY_BACK_KEY,
-      JSON.stringify({ link: encodeRoomUrl(joinLinkBase(), relays, iceUrls), name: roomLabel({ roomId, name: roomName }) }),
+      JSON.stringify({ link: encodeRoomUrl(joinLinkBase(), relays, iceUrls), name: currentRoomLabel() }),
     )
   } catch {
     // No storage. The room may still be on the list below; there is just no

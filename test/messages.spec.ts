@@ -40,6 +40,13 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
     const thread = page.locator('#chatLog .thread')
     await expect(thread.locator('.msg')).toHaveCount(1)
     await expect(thread).toContainText('Yes, if the vectors are green')
+    // Saying your own name is not being addressed: no row of yours lights.
+    await page.locator('#chatInput').fill('Ada here, by the way')
+    await page.locator('#chatInput').press('Enter')
+    const own = page.locator('#chatLog .msg').filter({ hasText: 'Ada here, by the way' })
+    await expect(own).toBeVisible()
+    await expect(own).not.toHaveClass(/mentionsMe/)
+    await expect(own.locator('.mention.me')).toHaveCount(0)
     await expect(page.locator('#composerContext')).toBeHidden()
     // On the wire, the reply names its parent and its root by id and author.
     await expect.poll(() => rowan.chat.messages().find(m => m.text === 'Yes, if the vectors are green')?.thread?.messageId)
@@ -114,9 +121,22 @@ test('a private conversation is started from a person and reaches them inside th
     // The room is on both lists, named for the other person.
     await ada.locator('#backToRooms').click()
     await expect(ada.locator('#roomSwitcherList')).toContainText('Private: Rowan', { timeout: 30_000 })
+    await ada.locator('#roomSwitcherClose').click()
     await rowan.locator('#roomSheetClose').click()
     await rowan.locator('#backToRooms').click()
     await expect(rowan.locator('#roomSwitcherList')).toContainText('Private: Ada', { timeout: 30_000 })
+    await rowan.locator('#roomSwitcherClose').click()
+    // "It is in your rooms" comes with the way there. Inside, the room is
+    // titled for the other person and says who can read it.
+    await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Private: Rowan' }).click()
+    await expect(ada.locator('#roomTitle')).toHaveText('Private: Rowan', { timeout: 30_000 })
+    await expect(ada.locator('#chatLog')).toContainText('Only you and Rowan can read this.')
+    // Started again from the same person, it is the same room, not a second one.
+    await openRoomDetails(rowan)
+    await rowan.getByRole('button', { name: /^Message Ada/ }).click()
+    await expect(rowan.locator('#roomTitle')).toHaveText('Private: Ada', { timeout: 30_000 })
+    await rowan.locator('#backToRooms').click()
+    await expect(rowan.locator('#roomSwitcherList .switchRoom').filter({ hasText: 'Private: Ada' })).toHaveCount(1)
   } finally {
     for (const context of contexts) await context.close()
   }

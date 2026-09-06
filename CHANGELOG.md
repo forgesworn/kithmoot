@@ -93,6 +93,16 @@ implementation reads this file to know what moved.
 
 ### Fixed
 
+- What the first stranger test of the message layer tripped on, run on a
+  phone-sized cold profile against the live site on 6 September: your own
+  name in your own message lit as a mention of you; a private conversation
+  was titled by the other person's key rather than their name, and said
+  everybody in the room could read it; "Message privately" made a second
+  room when one existed, and left you where you were; and "it is in your
+  rooms" came with no way there. Now a private room is titled for the other
+  person, says "Only you and them can read this", is reused when it exists,
+  and the line announcing it has an "Open it" button.
+
 - An agent host obeys its principal, not everybody who ever held the link:
   a room member can no longer start an agent from another host's catalogue
   without that host's rule allowing it.
