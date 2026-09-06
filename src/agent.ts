@@ -16,7 +16,7 @@ import {
 import type { InvitationDelegation } from './invitation.js'
 import { localIdentity } from './identity.js'
 import type { ParticipantIdentity } from './identity.js'
-import { generateRoomSecret } from './room.js'
+import { generateRoomSecret, deriveRoom } from './room.js'
 import { canonicalAdmins, canonicalChannels, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
 import type { RekeyNotice, RoomEpoch } from './epoch.js'
 import { CONTROL_CHANNEL, DEFAULT_APPROVAL_OPTIONS, decodeControl, encodeControl, type ControlMessage } from './control.js'
@@ -97,6 +97,10 @@ interface CommonAgentOptions {
   /** The participant. A fresh local key when omitted, which is a perfectly
    *  good identity for an agent that is here for one room. */
   identity?: ParticipantIdentity
+  /** A human integration may derive a private room-scoped identity after
+   * admission reveals the room ID. The derivation secret stays in its host. */
+  identityForRoom?: (roomId: string) => ParticipantIdentity
+  deviceKeyForRoom?: (roomId: string) => Uint8Array
   /** This endpoint's key. Fresh when omitted; per room, as the app keeps
    *  it, so a relay cannot follow one agent from room to room. */
   deviceSk?: Uint8Array
@@ -357,6 +361,8 @@ export class RoomAgent {
 
     return RoomAgent.#start({
       ...opts,
+      identity: opts.identityForRoom?.(deriveRoom(secret).roomId) ?? opts.identity,
+      deviceSk: opts.deviceKeyForRoom?.(deriveRoom(secret).roomId) ?? opts.deviceSk,
       link,
       url: opts.link,
       relays,

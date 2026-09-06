@@ -137,6 +137,7 @@ import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay
 import { renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { ContextPanel } from './context-panel.js'
+import { AssignmentPanel } from './assignment-panel.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
@@ -3349,6 +3350,7 @@ function ingestControl(messages: ChatMessage[]): void {
         const have = catalogues.get(control.host)
         if (have && have.at > m.sentAt) break
         catalogues.set(control.host, { ...control, at: m.sentAt })
+        assignmentPanel.refreshPeople()
         changed = true
         break
       }
@@ -5170,6 +5172,7 @@ async function startSession(): Promise<void> {
     meParticipant = s.participant
 
     s.onChange((views) => {
+      assignmentPanel.refreshPeople()
       render(views, meParticipant)
       renderInvites()
       renderHost()
@@ -5179,6 +5182,7 @@ async function startSession(): Promise<void> {
     s.onRemoteTrack(({ device, track }) => attachRemoteTrack(device, track))
 
     await s.join(currentAdverts(), currentClaims())
+    void assignmentPanel.attach(s)
     iceRefreshTimer = setInterval(refreshIce, ICE_REFRESH_MS)
     s.publishTracks(activeTracks(), { audience })
 
@@ -6197,6 +6201,14 @@ $('searchConversation').addEventListener('click', () => {
   closeRoomSheet()
   conversationSearch.open()
 })
+const assignmentPanel = new AssignmentPanel(document, () => {
+  return (session?.participants() ?? []).map(p => {
+    const actions = [...catalogues.values()].flatMap(c => c.agents.filter(a => c.running.some(r => r.id === a.id && r.participant === p.participant)).flatMap(a => a.actions ?? []))
+    return { pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true, actions,
+      ...(p.agent && p.devices.length ? { ownerDevice: [...p.devices].sort()[0] } : {}) }
+  })
+})
+
 const contextPanel = new ContextPanel(document, {
   identity: () => { const crypt = peerCrypt(); if (!crypt) return undefined; const identity = currentIdentity(); return { pubkey: identity.pubkey, signEvent: event => identity.signEvent(event), ...crypt } },
   room: currentRoomId,
@@ -6522,6 +6534,7 @@ $('joinRoomForm').addEventListener('submit', event => {
  * light on with nobody watching, which is worse than a flicker.
  */
 async function leaveRoom(): Promise<void> {
+  assignmentPanel.detach()
   contextPanel.close()
   if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
   iceRefreshTimer = undefined

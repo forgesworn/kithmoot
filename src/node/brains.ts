@@ -70,9 +70,15 @@ export type StdioEvent =
   | { type: 'error'; message: string }
   | { type: 'context'; briefing: string }
   | { type: 'ok'; op: string; id?: string }
+  | { type: 'assignments'; value: unknown }
 
 /** What comes in on stdin, one JSON object per line. */
 export type StdioCommand =
+  | { op: 'assignments' }
+  | { op: 'assignment-claim'; assignment: string; next: string }
+  | { op: 'assignment-report'; assignment: string; request: string; operation: 'progress' | 'block' | 'result' | 'release'; text?: string; next?: string; question?: string; summary?: string; evidence?: string }
+  | { op: 'assignment-execution'; assignment: string }
+  | { op: 'assignment-recover-stopped'; assignment: string; evidence: string; request: string }
   | { op: 'say'; text: string; channel?: string }
   | { op: 'acknowledge'; channel: string; id: string }
   | { op: 'whisper'; text: string }
@@ -167,6 +173,25 @@ export class StdioBrain implements Brain {
   ): Promise<void> {
     try {
       switch (command.op) {
+        case 'assignments':
+          write({ type: 'assignments', value: runtime.assignments?.log.snapshot() ?? { error: 'Assignments are not enabled' } })
+          return
+        case 'assignment-claim':
+          if (!runtime.assignments) throw new Error('Assignments are not enabled')
+          write({ type: 'assignments', value: await runtime.assignments.claim(command.assignment, command.next) })
+          return
+        case 'assignment-report':
+          if (!runtime.assignments) throw new Error('Assignments are not enabled')
+          write({ type: 'assignments', value: await runtime.assignments.report(command.assignment, command.operation, command, command.request) })
+          return
+        case 'assignment-execution':
+          if (!runtime.assignments) throw new Error('Assignments are not enabled')
+          write({ type: 'assignments', value: await runtime.assignments.inspect(command.assignment) })
+          return
+        case 'assignment-recover-stopped':
+          if (!runtime.assignments) throw new Error('Assignments are not enabled')
+          write({ type: 'assignments', value: await runtime.assignments.recoverStopped(command.assignment, command.evidence, command.request) })
+          return
         case 'say':
           if (command.channel) await runtime.sayIn(command.channel, String(command.text))
           else await runtime.say(String(command.text))

@@ -9,6 +9,8 @@ import type { Transcriber } from './transcriber.js'
 import type { UtteranceSplitterOptions } from './utterances.js'
 import { mentionedBy } from '../messages.js'
 import { reactionsFor, reactionText, toggleReaction } from '../reactions.js'
+import { AgentAssignmentWork } from './assignment-work.js'
+import type { AssignmentAction } from '../assignments.js'
 
 /** The three conversations an agent follows. */
 export type Channel = 'chat' | 'backchannel' | 'transcript'
@@ -69,6 +71,11 @@ export const RUNTIME_HISTORY = 200
  * can drive it directly with none of them.
  */
 export class AgentRuntime {
+  assignments?: AgentAssignmentWork
+  async enableAssignments(directory: string, actions: AssignmentAction[] = []): Promise<void> {
+    if (this.assignments) throw new Error('Assignments are already enabled')
+    this.assignments = await AgentAssignmentWork.open(this.agent, directory, actions)
+  }
   readonly context?: import('./context-store.js').ContextFileStore
   readonly agent: RoomAgent
   readonly persona: Persona
@@ -396,6 +403,7 @@ export class AgentRuntime {
     for (const unsub of this.#unsubs) unsub()
     this.#unsubs = []
     this.#listeners.clear()
+    await this.assignments?.close()
     await this.agent.leave()
   }
 }

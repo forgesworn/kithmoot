@@ -2775,3 +2775,14 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
 .relayHealth[data-state="connected"] { color: #168368; }
 .relayHealth[data-state="disconnected"] { color: #b95040; }
 .relayAddForm { display: grid; gap: .5rem; margin: 1rem 0; }
+
+#assignmentPanel { width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; }
+#assignmentPanel fieldset { border: 0; padding: 0; min-width: 0; }
+#assignmentPanel label { display: grid; gap: .4rem; margin: .8rem 0; }
+#assignmentPanel input, #assignmentPanel select, #assignmentPanel textarea { box-sizing: border-box; width: 100%; min-width: 0; }
+#assignmentPanel textarea { min-height: 5rem; resize: vertical; }
+#assignmentPanel pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.assignmentCard { margin: 1rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; overflow-wrap: anywhere; }
+.assignmentCard h3 { margin-top: 0; }
+.assignmentCard > button { margin: .25rem .5rem .25rem 0; }
+.assignmentCard details { margin-top: 1rem; }

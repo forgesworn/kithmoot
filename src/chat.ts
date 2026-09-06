@@ -5,6 +5,7 @@ import { sha256 } from '@noble/hashes/sha2'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
 import { normaliseReaction, type ChatReaction } from './reactions.js'
+import { assignmentPayload, ASSIGNMENT_CHANNEL } from './assignments.js'
 import {
   normaliseInvite,
   normaliseMentions,
@@ -57,6 +58,8 @@ export function deriveChannel(roomId: string, roomKey: Uint8Array, channel?: str
 export type ChatMessageKind = 'transcript' | 'directive'
 
 export interface ChatMessage {
+  /** Authenticated shared-work operation, inside room encryption only. */
+  assignment?: Event
   id: string
   participant: string
   device: string
@@ -318,6 +321,11 @@ function rootOf(opts: { roomId: string; roomKey: Uint8Array; epoch?: EpochRoot }
  * a DURABLE kind (see `KINDS.CHAT`).
  */
 export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Event {
+  if (msg.assignment) {
+    const payload = assignmentPayload(msg.assignment, opts.roomId)
+    if (opts.channel !== ASSIGNMENT_CHANNEL || !payload || msg.assignment.pubkey !== msg.participant ||
+        (payload.device !== undefined && payload.device !== msg.device)) throw new Error('Invalid assignment envelope')
+  }
   // Sanitised on the way out as well as on the way in - see
   // `encodeRosterEvent` for why both. `name: undefined` is dropped by
   // JSON.stringify, so a message with no name is byte-identical to one
@@ -446,11 +454,16 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     // favour.
     const raw = msg as unknown as Record<string, unknown>
     const has = (field: string): boolean => raw[field] !== undefined
-    const statements = ['reaction', 'replaces', 'retracts', 'invite'].filter(has)
+    const statements = ['reaction', 'replaces', 'retracts', 'invite', 'assignment'].filter(has)
     if (statements.length > 1) return null
-    if ((has('reaction') || has('retracts') || has('invite')) &&
+    if ((has('reaction') || has('retracts') || has('invite') || has('assignment')) &&
         (has('kind') || has('attachments') || has('reply') || has('thread') || has('mentions'))) return null
     if (has('replaces') && (has('kind') || has('reply') || has('thread'))) return null
+    if (msg.assignment) {
+      const payload = assignmentPayload(msg.assignment, opts.roomId)
+      if (opts.channel !== ASSIGNMENT_CHANNEL || !payload || msg.assignment.pubkey !== msg.participant ||
+          (payload.device !== undefined && payload.device !== msg.device)) return null
+    }
 
     if (msg.reaction !== undefined) {
       const reaction = normaliseReaction(msg.reaction)
