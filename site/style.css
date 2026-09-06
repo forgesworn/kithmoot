@@ -42,6 +42,8 @@ nav .nav-open { color: var(--text); font-weight: 700; }
 .button.primary { background: var(--accent); color: var(--on-accent); }
 .button:hover { text-decoration: underline; text-underline-offset: .2em; }
 .under { font-size: .9rem; color: var(--muted); line-height: 1.6; }
+.under a { color: var(--accent); font-weight: 650; }
+.audience { font-size: clamp(1.05rem, 1.4vw, 1.2rem); line-height: 1.6; color: var(--muted); max-width: 62ch; margin: 0 auto 3.5rem; text-align: center; }
 .hero-preview { width: min(100%, 392px); margin: 0 auto; background: var(--panel); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
 .preview-label { padding: .8rem 1rem; font-size: .8rem; border-bottom: 1px solid var(--border); display: flex; gap: .55rem; align-items: center; }
 .status-dot { background: var(--accent); width: .5rem; height: .5rem; border-radius: 50%; }

@@ -26,6 +26,11 @@ implementation reads this file to know what moved.
   conversations, mentions on the wire and read positions that follow a
   signer, with the limits beside them. Its hero image is taken from the
   real app by `test/tools/hero-screenshot.spec.ts` rather than kept by hand.
+- The site sells the workspace rather than describing it: the hero leads
+  with agents as members and nothing to pay per seat, one action, Nostr
+  sign-in as a text link, a line on who it is for, agents as the second
+  card, caveats moved out of the cards, and a hero image with an agent in
+  it, wearing its badge. No trade mark of anybody else's in the copy.
 
 ### Added
 
