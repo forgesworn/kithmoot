@@ -13,6 +13,8 @@ import type { ForwarderRef } from '../types.js'
 import { issueAgentOwnership, normaliseAgentOwnership, verifyAgentOwnership } from '../ownership.js'
 import type { AgentOwnership } from '../types.js'
 import { localIdentity } from '../identity.js'
+import { localPeerCrypt } from '../dm.js'
+import { ContextFileStore } from './context-store.js'
 import { checkIdentity, npubOrHex } from './identity-guard.js'
 import { parseRoomLink } from '../link.js'
 import { AgentRuntime } from './runtime.js'
@@ -69,6 +71,8 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
       independent, attested once; set --expires if you may change your mind.
 
 Options
+  --context <file>         Encrypted room context cache; private collections excluded
+  --context-server <url>  Enable a Wildbloom/Blossom HTTPS origin; repeatable
   --name <name>            What the room calls this agent (required)
   --owner-proof <file>     This agent's ownership proof, from attest; carried on
                            every roster entry and message so people see whose it is
@@ -187,6 +191,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       admin: { type: 'string', multiple: true },
       forwarder: { type: 'string', multiple: true },
       identity: { type: 'string' },
+      context: { type: 'string' },
+      'context-server': { type: 'string', multiple: true },
       nsec: { type: 'string' },
       relay: { type: 'string', multiple: true },
       relays: { type: 'string' },
@@ -352,7 +358,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     })
   }
 
-  const runtime = new AgentRuntime(agent, { persona, memoryDir: common.memory }).start()
+  const context = values.context ? new ContextFileStore(values.context, { identity: { ...identity, ...localPeerCrypt(participantSk) }, room: agent.roomId, servers: values['context-server'] }) : undefined
+  const runtime = new AgentRuntime(agent, { persona, memoryDir: common.memory, context }).start()
 
   // The keeper nudges members who asked. Only a keeper: a joiner is not
   // the room's availability, and two nudgers would be two DMs.

@@ -8,6 +8,8 @@ export interface ChatReaction {
   active: boolean
   /** Monotonic per reacting participant, target and emoji; resolves fast toggles. */
   revision: number
+  /** Automatic receipt by an agent's room connection, not model completion. */
+  receipt?: 'received'
 }
 
 export function normaliseReaction(value: unknown): ChatReaction | null {
@@ -17,7 +19,8 @@ export function normaliseReaction(value: unknown): ChatReaction | null {
       typeof r.participant !== 'string' || !/^[0-9a-fA-F]{64}$/.test(r.participant) ||
       !(REACTION_EMOJIS as readonly unknown[]).includes(r.emoji) || typeof r.active !== 'boolean' ||
       !Number.isSafeInteger(r.revision) || r.revision < 1 || r.revision > 2_147_483_647) return null
-  return { messageId: r.messageId, participant: r.participant.toLowerCase(), emoji: r.emoji, active: r.active, revision: r.revision }
+  if (r.receipt !== undefined && r.receipt !== 'received') return null
+  return { messageId: r.messageId, participant: r.participant.toLowerCase(), emoji: r.emoji, active: r.active, revision: r.revision, ...(r.receipt ? { receipt: r.receipt } : {}) }
 }
 
 /** Input is verified chat from ONE conversation. A participant changes only their own vote. */

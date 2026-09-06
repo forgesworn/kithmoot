@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { toStdioEvent } from './brains.js'
 import type { AgentRuntime, Channel } from './runtime.js'
 import { CHANNELS } from './runtime.js'
+import { registerContextTools } from './context-mcp.js'
 
 /**
  * The room as an MCP server, so an MCP client - a coding agent, an IDE, a
@@ -21,7 +22,8 @@ import { CHANNELS } from './runtime.js'
 export async function serveMcp(runtime: AgentRuntime, opts: { name?: string; version?: string } = {}): Promise<McpServer> {
   const server = new McpServer({ name: opts.name ?? 'kithmoot', version: opts.version ?? '0.0.0' })
   const text = (value: unknown) => ({ content: [{ type: 'text' as const, text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }] })
-  const channel = z.enum(['chat', 'backchannel', 'transcript'])
+  const channel = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
+  if (runtime.context) registerContextTools(server, runtime.context)
 
   server.registerTool(
     'room_status',
@@ -56,7 +58,7 @@ export async function serveMcp(runtime: AgentRuntime, opts: { name?: string; ver
         'The recent messages of one conversation. `chat` is what the people say; `backchannel` is what the agents say to each other, which the people can read too; `transcript` is what people said aloud, written down by a listening agent, with the speaker named.',
       inputSchema: { channel: channel.default('chat'), limit: z.number().int().min(1).max(200).default(50) },
     },
-    async ({ channel: which, limit }) => text(runtime.history(which as Channel, limit).map((m) => toStdioEvent({ type: which as Channel, message: m, at: 0 }))),
+    async ({ channel: which, limit }) => text(runtime.conversation(which).messages().slice(-limit).map((m) => toStdioEvent(CHANNELS.includes(which as Channel) ? { type: which as Channel, message: m, at: 0 } : { type: 'channel', channel: which, message: m, at: 0 }))),
   )
 
   server.registerTool(
@@ -64,10 +66,10 @@ export async function serveMcp(runtime: AgentRuntime, opts: { name?: string; ver
     {
       title: 'Say something to the room',
       description: 'Send a message to the people and agents in the room. Plain text, at most 2000 characters.',
-      inputSchema: { text: z.string().min(1).max(2000) },
+      inputSchema: { text: z.string().min(1).max(2000), channel: channel.default('chat') },
     },
-    async ({ text: body }) => {
-      await runtime.say(body)
+    async ({ text: body, channel }) => {
+      await runtime.sayIn(channel, body)
       return text('said')
     },
   )
@@ -126,7 +128,7 @@ export async function serveMcp(runtime: AgentRuntime, opts: { name?: string; ver
       description: 'Everything at once, as a readable briefing: who is here, and the tail of every conversation.',
       inputSchema: {},
     },
-    async () => text(runtime.describe()),
+    async () => text(await runtime.brief()),
   )
 
   server.registerTool(

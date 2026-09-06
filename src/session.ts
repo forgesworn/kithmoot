@@ -1441,6 +1441,12 @@ export class RoomSession {
     }
   }
 
+  /** The verified proof carried by an agent, for explicit context grants. */
+  agentOwnership(participant: string): AgentOwnership | undefined {
+    const proof = [...this.#entries.values()].find(e => e.participant === participant && e.agent && e.owner)?.owner
+    return proof ? structuredClone(proof) : undefined
+  }
+
   participants(): ParticipantView[] {
     // Swept on read as well as on a timer, so a caller reading the roster
     // never sees a device that lapsed since the last sweep. No notification

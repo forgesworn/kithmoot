@@ -101,6 +101,10 @@ is narrower than "nothing to run".
 
 ## What works today
 
+Encrypted personal, Kin and Kith context is available in Room details → Context,
+with the same MIT library exposed through CLI and MCP. See [the context guide](docs/context.md)
+for grants, explicit sharing, backups and current limits.
+
 - Room creation and one-tap join by URL. New links carry a bearer invitation
   and a pinned, per-link inviter pubkey in the fragment, never the room
   traffic secret. A response returns that secret encrypted only to the

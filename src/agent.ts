@@ -268,6 +268,7 @@ export class RoomAgent {
   readonly #announcedAdmins = new Set<string>()
   #announcedAdminsAt = 0
   readonly #announcedChannels = new Set<string>()
+  readonly #channelListeners = new Set<(channels: ReadonlySet<string>) => void>()
   #announcedChannelsAt = 0
   /** The keeper's own view of the room's channels, which is what it signs.
    *  On a non-keeper this stays empty and `announcedChannels` is what
@@ -647,6 +648,7 @@ export class RoomAgent {
       this.#announcedChannels.clear()
       for (const c of control.channels) this.#announcedChannels.add(c)
       this.#announcedChannelsAt = m.sentAt
+      this.#emit(this.#channelListeners, new Set(this.#announcedChannels))
       return
     }
     // Replayed history: a request from before this agent opened its ears
@@ -791,6 +793,11 @@ export class RoomAgent {
    *  keeper has never opened one. */
   get announcedChannels(): ReadonlySet<string> {
     return this.#announcedChannels
+  }
+
+  onChannels(cb: (channels: ReadonlySet<string>) => void): () => void {
+    this.#channelListeners.add(cb)
+    return () => this.#channelListeners.delete(cb)
   }
 
   /**
