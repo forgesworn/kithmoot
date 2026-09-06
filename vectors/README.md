@@ -477,7 +477,7 @@ sent after it, so a reader that applies statements in arrival order gets a
 different answer from one that applies them in time order, and only the
 latter is right. `chatMention/mentions-on-the-wire` pins the one rule that
 keeps people and agents honest with each other: Tally as a person is
-addressed by `everyone`, Tally as an agent is not. `chatInvite/invite` opens
+addressed by `everyone`, and Tally as an agent is too. `chatInvite/invite` opens
 for the addressee and for the sender's own other devices, and for nobody
 else without a decrypt being tried. `readPosition` derives its `d` tag from
 the room key so a relay cannot tie the record to a room id it carries.

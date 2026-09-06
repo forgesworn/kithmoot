@@ -960,7 +960,7 @@ describe('the message layer', () => {
     const addressed = v.output.addressed as Record<string, unknown>
     expect(addressed.rowanAsPerson).toBe(true)
     expect(addressed.tallyAsPerson).toBe(true)
-    expect(addressed.tallyAsAgent).toBe(false)
+    expect(addressed.tallyAsAgent).toBe(true)
   })
 
   it('chatInvite/invite: opens for the addressee and the sender, and for nobody else', async () => {

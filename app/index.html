@@ -164,7 +164,7 @@
         <h3 id="conversationHeading" class="sr-only">Chat</h3>
         <div class="conversationTools" aria-label="Conversation tools">
           <button id="chatSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search messages</button>
-          <button id="chatProfiles" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures: off</button>
+          <button id="chatProfiles" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures: on</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
         <div id="chatLog" role="region" aria-label="Conversation" aria-live="polite" tabindex="0"></div>
@@ -345,6 +345,7 @@
 
         <details id="roomSettings">
           <summary>Room settings</summary>
+          <button id="defaultRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
           <label for="iceServers">
             Helper servers that let two devices find each other, separated by
             commas. The room hands these to everybody who joins, so nobody
@@ -617,6 +618,7 @@
           <div id="inviteList"></div>
         </details>
 
+        <button id="roomRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
         <h3 class="sheetHead">Who is here</h3>
         <button id="roomProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
         <!-- What the `agent` tag means. It is said again as the first note
@@ -774,10 +776,34 @@
         <h2 id="profileSettingsTitle">Profile pictures and names</h2>
         <button id="profileSettingsClose" type="button" aria-label="Close profile settings">Close</button>
       </div>
-      <label class="profileChoice"><input id="lookupProfiles" type="checkbox" /> Look up public profiles for this visit</label>
+      <label class="profileChoice"><input id="lookupProfiles" type="checkbox" checked /> Show public profile pictures and names</label>
       <p class="note">Show the picture and name published by each participant’s Nostr key. Names are chosen by their owners.</p>
-      <p class="note">This sends participant keys to the room’s relays and loads pictures from their hosts. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles.</p>
+      <p class="note">This sends participant keys to the room’s relays and loads pictures from their hosts. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
       <p class="note">A new room identity may not have a public profile. It keeps its name and short code here.</p>
+    </dialog>
+
+    <dialog id="relaySettings" class="profileSettings" aria-labelledby="relaySettingsTitle">
+      <div class="profileSettingsHeader">
+        <h2 id="relaySettingsTitle">Nostr relays</h2>
+        <button id="relaySettingsClose" type="button" aria-label="Close relay settings">Close</button>
+      </div>
+      <label for="relayScope">Configure</label>
+      <select id="relayScope"></select>
+      <p class="note">Saved on this device. Room choices apply to your connection; other people keep theirs.</p>
+      <ul id="relayList" class="relayList"></ul>
+      <form id="relayAddForm" class="relayAddForm">
+        <label for="relayUrl">Add a relay</label>
+        <input id="relayUrl" type="url" placeholder="wss://relay.example" required autocomplete="off" spellcheck="false" />
+        <label for="relayMode">Access</label>
+        <select id="relayMode"><option value="both">Read / write</option><option value="read">Read only</option><option value="write">Write only</option></select>
+        <button type="submit">Add relay</button>
+      </form>
+      <div class="toolRow">
+        <button id="relaySave" type="button">Apply changes</button>
+        <button id="relayReconnect" type="button" class="quiet">Reconnect</button>
+      </div>
+      <p id="relaySettingsStatus" class="note" role="status"></p>
+      <p class="note">Connected means the socket is open. Accepted writes show the latest relay acknowledgement; connection alone does not prove a message was saved.</p>
     </dialog>
 
     <script type="module" src="/src/main.ts"></script>

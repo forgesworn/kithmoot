@@ -28,10 +28,6 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     const row = page.locator('#chatLog .msg').filter({ hasText: 'Where is the toolbox?' })
     await expect(row.locator('.messageHeader time')).toHaveAttribute('datetime', /T/)
     await expect(row.locator('.messageHeader time')).toContainText(/\d{1,2}:\d{2}/)
-    await expect(row.locator('.avatar.initials')).toBeVisible()
-    expect(pictureRequests).toBe(0)
-    await page.locator('#chatProfiles').click(); await page.locator('#lookupProfiles').check()
-    await page.locator('#profileSettingsClose').click()
     await expect(row.locator('img.avatar')).toHaveAttribute('src', pictureURL)
     // WebKit reports an SVG's rendered intrinsic size here. Verify decoding
     // independently of that engine-specific size; the source is checked above.

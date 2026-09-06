@@ -2763,3 +2763,15 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
 .composerContext .contextExcerpt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composerContext button { min-height: 2rem; padding: 0.1rem 0.6rem; margin: 0; font-size: 0.8rem; }
 .rosterRow .dmButton { margin-left: auto; font-size: 0.85rem; padding: 0.3rem 0.6rem; min-height: 2.25rem; }
+
+/* Relay controls stay usable on narrow phones without clipping URLs. */
+#relaySettings { width: min(38rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; }
+#relaySettings select, #relaySettings input { max-width: 100%; min-width: 0; }
+#relayScope { width: 100%; }
+.relayList { list-style: none; padding: 0; margin: 1rem 0; }
+.relayRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; padding: .8rem 0; border-bottom: 1px solid var(--border); }
+.relayAddress, .relayHealth { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.relayHealth { font-size: .8rem; color: var(--muted); }
+.relayHealth[data-state="connected"] { color: #168368; }
+.relayHealth[data-state="disconnected"] { color: #b95040; }
+.relayAddForm { display: grid; gap: .5rem; margin: 1rem 0; }
