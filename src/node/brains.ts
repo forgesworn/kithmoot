@@ -1,6 +1,6 @@
 import { decodeControl, encodeControl, type CatalogueEntry, type RunningAgent } from '../control.js'
 import { mentionedBy, namesInText } from '../messages.js'
-import type { ChatAttachment, ChatMessageKind } from '../chat.js'
+import type { ChatAttachment, ChatMessageKind, ChatMessage } from '../chat.js'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type Anthropic from '@anthropic-ai/sdk'
@@ -36,7 +36,10 @@ export interface Completer {
 /** What goes out on stdout, one JSON object per line. */
 export type StdioEvent =
   | {
-      type: Channel
+      type: Channel | 'channel'
+      channel?: string
+      addressed?: boolean
+      reaction?: ChatMessage['reaction']
       id: string
       from: string
       name?: string
@@ -65,13 +68,16 @@ export type StdioEvent =
    *  decides on its behalf. */
   | { type: 'presence'; op: 'invite' | 'dismiss' | 'catalogue?'; host?: string; agent?: string; by: string }
   | { type: 'error'; message: string }
+  | { type: 'context'; briefing: string }
   | { type: 'ok'; op: string; id?: string }
 
 /** What comes in on stdin, one JSON object per line. */
 export type StdioCommand =
-  | { op: 'say'; text: string }
+  | { op: 'say'; text: string; channel?: string }
+  | { op: 'acknowledge'; channel: string; id: string }
   | { op: 'whisper'; text: string }
   | { op: 'roster' }
+  | { op: 'context' }
   | { op: 'history'; channel?: Channel; limit?: number }
   /** Ask a person in the room for a decision. The answer arrives later as
    *  an `approval` event carrying the same id, which is echoed in the ok. */
@@ -162,8 +168,13 @@ export class StdioBrain implements Brain {
     try {
       switch (command.op) {
         case 'say':
-          await runtime.say(String(command.text))
+          if (command.channel) await runtime.sayIn(command.channel, String(command.text))
+          else await runtime.say(String(command.text))
           write({ type: 'ok', op: 'say' })
+          return
+        case 'acknowledge':
+          await runtime.acknowledge(command.channel, command.id)
+          write({ type: 'ok', op: 'acknowledge', id: command.id })
           return
         case 'whisper':
           await runtime.whisper(String(command.text))
@@ -171,6 +182,9 @@ export class StdioBrain implements Brain {
           return
         case 'roster':
           write({ type: 'roster', participants: roster() })
+          return
+        case 'context':
+          write({ type: 'context', briefing: await runtime.brief() })
           return
         case 'history':
           for (const message of runtime.history(command.channel ?? 'chat', command.limit ?? 50)) {
@@ -263,6 +277,9 @@ export function toStdioEvent(event: RuntimeEvent): StdioEvent {
   const m = event.message
   return {
     type: event.type,
+    ...(event.type === 'channel' ? { channel: event.channel } : {}),
+    ...(event.addressed !== undefined ? { addressed: event.addressed } : {}),
+    ...(m.reaction ? { reaction: m.reaction } : {}),
     id: m.id,
     from: m.participant,
     ...(m.name !== undefined ? { name: m.name } : {}),
@@ -355,6 +372,7 @@ export abstract class ModelBrain implements Brain {
   #onEvent(runtime: AgentRuntime, event: RuntimeEvent): void {
     if (event.type === 'roster' || event.type === 'approval' || event.type === 'presence') return
     const m = event.message
+    if (m.reaction || m.retracts) return
     if (m.participant === runtime.agent.participant) return
     const fromAgent = runtime.roster().find((v) => v.participant === m.participant)?.agent === true
     // A person spoke: agents may talk among themselves again.
@@ -376,7 +394,7 @@ export abstract class ModelBrain implements Brain {
     // so what shows as a mention is exactly what this agent answers to.
     // `everyone` does not count: a call for everybody is not an
     // instruction to a machine.
-    const named = mentionedBy(event.message, runtime.agent.participant,
+    const named = event.addressed || mentionedBy(event.message, runtime.agent.participant,
       [{ participant: runtime.agent.participant, name: runtime.persona.name }], { agent: true })
     if (event.type === 'backchannel') {
       // Another agent, among agents: answer if named, or if there is still
@@ -397,8 +415,10 @@ export abstract class ModelBrain implements Brain {
       }, this.#opts.minGapMs - since)
       return
     }
-    const news = this.#pending
-    this.#pending = []
+    const conversation = (event: RuntimeEvent) => event.type === 'channel' ? event.channel : event.type
+    const origin = this.#pending[0] && conversation(this.#pending[0])
+    const news = this.#pending.filter(event => conversation(event) === origin)
+    this.#pending = this.#pending.filter(event => conversation(event) !== origin)
     if (news.length === 0) return
     this.#busy = true
     try {
@@ -406,17 +426,17 @@ export abstract class ModelBrain implements Brain {
       if (onlyAgents) this.#agentTurns++
       const system = [runtime.persona.system.trim(), ROOM_PROTOCOL].filter(Boolean).join('\n\n')
       const user = [
-        runtime.describe(),
+        await runtime.brief(),
         '',
         'New since your last turn:',
         ...news.map((e) =>
-          e.type === 'roster' || e.type === 'approval' || e.type === 'presence' ? '' : `[${e.type}] ${runtime.line(e.message)}`,
+          e.type === 'roster' || e.type === 'approval' || e.type === 'presence' ? '' : `[${conversation(e)}] ${runtime.line(e.message)}`,
         ),
       ].join('\n')
       this.#opts.log(`turn: ${news.length} new`)
       const reply = await this.complete(system, user)
       this.#lastTurn = Date.now()
-      await this.#deliver(runtime, reply)
+      await this.#deliver(runtime, reply, origin)
     } catch (err) {
       this.#opts.log(`turn failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -430,10 +450,10 @@ export abstract class ModelBrain implements Brain {
     }
   }
 
-  async #deliver(runtime: AgentRuntime, reply: string): Promise<void> {
+  async #deliver(runtime: AgentRuntime, reply: string, origin = 'chat'): Promise<void> {
     const { say, whisper } = parseReply(reply)
     if (whisper) await runtime.whisper(whisper)
-    if (say) await runtime.say(say)
+    if (say) await runtime.sayIn(origin === 'transcript' ? 'chat' : origin, say)
   }
 }
 

@@ -135,6 +135,7 @@ import { MicPipeline, type MicState } from './voice-pipeline.js'
 import { ProfileBook, type Profile } from './profiles.js'
 import { renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
+import { ContextPanel } from './context-panel.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
@@ -473,6 +474,7 @@ function currentParticipant(): string | undefined {
 }
 
 async function signInWithNostr(): Promise<void> {
+  contextPanel.close()
   if (loginBusy) return
   loginBusy = true
   identityGeneration++
@@ -502,6 +504,7 @@ async function signInWithNostr(): Promise<void> {
 }
 
 async function signOutOfNostr(): Promise<void> {
+  contextPanel.close()
   identityGeneration++
   const session = nostrSession
   bookmarks?.close()
@@ -4452,7 +4455,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       button.textContent = `${emoji}${entries.length ? ` ${entries.length}` : ''}`
       button.setAttribute('aria-pressed', String(mineToo))
       button.setAttribute('aria-label', `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction${entries.length ? `, ${entries.length}` : ''}`)
-      button.title = entries.length ? entries.map(entry => senderLabel(entry)).join(', ') : `React ${emoji}`
+      button.title = entries.length ? entries.map(entry => `${senderLabel(entry)}${entry.reaction?.receipt === 'received' ? ` · received ${new Date(entry.sentAt * 1000).toLocaleString()} (room connection; reply may still be pending)` : ''}`).join(', ') : `React ${emoji}`
       button.disabled = !writable
       button.addEventListener('click', () => {
         const chat = activeChat() ?? session?.chat
@@ -6161,6 +6164,13 @@ $('searchConversation').addEventListener('click', () => {
   closeRoomSheet()
   conversationSearch.open()
 })
+const contextPanel = new ContextPanel(document, {
+  identity: () => { const crypt = peerCrypt(); if (!crypt) return undefined; const identity = currentIdentity(); return { pubkey: identity.pubkey, signEvent: event => identity.signEvent(event), ...crypt } },
+  room: currentRoomId,
+  server: blossomServer,
+  members: () => (session?.participants() ?? []).map(p => ({ pubkey: p.participant, name: p.name ?? shortKey(p.participant), agent: p.agent === true, proof: session?.agentOwnership(p.participant) })),
+})
+$('openContext').addEventListener('click', () => { closeRoomSheet(); void contextPanel.open() })
 $('chatSearch').addEventListener('click', () => conversationSearch.open($('chatSearch')))
 let profileReturnFocus: HTMLElement = $('chatProfiles')
 function openProfileSettings(from: HTMLElement): void {
@@ -6460,6 +6470,7 @@ $('joinRoomForm').addEventListener('submit', event => {
  * light on with nobody watching, which is worse than a flicker.
  */
 async function leaveRoom(): Promise<void> {
+  contextPanel.close()
   if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
   iceRefreshTimer = undefined
   drafts.close()

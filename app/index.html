@@ -521,6 +521,54 @@
       </div>
     </dialog>
 
+    <dialog id="contextPanel" aria-labelledby="contextPanelTitle">
+      <div class="sheetBar"><h2 id="contextPanelTitle">Context</h2><button id="contextClose" type="button">Close</button></div>
+      <div class="sheetBody">
+        <p class="note">Keep facts, decisions and open questions with their sources. Personal context belongs to you and your chosen agents. Kin and Kith collections are shared with named recipients in this room.</p>
+        <p id="contextStatus" role="status"></p>
+        <fieldset id="contextFields">
+          <form id="contextCreate">
+            <label for="contextTitle">Collection name</label><input id="contextTitle" maxlength="120" required autocomplete="off" />
+            <label for="contextScope">Who is it for?</label><select id="contextScope"><option value="kith">Kith — collaborators in this room</option><option value="kin">Kin — a chosen circle in this room</option><option value="personal">Personal — me and my chosen agents</option></select>
+            <button type="submit">Create collection</button>
+          </form>
+          <p id="contextEmpty" class="note">No collections here yet. Create one or import an access file below.</p>
+          <label for="contextCollection">Your collections</label><select id="contextCollection"></select>
+          <section id="contextDetails" hidden>
+            <p id="contextSummary" class="note"></p>
+            <label for="contextQuery">Search records</label><input id="contextQuery" type="search" maxlength="500" autocomplete="off" />
+            <ol id="contextRecords" aria-label="Context records"></ol>
+            <form id="contextRecordForm">
+              <label for="contextKind">Record type</label><select id="contextKind"><option>fact</option><option>decision</option><option>task</option><option>blocker</option><option>question</option><option>evidence</option></select>
+              <label for="contextText">Record</label><textarea id="contextText" maxlength="4000" required></textarea>
+              <label for="contextSource">Source or evidence reference</label><input id="contextSource" maxlength="1000" required autocomplete="off" />
+              <button type="submit">Save record</button>
+            </form>
+            <details><summary>Sharing and permissions</summary>
+              <p class="note">A grant covers this collection’s history and future updates until it expires or you remove it. Removing access rotates the key for future updates; it cannot erase copies already downloaded. Kin and Kith never grant access automatically.</p>
+              <ul id="contextGrants" aria-label="Context grants"></ul>
+              <form id="contextGrantForm">
+                <label for="contextRecipient">Recipient public key (choose a room member or enter 64 hex characters)</label><input id="contextRecipient" list="contextMembers" pattern="[0-9a-f]{64}" required autocomplete="off" /><datalist id="contextMembers"></datalist>
+                <label for="contextRole">Permission</label><select id="contextRole"><option value="read">Read</option><option value="write">Read and write</option></select>
+                <label for="contextDays">Expires after</label><select id="contextDays"><option value="1">1 day</option><option value="7" selected>7 days</option><option value="30">30 days</option></select>
+                <details><summary>Agent ownership proof</summary><p class="note">Filled from the room for a verified agent. For an offline agent, paste the public proof signed by its principal.</p><label for="contextProof">Public ownership proof JSON</label><textarea id="contextProof" maxlength="4000"></textarea></details>
+                <button type="submit">Grant access and rotate key</button>
+              </form>
+              <div id="contextShareArea"><label for="contextShareRecipient">Send the current revision to</label><select id="contextShareRecipient"></select><button id="contextShare" type="button">Upload and download access file</button><p class="note">Send that file to the selected recipient. They import it here or through their agent’s context connector. Updates are shared explicitly; this version does not sync in the background.</p></div>
+            </details>
+          </section>
+          <details><summary>Import or back up context</summary>
+            <label for="contextFile">Access file or encrypted backup</label><input id="contextFile" type="file" accept="application/json,.json" />
+            <button id="contextPreview" type="button">Preview access file</button>
+            <p id="contextImportPreview" class="note"></p><button id="contextImport" type="button" hidden>Download and import this context</button>
+            <button id="contextBackup" type="button">Download encrypted backup</button><button id="contextRestore" type="button">Restore encrypted backup</button>
+            <p class="note">Keep a backup and access to your signing identity. Signing in alone cannot recover a collection if every backup and access file is lost.</p>
+          </details>
+          <p id="contextStorage" class="note"></p>
+        </fieldset>
+      </div>
+    </dialog>
+
     <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
       <div class="sheetBar">
         <h2 id="roomSheetTitle">Room details</h2>
@@ -544,6 +592,7 @@
 
         <h3 class="sheetHead">Conversations</h3>
         <button id="searchConversation" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search this conversation</button>
+        <button id="openContext" type="button" aria-haspopup="dialog" aria-controls="contextPanel">Context</button>
         <div id="channelBar" class="channelBar" aria-label="Conversations"></div>
         <p id="draftHelp" class="note" hidden>Drafts stay with their conversations in this tab. Leaving or reloading discards them.</p>
         <button id="discardDraft" type="button" hidden>Discard this draft</button>

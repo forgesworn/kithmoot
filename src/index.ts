@@ -404,3 +404,6 @@ export type { ReadPosition, ReadPositions, ReadPositionRecord, SelfCrypt, Encode
 
 export { localPeerCrypt, dmPolicy, isDmPolicy, dmPeer, sealInvite, openInvite, preferredDm, peerCryptPubkey } from './dm.js'
 export type { PeerCrypt, SealInviteOptions, OpenInviteOptions } from './dm.js'
+
+export { ContextVault } from './context.js'
+export type { ContextScope, ContextRole, ContextIdentity, ContextGrant, ContextPolicy, ContextRecord, ContextPointer, ContextView, ContextVaultOptions } from './context.js'

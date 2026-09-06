@@ -56,6 +56,7 @@
     "ws": "^8.21.3"
   },
   "bin": {
+    "kithmoot-context": "./bin/kithmoot-context.mjs",
     "kithmoot-forwarder": "./server/forwarder.mjs",
     "kithmoot-agent": "./bin/kithmoot-agent.mjs"
   }

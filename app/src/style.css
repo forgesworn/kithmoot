@@ -2284,6 +2284,7 @@ label.note {
    that pinning anything to the page itself would. */
 #roomSheet,
 #roomSwitcher,
+#contextPanel,
 #conversationSearch {
   padding: 0;
   border: 1px solid var(--border);
@@ -2300,6 +2301,7 @@ label.note {
 
 #roomSheet::backdrop,
 #roomSwitcher::backdrop,
+#contextPanel::backdrop,
 #conversationSearch::backdrop {
   background: rgb(0 0 0 / 0.55);
 }
@@ -2316,6 +2318,16 @@ label.note {
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
+
+#contextPanel fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+#contextPanel form { display: grid; gap: .4rem; margin: 1rem 0; }
+#contextPanel input, #contextPanel select, #contextPanel textarea { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+#contextPanel textarea { min-height: 5rem; resize: vertical; }
+#contextPanel p, #contextPanel li { overflow-wrap: anywhere; }
+#contextRecords { padding-left: 1.2rem; }
+#contextRecords li { border-bottom: 1px solid var(--border); padding-bottom: .4rem; }
+#contextRecords p { white-space: pre-wrap; }
+#contextPanel details { margin: 1rem 0; }
 
 .sheetBar h2 {
   margin: 0;

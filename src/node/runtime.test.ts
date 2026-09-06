@@ -26,6 +26,37 @@ async function room() {
 }
 
 describe('AgentRuntime', () => {
+  it('follows named conversations and emits one signed receipt in the addressed conversation', async () => {
+    const { keeper, ada } = await room()
+    const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: '' } }).start()
+    const events: RuntimeEvent[] = []
+    runtime.on(event => events.push(event))
+    try {
+      await keeper.setChannel('security', true)
+      await settle()
+      await keeper.channel('security').send('Can you check this?', { mentions: [ada.participant] })
+      const request = keeper.channel('security').messages().find(m => m.text === 'Can you check this?')!
+      await settle()
+      expect(events).toContainEqual(expect.objectContaining({ type: 'channel', channel: 'security', addressed: true, message: expect.objectContaining({ id: request.id }) }))
+      await runtime.acknowledge('security', request.id)
+      await runtime.acknowledge('security', request.id)
+      const receipts = keeper.channel('security').messages().filter(m => m.reaction?.messageId === request.id)
+      expect(receipts).toHaveLength(1)
+      expect(receipts[0]).toMatchObject({ participant: ada.participant, reaction: { emoji: '👍', receipt: 'received', active: true } })
+      expect(keeper.chat.messages().filter(m => m.reaction)).toHaveLength(0)
+      await expect(runtime.acknowledge('chat', request.id)).rejects.toThrow('target')
+      await expect(runtime.sayIn('control', 'not permitted')).rejects.toThrow('not open')
+      await runtime.sayIn('security', 'Review result here.')
+      const response = keeper.channel('security').messages().find(m => m.text === 'Review result here.')!
+      await keeper.channel('security').send('Thanks, one more thing', { replyTo: { id: response.id, participant: ada.participant } })
+      const reply = keeper.channel('security').messages().find(m => m.text === 'Thanks, one more thing')!
+      await settle()
+      expect(events).toContainEqual(expect.objectContaining({ type: 'channel', addressed: true, message: expect.objectContaining({ id: reply.id }) }))
+      await keeper.setChannel('security', false)
+      await settle()
+      await expect(runtime.sayIn('security', 'closed')).rejects.toThrow('not open')
+    } finally { await runtime.close(); keeper.leave() }
+  })
   it('turns the three conversations and the roster into one stream of events', async () => {
     const { keeper, ada } = await room()
     const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: 'You are Ada.' } }).start()
