@@ -1864,7 +1864,7 @@ async function startNewRoom(): Promise<void> {
   const relayScope = `room:${deriveRoom(secret).roomId}`
   // Snapshot access modes too: an invitation carries URLs, so reconstructing
   // this room from its link must not turn a read-only default into a writer.
-  relayConnections.save(relayScope, relayConnections.configuration('default'))
+  relayConnections.inheritDefaults(relayScope)
   // Persist the owner's recovery before publishing. Failure leaves the form
   // usable and never offers a link whose asynchronous admission was not saved.
   storeInvitationOwner(created.invitation, secret, created.inviterSk)

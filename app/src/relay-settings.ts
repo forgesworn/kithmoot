@@ -19,10 +19,18 @@ export class RelayConnections {
       }
     } catch { /* Storage may be unavailable or contain an older shape. */ }
   }
-  #validScope(scope: string): boolean { return scope === 'default' || /^room:[a-f0-9]{64}$/.test(scope) }
+  #validScope(scope: string): boolean { return scope === 'default' || /^(room|inherited):[a-f0-9]{64}$/.test(scope) }
   configuration(scope: string, hints: RelayHints = []): RelayConfig[] {
-    const entries = this.#saved[scope] ?? (hints.length ? hints : this.#saved.default ?? this.defaults)
-    return normaliseRelayConfig(entries)
+    if (this.#saved[scope]) return normaliseRelayConfig(this.#saved[scope])
+    const inherited = this.#saved[scope.replace(/^room:/, 'inherited:')]
+    if (hints.length) return normaliseRelayConfig(hints).map(relay => inherited?.find(saved => saved.url === relay.url) ?? relay)
+    return normaliseRelayConfig(inherited ?? this.#saved.default ?? this.defaults)
+  }
+  inheritDefaults(scope: string): void {
+    if (!/^room:[a-f0-9]{64}$/.test(scope)) throw new Error('No room is selected')
+    // Access modes survive reopening; inherited URLs must never override a
+    // later invitation. Only an explicit per-room save pins the endpoint list.
+    this.save(scope.replace(/^room:/, 'inherited:'), this.configuration('default'))
   }
   pool(scope: string, hints: RelayHints = []): NostrRelayPool {
     this.#prune()

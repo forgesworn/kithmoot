@@ -29,9 +29,17 @@ describe('device relay preferences', () => {
     const connections = new RelayConnections(saved, defaults)
     const chosen = [{ url: 'wss://read.test', read: true, write: false }, { url: 'wss://write.test', read: false, write: true }]
     connections.save('default', chosen)
+    connections.inheritDefaults(room)
     const inherited = connections.configuration(room)
     const pool = connections.pool(room, inherited)
-    try { expect(pool.configuration()).toEqual(inherited) } finally { pool.close() }
+    try {
+      expect(pool.configuration()).toEqual(inherited)
+      const restored = new RelayConnections(saved, defaults)
+      expect(restored.configuration(room, inherited.map(relay => relay.url))).toEqual(inherited)
+      expect(restored.configuration(room, ['wss://updated.test'])).toEqual([{ url: 'wss://updated.test/', read: true, write: true }])
+      restored.save(room, inherited)
+      expect(restored.configuration(room, ['wss://updated.test'])).toEqual(inherited)
+    } finally { pool.close() }
   })
   it('leaves existing configuration intact when persistence or permissions fail', () => {
     const saved = storage()
