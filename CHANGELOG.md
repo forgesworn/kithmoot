@@ -22,6 +22,10 @@ implementation reads this file to know what moved.
   a feature, listed after rooms and agents. Why the group layer is not
   NIP-29 and not Marmot is recorded in `docs/decisions.md`. This changelog
   starts here.
+- The site says what shipped: threads, edits and retractions, private
+  conversations, mentions on the wire and read positions that follow a
+  signer, with the limits beside them. Its hero image is taken from the
+  real app by `test/tools/hero-screenshot.spec.ts` rather than kept by hand.
 
 ### Added
 
