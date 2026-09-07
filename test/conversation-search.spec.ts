@@ -187,7 +187,12 @@ test('room search finds unvisited conversations, edited replies and files, and r
     }
     await page.setViewportSize({ width: 320, height: 540 })
     await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
-    expect(await page.locator('#conversationSearch').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    // WebKit can finish the viewport reflow after the font-size update.
+    // Keep the strict no-overflow check, but wait for that layout to settle.
+    await expect.poll(() => page.locator('#conversationSearch').evaluate(el => ({
+      fits: el.scrollWidth <= el.clientWidth, width: el.clientWidth, scrollWidth: el.scrollWidth,
+    }))).toMatchObject({ fits: true })
+    await page.screenshot({ path: testInfo.outputPath('room-search-large-text.png') })
     await page.locator('#messageSearchClose').click()
     await expect(page.locator('#chatSearch')).toBeFocused()
     await expect(page.locator('#messageSearchQuery')).toHaveValue('')
