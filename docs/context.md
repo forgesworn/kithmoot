@@ -1,9 +1,23 @@
 # Encrypted context
 
-Context is an original MIT library inside `kithmoot`, with a browser panel,
-Node CLI and MCP adapter. It does not require a separate hosted context
-service. The portable core is `src/context.ts`; importing it performs no
-network or disk operations. It has no new package dependencies.
+Context uses the independent MIT `@forgesworn/context` library, with Node
+persistence, CLI and MCP in `@forgesworn/context-tools`. Both are maintained as
+packages in this repository and are not yet published separately to npm.
+Neither depends on KithMoot or NanoClaw. See [the core package](../packages/context/README.md)
+and [Node tools](../packages/context-tools/README.md).
+
+KithMoot owns the browser panel, room integration and agent ownership verifier.
+`src/context.ts` remains a compatibility adapter; existing `import { ContextVault }
+from 'kithmoot'` callers retain its verifier. The portable package rejects agent
+proofs unless a host explicitly supplies verification. It performs no network
+or disk operations on import and needs no hosted context service.
+
+The extraction preserves FSWNENC2 bytes, NIP-44 access, the v1 signing domains,
+cache and tool schemas. No re-encryption, identity change or cache migration is
+required. The `kithmoot-context` executable remains available for existing
+NanoClaw MCP registrations and installs the same ownership verifier. A generic
+`encrypted-context` executable is also supplied by the Node tools package; do
+not substitute it for a KithMoot connector that reads agent ownership grants.
 
 ## Use in KithMoot
 

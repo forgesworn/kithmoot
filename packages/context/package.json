@@ -1,0 +1,43 @@
+{
+  "name": "@forgesworn/context",
+  "version": "0.1.0",
+  "description": "Portable signed and encrypted context collections",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./blossom": {
+      "types": "./dist/blossom.d.ts",
+      "import": "./dist/blossom.js"
+    },
+    "./nostr": {
+      "types": "./dist/nostr.d.ts",
+      "import": "./dist/nostr.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.1.1",
+    "@noble/hashes": "1.8.0",
+    "nostr-tools": "2.25.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "^22.20.1",
+    "vitest": "4.1.11"
+  }
+}

@@ -16,7 +16,10 @@ import { ContextFileStore } from './context-store.js'
 
 const ROOM = 'ab'.repeat(32)
 
-it('independent MCP processes share over real HTTPS, recover encrypted caches and reject unauthorised writes', async () => {
+it.each([
+  { adapter: 'KithMoot', bin: 'bin/kithmoot-context.mjs', ownership: true },
+  { adapter: 'standalone', bin: 'packages/context-tools/bin/encrypted-context.mjs', ownership: false },
+])('$adapter MCP processes share over real HTTPS, recover encrypted caches and reject unauthorised writes', async ({ bin, ownership }) => {
   const dir = await mkdtemp(join(tmpdir(), 'kith-context-mcp-'))
   const clients: Client[] = [], blobs = new Map<string, Buffer>(), failures: string[] = []
   let downloads = 0
@@ -43,7 +46,7 @@ it('independent MCP processes share over real HTTPS, recover encrypted caches an
   const ownerSk = generateSecretKey(), otherPrincipalSk = generateSecretKey(), agentSk = generateSecretKey()
   async function connect(name: string, sk: Uint8Array, room = ROOM) {
     const keyPath = join(dir, name + '.key'); await writeFile(keyPath, bytesToHex(sk), { mode: 0o600 })
-    const transport = new StdioClientTransport({ command: process.execPath, args: [resolve('bin/kithmoot-context.mjs'), 'mcp', '--identity', keyPath, '--expect-pubkey', getPublicKey(sk), '--state', join(dir, name + '.json'), '--room', room, '--server', origin], env: { PATH: process.env.PATH!, NODE_EXTRA_CA_CERTS: join(dir, 'tls.crt') }, stderr: 'pipe' })
+    const transport = new StdioClientTransport({ command: process.execPath, args: [resolve(bin), 'mcp', '--identity', keyPath, '--expect-pubkey', getPublicKey(sk), '--state', join(dir, name + '.json'), '--room', room, '--server', origin], env: { PATH: process.env.PATH!, NODE_EXTRA_CA_CERTS: join(dir, 'tls.crt') }, stderr: 'pipe' })
     const client = new Client({ name: 'context-acceptance', version: '1' })
     await client.connect(transport); clients.push(client); return client
   }
@@ -58,7 +61,7 @@ it('independent MCP processes share over real HTTPS, recover encrypted caches an
     expect((await agent.listTools()).tools.map(t => t.name)).toContain('context_read')
     expect(downloads).toBe(0); expect(await call(agent, 'context_list')).toEqual([])
     let collection = await call(owner, 'context_create', { title: 'Shared security review', scope: 'kith', room: ROOM })
-    const grant = { subject: getPublicKey(agentSk), role: 'read', expiresAt: Math.floor(Date.now() / 1000) + 3600, agent: issueAgentOwnership({ principalSk: otherPrincipalSk, agent: getPublicKey(agentSk), issuedAt: Math.floor(Date.now() / 1000) }) }
+    const grant = { subject: getPublicKey(agentSk), role: 'read', expiresAt: Math.floor(Date.now() / 1000) + 3600, ...(ownership ? { agent: issueAgentOwnership({ principalSk: otherPrincipalSk, agent: getPublicKey(agentSk), issuedAt: Math.floor(Date.now() / 1000) }) } : {}) }
     collection = await call(owner, 'context_set_grants', { collection: collection.id, expectedHead: collection.head, grants: [grant] })
     collection = await call(owner, 'context_append', { collection: collection.id, expectedHead: collection.head, kind: 'blocker', text: 'Person must check the physical display.', source: 'kithmoot://fixture/record/42', observedAt: Math.floor(Date.now() / 1000) })
     await call(owner, 'context_upload', { collection: collection.id, server: origin })
