@@ -69,6 +69,7 @@ export type StdioEvent =
   | { type: 'presence'; op: 'invite' | 'dismiss' | 'catalogue?'; host?: string; agent?: string; by: string }
   | { type: 'error'; message: string }
   | { type: 'context'; briefing: string }
+  | { type: 'history-snapshot'; id: string; room: string; channel: string; messages: Array<{ id: string; participant: string; name?: string; text: string; sentAt: number }> }
   | { type: 'ok'; op: string; id?: string }
   | { type: 'assignments'; value: unknown }
 
@@ -85,6 +86,7 @@ export type StdioCommand =
   | { op: 'roster' }
   | { op: 'context' }
   | { op: 'history'; channel?: Channel; limit?: number }
+  | { op: 'history-snapshot'; id: string; channel: string; limit?: number }
   /** Ask a person in the room for a decision. The answer arrives later as
    *  an `approval` event carrying the same id, which is echoed in the ok. */
   | { op: 'approval-request'; text: string; options?: string[]; ttlSeconds?: number; id?: string }
@@ -211,6 +213,16 @@ export class StdioBrain implements Brain {
         case 'context':
           write({ type: 'context', briefing: await runtime.brief() })
           return
+        case 'history-snapshot': {
+          if (typeof command.id !== 'string' || !command.id || typeof command.channel !== 'string') throw new Error('A history request needs an id and conversation')
+          const limit = command.limit ?? 50
+          if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('History limit must be from 1 to 200')
+          const messages = runtime.conversation(command.channel).messages().filter(m => !m.reaction).slice(-limit)
+            .map(m => ({ id: m.id, participant: m.participant, name: m.name, text: m.text, sentAt: m.sentAt }))
+          write({ type: 'history-snapshot', id: command.id, room: runtime.agent.roomId, channel: command.channel, messages })
+          write({ type: 'ok', op: 'history-snapshot', id: command.id })
+          return
+        }
         case 'history':
           for (const message of runtime.history(command.channel ?? 'chat', command.limit ?? 50)) {
             write(toStdioEvent({ type: command.channel ?? 'chat', message, at: 0 }))

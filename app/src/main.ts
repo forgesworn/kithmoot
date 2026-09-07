@@ -402,6 +402,22 @@ function setStatus(message: string, tone: 'problem' | 'progress' | 'done' = 'pro
 
 const PARTICIPANT_STORAGE_KEY = 'kithmoot.participant'
 const NAME_STORAGE_KEY = 'kithmoot.name'
+const ACCOUNT_STORAGE_KEY = 'kithmoot.last-nostr-account'
+// Read only the SDK's public identity hint before restore can clear it.
+// This is a reminder to reconnect, never proof of identity or permission.
+let expectedAccount: string | undefined
+try {
+  const saved = localStorage.getItem(ACCOUNT_STORAGE_KEY) ?? localStorage.getItem('signet:login.pubkey')
+  if (saved && /^[0-9a-f]{64}$/.test(saved)) expectedAccount = saved
+} catch { /* The active session still identifies this visit. */ }
+function rememberAccount(pubkey: string): void {
+  expectedAccount = pubkey
+  try { localStorage.setItem(ACCOUNT_STORAGE_KEY, pubkey) } catch { /* Optional persistence. */ }
+}
+function needsAccountReconnect(): boolean {
+  return !!expectedAccount && !nostrSession && !loadCredential()
+}
+
 
 // Device keys and device credentials are kept PER ROOM - see
 // `device-store.ts` for why a relay must never see one device key across
@@ -570,6 +586,7 @@ async function signInWithNostr(): Promise<void> {
   }
 
   nostrSession = account
+  rememberAccount(account.pubkey)
   startRoomBookmarks(account)
   profiles.want([account.pubkey])
   renderIdentity()
@@ -1291,6 +1308,32 @@ function renderIdentity(): void {
     accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true))
   }
   $('joinNostr').hidden = !!nostrSession || !!loadCredential()
+  $('joinNostr').textContent = needsAccountReconnect() ? 'Reconnect Nostr account' : 'Sign in with Nostr'
+  $('joinVisitor').hidden = !needsAccountReconnect()
+  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : nostrSession || loadCredential() ? 'Join room' : 'Join as visitor'
+  $('previousAccount').hidden = !needsAccountReconnect()
+  $('previousAccount').textContent = needsAccountReconnect()
+    ? `Your previous Nostr account is disconnected (${npubEncode(expectedAccount!)}). Reconnect it to speak as yourself.` : ''
+  const sending = $('sendingIdentity')
+  sending.replaceChildren()
+  sending.hidden = !session
+  if (session) {
+    const visitor = !nostrSession && !loadCredential()
+    sending.classList.toggle('visitorIdentity', visitor)
+    sending.append(visitor ? 'Sending as visitor · ' : 'Sending as · ')
+    sending.append(identityRun(shownAs(meParticipant, joiningName()), false, true))
+    if (visitor) {
+      const help = document.createElement('span')
+      help.textContent = 'Separate browser identity. Agents may not recognise you.'
+      sending.append(help)
+      const change = document.createElement('button')
+      change.type = 'button'
+      change.className = 'quiet'
+      change.textContent = 'Leave to sign in'
+      change.addEventListener('click', () => ($('leave') as HTMLButtonElement).click())
+      sending.append(change)
+    }
+  }
   $('joinIdentityHelp').textContent = nostrSession
     ? 'Your messages use this Nostr account. Agents recognise its public key.'
     : loadCredential()
@@ -5234,7 +5277,7 @@ $('diagnostics').addEventListener('click', () => {
 // Joining
 // ---------------------------------------------------------------------------
 
-async function startSession(): Promise<void> {
+async function startSession(asVisitor = false): Promise<void> {
   const generation = roomGeneration
   if (joining || session || loginBusy) return
   joining = true
@@ -5253,6 +5296,11 @@ async function startSession(): Promise<void> {
       await identityReady
       if (generation !== roomGeneration) return
       setStatus('Joining the room…', 'progress')
+    }
+    if (needsAccountReconnect() && !asVisitor) {
+      setStatus('Your Nostr account is disconnected. Reconnect it, or explicitly choose a separate visitor identity.')
+      ;($('joinNostr') as HTMLButtonElement).focus()
+      return
     }
     const deviceSk = deviceKey()
     myDeviceId = getPublicKey(deviceSk)
@@ -5515,8 +5563,8 @@ async function startSession(): Promise<void> {
   } finally {
     joining = false
     joinBtn.disabled = false
-    joinBtn.textContent = 'Join room'
     $('joinRoomForm').removeAttribute('aria-busy')
+    renderIdentity()
   }
 }
 
@@ -6950,6 +6998,19 @@ $('voicePreview').addEventListener('click', () => {
     })
 })
 
+$('joinVisitor').addEventListener('click', async () => {
+  const generation = identityGeneration
+  const room = roomGeneration
+  if (!await confirmAction({
+    title: 'Join with a separate visitor identity?',
+    message: 'This browser key is different from your Nostr account, even if you use the same name. Agents that know your Nostr account may ignore these messages.',
+    confirmLabel: 'Join as visitor',
+    cancelLabel: 'Back to sign-in',
+    isCurrent: () => generation === identityGeneration && room === roomGeneration && needsAccountReconnect() && !session && !joining,
+  })) return
+  await startSession(true)
+})
+
 $('joinRoomForm').addEventListener('submit', event => {
   event.preventDefault()
   if (($('join') as HTMLButtonElement).hidden || ($('join') as HTMLButtonElement).disabled) return
@@ -7921,6 +7982,7 @@ const identityReady = restoreSession()
       return
     }
     nostrSession = session
+    rememberAccount(session.pubkey)
     startRoomBookmarks(session)
     profiles.want([session.pubkey])
     renderIdentity()
@@ -7932,6 +7994,7 @@ const identityReady = restoreSession()
   })
   .finally(() => {
     identityRestoring = false
+    renderIdentity()
     if (rememberAfterRestore) rememberCurrentRoom()
   })
 

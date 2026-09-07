@@ -291,3 +291,67 @@ test('switching conversations restores the same Nostr identity before entering',
     await expect(first.locator('#whoami')).toContainText(getPublicKey(secret).slice(0, 8))
   } finally { await context.close() }
 })
+
+
+test('a failed saved signer cannot silently join as the old visitor', async ({ browser, baseURL }) => {
+  let unavailable = false
+  const secret = generateSecretKey()
+  const context = await device(browser, baseURL!, secret, true, async () => { if (unavailable) throw new Error('Signer offline') })
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Reconnect account', relays: [relay.href], iceUrls: [] })
+  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  try {
+    const page = await context.newPage()
+    await signIn(page, baseURL!)
+    unavailable = true
+    await page.goto(link)
+    await page.reload()
+    await expect(page.locator('#previousAccount')).toContainText('disconnected')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeHidden()
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
+    await page.locator('#joinVisitor').click()
+    await expect(page.getByRole('alertdialog')).toContainText('different from your Nostr account')
+    await page.locator('#actionCancel').click()
+    await expect(page.locator('#roomArea')).toBeHidden()
+    unavailable = false
+    await page.locator('#joinNostr').click()
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#sendingIdentity')).toContainText('Sending as')
+    await expect(page.locator('#sendingIdentity')).not.toContainText('visitor')
+    await page.locator('#chatInput').fill('Tally, reconnected correctly')
+    await page.locator('#chatInput').press('Enter')
+    await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, reconnected correctly')?.participant).toBe(getPublicKey(secret))
+  } finally { await context.close(); await clerk.leave() }
+})
+
+test('choosing a visitor after sign-out requires an explicit decision and labels the composer', async ({ browser, baseURL }) => {
+  const context = await device(browser, baseURL!)
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Visitor choice', relays: [relay.href], iceUrls: [] })
+  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  try {
+    const page = await context.newPage()
+    await signIn(page, baseURL!)
+    await page.locator('#signOut').click()
+    await page.goto(link)
+    await page.reload()
+    await page.locator('#displayName').fill('Same familiar name')
+    await page.locator('#joinVisitor').click()
+    await page.locator('#actionConfirm').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#sendingIdentity')).toContainText('Sending as visitor')
+    await expect(page.locator('#sendingIdentity')).toContainText('Same familiar name')
+    await expect(page.locator('#sendingIdentity')).toContainText('Agents may not recognise you')
+    await expect(page.locator('#sendingIdentity').getByRole('button', { name: 'Leave to sign in' })).toBeVisible()
+    await page.locator('#chatInput').fill('Deliberate visitor message')
+    await page.locator('#chatInput').press('Enter')
+    await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Deliberate visitor message')).toBeTruthy()
+    for (const width of [320, 390, 1440]) {
+      await page.setViewportSize({ width, height: 844 })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+    }
+  } finally { await context.close(); await clerk.leave() }
+})

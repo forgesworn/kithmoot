@@ -189,6 +189,7 @@
           <!-- What the box is doing besides saying something new: answering
                a message, or replacing one of yours. Filled in by
                `renderComposerContext` in app/src/main.ts. -->
+          <div id="sendingIdentity" class="sendingIdentity" hidden></div>
           <div id="composerContext" class="composerContext" hidden></div>
           <div id="mentions" class="mentions" role="listbox" aria-label="People and agents in this room" hidden></div>
           <!-- A box, not a line. It was one line that scrolled sideways, so
@@ -281,6 +282,7 @@
         <button id="returnToPreviousRoom" type="button" hidden>Back to the previous room</button>
         <form id="joinRoomForm">
           <p id="joinIdentityHelp" class="note"></p>
+          <p id="previousAccount" class="note visitorIdentity" hidden></p>
           <button id="joinNostr" type="button">Sign in with Nostr</button>
           <label for="displayName">What should we call you?</label>
           <input
@@ -291,6 +293,7 @@
             enterkeyhint="go"
           />
           <button id="join" type="submit" class="primary" hidden>Join room</button>
+          <button id="joinVisitor" type="button" class="quiet" hidden>Use a separate visitor identity</button>
           <p id="whoami" class="whoami"></p>
           <p id="joinPrivacy" class="note">Your camera and microphone stay off until you turn them on.</p>
         </form>
