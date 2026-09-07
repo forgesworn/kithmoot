@@ -35,7 +35,9 @@ async function fixture() {
   await den.open()
   await den.connect(creator.url, 'Release room')
   const directory = await mkdtemp(join(tmpdir(), 'den-assignment-'))
-  cleanup.push(() => rm(directory, { recursive: true, force: true }))
+  // maxRetries covers the ENOTEMPTY that recursive rm hits under CI load when a
+  // just-closed worker's last writes land between the readdir and the rmdir.
+  cleanup.push(() => rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }))
   const work = await AgentAssignmentWork.open(worker, join(directory, 'worker'))
   cleanup.push(() => work.close())
   await vi.waitFor(() => expect(den.room(creator.roomId).ready && work.log.snapshot().ready).toBe(true))
