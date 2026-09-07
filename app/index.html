@@ -830,8 +830,8 @@
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">
       <div class="sheetBar"><h2 id="assignmentTitle">Shared work</h2><button id="assignmentClose" type="button">Close</button></div>
-      <p id="assignmentStatus" role="status">Connecting assignments…</p>
-      <button id="assignmentRetry" type="button">Retry pending update</button>
+      <p id="assignmentStatus" role="status" tabindex="-1">Connecting assignments…</p>
+      <button id="assignmentRetry" type="button" hidden>Retry pending update</button>
       <details>
         <summary>New assignment</summary>
         <form id="assignmentCreate">
@@ -843,6 +843,8 @@
             <div id="assignmentInputs"></div>
             <p class="note">The room will receive this objective, acceptance criteria, owner and any action inputs. An assignment grants no additional permission to spend, publish or deploy.</p>
             <button type="submit">Share assignment with this room</button>
+            <button type="button" id="assignmentDiscard" class="quiet">Discard draft</button>
+            <p class="note">Unsent work stays with this room in this tab. Reloading or closing the tab discards it.</p>
           </fieldset>
         </form>
       </details>

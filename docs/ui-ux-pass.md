@@ -1,7 +1,9 @@
 # UI and UX pass — 5 September 2026
 
 The [7 September follow-up](ui-ux-pass-2026-09-07.md) covers conversation
-catch-up, preserved reading positions and the remaining wider review.
+catch-up, app confirmations, switching rooms with drafts, shared work and the
+remaining wider review. The table below records the original 5 September pass;
+the follow-up supersedes its new-tab workaround for unfinished drafts.
 
 The main problems were discovery and navigation: agent conversations were
 inside Room details, saved rooms required a picker on every visit, and rooms

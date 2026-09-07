@@ -1,6 +1,18 @@
 import type { AssignmentLog, AssignmentStorage } from '../../src/assignment-log.js'
 import type { Assignment, AssignmentAction, AssignmentOperation } from '../../src/assignments.js'
 import type { RoomSession } from '../../src/session.js'
+import { confirmAction } from './confirm-action.js'
+
+interface WorkDraft {
+  objective: string
+  criteria: string
+  owner: string
+  action: string
+  inputs: Map<string, string>
+  open: boolean
+  notes: Map<string, string>
+  pendingCreate?: string
+}
 
 export interface AssignmentPerson { pubkey: string; label: string; agent: boolean; ownerDevice?: string; actions?: AssignmentAction[] }
 export class AssignmentPanel {
@@ -18,7 +30,10 @@ export class AssignmentPanel {
   #inputs: HTMLElement
   #peopleKey = ''
   #drafts = new Map<string, string>()
-  constructor(readonly root: Document, readonly people: () => AssignmentPerson[]) {
+  #roomKey?: string
+  #roomDrafts = new Map<string, WorkDraft>()
+  #pendingCreate?: string
+  constructor(readonly root: Document, readonly people: () => AssignmentPerson[], readonly changed: () => void = () => {}) {
     this.#dialog = root.getElementById('assignmentPanel') as HTMLDialogElement
     this.#cards = root.getElementById('assignmentCards')!
     this.#status = root.getElementById('assignmentStatus')!
@@ -28,29 +43,101 @@ export class AssignmentPanel {
     this.#inputs = root.getElementById('assignmentInputs')!
     this.#button.onclick = () => { this.#owners(); this.#render(); this.#dialog.showModal() }
     root.getElementById('assignmentClose')!.onclick = () => this.#dialog.close()
+    this.#dialog.addEventListener('close', () => { if (this.#roomKey) this.#button.focus({ preventScroll: true }) })
+    this.#dialog.addEventListener('click', event => { if (event.target === this.#dialog) {
+      const bounds = this.#dialog.getBoundingClientRect()
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) this.#dialog.close()
+    } })
+    this.#dialog.addEventListener('input', event => { (event.target as HTMLElement).removeAttribute('aria-invalid'); this.changed() })
     this.#owner.onchange = () => this.#actions()
     this.#action.onchange = () => this.#actionInputs()
-    root.getElementById('assignmentCreate')!.onsubmit = e => {
+    const create = root.getElementById('assignmentCreate') as HTMLFormElement
+    create.noValidate = true
+    create.onsubmit = e => {
       e.preventDefault()
       const form = e.currentTarget as HTMLFormElement
+      const invalid = form.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input:invalid, textarea:invalid, select:invalid')
+      if (invalid) {
+        invalid.setAttribute('aria-invalid', 'true')
+        this.#status.textContent = 'Complete the highlighted field before sharing this assignment.'
+        invalid.focus()
+        return
+      }
       const data = new FormData(form)
       const values: Record<string, string> = {}
       for (const input of this.#inputs.querySelectorAll<HTMLInputElement>('input')) if (input.value.trim()) values[input.name] = input.value.trim()
       const operation: AssignmentOperation = { op: 'create', objective: String(data.get('objective') ?? '').trim(), criteria: String(data.get('criteria') ?? '').trim(), owner: this.#owner.value,
         ...(this.people().find(p => p.pubkey === this.#owner.value)?.ownerDevice ? { ownerDevice: this.people().find(p => p.pubkey === this.#owner.value)!.ownerDevice! } : {}),
         ...(this.#action.value ? { action: this.#action.value, inputs: values } : {}) }
-      void this.#run(async () => {
-        await this.#require().submit(undefined, operation, crypto.randomUUID())
-        form.reset(); this.#owners()
+      const epoch = this.#epoch
+      void this.#run(async log => {
+        this.#pendingCreate = this.#formValue()
+        await log.submit(undefined, operation, crypto.randomUUID())
+        if (epoch !== this.#epoch) return
+        this.#finishCreate()
       })
     }
-    root.getElementById('assignmentRetry')!.onclick = () => { void this.#run(() => this.#require().retry()) }
+    root.getElementById('assignmentRetry')!.onclick = () => {
+      const epoch = this.#epoch
+      void this.#run(async log => { await log.retry(); if (epoch === this.#epoch) this.#finishCreate() })
+    }
+    root.getElementById('assignmentDiscard')!.onclick = async () => {
+      const epoch = this.#epoch
+      if (!await confirmAction({ title: 'Discard this assignment draft?', message: 'The objective, criteria and action inputs in this form will be cleared. Shared assignments stay in the room.', confirmLabel: 'Discard draft', danger: true, isCurrent: () => epoch === this.#epoch })) return
+      create.reset(); this.#owners(); this.changed()
+    }
+  }
+  get busy(): boolean { return this.#busy }
+  #formValue(): string {
+    const form = this.root.getElementById('assignmentCreate') as HTMLFormElement
+    return JSON.stringify([(form.elements.namedItem('objective') as HTMLTextAreaElement).value, (form.elements.namedItem('criteria') as HTMLTextAreaElement).value, this.#owner.value, this.#action.value,
+      [...this.#inputs.querySelectorAll<HTMLInputElement>('input')].map(input => [input.name, input.value])])
+  }
+  #finishCreate(): void {
+    if (this.#pendingCreate === this.#formValue()) {
+      ;(this.root.getElementById('assignmentCreate') as HTMLFormElement).reset()
+      this.#owners()
+    }
+    this.#pendingCreate = undefined
+  }
+  get hasDrafts(): boolean {
+    this.#remember()
+    return [...this.#roomDrafts.values()].some(draft => Boolean(draft.objective.trim() || draft.criteria.trim() || [...draft.inputs.values(), ...draft.notes.values()].some(text => text.trim())))
+  }
+  #remember(): void {
+    if (!this.#roomKey) return
+    const form = this.root.getElementById('assignmentCreate') as HTMLFormElement
+    this.#roomDrafts.set(this.#roomKey, {
+      objective: (form.elements.namedItem('objective') as HTMLTextAreaElement).value,
+      criteria: (form.elements.namedItem('criteria') as HTMLTextAreaElement).value,
+      owner: this.#owner.value, action: this.#action.value,
+      inputs: new Map([...this.#inputs.querySelectorAll<HTMLInputElement>('input')].map(input => [input.name, input.value])),
+      open: form.closest('details')!.open, notes: this.#drafts, pendingCreate: this.#pendingCreate,
+    })
+  }
+  #restore(key: string): void {
+    const draft = this.#roomDrafts.get(key)
+    this.#roomKey = key
+    this.#drafts = draft?.notes ?? new Map()
+    this.#pendingCreate = draft?.pendingCreate
+    this.#owners()
+    if (!draft) return
+    const form = this.root.getElementById('assignmentCreate') as HTMLFormElement
+    ;(form.elements.namedItem('objective') as HTMLTextAreaElement).value = draft.objective
+    ;(form.elements.namedItem('criteria') as HTMLTextAreaElement).value = draft.criteria
+    if ([...this.#owner.options].some(option => option.value === draft.owner)) this.#owner.value = draft.owner
+    this.#actions()
+    if ([...this.#action.options].some(option => option.value === draft.action)) this.#action.value = draft.action
+    this.#actionInputs()
+    for (const input of this.#inputs.querySelectorAll<HTMLInputElement>('input')) input.value = draft.inputs.get(input.name) ?? ''
+    form.closest('details')!.open = draft.open
   }
   #require(): AssignmentLog { if (!this.#log) throw new Error('Assignments are not connected'); return this.#log }
   async attach(session: RoomSession): Promise<void> {
     this.detach()
     const epoch = this.#epoch
     const key = `kithmoot.assignments.v1.${session.participant}.${session.roomId}`
+    this.#restore(key)
     let releaseOwn: (() => void) | undefined
     try {
       if (!navigator.locks) throw new Error('This browser cannot safely lock assignment storage')
@@ -73,14 +160,29 @@ export class AssignmentPanel {
       this.#release = undefined
     }
   }
-  detach(): void { ++this.#epoch; this.#off?.(); this.#off = undefined; this.#log = undefined; this.#release?.(); this.#release = undefined; this.#dialog.close(); this.#cards.replaceChildren(); this.#status.textContent = 'Connecting assignments…'; this.#button.textContent = 'Work' }
+  detach(): void {
+    this.#remember()
+    this.#roomKey = undefined
+    ++this.#epoch; this.#off?.(); this.#off = undefined; this.#log = undefined; this.#release?.(); this.#release = undefined
+    this.#busy = false; this.#dialog.close(); this.#cards.replaceChildren()
+    const form = this.root.getElementById('assignmentCreate') as HTMLFormElement
+    form.reset(); form.closest('details')!.open = false
+    for (const input of form.querySelectorAll('[aria-invalid]')) input.removeAttribute('aria-invalid')
+    this.#owner.replaceChildren(); this.#action.replaceChildren(); this.#inputs.replaceChildren()
+    this.#peopleKey = ''; this.#drafts = new Map(); this.#pendingCreate = undefined
+    this.#status.textContent = 'Connecting assignments…'; this.#button.textContent = 'Work'
+    ;(this.root.getElementById('assignmentFields') as HTMLFieldSetElement).disabled = false
+    ;(form.querySelector('button[type=submit]') as HTMLButtonElement).disabled = true
+    ;(this.root.getElementById('assignmentDiscard') as HTMLButtonElement).disabled = false
+    this.root.getElementById('assignmentRetry')!.hidden = true
+  }
   #owners(): void {
     const selected = this.#owner.value
     const action = this.#action.value
     const inputs = new Map([...this.#inputs.querySelectorAll<HTMLInputElement>('input')].map(i => [i.name, i.value]))
-    this.#owner.replaceChildren()
+    this.#owner.replaceChildren(new Option('Choose an owner', ''))
     for (const p of this.people()) { const o = this.root.createElement('option'); o.value = p.pubkey; o.textContent = `${p.label}${p.agent ? ' (agent)' : ''}`; this.#owner.append(o) }
-    if ([...this.#owner.options].some(o => o.value === selected)) this.#owner.value = selected
+    this.#owner.value = [...this.#owner.options].some(o => o.value === selected) ? selected : ''
     this.#actions()
     if (this.#owner.value === selected && [...this.#action.options].some(o => o.value === action)) {
       this.#action.value = action; this.#actionInputs()
@@ -108,12 +210,14 @@ export class AssignmentPanel {
       label.append(input); this.#inputs.append(label)
     }
   }
-  async #run(action: () => Promise<unknown>): Promise<void> {
+  async #run(action: (log: AssignmentLog) => Promise<unknown>): Promise<void> {
     if (this.#busy) return
+    const epoch = this.#epoch
     this.#busy = true; this.#render()
-    try { await action(); this.#status.textContent = 'Update saved and acknowledged by a relay.' }
-    catch (e) { this.#status.textContent = e instanceof Error ? e.message : 'Update failed' }
-    finally { this.#busy = false; this.#render(false) }
+    this.changed()
+    try { await action(this.#require()); if (epoch === this.#epoch) this.#status.textContent = 'Update saved and acknowledged by a relay.' }
+    catch (e) { if (epoch === this.#epoch) this.#status.textContent = e instanceof Error ? e.message : 'Update failed' }
+    finally { if (epoch === this.#epoch) { this.#busy = false; this.#render(false); this.changed() } }
   }
   #render(updateStatus = true): void {
     const snapshot = this.#log?.snapshot()
@@ -121,13 +225,33 @@ export class AssignmentPanel {
     const active = snapshot.assignments.filter(s => !['accepted', 'cancelled'].includes(s.status))
     this.#button.textContent = active.length ? `Work (${active.length})` : 'Work'
     if (updateStatus) this.#status.textContent = snapshot.error ?? (snapshot.pendingHistory ? 'Some assignment history is missing. Restore it before acting.' : !snapshot.ready ? 'Loading assignment history…' : snapshot.pendingSends ? 'An update is awaiting delivery. Retry the saved update.' : 'Shared with this room. Results remain pending until their creator accepts them.')
+    const focused = this.root.activeElement
+    const key = focused instanceof HTMLElement && this.#cards.contains(focused) ? focused.dataset.workField : undefined
+    const selection = focused instanceof HTMLTextAreaElement ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] as const : undefined
+    const scroll = this.#dialog.scrollTop
+    const expanded = new Map([...this.#cards.querySelectorAll<HTMLDetailsElement>('details')].map(details => [details.dataset.workField, details.open]))
     this.#cards.replaceChildren()
     for (const s of snapshot.assignments) this.#cards.append(this.#card(s))
     if (!snapshot.assignments.length) { const p = this.root.createElement('p'); p.textContent = 'No shared assignments yet.'; this.#cards.append(p) }
-    for (const button of this.#dialog.querySelectorAll<HTMLButtonElement>('button:not(#assignmentClose)')) button.disabled = this.#busy || !snapshot.ready || snapshot.pendingHistory > 0
-    ;(this.root.getElementById('assignmentFields') as HTMLFieldSetElement).disabled = this.#busy || !snapshot.ready
+    for (const button of this.#dialog.querySelectorAll<HTMLButtonElement>('button:not(#assignmentClose)')) {
+      const localDraft = button.id === 'assignmentDiscard'
+      const retry = button.id === 'assignmentRetry'
+      button.disabled = this.#busy || (!localDraft && (!snapshot.ready || snapshot.pendingHistory > 0 || (!retry && snapshot.pendingSends > 0)))
+    }
+    ;(this.root.getElementById('assignmentFields') as HTMLFieldSetElement).disabled = this.#busy
+    this.root.getElementById('assignmentRetry')!.hidden = snapshot.pendingSends === 0
+    for (const details of this.#cards.querySelectorAll<HTMLDetailsElement>('details')) details.open = expanded.get(details.dataset.workField) ?? details.open
+    if (key) {
+      const replacement = [...this.#cards.querySelectorAll<HTMLElement>('[data-work-field]')].find(element => element.dataset.workField === key)
+      if (replacement) {
+        replacement.focus({ preventScroll: true })
+        if (replacement instanceof HTMLTextAreaElement && selection) replacement.setSelectionRange(...selection)
+      } else this.#status.focus({ preventScroll: true })
+      this.#dialog.scrollTop = scroll
+    }
   }
   #card(s: Assignment): HTMLElement {
+    const visibleDrafts = new Set<string>()
     const article = this.root.createElement('article'); article.className = 'assignmentCard'; article.dataset.assignment = s.id
     const title = this.root.createElement('h3'); title.textContent = s.objective; article.append(title)
     const owner = this.people().find(p => p.pubkey === s.owner)?.label ?? s.owner.slice(0, 12)
@@ -138,19 +262,29 @@ export class AssignmentPanel {
     if (s.result) {
       const result = this.root.createElement('pre'); result.textContent = `${s.result.summary}\n\n${s.result.evidence}\n\nResult ${s.result.id}`; article.append(result)
     }
-    const send = (op: AssignmentOperation) => this.#run(async () => {
-      if (this.#require().snapshot().assignments.find(a => a.id === s.id)?.head !== s.head) throw new Error('This assignment changed. Review its current state before acting.')
-      await this.#require().submit(s.id, op, crypto.randomUUID())
+    const send = (op: AssignmentOperation, clearDraft?: string, text?: string) => this.#run(async log => {
+      if (log.snapshot().assignments.find(a => a.id === s.id)?.head !== s.head) throw new Error('This assignment changed. Review its current state before acting.')
+      await log.submit(s.id, op, crypto.randomUUID())
+      if (log !== this.#log) return
+      if (clearDraft && this.#drafts.get(clearDraft) === text) this.#drafts.delete(clearDraft)
     })
-    const button = (label: string, action: () => void) => { const b = this.root.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = action; article.append(b) }
-    const inputAction = (label: string, field: string, build: (text: string) => AssignmentOperation) => {
+    const button = (label: string, action: () => void) => { const b = this.root.createElement('button'); b.type = 'button'; b.textContent = label; b.dataset.workField = `${s.id}:${label}`; b.onclick = action; article.append(b) }
+    const inputAction = (label: string, field: string, build: (text: string) => AssignmentOperation, into: HTMLElement = article) => {
       const form = this.root.createElement('form'); const l = this.root.createElement('label'); l.textContent = field
       const input = this.root.createElement('textarea'); input.required = true; input.maxLength = 2000; l.append(input)
       const draftKey = `${s.id}:${field}`
+      visibleDrafts.add(draftKey)
+      input.dataset.workField = draftKey
       input.value = this.#drafts.get(draftKey) ?? ''
       input.oninput = () => this.#drafts.set(draftKey, input.value)
-      const submit = this.root.createElement('button'); submit.textContent = label; submit.type = 'submit'; form.append(l, submit)
-      form.onsubmit = e => { e.preventDefault(); void send(build(input.value.trim())) }; article.append(form)
+      const submit = this.root.createElement('button'); submit.textContent = label; submit.type = 'submit'; submit.dataset.workField = `${draftKey}:send`; form.append(l, submit)
+      form.noValidate = true
+      form.onsubmit = e => {
+        e.preventDefault()
+        const text = input.value
+        if (!text.trim()) { input.setAttribute('aria-invalid', 'true'); this.#status.textContent = `Complete “${field}” before sending.`; input.focus(); return }
+        void send(build(text.trim()), draftKey, text)
+      }; into.append(form)
     }
     if (s.creator === this.#log?.participant) {
       if (s.status === 'review' && s.result) {
@@ -159,8 +293,13 @@ export class AssignmentPanel {
       }
       if (s.status === 'blocked') inputAction('Send answer', 'Answer for the owner', text => ({ op: 'answer', text }))
       if (['offered', 'running', 'blocked', 'review'].includes(s.status)) {
-        inputAction('Cancel assignment', 'Reason for cancellation', reason => ({ op: 'stop', reason, purpose: 'cancel' }))
-        inputAction('Request handoff', 'Reason for handing over', reason => ({ op: 'stop', reason, purpose: 'handoff' }))
+        const manage = this.root.createElement('details'); manage.dataset.workField = `${s.id}:manage`
+        const summary = this.root.createElement('summary'); summary.textContent = 'Manage assignment'; summary.dataset.workField = `${s.id}:manage-toggle`
+        manage.append(summary)
+        inputAction('Cancel assignment', 'Reason for cancellation', reason => ({ op: 'stop', reason, purpose: 'cancel' }), manage)
+        inputAction('Request handoff', 'Reason for handing over', reason => ({ op: 'stop', reason, purpose: 'handoff' }), manage)
+        manage.open = [...manage.querySelectorAll('textarea')].some(input => Boolean(input.value.trim()))
+        article.append(manage)
       }
       if (s.status === 'stopped') {
         const select = this.root.createElement('select'); select.setAttribute('aria-label', 'Next owner')
@@ -183,7 +322,22 @@ export class AssignmentPanel {
       }
       if (s.status === 'stopping' && s.executor) inputAction('Confirm work stopped', 'What confirms it has stopped?', evidence => ({ op: 'release', executor: s.executor!, evidence }))
     }
-    const history = this.root.createElement('details'); const summary = this.root.createElement('summary'); summary.textContent = 'History'; history.append(summary)
+    for (const [key, text] of this.#drafts) {
+      if (!key.startsWith(`${s.id}:`) || visibleDrafts.has(key) || !text.trim()) continue
+      const label = this.root.createElement('label')
+      label.textContent = `${key.slice(s.id.length + 1)} — unsent note from an earlier step`
+      const input = this.root.createElement('textarea'); input.value = text; input.readOnly = true; input.dataset.workField = key
+      label.append(input); article.append(label)
+      button('Discard unsent note', () => {
+        const epoch = this.#epoch
+        void confirmAction({ title: 'Discard this unsent note?', message: 'This clears only your unsent note. The shared assignment and its history stay in the room.', confirmLabel: 'Discard note', danger: true, isCurrent: () => epoch === this.#epoch && this.#drafts.get(key) === text }).then(approved => {
+          if (!approved) return
+          this.#drafts.delete(key); this.#render(); this.changed()
+        })
+      })
+    }
+    const history = this.root.createElement('details'); history.dataset.workField = `${s.id}:history`
+    const summary = this.root.createElement('summary'); summary.textContent = 'History'; summary.dataset.workField = `${s.id}:history-toggle`; history.append(summary)
     for (const entry of s.history) { const p = this.root.createElement('p'); p.textContent = `${new Date(entry.at * 1000).toLocaleString()} · ${entry.by.slice(0, 12)} · ${entry.operation.op}`; history.append(p) }
     article.append(history)
     return article

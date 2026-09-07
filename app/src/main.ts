@@ -182,7 +182,7 @@ function closeAllDrafts(): void {
 }
 
 function switchingBlocked(): boolean {
-  return joining || roomOperation > 0 || startingDm || outbox.pending || drafts.pending().some(draft => draft.job)
+  return joining || roomOperation > 0 || startingDm || assignmentPanel.busy || outbox.pending || drafts.pending().some(draft => draft.job)
 }
 
 function refreshRoomNavigation(): void {
@@ -198,7 +198,7 @@ installUpdates(() => Boolean(session) || hasUnsentWork(), approvedReload)
 
 function hasUnsentWork(): boolean {
   captureDraft()
-  return outbox.pending || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
+  return outbox.pending || assignmentPanel.busy || assignmentPanel.hasDrafts || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
 }
 
 // Relays confirmed live for this room kind. relay.trotters.cc is the
@@ -6559,7 +6559,7 @@ const assignmentPanel = new AssignmentPanel(document, () => {
     return { pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true, actions,
       ...(p.agent && p.devices.length ? { ownerDevice: [...p.devices].sort()[0] } : {}) }
   })
-})
+}, refreshRoomNavigation)
 
 const contextPanel = new ContextPanel(document, {
   identity: () => { const crypt = peerCrypt(); if (!crypt) return undefined; const identity = currentIdentity(); return { pubkey: identity.pubkey, signEvent: event => identity.signEvent(event), ...crypt } },
