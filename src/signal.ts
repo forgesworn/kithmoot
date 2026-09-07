@@ -1,5 +1,6 @@
-import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey, getEventHash, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
+import { verifyEventUncached as verifyEvent } from './verify.js'
 import { KINDS } from './kinds.js'
 import { SIGNAL_MAX_AGE_SECONDS } from './signal-guard.js'
 
@@ -48,6 +49,12 @@ export interface SignalBody {
   accept?: boolean
 }
 
+/** Relay retention hint; local acceptance still uses the signed inner time. */
+export const SIGNAL_EXPIRATION_SECONDS = 60
+/** Bound attacker-controlled input before signature verification or decryption. */
+export const MAX_SIGNAL_WRAP_LENGTH = 131_072
+export const SIGNAL_PROFILE = '1'
+
 export interface WrapOptions {
   /** The sending device's secret key. Signs the inner event. */
   senderSk: Uint8Array
@@ -71,7 +78,7 @@ export function wrapSignal(body: SignalBody, opts: WrapOptions): Event {
     {
       kind: KINDS.SIGNAL,
       created_at: createdAt,
-      tags: [['p', opts.recipientPubkey]],
+      tags: [['p', opts.recipientPubkey], ['call-id', body.roomId], ['alt', 'KithMoot call signalling'], ['kithmoot', SIGNAL_PROFILE]],
       content: JSON.stringify(body),
     },
     opts.senderSk,
@@ -84,7 +91,7 @@ export function wrapSignal(body: SignalBody, opts: WrapOptions): Event {
     {
       kind: KINDS.SIGNAL_WRAP,
       created_at: createdAt,
-      tags: [['p', opts.recipientPubkey]],
+      tags: [['p', opts.recipientPubkey], ['expiration', String(createdAt + SIGNAL_EXPIRATION_SECONDS)]],
       content: nip44.v2.encrypt(JSON.stringify(inner), conversationKey),
     },
     ephemeralSk,
@@ -106,18 +113,27 @@ export interface UnwrapOptions {
  * Unwrap and verify a signal. Returns null for anything that does not check
  * out, and never throws - this runs inside a subscription handler.
  */
-export function unwrapSignal(
+export function unwrapSignalEvent(
   wrap: Event,
   opts: UnwrapOptions,
-): { from: string; body: SignalBody } | null {
+): { id: string; from: string; body: SignalBody } | null {
   try {
-    if (wrap.kind !== KINDS.SIGNAL_WRAP) return null
+    if (wrap.kind !== KINDS.SIGNAL_WRAP || typeof wrap.content !== 'string' || wrap.content.length > MAX_SIGNAL_WRAP_LENGTH) return null
+    if (!Array.isArray(wrap.tags) || wrap.tags.length > 16 || wrap.tags.some(t => !Array.isArray(t) || t.length > 8 || t.some(v => typeof v !== 'string' || v.length > 2048))) return null
+    if (!verifyEvent(wrap)) return null
 
     const conversationKey = nip44.v2.utils.getConversationKey(opts.recipientSk, wrap.pubkey)
-    const inner = JSON.parse(nip44.v2.decrypt(wrap.content, conversationKey)) as Event
-
-    if (inner.kind !== KINDS.SIGNAL) return null
-    if (!verifyEvent(inner)) return null
+    let inner = JSON.parse(nip44.v2.decrypt(wrap.content, conversationKey)) as Event
+    if (inner.kind === 13) {
+      const seal = inner
+      if (!verifyEvent(seal)) return null
+      const sealKey = nip44.v2.utils.getConversationKey(opts.recipientSk, seal.pubkey)
+      inner = JSON.parse(nip44.v2.decrypt(seal.content, sealKey)) as Event
+      // A rumor is unsigned. Its author must be the verified seal author,
+      // and its id must be its canonical hash, not an attacker-supplied id.
+      if (inner.kind !== KINDS.SIGNAL || !hexEquals(inner.pubkey, seal.pubkey)) return null
+      if (getEventHash(inner) !== inner.id) return null
+    } else if (inner.kind !== KINDS.SIGNAL || !verifyEvent(inner)) return null
 
     // Staleness, checked on the *inner* event: it is the one the sending
     // device signed, so its timestamp cannot be restamped by whoever replays
@@ -128,6 +144,8 @@ export function unwrapSignal(
 
     const body = JSON.parse(inner.content) as SignalBody
     if (!hexEquals(body.roomId, opts.roomId)) return null
+    const calls = inner.tags.filter(tag => tag[0] === 'call-id')
+    if (calls.length > 1 || (calls.length === 1 && !hexEquals(calls[0]?.[1] ?? '', opts.roomId))) return null
 
     // The inner event must be addressed to us, not merely wrapped to us.
     const addressed = inner.tags.find((t) => t[0] === 'p')?.[1]
@@ -136,8 +154,14 @@ export function unwrapSignal(
     // `from` is a device pubkey entering the system off the wire - the
     // `Mesh` peer map it gets looked up in is keyed by the same normalised
     // form roster decode produces, so this must match. See `normaliseHex`.
-    return { from: normaliseHex(inner.pubkey), body }
+    return { id: inner.id, from: normaliseHex(inner.pubkey), body }
   } catch {
     return null
   }
+}
+
+/** Preserve the existing public return shape for callers and legacy vectors. */
+export function unwrapSignal(wrap: Event, opts: UnwrapOptions): { from: string; body: SignalBody } | null {
+  const event = unwrapSignalEvent(wrap, opts)
+  return event ? { from: event.from, body: event.body } : null
 }

@@ -1,7 +1,7 @@
 import type { Event } from 'nostr-tools/pure'
 import { Peer } from './peer.js'
 import type { PeerFactory } from './peer.js'
-import { wrapSignal, unwrapSignal, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
+import { wrapSignal, unwrapSignalEvent, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import type { SignalBody } from './signal.js'
 import { SignalGuard } from './signal-guard.js'
 import { KINDS } from './kinds.js'
@@ -1209,14 +1209,14 @@ export class Mesh {
     // Deduplication first, because it is the cheapest check and the most
     // common case it catches - the same wrap arriving from every relay we
     // published to - costs a NIP-44 decryption otherwise.
-    if (!this.#guard.admitEvent(event.id)) return
+    if (!this.#guard.admitEvent(event.id) || !this.#guard.admitUnwrap(now)) return
 
-    const unwrapped = unwrapSignal(event, {
+    const unwrapped = unwrapSignalEvent(event, {
       recipientSk: this.#opts.deviceSk,
       roomId: this.#opts.roomId,
       now,
     })
-    if (!unwrapped) return
+    if (!unwrapped || !this.#guard.admitEvent(`inner:${unwrapped.id}`)) return
 
     // Rate limiting last, and against the *sending device* rather than the
     // wrap's pubkey: every wrap is signed by a fresh ephemeral key, so the

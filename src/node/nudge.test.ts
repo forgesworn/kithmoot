@@ -22,7 +22,7 @@ function transportFor(relay: SimRelay) {
  *  Bob who talks. The clock only drives the cooldown; the room runs on the
  *  real one, so presence is what the roster says. */
 async function room(opts: { roomName?: string; optedIn?: string[] } = {}) {
-  const relay = new SimRelay()
+  const relay = new SimRelay({ replay: true })
   const transport = transportFor(relay)
   const keeper = await RoomAgent.create({ base: BASE, roomName: opts.roomName, name: 'Keeper', relays: ['wss://sim'], transport, announceJitterMs: 0 })
   const adaSk = generateSecretKey()
@@ -133,7 +133,7 @@ describe('the keeper nudges members who asked', () => {
   })
 
   it('starts from the list it kept, and treats what was said before it started as history', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const transport = transportFor(relay)
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport, announceJitterMs: 0 })
     const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport, announceJitterMs: 0, agent: false })
@@ -160,7 +160,7 @@ describe('the keeper nudges members who asked', () => {
   })
 
   it('a keeper keeps who asked in its own state, through the same hand that saves an epoch', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const saved: string[][] = []
     const keeper = await RoomAgent.create({
       base: BASE,
@@ -180,7 +180,7 @@ describe('the keeper nudges members who asked', () => {
   })
 
   it('the real sender wraps the text as a NIP-17 DM only the member can open, from the keeper’s key', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const keeperSk = generateSecretKey()
     const adaSk = generateSecretKey()
     const ada = getPublicKey(adaSk)

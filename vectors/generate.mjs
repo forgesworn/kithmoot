@@ -52,7 +52,8 @@ import { hexToBytes as hexToBytesLocal } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { nip44 } from 'nostr-tools'
-import { getPublicKey } from 'nostr-tools/pure'
+import { serviceAdmissionVectors } from './lib/service-admission.mjs'
+import { getPublicKey, getEventHash } from 'nostr-tools/pure'
 
 import { deriveSecretKey, finalizeDeterministic, kindredCanonicalMessage, seed32 } from './lib/determinism.mjs'
 import * as fx from './lib/fixtures.mjs'
@@ -81,7 +82,7 @@ import { openInvite, localPeerCrypt, dmPolicy } from '../dist/src/dm.js'
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -790,19 +791,19 @@ vectors.rosterEvent.push({
 //    ephemeral key -> the exact kind-21059 gift wrap (src/signal.ts).
 // ===========================================================================
 
-function buildSignalWrap({ body, senderSk, recipientPubkey, ephemeralSk, createdAt, innerAuxLabel, outerAuxLabel, nonceLabel }) {
+function buildSignalWrap({ body, senderSk, recipientPubkey, ephemeralSk, createdAt, innerAuxLabel, outerAuxLabel, nonceLabel, profile = true }) {
   const innerAux = seed32(innerAuxLabel)
   const outerAux = seed32(outerAuxLabel)
   const nonce = seed32(nonceLabel)
 
   const inner = finalizeDeterministic(
-    { kind: KINDS.SIGNAL, created_at: createdAt, tags: [['p', recipientPubkey]], content: JSON.stringify(body) },
+    { kind: KINDS.SIGNAL, created_at: createdAt, tags: [['p', recipientPubkey], ...(profile ? [['call-id', body.roomId], ['alt', 'KithMoot call signalling'], ['kithmoot', '1']] : [])], content: JSON.stringify(body) },
     senderSk,
     innerAux,
   )
   const conversationKey = nip44.v2.utils.getConversationKey(ephemeralSk, recipientPubkey)
   const outerContent = nip44.v2.encrypt(JSON.stringify(inner), conversationKey, nonce)
-  const outer = finalizeDeterministic({ kind: KINDS.SIGNAL_WRAP, created_at: createdAt, tags: [['p', recipientPubkey]], content: outerContent }, ephemeralSk, outerAux)
+  const outer = finalizeDeterministic({ kind: KINDS.SIGNAL_WRAP, created_at: createdAt, tags: [['p', recipientPubkey], ...(profile ? [['expiration', String(createdAt + 60)]] : [])], content: outerContent }, ephemeralSk, outerAux)
 
   return { inner, outer, innerAuxHex: bytesToHex(innerAux), outerAuxHex: bytesToHex(outerAux), nonceHex: bytesToHex(nonce) }
 }
@@ -922,6 +923,50 @@ vectors.signalWrap.push({
     input: { wrap: tamperedOuter, unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_1.roomId } },
     output: { result: unwrapSignal(tamperedOuter, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT }) },
   })
+}
+
+// M2 receive vectors include legacy and sealed forms, author binding and
+// timestamp/id rejection. Expected results are explicit, not copied from the
+// decoder under test. The same inner event appears under two distinct wraps.
+{
+  const at = fx.SIGNAL_CREATED_AT
+  const legacy = buildSignalWrap({ body: offerBody, senderSk: fx.SENDER_SK, recipientPubkey: fx.RECIPIENT,
+    ephemeralSk: fx.EPHEMERAL_SK_OFFER, createdAt: at, innerAuxLabel: 'signal-offer-inner',
+    outerAuxLabel: 'signal-offer-outer-aux', nonceLabel: 'signal-offer-outer-nonce', profile: false })
+  const encrypt = (value, key, label) => nip44.v2.encrypt(JSON.stringify(value), nip44.v2.utils.getConversationKey(key, fx.RECIPIENT), seed32(label))
+  function sealed(name, change = {}, sealSk = fx.SENDER_SK, corruptId = false, corruptSeal = false) {
+    const { sig, ...rumor } = { ...legacy.inner, ...change }
+    rumor.id = getEventHash(rumor)
+    if (corruptId) rumor.id = '00'.repeat(32)
+    const seal = finalizeDeterministic({ kind: 13, created_at: at - 86400, tags: [],
+      content: encrypt(rumor, sealSk, name + '/seal') }, sealSk, seed32(name + '/seal-aux'))
+    if (corruptSeal) seal.sig = '00'.repeat(64)
+    const ephemeral = deriveSecretKey(name + '/ephemeral')
+    return { rumor, wrap: finalizeDeterministic({ kind: 21059, created_at: at - 43200, tags: [['p', fx.RECIPIENT]],
+      content: encrypt(seal, ephemeral, name + '/wrap') }, ephemeral, seed32(name + '/wrap-aux')) }
+  }
+  const cases = [
+    ['legacy-signed', { wrap: legacy.outer, rumor: legacy.inner }, true],
+    ['sealed', sealed('sealed'), true],
+    ['sealed-rewrapped-same-inner', sealed('sealed-again'), true],
+    ['sealed-wrong-author', sealed('wrong-author', {}, fx.EAVESDROPPER_SK), false],
+    ['sealed-stale-inner', sealed('stale', { created_at: at - 21 }), false],
+    ['sealed-future-inner', sealed('future', { created_at: at + 21 }), false],
+    ['sealed-wrong-kind', sealed('kind', { kind: 1 }), false],
+    ['sealed-wrong-recipient', sealed('recipient', { tags: [['p', getPublicKey(fx.EAVESDROPPER_SK)]] }), false],
+    ['sealed-wrong-room', sealed('room', { content: JSON.stringify({ ...offerBody, roomId: ROOM_2.roomId }) }), false],
+    ['sealed-wrong-id', sealed('id', {}, fx.SENDER_SK, true), false],
+    ['sealed-invalid-seal-signature', sealed('sig', {}, fx.SENDER_SK, false, true), false],
+    ['sealed-call-id-mismatch', sealed('call', { tags: [['p', fx.RECIPIENT], ['call-id', ROOM_2.roomId]] }), false],
+  ]
+  for (const [name, value, accepted] of cases) {
+    const expected = accepted ? { from: fx.SENDER, body: offerBody } : null
+    const options = { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: at }
+    if (JSON.stringify(unwrapSignal(value.wrap, options)) !== JSON.stringify(expected)) throw new Error('Signal compatibility disagreement: ' + name)
+    vectors.signalCompatibility.push({ name, kind: accepted ? 'positive' : 'negative',
+      input: { wrap: value.wrap, recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_1.roomId, now: at },
+      expected: { result: expected, innerId: accepted ? value.rumor.id : null } })
+  }
 }
 
 // ===========================================================================
@@ -2322,10 +2367,12 @@ for (const [name, roomKey, a, b, note] of [
 // Write out
 // ===========================================================================
 
+Object.assign(vectors, serviceAdmissionVectors())
+
 const document = {
   protocolVersion: 'kithmoot/v1',
   generatedBy: 'vectors/generate.mjs',
-  nostrToolsVersion: '2.23.9',
+  nostrToolsVersion: '2.25.0',
   groups: vectors,
 }
 

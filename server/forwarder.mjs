@@ -69,7 +69,7 @@ import { pathToFileURL } from 'node:url'
 import { getPublicKey } from 'nostr-tools/pure'
 import { Peer } from '../dist/src/peer.js'
 import { KINDS } from '../dist/src/kinds.js'
-import { wrapSignal, unwrapSignal } from '../dist/src/signal.js'
+import { wrapSignal, unwrapSignalEvent } from '../dist/src/signal.js'
 import { SignalGuard } from '../dist/src/signal-guard.js'
 import { NostrRelayPool } from '../dist/src/relay-pool.js'
 import { normaliseHex } from '../dist/src/hex.js'
@@ -534,7 +534,8 @@ export function createForwarder({ config, transport, stack, log = defaultLog, no
       return
     }
 
-    const unwrapped = unwrapSignal(event, {
+    if (!guard.admitUnwrap(now())) return
+    const unwrapped = unwrapSignalEvent(event, {
       recipientSk: config.secretKey,
       roomId: config.roomId,
       now: now(),
@@ -544,7 +545,7 @@ export function createForwarder({ config, transport, stack, log = defaultLog, no
       return
     }
 
-    if (!guard.admitSender(unwrapped.from, now())) return
+    if (!guard.admitEvent(`inner:${unwrapped.id}`) || !guard.admitSender(unwrapped.from, now())) return
 
     // An answer or a candidate from a device that is not connected is stale
     // by definition, and must not create a peer: only an offer is an arrival.

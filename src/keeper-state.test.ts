@@ -8,6 +8,12 @@ const bearer = new Uint8Array(32).fill(3)
 const epochSecret = new Uint8Array(32).fill(4)
 
 describe('keeper state', () => {
+  it('retains v3 creation across disk persistence without upgrading old rooms', () => {
+    const state = { secret, inviterSk, bearer, persistent: true as const }
+    expect(parseKeeperState(serialiseKeeperState(state)).persistent).toBe(true)
+    expect(parseKeeperState(serialiseKeeperState({ secret, inviterSk, bearer })).persistent).toBeUndefined()
+  })
+
   it('reads a version 1 file as epoch 0 with nobody removed', () => {
     const v1 = JSON.stringify({ v: 1, secret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer) })
     expect(parseKeeperState(v1)).toEqual({ secret, inviterSk, bearer, epoch: 0, removed: [] })

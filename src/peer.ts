@@ -408,7 +408,9 @@ export class Peer {
     if (this.#pc.getSenders && this.#pc.removeTrack) {
       const published = new Set(tracks)
       for (const sender of [...this.#pc.getSenders()]) {
-        if (!sender.track || published.has(sender.track)) continue
+        // Forwarders attach mirrored tracks directly to the connection.
+        // Updating this peer's own publications must not remove those tracks.
+        if (!sender.track || !this.#addedTracks.has(sender.track) || published.has(sender.track)) continue
         this.#pc.removeTrack(sender)
         // Forgotten, so the same track coming back is added again rather
         // than skipped as already-present.

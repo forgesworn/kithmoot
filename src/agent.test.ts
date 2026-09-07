@@ -36,7 +36,7 @@ function transportFor(relay: SimRelay) {
 
 describe('RoomAgent', () => {
   it('a keeper makes a room and an agent joins it from the link, as an agent', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
     expect(keeper.hosting).toBe(true)
     expect(keeper.keeperState).toBeDefined()
@@ -49,8 +49,9 @@ describe('RoomAgent', () => {
     const seen = keeper.roster().find((v) => v.participant === ada.participant)
     expect(seen?.agent).toBe(true)
     expect(seen?.name).toBe('Ada')
-    // Admitted by the keeper, and now a delegated responder itself.
-    expect(ada.hosting).toBe(true)
+    // New v3 rooms grant durable membership without delegating an inviter key.
+    expect(parseRoomLink(keeper.url).invitation?.persistent).toBe(true)
+    expect(ada.hosting).toBe(false)
 
     // Chat both ways, on the room's own conversation.
     await ada.chat.send('hello')
@@ -62,8 +63,8 @@ describe('RoomAgent', () => {
     keeper.leave()
   })
 
-  it('a second agent is admitted by the first, after the keeper has gone', async () => {
-    const relay = new SimRelay()
+  it('a second agent joins the stored group after the keeper has gone', async () => {
+    const relay = new SimRelay({ replay: true })
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
     const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0 })
     await settle()
@@ -78,8 +79,21 @@ describe('RoomAgent', () => {
     bob.leave()
   })
 
-  it('reopens the same room from persisted keeper state', async () => {
-    const relay = new SimRelay()
+  it('existing v2 keeper state keeps its link and delegated admission', async () => {
+    const relay = new SimRelay({ replay: true })
+    const state = { secret: generateSecretKey(), inviterSk: generateSecretKey(), bearer: generateSecretKey() }
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Legacy keeper', state, relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0 })
+    expect(parseRoomLink(keeper.url).invitation?.persistent).toBeUndefined()
+    expect(ada.hosting).toBe(true)
+    keeper.leave()
+    const bob = await RoomAgent.join({ link: keeper.url, name: 'Bob', transport: transportFor(relay), announceJitterMs: 0 })
+    expect(bob.roomId).toBe(ada.roomId)
+    ada.leave(); bob.leave()
+  })
+
+  it('reopens the same room from persisted keeper state' , async () => {
+    const relay = new SimRelay({ replay: true })
     const first = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
     const state = first.keeperState!
     const url = first.url
@@ -92,7 +106,7 @@ describe('RoomAgent', () => {
   })
 
   it('agents talk among themselves on the agents channel and the people can read it', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, agent: false })
     const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0 })
     const bob = await RoomAgent.join({ link: keeper.url, name: 'Bob', transport: transportFor(relay), announceJitterMs: 0 })
@@ -112,7 +126,7 @@ describe('RoomAgent', () => {
   })
 
   it('joins a legacy secret link, without hosting anything', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const secret = new Uint8Array(32).fill(4)
     const url = encodeJoinUrl(BASE, secret, ['wss://sim'])
     const agent = await RoomAgent.join({ link: url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0 })
@@ -122,7 +136,7 @@ describe('RoomAgent', () => {
   })
 
   it('refuses a pairing link, which is for a person’s second device', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
     const pairing = encodeRoomLink(BASE, { ...keeper.link, pairingCode: new Uint8Array(16).fill(1) })
     await expect(RoomAgent.join({ link: pairing, name: 'Ada', transport: transportFor(relay) })).rejects.toThrow(/pairing/)
@@ -130,7 +144,7 @@ describe('RoomAgent', () => {
   })
 
   it('a keeper opens a channel for an admin, ignores anybody else, and remembers it across a restart', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const adminSk = generateSecretKey()
     const admin = localIdentity(adminSk)
     const states: KeeperState[] = []
@@ -198,7 +212,7 @@ describe('RoomAgent', () => {
   })
 
   it('a keeper removes a member on an admin’s signed request, and not on anybody else’s', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const adminSk = generateSecretKey()
     const admin = localIdentity(adminSk)
     const states: KeeperState[] = []
@@ -270,7 +284,7 @@ describe('RoomAgent', () => {
   })
 
   it('a removed participant presenting the link again is refused the epoch', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const bobIdentity = localIdentity(generateSecretKey())
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
     const bob = await RoomAgent.join({ link: keeper.url, name: 'Bob', identity: bobIdentity, transport: transportFor(relay), announceJitterMs: 0 })
@@ -315,7 +329,7 @@ describe('RoomAgent', () => {
   })
 
   it('an admin closes the room: nobody is kept, the link stops answering, the keeper leaves', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const admin = localIdentity(generateSecretKey())
     let state: KeeperState | undefined
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, admins: [admin.pubkey], onState: (s) => void (state = s) })
@@ -335,7 +349,7 @@ describe('RoomAgent', () => {
   })
 
   it('keeps the identity it is given', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const sk = generateSecretKey()
     const identity = localIdentity(sk)
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, identity })

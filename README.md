@@ -756,3 +756,5 @@ when there is nothing there. No APK is committed to this repository.
 ## Licence
 
 MIT
+
+The [M2 protocol draft](docs/protocol.md) freezes the existing wire and documents the additive signalling profile, reserved service codecs and compatibility gate. Kind registration and service enforcement remain separate.

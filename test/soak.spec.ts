@@ -47,7 +47,7 @@ test('video keeps flowing through a relay outage longer than the presence timeou
     const a = await contextA.newPage()
     const b = await contextB.newPage()
 
-    const url = withRelays(await createRoom(a, baseURL!), [relay.url])
+    const url = await createRoom(a, baseURL!, [relay.url])
     await joinWithMedia(a, url, 'Alice')
     await joinWithMedia(b, url, 'Bob')
     await expectToSeeAndHear(a, 'Alice')

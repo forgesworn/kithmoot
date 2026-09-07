@@ -1922,7 +1922,7 @@ async function toggleAssist(): Promise<void> {
 let startedHere = false
 
 async function startNewRoom(): Promise<void> {
-  const persistent = ($('roomType') as HTMLSelectElement).value === 'persistent'
+  const persistent = true
   const secret = generateRoomSecret()
   const created = createRoomInvitation(persistent)
   const relayScope = `room:${deriveRoom(secret).roomId}`
@@ -6729,12 +6729,6 @@ $('createRoomForm').addEventListener('submit', async event => {
     $('createError').hidden = false
   } finally { button.disabled = false; button.textContent = 'Start a room' }
 })
-$('roomType').addEventListener('change', () => {
-  $('roomTypeNote').textContent = ($('roomType') as HTMLSelectElement).value === 'persistent'
-    ? 'Groups remember your access and let people join when everyone is offline.'
-    : 'For a one-off meeting. New arrivals need an online member with current invitation permission.'
-})
-
 $('openRoomForm').addEventListener('submit', event => {
   event.preventDefault()
   const value = ($('url') as HTMLInputElement).value.trim()

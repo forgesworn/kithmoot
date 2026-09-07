@@ -49,7 +49,7 @@ function fakeSpawn() {
  * `--owner-proof`, which is a host nobody may invite from.
  */
 async function room(opts: { owned?: boolean; ownerExpiresIn?: number } = {}) {
-  const relay = new SimRelay()
+  const relay = new SimRelay({ replay: true })
   const transport = () => new SimTransport(relay)
   const personSk = generateSecretKey()
   const person = await RoomAgent.create({ base: BASE, name: 'Person', relays: ['wss://sim'], transport, announceJitterMs: 0, agent: false, identity: localIdentity(personSk) })

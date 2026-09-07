@@ -47,7 +47,25 @@ export const MAX_REMEMBERED_SIGNALS = 4096
  * again later - so the room, not the socket, is what has to hear each signal
  * exactly once.
  */
+export const MAX_UNWRAPS_PER_WINDOW = 4096
+
 export class SignalGuard {
+  #unwrapWindow: { start: number; count: number } | undefined
+
+  /** A per-room budget before any crypto, independent of attacker-chosen
+   * ephemeral keys. Sized above 24 peers each using their full sender budget.
+   * This bounds CPU work; it cannot guarantee delivery through a hostile relay. */
+  admitUnwrap(now: number): boolean {
+    const window = this.#unwrapWindow
+    if (!window || now < window.start || now - window.start >= RATE_WINDOW_SECONDS) {
+      this.#unwrapWindow = { start: now, count: 1 }
+      return true
+    }
+    if (window.count >= MAX_UNWRAPS_PER_WINDOW) return false
+    window.count++
+    return true
+  }
+
   /** Insertion-ordered, which is what makes the oldest evictable. */
   readonly #seen = new Set<string>()
   readonly #senders = new Map<string, { windowStart: number; count: number }>()

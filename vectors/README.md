@@ -533,3 +533,20 @@ it - that is the message's credential-bound participant, and it is the only
 attribution that cannot be typed by somebody else. The admin list rides the
 same channel and is believed only on the authority's signature over the
 canonical list, which is why the two groups reference each other.
+
+## M2 additions
+
+`signalCompatibility` pins legacy signed inners and sealed rumors, including
+randomised outer times, wrong authors, wrong recipients, stale/future inner
+timestamps, tampered IDs/signatures and mismatched call IDs. Two distinct wraps
+carry the same inner ID so readers can prove replay handling. `signalWrap` now
+pins the additive profile-1 writer; legacy bytes remain in `signalCompatibility`.
+
+`serviceScope` pins per-room/per-audience authority and device derivation, plus
+room pseudonyms and the forwarder/nudger exceptions. `memberPass` and
+`servicePolicy` pin signature and shape checks, canonical scopes, expiry/grace
+constraints and projection of unknown properties. They do not authorise requests
+or enable a service. See [the service draft](../docs/protocol/service-admission.md).
+
+`serviceAudience` pins canonical HTTPS origins/endpoints, including IPv6, port
+normalisation and malformed or ambiguous URL rejection in both languages.

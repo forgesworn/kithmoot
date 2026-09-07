@@ -1,7 +1,7 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { openRoomUrl, pinToTestRelays } from './relays.js'
+import { openRoomUrl, withRelays, testRelays } from './relays.js'
 
 /**
  * What the browser acceptance specs share: how to reach every peer
@@ -254,14 +254,18 @@ export async function open(page: Page, url: string, name: string): Promise<void>
 export async function newDeviceContext(browser: Browser, baseURL: string): Promise<BrowserContext> {
   const context = await browser.newContext()
   await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL).origin })
+  const relays = testRelays()
+  if (relays) await context.addInitScript(urls => {
+    if (!localStorage.getItem('kithmoot.relays.v1')) localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) }))
+  }, relays)
   await context.addInitScript(INSTRUMENT)
   await context.addInitScript(SYNTHETIC_SCREEN)
   return context
 }
 
-export async function createRoom(page: Page, baseURL: string): Promise<string> {
+export async function createRoom(page: Page, baseURL: string, relays = testRelays()): Promise<string> {
+  if (relays) await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
   await page.goto(baseURL)
-  await page.locator('#roomType').selectOption('temporary')
   await page.locator('#create').click()
   // Wait for the link itself rather than the box that used to hold it. The
   // entry page was rebuilt to put the conversation first and `#links` went
@@ -274,7 +278,7 @@ export async function createRoom(page: Page, baseURL: string): Promise<string> {
   // would be asserting a thing the page deliberately does not do yet.
   const share = page.locator('#shareUrl')
   await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
-  return pinToTestRelays(await share.inputValue())
+  return relays ? withRelays(await share.inputValue(), relays) : await share.inputValue()
 }
 
 /**
@@ -433,4 +437,3 @@ export async function startRelay(port: number, okDelayMs = 0): Promise<{ url: st
     },
   }
 }
-

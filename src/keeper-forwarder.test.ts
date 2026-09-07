@@ -22,7 +22,7 @@ async function settle(): Promise<void> {
 
 describe('a keeper publishes the forwarder descriptor', () => {
   it('at start, again for an arrival, and again under the new key after a rekey', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, forwarders: [FWD] })
     const published = () => relay.published.filter((e) => e.kind === KINDS.DESCRIPTOR)
     await vi.waitFor(() => expect(published()).toHaveLength(1))
@@ -56,7 +56,7 @@ describe('a keeper publishes the forwarder descriptor', () => {
   })
 
   it('a keeper with no forwarder publishes no descriptor', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
     const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0 })
     await settle()
@@ -67,7 +67,7 @@ describe('a keeper publishes the forwarder descriptor', () => {
   })
 
   it('a malformed forwarder is refused before anything is joined', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const start = (forwarders: unknown[]) =>
       RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, forwarders: forwarders as never })
     await expect(start([{ pubkey: FWD.pubkey }])).rejects.toThrow(/needs a url/)

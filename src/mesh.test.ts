@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { nip44 } from 'nostr-tools'
+import * as signals from './signal.js'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
 import type { MeshSession } from './mesh.js'
 import type { ForwarderRef } from './types.js'
@@ -363,6 +365,13 @@ describe('Mesh', () => {
     relay.publish(wrap)
     await settle()
     relay.publish(wrap)
+    await settle()
+    // The recipient can rewrap a captured inner event with an unrelated
+    // ephemeral key. Outer-id dedup alone used to renegotiate this twice.
+    const inner = nip44.v2.decrypt(wrap.content, nip44.v2.utils.getConversationKey(local.sk, wrap.pubkey))
+    const ephemeral = generateSecretKey()
+    relay.publish(finalizeEvent({ kind: 21059, created_at: wrap.created_at, tags: [['p', local.pub]],
+      content: nip44.v2.encrypt(inner, nip44.v2.utils.getConversationKey(ephemeral, local.pub)) }, ephemeral))
     await settle()
 
     expect(pc.calls.filter((c) => c.method === 'setRemoteDescription')).toHaveLength(1)
@@ -918,4 +927,21 @@ describe('who the tracks are for', () => {
     expect(factory.to(remote.pub)?.tracks).toEqual([])
     mesh.close()
   })
+})
+
+it('budgets unique anonymous wraps before invoking the codec, then recovers', () => {
+  const relay = new SimRelay()
+  const local = device()
+  let now = 1800000000
+  const decode = vi.spyOn(signals, 'unwrapSignalEvent').mockReturnValue(null)
+  const mesh = new Mesh({ session: new FakeSession(), factory: createFakeFactory(), localDevice: local.pub,
+    localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID, now: () => now })
+  try {
+    const event = { kind: 21059, pubkey: local.pub, created_at: now, tags: [['p', local.pub]], content: 'hostile', sig: '00'.repeat(64) }
+    for (let i = 0; i < 5000; i++) relay.publish({ ...event, id: i.toString(16).padStart(64, '0') })
+    expect(decode).toHaveBeenCalledTimes(4096)
+    now += 20
+    relay.publish({ ...event, id: 'f'.repeat(64) })
+    expect(decode).toHaveBeenCalledTimes(4097)
+  } finally { mesh.close(); decode.mockRestore() }
 })

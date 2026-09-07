@@ -55,7 +55,7 @@ class SummarisingBrain extends ModelBrain {
 const MIC = [{ trackId: 'mic-1', role: 'mic' as const }]
 
 async function room(opts: { brain?: SummarisingBrain; callEndsAfterMs?: number; personHasMedia?: boolean } = {}) {
-  const relay = new SimRelay()
+  const relay = new SimRelay({ replay: true })
   const transport = () => new SimTransport(relay)
   const factory = createFakeFactory()
   const personFactory = createFakeFactory()

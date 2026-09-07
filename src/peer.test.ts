@@ -260,6 +260,18 @@ describe('Peer', () => {
     expect(factory.instances[0]!.tracks).toEqual([camera])
   })
 
+  it('keeps externally managed forwarder tracks when updating its own published tracks', async () => {
+    const factory = createFakeFactory()
+    const camera = fakeTrack(), forwarded = fakeTrack()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })
+    await peer.start([camera])
+    const pc = factory.instances[0]!
+    pc.addTrack(forwarded)
+    await peer.start([])
+    expect(pc.tracks).toEqual([forwarded])
+    peer.close()
+  })
+
   it('answers an incoming offer when there is no outgoing offer pending', async () => {
     const factory = createFakeFactory()
     const signals: SignalBody[] = []

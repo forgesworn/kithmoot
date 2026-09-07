@@ -1,9 +1,10 @@
-/**
- * Provisional event kinds. These are NOT allocated and will change when the
- * KithMoot spec is written. Deliberately clear of 24170/24171 (RelaySwarm)
- * and 25050-25055 (NIP-AC).
- */
+/** KithMoot v1 wire kinds, frozen by docs/protocol.md. Registry submissions
+ * are prepared in docs/protocol/kind-registration.json; pending registration
+ * does not renumber existing rooms. Shared kinds keep their upstream meaning. */
 export const KINDS = {
+  /** Reserved codecs only; no service enforcement in M2. */
+  MEMBER_PASS: 20470,
+  SERVICE_POLICY: 30460,
   /** Device credential. Signed by the participant key; never published to a
    *  relay - it travels inside the encrypted roster, so relays never see the
    *  participant pubkey. */

@@ -93,10 +93,11 @@ async function newDeviceContext(browser: Browser, baseURL: string): Promise<Brow
  *  both read straight, so this never needs to guess the URL fragment
  *  format the app happens to use today. */
 async function createRoom(page: Page, baseURL: string): Promise<string> {
+  const relays = testRelays()
+  if (relays) await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
   await page.goto(baseURL)
   // #iceServers sits inside a collapsed <details> and already defaults to
   // a public STUN server (app/index.html) - nothing to change here.
-  await page.locator('#roomType').selectOption('temporary')
   await page.locator('#create').click()
   // The room's own link exists as soon as the room does, but the drawer
   // holding it stays shut until somebody has gone in - the entry page shows
@@ -112,7 +113,7 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
   const payload = JSON.parse(
     new TextDecoder().decode(base64urlnopad.decode(new URL(joinUrl).hash.slice(1))),
   ) as Record<string, unknown>
-  expect(payload.v, 'new room links must use the invitation format').toBe(2)
+  expect(payload.v, 'new room links must use persistent invitations').toBe(3)
   expect(payload.s, 'a share URL must never contain the room traffic secret').toBeUndefined()
   expect(payload.j, 'the invitation bearer is missing').toEqual(expect.any(String))
   expect(payload.h, 'the pinned inviter pubkey is missing').toMatch(/^[0-9a-f]{64}$/)
@@ -414,7 +415,8 @@ test('a person who joins last still sees everyone already in the room', async ({
     // this is the URL the app itself now hands out, carrying the relay list
     // it is actually using.
     const joinUrl = await pageA.locator('#shareUrl').inputValue()
-    expect(joinUrl, 'the app did not pick up the pinned relay').not.toBe(defaultUrl)
+    const relayHints = JSON.parse(new TextDecoder().decode(base64urlnopad.decode(new URL(joinUrl).hash.slice(1)))).r
+    expect(relayHints, 'the app did not pick up the pinned relay').toEqual([new URL(STRICT_RELAY).href])
 
     // README's procedure, run exactly as written from here on. A JOINS and
     // turns its media on - so its roster entry is published and gone before

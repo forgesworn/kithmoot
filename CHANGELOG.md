@@ -9,6 +9,22 @@ implementation reads this file to know what moved.
 
 ## Unreleased
 
+### M2 protocol
+
+- Add inner signalling profile/call tags and a 60-second outer expiry without
+  changing the seal-less writer or recipient selectors. Readers also verify
+  sealed rumours, deduplicate inner IDs across rewraps and bound work before
+  decryption. Existing clients and forwarders keep their current wire shape.
+- New web, Android and keeper rooms use v3 durable invitations. Existing v1/v2
+  readers, links and keeper state remain supported without automatic migration.
+- Publish the protocol draft, prepared kind-registration entries, a separate
+  weekly upstream drift check and reserved service pass/policy codecs. No
+  service enforces or publishes those reserved events in M2.
+- Share 190 vectors across 26 groups with Android, including legacy/sealed
+  signals, scoped service keys and canonical audience rejection cases.
+- Fix an existing forwarder renegotiation defect: changing a peer's local
+  publications no longer removes tracks managed by the forwarding stack.
+
 ### Vectors
 
 - 136 interop vectors across 21 groups, up from 101 across 15: `chatThread`,
@@ -47,7 +63,7 @@ implementation reads this file to know what moved.
     edit. Cooperative, and the interface says so.
   - **Mentions.** `mentions`, participant keys and `everyone`, so what shows
     as a mention is exactly what an agent answers to. `@everyone` addresses
-    the room and not the agents.
+    the room, including agents; execution still requires sender consent.
   - **Direct messages.** A DM is a room whose policy lists two `members`;
     the link travels sealed between the two participant keys as an `invite`
     inside a room both are in. Started from a person's row in Room details.
