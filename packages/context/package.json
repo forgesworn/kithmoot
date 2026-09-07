@@ -1,6 +1,6 @@
 {
   "name": "@forgesworn/context",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Portable signed and encrypted context collections",
   "license": "MIT",
   "type": "module",
@@ -8,7 +8,8 @@
     "node": ">=22.13"
   },
   "files": [
-    "dist"
+    "dist",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "exports": {
     ".": {

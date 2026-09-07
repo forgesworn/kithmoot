@@ -136,7 +136,12 @@ export function canonicalEnvelopeName(value: string): string {
     .replace(/^\.+/, '')
     .trim()
   const fallback = cleaned || 'blob.bin'
-  return fallback.length <= 180 ? fallback : fallback.slice(0, 180)
+  if (fallback.length <= 180) return fallback
+  // Match Wildbloom's 180 UTF-16 unit limit without splitting a surrogate pair.
+  const last = fallback.charCodeAt(179)
+  const next = fallback.charCodeAt(180)
+  const end = last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? 179 : 180
+  return fallback.slice(0, end)
 }
 
 function canonicalEnvelopeType(value: string): string {
