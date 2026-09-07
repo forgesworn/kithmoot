@@ -2563,7 +2563,14 @@ label.note {
 .searchCoverage summary { cursor: pointer; min-height: 44px; padding-block: .65rem; }
 .messageSearchFilters { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem 1rem; margin-block: .75rem; }
 .messageSearchFilters > label:first-child { flex: 1 1 12rem; min-width: 0; margin: 0; }
-.messageSearchFilters select { display: block; width: 100%; min-width: 0; max-width: 100%; margin-top: .25rem; }
+.messageSearchFilters select {
+  display: block; width: 100%; min-width: 0; max-width: 100%; margin-top: .25rem;
+  /* WebKit's native menu painting can exceed its box with large system text. */
+  appearance: none; padding-right: 2.25rem; text-overflow: ellipsis;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 1rem center, right .65rem center;
+  background-size: .35rem .35rem; background-repeat: no-repeat;
+}
 .messageSearchFilters .searchFileFilter { margin: 0; }
 #backToSearch { color: var(--accent); }
 .conversationTools:has(#backToSearch:not([hidden])) #chatSearch { display: none; }

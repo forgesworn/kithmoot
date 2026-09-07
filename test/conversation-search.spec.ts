@@ -187,8 +187,8 @@ test('room search finds unvisited conversations, edited replies and files, and r
     }
     await page.setViewportSize({ width: 320, height: 540 })
     await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
-    // WebKit can finish the viewport reflow after the font-size update.
-    // Keep the strict no-overflow check, but wait for that layout to settle.
+    // Measure after viewport/font reflow. This also covers WebKit's native
+    // select painting, which can overflow even when its border box fits.
     await expect.poll(() => page.locator('#conversationSearch').evaluate(el => ({
       fits: el.scrollWidth <= el.clientWidth, width: el.clientWidth, scrollWidth: el.scrollWidth,
     }))).toMatchObject({ fits: true })
