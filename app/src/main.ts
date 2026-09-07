@@ -6,6 +6,7 @@ import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { confirmAction, type ConfirmActionOptions } from './confirm-action.js'
 import { ChatScroll } from './chat-scroll.js'
+import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
@@ -6444,6 +6445,7 @@ async function setNudge(on: boolean): Promise<void> {
 // ---------------------------------------------------------------------------
 
 // The bar: back, who and where, the call, and everything else.
+installKeyboardNavigation(document)
 $('backToRooms').addEventListener('click', openRoomSwitcher)
 $('doorToRooms').addEventListener('click', openRoomSwitcher)
 $('watchAgents').addEventListener('click', () => selectChannel(AGENT_CHANNEL))

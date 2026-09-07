@@ -2364,6 +2364,15 @@ label.note {
 .actionDialogButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; margin-top: 1.5rem; }
 .actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .actionDialogButtons button.danger { color: var(--danger); border-color: var(--danger-border); }
+.keyboardHelp { box-sizing: border-box; width: min(36rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); padding: .75rem; overflow: hidden; }
+.keyboardHelp[open] { display: flex; flex-direction: column; }
+.keyboardHelpBar { display: flex; flex-wrap: wrap; align-items: center; flex: 0 0 auto; gap: .5rem; padding-bottom: .75rem; }
+.keyboardHelpBar h2 { flex: 1 1 9rem; margin: 0; font-size: 1.1rem; }
+.keyboardHelpBar button { margin: 0; min-height: 44px; }
+.keyboardHelpBody { overflow-y: auto; min-height: 0; }
+.keyboardHelp dt { font-weight: 650; margin-top: 1rem; overflow-wrap: anywhere; }
+.keyboardHelp dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+#chatLog > .msg:focus-visible, #chatLog .thread > .msg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: .5rem; }
 
 .sheetBar button {
   margin: 0;

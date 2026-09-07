@@ -171,7 +171,7 @@
         </div>
         <div id="approvals" aria-live="polite"></div>
         <div id="chatViewport">
-          <div id="chatLog" role="region" aria-label="Conversation" aria-live="polite" tabindex="0"></div>
+          <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" aria-live="polite" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
         </div>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
@@ -586,6 +586,22 @@
       </div>
     </dialog>
 
+    <p id="messageKeyboardHint" class="sr-only">Use Up and Down to focus messages and Enter for message actions. Escape returns to the composer when replies are allowed. Open keyboard help with Control or Command and slash.</p>
+    <dialog id="keyboardShortcuts" class="actionDialog keyboardHelp" aria-labelledby="keyboardShortcutsTitle">
+      <div class="keyboardHelpBar"><h2 id="keyboardShortcutsTitle">Keyboard shortcuts</h2><button id="keyboardShortcutsClose" type="button">Close</button></div>
+      <div class="keyboardHelpBody" tabindex="0" role="region" aria-label="Shortcut instructions">
+      <p>Use Ctrl or Command (⌘).</p>
+      <dl>
+        <dt>Control / Command + F6</dt><dd>Move between rooms, room controls, conversations, tools, messages and the composer. Add Shift to move backwards.</dd>
+        <dt>Control / Command + K</dt><dd>Find a room.</dd>
+        <dt>Up / Down in messages</dt><dd>Focus the previous or next message. Up from an empty composer starts at the latest message.</dd>
+        <dt>Home / End in messages</dt><dd>Focus the first or last loaded message.</dd>
+        <dt>Enter or Shift + F10 on a message</dt><dd>Open its actions. Tab moves through the actions; Escape closes them.</dd>
+        <dt>Escape in messages</dt><dd>Return to writing, where this conversation allows replies.</dd>
+        <dt>Control / Command + /</dt><dd>Open this help. Shortcuts leave open dialogs and text editing in control.</dd>
+      </dl>
+      </div>
+    </dialog>
     <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
       <div class="sheetBar">
         <h2 id="roomSheetTitle">Room details</h2>
@@ -594,6 +610,7 @@
 
       <div class="sheetBody">
         <h3 class="sheetHead">This room</h3>
+        <button id="keyboardHelp" type="button" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">Keyboard shortcuts</button>
         <!-- The name and the code, together, here. The bar at the top of
              the room shows the NAME, because that is what every messaging
              app puts at the head of a conversation - and a room with no
