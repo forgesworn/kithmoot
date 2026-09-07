@@ -15,6 +15,8 @@ import type { Filter } from 'nostr-tools/filter'
  * semantics.
  */
 export class FakeRelayServer {
+  /** Accept TCP but never finish the WebSocket handshake. */
+  stallConnections = false
   /** Every raw frame this relay was sent, in order. */
   readonly frames: string[] = []
   /** Every event this relay holds. */
@@ -155,6 +157,7 @@ export class FakeWebSocket {
         this.onerror?.()
         return
       }
+      if (this.#server.stallConnections) return
       this.readyState = FakeWebSocket.OPEN
       this.#server.attach(this)
       this.onopen?.()

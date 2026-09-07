@@ -42,7 +42,9 @@ type Subscription = {
   onEvent: (event: Event) => void
   onEose?: () => void
   seen: Set<string>
-  stop?: () => void
+  bindings: Map<string, { stop: () => void }>
+  eosed: Set<string>
+  eoseSent: boolean
 }
 
 export class NostrRelayPool implements RelayTransport {
@@ -53,18 +55,22 @@ export class NostrRelayPool implements RelayTransport {
   #generation = 0
   #abort = new AbortController()
   #closed = false
+  #attempted = new Map<string, number>()
+  #recovery: ReturnType<typeof setInterval>
 
   constructor(relays: readonly (string | RelayConfig)[]) {
     this.#relays = normaliseRelayConfig(relays)
     this.#pool = this.#createPool()
+    this.#recovery = setInterval(() => this.#recoverSubscriptions(), 5_000)
+    ;(this.#recovery as unknown as { unref?: () => void }).unref?.()
   }
 
   #createPool(): SimplePool {
     const generation = this.#generation
-    // Reconnect long-lived room subscriptions after sleep/network changes;
-    // ping notices sockets that are dead without being closed. A failed first
-    // connection needs the explicit reconnect action (nostr-tools limitation).
-    const pool = new SimplePool({ enableReconnect: true, enablePing: true })
+    // Own subscription recovery, including failed first connections and
+    // stalled reconnect handshakes. Dependency reconnects can wait forever
+    // without a timeout and leave a running agent unable to hear the room.
+    const pool = new SimplePool({ enableReconnect: false, enablePing: true })
     pool.onRelayConnectionSuccess = url => {
       if (generation === this.#generation) this.#mark(url, { state: 'connected', lastConnectedAt: Date.now(), lastError: undefined })
     }
@@ -99,10 +105,11 @@ export class NostrRelayPool implements RelayTransport {
     const next = normaliseRelayConfig(entries)
     this.#generation++
     this.#abort.abort()
-    for (const sub of this.#subscriptions) sub.stop?.()
+    for (const sub of this.#subscriptions) this.#stop(sub)
     this.#pool.destroy()
     this.#relays = next
     this.#health.clear()
+    this.#attempted.clear()
     this.#abort = new AbortController()
     this.#pool = this.#createPool()
     for (const sub of this.#subscriptions) this.#start(sub)
@@ -133,37 +140,74 @@ export class NostrRelayPool implements RelayTransport {
 
   subscribe(filters: Filter[], onEvent: (event: Event) => void, onEose?: () => void): () => void {
     if (this.#closed) throw new Error('pool is closed')
-    const sub: Subscription = { filters, onEvent, onEose, seen: new Set() }
+    const sub: Subscription = { filters, onEvent, onEose, seen: new Set(), bindings: new Map(), eosed: new Set(), eoseSent: false }
     this.#subscriptions.add(sub)
     this.#start(sub)
-    return () => { this.#subscriptions.delete(sub); sub.stop?.() }
+    return () => { this.#subscriptions.delete(sub); this.#stop(sub) }
+  }
+
+  #stop(sub: Subscription): void {
+    for (const binding of sub.bindings.values()) binding.stop()
+    sub.bindings.clear()
   }
 
   #start(sub: Subscription): void {
+    sub.eosed.clear()
+    sub.eoseSent = false
+    for (const relay of this.#relays) if (relay.read) this.#startRelay(sub, relay.url)
+  }
+
+  #startRelay(sub: Subscription, url: string): void {
+    sub.bindings.get(url)?.stop()
     const generation = this.#generation
-    const urls = this.#relays.filter(relay => relay.read).map(relay => relay.url)
-    if (!urls.length) { sub.stop = undefined; return }
-    for (const url of urls) if (!this.#pool.listConnectionStatus().get(url)) this.#mark(url, { state: 'connecting' })
-    // subscribeMap groups multiple filters into one OR request per relay.
-    const requests = urls.flatMap(url => sub.filters.map(filter => ({ url, filter })))
-    const active = () => !this.#closed && generation === this.#generation && this.#subscriptions.has(sub)
-    const handle = this.#pool.subscribeMap(requests, {
+    const binding = { stop: () => {} }
+    sub.bindings.set(url, binding)
+    if (!this.#pool.listConnectionStatus().get(url)) {
+      this.#mark(url, { state: 'connecting' })
+      this.#attempted.set(url, Date.now())
+    }
+    const active = () => !this.#closed && generation === this.#generation && this.#subscriptions.has(sub) && sub.bindings.get(url) === binding
+    const handle = this.#pool.subscribeMap(sub.filters.map(filter => ({ url, filter: { ...filter } })), {
       abort: this.#abort.signal,
-      oneose: () => { if (active()) sub.onEose?.() },
+      maxWait: 8_000,
+      oneose: () => {
+        if (!active()) return
+        sub.eosed.add(url)
+        if (!sub.eoseSent && this.#relays.filter(relay => relay.read).every(relay => sub.eosed.has(relay.url))) {
+          sub.eoseSent = true
+          sub.onEose?.()
+        }
+      },
       onevent: event => {
         if (!active() || sub.seen.has(event.id)) return
         sub.seen.add(event.id)
         sub.onEvent(event)
       },
     })
-    sub.stop = () => handle.close()
+    binding.stop = () => handle.close()
+  }
+
+  #recoverSubscriptions(): void {
+    if (this.#closed || this.#subscriptions.size === 0) return
+    const connected = this.#pool.listConnectionStatus()
+    const now = Date.now()
+    for (const relay of this.#relays) {
+      if (!relay.read || connected.get(relay.url) || now - (this.#attempted.get(relay.url) ?? 0) < 15_000) continue
+      // Keep healthy relays and their consumers running. Replaying the
+      // original filters catches missed events; each consumer retains its
+      // deduplication set across reconnections, including same-second events.
+      this.#pool.close([relay.url])
+      this.#attempted.set(relay.url, now)
+      for (const sub of this.#subscriptions) this.#startRelay(sub, relay.url)
+    }
   }
 
   close(): void {
     this.#closed = true
+    clearInterval(this.#recovery)
     this.#generation++
     this.#abort.abort()
-    for (const sub of this.#subscriptions) sub.stop?.()
+    for (const sub of this.#subscriptions) this.#stop(sub)
     this.#subscriptions.clear()
     this.#pool.destroy()
   }
