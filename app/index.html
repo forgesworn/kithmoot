@@ -170,8 +170,10 @@
           <button id="invitePeople" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Invite people</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
-        <div id="chatLog" role="region" aria-label="Conversation" aria-live="polite" tabindex="0"></div>
-        <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
+        <div id="chatViewport">
+          <div id="chatLog" role="region" aria-label="Conversation" aria-live="polite" tabindex="0"></div>
+          <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
+        </div>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
         <!-- Said where the box would be, on the conversations nobody types
              into. A box on the Transcript tab invited somebody to type into

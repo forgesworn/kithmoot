@@ -2077,7 +2077,7 @@ label.note {
     padding-block: 0.65rem;
   }
 
-  #chatLog {
+  #chatViewport {
     /* The conversation takes the shortfall, and the names do not.
 
        A flex item shrinks in proportion to how much it asked for, and a log
@@ -2174,7 +2174,7 @@ label.note {
     min-height: 0;
   }
 
-  main:has(#roomArea:not([hidden])) #chatLog {
+  main:has(#roomArea:not([hidden])) #chatViewport {
     /* The conversation takes what is left of the column, not what its own
        history would like. */
     flex: 1 1 0;
@@ -2493,7 +2493,23 @@ label.note {
 }
 .outboxItem p { margin: .25rem 0; white-space: pre-wrap; }
 .outboxItem button { margin-right: .5rem; }
-#newMessages { align-self: center; flex-shrink: 0; }
+#chatViewport { position: relative; display: flex; min-width: 0; }
+#chatViewport > #chatLog { flex: 1 1 0; min-width: 0; min-height: 0; height: auto; scroll-padding-bottom: 4rem; }
+#newMessages {
+  position: absolute;
+  right: .75rem;
+  bottom: .75rem;
+  max-width: calc(100% - 1.5rem);
+  min-height: 44px;
+  margin: 0;
+  padding: .45rem .8rem;
+  border-radius: 2rem;
+  border-color: var(--accent);
+  background: var(--panel);
+  color: var(--accent);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 16%);
+  font-size: .85rem;
+}
 .unreadDivider {
   display: flex;
   align-items: center;
@@ -2714,7 +2730,7 @@ body:has(#roomArea:not([hidden])) > main { flex: 1 1 auto; min-width: 0; width: 
 main:has(#roomArea:not([hidden])) { display: flex; flex-direction: column; }
 #roomArea { min-width: 0; }
 main:has(#roomArea:not([hidden])) > #roomArea { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-height: 10rem; }
+main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min-height: 10rem; }
 
 @media (min-width: 1100px) {
   body:has(#roomArea:not([hidden])) > header { display: none; }
@@ -2743,23 +2759,23 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
 }
 
 @media (max-width: 540px) {
-  .conversationNav { gap: 0; }
+  .conversationNav { gap: 0; padding-bottom: .25rem; margin-bottom: .2rem; }
   .conversationNav button { padding-inline: .6rem; font-size: .8rem; }
-  .agentActivity { padding: .4rem .6rem; }
+  .agentActivity { padding: .15rem .5rem; margin-bottom: .25rem; }
   .agentActivity > div { flex-basis: 10rem; }
   .agentActivity span { font-size: .75rem; }
 }
 @media (max-width: 700px) {
   .roomBar { flex-wrap: wrap; }
   .roomIdentity { flex-basis: 6rem; }
-  main:has(#roomArea:not([hidden])) #chatLog { min-height: 6rem; }
+  main:has(#roomArea:not([hidden])) #chatViewport { min-height: 6rem; }
 }
 @media (min-width: 1100px) {
   #workspaceRooms { overflow-y: auto; max-height: calc(100svh - 18rem); }
 }
 @media (max-width: 700px) and (max-height: 600px) {
   /* Wrapped room actions must leave the composer reachable on short phones. */
-  main:has(#roomArea:not([hidden])) #chatLog { min-height: 3rem; }
+  main:has(#roomArea:not([hidden])) #chatViewport { min-height: 3rem; }
   /* Picture preferences remain in Room details. Give catch-up and search
      one row here so the conversation and composer can both be used. */
   .conversationTools { flex-wrap: nowrap; }

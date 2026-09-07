@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs'
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
@@ -190,6 +191,9 @@ test('catching up starts at unread messages and keeps your place across conversa
     const dividerOffset = () => log.locator('.unreadDivider').evaluate(el => el.getBoundingClientRect().top - document.getElementById('chatLog')!.getBoundingClientRect().top)
     await expect.poll(dividerOffset).toBeLessThan(5)
     await expect.poll(dividerOffset).toBeGreaterThanOrEqual(-1)
+    const readingSpace = { viewport: page.viewportSize(), log: await log.boundingBox() }
+    writeFileSync(testInfo.outputPath('phone-reading-space.json'), JSON.stringify(readingSpace, null, 2))
+    expect(readingSpace.log!.height).toBeGreaterThanOrEqual(350)
     await page.screenshot({ path: testInfo.outputPath('catch-up-phone.png') })
 
     // An arrival must leave the first unread message in place.
