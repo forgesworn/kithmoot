@@ -52,19 +52,26 @@ known-answer and attachment tests exercise the extracted implementation.
 - Context sharing, personal-data exclusion and recovery passed in Chromium and
   Firefox. WebKit failed before app navigation with
   `Page.overrideSetting: Unknown setting: PushAPIEnabled` on this Mac.
-  WebKit acceptance remains open; the pinned Linux CI browser job covers it.
+  Hosted Linux WebKit acceptance subsequently passed in PR #40.
 
-CI now also runs the independent artifact check on Node 22 and 24. Those hosted
-jobs have not been run for this extraction yet. The library still provides
+All five hosted checks passed in [PR #40](https://github.com/forgesworn/kithmoot/pull/40):
+Node 22, Node 24, Chromium, Firefox and WebKit. The Node jobs include the
+independent artifact check. The library still provides
 bounded collections and literal search; graph extraction and semantic search
 are outside this change.
 
 ## Release and operator impact
 
-The 0.1.0 packages are not yet published to npm. Release the core first, then
-the matching tools package, before publishing a KithMoot release that depends
-on them. A consumer can also install both locally packed tarballs together.
-Do not publish KithMoot with references to unavailable package versions.
+Both 0.1.0 packages are published to npm. The registry integrity values match
+the checked tarballs in [the GitHub release](https://github.com/forgesworn/kithmoot/releases/tag/context-v0.1.0).
+
+```sh
+npm install @forgesworn/context@0.1.0 @forgesworn/context-tools@0.1.0
+```
+
+For future versions, publish core before tools, and both before publishing a
+KithMoot version depending on them. Consumers can also install the GitHub
+release tarballs together.
 
 A source checkout continues to use `npm ci --ignore-scripts` followed by
 `npm run build:lib`; npm resolves the packages locally through the workspace.

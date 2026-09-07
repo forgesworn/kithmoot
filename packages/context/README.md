@@ -6,9 +6,15 @@ NanoClaw, model provider, MCP SDK or hosted service dependency.
 
 This package is maintained in the KithMoot repository alongside its first
 consumer. It has its own manifest, exports, build and distributable tarball.
-The initial 0.1.0 extraction is not yet published to npm. From a checkout,
-use `npm ci --ignore-scripts`, `npm run build:context`, then
-`npm pack --workspace @forgesworn/context`. Publish the core before consumers.
+Version 0.1.0 is published on npm:
+
+```sh
+npm install @forgesworn/context@0.1.0
+```
+
+From a source checkout, use `npm ci --ignore-scripts`,
+`npm run build:context`, then `npm pack --workspace @forgesworn/context`.
+For future versions, publish the core before consumers.
 
 ## Use
 

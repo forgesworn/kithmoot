@@ -4,10 +4,16 @@ Node file persistence, CLI and MCP tools for `@forgesworn/context`. MIT, ESM,
 Node 22.13+. Separate from the browser-safe core: filesystem and MCP dependencies
 never enter its root import. No KithMoot or NanoClaw runtime dependency.
 
-The initial 0.1.0 package is maintained in the KithMoot workspace and is not
-yet published to npm. Build with `npm run build:context` from the checkout,
-then `npm pack --workspace @forgesworn/context-tools`. Publish/install the
-matching core package first. Both tarballs can be installed together.
+Version 0.1.0 is published on npm and depends on the matching core package:
+
+```sh
+npm install @forgesworn/context-tools@0.1.0
+```
+
+The source is maintained in the KithMoot workspace. Build with
+`npm run build:context`, then `npm pack --workspace @forgesworn/context-tools`.
+For future versions, publish the matching core package first. Local tarballs
+can also be installed together.
 
 ```sh
 encrypted-context mcp --identity /private/assistant.key \

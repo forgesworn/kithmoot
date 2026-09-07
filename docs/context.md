@@ -2,7 +2,7 @@
 
 Context uses the independent MIT `@forgesworn/context` library, with Node
 persistence, CLI and MCP in `@forgesworn/context-tools`. Both are maintained as
-packages in this repository and are not yet published separately to npm.
+packages in this repository and are published separately to npm at version 0.1.0.
 Neither depends on KithMoot or NanoClaw. See [the core package](../packages/context/README.md)
 and [Node tools](../packages/context-tools/README.md).
 
