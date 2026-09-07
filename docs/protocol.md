@@ -201,7 +201,8 @@ expired. A relay can ignore expiry, so receivers must still check staleness.
 
 Receivers accept both the emitted shape and NIP-59-style seals:
 
-1. Bound wrap content at 131,072 characters and bound crypto attempts before
+1. Bound wrap content at 131,072 characters, at most 16 outer tags with at most
+   eight strings of 2,048 characters each, and bound crypto attempts before
    identifying the sender. Verify the outer signature. Duplicate outer IDs may
    be discarded before crypto.
 2. Decrypt one layer. If its kind is 20462, verify the inner signature. If its

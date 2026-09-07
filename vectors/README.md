@@ -547,3 +547,6 @@ room pseudonyms and the forwarder/nudger exceptions. `memberPass` and
 `servicePolicy` pin signature and shape checks, canonical scopes, expiry/grace
 constraints and projection of unknown properties. They do not authorise requests
 or enable a service. See [the service draft](../docs/protocol/service-admission.md).
+
+`serviceAudience` pins canonical HTTPS origins/endpoints, including IPv6, port
+normalisation and malformed or ambiguous URL rejection in both languages.

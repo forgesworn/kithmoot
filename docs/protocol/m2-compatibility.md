@@ -1,8 +1,7 @@
 # M2 compatibility ledger
 
 Baseline: TypeScript/web `915ba7d` (contains the agreed `09391c5` baseline),
-Android `c6580d4`, private plan `26885d8`. Work is isolated in the two M2
-worktrees. The parked security-review snapshot is not merged.
+Android `c6580d4`. The previous-release tests use a separate immutable checkout.
 
 ## Boundaries under test
 
@@ -27,7 +26,7 @@ Results are added here after commands finish. Tests against local relay fixtures
 are distinguished from public-service and installed-device evidence. Copied
 vectors are not evidence for Android features its README explicitly lacks.
 
-- TypeScript: `npm test` passed 1,448 tests across 85 files.
+- TypeScript: `npm test` passed 1,449 tests across 85 files.
 - Android: protocol/app unit tests, debug/release lint, debug/release APK builds
   and instrumentation APK assembly passed. The disposable API-35 emulator also
   passed 12 installed-app tests: storage/recovery, forced process restart, v3
@@ -97,3 +96,11 @@ for owner submission; no upstream registration or NIP acceptance is claimed.
 V4V payment settlement and new Bothy/Link functionality are outside M2 and were
 not claimed as tested by shared-format checks. Physical Android acceptance is
 separate from the installed emulator evidence above.
+
+The installed Android 0.4.1 client also passed a real v2 keeper journey against
+`915ba7d`: native admission, encrypted chat in both directions and clean exit.
+Run `scripts/check-m2-android-keeper.mjs` with `M2_BASELINE_DIR`, `ANDROID_HOME`
+and `ANDROID_SERIAL` set to a disposable emulator with both debug APKs installed.
+Its test uses synthetic keys and a local NIP-01 relay; the old keeper receives no
+M2 code or service policy. Android 0.4.1 uses version code 7 and the same debug
+signing certificate as the published 0.4.0 APK. It remains a debug prerelease.

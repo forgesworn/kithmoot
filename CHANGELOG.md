@@ -63,7 +63,7 @@ implementation reads this file to know what moved.
     edit. Cooperative, and the interface says so.
   - **Mentions.** `mentions`, participant keys and `everyone`, so what shows
     as a mention is exactly what an agent answers to. `@everyone` addresses
-    the room and not the agents.
+    the room, including agents; execution still requires sender consent.
   - **Direct messages.** A DM is a room whose policy lists two `members`;
     the link travels sealed between the two participant keys as an `invite`
     inside a room both are in. Started from a person's row in Room details.
