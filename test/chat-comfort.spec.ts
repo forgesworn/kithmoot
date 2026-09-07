@@ -6,6 +6,7 @@ import { generateSecretKey, finalizeEvent } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { reactionText, toggleReaction } from '../src/reactions.js'
+import { openRoomDetails } from './browser.js'
 
 test('timestamps, avatars, direct search, emoji insertion and encrypted reaction toggles work together', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -33,7 +34,7 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     // independently of that engine-specific size; the source is checked above.
     await expect.poll(() => row.locator('img.avatar').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0)).toBe(true)
     expect(pictureRequests).toBeGreaterThan(0)
-    await page.locator('#chatProfiles').click(); await page.locator('#lookupProfiles').uncheck(); await page.locator('#profileSettingsClose').click()
+    await openRoomDetails(page); await page.locator('#roomProfileSettings').click(); await page.locator('#lookupProfiles').uncheck(); await page.locator('#profileSettingsClose').click()
     await expect(row.locator('.avatar.initials')).toBeVisible()
     await expect(row.locator('img.avatar')).toHaveCount(0)
     await page.locator('#chatInput').fill('before after')

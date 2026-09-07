@@ -143,6 +143,8 @@ test('a private conversation is started from a person and reaches them inside th
     await ada.locator('#chatLog .system').getByRole('button', { name: 'Open Private: Rowan' }).click()
     await expect(ada.locator('#roomTitle')).toHaveText('Private: Rowan', { timeout: 30_000 })
     await expect(ada.locator('#chatLog')).toContainText('Only you and Rowan can read this.')
+    await expect(ada.locator('#invitePeople')).toHaveJSProperty('hidden', true)
+    await expect(rowan.locator('#invitePeople')).toHaveJSProperty('hidden', true)
   } finally {
     for (const context of contexts) await context.close()
   }

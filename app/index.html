@@ -167,7 +167,7 @@
           <button id="nextUnread" type="button" hidden></button>
           <button id="chatSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search messages</button>
           <button id="backToSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch" hidden>Back to results</button>
-          <button id="chatProfiles" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures: on</button>
+          <button id="invitePeople" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Invite people</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
         <div id="chatLog" role="region" aria-label="Conversation" aria-live="polite" tabindex="0"></div>
@@ -641,19 +641,17 @@
         <p id="agentsExplain" class="agentsExplain" hidden></p>
         <div id="sheetRoster" class="sheetRoster"></div>
 
-        <h3 class="sheetHead">Invite somebody</h3>
-        <div class="linkBox">
-          <p><strong>Invite somebody</strong></p>
-          <p class="note">
-            Send this link and whoever gets it can come in, including
-            anybody they pass it on to. It is a key to the front door, so
-            send it the way you would tell somebody a secret.
-          </p>
-          <p class="note">
-            The end of the link, after the #, never reaches this website,
-            so we never see it. The app you send it with can still read the
-            whole thing, unless that chat is private from end to end.
-          </p>
+        <h3 class="sheetHead">Invite people</h3>
+        <div id="inviteHome">
+        <div id="inviteContent" class="linkBox">
+          <p class="note">Anyone with this link can join, including people it is forwarded to. Share it with people you trust.</p>
+          <label class="sr-only" for="shareUrl">Invitation link</label>
+          <input id="shareUrl" readonly aria-label="Link to this room" />
+          <div class="inviteButtons">
+            <button id="copyShare" type="button" class="primary">Copy link</button>
+            <button id="shareRoom" type="button" hidden>Share</button>
+          </div>
+          <p id="inviteStatus" class="note" role="status"></p>
           <p id="invitationAvailability" class="note">
             Leave this tab open. It is what lets the next person in when
             they follow the link.
@@ -662,9 +660,6 @@
             <button id="toggleKeep" class="toggle" data-on="false" aria-pressed="false">Remember this room here</button>
             <span id="keepNote" class="note inline"></span>
           </div>
-          <input id="shareUrl" readonly aria-label="Link to this room" />
-          <button id="shareRoom" type="button" hidden>Share</button>
-          <button id="copyShare" type="button">Copy</button>
           <button id="rotateShare" type="button" hidden>New link</button>
           <button id="makePersistent" type="button" hidden>Keep as a group</button>
           <!-- Hidden with the button it describes. Only the browser that
@@ -675,11 +670,16 @@
             A new link stops the old one letting anybody new in. Anybody
             already here stays.
           </p>
+          <details class="invitePrivacy">
+            <summary>How invitation links work</summary>
+            <p class="note">The part after # stays in your browser when you open this website. The app you share it through may still read the complete link unless that chat uses end-to-end encryption.</p>
+          </details>
           <details id="shareQrDetails">
             <summary>Show a QR code</summary>
             <canvas id="shareQr" class="qr" role="img" aria-label="QR code for the join link"></canvas>
             <p class="note">Point another phone's camera at this to open the room on it.</p>
           </details>
+        </div>
         </div>
 
         <div class="linkBox pairing">
@@ -782,6 +782,14 @@
           <button id="leave" type="button" class="danger">Leave this room</button>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="inviteDialog" aria-labelledby="inviteTitle">
+      <div class="sheetBar">
+        <h2 id="inviteTitle">Invite people</h2>
+        <button id="inviteClose" type="button">Close</button>
+      </div>
+      <div id="inviteSlot" class="sheetBody"></div>
     </dialog>
 
     <dialog id="profileSettings" class="profileSettings" aria-labelledby="profileSettingsTitle">

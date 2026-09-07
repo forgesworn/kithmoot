@@ -989,13 +989,13 @@ const profiles = new ProfileBook({
 let profilesEnabled = profilePreference(relayStorage)
 profiles.setEnabled(profilesEnabled)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
-$('chatProfiles').textContent = `Profile pictures: ${profilesEnabled ? 'on' : 'off'}`
+$('roomProfileSettings').textContent = `Profile pictures: ${profilesEnabled ? 'on' : 'off'}`
 $('lookupProfiles').addEventListener('change', () => {
   const enabled = ($('lookupProfiles') as HTMLInputElement).checked
   profilesEnabled = enabled
   try { localStorage.setItem('kithmoot.profiles.enabled', String(enabled)) } catch { /* The switch still applies to this visit. */ }
   profiles.setEnabled(enabled)
-  $('chatProfiles').textContent = `Profile pictures: ${enabled ? 'on' : 'off'}`
+  $('roomProfileSettings').textContent = `Profile pictures: ${enabled ? 'on' : 'off'}`
   if (session) {
     render(session.participants(), meParticipant)
     repaintActiveChat()
@@ -1948,6 +1948,7 @@ function showRoomTools(): void {
   $('roomNav').hidden = true
   $('doorToRooms').hidden = true
   $('workspaceNav').hidden = false
+  $('invitePeople').hidden = Boolean(roomPolicy?.members?.length)
   renderWorkspace()
   // Notifications are a front-page control as well as a room one, so the
   // markup lives in `main` for the rooms list. In a room it belongs in the
@@ -2023,7 +2024,7 @@ function renderArrival(): void {
   }
   $('arrivalTitle').textContent = roomName ?? (startedHere ? 'Your new room' : 'Join the room')
   lead.textContent = startedHere
-    ? 'Your room is ready. Choose a name, then invite your people from Room details.'
+    ? 'Your room is ready. Choose a name, then use Invite people to bring others in.'
     : roomInvitationCapability?.persistent
       ? 'Choose your name. This device will remember the group so you can come back later.'
       : 'Choose how you appear to the people in this room.'
@@ -2076,22 +2077,32 @@ function renderSheetRoom(): void {
   line.append(id)
 }
 
-function copyInput(id: string): void {
+async function copyInput(id: string): Promise<void> {
   const input = $(id) as HTMLInputElement
   input.hidden = false
   input.select()
-  navigator.clipboard?.writeText(input.value).catch(() => {
-    document.execCommand('copy')
-  })
+  let copied = false
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(input.value)
+      copied = true
+    }
+  } catch { /* Try the browser's selection-based copy below. */ }
+  if (!copied && input.getClientRects().length) {
+    input.focus(); input.select()
+    if (document.activeElement === input) {
+      try { copied = document.execCommand('copy') } catch { /* Manual copying remains available. */ }
+    }
+  }
   if (id === 'shareUrl') {
-    setStatus('Link copied. Anybody it gets passed on to can come in, until you make a new one.')
+    $('inviteStatus').textContent = copied ? 'Link copied. Share it with the people you want to invite.' : 'Automatic copy was unavailable. Select the link and copy it with your keyboard or touch menu.'
   }
 }
 
 async function shareRoomLink(): Promise<void> {
   const url = ($('shareUrl') as HTMLInputElement).value
   if (!navigator.share) {
-    copyInput('shareUrl')
+    await copyInput('shareUrl')
     return
   }
   try {
@@ -2100,7 +2111,7 @@ async function shareRoomLink(): Promise<void> {
       text: 'Join this private KithMoot room. Anyone forwarded this link can enter while it is current.',
       url,
     })
-    setStatus('Link shared.')
+    $('inviteStatus').textContent = 'Link shared.'
   } catch (err) {
     // Closing the platform share sheet is a choice, not an error.
     if (!(err instanceof DOMException && err.name === 'AbortError')) throw err
@@ -4093,7 +4104,7 @@ function introLines(): DocumentFragment {
   const said = name === undefined ? (session?.chat.messages().length ?? 0) : (channelCounts.get(name) ?? 0)
   const empty =
     name === undefined
-      ? ' Nobody has said anything yet. Go on, you can be first.'
+      ? roomPolicy?.members?.length ? ' Write a message below to start the conversation.' : ' Use Invite people to bring others in, or write a message below.'
       : ' Nothing has been said here yet.'
   const p = document.createElement('p')
   p.className = 'system intro'
@@ -6274,6 +6285,27 @@ $('searchConversation').addEventListener('click', () => {
     sheet.close()
   } else conversationSearch.open(undefined, 'conversation')
 })
+const inviteDialog = $('inviteDialog') as HTMLDialogElement
+$('invitePeople').addEventListener('click', () => {
+  if (!session || roomPolicy?.members?.length || inviteDialog.open) return
+  $('inviteStatus').textContent = ''
+  $('inviteSlot').append($('inviteContent'))
+  ;($('copyShare') as HTMLButtonElement).autofocus = true
+  inviteDialog.showModal()
+  $('copyShare').focus({ preventScroll: true })
+})
+$('inviteClose').addEventListener('click', () => inviteDialog.close())
+inviteDialog.addEventListener('close', () => {
+  ;($('copyShare') as HTMLButtonElement).autofocus = false
+  $('inviteHome').append($('inviteContent'))
+  $('invitePeople').focus({ preventScroll: true })
+})
+inviteDialog.addEventListener('click', event => {
+  if (event.target !== inviteDialog) return
+  const bounds = inviteDialog.getBoundingClientRect()
+  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) inviteDialog.close()
+})
+
 const assignmentPanel = new AssignmentPanel(document, () => {
   return (session?.participants() ?? []).map(p => {
     const actions = [...catalogues.values()].flatMap(c => c.agents.filter(a => c.running.some(r => r.id === a.id && r.participant === p.participant)).flatMap(a => a.actions ?? []))
@@ -6290,14 +6322,13 @@ const contextPanel = new ContextPanel(document, {
 })
 $('openContext').addEventListener('click', () => { closeRoomSheet(); void contextPanel.open() })
 $('chatSearch').addEventListener('click', () => conversationSearch.open($('chatSearch')))
-let profileReturnFocus: HTMLElement = $('chatProfiles')
+let profileReturnFocus: HTMLElement = $('roomMenu')
 function openProfileSettings(from: HTMLElement): void {
   profileReturnFocus = from
   closeRoomSheet()
   ;($('profileSettings') as HTMLDialogElement).showModal()
   $('lookupProfiles').focus()
 }
-$('chatProfiles').addEventListener('click', () => openProfileSettings($('chatProfiles')))
 $('roomProfileSettings').addEventListener('click', () => openProfileSettings($('roomMenu')))
 const relaySettings = new RelaySettingsPanel(document, relayConnections, {
   room: () => roomRelayScope === 'default' ? undefined : { scope: roomRelayScope, hints: roomRelayConfig },
@@ -6510,7 +6541,7 @@ $('stopPairing').addEventListener('click', () => {
 $('copyShare').addEventListener('click', () => copyInput('shareUrl'))
 $('copyPair').addEventListener('click', () => copyInput('pairUrl'))
 $('shareRoom').addEventListener('click', () => {
-  shareRoomLink().catch((err) => setStatus(describeError(err)))
+  shareRoomLink().catch((err) => { $('inviteStatus').textContent = describeError(err) })
 })
 $('rotateShare').addEventListener('click', async () => {
   if (!await confirmRoomAction({ title: 'Replace the room link?', message: 'The old link will stop admitting new people in current KithMoot clients. Existing members stay in the room.', confirmLabel: 'Replace link', danger: true })) return

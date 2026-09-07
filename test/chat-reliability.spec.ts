@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
-import { goToConversation } from './browser.js'
+import { goToConversation, openRoomDetails } from './browser.js'
 
 function testRelay(baseURL: string): string {
   const url = new URL('/__test-relay', baseURL)
@@ -128,14 +128,14 @@ test('public profiles start enabled and an opt-out survives a new visit', async 
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('No public lookup needed')
     await expect.poll(() => queries.length).toBeGreaterThan(0)
-    await page.locator('#chatProfiles').click()
+    await openRoomDetails(page); await page.locator('#roomProfileSettings').click()
     await expect(page.locator('#lookupProfiles')).toBeChecked()
     await page.locator('#lookupProfiles').uncheck()
     const count = queries.length
     await page.reload()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await page.locator('#chatProfiles').click()
+    await openRoomDetails(page); await page.locator('#roomProfileSettings').click()
     await expect(page.locator('#lookupProfiles')).not.toBeChecked()
     expect(queries).toHaveLength(count)
     await page.locator('#lookupProfiles').check()

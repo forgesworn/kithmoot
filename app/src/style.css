@@ -2763,10 +2763,10 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
   /* Picture preferences remain in Room details. Give catch-up and search
      one row here so the conversation and composer can both be used. */
   .conversationTools { flex-wrap: nowrap; }
-  #chatProfiles { display: none; }
+  #invitePeople { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
   #nextUnread { flex: 1 1 0; min-width: 0; }
-  #chatSearch { flex: 0 0 auto; }
-  #backToSearch { flex: 0 0 auto; }
+  #chatSearch { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  #backToSearch { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* Keep a full line visible when text size changes after the composer was
@@ -2844,3 +2844,16 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
 .assignmentCard h3 { margin-top: 0; }
 .assignmentCard > button { margin: .25rem .5rem .25rem 0; }
 .assignmentCard details { margin-top: 1rem; }
+
+/* Inviting people is a primary room action; the same controls remain in details. */
+#inviteDialog { width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); overflow-wrap: anywhere; }
+#inviteDialog::backdrop { background: rgb(0 0 0 / 55%); backdrop-filter: blur(3px); }
+#inviteDialog .sheetBar { flex-wrap: wrap; }
+#inviteDialog .sheetBar h2 { font-size: 1.15rem; text-transform: none; }
+#inviteDialog .linkBox { margin: 0; padding: 0; border: 0; }
+#inviteDialog .sheetBody { padding: 1rem; }
+.inviteButtons { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .6rem; }
+.inviteButtons button { min-height: 44px; margin: 0; }
+#inviteContent input { min-width: 0; max-width: 100%; }
+#inviteContent summary { min-height: 44px; padding-block: .6rem; }
+#inviteStatus:empty { display: none; }
