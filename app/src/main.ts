@@ -3543,6 +3543,8 @@ function ingestControl(messages: ChatMessage[]): void {
 function renderInvites(): void {
   const box = $('inviteAgents')
   const list = $('inviteList')
+  const focused = document.activeElement as HTMLElement | null
+  const focusKey = focused && list.contains(focused) ? focused.dataset.inviteAction : undefined
   list.innerHTML = ''
   // Shown whenever there is a room, now that it is in the room's details
   // rather than on the message screen. It used to appear only while the
@@ -3563,6 +3565,7 @@ function renderInvites(): void {
       const running = catalogue.running.find((r) => r.id === entry.id)
       const button = document.createElement('button')
       button.type = 'button'
+      button.dataset.inviteAction = JSON.stringify([host, entry.id, 'membership'])
       button.textContent = running ? `Dismiss ${entry.name}` : `Invite ${entry.name}`
       button.addEventListener('click', () => {
         button.disabled = true
@@ -3581,10 +3584,31 @@ function renderInvites(): void {
       desc.textContent = `${entry.description ?? ''}${entry.listens ? ' Listens, when allowed.' : ''} · via ${catalogue.name}`
       row.append(desc)
       if (running) {
+        const owner = running.participant
         const tag = document.createElement('span')
         tag.className = 'running'
-        tag.textContent = 'in the room'
+        tag.textContent = owner && present.has(owner) ? 'in the room' : 'host reports it running'
         row.append(tag)
+        if (owner && present.has(owner)) for (const action of entry.actions ?? []) {
+          const capability = document.createElement('div')
+          capability.className = 'inviteCapability'
+          const choose = document.createElement('button')
+          choose.type = 'button'
+          choose.textContent = `Assign work: ${action.label}`
+          choose.dataset.inviteAction = JSON.stringify([host, entry.id, action.id])
+          choose.addEventListener('click', () => {
+            const current = session
+            const open = () => { if (current && session === current) assignmentPanel.offerTo(owner, action.id) }
+            const sheet = $('roomSheet') as HTMLDialogElement
+            if (sheet.open) { sheet.addEventListener('close', open, { once: true }); sheet.close() }
+            else open()
+          })
+          const description = document.createElement('span')
+          description.className = 'desc'
+          description.textContent = action.description
+          capability.append(choose, description)
+          row.append(capability)
+        }
       }
       list.append(row)
       rows++
@@ -3604,6 +3628,7 @@ function renderInvites(): void {
     list.append(none, guide)
   }
   box.hidden = false
+  if (focusKey) (Array.from(list.querySelectorAll<HTMLElement>('[data-invite-action]')).find(button => button.dataset.inviteAction === focusKey) ?? box.querySelector<HTMLElement>('summary'))?.focus({ preventScroll: true })
 }
 
 // ---------------------------------------------------------------------------
@@ -6975,6 +7000,7 @@ interface MentionChoice {
 let mentionAt = -1
 let mentionChoices: MentionChoice[] = []
 let mentionCursor = 0
+let dismissedMention: { session: typeof session; channel: typeof currentChannel; value: string; start: number; end: number } | undefined
 
 /** How much text after an `@` is still plausibly a name being typed. Names
  *  can carry spaces, so this cannot stop at the first one; it stops when
@@ -7041,10 +7067,19 @@ function mentionCandidates(query: string): MentionChoice[] {
 function renderMentionPicker(): void {
   const box = $('chatInput')
   if (!(box instanceof HTMLTextAreaElement) || !session) {
+    dismissedMention = undefined
     closeMentionPicker()
     return
   }
   const caret = box.selectionStart ?? 0
+  // Escape dismisses this completion until the draft or caret changes.
+  // Queued selection events and catalogue updates must not reopen it.
+  if (dismissedMention?.session === session && dismissedMention.channel === currentChannel &&
+    dismissedMention.value === box.value && dismissedMention.start === caret && dismissedMention.end === box.selectionEnd) {
+    closeMentionPicker()
+    return
+  }
+  dismissedMention = undefined
   if (box.selectionEnd !== caret) { closeMentionPicker(); return }
   const before = box.value.slice(0, caret)
   const models = modelCompletions(before, availableComposerModels(), modelClerkNames())
@@ -7319,6 +7354,7 @@ $('chatForm').addEventListener('submit', (event) => {
 // a new line, which is the pair of habits every chat box has and the reason
 // a multi-line box costs nothing to use.
 $('chatInput').addEventListener('input', () => {
+  dismissedMention = undefined
   const draft = captureDraft()
   growComposer($('chatInput') as HTMLTextAreaElement)
   renderMentionPicker()
@@ -7362,6 +7398,8 @@ $('chatInput').addEventListener('keydown', (event) => {
     }
     if (event.key === 'Escape') {
       event.preventDefault()
+      const box = $('chatInput') as HTMLTextAreaElement
+      dismissedMention = { session, channel: currentChannel, value: box.value, start: box.selectionStart, end: box.selectionEnd }
       closeMentionPicker()
       return
     }

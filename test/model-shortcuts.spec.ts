@@ -35,7 +35,16 @@ test('model menu supports keyboard and touch, sends the selector and rejects sta
     await expect(input).toHaveValue('@Tally ^fable5 ')
     await input.fill('@Tally ^as')
     await expect(page.locator('#mentions [role=option]')).toHaveCount(1)
-    await input.press('Escape'); await expect(page.locator('#mentions')).toBeHidden()
+    await input.press('Escape')
+    // Browsers can deliver a queued selection event after Escape. A roster
+    // refresh is also independent of the reader choosing to dismiss the menu.
+    await input.dispatchEvent('select')
+    await announce()
+    await expect(page.locator('#mentions')).toBeHidden()
+    await input.press('ArrowLeft')
+    await expect(page.locator('#mentions [role=option]')).toHaveCount(1)
+    await input.press('Escape')
+    await expect(page.locator('#mentions')).toBeHidden()
     await input.fill('@Tally ^op')
     await input.press('Enter')
     await expect(input).toHaveValue('@Tally ^opus5 ')

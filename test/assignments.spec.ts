@@ -261,3 +261,82 @@ test('assignment retries clear only the submitted form and keep a newer draft', 
     }
   } finally { await context.close() }
 })
+
+test('an advertised agent can be invited and assigned work without replacing an unfinished draft', async ({ browser, baseURL }, testInfo) => {
+  const { context, page, relay } = await workDevice(browser, baseURL!)
+  const host = await RoomAgent.create({ base: baseURL!, name: 'Workshop host', roomName: 'Agent workshop', agent: false, relays: ['ws://127.0.0.1:7777'] })
+  let worker: RoomAgent | undefined
+  let actions = [{ id: 'check-release', label: 'Check release evidence', description: 'Check a named build and return its evidence for review.', inputs: [{ id: 'build', label: 'Build identifier', required: true }] }]
+  const requests: string[] = []
+  const announce = () => host.sendControl({ op: 'catalogue', host: host.participant, name: 'Workshop host',
+    agents: [{ id: 'checker', name: 'Build checker', description: 'Reviews build evidence.', actions }],
+    running: worker ? [{ id: 'checker', name: 'Build checker', participant: worker.participant, since: 1 }] : [],
+  })
+  const off = host.onPresenceRequest(request => {
+    if (request.op === 'catalogue?') void announce()
+    else if (request.op === 'invite' && request.agent) requests.push(request.agent)
+  })
+  try {
+    await page.goto(encodeRoomLink(baseURL!, { ...parseRoomLink(host.url), relays: [relay] }))
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await announce()
+    await page.locator('#conversationNav [data-channel=agents]').click()
+    await page.locator('#manageAgents').click()
+    await page.getByRole('button', { name: 'Invite Build checker', exact: true }).click()
+    await expect.poll(() => requests).toContain('checker')
+    // A real peer joins when the fixture host receives the invitation. Its
+    // work results below exercise the shared state machine, not an external job.
+    worker = await RoomAgent.join({ link: host.url, name: 'Build checker', agent: true, relays: ['ws://127.0.0.1:7777'] })
+    let journal: string | undefined
+    const log = await worker.session.assignments({ async load() { return journal }, async save(value) { journal = value } })
+    await announce()
+    const choose = page.getByRole('button', { name: 'Assign work: Check release evidence', exact: true })
+    await expect(choose).toBeVisible()
+    await choose.focus()
+    await announce()
+    await expect(choose).toBeFocused()
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme })
+      await page.setViewportSize({ width: 320, height: 740 })
+      expect(await page.locator('#roomSheet').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+      // Presence updates can replace the catalogue row during scrolling.
+      await expect(async () => { await choose.scrollIntoViewIfNeeded() }).toPass()
+      await page.screenshot({ path: testInfo.outputPath(`agent-actions-${colorScheme}.png`) })
+    }
+    await choose.click()
+    await expect(page.locator('#roomSheet')).not.toBeVisible()
+    await expect(page.locator('#assignmentPanel')).toBeVisible()
+    await expect(page.locator('#assignmentOwner')).toHaveValue(worker.participant)
+    await expect(page.locator('#assignmentAction')).toHaveValue('check-release')
+    expect(log.snapshot().assignments).toHaveLength(0)
+    const objective = page.locator('#assignmentCreate [name=objective]')
+    await objective.fill('Review build 234')
+    await page.locator('#assignmentCreate [name=criteria]').fill('Return the build identifier and evidence')
+    await page.getByLabel('Build identifier', { exact: true }).fill('234')
+    await page.keyboard.press('Escape')
+    await page.locator('#manageAgents').click()
+    await choose.click()
+    await expect(page.locator('#assignmentStatus')).toContainText('unfinished assignment')
+    await expect(objective).toHaveValue('Review build 234')
+    await expect(page.getByLabel('Build identifier', { exact: true })).toHaveValue('234')
+    expect(log.snapshot().assignments).toHaveLength(0)
+    await page.locator('#assignmentCreate button[type=submit]').click()
+    await expect.poll(() => log.snapshot().assignments.length).toBe(1)
+    const assignment = log.snapshot().assignments[0]!
+    expect(assignment.action).toBe('check-release')
+    expect(assignment.inputs).toEqual({ build: '234' })
+    await log.submit(assignment.id, { op: 'claim', executor: 'advertised_action_executor', next: 'Read build 234 evidence' }, 'advertised_action_claim')
+    await log.submit(assignment.id, { op: 'result', executor: 'advertised_action_executor', summary: 'Build 234 reviewed', evidence: 'artifact:build-234.txt' }, 'advertised_action_result')
+    const card = page.locator(`.assignmentCard[data-assignment="${assignment.id}"]`)
+    await expect(card).toContainText('Build 234 reviewed')
+    await card.getByRole('button', { name: 'Accept this result' }).click()
+    await expect.poll(() => log.snapshot().assignments[0]?.status).toBe('accepted')
+    await page.keyboard.press('Escape')
+    await page.locator('#manageAgents').click()
+    actions = []
+    await announce()
+    await expect(choose).toHaveCount(0)
+    worker.leave()
+    await expect(page.locator('#inviteList')).toContainText('host reports it running')
+  } finally { off(); worker?.leave(); host.leave(); await context.close() }
+})

@@ -88,6 +88,32 @@ export class AssignmentPanel {
     }
   }
   get busy(): boolean { return this.#busy }
+  /** Choosing an advertised capability prepares a form; only sharing submits it. */
+  offerTo(owner: string, action: string): void {
+    if (!this.#roomKey) return
+    const form = this.root.getElementById('assignmentCreate') as HTMLFormElement
+    const objective = form.elements.namedItem('objective') as HTMLTextAreaElement
+    const criteria = form.elements.namedItem('criteria') as HTMLTextAreaElement
+    form.closest('details')!.open = true
+    this.#render()
+    if (!this.#dialog.open) this.#dialog.showModal()
+    if (this.#busy || [objective.value, criteria.value, ...[...this.#inputs.querySelectorAll<HTMLInputElement>('input')].map(input => input.value)].some(Boolean)) {
+      this.#status.textContent = this.#busy ? 'Wait for the current update to finish.' : 'You have an unfinished assignment. Share or discard that draft before starting another.'
+      this.#status.focus({ preventScroll: true })
+      return
+    }
+    this.#owners()
+    if (!this.people().find(person => person.pubkey === owner)?.actions?.some(candidate => candidate.id === action)) {
+      this.#status.textContent = 'That action is no longer available. Choose an owner and action from the current list.'
+      this.#status.focus({ preventScroll: true })
+      return
+    }
+    this.#owner.value = owner
+    this.#actions()
+    this.#action.value = action
+    this.#actionInputs()
+    objective.focus()
+  }
   #formValue(): string {
     const form = this.root.getElementById('assignmentCreate') as HTMLFormElement
     return JSON.stringify([(form.elements.namedItem('objective') as HTMLTextAreaElement).value, (form.elements.namedItem('criteria') as HTMLTextAreaElement).value, this.#owner.value, this.#action.value,

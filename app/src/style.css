@@ -1618,6 +1618,8 @@ button.primary:hover:not(:disabled) {
   gap: 0.4rem;
   margin: 0.5rem 0 0.75rem;
 }
+.inviteCapability { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; min-width: 0; }
+.inviteCapability button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; min-height: 44px; }
 
 .inviteRow {
   display: flex;

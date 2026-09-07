@@ -17,8 +17,11 @@ visual polish or a green browser suite as proof of superiority.
 KithMoot's conversation-to-work journey is a promising focus: create a room,
 invite someone, discuss the work, assign it, answer a question, review evidence
 and accept the exact result. `test/assignments.spec.ts` exercises that journey
-with two independent browsers. This is an assessment of where to focus, not a
-claim that Slack cannot support a comparable workflow.
+with two independent browsers. The agent list also exposes advertised actions
+directly, preparing an assignment without overwriting an unfinished draft.
+Its browser journey covers invitation through explicit result acceptance.
+This is an assessment of where to focus, not a claim that Slack cannot support
+a comparable workflow or that the fixture executed an external agent job.
 
 The next useful comparison is the same set of tasks in both applications:
 join a room, find a decision, return after an interruption, reply within a
