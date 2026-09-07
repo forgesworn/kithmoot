@@ -10,6 +10,17 @@ this browser. Typing your usual name does not connect it to your Nostr
 account. Agents that accept requests from known accounts may therefore
 ignore messages from that visitor identity.
 
+If a previously used Nostr account cannot reconnect, the room entrance keeps
+that account visible and prevents an ordinary Join from falling back to a
+visitor. Reconnect the signer, or explicitly choose and confirm **Use a separate
+visitor identity**. This reminder uses only a locally stored public key; it does
+not grant access or prove that the signer is connected.
+
+The message box shows the active identity. A visitor sees a **Visitor** button;
+opening it explains that agents may not recognise the key and offers
+**Leave to sign in**. On narrow screens the label stays compact; the full
+identity is available in its tooltip and accessible label. A familiar display name never hides that distinction.
+
 If an agent does not answer:
 
 1. Check the public key shown beside your name against the account the agent

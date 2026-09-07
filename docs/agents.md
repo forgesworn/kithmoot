@@ -600,3 +600,16 @@ back to empty and the panel asks, which is what Wildbloom itself does.
   is honoured by the target's own client or not at all. Removal enforces.
 - **An agent cannot yet speak aloud.** It has no track to publish; a voice
   would be a text-to-speech source behind the same `publishTracks`.
+
+
+### Reading room history without triggering requests
+
+A stdio host can send `{"op":"history-snapshot","id":"request-id","channel":"chat","limit":50}`.
+The helper returns a single `history-snapshot` event containing the request ID,
+room, conversation and attributed messages, followed by the matching `ok`.
+The limit is 1–200; named conversations and `agents` are supported. Reactions
+and retracted messages are excluded; edits use the latest visible text. This does not replay chat events or issue commands. Consumers
+must match the request, room and conversation and treat the contents as
+read-only context, including messages from people who cannot command the agent.
+A history window is not a complete archive. The older `history` command retains
+its event-stream behaviour for compatibility.

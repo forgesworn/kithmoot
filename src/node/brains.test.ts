@@ -65,3 +65,27 @@ describe('presence requests reach the brain', () => {
     })
   })
 })
+
+
+it('returns room history as a correlated snapshot without replaying messages as new requests', async () => {
+  const input = new PassThrough(), output = new PassThrough()
+  const events: Array<Record<string, unknown>> = []
+  output.on('data', bytes => events.push(JSON.parse(bytes.toString())))
+  const message = { id: 'original', participant: 'd'.repeat(64), name: 'Room visitor', text: 'The latest comment', sentAt: 123 }
+  const conversation = vi.fn(() => ({ messages: () => [message, { ...message, id: 'reaction', reaction: { emoji: '👍' } }, { ...message, id: 'removed' }, { ...message, id: 'tombstone', retracts: 'removed', text: '' }, { ...message, id: 'edit', replaces: 'original', text: 'Corrected latest comment', sentAt: 124 }] }))
+  const runtime = {
+    agent: { participant: 'a'.repeat(64), device: 'b'.repeat(64), roomId: 'c'.repeat(64), url: 'https://example.invalid/', hosting: false },
+    persona: { name: 'Tally', system: '' }, roster: () => [], on: () => () => {}, conversation,
+  } as unknown as AgentRuntime
+  const stop = await new StdioBrain(input, output).start(runtime)
+  try {
+    input.write(JSON.stringify({ op: 'history-snapshot', id: 'request-1', channel: 'chat', limit: 20 }) + '\n')
+    await vi.waitFor(() => expect(events).toContainEqual({ type: 'ok', op: 'history-snapshot', id: 'request-1' }))
+    expect(events).toContainEqual({ type: 'history-snapshot', id: 'request-1', room: 'c'.repeat(64), channel: 'chat', messages: [{ ...message, text: 'Corrected latest comment' }] })
+    expect(events.some(e => e.type === 'chat')).toBe(false)
+    expect(conversation).toHaveBeenCalledWith('chat')
+    input.write(JSON.stringify({ op: 'history-snapshot', id: 'bad', channel: 'chat', limit: 100000 }) + '\n')
+    await vi.waitFor(() => expect(events).toContainEqual({ type: 'error', message: 'History limit must be from 1 to 200' }))
+    expect(conversation).toHaveBeenCalledTimes(1)
+  } finally { await stop(); input.destroy(); output.destroy() }
+})

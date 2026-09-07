@@ -2897,3 +2897,10 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 #inviteStatus:empty { display: none; }
 
 .nip05 { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+
+#sendingIdentity { flex: 0 1 auto; min-width: 0; max-width: 12rem; font-size: .8rem; }
+#sendingIdentity button, .sendingAccount { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sendingIdentity button { min-height: 44px; margin: 0; }
+.sendingAccount { padding-block: .6rem; }
+.visitorIdentity { border-left: 3px solid var(--accent); padding-left: .6rem; overflow-wrap: anywhere; }
+@media (max-width: 700px) { #sendingIdentity .sendingName { display: none; } }
