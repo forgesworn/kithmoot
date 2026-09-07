@@ -1,5 +1,8 @@
 # UI and UX pass — 5 September 2026
 
+The [7 September follow-up](ui-ux-pass-2026-09-07.md) covers conversation
+catch-up, preserved reading positions and the remaining wider review.
+
 The main problems were discovery and navigation: agent conversations were
 inside Room details, saved rooms required a picker on every visit, and rooms
 could not be organised into projects.

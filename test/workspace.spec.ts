@@ -155,6 +155,96 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
   } finally { agent.leave(); keeper.leave(); await context.close() }
 })
 
+test('catching up starts at unread messages and keeps your place across conversations', async ({ browser, baseURL }, testInfo) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  const writer = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Design workshop', relays: ['ws://127.0.0.1:7777'] })
+  try {
+    await page.setViewportSize({ width: 390, height: 740 })
+    await join(page, withRelays(writer.url, [relay]))
+    for (let i = 0; i < 8; i++) {
+      await writer.chat.send(`Design note ${i}. ` + 'Keep the conversation easy to follow. '.repeat(5))
+      await expect(page.locator('#chatLog .msg')).toHaveCount(i + 1)
+    }
+    const log = page.locator('#chatLog')
+    await log.evaluate(el => { el.scrollTop = el.scrollHeight })
+    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
+    await log.evaluate(el => { el.scrollTop = 100 })
+    await expect.poll(() => log.evaluate(el => el.scrollTop)).toBeCloseTo(100, 0)
+    for (let i = 0; i < 8; i++) {
+      await writer.session.channel('agents').send(`Review note ${i}. ` + 'Check the phone layout and keep the composer visible. '.repeat(4))
+    }
+    await expect(page.locator('#nextUnread')).toHaveText('Next unread: Agents (8)')
+    await page.locator('#chatInput').fill('A draft to come back to')
+    const readingPlace = () => log.evaluate(el => {
+      const edge = el.getBoundingClientRect().top
+      const anchor = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(message => message.getBoundingClientRect().bottom > edge)!
+      return { id: anchor.dataset.messageId, offset: anchor.getBoundingClientRect().top - edge }
+    })
+    const place = await readingPlace()
+    await page.locator('#nextUnread').click()
+    await expect(log).toBeFocused()
+    await expect(log.locator('.unreadDivider')).toHaveText('New messages')
+    await expect(page.locator('#conversationNav button[data-channel=agents] .conversationUnread')).toHaveText('8')
+    const dividerOffset = () => log.locator('.unreadDivider').evaluate(el => el.getBoundingClientRect().top - document.getElementById('chatLog')!.getBoundingClientRect().top)
+    await expect.poll(dividerOffset).toBeLessThan(5)
+    await expect.poll(dividerOffset).toBeGreaterThanOrEqual(-1)
+    await page.screenshot({ path: testInfo.outputPath('catch-up-phone.png') })
+
+    // An arrival must leave the first unread message in place.
+    await writer.session.channel('agents').send('A later update while you catch up.')
+    await expect(log.locator('.msg')).toHaveCount(9)
+    await expect.poll(dividerOffset).toBeLessThan(5)
+    await page.locator('#conversationNav button[data-channel=""]').click()
+    await expect(page.locator('#chatInput')).toHaveValue('A draft to come back to')
+    await expect.poll(async () => (await readingPlace()).id).toBe(place.id)
+    await expect.poll(async () => Math.abs((await readingPlace()).offset - place.offset)).toBeLessThan(1)
+    await page.locator('#nextUnread').click()
+    await expect.poll(dividerOffset).toBeLessThan(5)
+    await page.locator('#newMessages').click()
+    await expect(log).toBeFocused()
+    await expect(page.locator('#conversationNav button[data-channel=agents] .conversationUnread')).toHaveCount(0)
+    await expect(page.locator('#nextUnread')).toBeHidden()
+
+    // Editing a message already read does not invent another unread message.
+    // Read above the bottom so rendering cannot clear a false unread count.
+    await log.evaluate(el => { el.scrollTop = 100 })
+    const original = writer.session.channel('agents').messages().find(message => message.text.startsWith('Review note'))!
+    await writer.session.channel('agents').send('The reviewed layout is ready.', { replaces: original.id })
+    await expect(log).toContainText('The reviewed layout is ready.')
+    await expect(page.locator('#conversationNav button[data-channel=agents] .conversationUnread')).toHaveCount(0)
+    await log.evaluate(el => { el.scrollTop = 100 })
+    const agentPlace = await readingPlace()
+    await page.locator('#conversationNav button[data-channel=transcript]').click()
+    await expect(page.locator('#chatForm')).toBeHidden()
+    await page.locator('#conversationNav button[data-channel=agents]').click()
+    await expect.poll(async () => (await readingPlace()).id).toBe(agentPlace.id)
+    await expect.poll(async () => Math.abs((await readingPlace()).offset - agentPlace.offset)).toBeLessThan(1)
+    const channel = 'design-review-mobile-accessibility-and-keyboard-navigation'
+    await writer.setChannel(channel, true)
+    await writer.session.channel(channel).send('Ready for the next review.')
+    await expect(page.locator('#nextUnread')).toContainText(channel)
+    for (const width of [320, 768, 1440]) {
+      await page.setViewportSize({ width, height: 740 })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      const composer = await page.locator('#chatForm').boundingBox()
+      expect(composer!.y + composer!.height).toBeLessThanOrEqual(740)
+    }
+    await page.screenshot({ path: testInfo.outputPath('catch-up-desktop.png') })
+    await page.setViewportSize({ width: 320, height: 540 })
+    await page.screenshot({ path: testInfo.outputPath('catch-up-short-phone.png') })
+    const shortComposer = await page.locator('#chatForm').boundingBox()
+    expect(shortComposer!.y + shortComposer!.height).toBeLessThanOrEqual(540)
+    await page.locator('#nextUnread').click()
+    await expect(log).toContainText('Ready for the next review.')
+    await expect(page.locator('#conversationNav button[aria-pressed=true]')).toHaveAttribute('data-channel', channel)
+    const finalComposer = await page.locator('#chatForm').boundingBox()
+    expect(finalComposer!.y + finalComposer!.height).toBeLessThanOrEqual(540)
+    await page.locator('#roomMenu').click()
+    await page.locator('#roomProfileSettings').click()
+    await expect(page.locator('#profileSettings')).toBeVisible()
+  } finally { writer.leave(); await context.close() }
+})
+
 test('refreshing a rekeyed room restores its lock state without announcing old removals again', async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
   // A small clock difference proves notices use the authority's timestamp,

@@ -2463,6 +2463,17 @@ label.note {
 .outboxItem p { margin: .25rem 0; white-space: pre-wrap; }
 .outboxItem button { margin-right: .5rem; }
 #newMessages { align-self: center; flex-shrink: 0; }
+.unreadDivider {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-block: .75rem;
+  color: var(--accent);
+  font-size: .8rem;
+  font-weight: 600;
+}
+.unreadDivider::before, .unreadDivider::after { content: ''; height: 1px; background: currentColor; flex: 1; }
+#nextUnread { color: var(--accent); border-color: var(--accent); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .profileChoice { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
 #lookupProfiles { min-height: 0; width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
 
@@ -2706,6 +2717,12 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
 @media (max-width: 700px) and (max-height: 600px) {
   /* Wrapped room actions must leave the composer reachable on short phones. */
   main:has(#roomArea:not([hidden])) #chatLog { min-height: 3rem; }
+  /* Picture preferences remain in Room details. Give catch-up and search
+     one row here so the conversation and composer can both be used. */
+  .conversationTools { flex-wrap: nowrap; }
+  #chatProfiles { display: none; }
+  #nextUnread { flex: 1 1 0; min-width: 0; }
+  #chatSearch { flex: 0 0 auto; }
 }
 
 /* Keep a full line visible when text size changes after the composer was

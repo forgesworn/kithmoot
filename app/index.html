@@ -164,12 +164,13 @@
 
         <h3 id="conversationHeading" class="sr-only">Chat</h3>
         <div class="conversationTools" aria-label="Conversation tools">
+          <button id="nextUnread" type="button" hidden></button>
           <button id="chatSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search messages</button>
           <button id="chatProfiles" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures: on</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
         <div id="chatLog" role="region" aria-label="Conversation" aria-live="polite" tabindex="0"></div>
-        <button id="newMessages" type="button" hidden>New messages ↓</button>
+        <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
         <!-- Said where the box would be, on the conversations nobody types
              into. A box on the Transcript tab invited somebody to type into

@@ -3703,6 +3703,7 @@ function restoreConversation(): void {
 }
 
 function selectChannel(name: string | undefined): void {
+  chatScroll.remember()
   captureDraft()
   try { sessionStorage.setItem(conversationStorageKey(), name ?? '') } catch { /* Optional tab preference. */ }
   currentChannel = name
@@ -3724,6 +3725,14 @@ function selectChannel(name: string | undefined): void {
   closeRoomSheet()
   markConversationRead()
   renderConversationNav()
+  const nav = $('conversationNav')
+  const selected = nav.querySelector<HTMLElement>('[aria-pressed="true"]')
+  if (selected) {
+    const tab = selected.getBoundingClientRect()
+    const bounds = nav.getBoundingClientRect()
+    if (tab.left < bounds.left) nav.scrollLeft -= bounds.left - tab.left
+    else if (tab.right > bounds.right) nav.scrollLeft += tab.right - bounds.right
+  }
   // Chromium resets a revealed textarea's selection after this click has
   // finished. Restore it on the next frame, unless the reader moved on.
   if (input instanceof HTMLTextAreaElement) {
@@ -3731,7 +3740,11 @@ function selectChannel(name: string | undefined): void {
     const { text, selectionStart, selectionEnd, selectionDirection } = draft
     requestAnimationFrame(() => {
       if (currentChannel !== name || input.value !== text || document.activeElement === input) return
+      const focused = document.activeElement
       input.setSelectionRange(selectionStart, selectionEnd, selectionDirection)
+      // WebKit focuses a textarea when restoring its selection. A catch-up
+      // action has already put focus in the log; keep that deliberate choice.
+      if (focused instanceof HTMLElement && document.activeElement === input) focused.focus({ preventScroll: true })
     })
   }
 }
@@ -3887,9 +3900,21 @@ function conversationMessages(name: string | undefined): ChatMessage[] {
   return (name === undefined ? session?.chat : channelLogs.get(name))?.messages() ?? []
 }
 
-function conversationUnread(name: string | undefined): number {
+function unreadMessageIds(name: string | undefined): Set<string> {
   const read = conversationRead.get(name ?? '')
-  return conversationMessages(name).filter(message => !message.reaction && message.participant !== meParticipant && !read?.has(message.id)).length
+  return new Set(Array.from(resolveConversation(conversationMessages(name)).byKey.values())
+    .filter(message => !message.retracted && message.original.participant !== meParticipant && !read?.has(message.original.id))
+    .map(message => message.original.id))
+}
+
+function conversationUnread(name: string | undefined): number {
+  return unreadMessageIds(name).size
+}
+
+function nextUnreadConversation(): [string | undefined, string] | undefined {
+  const tabs = conversationTabs()
+  const index = tabs.findIndex(([name]) => name === currentChannel)
+  return [...tabs.slice(index + 1), ...tabs.slice(0, index)].find(([name]) => conversationUnread(name) > 0)
 }
 
 function markConversationRead(): boolean {
@@ -3904,6 +3929,10 @@ function markConversationRead(): boolean {
 }
 
 function renderConversationNav(): void {
+  const next = nextUnreadConversation()
+  $('nextUnread').hidden = !next
+  $('nextUnread').textContent = next ? `Next unread: ${next[1]} (${conversationUnread(next[0])})` : ''
+  $('nextUnread').title = $('nextUnread').textContent ?? ''
   const nav = $('conversationNav')
   const focused = document.activeElement as HTMLElement | null
   const focusedChannel = focused && nav.contains(focused) ? focused.closest<HTMLElement>('[data-channel]')?.dataset.channel : undefined
@@ -4287,7 +4316,7 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
  */
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
-  const restoreScroll = chatScroll.before(currentChannel ?? '')
+  const restoreScroll = chatScroll.before(currentChannel ?? '', unreadMessageIds(currentChannel))
   log.innerHTML = ''
   // What this conversation is, at the top of it, the way a messaging app
   // puts the thing you should know once at the head of the thread.
@@ -6125,6 +6154,12 @@ async function setNudge(on: boolean): Promise<void> {
 $('backToRooms').addEventListener('click', openRoomSwitcher)
 $('doorToRooms').addEventListener('click', openRoomSwitcher)
 $('watchAgents').addEventListener('click', () => selectChannel(AGENT_CHANNEL))
+$('nextUnread').addEventListener('click', () => {
+  const next = nextUnreadConversation()
+  if (!next) return
+  selectChannel(next[0])
+  $('chatLog').focus({ preventScroll: true })
+})
 $('manageAgents').addEventListener('click', () => {
   openRoomSheet()
   ;($('inviteAgents') as HTMLDetailsElement).open = true
@@ -6609,7 +6644,8 @@ function growComposer(box: HTMLTextAreaElement): void {
   const padding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0)
   const borders = (Number.parseFloat(style.borderTopWidth) || 0) + (Number.parseFloat(style.borderBottomWidth) || 0)
   const most = line * COMPOSER_MAX_LINES + padding + borders
-  box.style.height = `${Math.min(box.scrollHeight + borders, most)}px`
+  // A long conversation name in the placeholder is not a multi-line draft.
+  box.style.height = `${box.value ? Math.min(box.scrollHeight + borders, most) : line + padding + borders}px`
 }
 
 // ---------------------------------------------------------------------------
