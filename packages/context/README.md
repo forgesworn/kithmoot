@@ -6,10 +6,10 @@ NanoClaw, model provider, MCP SDK or hosted service dependency.
 
 This package is maintained in the KithMoot repository alongside its first
 consumer. It has its own manifest, exports, build and distributable tarball.
-Version 0.1.0 is published on npm:
+Install the patch release:
 
 ```sh
-npm install @forgesworn/context@0.1.0
+npm install @forgesworn/context@0.1.1
 ```
 
 From a source checkout, use `npm ci --ignore-scripts`,
@@ -47,7 +47,10 @@ Configure `servers` with explicitly enabled HTTPS Blossom origins. `fetch`
 and `now` can be injected. The optional `@forgesworn/context/blossom` entry
 point exposes the existing Wildbloom FSWNENC2 envelope and Blossom transport
 implementation, also consumed by KithMoot attachments. No separate hosted
-context service is required.
+context service is required. `FSWNENC2` means ForgeSworn encryption version 2:
+the file-format marker used by Wildbloom, built on AES-256-GCM and HKDF-SHA256.
+Version 0.1.1 preserves complete Unicode characters when truncating filenames;
+the encryption format and existing context caches are unchanged.
 
 Owners use `setGrants(id, expectedHead, grants)` to assign a subject's public
 key, `read`/`write` role and `expiresAt` in Unix seconds. Upload the revision
@@ -93,3 +96,9 @@ already downloaded copies. Retain encrypted backups and signing identity
 access; upload success does not prove durable storage. Sending records to a
 model exposes them to that model's data handling. Context access permissions
 do not authenticate a caller of your agent host.
+
+## Licence and provenance
+
+MIT, Copyright (c) 2026 TheCryptoDonkey. See [LICENSE](./LICENSE) and
+[third-party notices](./THIRD_PARTY_NOTICES.md) for dependency licences,
+source attribution and the documented upstream WASM notice omission.

@@ -1,6 +1,6 @@
 {
   "name": "@forgesworn/context-tools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "File cache, CLI and MCP tools for encrypted context",
   "license": "MIT",
   "type": "module",
@@ -9,7 +9,8 @@
   },
   "files": [
     "dist",
-    "bin"
+    "bin",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "exports": {
     ".": {
@@ -34,7 +35,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@forgesworn/context": "0.1.0",
+    "@forgesworn/context": "0.1.1",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@noble/hashes": "1.8.0",
     "zod": "4.5.4"

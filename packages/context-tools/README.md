@@ -4,10 +4,10 @@ Node file persistence, CLI and MCP tools for `@forgesworn/context`. MIT, ESM,
 Node 22.13+. Separate from the browser-safe core: filesystem and MCP dependencies
 never enter its root import. No KithMoot or NanoClaw runtime dependency.
 
-Version 0.1.0 is published on npm and depends on the matching core package:
+Install the patch release, which depends on the matching core package:
 
 ```sh
-npm install @forgesworn/context-tools@0.1.0
+npm install @forgesworn/context-tools@0.1.1
 ```
 
 The source is maintained in the KithMoot workspace. Build with
@@ -48,3 +48,9 @@ rename. Lock contention is reported for retry. A crash may leave a stale
 locations are the operator's responsibility. MCP does not authenticate other
 users of the same host account, and grants do not replace the agent host's
 caller access controls.
+
+## Licence and provenance
+
+MIT, Copyright (c) 2026 TheCryptoDonkey. See [LICENSE](./LICENSE) and
+[third-party notices](./THIRD_PARTY_NOTICES.md) for dependency licences,
+source attribution and the documented upstream WASM notice omission.
