@@ -16,9 +16,10 @@ visitor. Reconnect the signer, or explicitly choose and confirm **Use a separate
 visitor identity**. This reminder uses only a locally stored public key; it does
 not grant access or prove that the signer is connected.
 
-The message box shows **Sending as** with the active identity. A visitor sees
-**Sending as visitor**, an explanation that agents may not recognise the key,
-and **Leave to sign in**. A familiar display name never hides that distinction.
+The message box shows the active identity. A visitor sees a **Visitor** button;
+opening it explains that agents may not recognise the key and offers
+**Leave to sign in**. On narrow screens the label stays compact; the full
+identity is available in its tooltip and accessible label. A familiar display name never hides that distinction.
 
 If an agent does not answer:
 

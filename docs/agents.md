@@ -608,7 +608,7 @@ A stdio host can send `{"op":"history-snapshot","id":"request-id","channel":"cha
 The helper returns a single `history-snapshot` event containing the request ID,
 room, conversation and attributed messages, followed by the matching `ok`.
 The limit is 1–200; named conversations and `agents` are supported. Reactions
-are excluded. This does not replay chat events or issue commands. Consumers
+and retracted messages are excluded; edits use the latest visible text. This does not replay chat events or issue commands. Consumers
 must match the request, room and conversation and treat the contents as
 read-only context, including messages from people who cannot command the agent.
 A history window is not a complete archive. The older `history` command retains

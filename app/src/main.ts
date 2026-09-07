@@ -1319,20 +1319,29 @@ function renderIdentity(): void {
   sending.hidden = !session
   if (session) {
     const visitor = !nostrSession && !loadCredential()
-    sending.classList.toggle('visitorIdentity', visitor)
-    sending.append(visitor ? 'Sending as visitor · ' : 'Sending as · ')
-    sending.append(identityRun(shownAs(meParticipant, joiningName()), false, true))
-    if (visitor) {
-      const help = document.createElement('span')
-      help.textContent = 'Separate browser identity. Agents may not recognise you.'
-      sending.append(help)
-      const change = document.createElement('button')
-      change.type = 'button'
-      change.className = 'quiet'
-      change.textContent = 'Leave to sign in'
-      change.addEventListener('click', () => ($('leave') as HTMLButtonElement).click())
-      sending.append(change)
+    const shown = shownAs(meParticipant, joiningName())
+    const label = visitor ? 'Visitor' : 'Nostr'
+    const description = `Sending as ${visitor ? 'visitor' : 'Nostr account'}: ${shown.name ?? label}. ${shown.npub}${shown.nip05 ? `. ${shown.nip05}` : ''}`
+    sending.title = description
+    sending.setAttribute('aria-label', description)
+    const choice = document.createElement(visitor ? 'button' : 'span')
+    choice.className = visitor ? 'visitorIdentity quiet' : 'sendingAccount'
+    const kind = document.createElement('span')
+    kind.textContent = label
+    choice.append(kind)
+    if (shown.name) {
+      const name = document.createElement('span')
+      name.className = 'sendingName'
+      name.textContent = ` · ${shown.name}`
+      choice.append(name)
     }
+    if (visitor) {
+      ;(choice as HTMLButtonElement).type = 'button'
+      choice.addEventListener('click', async () => {
+        if (await confirmRoomAction({ title: 'Sending as a visitor', message: `${description}. This is a separate browser identity. Agents may not recognise you. Leave the room to sign in with your usual Nostr account.`, confirmLabel: 'Leave to sign in', cancelLabel: 'Keep chatting' })) ($('leave') as HTMLButtonElement).click()
+      })
+    }
+    sending.append(choice)
   }
   $('joinIdentityHelp').textContent = nostrSession
     ? 'Your messages use this Nostr account. Agents recognise its public key.'

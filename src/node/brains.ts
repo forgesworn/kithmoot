@@ -1,5 +1,5 @@
 import { decodeControl, encodeControl, type CatalogueEntry, type RunningAgent } from '../control.js'
-import { mentionedBy, namesInText } from '../messages.js'
+import { mentionedBy, namesInText, resolveConversation } from '../messages.js'
 import type { ChatAttachment, ChatMessageKind, ChatMessage } from '../chat.js'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
@@ -217,7 +217,8 @@ export class StdioBrain implements Brain {
           if (typeof command.id !== 'string' || !command.id || typeof command.channel !== 'string') throw new Error('A history request needs an id and conversation')
           const limit = command.limit ?? 50
           if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('History limit must be from 1 to 200')
-          const messages = runtime.conversation(command.channel).messages().filter(m => !m.reaction).slice(-limit)
+          const messages = [...resolveConversation(runtime.conversation(command.channel).messages()).byKey.values()]
+            .filter(m => !m.retracted).map(m => m.shown).sort((a, b) => a.sentAt - b.sentAt || a.id.localeCompare(b.id)).slice(-limit)
             .map(m => ({ id: m.id, participant: m.participant, name: m.name, text: m.text, sentAt: m.sentAt }))
           write({ type: 'history-snapshot', id: command.id, room: runtime.agent.roomId, channel: command.channel, messages })
           write({ type: 'ok', op: 'history-snapshot', id: command.id })

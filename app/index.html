@@ -189,7 +189,6 @@
           <!-- What the box is doing besides saying something new: answering
                a message, or replacing one of yours. Filled in by
                `renderComposerContext` in app/src/main.ts. -->
-          <div id="sendingIdentity" class="sendingIdentity" hidden></div>
           <div id="composerContext" class="composerContext" hidden></div>
           <div id="mentions" class="mentions" role="listbox" aria-label="People and agents in this room" hidden></div>
           <!-- A box, not a line. It was one line that scrolled sideways, so
@@ -207,6 +206,7 @@
                NOT allowed to rename itself as you use it - the count goes
                in its own span - because a control that changes identity
                under a person is a control they stop trusting. -->
+          <div id="sendingIdentity" class="sendingIdentity" hidden></div>
           <button type="button" id="emojiToggle" aria-label="Choose an emoji" title="Emoji">😊</button>
           <button type="button" id="attachToggle" aria-label="Add a file"
                   title="Send a file: drop one here, or pick one">
