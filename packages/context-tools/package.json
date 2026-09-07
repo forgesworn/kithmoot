@@ -1,0 +1,61 @@
+{
+  "name": "@forgesworn/context-tools",
+  "version": "0.1.0",
+  "description": "File cache, CLI and MCP tools for encrypted context",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./store": {
+      "types": "./dist/context-store.d.ts",
+      "import": "./dist/context-store.js"
+    },
+    "./mcp": {
+      "types": "./dist/context-mcp.d.ts",
+      "import": "./dist/context-mcp.js"
+    },
+    "./cli": {
+      "types": "./dist/context-cli.d.ts",
+      "import": "./dist/context-cli.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@forgesworn/context": "0.1.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@noble/hashes": "1.8.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "^22.20.1"
+  },
+  "bin": {
+    "encrypted-context": "./bin/encrypted-context.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forgesworn/kithmoot.git",
+    "directory": "packages/context-tools"
+  },
+  "homepage": "https://github.com/forgesworn/kithmoot/tree/main/packages/context-tools#readme",
+  "bugs": {
+    "url": "https://github.com/forgesworn/kithmoot/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

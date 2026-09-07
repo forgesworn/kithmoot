@@ -10,10 +10,15 @@
   },
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
-  "files": ["dist/src", "bin", "server/forwarder.mjs", "vectors/kithmoot-vectors.json"],
+  "files": [
+    "dist/src",
+    "bin",
+    "server/forwarder.mjs",
+    "vectors/kithmoot-vectors.json"
+  ],
   "scripts": {
-    "build": "vite build --config app/vite.config.ts",
-    "build:lib": "tsc -p tsconfig.json",
+    "build": "npm run build:context && vite build --config app/vite.config.ts",
+    "build:lib": "npm run build:context && tsc -p tsconfig.json",
     "prepack": "npm run build:lib",
     "demo": "vite --config app/vite.config.ts --host",
     "forwarder": "npm run build:lib && node server/forwarder.mjs",
@@ -21,13 +26,18 @@
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts --testTimeout=40000",
     "test:e2e": "playwright test",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p app/tsconfig.json",
+    "typecheck": "npm run build:context && tsc --noEmit -p tsconfig.json && tsc --noEmit -p app/tsconfig.json",
     "vectors": "npm run build:lib && node vectors/generate.mjs",
     "test:turn": "playwright test --config playwright.turn.config.ts",
-    "agent": "npm run build:lib && node bin/kithmoot-agent.mjs"
+    "agent": "npm run build:lib && node bin/kithmoot-agent.mjs",
+    "build:context": "npm run build --workspace @forgesworn/context && npm run build --workspace @forgesworn/context-tools",
+    "test:context-packages": "node test/context-package-smoke.mjs",
+    "predemo": "npm run build:context"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
+    "@forgesworn/context": "0.1.0",
+    "@forgesworn/context-tools": "0.1.0",
     "@mediapipe/tasks-vision": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@noble/ciphers": "2.1.1",
@@ -59,5 +69,9 @@
     "kithmoot-context": "./bin/kithmoot-context.mjs",
     "kithmoot-forwarder": "./server/forwarder.mjs",
     "kithmoot-agent": "./bin/kithmoot-agent.mjs"
-  }
+  },
+  "workspaces": [
+    "packages/context",
+    "packages/context-tools"
+  ]
 }
