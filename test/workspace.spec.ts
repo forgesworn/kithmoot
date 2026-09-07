@@ -300,3 +300,80 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
     await context.close()
   }
 })
+
+test('switching rooms restores independent reading places after delayed history and honours Jump to latest', async ({ browser, baseURL }) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  const first = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', relays: ['ws://127.0.0.1:7777'] })
+  const second = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', relays: ['ws://127.0.0.1:7777'] })
+  let hold = false
+  let held: (() => void)[] = []
+  await context.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    upstream.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (hold && frame[0] === 'EVENT' && frame[2]?.kind === 1460) held.push(() => ws.send(raw))
+      else ws.send(raw)
+    })
+  })
+  const release = () => { hold = false; const pending = held; held = []; pending.forEach(send => send()) }
+  const log = page.locator('#chatLog')
+  const place = () => log.evaluate(el => {
+    const edge = el.getBoundingClientRect().top
+    const anchor = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(message => message.getBoundingClientRect().bottom > edge)
+    return { id: anchor?.dataset.messageId, offset: anchor ? anchor.getBoundingClientRect().top - edge : 0 }
+  })
+  const switchTo = async (name: string) => {
+    await page.locator('#backToRooms').click()
+    await page.getByRole('button', { name: `Switch to ${name}`, exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText(name)
+    await expect(page.locator('#roomArea')).toBeVisible()
+  }
+  try {
+    await page.setViewportSize({ width: 390, height: 740 })
+    await join(page, withRelays(first.url, [relay]))
+    await page.evaluate(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), {
+      roomId: second.session.roomId, name: 'Planning room', link: withRelays(second.url, [relay]), openedAt: 1, readAt: 0,
+    })
+    for (let i = 0; i < 12; i++) {
+      await first.chat.send(`Reading note ${i}. ` + 'Keep this reading position through a room switch. '.repeat(4))
+      await second.chat.send(`Planning note ${i}. ` + 'Keep a different position in this conversation. '.repeat(4))
+    }
+    await expect(log.locator('.msg')).toHaveCount(12)
+    await log.evaluate(el => { el.scrollTop = el.scrollHeight })
+    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
+    await log.evaluate(el => { el.scrollTop = 180 })
+    const firstPlace = await place()
+    expect(firstPlace.id).toBeTruthy()
+    await switchTo('Planning room')
+    await expect(log.locator('.msg')).toHaveCount(12)
+    await log.evaluate(el => { el.scrollTop = 340 })
+    const secondPlace = await place()
+    expect(secondPlace.id).toBeTruthy()
+    await first.chat.send('A new message arrived while you were in Planning room.')
+    hold = true
+    await switchTo('Reading room')
+    await expect.poll(() => held.length).toBeGreaterThan(0)
+    await expect(log.locator('.msg')).toHaveCount(0)
+    await expect(page.locator('#newMessages')).toBeVisible()
+    release()
+    await expect(log.locator('.msg')).toHaveCount(13)
+    await expect.poll(async () => (await place()).id).toBe(firstPlace.id)
+    await expect.poll(async () => Math.abs((await place()).offset - firstPlace.offset)).toBeLessThan(1)
+    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveText('1')
+    await switchTo('Planning room')
+    await expect(log.locator('.msg')).toHaveCount(12)
+    await expect.poll(async () => (await place()).id).toBe(secondPlace.id)
+    await expect.poll(async () => Math.abs((await place()).offset - secondPlace.offset)).toBeLessThan(1)
+    hold = true
+    await switchTo('Reading room')
+    await expect.poll(() => held.length).toBeGreaterThan(0)
+    await expect(page.locator('#newMessages')).toBeVisible()
+    await page.locator('#newMessages').click()
+    release()
+    await expect(log.locator('.msg')).toHaveCount(13)
+    await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
+    await page.setViewportSize({ width: 390, height: 600 })
+    await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
+    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
+  } finally { first.leave(); second.leave(); await context.close() }
+})

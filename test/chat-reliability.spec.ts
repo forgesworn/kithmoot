@@ -93,10 +93,20 @@ test('incoming chat preserves the reading position and offers a way to the lates
     }
     const log = reader.locator('#chatLog')
     await log.evaluate(el => { el.scrollTop = 0 })
+    const place = await log.evaluate(el => {
+      const edge = el.getBoundingClientRect().top
+      const message = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(message => message.getBoundingClientRect().bottom > edge)!
+      return { id: message.dataset.messageId!, offset: message.getBoundingClientRect().top - edge }
+    })
     await writer.locator('#chatInput').fill('A new arrival while you read')
     await writer.locator('#chatInput').press('Enter')
     await expect(reader.locator('#chatLog .msg')).toHaveCount(13)
-    await expect.poll(() => log.evaluate(el => el.scrollTop)).toBeLessThan(5)
+    // Equal timestamps sort by id, so the arrival may land above the reader.
+    // Preserve the message on screen, not a scrollbar value that would shift it.
+    await expect.poll(() => log.evaluate((el, place) => {
+      const message = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(message => message.dataset.messageId === place.id)!
+      return Math.abs(message.getBoundingClientRect().top - el.getBoundingClientRect().top - place.offset)
+    }, place)).toBeLessThan(1)
     await expect(reader.locator('#newMessages')).toBeVisible()
     await reader.locator('#newMessages').click()
     await expect.poll(() => log.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThan(5)

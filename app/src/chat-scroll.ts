@@ -8,6 +8,10 @@ interface ReadingPlace {
 }
 
 export class ChatScroll {
+  #scope = ''
+  #paused = true
+  #pending?: ReadingPlace
+  #painted?: { top: number; place: ReadingPlace }
   #channel: string | undefined
   #ids = new Set<string>()
   #places = new Map<string, ReadingPlace>()
@@ -23,24 +27,52 @@ export class ChatScroll {
       log.focus({ preventScroll: true })
     })
     log.addEventListener('scroll', () => {
-      if (this.#atBottom()) button.hidden = true
+      if (!this.#pending && this.#atBottom()) button.hidden = true
     })
+    // An explicit reading gesture takes precedence over history arriving late.
+    const readingGesture = () => { this.#pending = undefined; this.#painted = undefined }
+    for (const event of ['wheel', 'touchstart', 'pointerdown']) log.addEventListener(event, readingGesture, { passive: true })
+    log.addEventListener('keydown', event => {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) readingGesture()
+    })
+    log.addEventListener('focusin', event => {
+      if ((event.target as HTMLElement).closest('.searchTarget')) readingGesture()
+    })
+    new ResizeObserver(() => {
+      // Navigation and roster updates can resize the log after its last
+      // redraw. Keep a reader who chose the latest messages at the bottom.
+      if (this.#paused || this.#pending || !this.#painted?.place.follow) return
+      if (log.scrollTop !== this.#painted.top && log.scrollTop < log.scrollHeight - log.clientHeight) return
+      log.scrollTop = log.scrollHeight
+      this.#painted = { top: log.scrollTop, place: this.#place() }
+    }).observe(log)
   }
 
   #atBottom(): boolean {
     return this.#log.scrollHeight - this.#log.clientHeight - this.#log.scrollTop < 48
   }
 
-  reset(): void {
+  /** Freeze before tearing down a room; hidden or empty logs cannot replace it. */
+  suspend(): void {
+    this.remember()
+    this.#paused = true
     this.#channel = undefined
     this.#ids.clear()
-    this.#places.clear()
     this.#boundary = undefined
+    this.#pending = undefined
+    this.#painted = undefined
   }
 
+  /** Resume only after the joined room is visible and can be measured. */
+  resume(scope: string): void { this.#scope = scope; this.#paused = false }
+
+  get restoring(): boolean { return this.#paused || this.#pending !== undefined }
+
   latest(): void {
+    this.#pending = undefined
     this.#button.hidden = true
     this.#log.scrollTop = this.#log.scrollHeight
+    this.#painted = { top: this.#log.scrollTop, place: this.#place() }
   }
 
   #place(): ReadingPlace {
@@ -56,12 +88,20 @@ export class ChatScroll {
     }
   }
 
+  #readingPlace(): ReadingPlace {
+    // Keep the intended offset through fractional pixel rounding and layout
+    // changes. A reader moving the scrollbar starts a new position.
+    return this.#painted?.top === this.#log.scrollTop ? this.#painted.place : this.#place()
+  }
+
   /** Call before changing the composer or toolbar for another conversation. */
   remember(): void {
-    if (this.#channel !== undefined) this.#places.set(this.#channel, this.#place())
+    if (!this.#paused && this.#channel !== undefined) this.#places.set(this.#channel, this.#pending ?? this.#readingPlace())
   }
 
   before(channel: string, unread: ReadonlySet<string> = new Set()): () => void {
+    if (this.#paused) return () => {}
+    channel = JSON.stringify([this.#scope, channel])
     const log = this.#log
     const changed = this.#channel !== channel
     const selectedId = changed ? undefined : log.querySelector<HTMLElement>('.searchTarget')?.dataset.messageId
@@ -69,8 +109,11 @@ export class ChatScroll {
     const focusedMessage = !changed && active && log.contains(active) ? active.closest<HTMLElement>('[data-message-id]') : null
     const focusedId = focusedMessage?.dataset.messageId
     const focusKey = active?.dataset.focusKey
-    const saved = changed ? this.#places.get(channel) : this.#place()
-    if (changed) this.#boundary = undefined
+    const saved = changed ? this.#places.get(channel) : this.#pending ?? this.#readingPlace()
+    if (changed) {
+      this.#boundary = undefined
+      this.#pending = saved?.id && !saved.follow ? saved : undefined
+    }
     this.#channel = channel
     return () => {
       const messages = Array.from(log.querySelectorAll<HTMLElement>('[data-message-id]'))
@@ -99,8 +142,12 @@ export class ChatScroll {
       }
       const replacement = messages.find(el => el.dataset.messageId === saved?.id)
       if (saved && !saved.follow && replacement) {
+        this.#button.hidden = false
         log.scrollTop += replacement.getBoundingClientRect().top - log.getBoundingClientRect().top - saved.offset
-        this.#button.hidden = this.#atBottom()
+        // The anchor can arrive before enough following history exists to
+        // scroll it into place. Keep the latest button visible (it affects
+        // the log's height) until the reader's position fits above the bottom.
+        this.#pending = !this.#atBottom() && Math.abs(replacement.getBoundingClientRect().top - log.getBoundingClientRect().top - saved.offset) < 1 ? undefined : saved
       } else if (changed && firstUnread) {
         const target = divider ?? firstUnread
         log.scrollTop += target.getBoundingClientRect().top - log.getBoundingClientRect().top
@@ -112,6 +159,10 @@ export class ChatScroll {
         log.scrollTop = saved.top
         if (added || changed) this.#button.hidden = this.#atBottom()
       }
+      // The old message may be delayed or no longer retained. Always leave a
+      // visible way to choose the latest messages and abandon restoration.
+      if (this.#pending) this.#button.hidden = false
+      this.#painted = { top: log.scrollTop, place: saved && !saved.follow && replacement ? { ...saved, top: log.scrollTop } : this.#place() }
       if (focusedId) {
         const message = messages.find(el => el.dataset.messageId === focusedId)
         const control = focusKey && message

@@ -4018,6 +4018,7 @@ function nextUnreadConversation(): [string | undefined, string] | undefined {
 }
 
 function markConversationRead(): boolean {
+  if (chatScroll.restoring) return false
   const log = $('chatLog')
   if ($('roomArea').hidden || document.visibilityState !== 'visible' || document.querySelector('dialog[open], #messageActionPanel:popover-open') || log.scrollHeight - log.scrollTop - log.clientHeight > 48) return false
   const key = currentChannel ?? ''
@@ -5419,8 +5420,8 @@ async function startSession(): Promise<void> {
     startAssistPolling()
     render(s.participants(), meParticipant)
     // History may have arrived while the join screen still hid the log.
-    // Start at the latest message once the conversation can be measured.
-    chatScroll.reset()
+    // Restore this room's reading place only once it can be measured.
+    chatScroll.resume(draftRoomKey())
     restoreConversation()
     repaintActiveChat()
   } catch (err) {
@@ -6060,6 +6061,7 @@ async function switchRoom(room: KnownRoom): Promise<void> {
 
 /** Stop the room completely before any other room can own the controls. */
 async function closeRoomSession(): Promise<void> {
+  chatScroll.suspend()
   ++roomGeneration
   const old = session
   const transport = sessionTransport
@@ -6156,7 +6158,7 @@ function resetRoomState(): void {
   peerRelay.reopen()
   drafts = new ConversationDrafts()
   restoreDraft()
-  chatScroll.reset()
+  chatScroll.suspend()
   $('chatLog').replaceChildren()
   $('conversationHeading').textContent = 'Chat'
   ;($('chatInput') as HTMLTextAreaElement).placeholder = 'Say something'
