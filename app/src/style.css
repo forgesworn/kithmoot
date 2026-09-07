@@ -2895,3 +2895,5 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 #inviteContent input { min-width: 0; max-width: 100%; }
 #inviteContent summary { min-height: 44px; padding-block: .6rem; }
 #inviteStatus:empty { display: none; }
+
+.nip05 { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }

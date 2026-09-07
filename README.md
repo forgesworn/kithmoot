@@ -396,14 +396,18 @@ never stands alone. A short pubkey renders beside it everywhere, on tiles
 and in chat, and the full npub is on the element's title. Two people who
 both typed "Robin" are visibly two people.
 
-**Sign in with Nostr.** Optional, behind a disclosure so it never gets in
-the way. Uses [`signet-login`](https://www.npmjs.com/package/signet-login)
+**Sign in with Nostr.** Available at the room entrance and on the account
+home. Uses [`signet-login`](https://www.npmjs.com/package/signet-login)
 for the whole picker (NIP-07 extensions, NIP-46/NostrConnect, bunker URIs,
-Amber on Android, and an nsec fallback), and the participant key becomes
-your real Nostr identity, held wherever it already lives.
+Amber on Android), and the participant key becomes
+your real Nostr identity, held wherever it already lives. The entrance shows
+the chosen key and explains that entering a name alone creates a separate
+visitor identity. See [Your identity in KithMoot](docs/nostr-identity.md) if an
+agent does not recognise you.
 
 **This is also a security improvement.** On the signer path there is **no
-participant secret in `localStorage` at all**. The reason it works is that
+secret for the signed-in Nostr account in `localStorage`**. An older visitor
+key can remain in the browser, but it is not used while signed in. The reason it works is that
 the participant key signs exactly one thing: a device credential, one small
 event per room. Everything else already runs on other keys: the device key
 signs the roster and the gift-wrapped signalling, the room key encrypts the
@@ -425,10 +429,11 @@ signature per join.
   the only signal that exists. Nothing on the wire distinguishes a real
   Nostr key from one this browser generated a moment ago, and nothing
   could.
-- **Public-profile lookup is off by default.** Room details offers an
-  opt-in for this visit. Looking profiles up gives the room's relays the
+- **Public-profile lookup is on by default.** Room details offers a
+  switch remembered on this device. Looking profiles up gives the room's relays the
   participant keys in plaintext queries, and loading pictures contacts
-  their hosts. Turning it off stops further lookups and removes the loaded
+  their hosts. NIP-05 addresses are checked with their domains and shown only
+  when the address maps to the profile key. Turning it off stops further lookups and removes the loaded
   profiles; it cannot retract requests already sent. Other members can
   independently enable lookups, so this is not a room-wide privacy guarantee.
 - **A kind-0 name is also self-asserted.** It says "the holder of this key

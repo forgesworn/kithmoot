@@ -259,6 +259,7 @@
       <section id="identity" hidden aria-labelledby="arrivalTitle">
         <div id="accountHome" hidden>
           <h2 id="accountHeading">Keep your rooms with you</h2>
+          <p id="accountProfile" class="whoami" hidden></p>
           <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open an invitation; no account needed.</p>
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
@@ -279,6 +280,8 @@
         </div>
         <button id="returnToPreviousRoom" type="button" hidden>Back to the previous room</button>
         <form id="joinRoomForm">
+          <p id="joinIdentityHelp" class="note"></p>
+          <button id="joinNostr" type="button">Sign in with Nostr</button>
           <label for="displayName">What should we call you?</label>
           <input
             id="displayName"
@@ -384,8 +387,7 @@
           <summary>I already have a Nostr key</summary>
           <p class="note">
             Goes in with a key you already have, kept in an add-on, an app or
-            another device of yours. Public names and pictures can be loaded
-            from Room details after you join.
+            another device of yours. Your profile and public key identify you to people and agents in the room.
           </p>
         </details>
       </section>
@@ -812,9 +814,9 @@
         <h2 id="profileSettingsTitle">Profile pictures and names</h2>
         <button id="profileSettingsClose" type="button" aria-label="Close profile settings">Close</button>
       </div>
-      <label class="profileChoice"><input id="lookupProfiles" type="checkbox" checked /> Show public profile pictures and names</label>
+      <label class="profileChoice"><input id="lookupProfiles" type="checkbox" checked /> Show public profile pictures, names and Nostr addresses</label>
       <p class="note">Show the picture and name published by each participant’s Nostr key. Names are chosen by their owners.</p>
-      <p class="note">This sends participant keys to the room’s relays and loads pictures from their hosts. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
+      <p class="note">This sends participant keys to the room’s relays and loads pictures from their hosts. Nostr addresses are checked with their domains. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
       <p class="note">A new room identity may not have a public profile. It keeps its name and short code here.</p>
     </dialog>
 

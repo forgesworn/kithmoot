@@ -452,7 +452,10 @@ function loadParticipantKey(): Uint8Array | undefined {
 
 function loadCredential(): DeviceCredential | undefined {
   const roomId = currentRoomId()
-  return roomId ? loadCredentialFor(deviceStore, roomId) : undefined
+  const credential = roomId ? loadCredentialFor(deviceStore, roomId) : undefined
+  // Signing in chooses an identity. A paired credential belongs to its
+  // issuer and must never silently put that account in as somebody else.
+  return credential && (!nostrSession || credential.pubkey === nostrSession.pubkey) ? credential : undefined
 }
 
 function storeCredential(credential: DeviceCredential): void {
@@ -544,37 +547,39 @@ function currentParticipant(): string | undefined {
 async function signInWithNostr(): Promise<void> {
   contextPanel.close()
   if (loginBusy) return
+  if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
   loginBusy = true
   identityGeneration++
-  let session: SignetSession | null
+  let account: SignetSession | null
   try {
-    session = await login({ appName: 'KithMoot', relayUrls: RELAYS,
+    account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
       methods: ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect'] })
   } finally { loginBusy = false }
-  if (!session) return // cancelled or timed out - leave the page as it was
+  if (!account) return // cancelled or timed out - leave the page as it was
 
-  // An auth-only session proves who somebody is and then cannot sign
+  // An auth-only account proves who somebody is and then cannot sign
   // anything else. That is fine for a site that just wants a login; it is
   // useless here, because the one thing this app needs a participant key
   // for is signing a device credential per room.
-  if (!session.signer.capabilities.canSignEvents) {
-    await logout(session)
+  if (!account.signer.capabilities.canSignEvents) {
+    await logout(account)
     throw new Error(
       'That sign-in can prove who you are but cannot sign anything afterwards, ' +
         'and a room needs one signature per join. Try an extension or a bunker.',
     )
   }
 
-  nostrSession = session
-  startRoomBookmarks(session)
-  profiles.want([session.pubkey])
+  nostrSession = account
+  startRoomBookmarks(account)
+  profiles.want([account.pubkey])
   renderIdentity()
 }
 
 async function signOutOfNostr(): Promise<void> {
   contextPanel.close()
+  if (session || joining) throw new Error('Leave the room before signing out.')
   identityGeneration++
-  const session = nostrSession
+  const account = nostrSession
   bookmarks?.close()
   bookmarks = undefined
   readSync?.close()
@@ -584,7 +589,7 @@ async function signOutOfNostr(): Promise<void> {
   $('roomSyncStatus').textContent = ''
   refreshAccountRooms()
   renderIdentity()
-  if (session) await logout(session)
+  if (account) await logout(account)
 }
 
 let bookmarks: RoomBookmarks | undefined
@@ -1098,6 +1103,7 @@ interface Shown {
   short: string
   npub: string
   picture?: string
+  nip05?: string
   /** True when this key has a kind-0 profile on a relay - which makes it a
    *  published Nostr identity, NOT a verified name. See profiles.ts. */
   nostr: boolean
@@ -1119,6 +1125,7 @@ function shownAs(pubkey: string, asserted?: string): Shown {
     short: shortKey(pubkey),
     npub: npubOf(pubkey),
     picture: profile?.picture,
+    nip05: profile?.nip05,
     nostr: profile !== undefined,
     sats: donations.sats(pubkey),
   }
@@ -1195,6 +1202,14 @@ function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false):
   key.title = shown.npub
   run.append(key)
 
+  if (shown.nip05) {
+    const address = document.createElement('span')
+    address.className = 'nip05'
+    address.textContent = shown.nip05.startsWith('_@') ? shown.nip05.slice(2) : shown.nip05
+    address.title = 'This domain maps the Nostr address to this public key.'
+    run.append(address)
+  }
+
   if (shown.nostr) {
     const chip = document.createElement('span')
     chip.className = 'idkind'
@@ -1263,18 +1278,32 @@ function renderIdentity(): void {
   $('retryRoomSync').hidden = nostrSession === undefined
   $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Keep your rooms with you'
   $('accountLead').textContent = nostrSession
-    ? `Signed in as ${shortKey(nostrSession.pubkey)}. ${nostrSession.signer.nip44 ? 'Your room links follow this key.' : 'Rooms are saved in this browser only with this signer.'}`
-    : 'Optional: sign in with Nostr to find your rooms on other devices. You can start and join rooms without an account.'
+    ? (nostrSession.signer.nip44 ? 'Your room links follow this key.' : 'Rooms are saved in this browser only with this signer.')
+    : 'Sign in as yourself, with your Nostr profile and the public key your agents recognise. Your rooms can follow you across devices.'
   $('accountHelp').textContent = nostrSession
     ? 'Rooms you open while signed in are saved to this account. Your signer encrypts their names and links; relays can see your public key and that you use KithMoot. Visitor history is not uploaded.'
     : 'Sign in to find your rooms across devices. Your signer keeps your key and encrypts your room bookmarks. Visiting someone else? Open their invitation link; no sign-in is needed.'
+  const accountProfile = $('accountProfile')
+  accountProfile.replaceChildren()
+  accountProfile.hidden = !nostrSession
+  if (nostrSession) {
+    profiles.want([nostrSession.pubkey])
+    accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true))
+  }
+  $('joinNostr').hidden = !!nostrSession || !!loadCredential()
+  $('joinIdentityHelp').textContent = nostrSession
+    ? 'Your messages use this Nostr account. Agents recognise its public key.'
+    : loadCredential()
+      ? 'This device uses the Nostr identity it was paired with.'
+      : 'A name alone makes you a visitor with a separate browser key. Sign in with your usual Nostr account for agents that know you.'
   renderRooms()
 
   const line = $('whoami')
   line.textContent = ''
 
   const name = joiningName()
-  const participant = currentParticipant()
+  const participant = session ? meParticipant : loadCredential()?.pubkey ?? currentParticipant()
+  if (participant) profiles.want([participant])
 
   // Nothing to say until there is a name or a key to say it about. An
   // identity line that reads "nobody in particular yet" is two lines of the
@@ -1286,7 +1315,7 @@ function renderIdentity(): void {
     return
   }
 
-  line.append('Going in as ')
+  line.append(session ? 'In this room as ' : 'Going in as ')
 
   if (participant) {
     line.append(identityRun(shownAs(participant, name), false))
@@ -5207,7 +5236,7 @@ $('diagnostics').addEventListener('click', () => {
 
 async function startSession(): Promise<void> {
   const generation = roomGeneration
-  if (joining || session) return
+  if (joining || session || loginBusy) return
   joining = true
   setStatus('Joining the room…', 'progress')
   const joinBtn = $('join') as HTMLButtonElement
@@ -6697,6 +6726,10 @@ $('displayName').addEventListener('input', (event) => {
   // before you commit to anything.
   storeName((event.target as HTMLInputElement).value)
   renderIdentity()
+})
+
+$('joinNostr').addEventListener('click', () => {
+  signInWithNostr().catch((err) => setStatus(describeError(err)))
 })
 
 $('signIn').addEventListener('click', () => {
