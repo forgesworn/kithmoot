@@ -45,5 +45,17 @@
   },
   "bin": {
     "encrypted-context": "./bin/encrypted-context.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forgesworn/kithmoot.git",
+    "directory": "packages/context-tools"
+  },
+  "homepage": "https://github.com/forgesworn/kithmoot/tree/main/packages/context-tools#readme",
+  "bugs": {
+    "url": "https://github.com/forgesworn/kithmoot/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
