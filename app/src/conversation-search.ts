@@ -101,6 +101,19 @@ export class ConversationSearch {
     })
   }
 
+  reset(): void {
+    this.#jump = undefined
+    this.#lastResult = undefined
+    this.#conversations = []
+    this.#active = undefined
+    this.#query.value = ''
+    this.#files.checked = false
+    this.#results.replaceChildren()
+    this.#status.textContent = ''
+    this.#back.hidden = true
+    this.#dialog.close()
+  }
+
   update(conversations: SearchConversation[], active: string | undefined, name: (message: ChatMessage) => string): void {
     this.#conversations = conversations
     this.#active = active

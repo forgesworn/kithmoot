@@ -145,14 +145,50 @@ import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 
-const outbox = new Outbox(document.getElementById('outbox')!)
+const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation)
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
 const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
 const shareViewer = new ShareViewer()
 const emojiPicker = new EmojiPicker()
 window.addEventListener('pagehide', () => shareViewer.close())
-const drafts = new ConversationDrafts()
+let drafts = new ConversationDrafts()
+// Only this tab holds draft text and file keys. Switching rooms retains the
+// originating collection; closing the tab still discards it.
+const roomDrafts = new Map<string, ConversationDrafts>()
+const roomReadSets = new Map<string, Map<string, Set<string>>>()
+let switchingRoom = false
+let roomGeneration = 0
+let roomOperation = 0
+
+function draftRoomKey(): string {
+  return `${nostrSession?.pubkey ?? 'visitor'}:${currentRoomId()}`
+}
+
+function selectRoomDrafts(): void {
+  const key = draftRoomKey()
+  drafts = roomDrafts.get(key) ?? new ConversationDrafts()
+  roomDrafts.set(key, drafts)
+  conversationRead = roomReadSets.get(key) ?? new Map()
+  roomReadSets.set(key, conversationRead)
+  restoreDraft()
+}
+
+function closeAllDrafts(): void {
+  drafts.close()
+  for (const collection of roomDrafts.values()) collection.close()
+  roomDrafts.clear()
+  roomReadSets.clear()
+}
+
+function switchingBlocked(): boolean {
+  return joining || roomOperation > 0 || startingDm || outbox.pending || drafts.pending().some(draft => draft.job)
+}
+
+function refreshRoomNavigation(): void {
+  renderWorkspace()
+  if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
+}
 let navigationApproved = false
 function approvedReload(): void {
   navigationApproved = true
@@ -162,7 +198,7 @@ installUpdates(() => Boolean(session) || hasUnsentWork(), approvedReload)
 
 function hasUnsentWork(): boolean {
   captureDraft()
-  return outbox.pending || drafts.pending().length > 0
+  return outbox.pending || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
 }
 
 // Relays confirmed live for this room kind. relay.trotters.cc is the
@@ -1265,6 +1301,7 @@ let screenTrack: MediaStreamTrack | undefined
 
 let camera: CameraPipeline | undefined
 let mic: MicPipeline | undefined
+const pendingMedia = new Set<CameraPipeline | MicPipeline>()
 let backgroundId = BACKGROUNDS[0]?.id ?? ''
 let videoInputs: MediaDeviceInfo[] = []
 
@@ -1423,6 +1460,8 @@ async function roomFromLocation(): Promise<boolean> {
  * a credential for this room that expires, signed by the other device.
  */
 async function pairWithPrimary(code: Uint8Array): Promise<void> {
+  const generation = roomGeneration
+  ++roomOperation
   // Joining before the credential lands would mint a fresh participant key
   // and put this device in the room as a stranger - the exact thing pairing
   // exists to avoid. So the button is held until the exchange settles.
@@ -1440,11 +1479,13 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
       code,
       deviceSk: deviceKey(),
     })
+    if (generation !== roomGeneration) return
     storeCredential(credential)
     setStatus('This device is now part of that person. Join when ready.')
   } finally {
     transport.close()
-    joinBtn.disabled = false
+    --roomOperation
+    if (generation === roomGeneration) joinBtn.disabled = false
   }
 }
 
@@ -1796,6 +1837,7 @@ const HARD_ASSIST_BLOCKS: readonly AssistBlock[] = ['no-relay-support', 'not-pub
  * tracks a call somebody is watching, and slow enough to be free.
  */
 async function pollAssist(): Promise<void> {
+  const generation = roomGeneration
   const now = Date.now()
   for (const [key, pc] of [...openConnections]) {
     if (pc.connectionState === 'closed') {
@@ -1806,6 +1848,7 @@ async function pollAssist(): Promise<void> {
     try {
       const stats: StatLike[] = []
       ;(await pc.getStats()).forEach((stat) => stats.push(stat as StatLike))
+      if (generation !== roomGeneration) return
       uplink.update(key, stats, now)
     } catch {
       // A connection that will not answer for its own statistics tells us
@@ -2238,18 +2281,28 @@ function adoptMicTrack(): void {
 }
 
 async function toggleMic(): Promise<void> {
+  const generation = roomGeneration
+  if (switchingRoom) return
+  if ([...pendingMedia].some(pipeline => pipeline instanceof MicPipeline)) return
   if (!micTrack) {
     const pipeline = new MicPipeline({
       onStateChange: (state) => {
+        if (generation !== roomGeneration) return
         renderVoiceState(state)
         adoptMicTrack()
       },
     })
+    pendingMedia.add(pipeline)
     try {
-      micTrack = await pipeline.start()
+      const track = await pipeline.start()
+      if (generation !== roomGeneration) { pipeline.stop(); return }
+      micTrack = track
     } catch (err) {
       pipeline.stop()
+      if (generation !== roomGeneration) return
       throw err
+    } finally {
+      pendingMedia.delete(pipeline)
     }
     mic = pipeline
     micTrack.addEventListener('ended', onMicEnded)
@@ -2266,6 +2319,9 @@ async function toggleMic(): Promise<void> {
 }
 
 async function toggleCamera(): Promise<void> {
+  const generation = roomGeneration
+  if (switchingRoom) return
+  if ([...pendingMedia].some(pipeline => pipeline instanceof CameraPipeline)) return
   if (camera) {
     camera.stop()
     camera = undefined
@@ -2281,8 +2337,9 @@ async function toggleCamera(): Promise<void> {
     publishActiveTracks()
   } else {
     const pipeline = new CameraPipeline({
-      onStateChange: renderEffectState,
+      onStateChange: state => { if (generation === roomGeneration) renderEffectState(state) },
       onSourceEnded: () => {
+        if (generation !== roomGeneration) return
         camera?.stop()
         camera = undefined
         cameraTrack = undefined
@@ -2292,11 +2349,17 @@ async function toggleCamera(): Promise<void> {
         updateUi()
       },
     })
+    pendingMedia.add(pipeline)
     try {
-      cameraTrack = await pipeline.start()
+      const track = await pipeline.start()
+      if (generation !== roomGeneration) { pipeline.stop(); return }
+      cameraTrack = track
     } catch (err) {
       pipeline.stop()
+      if (generation !== roomGeneration) return
       throw err
+    } finally {
+      pendingMedia.delete(pipeline)
     }
     camera = pipeline
     // The preview shows the CANVAS, not the camera, so what you see is what
@@ -2387,12 +2450,15 @@ async function listVideoInputs(): Promise<void> {
 }
 
 async function switchCamera(): Promise<void> {
-  if (!camera) return
+  const pipeline = camera
+  if (!pipeline) return
   if (videoInputs.length < 2) await listVideoInputs()
+  if (camera !== pipeline) return
   const current = videoInputs.findIndex((d) => d.deviceId === camera?.deviceId)
   const next = videoInputs[(current + 1) % videoInputs.length]
   if (!next) return
-  await camera.useCamera({ deviceId: next.deviceId })
+  try { await pipeline.useCamera({ deviceId: next.deviceId }) }
+  finally { if (camera !== pipeline) pipeline.stop() }
 }
 
 function renderBackgroundChoices(): void {
@@ -2419,16 +2485,18 @@ async function chooseBackground(choice: BackgroundChoice): Promise<void> {
 }
 
 async function setEffectMode(mode: EffectMode): Promise<void> {
-  if (!camera) return
+  const pipeline = camera
+  if (!pipeline) return
   if (mode === 'replace') {
     const choice = BACKGROUNDS.find((b) => b.id === backgroundId) ?? BACKGROUNDS[0]
     // Loaded before the mode changes, so there is no frame where replace is
     // selected with nothing to replace with. If it fails the effect stays on
     // blur, which shows the room to nobody either way.
-    if (choice) await camera.setBackground(choice)
+    if (choice) await pipeline.setBackground(choice)
   }
-  camera.setMode(mode)
-  renderEffectState(camera.status)
+  if (camera !== pipeline) return
+  pipeline.setMode(mode)
+  renderEffectState(pipeline.status)
 }
 
 /** Frame counters and rate, published on the effects panel as data
@@ -2454,6 +2522,8 @@ function publishEffectStats(): void {
 setInterval(publishEffectStats, 500)
 
 async function toggleScreen(): Promise<void> {
+  const generation = roomGeneration
+  if (switchingRoom) return
   if (screenTrack) {
     screenTrack.stop()
     screenTrack = undefined
@@ -2472,11 +2542,13 @@ async function toggleScreen(): Promise<void> {
       )
     }
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: true })
+    if (generation !== roomGeneration) { for (const track of stream.getTracks()) track.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
+        if (generation !== roomGeneration) return
         screenTrack = undefined
         localPreviewEls.get('screen')?.remove()
         localPreviewEls.delete('screen')
@@ -2997,6 +3069,7 @@ const handledInvites = new Set<string>()
  * where the invitation sits.
  */
 async function handleInvites(messages: ChatMessage[]): Promise<void> {
+  const generation = roomGeneration
   const me = meParticipant
   if (!me) return
   for (const m of messages) {
@@ -3009,6 +3082,7 @@ async function handleInvites(messages: ChatMessage[]): Promise<void> {
     if (!crypt) continue
     handledInvites.add(m.id)
     const link = await openInvite(m.invite, { self: me, sender: m.participant, crypt })
+    if (generation !== roomGeneration) return
     if (!link) continue
     try {
       parseRoomLink(link)
@@ -3105,7 +3179,7 @@ const channelLogs = new Map<string, ReturnType<NonNullable<typeof session>['chan
 /** How much has been said in each one, so a tab can show that there is
  *  something behind it without being opened first. */
 const channelCounts = new Map<string, number>()
-const conversationRead = new Map<string, Set<string>>()
+let conversationRead = new Map<string, Set<string>>()
 /** The keeper's own participant, from its announcement. Not somebody an
  *  admin can remove: removing the keeper is closing the room. */
 let keeperParticipant: string | undefined
@@ -3167,9 +3241,9 @@ const NOTICE_STORAGE_KEY = 'kithmoot.notice'
 
 /**
  * Leave because the room said so, and say why on the page that comes back.
- * The reload is the same one `leaveRoom` does, for the same reason - it is
- * the only teardown that cannot miss a camera - so the reason rides across
- * it in session storage rather than in a status line the reload would wipe.
+ * Media and the session are stopped first. The reason rides across the
+ * reload into this room's door in session storage, so the person can read
+ * it after the conversation has closed.
  */
 function leaveWithNotice(message: string): void {
   try {
@@ -3572,6 +3646,7 @@ function pruneOpenedAttachments(logId: string, messages: ChatMessage[]): void {
  * is a picture, or offered to save if it is anything else.
  */
 function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAttachment): HTMLElement {
+  const generation = roomGeneration
   const card = document.createElement('span')
   card.className = 'attachment'
   const key = attachmentKey(logId, m.id, index)
@@ -3607,10 +3682,12 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       button.textContent = 'Fetching\u2026'
       try {
         const file = await fetchAttachment(a)
+        if (generation !== roomGeneration) return
         const blob = new Blob([file.source.slice().buffer as ArrayBuffer], { type: file.type })
         openedAttachments.set(key, { url: URL.createObjectURL(blob), name: file.name, type: file.type, size: file.size })
       } catch (err) {
         // The reason and nothing else: an error here never carries the key.
+        if (generation !== roomGeneration) return
         openedAttachments.set(key, { error: describeError(err) })
       }
       render()
@@ -3692,12 +3769,14 @@ function activeChat(): NonNullable<typeof session>['chat'] | undefined {
 
 function followNamedConversation(name: string): ReturnType<RoomSession['channel']> | undefined {
   if (!session) return undefined
+  const owner = session
   let log = channelLogs.get(name)
   if (!log) {
     log = session.channel(name)
     channelLogs.set(name, log)
     channelCounts.set(name, log.messages().length)
     log.onChange(messages => {
+      if (session !== owner) return
       channelCounts.set(name, messages.length)
       if (currentChannel === name) renderChat(messages)
       renderChannels()
@@ -3714,7 +3793,7 @@ function restoreConversation(): void {
   if (currentChannel !== undefined) return
   try {
     const name = sessionStorage.getItem(conversationStorageKey())
-    if (name && channelAvailable(name)) selectChannel(name)
+    if (name && (channelAvailable(name) || draftHasWork(drafts.get(name)))) selectChannel(name)
   } catch {
     // Storage may be unavailable; Chat remains a usable starting point.
   }
@@ -3754,7 +3833,7 @@ function selectChannel(name: string | undefined): void {
   }
   // Chromium resets a revealed textarea's selection after this click has
   // finished. Restore it on the next frame, unless the reader moved on.
-  if (input instanceof HTMLTextAreaElement) {
+  if (input instanceof HTMLTextAreaElement && !$('chatForm').hidden) {
     const draft = drafts.get(currentChannel)
     const { text, selectionStart, selectionEnd, selectionDirection } = draft
     requestAnimationFrame(() => {
@@ -3790,10 +3869,12 @@ function restoreDraft(): void {
   closeMentionPicker()
   input.value = draft.text
   input.setSelectionRange(draft.selectionStart, draft.selectionEnd, draft.selectionDirection)
+  growComposer(input)
   ;($('attachEvent') as HTMLInputElement).value = draft.event
   ;($('attachKey') as HTMLInputElement).value = draft.key
   renderStaged()
   $('attachStatus').textContent = draft.status
+  renderComposerContext()
 }
 
 function renderDraftBadges(): void {
@@ -5082,6 +5163,7 @@ $('diagnostics').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 
 async function startSession(): Promise<void> {
+  const generation = roomGeneration
   if (joining || session) return
   joining = true
   setStatus('Joining the room…', 'progress')
@@ -5097,6 +5179,7 @@ async function startSession(): Promise<void> {
     if (identityRestoring) {
       setStatus('Reconnecting your sign-in…', 'progress')
       await identityReady
+      if (generation !== roomGeneration) return
       setStatus('Joining the room…', 'progress')
     }
     const deviceSk = deviceKey()
@@ -5111,6 +5194,7 @@ async function startSession(): Promise<void> {
     // and actually in play - see isDefaultIceUrls) and never blocks
     // joining if the credential endpoint is absent or unreachable.
     let resolvedIceServers = await resolveIceServers(iceUrls)
+    if (generation !== roomGeneration) return
 
     // A real RTCPeerConnection genuinely has everything RTCPeerConnectionLike
     // needs - its on* handlers just carry the full, specific DOM event type
@@ -5189,9 +5273,9 @@ async function startSession(): Promise<void> {
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
-          onEpoch: onEpochChange,
-          onRemoved: (notice) => leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`),
-          onClosed: (notice) => leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`),
+          onEpoch: notice => { if (generation === roomGeneration) onEpochChange(notice) },
+          onRemoved: (notice) => { if (generation === roomGeneration) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
+          onClosed: (notice) => { if (generation === roomGeneration) leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
@@ -5218,9 +5302,9 @@ async function startSession(): Promise<void> {
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
-          onEpoch: onEpochChange,
-          onRemoved: (notice) => leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`),
-          onClosed: (notice) => leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`),
+          onEpoch: notice => { if (generation === roomGeneration) onEpochChange(notice) },
+          onRemoved: (notice) => { if (generation === roomGeneration) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
+          onClosed: (notice) => { if (generation === roomGeneration) leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
@@ -5234,6 +5318,7 @@ async function startSession(): Promise<void> {
     meParticipant = s.participant
 
     s.onChange((views) => {
+      if (session !== s) return
       assignmentPanel.refreshPeople()
       render(views, meParticipant)
       renderInvites()
@@ -5241,9 +5326,13 @@ async function startSession(): Promise<void> {
       // The owner of an agent that asked may only now be known.
       renderApprovals()
     })
-    s.onRemoteTrack(({ device, track }) => attachRemoteTrack(device, track))
+    s.onRemoteTrack(({ device, track }) => { if (session === s) attachRemoteTrack(device, track); else track.stop() })
 
     await s.join(currentAdverts(), currentClaims())
+    if (session !== s) return
+    // A reply draft reads its original message from the new session. Its
+    // logs must exist before restoring that context.
+    selectRoomDrafts()
     void assignmentPanel.attach(s)
     iceRefreshTimer = setInterval(refreshIce, ICE_REFRESH_MS)
     s.publishTracks(activeTracks(), { audience })
@@ -5256,6 +5345,7 @@ async function startSession(): Promise<void> {
     followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey)
     const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel })
     s.chat.onChange((messages) => {
+      if (session !== s) return
       // Only when the main chat is the conversation on screen. Repainting
       // regardless put the main chat under whichever tab was selected and
       // left the tab lit, so the page said one thing and showed another.
@@ -5284,6 +5374,7 @@ async function startSession(): Promise<void> {
       const log = s.channel(name)
       channelLogs.set(name, log)
       const arrived = (messages: ChatMessage[]): void => {
+        if (session !== s) return
         channelCounts.set(name, messages.length)
         notify?.(messages)
         if (currentChannel === name) renderChat(messages)
@@ -5299,7 +5390,7 @@ async function startSession(): Promise<void> {
     // asks on it. Asked once on arrival, so a host that has been quiet for
     // an hour says again.
     const control = s.channel(CONTROL_CHANNEL)
-    control.onChange((messages) => ingestControl(messages))
+    control.onChange((messages) => { if (session === s) ingestControl(messages) })
     ingestControl(control.messages())
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
     renderRoomLockState()
@@ -5334,6 +5425,7 @@ async function startSession(): Promise<void> {
     repaintActiveChat()
   } catch (err) {
     const failed = session
+    if (generation !== roomGeneration) return
     const failedTransport = sessionTransport
     session = undefined
     sessionTransport = undefined
@@ -5554,11 +5646,12 @@ function browserRoomsToImport(): KnownRoom[] {
 function confirmRoomAction(options: ConfirmActionOptions): Promise<boolean> {
   const room = session
   const account = nostrSession?.pubkey
-  return confirmAction({ ...options, isCurrent: () => room === session && account === nostrSession?.pubkey })
+  const generation = roomGeneration
+  return confirmAction({ ...options, isCurrent: () => room === session && account === nostrSession?.pubkey && generation === roomGeneration })
 }
 
 function confirmDiscardAndLeave(): Promise<boolean> {
-  return confirmRoomAction({ title: 'Leave and discard your draft?', message: 'Unsent messages and files in this room will be discarded.', confirmLabel: 'Discard and leave', cancelLabel: 'Keep working', danger: true })
+  return confirmRoomAction({ title: 'Leave and discard your draft?', message: 'Unsent messages and files in every room visited in this tab will be discarded.', confirmLabel: 'Discard and leave', cancelLabel: 'Keep working', danger: true })
 }
 
 async function importBrowserRooms(): Promise<void> {
@@ -5791,7 +5884,7 @@ function renderWorkspace(): void {
   const query = ($('workspaceQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
   const rooms = navigationRooms().filter(room => matchesRoom(room, query))
   const current = currentRoomId()
-  const busy = hasUnsentWork()
+  const busy = switchingBlocked()
   const groups = [...projectNames(rooms), ...(rooms.some(room => !projectOf(room)) ? [''] : [])]
   list.replaceChildren()
   for (const project of groups) {
@@ -5810,10 +5903,9 @@ function renderWorkspace(): void {
       button.textContent = knownRoomLabel(room)
       button.title = `${knownRoomLabel(room)} · ${shortKey(room.roomId)}`
       if (room.roomId === current) button.setAttribute('aria-current', 'true')
-      // An unfinished draft is kept in its tab; the picker offers a new tab.
+      // Switching retains each room's draft collection in this tab.
       button.addEventListener('click', () => {
-        if (hasUnsentWork() && room.roomId !== current) openRoomSwitcher()
-        else switchRoom(room)
+        void switchRoom(room)
       })
       const organise = projectButton(room)
       organise.textContent = '⋯'
@@ -5823,7 +5915,7 @@ function renderWorkspace(): void {
     list.append(group)
   }
   $('workspaceEmpty').hidden = rooms.length > 0
-  $('workspaceNote').textContent = busy ? 'Drafts stay here. Open another room in a new tab from Find a room.' : 'Projects are saved on this browser. Use ⋯ beside a room to organise it.'
+  $('workspaceNote').textContent = busy ? 'Finish sending or stop adding files before switching rooms.' : 'Drafts stay in this tab when you switch rooms. Use ⋯ to organise rooms into projects.'
   if (focusedRoom && action) {
     const row = Array.from(list.querySelectorAll<HTMLElement>('[data-room]')).find(row => row.dataset.room === focusedRoom)
     ;(row?.querySelector<HTMLElement>(`[data-action="${action}"]`) ?? $('workspaceQuery')).focus({ preventScroll: true })
@@ -5832,6 +5924,8 @@ function renderWorkspace(): void {
 
 const ROOM_SWITCH_KEY = 'kithmoot.room-switch.v1'
 let roomSwitcherReturn: HTMLElement | undefined
+let previousRoom: KnownRoom | undefined
+let switchDestination: KnownRoom | undefined
 
 function openRoomSwitcher(event?: Event): void {
   const dialog = $('roomSwitcher') as HTMLDialogElement
@@ -5850,12 +5944,12 @@ function renderRoomSwitcher(): void {
   fillProjectFilter('switcherProject', rooms)
   const project = ($('switcherProject') as HTMLSelectElement).value
   const filtered = rooms.filter(room => matchesRoom(room, query, project))
-  const busy = hasUnsentWork()
+  const busy = switchingBlocked()
   $('roomSwitcherNote').textContent = busy
-    ? 'You have unfinished messages or files. Open another room in a new tab to keep them here, or close this picker and finish sending first.'
+    ? 'Finish sending or stop adding files before switching. You can also open the other room in a new tab.'
     : callIsLive()
       ? 'Your call stays connected while you browse. Switching will ask before leaving it; a new tab keeps this call here.'
-      : 'Choose a room to go straight to its conversation. Closing this picker keeps you where you are.'
+      : 'Choose a room to go straight to its conversation. Your drafts and staged files stay in this tab.'
   const list = $('roomSwitcherList')
   const focused = document.activeElement as HTMLElement | null
   const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
@@ -5900,26 +5994,179 @@ function renderRoomSwitcher(): void {
   }
   $('roomSwitcherEmpty').hidden = filtered.length > 0
   // A trip to the dashboard must not silently discard unfinished work.
-  ;($('roomSwitcherHome') as HTMLButtonElement).disabled = busy
+  ;($('roomSwitcherHome') as HTMLButtonElement).disabled = hasUnsentWork()
 }
 
 async function switchRoom(room: KnownRoom): Promise<void> {
-  if (room.roomId === currentRoomId()) {
+  if (switchingRoom) return
+  if (session && room.roomId === currentRoomId()) {
     ;($('roomSwitcher') as HTMLDialogElement).close()
     return
   }
-  if (hasUnsentWork()) { renderRoomSwitcher(); return }
+  if (switchingBlocked()) { openRoomSwitcher(); renderRoomSwitcher(); return }
   if (callIsLive() && !await confirmRoomAction({ title: `Switch to ${knownRoomLabel(room)}?`, message: 'This leaves your current call. Your microphone and camera will be off in the other room.', confirmLabel: 'Leave call and switch' })) return
-  if (hasUnsentWork()) { renderRoomSwitcher(); return }
+  if (switchingRoom || switchingBlocked()) { renderRoomSwitcher(); return }
+  const account = nostrSession?.pubkey
+  const identity = identityGeneration
+  if (session) previousRoom = navigationRooms().find(room => room.roomId === currentRoomId())
+  switchDestination = room
+  captureDraft()
+  switchingRoom = true
+  $('roomArea').inert = $('workspaceNav').inert = true
+  $('joinRoomForm').inert = $('accountHome').inert = true
+  ;($('workspaceQuery') as HTMLInputElement).disabled = true
   try {
-    sessionStorage.setItem(ROOM_SWITCH_KEY, JSON.stringify({
-      hash: new URL(room.link, location.href).hash, account: nostrSession?.pubkey ?? null, at: Date.now(),
-    }))
-  } catch {
-    // Without tab storage the normal door is still a safe way in.
+    await closeRoomSession()
+    resetRoomState()
+    const hash = new URL(room.link, location.href).hash
+    // Bookmarks provide an invitation fragment, never an external redirect.
+    history.replaceState(null, '', joinLinkBase() + hash)
+    $('identity').hidden = false
+    $('arrivalTitle').textContent = `Opening ${knownRoomLabel(room)}`
+    $('arrivalLead').textContent = 'Connecting to the room…'
+    $('arrivalLead').hidden = false
+    $('joinRoomForm').hidden = true
+    $('identityMore').hidden = true
+    $('arrivalActions').hidden = true
+    setStatus('')
+    if (!await roomFromLocation()) throw new Error('The room has no invitation link.')
+    showRoomUi()
+    renderIdentity()
+    if (($('join') as HTMLButtonElement).disabled) return
+    if (account !== nostrSession?.pubkey || identity !== identityGeneration) {
+      setStatus('Check your sign-in before entering: the account used to switch rooms is not available.')
+      return
+    }
+    await startSession()
+  } catch (error) {
+    showArrivalFailure(error)
+    // Keep the room list within reach when admission fails. Drafts in the
+    // previous room remain in memory and return with its next successful join.
+    $('workspaceNav').hidden = false
+  } finally {
+    switchingRoom = false
+    $('roomArea').inert = $('workspaceNav').inert = false
+    $('joinRoomForm').inert = $('accountHome').inert = false
+    ;($('workspaceQuery') as HTMLInputElement).disabled = false
+    renderWorkspace()
+    if (session) previousRoom = switchDestination = undefined
+    const back = $('returnToPreviousRoom')
+    back.hidden = !previousRoom
+    if (previousRoom) back.textContent = `Back to ${knownRoomLabel(previousRoom)}`
+    const conversation = $('chatForm').hidden ? $('chatLog') : $('chatInput')
+    ;(session ? conversation : previousRoom ? back : $('join')).focus({ preventScroll: true })
   }
-  session?.leave()
-  openKnownRoom(room)
+}
+
+/** Stop the room completely before any other room can own the controls. */
+async function closeRoomSession(): Promise<void> {
+  ++roomGeneration
+  const old = session
+  const transport = sessionTransport
+  session = undefined
+  sessionTransport = undefined
+  assignmentPanel.detach()
+  contextPanel.close()
+  messageActions.close(false)
+  conversationSearch.reset()
+  emojiPicker.close()
+  shareViewer.close()
+  closeMentionPicker()
+  closeRoomSheet()
+  for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]')) dialog.close()
+  stopInvitationHost()
+  pairingHost?.close()
+  pairingTransport?.close()
+  pairingHost = pairingTransport = undefined
+  if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
+  if (assistTimer !== undefined) clearInterval(assistTimer)
+  if (approvalTimer !== undefined) clearTimeout(approvalTimer)
+  iceRefreshTimer = assistTimer = approvalTimer = undefined
+  micTrack?.removeEventListener('ended', onMicEnded)
+  for (const track of activeTracks()) track.stop()
+  mic?.stop()
+  camera?.stop()
+  for (const pipeline of pendingMedia) pipeline.stop()
+  pendingMedia.clear()
+  mic = camera = undefined
+  micTrack = cameraTrack = screenTrack = undefined
+  micClaimedAt = undefined
+  speakingMonitor.retain([])
+  for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
+  localPreviewEls.clear()
+  for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
+    entry.track.stop()
+    entry.el.pause()
+    entry.el.srcObject = null
+    entry.el.remove()
+  }
+  remoteVideos.clear()
+  remoteAudios.clear()
+  for (const el of deviceMediaEls.values()) el.remove()
+  deviceMediaEls.clear()
+  const preview = $('voicePreviewAudio') as HTMLAudioElement
+  preview.pause()
+  if (preview.src) URL.revokeObjectURL(preview.src)
+  preview.removeAttribute('src')
+  preview.hidden = true
+  peerRelay.close()
+  setCallOpen(false)
+  updateUi()
+  $('roomArea').hidden = true
+  try { await old?.leave() } finally {
+    transport?.close()
+    for (const [key, pc] of openConnections) { pc.close(); uplink.forget(key) }
+    openConnections.clear()
+  }
+}
+
+function resetRoomState(): void {
+  for (const opened of openedAttachments.values()) if ('url' in opened) URL.revokeObjectURL(opened.url)
+  openedAttachments.clear()
+  catalogues.clear()
+  controlSeen.clear()
+  admins.clear()
+  adminsAt = channelsAt = 0
+  channels = []
+  channelLogs.clear()
+  channelCounts.clear()
+  conversationRead = new Map()
+  currentChannel = undefined
+  keeperParticipant = undefined
+  agentParticipants.clear()
+  handledInvites.clear()
+  approvals.clear()
+  systemLines.length = 0
+  roomSecret = undefined!
+  roomPolicy = undefined
+  roomName = undefined
+  roomInvitationCapability = undefined
+  invitationAuthoritySk = undefined
+  invitationDelegation = []
+  expectedEpoch = undefined
+  admittedRoom = undefined
+  startedHere = false
+  meParticipant = myDeviceId = ''
+  roomRelayScope = 'default'
+  relays = RELAYS
+  roomRelayConfig = relayConnections.configuration('default')
+  iceUrls = DEFAULT_ICE_URLS
+  assistEnabled = false
+  lastOffering = false
+  peerRelay.reopen()
+  drafts = new ConversationDrafts()
+  restoreDraft()
+  chatScroll.reset()
+  $('chatLog').replaceChildren()
+  $('conversationHeading').textContent = 'Chat'
+  ;($('chatInput') as HTMLTextAreaElement).placeholder = 'Say something'
+  for (const id of ['pairUrl', 'copyPair', 'stopPairing', 'pairQrWrap', 'diagnosticsOut']) $(id).hidden = true
+  ;($('pairUrl') as HTMLInputElement).value = ''
+  ;($('shareQrDetails') as HTMLDetailsElement).open = false
+  $('inviteStatus').textContent = ''
+  render([], '')
+  renderHost()
+  renderApprovals()
 }
 
 async function forgetKnownRoom(room: KnownRoom): Promise<void> {
@@ -6476,10 +6723,17 @@ $('clearHomeRoomQuery').addEventListener('click', () => {
   renderRooms()
   $('homeRoomQuery').focus()
 })
-$('retryArrival').addEventListener('click', () => location.reload())
-$('arrivalHome').addEventListener('click', () => {
+$('returnToPreviousRoom').addEventListener('click', () => {
+  if (previousRoom) void switchRoom(previousRoom)
+})
+$('retryArrival').addEventListener('click', () => {
+  if (switchDestination) void switchRoom(switchDestination)
+  else location.reload()
+})
+$('arrivalHome').addEventListener('click', async () => {
+  if (hasUnsentWork() && !await confirmDiscardAndLeave()) return
   history.replaceState(null, '', joinLinkBase())
-  location.reload()
+  approvedReload()
 })
 
 // One pairing host at a time. Open while the link is on screen; closing it
@@ -6545,13 +6799,16 @@ $('shareRoom').addEventListener('click', () => {
 })
 $('rotateShare').addEventListener('click', async () => {
   if (!await confirmRoomAction({ title: 'Replace the room link?', message: 'The old link will stop admitting new people in current KithMoot clients. Existing members stay in the room.', confirmLabel: 'Replace link', danger: true })) return
-  rotateRoomInvitation().catch((err) => setStatus(describeError(err)))
+  ++roomOperation
+  try { await rotateRoomInvitation() } catch (err) { setStatus(describeError(err)) }
+  finally { --roomOperation; refreshRoomNavigation() }
 })
 $('makePersistent').addEventListener('click', async () => {
   const button = $('makePersistent') as HTMLButtonElement
   button.disabled = true
+  ++roomOperation
   try { await makeRoomPersistent() } catch (error) { setStatus(describeError(error)) }
-  finally { button.disabled = false }
+  finally { button.disabled = false; --roomOperation; refreshRoomNavigation() }
 })
 
 // The join link's QR is rendered lazily, on the first open of its
@@ -6599,6 +6856,7 @@ $('voicePresets').addEventListener('click', (event) => {
 })
 
 $('voicePreview').addEventListener('click', () => {
+  const generation = roomGeneration
   const button = $('voicePreview') as HTMLButtonElement
   const player = $('voicePreviewAudio') as HTMLAudioElement
   if (!mic) return
@@ -6607,6 +6865,7 @@ $('voicePreview').addEventListener('click', () => {
   mic
     .preview()
     .then((blob) => {
+      if (generation !== roomGeneration) return
       if (player.src) URL.revokeObjectURL(player.src)
       player.src = URL.createObjectURL(blob)
       player.hidden = false
@@ -6625,40 +6884,11 @@ $('joinRoomForm').addEventListener('submit', event => {
   startSession().catch((err) => setStatus(describeError(err)))
 })
 
-/**
- * Hang up.
- *
- * The session says goodbye - one roster entry marked `left`, which takes
- * this device off everybody else's screen now rather than when its presence
- * lapses - and then the page reloads into the same room link, which is the
- * join screen. A reload rather than a hand-rolled teardown: the camera,
- * microphone, screen, effects, assist poll and every tile all go with it,
- * and a partial teardown that missed one pipeline would leave a camera
- * light on with nobody watching, which is worse than a flicker.
- */
+/** Leave every local media source before returning to this room's door. */
 async function leaveRoom(): Promise<void> {
-  assignmentPanel.detach()
-  contextPanel.close()
-  if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
-  iceRefreshTimer = undefined
-  drafts.close()
-  const s = session
-  session = undefined
-  sessionTransport = undefined
-  // Awaited, because the farewell is the entire point of a Leave button.
-  // `reload()` used to run in the same tick as `leave()`, which left the
-  // goodbye racing the page teardown: whether it reached a relay came down
-  // to whether the socket happened to flush first, and measured against
-  // two browsers it did about half the time. The other half, everybody
-  // else kept the tile for the full presence timeout and their mesh spent
-  // it escalating a route ladder at a device that had gone - the exact
-  // failure the farewell was added to prevent.
-  //
-  // `leave()` is bounded at FAREWELL_BOUND_MS, so this waits for the
-  // goodbye to land and never longer than that, whatever the relay does.
-  const button = $('leave')
-  if (button instanceof HTMLButtonElement) button.disabled = true
-  await s?.leave()
+  closeAllDrafts()
+  ;($('leave') as HTMLButtonElement).disabled = true
+  await closeRoomSession()
   approvedReload()
 }
 
@@ -6677,7 +6907,7 @@ window.addEventListener('beforeunload', event => {
   event.returnValue = ''
 })
 window.addEventListener('pagehide', () => {
-  drafts.close()
+  closeAllDrafts()
   session?.leave()
   stopInvitationHost()
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
@@ -6948,14 +7178,14 @@ $('emojiToggle').addEventListener('click', () => {
 //
 // Answering a message puts the reply in its thread; editing replaces one of
 // ours. Either is shown above the box with a way out, and cleared when the
-// message goes. Not kept in the draft: a reply half-typed and abandoned is
-// a draft, but the message it was answering may be gone by tomorrow.
+// message goes. Reply and edit targets stay with their draft in this tab;
+// they never carry over to a different room or conversation.
 // ---------------------------------------------------------------------------
 
-let composing: { replyTo?: ChatMessage; editing?: ChatMessage } = {}
-
 function setComposing(next: { replyTo?: ChatMessage; editing?: ChatMessage }, shown?: ChatMessage): void {
-  composing = next
+  const current = drafts.get(currentChannel)
+  current.replyTo = next.replyTo
+  current.editing = next.editing
   const box = $('chatInput') as HTMLTextAreaElement
   if (next.editing && shown) {
     // The message as it reads now, to correct, with its files staged so
@@ -6973,6 +7203,7 @@ function setComposing(next: { replyTo?: ChatMessage; editing?: ChatMessage }, sh
 }
 
 function renderComposerContext(): void {
+  const composing = drafts.get(currentChannel)
   const bar = $('composerContext')
   bar.innerHTML = ''
   const target = composing.editing ?? composing.replyTo
@@ -7056,8 +7287,8 @@ $('chatForm').addEventListener('submit', (event) => {
   const sendOpts: SendOptions = attachments.length ? { attachments } : {}
   const mentions = mentionsInDraft(typed)
   if (mentions.length) sendOpts.mentions = mentions
-  if (composing.editing) sendOpts.replaces = composing.editing.id
-  else if (composing.replyTo) sendOpts.replyTo = composing.replyTo
+  if (draft.editing) sendOpts.replaces = draft.editing.id
+  else if (draft.replyTo) sendOpts.replyTo = draft.replyTo
   let publish: () => Promise<void>
   try {
     publish = log.prepareSend(text, sendOpts)
@@ -7560,27 +7791,30 @@ roomArrival
       // No storage, no notice.
     }
   })
-  .catch((err) => {
-    const reason = describeError(err)
-    let valid = false
-    try { parseRoomLink(location.href); valid = true } catch { /* Incomplete or malformed invitation. */ }
-    const retired = reason.includes('retired')
-    const persistent = valid && parseRoomLink(location.href).invitation?.persistent
-    $('arrivalTitle').textContent = retired ? 'This invitation is no longer valid' : valid ? persistent ? 'The group invitation could not be loaded' : 'The room has not answered' : 'This invitation is incomplete'
-    $('arrivalLead').textContent = retired
-      ? 'Ask somebody in the room for its current invitation link.'
-      : valid
-        ? persistent
-          ? 'Check your connection and try again. If it still cannot be found, ask for a current group invitation.'
-          : 'Check your connection and ask somebody with access to keep the room open while you try again.'
-        : 'Copy the whole invitation, including everything after #, then open it again.'
-    $('arrivalLead').hidden = false
-    $('joinRoomForm').hidden = true
-    $('identityMore').hidden = true
-    $('arrivalActions').hidden = false
-    $('retryArrival').hidden = !valid || retired
-    setStatus('')
-  })
+  .catch(showArrivalFailure)
+
+function showArrivalFailure(err: unknown): void {
+  const reason = describeError(err)
+  let valid = false
+  try { parseRoomLink(location.href); valid = true } catch { /* Incomplete or malformed invitation. */ }
+  const retired = reason.includes('retired')
+  const persistent = valid && parseRoomLink(location.href).invitation?.persistent
+  $('arrivalTitle').textContent = retired ? 'This invitation is no longer valid' : valid ? persistent ? 'The group invitation could not be loaded' : 'The room has not answered' : 'This invitation is incomplete'
+  $('arrivalLead').textContent = retired
+    ? 'Ask somebody in the room for its current invitation link.'
+    : valid
+      ? persistent
+        ? 'Check your connection and try again. If it still cannot be found, ask for a current group invitation.'
+        : 'Check your connection and ask somebody with access to keep the room open while you try again.'
+      : 'Copy the whole invitation, including everything after #, then open it again.'
+  $('arrivalLead').hidden = false
+  $('joinRoomForm').hidden = true
+  $('identityMore').hidden = true
+  $('arrivalActions').hidden = false
+  $('retryArrival').hidden = !valid || retired
+  setStatus('')
+}
+
 
 // Rewrite what is in storage with what a reader would actually see, so a
 // name that arrived there by some other route does not sit in raw form.

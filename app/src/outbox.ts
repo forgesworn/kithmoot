@@ -6,7 +6,7 @@ export class Outbox {
   readonly #root: HTMLElement
   readonly #items = new Set<HTMLElement>()
 
-  constructor(root: HTMLElement) {
+  constructor(root: HTMLElement, private readonly onChange: () => void = () => {}) {
     this.#root = root
   }
 
@@ -29,6 +29,7 @@ export class Outbox {
       this.#items.delete(row)
       row.remove()
       this.#root.hidden = !this.pending
+      this.onChange()
     }
     discard.addEventListener('click', async () => {
       if (await confirmAction({ title: 'Dismiss this unsent message?', message: 'A relay may have received it even if its acknowledgement did not arrive. Dismissing removes it from this pending list.', confirmLabel: 'Dismiss message', danger: true, isCurrent: () => row.isConnected })) remove()
@@ -49,6 +50,7 @@ export class Outbox {
     this.#items.add(row)
     this.#root.append(row)
     this.#root.hidden = false
+    this.onChange()
     void attempt()
   }
 }

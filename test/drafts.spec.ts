@@ -108,7 +108,7 @@ test('unsent work in another conversation still protects room changes and can be
     await expect(page.locator('#chatInput')).toHaveValue('')
     await page.locator('#backToRooms').click()
     await expect(page.locator('#roomSwitcherHome')).toBeDisabled()
-    await expect(page.locator('#roomSwitcherNote')).toContainText('unfinished')
+    await expect(page.locator('#roomSwitcherNote')).toContainText('drafts')
     await page.locator('#roomSwitcherClose').click()
     await goToConversation(page, 'Chat')
     await openRoomDetails(page)
