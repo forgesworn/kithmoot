@@ -101,6 +101,7 @@ export class CameraPipeline {
   #stream: MediaStream | null = null
   #outputStream: MediaStream | null = null
   #running = false
+  #stopped = false
   #rafHandle = 0
   #vfcHandle = 0
   #watchdog: ReturnType<typeof setInterval> | null = null
@@ -193,11 +194,13 @@ export class CameraPipeline {
   /** Start the camera and return the track to publish. Idempotent enough to
    *  call twice; the second call returns the same track. */
   async start(): Promise<MediaStreamTrack> {
+    if (this.#stopped) throw new Error('Camera was stopped.')
     if (this.#outputStream) {
       const existing = this.#outputStream.getVideoTracks()[0]
       if (existing) return existing
     }
     await this.#openCamera({ facingMode: this.#facingMode })
+    if (this.#stopped) throw new Error('Camera was stopped.')
 
     this.#outputStream = this.#canvas.captureStream(CAPTURE_FPS)
     const track = this.#outputStream.getVideoTracks()[0]
@@ -269,6 +272,7 @@ export class CameraPipeline {
   }
 
   stop(): void {
+    this.#stopped = true
     this.#running = false
     if (this.#watchdog) clearInterval(this.#watchdog)
     this.#watchdog = null
@@ -290,7 +294,12 @@ export class CameraPipeline {
   // -- internals ------------------------------------------------------------
 
   async #openCamera(video: MediaTrackConstraints): Promise<void> {
+    if (this.#stopped) throw new Error('Camera was stopped.')
     const stream = await navigator.mediaDevices.getUserMedia({ video })
+    if (this.#stopped) {
+      for (const track of stream.getTracks()) track.stop()
+      throw new Error('Camera was stopped.')
+    }
     this.#stream = stream
     this.#video.srcObject = stream
     const track = stream.getVideoTracks()[0]

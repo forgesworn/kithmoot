@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs'
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
@@ -53,15 +54,17 @@ test('projects group rooms, filter by name, survive reload and remain reachable 
     await group.getByRole('button', { name: 'Design workshop', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Design workshop')
     await expect(page.locator('#workspaceRooms [aria-current=true]')).toHaveText('Design workshop')
+    await expect(page.locator('#workspaceQuery')).toHaveValue('kithmoot')
+    await page.locator('#workspaceQuery').fill('')
     await expect(page.locator('#workspaceRooms h3')).toContainText(['KithMoot', 'No project'])
     await page.locator('#workspaceRooms').getByRole('button', { name: 'Town hall', exact: true }).click()
     await expect(page.locator('#conversationNav button[data-channel=agents]')).toHaveAttribute('aria-pressed', 'true')
     await page.locator('#workspaceRooms').getByRole('button', { name: 'Design workshop', exact: true }).click()
     await page.locator('#chatInput').fill('Keep this draft in Design workshop')
     await page.locator('#workspaceRooms').getByRole('button', { name: 'Town hall', exact: true }).click()
-    await expect(page.locator('#roomSwitcher')).toBeVisible()
-    await expect(page.locator('#roomSwitcherNote')).toContainText('unfinished')
-    await page.keyboard.press('Escape')
+    await expect(page.locator('#roomTitle')).toHaveText('Town hall')
+    await expect(page.locator('#chatInput')).toHaveValue('')
+    await page.locator('#workspaceRooms').getByRole('button', { name: 'Design workshop', exact: true }).click()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this draft in Design workshop')
     await page.locator('#chatInput').fill('')
     await page.keyboard.press('Control+k')
@@ -155,6 +158,101 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
   } finally { agent.leave(); keeper.leave(); await context.close() }
 })
 
+test('catching up starts at unread messages and keeps your place across conversations', async ({ browser, baseURL }, testInfo) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  const writer = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Design workshop', relays: ['ws://127.0.0.1:7777'] })
+  try {
+    await page.setViewportSize({ width: 390, height: 740 })
+    await join(page, withRelays(writer.url, [relay]))
+    for (let i = 0; i < 8; i++) {
+      await writer.chat.send(`Design note ${i}. ` + 'Keep the conversation easy to follow. '.repeat(5))
+      await expect(page.locator('#chatLog .msg')).toHaveCount(i + 1)
+    }
+    const log = page.locator('#chatLog')
+    await log.evaluate(el => { el.scrollTop = el.scrollHeight })
+    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
+    await log.evaluate(el => { el.scrollTop = 100 })
+    await expect.poll(() => log.evaluate(el => el.scrollTop)).toBeCloseTo(100, 0)
+    for (let i = 0; i < 8; i++) {
+      await writer.session.channel('agents').send(`Review note ${i}. ` + 'Check the phone layout and keep the composer visible. '.repeat(4))
+    }
+    await expect(page.locator('#nextUnread')).toHaveText('Next unread: Agents (8)')
+    await page.locator('#chatInput').fill('A draft to come back to')
+    const readingPlace = () => log.evaluate(el => {
+      const edge = el.getBoundingClientRect().top
+      const anchor = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(message => message.getBoundingClientRect().bottom > edge)!
+      return { id: anchor.dataset.messageId, offset: anchor.getBoundingClientRect().top - edge }
+    })
+    const place = await readingPlace()
+    await page.locator('#nextUnread').click()
+    await expect(log).toBeFocused()
+    await expect(log.locator('.unreadDivider')).toHaveText('New messages')
+    await expect(page.locator('#conversationNav button[data-channel=agents] .conversationUnread')).toHaveText('8')
+    const dividerOffset = () => log.locator('.unreadDivider').evaluate(el => el.getBoundingClientRect().top - document.getElementById('chatLog')!.getBoundingClientRect().top)
+    await expect.poll(dividerOffset).toBeLessThan(5)
+    await expect.poll(dividerOffset).toBeGreaterThanOrEqual(-1)
+    const readingSpace = { viewport: page.viewportSize(), log: await log.boundingBox() }
+    writeFileSync(testInfo.outputPath('phone-reading-space.json'), JSON.stringify(readingSpace, null, 2))
+    // Font metrics can leave fractional CSS pixels; compare the intended
+    // whole-pixel reading-space budget while retaining the raw measurement.
+    expect(Math.round(readingSpace.log!.height)).toBeGreaterThanOrEqual(350)
+    await page.screenshot({ path: testInfo.outputPath('catch-up-phone.png') })
+
+    // An arrival must leave the first unread message in place.
+    await writer.session.channel('agents').send('A later update while you catch up.')
+    await expect(log.locator('.msg')).toHaveCount(9)
+    await expect.poll(dividerOffset).toBeLessThan(5)
+    await page.locator('#conversationNav button[data-channel=""]').click()
+    await expect(page.locator('#chatInput')).toHaveValue('A draft to come back to')
+    await expect.poll(async () => (await readingPlace()).id).toBe(place.id)
+    await expect.poll(async () => Math.abs((await readingPlace()).offset - place.offset)).toBeLessThan(1)
+    await page.locator('#nextUnread').click()
+    await expect.poll(dividerOffset).toBeLessThan(5)
+    await page.locator('#newMessages').click()
+    await expect(log).toBeFocused()
+    await expect(page.locator('#conversationNav button[data-channel=agents] .conversationUnread')).toHaveCount(0)
+    await expect(page.locator('#nextUnread')).toBeHidden()
+
+    // Editing a message already read does not invent another unread message.
+    // Read above the bottom so rendering cannot clear a false unread count.
+    await log.evaluate(el => { el.scrollTop = 100 })
+    const original = writer.session.channel('agents').messages().find(message => message.text.startsWith('Review note'))!
+    await writer.session.channel('agents').send('The reviewed layout is ready.', { replaces: original.id })
+    await expect(log).toContainText('The reviewed layout is ready.')
+    await expect(page.locator('#conversationNav button[data-channel=agents] .conversationUnread')).toHaveCount(0)
+    await log.evaluate(el => { el.scrollTop = 100 })
+    const agentPlace = await readingPlace()
+    await page.locator('#conversationNav button[data-channel=transcript]').click()
+    await expect(page.locator('#chatForm')).toBeHidden()
+    await page.locator('#conversationNav button[data-channel=agents]').click()
+    await expect.poll(async () => (await readingPlace()).id).toBe(agentPlace.id)
+    await expect.poll(async () => Math.abs((await readingPlace()).offset - agentPlace.offset)).toBeLessThan(1)
+    const channel = 'design-review-mobile-accessibility-and-keyboard-navigation'
+    await writer.setChannel(channel, true)
+    await writer.session.channel(channel).send('Ready for the next review.')
+    await expect(page.locator('#nextUnread')).toContainText(channel)
+    for (const width of [320, 768, 1440]) {
+      await page.setViewportSize({ width, height: 740 })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      const composer = await page.locator('#chatForm').boundingBox()
+      expect(composer!.y + composer!.height).toBeLessThanOrEqual(740)
+    }
+    await page.screenshot({ path: testInfo.outputPath('catch-up-desktop.png') })
+    await page.setViewportSize({ width: 320, height: 540 })
+    await page.screenshot({ path: testInfo.outputPath('catch-up-short-phone.png') })
+    const shortComposer = await page.locator('#chatForm').boundingBox()
+    expect(shortComposer!.y + shortComposer!.height).toBeLessThanOrEqual(540)
+    await page.locator('#nextUnread').click()
+    await expect(log).toContainText('Ready for the next review.')
+    await expect(page.locator('#conversationNav button[aria-pressed=true]')).toHaveAttribute('data-channel', channel)
+    const finalComposer = await page.locator('#chatForm').boundingBox()
+    expect(finalComposer!.y + finalComposer!.height).toBeLessThanOrEqual(540)
+    await page.locator('#roomMenu').click()
+    await page.locator('#roomProfileSettings').click()
+    await expect(page.locator('#profileSettings')).toBeVisible()
+  } finally { writer.leave(); await context.close() }
+})
+
 test('refreshing a rekeyed room restores its lock state without announcing old removals again', async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
   // A small clock difference proves notices use the authority's timestamp,
@@ -207,4 +305,211 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
     keeper.leave()
     await context.close()
   }
+})
+
+test('switching rooms restores independent reading places after delayed history and honours Jump to latest', async ({ browser, baseURL }) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  const first = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', relays: ['ws://127.0.0.1:7777'] })
+  const second = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', relays: ['ws://127.0.0.1:7777'] })
+  let hold = false
+  let held: (() => void)[] = []
+  await context.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    upstream.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (hold && frame[0] === 'EVENT' && frame[2]?.kind === 1460) held.push(() => ws.send(raw))
+      else ws.send(raw)
+    })
+  })
+  const release = () => { hold = false; const pending = held; held = []; pending.forEach(send => send()) }
+  const log = page.locator('#chatLog')
+  const place = () => log.evaluate(el => {
+    const edge = el.getBoundingClientRect().top
+    const anchor = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(message => message.getBoundingClientRect().bottom > edge)
+    return { id: anchor?.dataset.messageId, offset: anchor ? anchor.getBoundingClientRect().top - edge : 0 }
+  })
+  const switchTo = async (name: string) => {
+    await page.locator('#backToRooms').click()
+    await page.getByRole('button', { name: `Switch to ${name}`, exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText(name)
+    await expect(page.locator('#roomArea')).toBeVisible()
+  }
+  try {
+    await page.setViewportSize({ width: 390, height: 740 })
+    await join(page, withRelays(first.url, [relay]))
+    await page.evaluate(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), {
+      roomId: second.session.roomId, name: 'Planning room', link: withRelays(second.url, [relay]), openedAt: 1, readAt: 0,
+    })
+    for (let i = 0; i < 12; i++) {
+      await first.chat.send(`Reading note ${i}. ` + 'Keep this reading position through a room switch. '.repeat(4))
+      await second.chat.send(`Planning note ${i}. ` + 'Keep a different position in this conversation. '.repeat(4))
+    }
+    await expect(log.locator('.msg')).toHaveCount(12)
+    await log.evaluate(el => { el.scrollTop = el.scrollHeight })
+    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
+    await log.evaluate(el => { el.scrollTop = 180 })
+    const firstPlace = await place()
+    expect(firstPlace.id).toBeTruthy()
+    await switchTo('Planning room')
+    await expect(log.locator('.msg')).toHaveCount(12)
+    await log.evaluate(el => { el.scrollTop = 340 })
+    const secondPlace = await place()
+    expect(secondPlace.id).toBeTruthy()
+    await first.chat.send('A new message arrived while you were in Planning room.')
+    hold = true
+    await switchTo('Reading room')
+    await expect.poll(() => held.length).toBeGreaterThan(0)
+    await expect(log.locator('.msg')).toHaveCount(0)
+    await expect(page.locator('#newMessages')).toBeVisible()
+    release()
+    await expect(log.locator('.msg')).toHaveCount(13)
+    await expect.poll(async () => (await place()).id).toBe(firstPlace.id)
+    await expect.poll(async () => Math.abs((await place()).offset - firstPlace.offset)).toBeLessThan(1)
+    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveText('1')
+    await switchTo('Planning room')
+    await expect(log.locator('.msg')).toHaveCount(12)
+    await expect.poll(async () => (await place()).id).toBe(secondPlace.id)
+    await expect.poll(async () => Math.abs((await place()).offset - secondPlace.offset)).toBeLessThan(1)
+    hold = true
+    await switchTo('Reading room')
+    await expect.poll(() => held.length).toBeGreaterThan(0)
+    await expect(page.locator('#newMessages')).toBeVisible()
+    await page.locator('#newMessages').click()
+    release()
+    await expect(log.locator('.msg')).toHaveCount(13)
+    await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
+    await page.setViewportSize({ width: 390, height: 600 })
+    await expect.poll(() => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(48)
+    await expect(page.locator('#conversationNav button[data-channel=""] .conversationUnread')).toHaveCount(0)
+  } finally { first.leave(); second.leave(); await context.close() }
+})
+
+test('keyboard section shortcuts preserve drafts, skip hidden areas and leave dialogs in control', async ({ browser, baseURL }, testInfo) => {
+  const { context, page, rooms } = await setup(browser, baseURL!)
+  try {
+    await join(page, rooms[0].link)
+    const input = page.locator('#chatInput')
+    await input.fill('Keep this unfinished draft')
+    await input.evaluate(el => (el as HTMLTextAreaElement).setSelectionRange(5, 9))
+    await page.keyboard.press('Control+F6')
+    await expect(page.locator('#workspaceQuery')).toBeFocused()
+    await page.keyboard.press('Control+F6')
+    await expect(page.locator('#roomIdentity')).toBeFocused()
+    await page.keyboard.press('Control+F6')
+    await expect(page.locator('#conversationNav [aria-pressed=true]')).toBeFocused()
+    await page.keyboard.press('Control+F6')
+    await expect(page.locator('#chatSearch')).toBeFocused()
+    await page.keyboard.press('Control+F6')
+    await expect(page.locator('#chatLog')).toBeFocused()
+    await page.keyboard.press('Control+F6')
+    await expect(input).toBeFocused()
+    await expect(input).toHaveValue('Keep this unfinished draft')
+    expect(await input.evaluate(el => [(el as HTMLTextAreaElement).selectionStart, (el as HTMLTextAreaElement).selectionEnd])).toEqual([5, 9])
+    await page.keyboard.press('ArrowUp')
+    await expect(input).toBeFocused()
+    await page.keyboard.press('Meta+Shift+F6')
+    await expect(page.locator('#chatLog')).toBeFocused()
+    await page.keyboard.press('Control+/')
+    await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible()
+    await page.keyboard.press('Control+F6')
+    expect(await page.evaluate(() => document.getElementById('keyboardShortcuts')!.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#chatLog')).toBeFocused()
+    await page.setViewportSize({ width: 390, height: 740 })
+    await page.keyboard.press('Control+F6')
+    await expect(input).toBeFocused()
+    await page.keyboard.press('Control+F6')
+    await expect(page.locator('#roomIdentity')).toBeFocused()
+    await page.locator('#conversationNav [data-channel=minutes]').click()
+    await page.locator('#chatLog').focus()
+    await page.keyboard.press('Control+F6')
+    await expect(page.locator('#roomIdentity')).toBeFocused()
+    await page.locator('#roomMenu').click()
+    await page.locator('#keyboardHelp').click()
+    await expect(page.locator('#roomSheet')).not.toBeVisible()
+    await expect(page.locator('#keyboardShortcuts')).toBeVisible()
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme })
+      await page.setViewportSize({ width: 320, height: 540 })
+      await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+      expect(await page.locator('#keyboardShortcuts').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+      const close = await page.locator('#keyboardShortcutsClose').boundingBox()
+      expect(close!.y).toBeGreaterThanOrEqual(0)
+      expect(close!.y + close!.height).toBeLessThanOrEqual(540)
+      const title = await page.locator('#keyboardShortcutsTitle').boundingBox()
+      expect(title!.y).toBeGreaterThanOrEqual(0)
+      await expect(page.getByRole('region', { name: 'Shortcut instructions' })).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath(`keyboard-help-${colorScheme}.png`) })
+    }
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#roomMenu')).toBeFocused()
+  } finally { await context.close() }
+})
+
+test('keyboard readers navigate messages, reply through actions and retain focus through edits and retractions', async ({ browser, baseURL }) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  let sentAt = Math.floor(Date.now() / 1000) - 30
+  const writer = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Keyboard workshop', relays: ['ws://127.0.0.1:7777'], now: () => sentAt })
+  try {
+    await page.setViewportSize({ width: 390, height: 740 })
+    await join(page, withRelays(writer.url, [relay]))
+    for (let i = 0; i < 8; i++) { sentAt++; await writer.chat.send(`Review ${i}. ` + 'Keep the conversation readable. '.repeat(4)) }
+    const rows = page.locator('#chatLog [data-message-id]')
+    await expect(rows).toHaveCount(8)
+    const input = page.locator('#chatInput')
+    await input.focus()
+    // Composition and selection keys must remain with the text control.
+    await input.dispatchEvent('keydown', { key: 'ArrowUp', isComposing: true, bubbles: true })
+    await expect(input).toBeFocused()
+    await page.keyboard.press('ArrowUp')
+    await expect(rows.last()).toBeFocused()
+    await page.keyboard.press('Home')
+    await expect(rows.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(rows.nth(1)).toBeFocused()
+    const id = await rows.nth(1).getAttribute('data-message-id')
+    const target = page.locator(`#chatLog [data-message-id="${id}"]`)
+    sentAt++; await writer.chat.send('An edit while this message has keyboard focus.', { replaces: id! })
+    await expect(target).toContainText('An edit while this message has keyboard focus.')
+    await expect(target).toBeFocused()
+    await page.keyboard.press('Control+/')
+    await expect(page.locator('#keyboardShortcuts')).toBeVisible()
+    sentAt++; await writer.chat.send('A second edit while keyboard help is open.', { replaces: id! })
+    await expect(target).toContainText('A second edit while keyboard help is open.')
+    await page.keyboard.press('Escape')
+    await expect(target).toBeFocused()
+    await page.keyboard.press('Shift+F10')
+    const panel = page.locator('#messageActionPanel')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByRole('button', { name: /^Reply to/ })).toBeFocused()
+    await page.keyboard.press('Control+F6')
+    await expect(panel.getByRole('button', { name: /^Reply to/ })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(input).toBeFocused()
+    await expect(page.locator('#composerContext')).toContainText('Replying to')
+    await input.fill('This is a keyboard reply.')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => writer.chat.messages().some(message => message.text === 'This is a keyboard reply.')).toBe(true)
+    await expect(page.locator('#chatLog .thread')).toContainText('This is a keyboard reply.')
+    await page.keyboard.press('Control+Shift+F6')
+    await page.keyboard.press('End')
+    await expect(rows.last()).toBeFocused()
+    await page.keyboard.press('Home')
+    const removedId = await rows.first().getAttribute('data-message-id')
+    sentAt++; await writer.chat.send('Message retracted.', { retracts: removedId! })
+    await expect(page.locator(`#chatLog [data-message-id="${removedId}"]`)).toContainText('Message retracted')
+    await expect(page.locator(`#chatLog [data-message-id="${removedId}"]`)).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(input).toBeFocused()
+    await page.keyboard.press('Control+Shift+F6')
+    await page.keyboard.press('Control+Shift+F6')
+    await page.keyboard.press('Control+Shift+F6')
+    const tab = page.locator('#conversationNav [aria-pressed=true]')
+    await expect(tab).toBeFocused()
+    await page.keyboard.press('Control+/')
+    sentAt++; await writer.chat.send('An arrival redraws the conversation tabs behind help.')
+    await expect(page.locator('#chatLog')).toContainText('An arrival redraws the conversation tabs behind help.')
+    await page.keyboard.press('Escape')
+    await expect(tab).toBeFocused()
+  } finally { writer.leave(); await context.close() }
 })

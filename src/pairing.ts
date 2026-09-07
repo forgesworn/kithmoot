@@ -207,8 +207,9 @@ export interface HostPairingOptions {
   ttlSeconds?: number
   now?: () => number
   /** Last word before a credential is minted, so the person can see which
-   *  device is asking. Defaults to accepting anything that knows the code. */
-  approve?: (device: string) => boolean
+   *  device is asking. A decision is remembered until this host closes;
+   *  retrying a request does not ask again. Defaults to accepting the code. */
+  approve?: (device: string) => boolean | Promise<boolean>
   onPaired?: (device: string) => void
 }
 
@@ -221,6 +222,9 @@ export interface HostPairingOptions {
  */
 export function hostPairing(opts: HostPairingOptions): { close(): void } {
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+  let closed = false
+  const pending = new Set<string>()
+  const decisions = new Map<string, boolean>()
   const unsub = opts.transport.subscribe(
     [{ kinds: [KINDS.PAIRING_REQUEST], '#d': [opts.roomId] }],
     (event) => {
@@ -229,8 +233,13 @@ export function hostPairing(opts: HostPairingOptions): { close(): void } {
         roomId: opts.roomId,
         roomKey: opts.roomKey,
       })
-      if (!request) return
-      if (opts.approve && !opts.approve(request.device)) return
+      if (!request || closed || pending.has(request.device)) return
+      if (!decisions.has(request.device) && pending.size > 0) return
+      // A retry of the same request is not another question for the person.
+      // Bound remembered decisions for the lifetime of this pairing host.
+      if (!decisions.has(request.device) && decisions.size >= 32) return
+      if (decisions.get(request.device) === false) return
+      pending.add(request.device)
 
       // Minting is asynchronous now that the participant may be an external
       // signer: an extension prompt or a relay hop to a bunker. The
@@ -240,6 +249,12 @@ export function hostPairing(opts: HostPairingOptions): { close(): void } {
       // The secondary re-sends until it times out, which is the same
       // recovery a dropped grant already had. See `requestPairing`.
       void (async () => {
+        if (!decisions.has(request.device)) {
+          const approved = opts.approve ? await opts.approve(request.device) : true
+          decisions.set(request.device, approved)
+          if (!approved) return
+        }
+        if (closed) return
         const credential = await createDeviceCredential({
           identity: opts.identity,
           devicePubkey: request.device,
@@ -247,6 +262,7 @@ export function hostPairing(opts: HostPairingOptions): { close(): void } {
           expiresAt: now() + (opts.ttlSeconds ?? DEFAULT_TTL_SECONDS),
           now,
         })
+        if (closed) return
         const grant = encodePairingGrant(credential, {
           roomId: opts.roomId,
           roomKey: opts.roomKey,
@@ -254,11 +270,11 @@ export function hostPairing(opts: HostPairingOptions): { close(): void } {
         })
         opts.transport.publish(grant).catch(() => {})
         opts.onPaired?.(request.device)
-      })().catch(() => {})
+      })().catch(() => {}).finally(() => pending.delete(request.device))
     },
   )
 
-  return { close: unsub }
+  return { close: () => { closed = true; unsub() } }
 }
 
 export interface RequestPairingOptions {

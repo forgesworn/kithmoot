@@ -1,4 +1,5 @@
 import { registerSW } from 'virtual:pwa-register'
+import { confirmAction } from './confirm-action.js'
 
 /** Activation can finish without controllerchange on an uncontrolled first
  * visit. Observe the worker itself, and never leave a failed attempt pending. */
@@ -37,6 +38,7 @@ export function installUpdates(hasWork: () => boolean, reload: () => void = () =
   let activated = false
   let approved = false
   let reloading = false
+  let asking = false
   let registration: ServiceWorkerRegistration | undefined
   const reloadOnce = () => {
     if (reloading) return
@@ -81,8 +83,13 @@ export function installUpdates(hasWork: () => boolean, reload: () => void = () =
     },
   })
   button.addEventListener('click', async () => {
-    if (approved || reloading) return
-    if (hasWork() && !confirm('Reload to update? This ends your call and discards any unsent messages and files.')) return
+    if (approved || reloading || asking) return
+    if (hasWork()) {
+      asking = true
+      const accepted = await confirmAction({ title: 'Reload to update?', message: 'This ends your call and discards unsent messages and files. You can keep working and update later.', confirmLabel: 'Reload and update', cancelLabel: 'Keep working', danger: true })
+      asking = false
+      if (!accepted) return
+    }
     approved = true
     button.disabled = true
     button.textContent = 'Updating…'

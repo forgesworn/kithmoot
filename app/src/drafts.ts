@@ -1,4 +1,4 @@
-import type { ChatAttachment } from '../../src/chat.js'
+import type { ChatAttachment, ChatMessage } from '../../src/chat.js'
 
 export interface ConversationDraft {
   readonly channel: string | undefined
@@ -12,6 +12,8 @@ export interface ConversationDraft {
   panelOpen: boolean
   status: string
   job?: AbortController
+  replyTo?: ChatMessage
+  editing?: ChatMessage
 }
 
 export function draftHasWork(draft: ConversationDraft): boolean {
@@ -45,6 +47,7 @@ export class ConversationDrafts {
     draft.selectionDirection = 'none'
     draft.attachments = []
     draft.panelOpen = false
+    draft.replyTo = draft.editing = undefined
   }
 
   close(): void {

@@ -191,12 +191,9 @@ export const remoteAudioCount = () =>
 
 /** Starts a pairing exchange on the page that will host it. That page must
  *  stay put afterwards: closing or navigating retires the code, and it is
- *  the page that answers the request with a device credential. The dialog
- *  handler is what turns Playwright's default refusal into an approval. */
+ *  the page that answers the request with a device credential. The caller
+ *  approves its in-app dialog while the second device opens the link. */
 export async function offerPairing(page: Page): Promise<string> {
-  page.on('dialog', (dialog) => {
-    void dialog.accept()
-  })
   // The pass for a second device is offered from inside the room now, out of
   // the sheet that holds everything which is not the conversation. A page
   // still at the door has no `#addDevice` to click.

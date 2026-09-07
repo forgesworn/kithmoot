@@ -71,6 +71,7 @@ export class MicPipeline {
   #node: AudioWorkletNode | null = null
   #destination: MediaStreamAudioDestinationNode | null = null
   #stream: MediaStream | null = null
+  #stopped = false
   #preset: VoicePreset = DEFAULT_VOICE_PRESET
   #status: MicState['status'] = 'idle'
   #error: string | undefined
@@ -118,8 +119,14 @@ export class MicPipeline {
    * which is the only honest thing to do with a control that has failed.
    */
   async start(): Promise<MediaStreamTrack> {
+    if (this.#stopped) throw new Error('Microphone was stopped.')
     if (this.track) return this.track
-    this.#stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    if (this.#stopped) {
+      for (const track of stream.getTracks()) track.stop()
+      throw new Error('Microphone was stopped.')
+    }
+    this.#stream = stream
     const raw = this.#stream.getAudioTracks()[0]
     if (!raw) throw new Error('the browser opened the microphone and gave back no audio track')
 
@@ -132,7 +139,9 @@ export class MicPipeline {
       // that comes on unmasked. See `#watch` for the same device stalling
       // after the graph is up.
       if (context.state === 'suspended') await withinMs(context.resume(), START_BOUND_MS, 'the audio device did not start')
+      if (this.#stopped) throw new Error('Microphone was stopped.')
       await withinMs(context.audioWorklet.addModule(`${import.meta.env.BASE_URL}voice-worklet.js`), START_BOUND_MS, 'the audio worklet did not load')
+      if (this.#stopped) throw new Error('Microphone was stopped.')
       this.#node = new AudioWorkletNode(context, WORKLET_NAME)
       this.#source = context.createMediaStreamSource(this.#stream)
       this.#destination = context.createMediaStreamDestination()
@@ -145,6 +154,7 @@ export class MicPipeline {
       this.#watch(context, raw)
       return track
     } catch (err) {
+      if (this.#stopped) throw err
       this.#error = err instanceof Error ? err.message : String(err)
       this.#setStatus('degraded')
       this.#preset = 'off'
@@ -197,6 +207,7 @@ export class MicPipeline {
   }
 
   stop(): void {
+    this.#stopped = true
     if (this.#watchdog !== undefined) clearInterval(this.#watchdog)
     this.#watchdog = undefined
     this.#fallback = null

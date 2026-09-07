@@ -168,7 +168,7 @@ test('one person on two devices delivers two live pictures to everybody else', a
     // The phone: a separate context, so separate localStorage - it opens the
     // PAIRING link and becomes a second device of Ada rather than a second
     // Ada. Camera and mic, as a phone would, turned on once it is in.
-    await open(pagePhone, pairUrl, 'Ada')
+    await Promise.all([open(pagePhone, pairUrl, 'Ada'), pageLaptop.getByRole('button', { name: 'Add device', exact: true }).click()])
     await pagePhone.locator('#join').click()
     await expect(pagePhone.locator('#roomArea')).toBeVisible()
     await turnOnMedia(pagePhone)

@@ -808,8 +808,21 @@ video {
   overflow-wrap: anywhere;
 }
 
-/* Sender and exact time remain visible above each message. */
+/* Consecutive messages share a sender heading; every timestamp stays visible. */
 .messageHeader { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; max-width: 100%; margin-bottom: 0.3rem; }
+.msg.continuation .sender { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.messageBody { display: flex; align-items: flex-start; gap: .15rem; max-width: 100%; min-width: 0; }
+.messageBody .bubble { flex: 1 1 auto; }
+.msg.mine .messageBody { flex-direction: row-reverse; }
+.messageMore { flex: 0 0 44px; width: 44px; min-height: 44px; margin: 0; padding: 0; font-size: 1.35rem; color: var(--muted); background: transparent; border-color: transparent; }
+.messageMore:hover, .messageMore[aria-expanded=true] { color: var(--text); border-color: var(--border); background: var(--control-hover); }
+.messageActionPanel { position: fixed; inset: auto; margin: 0; width: min(19rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); overflow: auto; padding: .6rem; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: var(--text); box-shadow: 0 .75rem 2.5rem var(--drop-shadow); }
+.messageActionPreview { margin: .3rem .4rem .55rem; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.messageActionPanel > button { display: block; width: 100%; min-height: 44px; margin: 0; text-align: left; background: transparent; border-color: transparent; }
+.messageActionPanel button.danger { color: var(--danger); }
+.messageReactionChoices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .25rem; margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--border); }
+.messageReactionChoices button { min-width: 44px; min-height: 44px; margin: 0; padding: .2rem; font-size: 1.25rem; background: transparent; }
+.messageReactionChoices button[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }
 .messageHeader .sender { margin: 0; }
 .messageHeader .when { margin: 0; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .msg.mine .messageHeader { justify-content: flex-end; }
@@ -1172,9 +1185,8 @@ button.primary:hover:not(:disabled) {
   font-size: 0.95rem;
 }
 
-/* The verification dialog. The rest of the app confirms a one-line yes/no
-   with confirm(), which is fine for "remove this person?"; this one has
-   words to read and say aloud, so it gets furniture of its own. */
+/* Verification has words to read and say aloud, so it has its own layout
+   alongside the shared action confirmation dialog. */
 #verifyDialog {
   background: var(--panel);
   color: var(--text);
@@ -1606,6 +1618,8 @@ button.primary:hover:not(:disabled) {
   gap: 0.4rem;
   margin: 0.5rem 0 0.75rem;
 }
+.inviteCapability { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; min-width: 0; }
+.inviteCapability button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; min-height: 44px; }
 
 .inviteRow {
   display: flex;
@@ -2065,7 +2079,7 @@ label.note {
     padding-block: 0.65rem;
   }
 
-  #chatLog {
+  #chatViewport {
     /* The conversation takes the shortfall, and the names do not.
 
        A flex item shrinks in proportion to how much it asked for, and a log
@@ -2162,7 +2176,7 @@ label.note {
     min-height: 0;
   }
 
-  main:has(#roomArea:not([hidden])) #chatLog {
+  main:has(#roomArea:not([hidden])) #chatViewport {
     /* The conversation takes what is left of the column, not what its own
        history would like. */
     flex: 1 1 0;
@@ -2334,6 +2348,34 @@ label.note {
   font-size: 0.85rem;
 }
 
+.actionDialog {
+  width: min(30rem, calc(100% - 2rem));
+  max-width: calc(100% - 2rem);
+  max-height: calc(100svh - 2rem);
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 1.5rem 5rem var(--drop-shadow);
+  overflow-wrap: anywhere;
+}
+.actionDialog::backdrop { background: rgb(0 0 0 / 55%); backdrop-filter: blur(3px); }
+.actionDialog h2 { margin: 0 0 .75rem; font-size: 1.2rem; text-transform: none; letter-spacing: normal; color: var(--text); }
+.actionDialog p { margin: 0; line-height: 1.55; white-space: pre-line; }
+.actionDialogButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; margin-top: 1.5rem; }
+.actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.actionDialogButtons button.danger { color: var(--danger); border-color: var(--danger-border); }
+.keyboardHelp { box-sizing: border-box; width: min(36rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); padding: .75rem; overflow: hidden; }
+.keyboardHelp[open] { display: flex; flex-direction: column; }
+.keyboardHelpBar { display: flex; flex-wrap: wrap; align-items: center; flex: 0 0 auto; gap: .5rem; padding-bottom: .75rem; }
+.keyboardHelpBar h2 { flex: 1 1 9rem; margin: 0; font-size: 1.1rem; }
+.keyboardHelpBar button { margin: 0; min-height: 44px; }
+.keyboardHelpBody { overflow-y: auto; min-height: 0; }
+.keyboardHelp dt { font-weight: 650; margin-top: 1rem; overflow-wrap: anywhere; }
+.keyboardHelp dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+#chatLog > .msg:focus-visible, #chatLog .thread > .msg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: .5rem; }
+
 .sheetBar button {
   margin: 0;
   min-height: 44px;
@@ -2462,7 +2504,34 @@ label.note {
 }
 .outboxItem p { margin: .25rem 0; white-space: pre-wrap; }
 .outboxItem button { margin-right: .5rem; }
-#newMessages { align-self: center; flex-shrink: 0; }
+#chatViewport { position: relative; display: flex; min-width: 0; }
+#chatViewport > #chatLog { flex: 1 1 0; min-width: 0; min-height: 0; height: auto; scroll-padding-bottom: 4rem; }
+#newMessages {
+  position: absolute;
+  right: .75rem;
+  bottom: .75rem;
+  max-width: calc(100% - 1.5rem);
+  min-height: 44px;
+  margin: 0;
+  padding: .45rem .8rem;
+  border-radius: 2rem;
+  border-color: var(--accent);
+  background: var(--panel);
+  color: var(--accent);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 16%);
+  font-size: .85rem;
+}
+.unreadDivider {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-block: .75rem;
+  color: var(--accent);
+  font-size: .8rem;
+  font-weight: 600;
+}
+.unreadDivider::before, .unreadDivider::after { content: ''; height: 1px; background: currentColor; flex: 1; }
+#nextUnread { color: var(--accent); border-color: var(--accent); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .profileChoice { display: flex; align-items: center; gap: .6rem; min-height: 44px; }
 #lookupProfiles { min-height: 0; width: 1.1rem; height: 1.1rem; flex: 0 0 auto; }
 
@@ -2486,6 +2555,25 @@ label.note {
 }
 .messageSearchResults button:hover { background: var(--control-hover); }
 .searchSender { font-weight: 700; }
+.searchConversation { color: var(--accent); font-size: .8rem; font-weight: 600; }
+#conversationSearch .sheetBar { flex-wrap: wrap; }
+#conversationSearch input[type='search'] { font-family: inherit; min-width: 0; max-width: 100%; }
+#conversationSearch .sheetBody { overflow-wrap: anywhere; }
+.searchCoverage { margin-block: .5rem; color: var(--muted); font-size: .85rem; }
+.searchCoverage summary { cursor: pointer; min-height: 44px; padding-block: .65rem; }
+.messageSearchFilters { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem 1rem; margin-block: .75rem; }
+.messageSearchFilters > label:first-child { flex: 1 1 12rem; min-width: 0; margin: 0; }
+.messageSearchFilters select {
+  display: block; width: 100%; min-width: 0; max-width: 100%; margin-top: .25rem;
+  /* WebKit's native menu painting can exceed its box with large system text. */
+  appearance: none; padding-right: 2.25rem; text-overflow: ellipsis;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 1rem center, right .65rem center;
+  background-size: .35rem .35rem; background-repeat: no-repeat;
+}
+.messageSearchFilters .searchFileFilter { margin: 0; }
+#backToSearch { color: var(--accent); }
+.conversationTools:has(#backToSearch:not([hidden])) #chatSearch { display: none; }
 .messageSearchResults time { font-size: .8rem; color: var(--muted); }
 .searchExcerpt { white-space: pre-wrap; }
 .searchFiles { color: var(--accent); font-size: .9rem; }
@@ -2660,7 +2748,7 @@ body:has(#roomArea:not([hidden])) > main { flex: 1 1 auto; min-width: 0; width: 
 main:has(#roomArea:not([hidden])) { display: flex; flex-direction: column; }
 #roomArea { min-width: 0; }
 main:has(#roomArea:not([hidden])) > #roomArea { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-height: 10rem; }
+main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min-height: 10rem; }
 
 @media (min-width: 1100px) {
   body:has(#roomArea:not([hidden])) > header { display: none; }
@@ -2689,23 +2777,30 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
 }
 
 @media (max-width: 540px) {
-  .conversationNav { gap: 0; }
+  .conversationNav { gap: 0; padding-bottom: .25rem; margin-bottom: .2rem; }
   .conversationNav button { padding-inline: .6rem; font-size: .8rem; }
-  .agentActivity { padding: .4rem .6rem; }
+  .agentActivity { padding: .15rem .5rem; margin-bottom: .25rem; }
   .agentActivity > div { flex-basis: 10rem; }
   .agentActivity span { font-size: .75rem; }
 }
 @media (max-width: 700px) {
   .roomBar { flex-wrap: wrap; }
   .roomIdentity { flex-basis: 6rem; }
-  main:has(#roomArea:not([hidden])) #chatLog { min-height: 6rem; }
+  main:has(#roomArea:not([hidden])) #chatViewport { min-height: 6rem; }
 }
 @media (min-width: 1100px) {
   #workspaceRooms { overflow-y: auto; max-height: calc(100svh - 18rem); }
 }
 @media (max-width: 700px) and (max-height: 600px) {
   /* Wrapped room actions must leave the composer reachable on short phones. */
-  main:has(#roomArea:not([hidden])) #chatLog { min-height: 3rem; }
+  main:has(#roomArea:not([hidden])) #chatViewport { min-height: 3rem; }
+  /* Picture preferences remain in Room details. Give catch-up and search
+     one row here so the conversation and composer can both be used. */
+  .conversationTools { flex-wrap: nowrap; }
+  #invitePeople { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  #nextUnread { flex: 1 1 0; min-width: 0; }
+  #chatSearch { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  #backToSearch { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* Keep a full line visible when text size changes after the composer was
@@ -2737,23 +2832,12 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
   white-space: nowrap;
 }
 .msg .chip.replyTo { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.messageActions { display: flex; gap: 0.15rem; }
-.messageActions button {
-  min-height: 2rem;
-  padding: 0.1rem 0.5rem;
-  margin: 0;
-  font-size: 0.8rem;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--muted);
-}
-.messageActions button:hover,
-.messageActions button:focus-visible { border-color: var(--border); color: var(--text); }
 .msg.retracted .bubble { opacity: 0.7; font-style: italic; }
 .msg.mentionsMe .bubble { box-shadow: inset 3px 0 0 var(--accent); }
 .composerContext {
   flex-basis: 100%;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.5rem;
   padding: 0.3rem 0.6rem;
@@ -2763,9 +2847,13 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
   color: var(--muted);
   min-width: 0;
 }
-.composerContext .contextLabel { font-weight: 600; white-space: nowrap; }
-.composerContext .contextExcerpt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composerContext button { min-height: 2rem; padding: 0.1rem 0.6rem; margin: 0; font-size: 0.8rem; }
+.composerContext .contextLabel { font-weight: 600; overflow-wrap: anywhere; }
+.composerContext .contextExcerpt { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composerContext button { grid-column: 2; grid-row: 1 / span 2; min-height: 44px; padding: 0.1rem 0.6rem; margin: 0; font-size: 0.8rem; }
+@media (max-width: 420px) {
+  .composerContext .contextLabel { grid-column: 1 / -1; }
+  .composerContext button { grid-row: 2; }
+}
 .rosterRow .dmButton { margin-left: auto; font-size: 0.85rem; padding: 0.3rem 0.6rem; min-height: 2.25rem; }
 
 /* Relay controls stay usable on narrow phones without clipping URLs. */
@@ -2780,13 +2868,30 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
 .relayHealth[data-state="disconnected"] { color: #b95040; }
 .relayAddForm { display: grid; gap: .5rem; margin: 1rem 0; }
 
-#assignmentPanel { width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; }
+#assignmentPanel { box-sizing: border-box; width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 1rem; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); }
+#assignmentPanel .sheetBar { flex-wrap: wrap; padding: .5rem 0; }
+#assignmentPanel .sheetBar h2 { font-size: 1.15rem; text-transform: none; }
+#assignmentPanel button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+#assignmentPanel [aria-invalid=true] { border-color: var(--danger); outline: 1px solid var(--danger); }
 #assignmentPanel fieldset { border: 0; padding: 0; min-width: 0; }
 #assignmentPanel label { display: grid; gap: .4rem; margin: .8rem 0; }
 #assignmentPanel input, #assignmentPanel select, #assignmentPanel textarea { box-sizing: border-box; width: 100%; min-width: 0; }
-#assignmentPanel textarea { min-height: 5rem; resize: vertical; }
+#assignmentPanel textarea { min-height: 5rem; resize: vertical; font-family: inherit; }
 #assignmentPanel pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .assignmentCard { margin: 1rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; overflow-wrap: anywhere; }
 .assignmentCard h3 { margin-top: 0; }
 .assignmentCard > button { margin: .25rem .5rem .25rem 0; }
 .assignmentCard details { margin-top: 1rem; }
+
+/* Inviting people is a primary room action; the same controls remain in details. */
+#inviteDialog { width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); overflow-wrap: anywhere; }
+#inviteDialog::backdrop { background: rgb(0 0 0 / 55%); backdrop-filter: blur(3px); }
+#inviteDialog .sheetBar { flex-wrap: wrap; }
+#inviteDialog .sheetBar h2 { font-size: 1.15rem; text-transform: none; }
+#inviteDialog .linkBox { margin: 0; padding: 0; border: 0; }
+#inviteDialog .sheetBody { padding: 1rem; }
+.inviteButtons { display: flex; flex-wrap: wrap; gap: .5rem; margin-block: .6rem; }
+.inviteButtons button { min-height: 44px; margin: 0; }
+#inviteContent input { min-width: 0; max-width: 100%; }
+#inviteContent summary { min-height: 44px; padding-block: .6rem; }
+#inviteStatus:empty { display: none; }

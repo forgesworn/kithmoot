@@ -164,12 +164,16 @@
 
         <h3 id="conversationHeading" class="sr-only">Chat</h3>
         <div class="conversationTools" aria-label="Conversation tools">
+          <button id="nextUnread" type="button" hidden></button>
           <button id="chatSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search messages</button>
-          <button id="chatProfiles" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures: on</button>
+          <button id="backToSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch" hidden>Back to results</button>
+          <button id="invitePeople" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Invite people</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
-        <div id="chatLog" role="region" aria-label="Conversation" aria-live="polite" tabindex="0"></div>
-        <button id="newMessages" type="button" hidden>New messages ↓</button>
+        <div id="chatViewport">
+          <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" aria-live="polite" tabindex="0"></div>
+          <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
+        </div>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
         <!-- Said where the box would be, on the conversations nobody types
              into. A box on the Transcript tab invited somebody to type into
@@ -273,6 +277,7 @@
           <button id="retryArrival" type="button">Try invitation again</button>
           <button id="arrivalHome" type="button" class="quiet">Back to rooms</button>
         </div>
+        <button id="returnToPreviousRoom" type="button" hidden>Back to the previous room</button>
         <form id="joinRoomForm">
           <label for="displayName">What should we call you?</label>
           <input
@@ -510,16 +515,26 @@
 
     <dialog id="conversationSearch" aria-labelledby="messageSearchTitle" aria-describedby="messageSearchScope">
       <div class="sheetBar">
-        <h2 id="messageSearchTitle">Search this conversation</h2>
+        <h2 id="messageSearchTitle">Search messages</h2>
         <button id="messageSearchClose" type="button" class="primary">Close</button>
       </div>
       <div class="sheetBody">
         <label for="messageSearchQuery">Message, person or file name</label>
-        <input id="messageSearchQuery" type="search" maxlength="200" autocomplete="off" spellcheck="false" />
-        <label class="searchFileFilter"><input id="messageSearchFiles" type="checkbox" /> Files only</label>
+        <input id="messageSearchQuery" type="search" maxlength="200" autocomplete="off" spellcheck="false" autofocus />
+        <div class="messageSearchFilters">
+          <label for="messageSearchConversation">Conversation
+            <select id="messageSearchConversation"><option value="*">All conversations</option></select>
+          </label>
+          <label class="searchFileFilter"><input id="messageSearchFiles" type="checkbox" /> Files only</label>
+        </div>
         <p id="messageSearchScope" class="note"></p>
+        <details class="searchCoverage">
+          <summary>About this search</summary>
+          <p class="note">Search covers messages already loaded in this room: up to 500 per conversation from the last 30 days. Files are searched by name; nothing is downloaded. Search text stays in this tab.</p>
+        </details>
         <p id="messageSearchStatus" role="status" class="note"></p>
         <ol id="messageSearchResults" class="messageSearchResults" aria-label="Matching messages"></ol>
+        <button id="messageSearchMore" type="button" hidden>Show more results</button>
       </div>
     </dialog>
 
@@ -571,6 +586,22 @@
       </div>
     </dialog>
 
+    <p id="messageKeyboardHint" class="sr-only">Use Up and Down to focus messages and Enter for message actions. Escape returns to the composer when replies are allowed. Open keyboard help with Control or Command and slash.</p>
+    <dialog id="keyboardShortcuts" class="actionDialog keyboardHelp" aria-labelledby="keyboardShortcutsTitle">
+      <div class="keyboardHelpBar"><h2 id="keyboardShortcutsTitle">Keyboard shortcuts</h2><button id="keyboardShortcutsClose" type="button">Close</button></div>
+      <div class="keyboardHelpBody" tabindex="0" role="region" aria-label="Shortcut instructions">
+      <p>Use Ctrl or Command (⌘).</p>
+      <dl>
+        <dt>Control / Command + F6</dt><dd>Move between rooms, room controls, conversations, tools, messages and the composer. Add Shift to move backwards.</dd>
+        <dt>Control / Command + K</dt><dd>Find a room.</dd>
+        <dt>Up / Down in messages</dt><dd>Focus the previous or next message. Up from an empty composer starts at the latest message.</dd>
+        <dt>Home / End in messages</dt><dd>Focus the first or last loaded message.</dd>
+        <dt>Enter or Shift + F10 on a message</dt><dd>Open its actions. Tab moves through the actions; Escape closes them.</dd>
+        <dt>Escape in messages</dt><dd>Return to writing, where this conversation allows replies.</dd>
+        <dt>Control / Command + /</dt><dd>Open this help. Shortcuts leave open dialogs and text editing in control.</dd>
+      </dl>
+      </div>
+    </dialog>
     <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
       <div class="sheetBar">
         <h2 id="roomSheetTitle">Room details</h2>
@@ -579,6 +610,7 @@
 
       <div class="sheetBody">
         <h3 class="sheetHead">This room</h3>
+        <button id="keyboardHelp" type="button" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">Keyboard shortcuts</button>
         <!-- The name and the code, together, here. The bar at the top of
              the room shows the NAME, because that is what every messaging
              app puts at the head of a conversation - and a room with no
@@ -629,19 +661,17 @@
         <p id="agentsExplain" class="agentsExplain" hidden></p>
         <div id="sheetRoster" class="sheetRoster"></div>
 
-        <h3 class="sheetHead">Invite somebody</h3>
-        <div class="linkBox">
-          <p><strong>Invite somebody</strong></p>
-          <p class="note">
-            Send this link and whoever gets it can come in, including
-            anybody they pass it on to. It is a key to the front door, so
-            send it the way you would tell somebody a secret.
-          </p>
-          <p class="note">
-            The end of the link, after the #, never reaches this website,
-            so we never see it. The app you send it with can still read the
-            whole thing, unless that chat is private from end to end.
-          </p>
+        <h3 class="sheetHead">Invite people</h3>
+        <div id="inviteHome">
+        <div id="inviteContent" class="linkBox">
+          <p class="note">Anyone with this link can join, including people it is forwarded to. Share it with people you trust.</p>
+          <label class="sr-only" for="shareUrl">Invitation link</label>
+          <input id="shareUrl" readonly aria-label="Link to this room" />
+          <div class="inviteButtons">
+            <button id="copyShare" type="button" class="primary">Copy link</button>
+            <button id="shareRoom" type="button" hidden>Share</button>
+          </div>
+          <p id="inviteStatus" class="note" role="status"></p>
           <p id="invitationAvailability" class="note">
             Leave this tab open. It is what lets the next person in when
             they follow the link.
@@ -650,9 +680,6 @@
             <button id="toggleKeep" class="toggle" data-on="false" aria-pressed="false">Remember this room here</button>
             <span id="keepNote" class="note inline"></span>
           </div>
-          <input id="shareUrl" readonly aria-label="Link to this room" />
-          <button id="shareRoom" type="button" hidden>Share</button>
-          <button id="copyShare" type="button">Copy</button>
           <button id="rotateShare" type="button" hidden>New link</button>
           <button id="makePersistent" type="button" hidden>Keep as a group</button>
           <!-- Hidden with the button it describes. Only the browser that
@@ -663,11 +690,16 @@
             A new link stops the old one letting anybody new in. Anybody
             already here stays.
           </p>
+          <details class="invitePrivacy">
+            <summary>How invitation links work</summary>
+            <p class="note">The part after # stays in your browser when you open this website. The app you share it through may still read the complete link unless that chat uses end-to-end encryption.</p>
+          </details>
           <details id="shareQrDetails">
             <summary>Show a QR code</summary>
             <canvas id="shareQr" class="qr" role="img" aria-label="QR code for the join link"></canvas>
             <p class="note">Point another phone's camera at this to open the room on it.</p>
           </details>
+        </div>
         </div>
 
         <div class="linkBox pairing">
@@ -772,6 +804,14 @@
       </div>
     </dialog>
 
+    <dialog id="inviteDialog" aria-labelledby="inviteTitle">
+      <div class="sheetBar">
+        <h2 id="inviteTitle">Invite people</h2>
+        <button id="inviteClose" type="button">Close</button>
+      </div>
+      <div id="inviteSlot" class="sheetBody"></div>
+    </dialog>
+
     <dialog id="profileSettings" class="profileSettings" aria-labelledby="profileSettingsTitle">
       <div class="profileSettingsHeader">
         <h2 id="profileSettingsTitle">Profile pictures and names</h2>
@@ -809,8 +849,8 @@
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">
       <div class="sheetBar"><h2 id="assignmentTitle">Shared work</h2><button id="assignmentClose" type="button">Close</button></div>
-      <p id="assignmentStatus" role="status">Connecting assignments…</p>
-      <button id="assignmentRetry" type="button">Retry pending update</button>
+      <p id="assignmentStatus" role="status" tabindex="-1">Connecting assignments…</p>
+      <button id="assignmentRetry" type="button" hidden>Retry pending update</button>
       <details>
         <summary>New assignment</summary>
         <form id="assignmentCreate">
@@ -822,6 +862,8 @@
             <div id="assignmentInputs"></div>
             <p class="note">The room will receive this objective, acceptance criteria, owner and any action inputs. An assignment grants no additional permission to spend, publish or deploy.</p>
             <button type="submit">Share assignment with this room</button>
+            <button type="button" id="assignmentDiscard" class="quiet">Discard draft</button>
+            <p class="note">Unsent work stays with this room in this tab. Reloading or closing the tab discards it.</p>
           </fieldset>
         </form>
       </details>
