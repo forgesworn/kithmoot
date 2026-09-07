@@ -31,8 +31,13 @@ import { Nudger, nip17Sender } from './nudge.js'
 import type { NudgeStore } from './nudge.js'
 import { NostrRelayPool } from '../relay-pool.js'
 import { validateAssignmentActions } from '../assignments.js'
+import { STDIO_PROTOCOL } from './stdio-protocol.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
+
+  kithmoot-agent --stdio-protocol
+      Print the JSON-lines interface version and exit without reading identity
+      or room configuration, creating files, or connecting to a room.
 
   kithmoot-agent create --base <https://host/j/> --name <name> [--state <file>] [options]
       Make a room and keep it. Prints the link. Holds the root inviter key, so it
@@ -182,6 +187,10 @@ interface Common {
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
+  if (argv.length === 1 && argv[0] === '--stdio-protocol') {
+    process.stdout.write(JSON.stringify(STDIO_PROTOCOL) + '\n')
+    return
+  }
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,

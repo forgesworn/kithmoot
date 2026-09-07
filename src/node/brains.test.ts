@@ -24,6 +24,7 @@ it('carries a model catalogue and refusals from the actual stdio brain to the ro
   } as unknown as AgentRuntime
   const stop = await new StdioBrain(input, output).start(runtime)
   try {
+    expect(JSON.parse(lines[0]!)).toMatchObject({ type: 'ready', protocolVersion: 1 })
     const agents = [{ id: 'tally', name: 'Tally', models: [{ id: 'astra', label: 'Astra' }] }]
     input.write(JSON.stringify({ op: 'announce', host: 'forged', agents, running: [] }) + '\n')
     await vi.waitFor(() => expect(sendControl).toHaveBeenCalledWith({ op: 'catalogue', host: participant, name: 'Tally', agents, running: [] }))
