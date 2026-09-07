@@ -7,7 +7,7 @@ import { LOCAL_TEST_RELAY } from './relays.js'
 
 async function releaseServer() {
   let revision = 1
-  let delayActivation = false
+  let delayActivation = 0
   const root = resolve('app/dist')
   const mime: Record<string, string> = { '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' }
   const server = createServer(async (req, res) => {
@@ -23,7 +23,7 @@ async function releaseServer() {
           // A worker that receives the request but cannot finish promptly.
           // Keep the real browser lifecycle; only delay the activation call.
           if (!body.includes('self.skipWaiting()')) throw new Error('Missing activation handler')
-          body = body.replace('self.skipWaiting()', 'setTimeout(() => self.skipWaiting(), 15000)')
+          body = body.replace('self.skipWaiting()', `setTimeout(() => self.skipWaiting(), ${delayActivation})`)
         }
       }
       res.writeHead(200, { 'content-type': mime[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
@@ -34,9 +34,9 @@ async function releaseServer() {
   const address = server.address() as { port: number }
   return {
     base: `http://127.0.0.1:${address.port}/j/`,
-    publish: (options: { delayActivation?: boolean } = {}) => {
+    publish: (options: { delayActivation?: number } = {}) => {
       revision++
-      delayActivation = options.delayActivation ?? false
+      delayActivation = options.delayActivation ?? 0
     },
     close: async () => {
       server.closeAllConnections()
@@ -51,6 +51,7 @@ test('an update on the first visit completes without an existing controller', as
   await context.routeWebSocket(/.*/, ws => ws.close())
   try {
     const page = await context.newPage()
+    page.on('dialog', dialog => { throw new Error(`Unexpected browser dialog: ${dialog.message()}`) })
     await page.goto(release.base)
     await page.evaluate(async () => { await navigator.serviceWorker.ready })
     // A newly installed worker does not control the already-open first visit.
@@ -77,19 +78,19 @@ test('a stalled update offers a retry and late activation still needs consent', 
   await context.routeWebSocket(/wss:\/\/.*/, ws => ws.close())
   try {
     const page = await context.newPage()
+    page.on('dialog', dialog => { throw new Error(`Unexpected browser dialog: ${dialog.message()}`) })
     await page.goto(encodeJoinUrl(release.base, generateRoomSecret(), [LOCAL_TEST_RELAY]))
     await page.evaluate(async () => { await navigator.serviceWorker.ready })
     await page.reload()
     await page.locator('#displayName').fill('Update retry reader')
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await page.locator('#chatInput').fill('Keep this while an update is stuck')
-    release.publish({ delayActivation: true })
+    release.publish({ delayActivation: 15000 })
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(page.locator('#updateNotice')).toBeVisible()
     await page.locator('#updateApp').click()
-    await page.locator('#actionConfirm').click()
     await expect(page.locator('#updateApp')).toHaveText('Updating…')
+    await page.locator('#chatInput').fill('Keep this while an update is stuck')
     await expect(page.locator('#updateApp')).toHaveText('Try updating again', { timeout: 12_000 })
     await expect(page.locator('#updateApp')).toBeEnabled()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this while an update is stuck')
@@ -97,10 +98,11 @@ test('a stalled update offers a retry and late activation still needs consent', 
     // The timed-out approval cannot authorise a late background reload.
     await expect(page.locator('#chatInput')).toHaveValue('Keep this while an update is stuck')
     await page.locator('#updateApp').click()
-    await page.locator('#actionCancel').click()
+    await expect(page.locator('#updateNotice')).toContainText('Send or discard')
     await expect(page.locator('#chatInput')).toHaveValue('Keep this while an update is stuck')
-    await page.locator('#updateApp').click()
-    await Promise.all([page.waitForEvent('load'), page.locator('#actionConfirm').click()])
+    await page.locator('#chatInput').fill('')
+    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+    await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#updateNotice')).toBeHidden()
   } finally {
     await context.close()
@@ -108,12 +110,46 @@ test('a stalled update offers a retry and late activation still needs consent', 
   }
 })
 
-test('a real service-worker update preserves the room and draft until the reader accepts', async ({ browser }, testInfo) => {
+test('work started during activation cancels the reload until a fresh click', async ({ browser }) => {
   const release = await releaseServer()
   const context = await browser.newContext({ serviceWorkers: 'allow' })
   await context.routeWebSocket(/wss:\/\/.*/, ws => ws.close())
   try {
     const page = await context.newPage()
+    page.on('dialog', dialog => { throw new Error(`Unexpected browser dialog: ${dialog.message()}`) })
+    await page.goto(encodeJoinUrl(release.base, generateRoomSecret(), [LOCAL_TEST_RELAY]))
+    await page.evaluate(async () => { await navigator.serviceWorker.ready })
+    await page.reload()
+    await page.locator('#displayName').fill('Activation reader')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    release.publish({ delayActivation: 2000 })
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('#updateNotice')).toBeVisible()
+    await page.locator('#updateApp').click()
+    await expect(page.locator('#updateApp')).toHaveText('Updating…')
+    await page.locator('#chatInput').fill('Started while updating')
+    await expect(page.locator('#updateNotice')).toContainText('Send or discard')
+    await expect(page.locator('#updateApp')).toBeEnabled()
+    await expect(page.locator('#chatInput')).toHaveValue('Started while updating')
+    await page.locator('#chatInput').fill('')
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#updateNotice')).toBeHidden()
+  } finally {
+    await context.close()
+    await release.close()
+  }
+})
+
+test('an update waits for drafts and calls, then returns to the room without a popup', async ({ browser }, testInfo) => {
+  const release = await releaseServer()
+  const context = await browser.newContext({ serviceWorkers: 'allow' })
+  await context.routeWebSocket(/wss:\/\/.*/, ws => ws.close())
+  try {
+    const page = await context.newPage()
+    page.on('dialog', dialog => { throw new Error(`Unexpected browser dialog: ${dialog.message()}`) })
     await page.goto(encodeJoinUrl(release.base, generateRoomSecret(), [LOCAL_TEST_RELAY]))
     // A first installation controls the next navigation. Establish that
     // normal returning-visitor state before testing an update during a room.
@@ -140,7 +176,8 @@ test('a real service-worker update preserves the room and draft until the reader
       await page.screenshot({ path: testInfo.outputPath(`update-in-room-${width}.png`) })
     }
     await page.locator('#updateApp').click()
-    await page.locator('#actionCancel').click()
+    await expect(page.locator('#updateNotice')).toContainText('Send or discard')
+    await expect(page.locator('#actionDialog')).toBeHidden()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished message')
     // Simulate another tab accepting: activation must still not reload us.
     await page.evaluate(async () => {
@@ -150,19 +187,21 @@ test('a real service-worker update preserves the room and draft until the reader
     await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.ready).waiting === null)).toBe(true)
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished message')
     await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#chatInput').fill('')
     await page.locator('#updateApp').click()
-    await Promise.all([page.waitForEvent('load'), page.locator('#actionConfirm').click()])
-    await expect(page.locator('#join')).toBeVisible()
-    await expect(page.locator('#updateNotice')).toBeHidden()
-    // Also exercise accepting a waiting worker through the button itself.
-    await page.locator('#join').click()
+    await expect(page.locator('#updateNotice')).toContainText('Turn off your microphone')
+    await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await page.locator('#toggleMic').click()
+    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
     await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#updateNotice')).toBeHidden()
+    await expect(page.locator('#toggleMic')).not.toHaveAttribute('data-on', 'true')
+    // An idle room also updates directly and resumes without the join form.
     release.publish()
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(page.locator('#updateNotice')).toBeVisible()
-    await page.locator('#updateApp').click()
-    await Promise.all([page.waitForEvent('load'), page.locator('#actionConfirm').click()])
-    await expect(page.locator('#join')).toBeVisible()
+    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+    await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#updateNotice')).toBeHidden()
   } finally {
     await context.close()
@@ -176,6 +215,7 @@ test('an open PWA finds updates automatically and checks again after reconnectin
   await context.routeWebSocket(/.*/, ws => ws.close())
   try {
     const page = await context.newPage()
+    page.on('dialog', dialog => { throw new Error(`Unexpected browser dialog: ${dialog.message()}`) })
     await page.clock.install()
     await page.goto(release.base)
     await page.evaluate(async () => { await navigator.serviceWorker.ready })
@@ -186,7 +226,7 @@ test('an open PWA finds updates automatically and checks again after reconnectin
     release.publish()
     await page.clock.fastForward(60_000)
     await expect(page.getByRole('status').filter({ hasText: 'Update ready' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Reload to update', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Update now', exact: true })).toBeVisible()
     const returning = await context.newPage()
     await returning.goto(release.base)
     await expect(returning.locator('#updateNotice')).toBeVisible()

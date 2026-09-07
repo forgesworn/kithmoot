@@ -1,5 +1,4 @@
 import { registerSW } from 'virtual:pwa-register'
-import { confirmAction } from './confirm-action.js'
 
 /** Activation can finish without controllerchange on an uncontrolled first
  * visit. Observe the worker itself, and never leave a failed attempt pending. */
@@ -32,16 +31,26 @@ function activateUpdate(registration: ServiceWorkerRegistration): Promise<void> 
 
 /** Other tabs can activate a worker too. None may reload this page without
  * this user's consent, even when migrating from an auto-update worker. */
-export function installUpdates(hasWork: () => boolean, reload: () => void = () => location.reload()): void {
+export function installUpdates(blockedReason: () => string | undefined, reload: () => void = () => location.reload()): void {
   const notice = document.getElementById('updateNotice')!
   const button = document.getElementById('updateApp') as HTMLButtonElement
   let activated = false
   let approved = false
   let reloading = false
-  let asking = false
   let registration: ServiceWorkerRegistration | undefined
+  const defer = (reason: string) => {
+    approved = false
+    button.disabled = false
+    button.textContent = 'Update now'
+    notice.querySelector('span')!.textContent = reason
+    notice.hidden = false
+  }
   const reloadOnce = () => {
     if (reloading) return
+    // Activation is asynchronous: consent cannot discard work started while
+    // the worker was installing, or end a call that has since started.
+    const reason = blockedReason()
+    if (reason) { defer(reason); return }
     reloading = true
     approved = false
     reload()
@@ -83,13 +92,9 @@ export function installUpdates(hasWork: () => boolean, reload: () => void = () =
     },
   })
   button.addEventListener('click', async () => {
-    if (approved || reloading || asking) return
-    if (hasWork()) {
-      asking = true
-      const accepted = await confirmAction({ title: 'Reload to update?', message: 'This ends your call and discards unsent messages and files. You can keep working and update later.', confirmLabel: 'Reload and update', cancelLabel: 'Keep working', danger: true })
-      asking = false
-      if (!accepted) return
-    }
+    if (approved || reloading) return
+    const reason = blockedReason()
+    if (reason) { defer(reason); return }
     approved = true
     button.disabled = true
     button.textContent = 'Updating…'

@@ -195,7 +195,23 @@ function approvedReload(): void {
   navigationApproved = true
   location.reload()
 }
-installUpdates(() => Boolean(session) || hasUnsentWork(), approvedReload)
+installUpdates(() => {
+  if (hasUnsentWork()) return 'Send or discard your unfinished messages, files and Shared Work drafts before updating. Your work stays here until then.'
+  if (micTrack?.enabled || cameraTrack?.enabled || screenTrack?.enabled) return 'Turn off your microphone, camera and screen share before updating. You can keep using this version.'
+  if (remoteAudios.size > 0 || remoteVideos.size > 0) return 'Your call is still receiving audio or video. Leave the room or wait for the call to finish before updating.'
+  if (pendingMedia.size > 0) return 'Finish setting up your microphone, camera or screen share before updating.'
+  if (switchingBlocked()) return 'Finish the current action before updating. You can keep using this version.'
+  return undefined
+}, () => {
+  if (session) {
+    // Only navigation intent enters storage, never private drafts or files.
+    // The normal arrival checks admission and the restored account again.
+    try {
+      sessionStorage.setItem(ROOM_SWITCH_KEY, JSON.stringify({ hash: location.hash, account: nostrSession?.pubkey ?? null, at: Date.now() }))
+    } catch { /* Without tab storage, the normal room door remains available. */ }
+  }
+  approvedReload()
+})
 
 function hasUnsentWork(): boolean {
   captureDraft()
@@ -7892,7 +7908,7 @@ const identityReady = restoreSession()
     if (rememberAfterRestore) rememberCurrentRoom()
   })
 
-// Only an explicit switch in this tab skips the door. A normal invitation
+// Only an explicit switch or safe update in this tab skips the door. A normal invitation
 // never auto-joins, and a failed/different Nostr restore never joins as a guest.
 Promise.all([roomArrival, identityReady]).then(([found]) => {
   const raw = pendingRoomSwitch
@@ -7901,7 +7917,7 @@ Promise.all([roomArrival, identityReady]).then(([found]) => {
   const age = Date.now() - (intent.at ?? 0)
   if (intent.hash !== location.hash || age < 0 || age > 120_000) return
   if (intent.account !== (nostrSession?.pubkey ?? null)) {
-    setStatus('Check your sign-in before entering: the account used to switch rooms is not available.')
+    setStatus('Check your sign-in before entering: the previous account is not available.')
     return
   }
   return startSession()
