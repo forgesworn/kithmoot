@@ -32,7 +32,8 @@ import type { Event } from 'nostr-tools/pure'
  *
  * The app enables lookups by default, with a persistent switch in profile
  * settings. Disabling closes subscriptions and removes cached profiles and
- * external pictures. It cannot undo a request already sent.
+ * external pictures. NIP-05 checks also contact the address domains with no
+ * cookies or referrer. Disabling aborts those checks. It cannot undo a request already sent.
  *
  * Anything built on top of this - a lookup keyed on participant pubkeys for
  * any other purpose - inherits the same cost and does not add a new one.
@@ -42,6 +43,8 @@ export interface Profile {
   name?: string
   /** An `http:`/`https:` picture URL. Anything else is dropped. */
   picture?: string
+  /** NIP-05 address, included only after its domain maps it to this key. */
+  nip05?: string
 }
 
 /** How long a lookup has to produce an answer before "no profile" is the answer. */
@@ -67,6 +70,7 @@ export class ProfileBook {
   /** Pubkeys we have asked about, whether or not an answer came back. */
   readonly #asked = new Set<string>()
   readonly #found = new Map<string, { profile: Profile; createdAt: number }>()
+  #checks = new Set<AbortController>()
   #closed = false
   #enabled = true
 
@@ -77,6 +81,8 @@ export class ProfileBook {
   setEnabled(enabled: boolean): void {
     this.#enabled = enabled
     if (enabled) return
+    for (const check of this.#checks) check.abort()
+    this.#checks.clear()
     for (const unsub of this.#unsubs) unsub()
     this.#unsubs.clear()
     this.#pool?.close()
@@ -98,8 +104,8 @@ export class ProfileBook {
     const unsub = this.#pool.subscribe([{ kinds: [0], authors: fresh }], (event) => this.#ingest(event))
     this.#unsubs.add(unsub)
 
-    // A profile that never arrives is an answer too - "this key has never
-    // published one" - so the lookup is closed rather than left open for
+    // A profile that never arrives was not found on these relays. It may
+    // exist elsewhere. Close the lookup rather than leaving it open for
     // the life of the room. Nothing re-renders: a tile that never gained a
     // name or a chip already looks exactly right.
     const timer = setTimeout(() => {
@@ -115,10 +121,36 @@ export class ProfileBook {
 
   close(): void {
     this.#closed = true
+    for (const check of this.#checks) check.abort()
+    this.#checks.clear()
     for (const unsub of this.#unsubs) unsub()
     this.#unsubs.clear()
     this.#pool?.close()
     this.#pool = undefined
+  }
+
+  async #checkAddress(pubkey: string, profile: Profile, value: unknown): Promise<void> {
+    if (typeof value !== 'string') return
+    const match = /^([a-z0-9_.-]+)@([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)$/i.exec(value)
+    if (!match || value.length > 254) return
+    const [, name, domain] = match
+    const controller = new AbortController()
+    this.#checks.add(controller)
+    const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS)
+    try {
+      const response = await fetch(`https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name!)}`, {
+        signal: controller.signal, redirect: 'error', credentials: 'omit', referrerPolicy: 'no-referrer',
+      })
+      if (!response.ok) return
+      const body = await response.json()
+      if (body?.names?.[name!] !== pubkey) return
+      // A response for an older profile or a disabled lookup cannot put
+      // stale metadata back on screen.
+      if (controller.signal.aborted || this.#closed || !this.#enabled || this.#found.get(pubkey)?.profile !== profile) return
+      profile.nip05 = value
+      this.#opts.onChange()
+    } catch { /* An unreachable domain is not a confirmed Nostr address. */ }
+    finally { clearTimeout(timer); this.#checks.delete(controller) }
   }
 
   /** Never throws: this runs inside a relay subscription handler. */
@@ -144,6 +176,7 @@ export class ProfileBook {
       }
       this.#found.set(event.pubkey, { profile, createdAt: event.created_at })
       if (!this.#closed) this.#opts.onChange()
+      void this.#checkAddress(event.pubkey, profile, content.nip05)
     } catch {
       // A malformed profile is a missing profile, not a broken room.
     }

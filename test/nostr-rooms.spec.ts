@@ -4,6 +4,11 @@ import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { RoomAgent } from '../src/agent.js'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
+import { NostrRelayPool } from '../src/relay-pool.js'
+import { createDeviceCredential } from '../src/credential.js'
+import { localIdentity } from '../src/identity.js'
+import { deriveRoom } from '../src/room.js'
+import { memoryDeviceStore, deviceKeyFor, storeCredentialFor } from '../app/src/device-store.js'
 
 /** A test NIP-07 provider: signing keys stay in Node, never in the app. */
 async function device(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {}): Promise<BrowserContext> {
@@ -46,6 +51,70 @@ async function signIn(page: Page, baseURL: string) {
   await expect(page.locator('#signOut')).toBeVisible()
   await expect(page.locator('#roomsEmpty')).toBeVisible()
 }
+
+test('a returning visitor can choose their Nostr profile at the door and the clerk receives that key', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const pubkey = getPublicKey(secret)
+  const context = await device(browser, baseURL!, secret)
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Account choice', relays: [relay.href], iceUrls: [] })
+  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const profiles = new NostrRelayPool(['ws://127.0.0.1:7777'])
+  try {
+    await profiles.publish(finalizeEvent({ kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Account Alice', picture: 'https://profile.example/alice.svg', nip05: 'alice@profile.example' }) }, secret))
+    await context.route('https://profile.example/.well-known/nostr.json?name=alice', route => route.fulfill({ json: { names: { alice: pubkey } } }))
+    await context.route('https://profile.example/alice.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8" fill="blue"/></svg>' }))
+    const visitorSecret = Array.from(generateSecretKey()).map(byte => byte.toString(16).padStart(2, '0')).join('')
+    await context.addInitScript(visitorSecret => {
+      localStorage.setItem('kithmoot.participant', visitorSecret)
+      localStorage.setItem('kithmoot.name', 'Typed Alice')
+    }, visitorSecret)
+    const page = await context.newPage()
+    await page.goto(link)
+    await expect(page.locator('#joinNostr')).toBeVisible()
+    await expect(page.locator('#joinIdentityHelp')).toContainText('separate browser key')
+    await page.locator('#joinNostr').click()
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await expect(page.locator('#whoami')).toContainText('Account Alice')
+    await expect(page.locator('#whoami')).toContainText('alice@profile.example')
+    await expect(page.locator('#whoami img')).toHaveJSProperty('naturalWidth', 16)
+    await expect(page.locator('#whoami')).toContainText(pubkey.slice(0, 8))
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#chatInput').fill('Tally, this is my account')
+    await page.locator('#chatInput').press('Enter')
+    await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, this is my account')?.participant).toBe(pubkey)
+    await page.screenshot({ path: '/tmp/kithmoot-identity-room.png', fullPage: true })
+  } finally { profiles.close(); await context.close(); await clerk.leave() }
+})
+
+test('a saved paired credential cannot override a different signed-in Nostr account', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const context = await device(browser, baseURL!, secret)
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const roomSecret = generateRoomSecret()
+  const roomId = deriveRoom(roomSecret).roomId
+  const link = encodeRoomLink(baseURL!, { secret: roomSecret, name: 'Paired identity check', relays: [relay.href], iceUrls: [] })
+  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  try {
+    const page = await context.newPage()
+    await signIn(page, baseURL!)
+    const store = memoryDeviceStore()
+    const now = Math.floor(Date.now() / 1000)
+    const deviceKey = deviceKeyFor(store, roomId, now, generateSecretKey)
+    const credential = await createDeviceCredential({ identity: localIdentity(generateSecretKey()), devicePubkey: getPublicKey(deviceKey), roomId, expiresAt: now + 3600 })
+    storeCredentialFor(store, roomId, credential)
+    await page.evaluate(entries => { for (const [key, value] of entries) localStorage.setItem(key!, value!) }, store.keys().map(key => [key, store.get(key)]))
+    await page.goto(link)
+    await page.reload()
+    await expect(page.locator('#whoami')).toContainText(getPublicKey(secret).slice(0, 8))
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#chatInput').fill('Tally, use the selected account')
+    await page.locator('#chatInput').press('Enter')
+    await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, use the selected account')?.participant).toBe(getPublicKey(secret))
+  } finally { await context.close(); await clerk.leave() }
+})
 
 test('joining waits for the saved Nostr identity before sending to a clerk', async ({ browser, baseURL }) => {
   const secret = generateSecretKey()
