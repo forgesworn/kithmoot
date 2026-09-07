@@ -33,7 +33,8 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
     await rowan.chat.send('Shall we ship on Friday?')
     const root = page.locator('#chatLog .msg').filter({ hasText: 'Shall we ship on Friday?' })
     await expect(root).toBeVisible()
-    await root.getByRole('button', { name: /^Reply to/ }).click()
+    await root.locator('.messageMore').click()
+    await page.locator('#messageActionPanel').getByRole('button', { name: /^Reply to/ }).click()
     await expect(page.locator('#composerContext')).toContainText('Replying to Rowan')
     await page.locator('#chatInput').fill('Yes, if the vectors are green')
     await page.locator('#chatInput').press('Enter')
@@ -54,7 +55,8 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
 
     // Ada corrects herself. The bubble changes; the message keeps its place.
     const reply = thread.locator('.msg').first()
-    await reply.getByRole('button', { name: 'Edit this message' }).click()
+    await reply.locator('.messageMore').click()
+    await page.locator('#messageActionPanel').getByRole('button', { name: 'Edit this message' }).click()
     await expect(page.locator('#composerContext')).toContainText('Editing your message')
     await expect(page.locator('#chatInput')).toHaveValue('Yes, if the vectors are green')
     await page.locator('#chatInput').fill('Yes, once the vectors are green')
@@ -65,11 +67,12 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
     await expect.poll(() => rowan.chat.messages().filter(m => m.replaces !== undefined).length).toBe(1)
 
     // And thinks better of it. What is left says so.
-    await reply.getByRole('button', { name: 'Retract this message' }).click()
+    await reply.locator('.messageMore').click()
+    await page.locator('#messageActionPanel').getByRole('button', { name: 'Retract this message' }).click()
     await page.locator('#actionConfirm').click()
     await expect(thread.locator('.msg.retracted')).toHaveCount(1)
     await expect(thread.locator('.msg.retracted .bubble')).toContainText('Message retracted')
-    await expect(thread.locator('.msg.retracted .messageActions')).toHaveCount(0)
+    await expect(thread.locator('.msg.retracted .messageMore')).toHaveCount(0)
     await expect.poll(() => rowan.chat.messages().filter(m => m.retracts !== undefined).length).toBe(1)
 
     // Rowan names Ada on the wire. Her row lights; the picker offered the name.

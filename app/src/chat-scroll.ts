@@ -84,6 +84,9 @@ export class ChatScroll {
       const boundary = messages.find(el => el.dataset.messageId === this.#boundary)
       let divider: HTMLElement | undefined
       if (boundary) {
+        // A new reading boundary needs its own sender heading, even when
+        // it divides consecutive messages from the same person.
+        boundary.classList.remove('continuation')
         divider = log.ownerDocument.createElement('div')
         divider.className = 'unreadDivider'
         divider.textContent = 'New messages'

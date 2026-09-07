@@ -808,8 +808,21 @@ video {
   overflow-wrap: anywhere;
 }
 
-/* Sender and exact time remain visible above each message. */
+/* Consecutive messages share a sender heading; every timestamp stays visible. */
 .messageHeader { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; max-width: 100%; margin-bottom: 0.3rem; }
+.msg.continuation .sender { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.messageBody { display: flex; align-items: flex-start; gap: .15rem; max-width: 100%; min-width: 0; }
+.messageBody .bubble { flex: 1 1 auto; }
+.msg.mine .messageBody { flex-direction: row-reverse; }
+.messageMore { flex: 0 0 44px; width: 44px; min-height: 44px; margin: 0; padding: 0; font-size: 1.35rem; color: var(--muted); background: transparent; border-color: transparent; }
+.messageMore:hover, .messageMore[aria-expanded=true] { color: var(--text); border-color: var(--border); background: var(--control-hover); }
+.messageActionPanel { position: fixed; inset: auto; margin: 0; width: min(19rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); overflow: auto; padding: .6rem; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: var(--text); box-shadow: 0 .75rem 2.5rem var(--drop-shadow); }
+.messageActionPreview { margin: .3rem .4rem .55rem; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.messageActionPanel > button { display: block; width: 100%; min-height: 44px; margin: 0; text-align: left; background: transparent; border-color: transparent; }
+.messageActionPanel button.danger { color: var(--danger); }
+.messageReactionChoices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .25rem; margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--border); }
+.messageReactionChoices button { min-width: 44px; min-height: 44px; margin: 0; padding: .2rem; font-size: 1.25rem; background: transparent; }
+.messageReactionChoices button[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }
 .messageHeader .sender { margin: 0; }
 .messageHeader .when { margin: 0; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .msg.mine .messageHeader { justify-content: flex-end; }
@@ -2785,23 +2798,12 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
   white-space: nowrap;
 }
 .msg .chip.replyTo { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.messageActions { display: flex; gap: 0.15rem; }
-.messageActions button {
-  min-height: 2rem;
-  padding: 0.1rem 0.5rem;
-  margin: 0;
-  font-size: 0.8rem;
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--muted);
-}
-.messageActions button:hover,
-.messageActions button:focus-visible { border-color: var(--border); color: var(--text); }
 .msg.retracted .bubble { opacity: 0.7; font-style: italic; }
 .msg.mentionsMe .bubble { box-shadow: inset 3px 0 0 var(--accent); }
 .composerContext {
   flex-basis: 100%;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.5rem;
   padding: 0.3rem 0.6rem;
@@ -2811,9 +2813,13 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
   color: var(--muted);
   min-width: 0;
 }
-.composerContext .contextLabel { font-weight: 600; white-space: nowrap; }
-.composerContext .contextExcerpt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composerContext button { min-height: 2rem; padding: 0.1rem 0.6rem; margin: 0; font-size: 0.8rem; }
+.composerContext .contextLabel { font-weight: 600; overflow-wrap: anywhere; }
+.composerContext .contextExcerpt { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composerContext button { grid-column: 2; grid-row: 1 / span 2; min-height: 44px; padding: 0.1rem 0.6rem; margin: 0; font-size: 0.8rem; }
+@media (max-width: 420px) {
+  .composerContext .contextLabel { grid-column: 1 / -1; }
+  .composerContext button { grid-row: 2; }
+}
 .rosterRow .dmButton { margin-left: auto; font-size: 0.85rem; padding: 0.3rem 0.6rem; min-height: 2.25rem; }
 
 /* Relay controls stay usable on narrow phones without clipping URLs. */

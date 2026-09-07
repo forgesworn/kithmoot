@@ -6,6 +6,7 @@ import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { confirmAction, type ConfirmActionOptions } from './confirm-action.js'
 import { ChatScroll } from './chat-scroll.js'
+import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
@@ -147,6 +148,7 @@ import { base64urlnopad } from '@scure/base'
 const outbox = new Outbox(document.getElementById('outbox')!)
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
 const conversationSearch = new ConversationSearch(document, selectChannel)
+const messageActions = new MessageActions()
 const shareViewer = new ShareViewer()
 const emojiPicker = new EmojiPicker()
 window.addEventListener('pagehide', () => shareViewer.close())
@@ -3708,6 +3710,7 @@ function restoreConversation(): void {
 }
 
 function selectChannel(name: string | undefined): void {
+  messageActions.close(false)
   chatScroll.remember()
   captureDraft()
   try { sessionStorage.setItem(conversationStorageKey(), name ?? '') } catch { /* Optional tab preference. */ }
@@ -3924,7 +3927,7 @@ function nextUnreadConversation(): [string | undefined, string] | undefined {
 
 function markConversationRead(): boolean {
   const log = $('chatLog')
-  if ($('roomArea').hidden || document.visibilityState !== 'visible' || document.querySelector('dialog[open]') || log.scrollHeight - log.scrollTop - log.clientHeight > 48) return false
+  if ($('roomArea').hidden || document.visibilityState !== 'visible' || document.querySelector('dialog[open], #messageActionPanel:popover-open') || log.scrollHeight - log.scrollTop - log.clientHeight > 48) return false
   const key = currentChannel ?? ''
   const messages = conversationMessages(currentChannel)
   const previous = conversationRead.get(key)
@@ -4322,7 +4325,8 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
  */
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
-  const restoreScroll = chatScroll.before(currentChannel ?? '', unreadMessageIds(currentChannel))
+  const unread = unreadMessageIds(currentChannel)
+  const restoreScroll = chatScroll.before(currentChannel ?? '', unread)
   log.innerHTML = ''
   // What this conversation is, at the top of it, the way a messaging app
   // puts the thing you should know once at the head of the thread.
@@ -4421,6 +4425,13 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     row.className = `msg ${mine ? 'mine' : 'theirs'}${fromAgent ? ' fromAgent' : ''}${r.retracted ? ' retracted' : ''}`
     row.dataset.messageId = original.id
     row.dataset.messageAuthor = original.participant
+    row.dataset.sentAt = String(original.sentAt)
+    row.dataset.senderGroup = JSON.stringify([original.participant, original.name, original.owner, fromAgent, original.kind])
+    const previous = into.lastElementChild as HTMLElement | null
+    const previousAt = Number(previous?.dataset.sentAt)
+    if (!r.retracted && previous?.classList.contains('msg') && !previous.classList.contains('retracted') &&
+      previous.dataset.senderGroup === row.dataset.senderGroup && original.sentAt - previousAt >= 0 &&
+      original.sentAt - previousAt < 5 * 60 && new Date(original.sentAt * 1000).toDateString() === new Date(previousAt * 1000).toDateString()) row.classList.add('continuation')
     // Addressed to the reader, by the field on the wire or by name on a
     // message from before the field existed: the one thing a person scans
     // a busy room for, and exactly what an agent would answer to. Your own
@@ -4463,35 +4474,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const target = conversation.byKey.get(refKey(r.reply))
       header.append(chip(`replying to ${target ? senderLabel(target.original) : personLabel(r.reply.participant)}`, 'Answers a message further up this thread.', 'replyTo'))
     }
-    if (writable && !r.retracted) {
-      const actions = document.createElement('div')
-      actions.className = 'messageActions'
-      const reply = document.createElement('button')
-      reply.type = 'button'
-      reply.textContent = 'Reply'
-      reply.setAttribute('aria-label', `Reply to ${senderLabel(original)}`)
-      reply.addEventListener('click', () => setComposing({ replyTo: original }))
-      actions.append(reply)
-      // Only the author edits or retracts, and only something they typed:
-      // a transcript is a note of somebody else's words, and a directive
-      // was said aloud.
-      if (mine && !original.kind) {
-        const edit = document.createElement('button')
-        edit.type = 'button'
-        edit.textContent = 'Edit'
-        edit.setAttribute('aria-label', 'Edit this message')
-        edit.addEventListener('click', () => setComposing({ editing: original }, m))
-        const retract = document.createElement('button')
-        retract.type = 'button'
-        retract.textContent = 'Retract'
-        retract.setAttribute('aria-label', 'Retract this message')
-        retract.addEventListener('click', () => retractMessage(original))
-        actions.append(edit, retract)
-      }
-      header.append(actions)
-    }
     row.append(header)
 
+    const body = document.createElement('div')
+    body.className = 'messageBody'
     const bubble = document.createElement('div')
     bubble.className = 'bubble'
     const text = document.createElement('span')
@@ -4515,33 +4501,60 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     appendWithMentions(text, m.text, mentions, mine ? new Set<string>() : namesOfMine)
     bubble.append(text)
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
-    row.append(bubble)
+    body.append(bubble)
+    row.append(body)
     const reactions = reactionsFor(messages, original)
+    const react = (emoji: string): boolean => {
+      const chat = activeChat() ?? session?.chat
+      if (!chat || !meParticipant) return false
+      try {
+        const reaction = toggleReaction(chat.messages(), original, meParticipant, emoji)
+        const text = reactionText(reaction)
+        outbox.send(text, currentChannel ?? 'Chat', chat.prepareSend(text, { reaction }))
+        return true
+      } catch (error) { setStatus(describeError(error)); return false }
+    }
+    if (writable) {
+      const more = document.createElement('button')
+      more.type = 'button'
+      more.className = 'messageMore'
+      more.textContent = '⋯'
+      more.title = 'Reply, react and more'
+      more.dataset.focusKey = 'message-actions'
+      more.setAttribute('aria-label', `Actions for message from ${senderLabel(original)}`)
+      more.setAttribute('aria-haspopup', 'dialog')
+      more.setAttribute('aria-controls', 'messageActionPanel')
+      more.setAttribute('aria-expanded', 'false')
+      more.addEventListener('click', () => {
+        const actions: MessageAction[] = [{ label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) }]
+        if (mine && !original.kind) actions.push(
+          { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
+          { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
+        )
+        messageActions.open(more, actions, REACTION_EMOJIS.map(emoji => {
+          const mineToo = reactions.get(emoji)!.some(entry => entry.reaction!.active && entry.participant === meParticipant)
+          return { label: `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction`, text: emoji, pressed: mineToo, run: () => react(emoji) }
+        }))
+      })
+      body.append(more)
+    }
     const reactionBar = document.createElement('div'); reactionBar.className = 'messageReactions'
     reactionBar.setAttribute('aria-label', 'Message reactions')
     for (const emoji of REACTION_EMOJIS) {
       const entries = reactions.get(emoji)!.filter(entry => entry.reaction!.active)
-      if (!entries.length && !['👍', '❤️', '🤦'].includes(emoji)) continue
+      if (!entries.length) continue
       const button = document.createElement('button'); button.type = 'button'
       const mineToo = entries.some(entry => entry.participant === meParticipant)
-      button.textContent = `${emoji}${entries.length ? ` ${entries.length}` : ''}`
+      button.textContent = `${emoji} ${entries.length}`
+      button.dataset.focusKey = `reaction-${emoji}`
       button.setAttribute('aria-pressed', String(mineToo))
-      button.setAttribute('aria-label', `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction${entries.length ? `, ${entries.length}` : ''}`)
-      button.title = entries.length ? entries.map(entry => `${senderLabel(entry)}${entry.reaction?.receipt === 'received' ? ` · received ${new Date(entry.sentAt * 1000).toLocaleString()} (room connection; reply may still be pending)` : ''}`).join(', ') : `React ${emoji}`
+      button.setAttribute('aria-label', `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction, ${entries.length}`)
+      button.title = entries.map(entry => `${senderLabel(entry)}${entry.reaction?.receipt === 'received' ? ` · received ${new Date(entry.sentAt * 1000).toLocaleString()} (room connection; reply may still be pending)` : ''}`).join(', ')
       button.disabled = !writable
-      button.addEventListener('click', () => {
-        const chat = activeChat() ?? session?.chat
-        if (!chat || !meParticipant) return
-        try {
-          const reaction = toggleReaction(chat.messages(), original, meParticipant, emoji)
-          const reactionSaid = reactionText(reaction)
-          button.disabled = true
-          outbox.send(reactionSaid, currentChannel ?? 'Chat', chat.prepareSend(reactionSaid, { reaction }))
-        } catch (error) { setStatus(describeError(error)); button.disabled = !writable }
-      })
+      button.addEventListener('click', () => { button.disabled = true; if (!react(emoji)) button.disabled = !writable })
       reactionBar.append(button)
     }
-    row.append(reactionBar)
+    if (reactionBar.childElementCount) row.append(reactionBar)
     into.append(row)
     if (!nested && r.replies.length) paintThread(r, into)
   }
@@ -4562,6 +4575,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   systemUpTo(Number.POSITIVE_INFINITY)
   if (countId) $(countId).textContent = conversation.byKey.size ? `(${conversation.byKey.size})` : ''
   restoreScroll()
+  messageActions.refresh()
 }
 
 /**
@@ -6188,6 +6202,7 @@ $('manageAgents').addEventListener('click', () => {
 $('chatLog').addEventListener('scroll', () => { if (markConversationRead()) renderConversationNav() }, { passive: true })
 document.addEventListener('visibilitychange', () => { if (markConversationRead()) renderConversationNav() })
 document.addEventListener('kithmoot:confirmation-closed', () => { if (markConversationRead()) renderConversationNav() })
+$('messageActionPanel').addEventListener('toggle', () => { if (markConversationRead()) renderConversationNav() })
 for (const dialog of document.querySelectorAll('dialog')) {
   dialog.addEventListener('close', () => { if (markConversationRead()) renderConversationNav() })
 }
@@ -6939,7 +6954,7 @@ function renderComposerContext(): void {
   label.textContent = composing.editing ? 'Editing your message' : `Replying to ${senderLabel(target)}`
   const excerpt = document.createElement('span')
   excerpt.className = 'contextExcerpt'
-  excerpt.textContent = target.text
+  excerpt.textContent = resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: target.id, participant: target.participant }))?.shown.text ?? target.text
   const cancel = document.createElement('button')
   cancel.type = 'button'
   cancel.className = 'quiet'
