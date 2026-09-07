@@ -39,6 +39,64 @@ describe('NostrRelayPool', () => {
 
   afterEach(() => {
     pool.close()
+    vi.useRealTimers()
+  })
+
+  it('recovers a failed first connection without interrupting a healthy relay', async () => {
+    vi.useFakeTimers()
+    const missing = 'wss://later.test'
+    pool.close()
+    pool = new NostrRelayPool([URL_A, missing])
+    const seen: string[] = []
+    pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
+    await vi.advanceTimersByTimeAsync(1)
+    const healthyRequests = a.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length
+    const later = fakeRelay(missing)
+    const missed = evt(); later.seed(missed)
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(seen).toEqual([missed.id])
+    expect(a.connections).toBe(1)
+    expect(a.frames.filter(frame => JSON.parse(frame)[0] === 'REQ')).toHaveLength(healthyRequests)
+  })
+
+  it('recovers after a disconnected relay stalls its next handshake and delivers missed same-second events once', async () => {
+    vi.useFakeTimers()
+    pool.close()
+    pool = new NostrRelayPool([URL_A, URL_B])
+    const first = evt(), missed = evt()
+    expect(first.created_at).toBe(missed.created_at)
+    a.seed(first); b.seed(first)
+    const seen: string[] = []
+    pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
+    await vi.advanceTimersByTimeAsync(1)
+    expect(seen).toEqual([first.id])
+    a.stallConnections = true
+    a.disconnectAll()
+    a.seed(missed)
+    await vi.advanceTimersByTimeAsync(24_000)
+    expect(seen).toEqual([first.id])
+    a.stallConnections = false
+    await vi.advanceTimersByTimeAsync(11_000)
+    expect(seen).toEqual([first.id, missed.id])
+    expect(b.connections).toBe(1)
+  })
+
+  it('does not recreate a closed subscription while its relay is unavailable', async () => {
+    vi.useFakeTimers()
+    pool.close()
+    pool = new NostrRelayPool([URL_A])
+    const seen = vi.fn()
+    const off = pool.subscribe([{ kinds: [20461] }], seen)
+    await vi.advanceTimersByTimeAsync(1)
+    a.disconnectAll()
+    off()
+    a.seed(evt())
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(a.connections).toBe(0)
+    expect(seen).not.toHaveBeenCalled()
+    pool.close()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(a.connections).toBe(0)
   })
 
   it('refuses to be built with no relays at all', () => {
