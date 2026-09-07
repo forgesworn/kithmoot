@@ -14,6 +14,7 @@ import type { KeeperState } from './agent.js'
 export const KEEPER_STATE_VERSION = 2
 
 export interface StoredKeeperState {
+  persistent?: true
   v: 1 | 2
   secret: string
   inviterSk: string
@@ -44,6 +45,7 @@ export function parseKeeperState(json: string): KeeperState {
     epoch: 0,
     removed: [],
   }
+  if (stored.persistent === true) state.persistent = true
   if (stored.v === 1) return state
   let epoch = 0
   if (stored.epoch !== undefined) {
@@ -83,6 +85,7 @@ export function serialiseKeeperState(state: KeeperState): string {
     if (!state.epochSecret) throw new Error('keeper state: an epoch above 0 needs its secret')
     stored.epochSecret = bytesToHex(state.epochSecret)
   }
+  if (state.persistent) stored.persistent = true
   if (state.closed) stored.closed = true
   if (state.nudge?.length) stored.nudge = [...new Set(state.nudge.map(normaliseHex))].sort()
   return JSON.stringify(stored, null, 2) + '\n'

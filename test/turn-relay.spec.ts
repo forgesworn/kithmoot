@@ -1,3 +1,4 @@
+import { testRelays } from './relays.js'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 
 /**
@@ -132,7 +133,11 @@ async function newDeviceContext(browser: Browser, baseURL: string): Promise<Brow
 
 async function createRoom(page: Page, baseURL: string): Promise<string> {
   await page.goto(baseURL)
-  await page.locator('#roomType').selectOption('temporary')
+  const relays = testRelays()
+  if (relays) {
+    await page.evaluate(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
+    await page.reload()
+  }
   await page.locator('#create').click()
   // The link, not the box it used to sit in. The entry page was rebuilt to
   // put the conversation first and the drawer holding the link stays shut

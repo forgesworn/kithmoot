@@ -38,7 +38,7 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
   let runtime: AgentRuntime | undefined
   try {
     const page = await context.newPage()
-    const url = withRelays(await createRoom(page, baseURL!), [relay.url])
+    const url = await createRoom(page, baseURL!, [relay.url])
     await joinWithMedia(page, url, 'Alice')
 
     // The agent reads the link, is admitted by Alice's tab, and joins with

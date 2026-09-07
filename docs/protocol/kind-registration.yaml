@@ -1,0 +1,93 @@
+# Prepared additions beneath `kinds:` in registry-of-kinds/schema.yaml.
+# Owner review and submission are separate; these are not registered kinds.
+# Spec: https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md
+
+  1460:
+    description: KithMoot Chat and channels
+    content:
+      type: free
+
+  1461:
+    description: KithMoot Invitation retirement
+    content:
+      type: free
+
+  1462:
+    description: KithMoot Room rekey
+    content:
+      type: free
+
+  1463:
+    description: KithMoot Group invitation
+    content:
+      type: free
+
+  20460:
+    description: KithMoot Device credential, inner only
+    content:
+      type: free
+
+  20461:
+    description: KithMoot Roster
+    content:
+      type: free
+
+  20462:
+    description: KithMoot Signalling, inner only
+    content:
+      type: free
+
+  20463:
+    description: KithMoot Pairing request
+    content:
+      type: free
+
+  20464:
+    description: KithMoot Pairing grant
+    content:
+      type: free
+
+  20465:
+    description: KithMoot Room descriptor
+    content:
+      type: free
+
+  20466:
+    description: KithMoot Invitation request
+    content:
+      type: free
+
+  20467:
+    description: KithMoot Invitation grant
+    content:
+      type: free
+
+  20468:
+    description: KithMoot Epoch request
+    content:
+      type: free
+
+  20469:
+    description: KithMoot Epoch grant
+    content:
+      type: free
+
+  20470:
+    description: KithMoot Member pass, reserved
+    content:
+      type: free
+
+  30460:
+    description: KithMoot Service policy, reserved
+    content:
+      type: free
+
+  24170:
+    description: RelaySwarm presence
+    content:
+      type: free
+
+  24171:
+    description: RelaySwarm signalling
+    content:
+      type: free

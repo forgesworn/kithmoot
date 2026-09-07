@@ -5,7 +5,7 @@ import type { RelayTransport } from './relay-pool.js'
 import { NostrRelayPool } from './relay-pool.js'
 import { parseRoomLink, encodeRoomLink } from './link.js'
 import type { RoomLink } from './link.js'
-import { requestPersistentRoomAdmission } from './persistent-invitation.js'
+import { encodePersistentInvitation, requestPersistentRoomAdmission } from './persistent-invitation.js'
 import {
   createRoomInvitation,
   encodeInvitationRetirement,
@@ -70,6 +70,8 @@ export const MINUTES_CHANNEL = 'minutes'
  * nobody removed, which is what every state written before epochs says.
  */
 export interface KeeperState {
+  /** New rooms use v3; absent on existing keeper files means retain v2. */
+  persistent?: true
   secret: Uint8Array
   inviterSk: Uint8Array
   bearer: Uint8Array
@@ -383,12 +385,12 @@ export class RoomAgent {
     let state = opts.state
     if (state?.closed) throw new Error('this room was closed; delete its state to make a new one')
     if (!state) {
-      const host = createRoomInvitation()
-      state = { secret: generateRoomSecret(), inviterSk: host.inviterSk, bearer: host.invitation.bearer }
+      const host = createRoomInvitation(true)
+      state = { secret: generateRoomSecret(), inviterSk: host.inviterSk, bearer: host.invitation.bearer, persistent: true }
     }
     const epochNumber = state.epoch ?? 0
     state = { ...state, epoch: epochNumber, removed: [...new Set((state.removed ?? []).map(normaliseHex))].sort() }
-    const invitation = roomInvitation(state.bearer, getPublicKey(state.inviterSk))
+    const invitation = roomInvitation(state.bearer, getPublicKey(state.inviterSk), state.persistent === true)
     const link: RoomLink = { invitation, relays, iceUrls: opts.iceUrls ?? [] }
     if (opts.policy) link.policy = opts.policy
     if (opts.roomName !== undefined) link.name = opts.roomName
@@ -486,6 +488,9 @@ export class RoomAgent {
     if (opts.keeper && opts.removed?.length) agent.session.forgetParticipants(opts.removed)
 
     try {
+      if (opts.keeper?.persistent && opts.link.invitation) {
+        await transport.publish(encodePersistentInvitation({ invitation: opts.link.invitation, roomSecret: opts.secret, inviterSk: opts.keeper.inviterSk, now: opts.now() }))
+      }
       await session.join(opts.tracks ?? [], opts.claims ?? {})
     } catch (err) {
       transport.close()
@@ -873,6 +878,7 @@ export class RoomAgent {
       secret: keeper.secret,
       inviterSk: keeper.inviterSk,
       bearer: keeper.bearer,
+      ...(keeper.persistent ? { persistent: true as const } : {}),
       epoch: current.epoch,
       removed: [...this.session.removed].sort(),
       ...(current.epoch > 0 ? { epochSecret: current.secret } : {}),

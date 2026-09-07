@@ -31,6 +31,7 @@ import { getPublicKey, type Event } from 'nostr-tools/pure'
 import { finalizeDeterministic, kindredCanonicalMessage } from './lib/determinism.mjs'
 import * as fx from './lib/fixtures.mjs'
 
+import { decodeMemberPass, decodeServicePolicy, deriveServiceKey, deriveServiceRoom, normaliseServiceAudience } from '../src/service-admission.js'
 import { KINDS } from '../src/kinds.js'
 import { deriveRoom, decodeJoinUrl, encodeJoinUrl } from '../src/room.js'
 import { deriveChannel } from '../src/chat.js'
@@ -38,7 +39,7 @@ import { verifyDeviceCredential } from '../src/credential.js'
 import { decodeRosterEvent } from '../src/roster.js'
 import { sanitiseAssistOffer } from '../src/peer-assist.js'
 import { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from '../src/display-name.js'
-import { unwrapSignal } from '../src/signal.js'
+import { unwrapSignalEvent, unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
 import { decodeDescriptorEvent } from '../src/descriptor.js'
@@ -77,6 +78,12 @@ const here = dirname(fileURLToPath(import.meta.url))
 const doc = JSON.parse(readFileSync(join(here, 'kithmoot-vectors.json'), 'utf8')) as VectorDocument
 const { groups } = doc
 
+describe('canonical service audiences', () => {
+  for (const v of groups.serviceAudience) it(v.name, () => {
+    expect(normaliseServiceAudience(v.input)).toEqual(v.expected.result)
+  })
+})
+
 function vec(group: string, name: string): Vector {
   const found = groups[group]?.find((v) => v.name === name)
   if (!found) throw new Error(`missing vector ${group}/${name}`)
@@ -86,7 +93,7 @@ function vec(group: string, name: string): Vector {
 describe('vector file shape', () => {
   it('carries the protocol version and nostr-tools pin this suite was written against', () => {
     expect(doc.protocolVersion).toBe('kithmoot/v1')
-    expect(doc.nostrToolsVersion).toBe('2.23.9')
+    expect(doc.nostrToolsVersion).toBe('2.25.0')
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
@@ -376,7 +383,7 @@ function rebuildSignalWrap(v: Vector): { inner: Event; outer: Event } {
   const ephemeralSk = hexToBytes(v.input.ephemeralSkHex)
 
   const inner = finalizeDeterministic(
-    { kind: KINDS.SIGNAL, created_at: v.input.createdAt, tags: [['p', v.input.recipientPubkey]], content: JSON.stringify(v.input.body) },
+    { kind: KINDS.SIGNAL, created_at: v.input.createdAt, tags: [['p', v.input.recipientPubkey], ['call-id', v.input.body.roomId], ['alt', 'KithMoot call signalling'], ['kithmoot', '1']], content: JSON.stringify(v.input.body) },
     senderSk,
     hexToBytes(v.input.innerAuxRandHex),
   ) as Event
@@ -384,7 +391,7 @@ function rebuildSignalWrap(v: Vector): { inner: Event; outer: Event } {
   const conversationKey = nip44.v2.utils.getConversationKey(ephemeralSk, v.input.recipientPubkey)
   const outerContent = nip44.v2.encrypt(JSON.stringify(inner), conversationKey, hexToBytes(v.input.nip44NonceHex))
   const outer = finalizeDeterministic(
-    { kind: KINDS.SIGNAL_WRAP, created_at: v.input.createdAt, tags: [['p', v.input.recipientPubkey]], content: outerContent },
+    { kind: KINDS.SIGNAL_WRAP, created_at: v.input.createdAt, tags: [['p', v.input.recipientPubkey], ['expiration', String(v.input.createdAt + 60)]], content: outerContent },
     ephemeralSk,
     hexToBytes(v.input.outerAuxRandHex),
   ) as Event
@@ -1027,5 +1034,26 @@ describe('the message layer', () => {
   it('readPosition/read-position-merge', () => {
     const v = vec('readPosition', 'read-position-merge')
     expect(mergeReadPositions(v.input.local as ReadPositions, v.input.remote as ReadPositions)).toEqual(v.output)
+  })
+})
+
+describe('M2 signal compatibility vectors', () => {
+  for (const v of groups.signalCompatibility ?? []) {
+    it(v.name, () => {
+      const options = { recipientSk: hexToBytes(v.input.recipientSkHex), roomId: v.input.roomId, now: v.input.now }
+      expect(unwrapSignal(v.input.wrap, options)).toEqual(v.expected.result)
+      expect(unwrapSignalEvent(v.input.wrap, options)?.id ?? null).toBe(v.expected.innerId)
+    })
+  }
+})
+
+describe('reserved service admission vectors', () => {
+  for (const [name, decode] of [['memberPass', decodeMemberPass], ['servicePolicy', decodeServicePolicy]] as const) {
+    for (const v of groups[name] ?? []) it(`${name}/${v.name}`, () => expect(decode(v.input.event)).toEqual(v.expected.result))
+  }
+  for (const v of groups.serviceScope ?? []) it(v.name, () => {
+    expect(bytesToHex(deriveServiceKey(hexToBytes(v.input.authoritySkHex), v.input.roomId, v.input.audience, 'authority'))).toBe(v.output.authoritySkHex)
+    expect(bytesToHex(deriveServiceKey(hexToBytes(v.input.deviceSkHex), v.input.roomId, v.input.audience, 'device'))).toBe(v.output.deviceSkHex)
+    expect(deriveServiceRoom(hexToBytes(v.input.trafficSecretHex), v.input.roomId, v.input.audience)).toBe(v.output.room)
   })
 })

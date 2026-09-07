@@ -1,3 +1,7 @@
+import { createRoomInvitation, deriveInvitationId } from '../src/invitation.js'
+import { encodeRoomLink } from '../src/link.js'
+import { generateRoomSecret } from '../src/room.js'
+import { bytesToHex } from '@noble/hashes/utils'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { openRoomDetails } from './browser.js'
 import { parseRoomLink } from '../src/link.js'
@@ -34,8 +38,19 @@ async function enter(page: Page, link: string, name: string) {
 async function create(page: Page, baseURL: string, temporary = false) {
   await page.goto(baseURL)
   await page.locator('#roomName').fill('Our group')
-  await expect(page.locator('#roomType')).toHaveValue('persistent')
-  if (temporary) await page.locator('#roomType').selectOption('temporary')
+  if (temporary) {
+    const host = createRoomInvitation(false)
+    const secret = generateRoomSecret()
+    const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+    const link = encodeRoomLink(baseURL, { invitation: host.invitation, relays: [relay.href], iceUrls: [], name: 'Our group' })
+    await page.evaluate(({ key, record }) => localStorage.setItem(key, JSON.stringify(record)), {
+      key: 'kithmoot.invitation-owner.v1.' + deriveInvitationId(host.invitation),
+      record: { roomSecret: bytesToHex(secret), inviterSk: bytesToHex(host.inviterSk), createdAt: Math.floor(Date.now() / 1000) },
+    })
+    await openRoomUrl(page, link)
+    await expect(page.locator('#join')).toBeVisible()
+    return link
+  }
   await page.locator('#create').click()
   await expect(page.locator('#join')).toBeVisible()
   return page.locator('#shareUrl').inputValue()

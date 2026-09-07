@@ -1,0 +1,48 @@
+[
+  {
+    "name": "NIP-AC",
+    "repository": "vitorpamplona/nips",
+    "path": "AC.md",
+    "revision": "31c7a410dc4bfea12e127b1065e3dcd1ad150d58",
+    "sha256": "2ddc64c44bae9b8b6b907c6dd8d4b39f0adbe2c6b0575f5c4488a60c16f35493",
+    "trackingUrl": "https://raw.githubusercontent.com/vitorpamplona/nips/NIP-ac/AC.md",
+    "sourceUrl": "https://raw.githubusercontent.com/vitorpamplona/nips/31c7a410dc4bfea12e127b1065e3dcd1ad150d58/AC.md"
+  },
+  {
+    "name": "NIP-59",
+    "repository": "nostr-protocol/nips",
+    "path": "59.md",
+    "revision": "c3fd9af17939316bf6d0d83a5759100f8b0a1bdb",
+    "sha256": "b46b078ff5b219fd4ab33a53b479b49d4cbd604b88be46d6b978d53d8f8b43a0",
+    "trackingUrl": "https://raw.githubusercontent.com/nostr-protocol/nips/master/59.md",
+    "sourceUrl": "https://raw.githubusercontent.com/nostr-protocol/nips/c3fd9af17939316bf6d0d83a5759100f8b0a1bdb/59.md"
+  },
+  {
+    "name": "NIP-40",
+    "repository": "nostr-protocol/nips",
+    "path": "40.md",
+    "revision": "c3fd9af17939316bf6d0d83a5759100f8b0a1bdb",
+    "sha256": "1e88a08583391084fc95b842932119555cb270988612261fbb78017e84a0dc78",
+    "trackingUrl": "https://raw.githubusercontent.com/nostr-protocol/nips/master/40.md",
+    "sourceUrl": "https://raw.githubusercontent.com/nostr-protocol/nips/c3fd9af17939316bf6d0d83a5759100f8b0a1bdb/40.md"
+  },
+  {
+    "name": "kind-registry",
+    "repository": "nostr-protocol/registry-of-kinds",
+    "path": "schema.yaml",
+    "revision": "feed6af805b65401af1f655a22d8ac61b5b39d35",
+    "sha256": "88b471c3d567e1deea4b0365e32480e27e9f137fc1064d85bd4bc5536606044a",
+    "trackingUrl": "https://raw.githubusercontent.com/nostr-protocol/registry-of-kinds/master/schema.yaml",
+    "sourceUrl": "https://raw.githubusercontent.com/nostr-protocol/registry-of-kinds/feed6af805b65401af1f655a22d8ac61b5b39d35/schema.yaml",
+    "kinds": [
+      21059,
+      25050,
+      25051,
+      25052,
+      25053,
+      25054,
+      25055
+    ],
+    "trackedSha256": "fde5d0f84b18f7645c0bd5a9b1e41dc09a9d7bc7b77be8c5a2fe1644ab784dcf"
+  }
+]

@@ -35,7 +35,7 @@ describe('approval control messages', () => {
 
 describe('approvals in the room', () => {
   async function scene(opts: { admin?: boolean } = {}) {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const principalSk = generateSecretKey()
     const principal = localIdentity(principalSk)
     const agentSk = generateSecretKey()

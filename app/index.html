@@ -327,11 +327,6 @@
         <label for="roomName">Room name <span class="note">(optional)</span></label>
         <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
                aria-label="Room name" aria-describedby="roomNameNote" />
-        <label for="roomType" class="sr-only">Room type</label>
-        <select id="roomType" aria-describedby="roomTypeNote">
-          <option value="persistent">Group: come back any time</option>
-          <option value="temporary">Temporary meeting</option>
-        </select>
         <button id="create" type="submit" class="primary">Start a room</button>
         <p id="createError" class="formError" role="alert" hidden></p>
         <p id="roomTypeNote" class="note">Groups remember your access and let people join when everyone is offline.</p>

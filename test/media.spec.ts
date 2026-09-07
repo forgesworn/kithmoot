@@ -366,7 +366,7 @@ test('whoever starts the room is seen and heard by a joiner, however slow the re
     const pageA = await contextA.newPage()
     const pageB = await contextB.newPage()
 
-    const url = withRelays(await createRoom(pageA, baseURL!), [relay.url])
+    const url = await createRoom(pageA, baseURL!, [relay.url])
     await joinWithMedia(pageA, url, 'Ada')
     await joinWithMedia(pageB, url, 'Bob')
     const joined = Date.now()

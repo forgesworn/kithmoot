@@ -1,0 +1,134 @@
+{
+  "registry": "https://github.com/nostr-protocol/registry-of-kinds",
+  "checkedRevision": "feed6af805b65401af1f655a22d8ac61b5b39d35",
+  "submission": "Owner submits separately after reviewing the public draft and repeating the relay scan. No upstream approval claimed.",
+  "entries": [
+    {
+      "kind": 1460,
+      "description": "KithMoot Chat and channels",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 1461,
+      "description": "KithMoot Invitation retirement",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 1462,
+      "description": "KithMoot Room rekey",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 1463,
+      "description": "KithMoot Group invitation",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20460,
+      "description": "KithMoot Device credential, inner only",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20461,
+      "description": "KithMoot Roster",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20462,
+      "description": "KithMoot Signalling, inner only",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20463,
+      "description": "KithMoot Pairing request",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20464,
+      "description": "KithMoot Pairing grant",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20465,
+      "description": "KithMoot Room descriptor",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20466,
+      "description": "KithMoot Invitation request",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20467,
+      "description": "KithMoot Invitation grant",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20468,
+      "description": "KithMoot Epoch request",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20469,
+      "description": "KithMoot Epoch grant",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20470,
+      "description": "KithMoot Member pass, reserved",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 30460,
+      "description": "KithMoot Service policy, reserved",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 24170,
+      "description": "RelaySwarm presence",
+      "spec": "https://github.com/forgesworn/relayswarm/blob/main/docs/NATIVE-TRANSPORT.md",
+      "status": "prepared; owner reviews submission"
+    },
+    {
+      "kind": 24171,
+      "description": "RelaySwarm signalling",
+      "spec": "https://github.com/forgesworn/relayswarm/blob/main/docs/NATIVE-TRANSPORT.md",
+      "status": "prepared; owner reviews submission"
+    }
+  ],
+  "reservedServicePolicyExpansion": [
+    30461,
+    30462,
+    30463,
+    30464,
+    30465,
+    30466,
+    30467,
+    30468,
+    30469
+  ],
+  "sharedKinds": [
+    21059,
+    30078,
+    1063,
+    24242,
+    9734,
+    9735
+  ]
+}

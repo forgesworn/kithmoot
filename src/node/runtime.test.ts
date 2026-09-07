@@ -17,7 +17,7 @@ async function settle(): Promise<void> {
 }
 
 async function room() {
-  const relay = new SimRelay()
+  const relay = new SimRelay({ replay: true })
   const transport = () => new SimTransport(relay)
   const keeper = await RoomAgent.create({ base: BASE, name: 'Person', relays: ['wss://sim'], transport, announceJitterMs: 0, agent: false })
   const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport, announceJitterMs: 0 })
@@ -114,7 +114,7 @@ describe('AgentRuntime', () => {
   })
 
   it('writes what it hears into the transcript channel, with the speaker named', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const transport = () => new SimTransport(relay)
     const factory = createFakeFactory()
     const keeper = await RoomAgent.create({ base: BASE, name: 'Person', relays: ['wss://sim'], transport, announceJitterMs: 0, agent: false })
@@ -216,7 +216,7 @@ describe('ModelBrain', () => {
   })
 
   it('stops agents talking among themselves once the budget is spent', async () => {
-    const relay = new SimRelay()
+    const relay = new SimRelay({ replay: true })
     const transport = () => new SimTransport(relay)
     const keeper = await RoomAgent.create({ base: BASE, name: 'Person', relays: ['wss://sim'], transport, announceJitterMs: 0, agent: false })
     const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport, announceJitterMs: 0 })
