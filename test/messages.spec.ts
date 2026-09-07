@@ -65,8 +65,8 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
     await expect.poll(() => rowan.chat.messages().filter(m => m.replaces !== undefined).length).toBe(1)
 
     // And thinks better of it. What is left says so.
-    page.once('dialog', dialog => dialog.accept())
     await reply.getByRole('button', { name: 'Retract this message' }).click()
+    await page.locator('#actionConfirm').click()
     await expect(thread.locator('.msg.retracted')).toHaveCount(1)
     await expect(thread.locator('.msg.retracted .bubble')).toContainText('Message retracted')
     await expect(thread.locator('.msg.retracted .messageActions')).toHaveCount(0)

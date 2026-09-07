@@ -271,6 +271,45 @@ describe('the pairing exchange', () => {
     ).rejects.toThrow('pairing timed out')
     host.close()
 
-    expect(asked).toContain(getPublicKey(phoneSk))
+    expect(asked).toEqual([getPublicKey(phoneSk)])
+  })
+
+  it('waits for asynchronous approval and reuses it for retries from the same device', async () => {
+    const transport = new SimTransport(new SimRelay())
+    const { roomId, roomKey } = room()
+    const code = createPairingCode()
+    const deviceSk = generateSecretKey()
+    let decide!: (approved: boolean) => void
+    let asked = 0
+    const approval = new Promise<boolean>(resolve => { decide = resolve })
+    const host = hostPairing({ transport, roomId, roomKey, code, identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, approve: () => { asked++; return approval } })
+    const request = requestPairing({ transport, roomId, roomKey, code, deviceSk, now, timeoutMs: 1000, retryMs: 5 })
+    try {
+      await expect.poll(() => asked).toBe(1)
+      await transport.publish(encodePairingRequest({ code, roomId, roomKey, deviceSk, now: NOW }))
+      expect(asked).toBe(1)
+      decide(true)
+      expect(verifyDeviceCredential(await request, { roomId, now: NOW }).ok).toBe(true)
+      expect(verifyDeviceCredential(await requestPairing({ transport, roomId, roomKey, code, deviceSk, now, timeoutMs: 1000, retryMs: 5 }), { roomId, now: NOW }).ok).toBe(true)
+      expect(asked).toBe(1)
+    } finally { host.close() }
+  })
+
+  it('does not issue a credential if the host closes while approval is pending', async () => {
+    const transport = new SimTransport(new SimRelay())
+    const { roomId, roomKey } = room()
+    const code = createPairingCode()
+    let decide!: (approved: boolean) => void
+    let asked = false
+    let paired = false
+    const approval = new Promise<boolean>(resolve => { decide = resolve })
+    const host = hostPairing({ transport, roomId, roomKey, code, identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, approve: () => { asked = true; return approval }, onPaired: () => { paired = true } })
+    const request = requestPairing({ transport, roomId, roomKey, code, deviceSk: generateSecretKey(), now, timeoutMs: 100, retryMs: 5 })
+    const timedOut = expect(request).rejects.toThrow('pairing timed out')
+    await expect.poll(() => asked).toBe(true)
+    host.close()
+    decide(true)
+    await timedOut
+    expect(paired).toBe(false)
   })
 })

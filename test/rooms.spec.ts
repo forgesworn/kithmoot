@@ -130,8 +130,8 @@ test('the front page lists every room this device has been in, with what is new 
 
     // Forgetting a room takes it off this device's list and nothing else:
     // the room, and everybody in it, are untouched.
-    page.on('dialog', (dialog) => void dialog.accept())
     await benchRow.locator('button.forget').click()
+    await page.locator('#actionConfirm').click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
     await expect(page.locator('#roomList .roomName')).toHaveText(['Town hall'])
     await expect(other.locator('#roomArea')).toBeVisible()

@@ -1172,9 +1172,8 @@ button.primary:hover:not(:disabled) {
   font-size: 0.95rem;
 }
 
-/* The verification dialog. The rest of the app confirms a one-line yes/no
-   with confirm(), which is fine for "remove this person?"; this one has
-   words to read and say aloud, so it gets furniture of its own. */
+/* Verification has words to read and say aloud, so it has its own layout
+   alongside the shared action confirmation dialog. */
 #verifyDialog {
   background: var(--panel);
   color: var(--text);
@@ -2334,6 +2333,25 @@ label.note {
   font-size: 0.85rem;
 }
 
+.actionDialog {
+  width: min(30rem, calc(100% - 2rem));
+  max-width: calc(100% - 2rem);
+  max-height: calc(100svh - 2rem);
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 1.5rem 5rem var(--drop-shadow);
+  overflow-wrap: anywhere;
+}
+.actionDialog::backdrop { background: rgb(0 0 0 / 55%); backdrop-filter: blur(3px); }
+.actionDialog h2 { margin: 0 0 .75rem; font-size: 1.2rem; text-transform: none; letter-spacing: normal; color: var(--text); }
+.actionDialog p { margin: 0; line-height: 1.55; white-space: pre-line; }
+.actionDialogButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; margin-top: 1.5rem; }
+.actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.actionDialogButtons button.danger { color: var(--danger); border-color: var(--danger-border); }
+
 .sheetBar button {
   margin: 0;
   min-height: 44px;
@@ -2497,6 +2515,18 @@ label.note {
 }
 .messageSearchResults button:hover { background: var(--control-hover); }
 .searchSender { font-weight: 700; }
+.searchConversation { color: var(--accent); font-size: .8rem; font-weight: 600; }
+#conversationSearch .sheetBar { flex-wrap: wrap; }
+#conversationSearch input[type='search'] { font-family: inherit; min-width: 0; max-width: 100%; }
+#conversationSearch .sheetBody { overflow-wrap: anywhere; }
+.searchCoverage { margin-block: .5rem; color: var(--muted); font-size: .85rem; }
+.searchCoverage summary { cursor: pointer; min-height: 44px; padding-block: .65rem; }
+.messageSearchFilters { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem 1rem; margin-block: .75rem; }
+.messageSearchFilters > label:first-child { flex: 1 1 12rem; min-width: 0; margin: 0; }
+.messageSearchFilters select { display: block; width: 100%; min-width: 0; max-width: 100%; margin-top: .25rem; }
+.messageSearchFilters .searchFileFilter { margin: 0; }
+#backToSearch { color: var(--accent); }
+.conversationTools:has(#backToSearch:not([hidden])) #chatSearch { display: none; }
 .messageSearchResults time { font-size: .8rem; color: var(--muted); }
 .searchExcerpt { white-space: pre-wrap; }
 .searchFiles { color: var(--accent); font-size: .9rem; }
@@ -2723,6 +2753,7 @@ main:has(#roomArea:not([hidden])) #chatLog { flex: 1 1 0; height: auto; min-heig
   #chatProfiles { display: none; }
   #nextUnread { flex: 1 1 0; min-width: 0; }
   #chatSearch { flex: 0 0 auto; }
+  #backToSearch { flex: 0 0 auto; }
 }
 
 /* Keep a full line visible when text size changes after the composer was

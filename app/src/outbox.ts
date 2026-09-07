@@ -1,3 +1,5 @@
+import { confirmAction } from './confirm-action.js'
+
 /** Pending and failed sends belong to their original conversation. Retrying
  * uses the prepared event, never the currently selected channel or draft. */
 export class Outbox {
@@ -28,8 +30,8 @@ export class Outbox {
       row.remove()
       this.#root.hidden = !this.pending
     }
-    discard.addEventListener('click', () => {
-      if (confirm('Dismiss this unsent message? A relay may have received it even if its acknowledgement did not arrive.')) remove()
+    discard.addEventListener('click', async () => {
+      if (await confirmAction({ title: 'Dismiss this unsent message?', message: 'A relay may have received it even if its acknowledgement did not arrive. Dismissing removes it from this pending list.', confirmLabel: 'Dismiss message', danger: true, isCurrent: () => row.isConnected })) remove()
     })
     const attempt = async () => {
       retry.hidden = discard.hidden = true

@@ -4,6 +4,7 @@ import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
+import { confirmAction, type ConfirmActionOptions } from './confirm-action.js'
 import { ChatScroll } from './chat-scroll.js'
 import { ConversationSearch } from './conversation-search.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
@@ -145,7 +146,7 @@ import { base64urlnopad } from '@scure/base'
 
 const outbox = new Outbox(document.getElementById('outbox')!)
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
-const conversationSearch = new ConversationSearch(document)
+const conversationSearch = new ConversationSearch(document, selectChannel)
 const shareViewer = new ShareViewer()
 const emojiPicker = new EmojiPicker()
 window.addEventListener('pagehide', () => shareViewer.close())
@@ -3322,8 +3323,8 @@ function renderHost(): void {
     remove.className = 'danger'
     remove.textContent = 'Remove'
     remove.title = 'Move the room to a new key this person is not given.'
-    remove.addEventListener('click', () => {
-      if (!confirm(`Remove ${label} from the room? They will read nothing from here on. What they already read stays theirs.`)) return
+    remove.addEventListener('click', async () => {
+      if (!await confirmRoomAction({ title: `Remove ${label}?`, message: 'The room will move to a new key that this person is not given. What they already read stays theirs.', confirmLabel: 'Remove from room', danger: true })) return
       sendHostControl({ op: 'remove', participant: view.participant }, `Asked the keeper to remove ${label}.`)
     })
     row.append(mute, remove)
@@ -3331,8 +3332,8 @@ function renderHost(): void {
   }
 }
 
-$('closeRoom').addEventListener('click', () => {
-  if (!confirm('Close this room for everybody? The link stops answering and the keeper leaves.')) return
+$('closeRoom').addEventListener('click', async () => {
+  if (!await confirmRoomAction({ title: 'Close this room for everybody?', message: 'The invitation link will stop answering and the keeper will leave.', confirmLabel: 'Close room', danger: true })) return
   sendHostControl({ op: 'close' }, 'Asked the keeper to close the room.')
 })
 
@@ -3620,12 +3621,16 @@ function renderChat(messages: ChatMessage[]): void {
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
   if (currentChannel === undefined) void handleInvites(messages)
-  conversationSearch.update(messages, currentChannel ?? 'Chat', message => {
+  updateConversationSearch()
+  if (currentChannel === undefined) noteChatRead(messages)
+  markConversationRead()
+}
+
+function updateConversationSearch(): void {
+  conversationSearch.update(conversationTabs().map(([channel, label]) => ({ channel, label, messages: conversationMessages(channel) })), currentChannel, message => {
     if (message.participant === meParticipant) return message.name ? `${message.name} (you)` : 'You'
     return shownAs(message.participant, message.name).name ?? message.participant.slice(0, 8)
   })
-  if (currentChannel === undefined) noteChatRead(messages)
-  markConversationRead()
 }
 
 /**
@@ -3981,6 +3986,7 @@ function renderAgentActivity(): void {
 }
 
 function renderChannels(): void {
+  updateConversationSearch()
   const bar = $('channelBar')
   const focused = document.activeElement as HTMLElement | null
   const focusedChannel = focused && bar.contains(focused) ? focused.closest<HTMLButtonElement>('button[data-channel]')?.dataset.channel : undefined
@@ -4387,6 +4393,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       const p = document.createElement('p')
       p.className = 'transcript'
       p.dataset.messageId = original.id
+      p.dataset.messageAuthor = original.participant
       const who = document.createElement('span')
       who.className = 'who'
       if (m.speaker) {
@@ -4413,6 +4420,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     const row = document.createElement('div')
     row.className = `msg ${mine ? 'mine' : 'theirs'}${fromAgent ? ' fromAgent' : ''}${r.retracted ? ' retracted' : ''}`
     row.dataset.messageId = original.id
+    row.dataset.messageAuthor = original.participant
     // Addressed to the reader, by the field on the wire or by name on a
     // message from before the field existed: the one thing a person scans
     // a busy room for, and exactly what an agent would answer to. Your own
@@ -5518,13 +5526,23 @@ function browserRoomsToImport(): KnownRoom[] {
   return nostrSession ? knownRooms(deviceStore).filter(room => !knownRoom(roomStore(), room.roomId)) : []
 }
 
-function importBrowserRooms(): void {
+function confirmRoomAction(options: ConfirmActionOptions): Promise<boolean> {
+  const room = session
+  const account = nostrSession?.pubkey
+  return confirmAction({ ...options, isCurrent: () => room === session && account === nostrSession?.pubkey })
+}
+
+function confirmDiscardAndLeave(): Promise<boolean> {
+  return confirmRoomAction({ title: 'Leave and discard your draft?', message: 'Unsent messages and files in this room will be discarded.', confirmLabel: 'Discard and leave', cancelLabel: 'Keep working', danger: true })
+}
+
+async function importBrowserRooms(): Promise<void> {
   const rooms = browserRoomsToImport()
   if (!bookmarks || !rooms.length) return
   const destination = nostrSession?.signer.nip44
     ? 'Their names and invitation links will be encrypted to your Nostr key and sent to relays.'
     : 'This signer cannot encrypt, so these bookmarks will stay in this browser only.'
-  if (!confirm(`Add these browser rooms to this Nostr account?\n\n${rooms.map(knownRoomLabel).join('\n')}\n\n${destination} Only continue if these are rooms you want saved to this account.`)) return
+  if (!await confirmRoomAction({ title: 'Add browser rooms to this account?', message: `${rooms.map(knownRoomLabel).join('\n')}\n\n${destination}`, confirmLabel: 'Add rooms' })) return
   for (const room of rooms) bookmarks.save(room)
   renderRooms()
 }
@@ -5860,13 +5878,14 @@ function renderRoomSwitcher(): void {
   ;($('roomSwitcherHome') as HTMLButtonElement).disabled = busy
 }
 
-function switchRoom(room: KnownRoom): void {
+async function switchRoom(room: KnownRoom): Promise<void> {
   if (room.roomId === currentRoomId()) {
     ;($('roomSwitcher') as HTMLDialogElement).close()
     return
   }
   if (hasUnsentWork()) { renderRoomSwitcher(); return }
-  if (callIsLive() && !confirm(`Switch to ${knownRoomLabel(room)} and leave this call? Your microphone and camera will be off in the other room.`)) return
+  if (callIsLive() && !await confirmRoomAction({ title: `Switch to ${knownRoomLabel(room)}?`, message: 'This leaves your current call. Your microphone and camera will be off in the other room.', confirmLabel: 'Leave call and switch' })) return
+  if (hasUnsentWork()) { renderRoomSwitcher(); return }
   try {
     sessionStorage.setItem(ROOM_SWITCH_KEY, JSON.stringify({
       hash: new URL(room.link, location.href).hash, account: nostrSession?.pubkey ?? null, at: Date.now(),
@@ -5878,8 +5897,8 @@ function switchRoom(room: KnownRoom): void {
   openKnownRoom(room)
 }
 
-function forgetKnownRoom(room: KnownRoom): void {
-  if (!confirm(`Forget ${knownRoomLabel(room)} ${nostrSession ? 'from your Nostr room bookmarks on all devices' : 'on this device'}? You would need its invitation link to come back. This does not revoke access or erase relay history.`)) return
+async function forgetKnownRoom(room: KnownRoom): Promise<void> {
+  if (!await confirmRoomAction({ title: `Forget ${knownRoomLabel(room)}?`, message: `Remove it ${nostrSession ? 'from your Nostr room bookmarks on all devices' : 'on this device'}. You will need its invitation link to come back. This does not revoke access or erase relay history.`, confirmLabel: 'Forget room', danger: true })) return
   stopWatching(room.roomId)
   forgetRoomAccess(deviceStore, room.roomId)
   forgetRoomAccess(browserDeviceStore(sessionStorage), room.roomId)
@@ -5955,8 +5974,8 @@ function renderWayBack(): void {
 
 /** Back to the list: leave the room if in it, and open the app with no
  *  link on it. A reload for the same reason `leaveRoom` reloads. */
-function backToRooms(): void {
-  if (hasUnsentWork() && !confirm('Leave this room and discard your unsent messages and files?')) return
+async function backToRooms(): Promise<void> {
+  if (hasUnsentWork() && !await confirmDiscardAndLeave()) return
   const s = session
   session = undefined
   sessionTransport = undefined
@@ -6042,7 +6061,7 @@ function alreadyHere(url: string): boolean {
 
 /** Open a room link from a notification: this app's own links only, and
  *  a reload for the reason `openKnownRoom` reloads. */
-function openLink(url: string): void {
+async function openLink(url: string): Promise<void> {
   let target: URL
   try {
     target = new URL(url, location.href)
@@ -6051,7 +6070,7 @@ function openLink(url: string): void {
   }
   if (target.origin !== location.origin || !target.href.startsWith(joinLinkBase())) return
   if (alreadyHere(target.href)) return
-  if ((hasUnsentWork() || callIsLive()) && !confirm('Open the other room? This leaves your call and discards unfinished messages and files in this tab.')) return
+  if ((hasUnsentWork() || callIsLive()) && !await confirmRoomAction({ title: 'Open the other room?', message: 'This leaves your call and discards unfinished messages and files in this tab.', confirmLabel: 'Leave and open room', danger: true })) return
   history.replaceState(null, '', target.href)
   approvedReload()
 }
@@ -6168,6 +6187,7 @@ $('manageAgents').addEventListener('click', () => {
 })
 $('chatLog').addEventListener('scroll', () => { if (markConversationRead()) renderConversationNav() }, { passive: true })
 document.addEventListener('visibilitychange', () => { if (markConversationRead()) renderConversationNav() })
+document.addEventListener('kithmoot:confirmation-closed', () => { if (markConversationRead()) renderConversationNav() })
 for (const dialog of document.querySelectorAll('dialog')) {
   dialog.addEventListener('close', () => { if (markConversationRead()) renderConversationNav() })
 }
@@ -6221,9 +6241,9 @@ $('roomSwitcher').addEventListener('close', () => {
 })
 $('roomSwitcherClose').addEventListener('click', () => ($('roomSwitcher') as HTMLDialogElement).close())
 $('roomSearch').addEventListener('input', renderRoomSwitcher)
-$('roomSwitcherHome').addEventListener('click', () => {
+$('roomSwitcherHome').addEventListener('click', async () => {
   if (hasUnsentWork()) { renderRoomSwitcher(); return }
-  if (callIsLive() && !confirm('Leave this call and go to all rooms?')) return
+  if (callIsLive() && !await confirmRoomAction({ title: 'Leave this call?', message: 'You will return to all rooms. Your microphone and camera will turn off.', confirmLabel: 'Leave call' })) return
   backToRooms()
 })
 $('roomSwitcher').addEventListener('click', event => {
@@ -6233,8 +6253,11 @@ $('roomIdentity').addEventListener('click', openRoomSheet)
 $('roomMenu').addEventListener('click', openRoomSheet)
 $('roomSheetClose').addEventListener('click', closeRoomSheet)
 $('searchConversation').addEventListener('click', () => {
-  closeRoomSheet()
-  conversationSearch.open()
+  const sheet = $('roomSheet') as HTMLDialogElement
+  if (sheet.open) {
+    sheet.addEventListener('close', () => conversationSearch.open(undefined, 'conversation'), { once: true })
+    sheet.close()
+  } else conversationSearch.open(undefined, 'conversation')
 })
 const assignmentPanel = new AssignmentPanel(document, () => {
   return (session?.participants() ?? []).map(p => {
@@ -6434,8 +6457,7 @@ $('addDevice').addEventListener('click', () => {
       code,
       identity,
       deviceSk: deviceKey(),
-      approve: (device) =>
-        confirm(`Add the device ${device.slice(0, 12)}… to this room as you, for the next 12 hours?`),
+      approve: (device) => confirmRoomAction({ title: 'Add this device?', message: `Device ${device.slice(0, 12)}… will join this room as you for the next 12 hours. Only approve a device you are pairing.`, confirmLabel: 'Add device' }),
       onPaired: (device) => setStatus(`Added ${device.slice(0, 12)}… to this room.`),
     })
 
@@ -6475,8 +6497,8 @@ $('copyPair').addEventListener('click', () => copyInput('pairUrl'))
 $('shareRoom').addEventListener('click', () => {
   shareRoomLink().catch((err) => setStatus(describeError(err)))
 })
-$('rotateShare').addEventListener('click', () => {
-  if (!confirm('Replace the room link? This retires it in current KithMoot clients; existing members stay.')) return
+$('rotateShare').addEventListener('click', async () => {
+  if (!await confirmRoomAction({ title: 'Replace the room link?', message: 'The old link will stop admitting new people in current KithMoot clients. Existing members stay in the room.', confirmLabel: 'Replace link', danger: true })) return
   rotateRoomInvitation().catch((err) => setStatus(describeError(err)))
 })
 $('makePersistent').addEventListener('click', async () => {
@@ -6594,8 +6616,8 @@ async function leaveRoom(): Promise<void> {
   approvedReload()
 }
 
-$('leave').addEventListener('click', () => {
-  if (hasUnsentWork() && !confirm('Leave this room and discard your unsent messages and files?')) return
+$('leave').addEventListener('click', async () => {
+  if (hasUnsentWork() && !await confirmDiscardAndLeave()) return
   void leaveRoom()
 })
 
@@ -6950,13 +6972,14 @@ function mentionsInDraft(text: string): string[] {
     .slice(0, MAX_MENTIONS)
 }
 
-function retractMessage(original: ChatMessage): void {
+async function retractMessage(original: ChatMessage): Promise<void> {
   const chat = activeChat() ?? session?.chat
+  const channel = currentChannel
   if (!chat) return
-  if (!confirm('Retract this message? Everybody who already received it keeps their copy. It will be marked retracted, not erased.')) return
+  if (!await confirmRoomAction({ title: 'Retract this message?', message: 'It will be marked retracted. People who already received it may still have a copy.', confirmLabel: 'Retract message', danger: true })) return
   try {
     const text = retractionText()
-    outbox.send(text, currentChannel ?? 'Chat', chat.prepareSend(text, { retracts: original.id }))
+    outbox.send(text, channel ?? 'Chat', chat.prepareSend(text, { retracts: original.id }))
   } catch (err) {
     setStatus(describeError(err))
   }
@@ -7423,9 +7446,9 @@ for (const id of ['attachEvent', 'attachKey']) {
   })
 }
 $('cancelFileWork').addEventListener('click', () => drafts.get(currentChannel).job?.abort())
-$('discardDraft').addEventListener('click', () => {
+$('discardDraft').addEventListener('click', async () => {
   const draft = captureDraft()
-  if (!draftHasWork(draft) || !confirm('Discard this conversation’s draft and stop any files still being added? Uploaded encrypted files are not deleted from their store.')) return
+  if (!draftHasWork(draft) || !await confirmRoomAction({ title: 'Discard this draft?', message: 'Your unsent text and files will be removed from this conversation. Files still being added will stop. Uploaded encrypted files are not deleted from their store.', confirmLabel: 'Discard draft', danger: true })) return
   drafts.discard(draft)
   restoreDraft()
   if (!channelAvailable(currentChannel)) selectChannel(undefined)

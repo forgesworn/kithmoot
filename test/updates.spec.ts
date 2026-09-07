@@ -87,8 +87,8 @@ test('a stalled update offers a retry and late activation still needs consent', 
     release.publish({ delayActivation: true })
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(page.locator('#updateNotice')).toBeVisible()
-    page.once('dialog', dialog => dialog.accept())
     await page.locator('#updateApp').click()
+    await page.locator('#actionConfirm').click()
     await expect(page.locator('#updateApp')).toHaveText('Updating…')
     await expect(page.locator('#updateApp')).toHaveText('Try updating again', { timeout: 12_000 })
     await expect(page.locator('#updateApp')).toBeEnabled()
@@ -96,11 +96,11 @@ test('a stalled update offers a retry and late activation still needs consent', 
     await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.ready).waiting === null)).toBe(true)
     // The timed-out approval cannot authorise a late background reload.
     await expect(page.locator('#chatInput')).toHaveValue('Keep this while an update is stuck')
-    page.once('dialog', dialog => dialog.dismiss())
     await page.locator('#updateApp').click()
+    await page.locator('#actionCancel').click()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this while an update is stuck')
-    page.once('dialog', dialog => dialog.accept())
-    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+    await page.locator('#updateApp').click()
+    await Promise.all([page.waitForEvent('load'), page.locator('#actionConfirm').click()])
     await expect(page.locator('#updateNotice')).toBeHidden()
   } finally {
     await context.close()
@@ -139,8 +139,8 @@ test('a real service-worker update preserves the room and draft until the reader
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await page.screenshot({ path: testInfo.outputPath(`update-in-room-${width}.png`) })
     }
-    page.once('dialog', dialog => dialog.dismiss())
     await page.locator('#updateApp').click()
+    await page.locator('#actionCancel').click()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished message')
     // Simulate another tab accepting: activation must still not reload us.
     await page.evaluate(async () => {
@@ -150,8 +150,8 @@ test('a real service-worker update preserves the room and draft until the reader
     await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.ready).waiting === null)).toBe(true)
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished message')
     await expect(page.locator('#roomArea')).toBeVisible()
-    page.once('dialog', dialog => dialog.accept())
-    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+    await page.locator('#updateApp').click()
+    await Promise.all([page.waitForEvent('load'), page.locator('#actionConfirm').click()])
     await expect(page.locator('#join')).toBeVisible()
     await expect(page.locator('#updateNotice')).toBeHidden()
     // Also exercise accepting a waiting worker through the button itself.
@@ -160,8 +160,8 @@ test('a real service-worker update preserves the room and draft until the reader
     release.publish()
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(page.locator('#updateNotice')).toBeVisible()
-    page.once('dialog', dialog => dialog.accept())
-    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+    await page.locator('#updateApp').click()
+    await Promise.all([page.waitForEvent('load'), page.locator('#actionConfirm').click()])
     await expect(page.locator('#join')).toBeVisible()
     await expect(page.locator('#updateNotice')).toBeHidden()
   } finally {

@@ -166,6 +166,7 @@
         <div class="conversationTools" aria-label="Conversation tools">
           <button id="nextUnread" type="button" hidden></button>
           <button id="chatSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search messages</button>
+          <button id="backToSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch" hidden>Back to results</button>
           <button id="chatProfiles" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures: on</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
@@ -511,16 +512,26 @@
 
     <dialog id="conversationSearch" aria-labelledby="messageSearchTitle" aria-describedby="messageSearchScope">
       <div class="sheetBar">
-        <h2 id="messageSearchTitle">Search this conversation</h2>
+        <h2 id="messageSearchTitle">Search messages</h2>
         <button id="messageSearchClose" type="button" class="primary">Close</button>
       </div>
       <div class="sheetBody">
         <label for="messageSearchQuery">Message, person or file name</label>
-        <input id="messageSearchQuery" type="search" maxlength="200" autocomplete="off" spellcheck="false" />
-        <label class="searchFileFilter"><input id="messageSearchFiles" type="checkbox" /> Files only</label>
+        <input id="messageSearchQuery" type="search" maxlength="200" autocomplete="off" spellcheck="false" autofocus />
+        <div class="messageSearchFilters">
+          <label for="messageSearchConversation">Conversation
+            <select id="messageSearchConversation"><option value="*">All conversations</option></select>
+          </label>
+          <label class="searchFileFilter"><input id="messageSearchFiles" type="checkbox" /> Files only</label>
+        </div>
         <p id="messageSearchScope" class="note"></p>
+        <details class="searchCoverage">
+          <summary>About this search</summary>
+          <p class="note">Search covers messages already loaded in this room: up to 500 per conversation from the last 30 days. Files are searched by name; nothing is downloaded. Search text stays in this tab.</p>
+        </details>
         <p id="messageSearchStatus" role="status" class="note"></p>
         <ol id="messageSearchResults" class="messageSearchResults" aria-label="Matching messages"></ol>
+        <button id="messageSearchMore" type="button" hidden>Show more results</button>
       </div>
     </dialog>
 

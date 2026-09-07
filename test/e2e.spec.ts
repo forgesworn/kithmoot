@@ -26,9 +26,8 @@ import { openRoomUrl, pinToTestRelays, testRelays, withRelays } from './relays.j
  * an identity (src/pairing.ts). Page A has to STAY on the page that issued
  * it, because that page is what listens for B's request and answers it with
  * a device credential - so "Add a device" is clicked after A has finished
- * navigating, not before. A also has to accept a confirm() before the
- * credential is minted, which Playwright dismisses by default; the dialog
- * handler below is what makes it an approval rather than a refusal.
+ * navigating, not before. A approves the in-app device dialog while B
+ * waits for its credential. Both actions are driven explicitly below.
  *
  * TWO CASES, AND WHY BOTH EXIST:
  * KithMoot's roster event (kind 20461, src/kinds.ts) is in Nostr's
@@ -137,9 +136,6 @@ async function openRoomTools(page: Page): Promise<void> {
  *  already be IN the room, because the pass for a second device is offered
  *  from the drawer inside it, not from the entry page. */
 async function offerPairing(page: Page, joinUrl: string): Promise<string> {
-  page.on('dialog', (dialog) => {
-    void dialog.accept()
-  })
   await openRoomTools(page)
   await page.locator('#addDevice').click()
   const pairUrl = await page.locator('#pairUrl').inputValue()
@@ -270,8 +266,8 @@ test('rotating a share link retires its public capability without moving the roo
   const otherCreatorTab = await page.context().newPage()
   await openRoomUrl(otherCreatorTab, first)
   await expect(otherCreatorTab.locator('#rotateShare')).toHaveJSProperty('hidden', false)
-  page.on('dialog', (dialog) => void dialog.accept())
   await page.locator('#rotateShare').click()
+  await page.locator('#actionConfirm').click()
   await expect(page.locator('#shareUrl')).not.toHaveValue(first, { timeout: 60_000 })
   const second = await page.locator('#shareUrl').inputValue()
 
@@ -365,7 +361,7 @@ test('two devices of one participant render as one tile group to a third person'
 
     // B: a SEPARATE context (own localStorage) opening the PAIRING url, so
     // it becomes a second device under A's identity - not a new person.
-    await prepareDevice(pageB, pairUrl, 'Robin')
+    await Promise.all([prepareDevice(pageB, pairUrl, 'Robin'), pageA.getByRole('button', { name: 'Add device', exact: true }).click()])
     // C: a separate person entirely, via the plain join URL.
     await prepareDevice(pageC, joinUrl, 'Robin')
 
@@ -429,7 +425,7 @@ test('a person who joins last still sees everyone already in the room', async ({
     // Then A offers pairing, and B - a separate context, so separate
     // localStorage - takes it up and joins as A's second device.
     const pairUrl = await offerPairing(pageA, joinUrl)
-    await prepareDevice(pageB, pairUrl)
+    await Promise.all([prepareDevice(pageB, pairUrl), pageA.getByRole('button', { name: 'Add device', exact: true }).click()])
     await joinRoom(pageB)
     await turnOnMedia(pageB)
 
