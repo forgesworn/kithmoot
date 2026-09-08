@@ -75,6 +75,50 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
   }
 })
 
+test('a nearby device can silence feedback without losing its camera', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+
+  const laptop = await newDeviceContext(browser, baseURL!)
+  const phone = await newDeviceContext(browser, baseURL!)
+  try {
+    const pageLaptop = await laptop.newPage()
+    const pagePhone = await phone.newPage()
+    const url = await createRoom(pageLaptop, baseURL!)
+
+    await joinWithMedia(pageLaptop, url, 'Laptop')
+    // This deliberately uses the ordinary invitation, reproducing the easy
+    // mistake that pairing-only suppression cannot recognise.
+    await joinWithMedia(pagePhone, url, 'Phone')
+    await expectToSeeAndHear(pageLaptop, 'Laptop')
+    await expectToSeeAndHear(pagePhone, 'Phone')
+
+    await pagePhone.locator('#toggleCompanion').click()
+    await expect(pagePhone.locator('#toggleCompanion')).toHaveAttribute('aria-pressed', 'true')
+    await expect(pagePhone.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
+    await expect(pagePhone.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    await expect(pagePhone.locator('#companionNote')).toBeVisible()
+    await expect.poll(() => pagePhone.locator('#room audio').evaluateAll(audio =>
+      audio.length > 0 && audio.every(el => (el as HTMLAudioElement).muted),
+    )).toBe(true)
+
+    // The laptop still receives a live picture from the silenced phone.
+    await expect.poll(async () => (await pageLaptop.evaluate(remotePictures)).length).toBeGreaterThan(0)
+
+    // Choosing the microphone again is the obvious way out. It restores this
+    // device as a complete call endpoint rather than leaving two active modes.
+    await pagePhone.locator('#toggleMic').click()
+    await expect(pagePhone.locator('#toggleCompanion')).toHaveAttribute('aria-pressed', 'false')
+    await expect(pagePhone.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await expect(pagePhone.locator('#companionNote')).toBeHidden()
+    await expect.poll(() => pagePhone.locator('#room audio').evaluateAll(audio =>
+      audio.some(el => !(el as HTMLAudioElement).muted),
+    )).toBe(true)
+  } finally {
+    await laptop.close()
+    await phone.close()
+  }
+})
+
 /**
  * Sharing a screen must not cost you your face.
  *

@@ -2416,6 +2416,10 @@ async function toggleMic(): Promise<void> {
     }
     mic = pipeline
     micTrack.addEventListener('ended', onMicEnded)
+    // Choosing the microphone is an explicit choice to use this device for
+    // the conversation, even if it was previously in camera-only mode.
+    besideAnotherDevice = false
+    micClaimedAt = monitorClaimedAt = nowSeconds()
     // Our own tile lights up too, so a person can see they are being picked
     // up rather than guessing. Muting sets `track.enabled = false`, which
     // feeds the analyser silence, so a muted mic goes dark on its own.
@@ -2427,6 +2431,7 @@ async function toggleMic(): Promise<void> {
     if (micTrack.enabled) {
       // An explicit unmute is how this device takes the mic and speaker back
       // from another paired device.
+      besideAnotherDevice = false
       micClaimedAt = monitorClaimedAt = nowSeconds()
       publishActiveTracks()
     }
@@ -2744,6 +2749,10 @@ let micClaimedAt: number | undefined
 /** The linked device that most recently brought call media becomes the one
  * speaker. One open speaker per person breaks the nearby-device echo loop. */
 let monitorClaimedAt: number | undefined
+/** Explicit escape hatch when a phone entered through the ordinary room link.
+ * There is no safe way to infer physical proximity from room or network data,
+ * so the person can silence this device while retaining its camera/share. */
+let besideAnotherDevice = false
 
 /**
  * What this device is publishing, as the roster should advertise it: the
@@ -2760,15 +2769,28 @@ function currentAdverts(): TrackAdvert[] {
 
 function currentClaims(): Partial<Record<SingularRole, number>> {
   const claims: Partial<Record<SingularRole, number>> = {}
-  if (micTrack) {
+  if (!besideAnotherDevice && micTrack) {
     micClaimedAt ??= nowSeconds()
     claims.mic = micClaimedAt
   }
-  if (micTrack || cameraTrack || screenTrack) {
+  if (!besideAnotherDevice && (micTrack || cameraTrack || screenTrack)) {
     monitorClaimedAt ??= nowSeconds()
     claims.monitor = monitorClaimedAt
   }
   return claims
+}
+
+function toggleCompanionMode(): void {
+  besideAnotherDevice = !besideAnotherDevice
+  if (besideAnotherDevice) {
+    if (micTrack) micTrack.enabled = false
+    micClaimedAt = monitorClaimedAt = undefined
+  } else {
+    if (micTrack) micClaimedAt = nowSeconds()
+    if (micTrack || cameraTrack || screenTrack) monitorClaimedAt = nowSeconds()
+  }
+  publishActiveTracks()
+  updateUi()
 }
 
 /** Send the live tracks to every peer, and tell the roster what they are.
@@ -2791,6 +2813,8 @@ function updateUi(): void {
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  setToggle('toggleCompanion', besideAnotherDevice)
+  $('companionNote').hidden = !besideAnotherDevice
   // A background control with no camera running is a control for nothing.
   // Both open themselves the first time they appear rather than hiding
   // behind a disclosure: blur is on by default, so the control that turns it
@@ -2841,7 +2865,7 @@ function render(views: ParticipantView[], me: string): void {
   // answer locally or the role markers are only decoration and two nearby
   // speakers feed two nearby microphones.
   if (mine?.mic && mine.mic !== myDeviceId && micTrack?.enabled) micTrack.enabled = false
-  const monitorHere = !mine?.monitor || mine.monitor === myDeviceId
+  const monitorHere = !besideAnotherDevice && (!mine?.monitor || mine.monitor === myDeviceId)
   for (const audio of remoteAudios.values()) audio.el.muted = !monitorHere
 
   const micEl = $('micIndicator')
@@ -6413,7 +6437,8 @@ async function closeRoomSession(): Promise<void> {
   pendingMedia.clear()
   mic = camera = undefined
   micTrack = cameraTrack = screenTrack = undefined
-  micClaimedAt = undefined
+  micClaimedAt = monitorClaimedAt = undefined
+  besideAnotherDevice = false
   speakingMonitor.retain([])
   for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
   localPreviewEls.clear()
@@ -7151,6 +7176,7 @@ $('toggleCamera').addEventListener('click', () => {
 $('toggleScreen').addEventListener('click', () => {
   toggleScreen().catch((err) => setStatus(describeError(err)))
 })
+$('toggleCompanion').addEventListener('click', toggleCompanionMode)
 $('toggleAssist').addEventListener('click', () => {
   toggleAssist().catch((err) => setStatus(describeError(err)))
 })
