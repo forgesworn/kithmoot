@@ -382,6 +382,10 @@ details#roomSettings label {
   padding: 0.2rem 0.5rem;
 }
 
+.callLabelNarrow {
+  display: none;
+}
+
 .barBack:hover,
 .barBtn:hover,
 .barBtn[data-on='true'] {
@@ -2788,6 +2792,11 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 }
 
 @media (max-width: 540px) {
+  /* Keep the room bar on one line where it fits. The accessible name and
+     title still name every media control, and the opened panel spells out
+     screen sharing before the buttons. */
+  .callLabelWide { display: none; }
+  .callLabelNarrow { display: inline; }
   .conversationNav { gap: 0; padding-bottom: .25rem; margin-bottom: .2rem; }
   .conversationNav button { padding-inline: .6rem; font-size: .8rem; }
   .agentActivity { padding: .15rem .5rem; margin-bottom: .25rem; }
