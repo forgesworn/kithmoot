@@ -813,6 +813,10 @@ video {
 .msg.continuation .sender { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .messageBody { display: flex; align-items: flex-start; gap: .15rem; max-width: 100%; min-width: 0; }
 .messageBody .bubble { flex: 1 1 auto; }
+.reactableBubble { -webkit-touch-callout: none; }
+@media (any-pointer: coarse) {
+  .reactableBubble { -webkit-user-select: none; user-select: none; }
+}
 .msg.mine .messageBody { flex-direction: row-reverse; }
 .messageControls { display: flex; flex: 0 0 88px; }
 .messageReact { width: 44px; min-height: 44px; margin: 0; padding: 0; background: transparent; border-color: transparent; color: var(--muted); font-size: 1.2rem; }
@@ -2909,4 +2913,15 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 @media (max-width: 700px) { #sendingIdentity .sendingName { display: none; } }
 
 .reactionChip { display: inline-flex; }
-.reactionDetails { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(20rem, calc(100vw - 1rem)); max-height: calc(100dvh - 1rem); overflow: auto; padding: .5rem .65rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel); color: var(--text); box-shadow: 0 .25rem 1rem var(--drop-shadow); font-size: .8rem; overflow-wrap: anywhere; pointer-events: none; }
+.reactionDetails { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(20rem, calc(100vw - 1rem)); max-height: calc(100dvh - 1rem); overflow: auto; padding: .5rem .65rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel); color: var(--text); box-shadow: 0 .25rem 1rem var(--drop-shadow); font-size: .8rem; overflow-wrap: anywhere; pointer-events: auto; }
+
+.reactionPerson { display: flex; align-items: flex-start; gap: .55rem; padding: .65rem 0; }
+.reactionPerson + .reactionPerson { border-top: 1px solid var(--border); }
+.reactionPerson > .avatar, .reactionPerson > .donorRing { flex-shrink: 0; }
+.reactionPersonInfo { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+.reactionNpub { font-family: monospace; overflow-wrap: anywhere; font-size: .75rem; }
+.reactionPerson time, .reactionReceipt { color: var(--muted); font-size: .75rem; }
+
+.reactionPerson > .avatar { width: 2rem; height: 2rem; }
+
+.reactionFeedback { position: fixed; inset: auto; margin: 0; padding: 0; border: 0; background: transparent; font-size: 2.5rem; line-height: 1.2; overflow: visible; pointer-events: none; }

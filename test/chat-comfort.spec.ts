@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
+import { npubEncode } from 'nostr-tools/nip19'
 import { generateSecretKey, finalizeEvent } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
@@ -18,9 +19,10 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
   const identity = localIdentity(profileKey)
   const publisher = new NostrRelayPool(['ws://127.0.0.1:7777'])
   const pictureURL = 'https://profiles.example/rowan.svg'
+  await context.route('https://profiles.example/.well-known/nostr.json?name=rowan', route => route.fulfill({ json: { names: { rowan: identity.pubkey } } }))
   let pictureRequests = 0
   await context.route(pictureURL, route => { pictureRequests++; return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="teal"/></svg>' }) })
-  await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify({ name: 'Rowan', picture: pictureURL }) }, profileKey))
+  await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify({ name: 'Rowan', picture: pictureURL, nip05: 'rowan@profiles.example' }) }, profileKey))
   const writer = await RoomAgent.join({ link, identity, relays: ['ws://127.0.0.1:7777'], name: 'Rowan' })
   try {
     const page = await context.newPage(); await page.goto(link)
@@ -59,6 +61,29 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(row.getByRole('tooltip')).toBeVisible()
     await expect(row.getByRole('tooltip')).toContainText('Rowan')
     await expect(row.getByRole('tooltip')).toContainText('Ada')
+    const person = row.locator('.reactionPerson').filter({ hasText: npubEncode(identity.pubkey) })
+    await expect(person.locator('.reactionNpub')).toHaveText(npubEncode(identity.pubkey))
+    await expect(person.locator('time')).toHaveAttribute('datetime', new Date(writer.chat.messages().find(m => m.reaction?.emoji === '❤️' && m.participant === identity.pubkey)!.sentAt * 1000).toISOString())
+    await expect(person.locator('img')).toHaveCount(0)
+    await expect(person.locator('.nip05')).toHaveCount(0)
+    await expect(person.locator('.avatar.initials')).toHaveText('R')
+    await page.keyboard.press('Escape')
+    await openRoomDetails(page); await page.locator('#roomProfileSettings').click(); await page.locator('#lookupProfiles').check(); await page.locator('#profileSettingsClose').click()
+    await expect(person.locator('.nip05')).toHaveText('rowan@profiles.example')
+    await hearts.hover()
+    await person.hover()
+    await expect(row.getByRole('tooltip')).toBeVisible()
+    await expect(person.locator('img.avatar')).toHaveAttribute('src', pictureURL)
+    await expect.poll(() => person.locator('img.avatar').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+    await expect(person.locator('.reactionNpub')).toHaveText(npubEncode(identity.pubkey))
+    await page.setViewportSize({ width: 320, height: 700 })
+    await hearts.hover()
+    await expect(row.getByRole('tooltip')).toBeInViewport()
+    expect(await row.getByRole('tooltip').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await page.screenshot({ path: `/tmp/kithmoot-reaction-profile-${test.info().project.name}.png` })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.mouse.move(0, 0)
+    await hearts.hover()
     await expect(row.getByRole('tooltip')).toBeInViewport()
     await page.keyboard.press('Escape')
     await expect(row.getByRole('tooltip')).not.toBeVisible()
@@ -184,4 +209,73 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
     await expect(updated.locator('.messageMore')).toHaveCount(0)
     await expect(page.locator('#chatInput')).toHaveValue('Keep my unfinished reply')
   } finally { writer.leave(); other.leave(); await context.close() }
+})
+
+test('holding an older message opens emoji choices without losing the reading position or draft', async ({ browser, baseURL }, testInfo) => {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', hasTouch: true, viewport: { width: 390, height: 844 } })
+  await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
+  let sentAt = Math.floor(Date.now() / 1000) - 300
+  const writer = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Rowan', agent: false, now: () => sentAt })
+  try {
+    const page = await context.newPage(); await page.goto(link)
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    for (let i = 0; i < 24; i++) { sentAt++; await writer.chat.send(`Workshop note ${i}: an older message to react to.`) }
+    await expect(page.locator('#chatLog .msg')).toHaveCount(24)
+    await page.locator('#chatInput').fill('Keep this unfinished thought')
+    const original = writer.chat.messages().find(message => message.text.startsWith('Workshop note 5:'))!
+    const row = page.locator(`#chatLog [data-message-id="${original.id}"]`)
+    const bubble = row.locator('.bubble')
+    await bubble.scrollIntoViewIfNeeded()
+    const position = () => row.evaluate(el => el.getBoundingClientRect().top - document.getElementById('chatLog')!.getBoundingClientRect().top)
+    const before = await position()
+    const bounds = (await bubble.boundingBox())!
+    const point = { x: bounds.x + 20, y: bounds.y + 15 }
+    const panel = page.locator('#messageActionPanel')
+    await page.mouse.click(point.x, point.y)
+    await expect(panel).not.toBeVisible()
+    // Moving to scroll or select must cancel the pending hold.
+    await page.mouse.move(point.x, point.y); await page.mouse.down()
+    await page.mouse.move(point.x + 25, point.y + 20)
+    await page.waitForTimeout(550)
+    await expect(panel).not.toBeVisible()
+    await page.mouse.up()
+    await page.mouse.move(point.x, point.y); await page.mouse.down()
+    sentAt++; await writer.chat.send('A new arrival during the hold.')
+    await expect(panel).toBeVisible()
+    await page.mouse.up()
+    await expect(panel).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Add 👍 reaction', exact: true })).toBeFocused()
+    await expect(panel.getByRole('button')).toHaveCount(8)
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
+    sentAt++; await writer.chat.send('A new arrival while choosing an emoji.')
+    sentAt++; await writer.chat.send('Workshop note 5: updated while choosing an emoji.', { replaces: original.id })
+    await expect(panel.locator('.messageActionPreview')).toContainText('updated while choosing')
+    await panel.getByRole('button', { name: 'Add ❤️ reaction', exact: true }).click()
+    await expect(row.getByRole('button', { name: 'Remove ❤️ reaction, 1', exact: true })).toBeVisible()
+    expect(Math.abs(await position() - before)).toBeLessThan(3)
+    await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished thought')
+    // Exercise a real touch hold where Chromium exposes touch input, including
+    // its native text-selection and compatibility mouse-event behaviour.
+    if (testInfo.project.name === 'chromium') {
+      const cdp = await context.newCDPSession(page)
+      const touchBounds = (await bubble.boundingBox())!
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: touchBounds.x + 20, y: touchBounds.y + 15 }] })
+      await expect(panel).toBeVisible()
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await expect(panel).toBeVisible()
+      expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
+      await panel.getByRole('button', { name: 'Add 🎉 reaction', exact: true }).click()
+      await expect(row.getByRole('button', { name: 'Remove 🎉 reaction, 1', exact: true })).toBeVisible()
+      await cdp.detach()
+    }
+    await row.locator('.messageReact').click()
+    await page.screenshot({ path: testInfo.outputPath('older-message-reactions.png') })
+    await page.keyboard.press('Escape')
+    await expect(row.locator('.messageReact')).toBeFocused()
+    expect(Math.abs(await position() - before)).toBeLessThan(3)
+    await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished thought')
+  } finally { await writer.leave(); await context.close() }
 })

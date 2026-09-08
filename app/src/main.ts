@@ -6,6 +6,8 @@ import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { confirmAction, type ConfirmActionOptions } from './confirm-action.js'
 import { ChatScroll } from './chat-scroll.js'
+import { installReactionHold } from './reaction-hold.js'
+import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
@@ -150,6 +152,7 @@ const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigat
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
 const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
+installReactionHold($('chatLog'))
 for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
 }, { passive: true })
@@ -4734,10 +4737,17 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         const reaction = toggleReaction(chat.messages(), original, meParticipant, emoji)
         const text = reactionText(reaction)
         outbox.send(text, currentChannel ?? 'Chat', chat.prepareSend(text, { reaction }))
+        if (reaction.active) {
+          const current = Array.from(log.querySelectorAll<HTMLElement>('[data-message-id]'))
+            .find(row => row.dataset.messageId === original.id && row.dataset.messageAuthor === original.participant)
+          const anchor = current?.querySelector<HTMLElement>('.bubble')
+          if (anchor) showReactionFeedback(anchor, emoji)
+        }
         return true
       } catch (error) { setStatus(describeError(error)); return false }
     }
     if (writable) {
+      bubble.classList.add('reactableBubble')
       const more = document.createElement('button')
       more.type = 'button'
       more.className = 'messageMore'
@@ -4748,13 +4758,13 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       more.setAttribute('aria-haspopup', 'dialog')
       more.setAttribute('aria-controls', 'messageActionPanel')
       more.setAttribute('aria-expanded', 'false')
-      const openActions = (anchor: HTMLElement): void => {
+      const openActions = (anchor: HTMLElement, reactionsOnly = false): void => {
         const actions: MessageAction[] = [{ label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) }]
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
         )
-        messageActions.open(anchor, actions, REACTION_EMOJIS.map(emoji => {
+        messageActions.open(anchor, reactionsOnly ? [] : actions, REACTION_EMOJIS.map(emoji => {
           const mineToo = reactions.get(emoji)!.some(entry => entry.reaction!.active && entry.participant === meParticipant)
           return { label: `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction`, text: emoji, pressed: mineToo, run: () => react(emoji) }
         }))
@@ -4770,7 +4780,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       addReaction.setAttribute('aria-haspopup', 'dialog')
       addReaction.setAttribute('aria-controls', 'messageActionPanel')
       addReaction.setAttribute('aria-expanded', 'false')
-      addReaction.addEventListener('click', () => openActions(addReaction))
+      addReaction.addEventListener('click', () => openActions(addReaction, true))
       const controls = document.createElement('div')
       controls.className = 'messageControls'
       controls.append(addReaction, more)
@@ -4787,7 +4797,6 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       button.dataset.focusKey = `reaction-${emoji}`
       button.setAttribute('aria-pressed', String(mineToo))
       button.setAttribute('aria-label', `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction, ${entries.length}`)
-      button.title = entries.map(entry => `${senderLabel(entry)}${entry.reaction?.receipt === 'received' ? ` · received ${new Date(entry.sentAt * 1000).toLocaleString()} (room connection; reply may still be pending)` : ''}`).join(', ')
       button.setAttribute('aria-disabled', String(!writable))
       button.addEventListener('click', () => {
         if (!writable || button.getAttribute('aria-disabled') === 'true') return
@@ -4801,10 +4810,50 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       details.popover = 'manual'
       details.id = `reaction-details-${original.participant}-${original.id}-${REACTION_EMOJIS.indexOf(emoji)}`
       details.setAttribute('role', 'tooltip')
-      details.textContent = `${emoji} · ${button.title}`
+      const heading = document.createElement('strong')
+      heading.textContent = `${emoji} Reactions`
+      details.append(heading)
+      for (const entry of entries) {
+        const shown = shownAs(entry.participant, entry.name)
+        const person = document.createElement('span')
+        person.className = 'reactionPerson'
+        person.append(pictureOf(shown, true)!)
+        const info = document.createElement('span')
+        info.className = 'reactionPersonInfo'
+        const name = document.createElement('strong')
+        name.textContent = `${shown.name ?? 'Unnamed participant'}${entry.participant === meParticipant ? ' (you)' : ''}`
+        info.append(name)
+        if (shown.nip05) {
+          const address = document.createElement('span')
+          address.className = 'nip05'
+          address.textContent = shown.nip05.startsWith('_@') ? shown.nip05.slice(2) : shown.nip05
+          address.title = 'This domain maps the Nostr address to this public key.'
+          info.append(address)
+        }
+        const key = document.createElement('span')
+        key.className = 'reactionNpub'
+        key.textContent = shown.npub
+        const timestamp = document.createElement('time')
+        timestamp.dateTime = new Date(entry.sentAt * 1000).toISOString()
+        const received = entry.reaction?.receipt === 'received'
+        timestamp.textContent = `${received ? 'Received' : 'Reacted'} ${new Date(entry.sentAt * 1000).toLocaleString()}`
+        info.append(key, timestamp)
+        if (received) {
+          const receipt = document.createElement('span')
+          receipt.className = 'reactionReceipt'
+          receipt.textContent = 'Room connection; reply may still be pending.'
+          info.append(receipt)
+        }
+        person.append(info)
+        details.append(person)
+      }
       button.setAttribute('aria-describedby', details.id)
-      const hideDetails = (): void => { if (details.matches(':popover-open')) details.hidePopover() }
+      let hideTimer: ReturnType<typeof setTimeout> | undefined
+      const keepDetails = (): void => { clearTimeout(hideTimer) }
+      const hideDetails = (): void => { keepDetails(); if (details.matches(':popover-open')) details.hidePopover() }
+      const queueHideDetails = (): void => { keepDetails(); hideTimer = setTimeout(hideDetails, 150) }
       const showDetails = (): void => {
+        keepDetails()
         // Top layer: a long list of names must not be clipped by the chat log.
         document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(other => { if (other !== details) other.hidePopover() })
         details.showPopover()
@@ -4815,7 +4864,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         details.style.top = `${Math.max(8, Math.min(above >= 8 ? above : anchor.bottom + 4, innerHeight - bounds.height - 8))}px`
       }
       button.addEventListener('pointerenter', showDetails)
-      button.addEventListener('pointerleave', hideDetails)
+      button.addEventListener('pointerleave', queueHideDetails)
+      details.addEventListener('pointerenter', keepDetails)
+      details.addEventListener('pointerleave', queueHideDetails)
       button.addEventListener('focus', showDetails)
       button.addEventListener('blur', hideDetails)
       chip.append(button, details)
