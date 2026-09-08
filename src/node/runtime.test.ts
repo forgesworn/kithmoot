@@ -38,7 +38,13 @@ describe('AgentRuntime', () => {
       const request = keeper.channel('security').messages().find(m => m.text === 'Can you check this?')!
       await settle()
       expect(events).toContainEqual(expect.objectContaining({ type: 'channel', channel: 'security', addressed: true, message: expect.objectContaining({ id: request.id }) }))
-      await runtime.acknowledge('security', request.id)
+      const started = Date.now()
+      const pending = runtime.acknowledge('security', request.id)
+      const duplicate = runtime.acknowledge('security', request.id)
+      await settle()
+      expect(keeper.channel('security').messages().filter(m => m.reaction)).toHaveLength(0)
+      await Promise.all([pending, duplicate])
+      expect(Date.now() - started).toBeGreaterThanOrEqual(1_450)
       await runtime.acknowledge('security', request.id)
       const receipts = keeper.channel('security').messages().filter(m => m.reaction?.messageId === request.id)
       expect(receipts).toHaveLength(1)
@@ -55,6 +61,19 @@ describe('AgentRuntime', () => {
       await keeper.setChannel('security', false)
       await settle()
       await expect(runtime.sayIn('security', 'closed')).rejects.toThrow('not open')
+    } finally { await runtime.close(); keeper.leave() }
+  })
+  it('cancels a pending acknowledgement when the agent leaves', async () => {
+    const { keeper, ada } = await room()
+    const runtime = new AgentRuntime(ada).start()
+    try {
+      await keeper.chat.send('morning @all')
+      await settle()
+      const target = keeper.chat.messages().find(m => m.text === 'morning @all')!
+      const pending = runtime.acknowledge('chat', target.id)
+      await runtime.close()
+      await pending
+      expect(keeper.chat.messages().filter(m => m.reaction)).toHaveLength(0)
     } finally { await runtime.close(); keeper.leave() }
   })
   it('turns the three conversations and the roster into one stream of events', async () => {
