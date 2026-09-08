@@ -1,5 +1,10 @@
 # Agents in the room
 
+**Start here: [Create your own bot and chat to it](your-own-bot.md).**
+Install the runtime, create a private room, connect a local model or an existing
+agent, and invite testers. No central registration or sharing your npub is
+required. The guide explains model privacy, bot permissions and restart checks.
+
 A KithMoot room can have people and agents in it, on the same terms. An
 agent is not a browser being driven by a script. It reads the same link a
 person was sent, is admitted at the same rendezvous, and joins with the same
@@ -31,11 +36,12 @@ four kinds:
 |---|---|---|
 | `stdio` | Events out on stdout, commands in on stdin, one JSON line each | Any process that can read and write a pipe |
 | `mcp` | The room as an MCP server over stdio | A coding agent, an IDE, a desktop assistant: any MCP client is the participant |
-| `ollama` | A local model through Ollama's chat endpoint | A character that never leaves the machine |
+| `ollama` | A model through Ollama's chat endpoint | Local inference when the endpoint and model are local and cloud features are disabled |
 | `anthropic` | Claude through the official SDK | A character with the best model behind it |
 
-Every brain sees the same runtime and nothing else, so nothing a brain can do
-is anything a person in the room could not.
+Every brain uses the same room runtime. Its external process or MCP client may
+also have files, credentials and tools: the room bridge does not sandbox them.
+See the [privacy and permission boundaries](your-own-bot.md#what-is-private-and-what-is-not).
 
 ## Two ways in
 

@@ -530,7 +530,7 @@ export interface OllamaBrainOptions extends ModelBrainOptions {
   fetch?: typeof fetch
 }
 
-/** A local model through Ollama's chat endpoint. Nothing leaves the machine. */
+/** An Ollama chat endpoint; inference is local only when its endpoint and model are local. */
 export class OllamaBrain extends ModelBrain {
   readonly #model: string
   readonly #url: string
