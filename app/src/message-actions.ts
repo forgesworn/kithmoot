@@ -15,10 +15,16 @@ export class MessageActions {
   constructor() {
     this.#panel.id = 'messageActionPanel'
     this.#panel.className = 'messageActionPanel'
-    this.#panel.popover = 'auto'
+    // Native light-dismiss also runs on the release that ends a bubble hold.
+    // Dismiss on the next outside press so that release leaves choices open.
+    this.#panel.popover = 'manual'
     this.#panel.setAttribute('role', 'dialog')
     this.#panel.setAttribute('aria-label', 'Message actions')
     document.body.append(this.#panel)
+    document.addEventListener('pointerdown', event => {
+      const target = event.target as Node
+      if (this.#target && !this.#panel.contains(target) && !this.#anchor?.contains(target)) this.close(false)
+    }, { capture: true })
     this.#panel.addEventListener('keydown', event => {
       if (event.key === 'Escape') { event.preventDefault(); this.close() }
       if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
