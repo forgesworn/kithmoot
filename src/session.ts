@@ -13,7 +13,8 @@ import { evaluateAccess, evaluateAgentAccess } from './access.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
-import type { ForwardingState, RemoteTrack, RouteView } from './mesh.js'
+import type { ForwardingState, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
+import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { ChatLog } from './chat.js'
@@ -343,6 +344,7 @@ export class RoomSession {
    * See the regression test in session.test.ts.
    */
   readonly #trackListeners = new Set<(t: RemoteTrack) => void>()
+  readonly #annotationListeners = new Set<(annotation: RemoteAnnotation) => void>()
   #unsub?: () => void
   #mesh?: Mesh
   #chat?: ChatLog
@@ -585,6 +587,15 @@ export class RoomSession {
             cb(t)
           } catch {
             // A subscriber's problem, not the room's.
+          }
+        }
+      })
+      this.#mesh.onAnnotation((annotation) => {
+        for (const cb of [...this.#annotationListeners]) {
+          try {
+            cb(annotation)
+          } catch {
+            // A drawing surface cannot disturb the room.
           }
         }
       })
@@ -1308,6 +1319,17 @@ export class RoomSession {
     return () => {
       this.#trackListeners.delete(cb)
     }
+  }
+
+  /** Temporary screen-share markup, carried through encrypted signalling and
+   * never written to chat history. */
+  publishAnnotation(annotation: ScreenAnnotation): void {
+    this.#mesh?.publishAnnotation(annotation)
+  }
+
+  onAnnotation(cb: (annotation: RemoteAnnotation) => void): () => void {
+    this.#annotationListeners.add(cb)
+    return () => this.#annotationListeners.delete(cb)
   }
 
   /** The room's chat log. Only available after a successful `join()` - chat

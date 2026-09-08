@@ -183,9 +183,16 @@ per-call UUID. The roster supplies the participant-to-device mapping privately.
 Writers keep the existing seal-less envelope:
 
 1. Sign a kind-20462 inner event with the room device key. Its content is a
-   `SignalBody` JSON object: `type` = `offer`, `answer`, `ice` or `assist`;
+   `SignalBody` JSON object: `type` = `offer`, `answer`, `ice`, `assist` or
+   optional `annotation`;
    `roomId`; optional `sdp`, JSON-string `candidate`, `trackHints`, `tier`,
-   `assist` (far-end device) and `accept` (assist response boolean).
+   `assist` (far-end device), `accept` (assist response boolean) and
+   `annotation`. An annotation is temporary screen-share markup:
+   `{op:"stroke",shareId,strokeId,points:[{x,y},...]}` or
+   `{op:"clear",shareId,strokeId:""}`. `shareId` is the advertised screen
+   track ID; coordinates are finite numbers from zero to one; a stroke has
+   2–128 points. Readers discard invalid annotation bodies. An old reader
+   ignores the unknown signal type, so drawing cannot disturb its call.
 2. Include inner tags `p` = recipient device, `call-id` = room ID,
    `alt` = `KithMoot call signalling`, and `kithmoot` = `1`.
 3. Generate a fresh ephemeral signing key for each wrap. NIP-44-encrypt the
@@ -215,7 +222,9 @@ Receivers accept both the emitted shape and NIP-59-style seals:
    unknown profile tags do not silently enable new wire semantics.
 4. Deduplicate the innermost event ID across fresh rewraps and both envelope
    forms. Randomised seal/wrap timestamps are never substituted for inner time.
-5. Apply sender rate limits and roster/authority checks before negotiating.
+5. Apply sender rate limits and roster/authority checks before negotiating or
+   displaying annotation. Annotation is never chat history and is not replayed
+   to a device that was absent.
 
 The implementation budgets 4,096 unwrap attempts per room per 20 seconds and
 120 accepted signals per sender per 20 seconds. Replay tables are bounded at

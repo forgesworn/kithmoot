@@ -2,7 +2,7 @@ import type { Event } from 'nostr-tools/pure'
 import { Peer } from './peer.js'
 import type { PeerFactory } from './peer.js'
 import { wrapSignal, unwrapSignalEvent, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
-import type { SignalBody } from './signal.js'
+import type { ScreenAnnotation, SignalBody } from './signal.js'
 import { SignalGuard } from './signal-guard.js'
 import { KINDS } from './kinds.js'
 import type { RelayTransport } from './relay-pool.js'
@@ -25,6 +25,12 @@ import { normaliseHex } from './hex.js'
 export interface MeshSession {
   participants(): ParticipantView[]
   onChange(cb: (views: ParticipantView[]) => void): () => void
+}
+
+export interface RemoteAnnotation {
+  participant: string
+  device: string
+  annotation: ScreenAnnotation
 }
 
 export interface MeshOptions {
@@ -293,6 +299,7 @@ export class Mesh {
    *  every one of them arrives on the same connection. */
   readonly #trackOwner = new Map<string, string>()
   readonly #trackListeners = new Set<(t: RemoteTrack) => void>()
+  readonly #annotationListeners = new Set<(annotation: RemoteAnnotation) => void>()
   /** Staleness, deduplication and rate limiting - the three rules §3 of the
    *  design says signalling reuses from NIP-AC. */
   readonly #guard = new SignalGuard()
@@ -447,6 +454,20 @@ export class Mesh {
     return () => this.#trackListeners.delete(cb)
   }
 
+  /** Send transient markup to every other device in the room. The existing
+   * signal wrap supplies membership checks, encryption, staleness and dedup. */
+  publishAnnotation(annotation: ScreenAnnotation): void {
+    if (this.#closed) return
+    for (const device of this.#deviceToParticipant.keys()) {
+      this.#send(device, { type: 'annotation', annotation })
+    }
+  }
+
+  onAnnotation(cb: (annotation: RemoteAnnotation) => void): () => void {
+    this.#annotationListeners.add(cb)
+    return () => this.#annotationListeners.delete(cb)
+  }
+
   close(): void {
     if (this.#closed) return
     this.#closed = true
@@ -464,6 +485,7 @@ export class Mesh {
     this.#deviceToParticipant.clear()
     this.#trackOwner.clear()
     this.#trackListeners.clear()
+    this.#annotationListeners.clear()
   }
 
   /** Reconcile the peer set against a roster snapshot: close peers for
@@ -1233,6 +1255,20 @@ export class Mesh {
       if (typeof far !== 'string' || far === '') return
       if (unwrapped.body.accept === undefined) this.#handleAssistRequest(unwrapped.from, far)
       else this.#handleAssistReply(unwrapped.from, far, unwrapped.body.accept === true)
+      return
+    }
+
+    if (unwrapped.body.type === 'annotation') {
+      const participant = this.#deviceToParticipant.get(unwrapped.from)
+      const annotation = unwrapped.body.annotation
+      if (!participant || !annotation) return
+      for (const listener of this.#annotationListeners) {
+        try {
+          listener({ participant, device: unwrapped.from, annotation })
+        } catch {
+          // Drawing UI cannot disturb signalling or the call.
+        }
+      }
       return
     }
 

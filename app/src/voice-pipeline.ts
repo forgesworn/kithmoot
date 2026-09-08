@@ -121,7 +121,9 @@ export class MicPipeline {
   async start(): Promise<MediaStreamTrack> {
     if (this.#stopped) throw new Error('Microphone was stopped.')
     if (this.track) return this.track
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    })
     if (this.#stopped) {
       for (const track of stream.getTracks()) track.stop()
       throw new Error('Microphone was stopped.')
