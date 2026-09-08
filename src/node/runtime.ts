@@ -90,6 +90,7 @@ export class AgentRuntime {
   #unsubs: (() => void)[] = []
   #stopListening?: () => Promise<void>
   #closed = false
+  readonly #receipts = new Map<string, { promise: Promise<void>; cancel: () => void }>()
 
   constructor(agent: RoomAgent, opts: RuntimeOptions = {}) {
     if (opts.context && (opts.context.options.room !== agent.roomId || opts.context.options.identity.pubkey !== agent.participant)) throw new Error('Agent context must be pinned to this room and this agent identity.')
@@ -228,13 +229,33 @@ export class AgentRuntime {
   }
 
   async acknowledge(channel: string, messageId: string): Promise<void> {
+    if (this.#closed) return
     const log = this.conversation(channel)
     const target = log.messages().find(m => m.id === messageId && !m.reaction && !m.retracts)
     if (!target || target.participant === this.agent.participant) throw new Error('Receipt target is not a received message in this conversation.')
-    const existing = reactionsFor(log.messages(), target).get('👍')?.find(m => m.participant === this.agent.participant)
-    if (existing?.reaction?.active) return
-    const reaction = { ...toggleReaction(log.messages(), target, this.agent.participant, '👍'), active: true, receipt: 'received' as const }
-    await log.send(reactionText(reaction), { reaction })
+    const key = `${channel}:${target.participant}:${messageId}`
+    const pending = this.#receipts.get(key)
+    if (pending) return pending.promise
+    const alreadyReceived = (): boolean => reactionsFor(log.messages(), target).get('👍')
+      ?.some(m => m.participant === this.agent.participant && m.reaction?.active) ?? false
+    if (alreadyReceived()) return
+    // Give the conversation a breath, and stagger agents called by @all.
+    // This remains a connection receipt, never a claim of model completion.
+    let cancel!: () => void
+    const pause = new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, 1_500 + Math.random() * 1_500)
+      cancel = () => { clearTimeout(timer); resolve() }
+    })
+    const promise = pause.then(async () => {
+      if (this.#closed || alreadyReceived()) return
+      // A channel may have closed or the author may have retracted the message.
+      if (channel !== 'chat' && channel !== 'agents' && channel !== 'backchannel' && this.#named.get(channel)?.log !== log) return
+      if (log.messages().some(m => m.participant === target.participant && m.retracts === target.id)) return
+      const reaction = { ...toggleReaction(log.messages(), target, this.agent.participant, '👍'), active: true, receipt: 'received' as const }
+      await log.send(reactionText(reaction), { reaction })
+    }).finally(() => { this.#receipts.delete(key) })
+    this.#receipts.set(key, { promise, cancel })
+    return promise
   }
 
   roster(): ParticipantView[] {
@@ -399,6 +420,8 @@ export class AgentRuntime {
   async close(): Promise<void> {
     if (this.#closed) return
     this.#closed = true
+    for (const receipt of this.#receipts.values()) receipt.cancel()
+    this.#receipts.clear()
     await this.#stopListening?.()
     for (const unsub of this.#unsubs) unsub()
     this.#unsubs = []

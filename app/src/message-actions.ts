@@ -10,7 +10,7 @@ export interface MessageAction {
 export class MessageActions {
   readonly #panel = document.createElement('div')
   #anchor: HTMLElement | undefined
-  #target: { id: string; author: string } | undefined
+  #target: { id: string; author: string; focusKey?: string } | undefined
 
   constructor() {
     this.#panel.id = 'messageActionPanel'
@@ -44,7 +44,7 @@ export class MessageActions {
     if (this.#anchor === anchor && this.#target) { this.close(); return }
     this.close(false)
     const row = anchor.closest<HTMLElement>('[data-message-id]')!
-    this.#target = { id: row.dataset.messageId!, author: row.dataset.messageAuthor! }
+    this.#target = { id: row.dataset.messageId!, author: row.dataset.messageAuthor!, focusKey: anchor.dataset.focusKey }
     this.#anchor = anchor
     anchor.setAttribute('aria-expanded', 'true')
     const preview = document.createElement('p')
@@ -83,7 +83,8 @@ export class MessageActions {
     const target = this.#target
     const row = Array.from(document.querySelectorAll<HTMLElement>('#chatLog [data-message-id]'))
       .find(row => row.dataset.messageId === target.id && row.dataset.messageAuthor === target.author)
-    const anchor = row?.querySelector<HTMLElement>('.messageMore')
+    const anchor = Array.from(row?.querySelectorAll<HTMLElement>('[data-focus-key]') ?? [])
+      .find(button => button.dataset.focusKey === target.focusKey)
     if (!anchor) { this.close(); return false }
     this.#anchor = anchor
     anchor.setAttribute('aria-expanded', 'true')

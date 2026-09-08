@@ -150,6 +150,13 @@ const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigat
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
 const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
+for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
+  document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
+}, { passive: true })
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
+})
+
 const shareViewer = new ShareViewer()
 const emojiPicker = new EmojiPicker()
 window.addEventListener('pagehide', () => shareViewer.close())
@@ -4741,18 +4748,33 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       more.setAttribute('aria-haspopup', 'dialog')
       more.setAttribute('aria-controls', 'messageActionPanel')
       more.setAttribute('aria-expanded', 'false')
-      more.addEventListener('click', () => {
+      const openActions = (anchor: HTMLElement): void => {
         const actions: MessageAction[] = [{ label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) }]
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
         )
-        messageActions.open(more, actions, REACTION_EMOJIS.map(emoji => {
+        messageActions.open(anchor, actions, REACTION_EMOJIS.map(emoji => {
           const mineToo = reactions.get(emoji)!.some(entry => entry.reaction!.active && entry.participant === meParticipant)
           return { label: `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction`, text: emoji, pressed: mineToo, run: () => react(emoji) }
         }))
-      })
-      body.append(more)
+      }
+      more.addEventListener('click', () => openActions(more))
+      const addReaction = document.createElement('button')
+      addReaction.type = 'button'
+      addReaction.className = 'messageReact'
+      addReaction.textContent = '☺+'
+      addReaction.title = 'Add a reaction'
+      addReaction.dataset.focusKey = 'add-reaction'
+      addReaction.setAttribute('aria-label', `React to message from ${senderLabel(original)}`)
+      addReaction.setAttribute('aria-haspopup', 'dialog')
+      addReaction.setAttribute('aria-controls', 'messageActionPanel')
+      addReaction.setAttribute('aria-expanded', 'false')
+      addReaction.addEventListener('click', () => openActions(addReaction))
+      const controls = document.createElement('div')
+      controls.className = 'messageControls'
+      controls.append(addReaction, more)
+      body.append(controls)
     }
     const reactionBar = document.createElement('div'); reactionBar.className = 'messageReactions'
     reactionBar.setAttribute('aria-label', 'Message reactions')
@@ -4766,9 +4788,38 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       button.setAttribute('aria-pressed', String(mineToo))
       button.setAttribute('aria-label', `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction, ${entries.length}`)
       button.title = entries.map(entry => `${senderLabel(entry)}${entry.reaction?.receipt === 'received' ? ` · received ${new Date(entry.sentAt * 1000).toLocaleString()} (room connection; reply may still be pending)` : ''}`).join(', ')
-      button.disabled = !writable
-      button.addEventListener('click', () => { button.disabled = true; if (!react(emoji)) button.disabled = !writable })
-      reactionBar.append(button)
+      button.setAttribute('aria-disabled', String(!writable))
+      button.addEventListener('click', () => {
+        if (!writable || button.getAttribute('aria-disabled') === 'true') return
+        button.setAttribute('aria-disabled', 'true')
+        if (!react(emoji)) button.setAttribute('aria-disabled', 'false')
+      })
+      const chip = document.createElement('span')
+      chip.className = 'reactionChip'
+      const details = document.createElement('span')
+      details.className = 'reactionDetails'
+      details.popover = 'manual'
+      details.id = `reaction-details-${original.participant}-${original.id}-${REACTION_EMOJIS.indexOf(emoji)}`
+      details.setAttribute('role', 'tooltip')
+      details.textContent = `${emoji} · ${button.title}`
+      button.setAttribute('aria-describedby', details.id)
+      const hideDetails = (): void => { if (details.matches(':popover-open')) details.hidePopover() }
+      const showDetails = (): void => {
+        // Top layer: a long list of names must not be clipped by the chat log.
+        document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(other => { if (other !== details) other.hidePopover() })
+        details.showPopover()
+        const anchor = button.getBoundingClientRect()
+        const bounds = details.getBoundingClientRect()
+        details.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8))}px`
+        const above = anchor.top - bounds.height - 4
+        details.style.top = `${Math.max(8, Math.min(above >= 8 ? above : anchor.bottom + 4, innerHeight - bounds.height - 8))}px`
+      }
+      button.addEventListener('pointerenter', showDetails)
+      button.addEventListener('pointerleave', hideDetails)
+      button.addEventListener('focus', showDetails)
+      button.addEventListener('blur', hideDetails)
+      chip.append(button, details)
+      reactionBar.append(chip)
     }
     if (reactionBar.childElementCount) row.append(reactionBar)
     into.append(row)
@@ -7151,7 +7202,9 @@ function modelClerkNames(): string[] {
 /** Everybody in the room bar yourself, people and agents alike, ordered so
  *  that what you have typed so far leads the list. */
 function mentionCandidates(query: string): MentionChoice[] {
-  const wanted = query.trim().toLowerCase()
+  // A trailing space completes a mention; trimming it reopened the picker
+  // after selection and made Enter select the same name instead of sending.
+  const wanted = query.toLowerCase()
   const seen = new Set<string>(['all', 'everyone'])
   const all: MentionChoice[] = []
   for (const view of session?.participants() ?? []) {
@@ -7270,12 +7323,15 @@ function chooseMention(index: number): void {
   const choice = mentionChoices[index]
   if (!(box instanceof HTMLTextAreaElement) || !choice || mentionAt === -1) return
   const caret = box.selectionStart ?? 0
-  const inserted = choice.model ? `@${choice.model.agent} ^${choice.model.id} ` : `@${choice.name} `
-  box.value = box.value.slice(0, mentionAt) + inserted + box.value.slice(caret)
+  const suffix = box.value.slice(caret)
+  const separator = /^\s/.test(suffix) ? '' : ' '
+  const inserted = (choice.model ? `@${choice.model.agent} ^${choice.model.id}` : `@${choice.name}`) + separator
+  box.value = box.value.slice(0, mentionAt) + inserted + suffix
   const after = mentionAt + inserted.length
   closeMentionPicker()
   box.focus()
   box.setSelectionRange(after, after)
+  dismissedMention = { session, channel: currentChannel, value: box.value, start: after, end: after }
   growComposer(box)
   captureDraft()
 }

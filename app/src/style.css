@@ -814,6 +814,9 @@ video {
 .messageBody { display: flex; align-items: flex-start; gap: .15rem; max-width: 100%; min-width: 0; }
 .messageBody .bubble { flex: 1 1 auto; }
 .msg.mine .messageBody { flex-direction: row-reverse; }
+.messageControls { display: flex; flex: 0 0 88px; }
+.messageReact { width: 44px; min-height: 44px; margin: 0; padding: 0; background: transparent; border-color: transparent; color: var(--muted); font-size: 1.2rem; }
+.messageReact:hover, .messageReact[aria-expanded=true] { color: var(--text); border-color: var(--border); background: var(--control-hover); }
 .messageMore { flex: 0 0 44px; width: 44px; min-height: 44px; margin: 0; padding: 0; font-size: 1.35rem; color: var(--muted); background: transparent; border-color: transparent; }
 .messageMore:hover, .messageMore[aria-expanded=true] { color: var(--text); border-color: var(--border); background: var(--control-hover); }
 .messageActionPanel { position: fixed; inset: auto; margin: 0; width: min(19rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); overflow: auto; padding: .6rem; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: var(--text); box-shadow: 0 .75rem 2.5rem var(--drop-shadow); }
@@ -2904,3 +2907,6 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .sendingAccount { padding-block: .6rem; }
 .visitorIdentity { border-left: 3px solid var(--accent); padding-left: .6rem; overflow-wrap: anywhere; }
 @media (max-width: 700px) { #sendingIdentity .sendingName { display: none; } }
+
+.reactionChip { display: inline-flex; }
+.reactionDetails { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(20rem, calc(100vw - 1rem)); max-height: calc(100dvh - 1rem); overflow: auto; padding: .5rem .65rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel); color: var(--text); box-shadow: 0 .25rem 1rem var(--drop-shadow); font-size: .8rem; overflow-wrap: anywhere; pointer-events: none; }
