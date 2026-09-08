@@ -382,6 +382,10 @@ details#roomSettings label {
   padding: 0.2rem 0.5rem;
 }
 
+.callLabelNarrow {
+  display: none;
+}
+
 .barBack:hover,
 .barBtn:hover,
 .barBtn[data-on='true'] {
@@ -855,7 +859,11 @@ dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100
 .shareViewport { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #080b0d; touch-action: none; }
 .shareViewport.zoomed { cursor: grab; }
 .shareViewport.zoomed:active { cursor: grabbing; }
-.shareViewport video { max-width: none; max-height: none; flex: none; object-fit: contain; pointer-events: none; transform-origin: center; border: 0; border-radius: 0; }
+.shareViewport.drawing { cursor: crosshair; }
+.shareStage { position: relative; flex: none; transform-origin: center; }
+.shareStage video, .shareStage canvas { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; border: 0; border-radius: 0; }
+.shareStage video { object-fit: contain; pointer-events: none; }
+.shareAnnotations { pointer-events: none; }
 .shareViewerNotice { flex: 0 0 auto; margin: 0; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: var(--muted); }
 body.sharePopup { margin: 0; padding: 0; max-width: none; width: 100vw; height: 100dvh; overflow: hidden; }
 body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding: 0; max-width: none; }
@@ -2784,6 +2792,11 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 }
 
 @media (max-width: 540px) {
+  /* Keep the room bar on one line where it fits. The accessible name and
+     title still name every media control, and the opened panel spells out
+     screen sharing before the buttons. */
+  .callLabelWide { display: none; }
+  .callLabelNarrow { display: inline; }
   .conversationNav { gap: 0; padding-bottom: .25rem; margin-bottom: .2rem; }
   .conversationNav button { padding-inline: .6rem; font-size: .8rem; }
   .agentActivity { padding: .15rem .5rem; margin-bottom: .25rem; }

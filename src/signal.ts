@@ -10,6 +10,17 @@ export { SIGNAL_MAX_AGE_SECONDS }
 import { hexEquals, normaliseHex } from './hex.js'
 import type { TrackAdvert } from './types.js'
 
+export interface AnnotationPoint { x: number; y: number }
+export interface ScreenAnnotation {
+  op: 'stroke' | 'clear'
+  /** The advertised screen track id: stable across every viewer's layout. */
+  shareId: string
+  /** Unique within one sending device. Empty only for a clear operation. */
+  strokeId: string
+  /** Coordinates in the shared image, from zero to one. */
+  points?: AnnotationPoint[]
+}
+
 export interface SignalBody {
   /**
    * `assist` is not a negotiation step: it is one member asking another to
@@ -19,7 +30,7 @@ export interface SignalBody {
    * - and because a second signalling path would be a second set of
    * staleness, dedup and rate-limit rules to get right.
    */
-  type: 'offer' | 'answer' | 'ice' | 'assist'
+  type: 'offer' | 'answer' | 'ice' | 'assist' | 'annotation'
   roomId: string
   sdp?: string
   candidate?: string
@@ -47,6 +58,9 @@ export interface SignalBody {
    *  saying so at once is what lets the asker fall to the next rung rather
    *  than waiting out a timeout. */
   accept?: boolean
+  /** Temporary screen-share markup. It uses signalling because that path is
+   * encrypted, live and already addressed to every room device. */
+  annotation?: ScreenAnnotation
 }
 
 /** Relay retention hint; local acceptance still uses the signed inner time. */
@@ -109,6 +123,24 @@ export interface UnwrapOptions {
   maxAgeSeconds?: number
 }
 
+export const MAX_ANNOTATION_POINTS = 128
+
+/** Validate the bounded, normalised shape before a drawing reaches UI code. */
+export function validScreenAnnotation(value: unknown): value is ScreenAnnotation {
+  if (!value || typeof value !== 'object') return false
+  const annotation = value as Partial<ScreenAnnotation>
+  if (annotation.op !== 'stroke' && annotation.op !== 'clear') return false
+  if (typeof annotation.shareId !== 'string' || annotation.shareId.length < 1 || annotation.shareId.length > 128) return false
+  if (typeof annotation.strokeId !== 'string' || annotation.strokeId.length > 128) return false
+  if (annotation.op === 'clear') return annotation.strokeId === '' && annotation.points === undefined
+  if (annotation.strokeId.length < 1 || !Array.isArray(annotation.points) || annotation.points.length < 2 || annotation.points.length > MAX_ANNOTATION_POINTS) return false
+  return annotation.points.every(point =>
+    point !== null && typeof point === 'object' &&
+    Number.isFinite(point.x) && Number.isFinite(point.y) &&
+    point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1,
+  )
+}
+
 /**
  * Unwrap and verify a signal. Returns null for anything that does not check
  * out, and never throws - this runs inside a subscription handler.
@@ -144,6 +176,8 @@ export function unwrapSignalEvent(
 
     const body = JSON.parse(inner.content) as SignalBody
     if (!hexEquals(body.roomId, opts.roomId)) return null
+    if (!['offer', 'answer', 'ice', 'assist', 'annotation'].includes(body.type)) return null
+    if (body.type === 'annotation' && !validScreenAnnotation(body.annotation)) return null
     const calls = inner.tags.filter(tag => tag[0] === 'call-id')
     if (calls.length > 1 || (calls.length === 1 && !hexEquals(calls[0]?.[1] ?? '', opts.roomId))) return null
 

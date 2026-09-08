@@ -61,7 +61,9 @@
             <span id="roomWho" class="roomWho"></span>
           </button>
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
-                  title="Camera, microphone and screen share">Call</button>
+                  title="Camera, microphone and screen share" aria-label="Open call and sharing controls">
+            <span class="callLabelWide">Call / Share</span><span class="callLabelNarrow">Call</span>
+          </button>
           <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
           <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
                   aria-label="Room details">
@@ -81,13 +83,16 @@
              and kept open for as long as anything of yours is live. -->
         <div id="callBay" hidden>
           <section id="deviceControls" hidden>
-            <p>Turn on your camera or microphone:</p>
+            <p>Turn on your microphone, camera or screen share:</p>
             <div class="toggles">
               <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false">Microphone</button>
               <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false">Camera</button>
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false">Screen share</button>
             </div>
             <p id="micIndicator" class="indicator"></p>
+            <button id="toggleCompanion" class="toggle" data-on="false" aria-pressed="false">Use beside another device</button>
+            <p id="companionNote" class="indicator" hidden>This device’s microphone and speaker are off. Its camera and screen share still work.</p>
+            <p class="note">For next time, Room details → Add my phone also groups both devices as one person and keeps one microphone and speaker active.</p>
 
             <div id="effects">
               <details id="cameraEffects" hidden>

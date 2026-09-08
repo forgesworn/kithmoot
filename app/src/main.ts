@@ -160,7 +160,9 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape') document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
 })
 
-const shareViewer = new ShareViewer()
+const shareViewer = new ShareViewer({
+  onAnnotation: annotation => session?.publishAnnotation(annotation),
+})
 const emojiPicker = new EmojiPicker()
 window.addEventListener('pagehide', () => shareViewer.close())
 let drafts = new ConversationDrafts()
@@ -2414,6 +2416,10 @@ async function toggleMic(): Promise<void> {
     }
     mic = pipeline
     micTrack.addEventListener('ended', onMicEnded)
+    // Choosing the microphone is an explicit choice to use this device for
+    // the conversation, even if it was previously in camera-only mode.
+    besideAnotherDevice = false
+    micClaimedAt = monitorClaimedAt = nowSeconds()
     // Our own tile lights up too, so a person can see they are being picked
     // up rather than guessing. Muting sets `track.enabled = false`, which
     // feeds the analyser silence, so a muted mic goes dark on its own.
@@ -2422,6 +2428,13 @@ async function toggleMic(): Promise<void> {
     renderVoiceState(pipeline.state)
   } else {
     micTrack.enabled = !micTrack.enabled
+    if (micTrack.enabled) {
+      // An explicit unmute is how this device takes the mic and speaker back
+      // from another paired device.
+      besideAnotherDevice = false
+      micClaimedAt = monitorClaimedAt = nowSeconds()
+      publishActiveTracks()
+    }
   }
   updateUi()
 }
@@ -2733,6 +2746,13 @@ function setAgentsMayHear(on: boolean): void {
  *  Stamped when the mic comes on, so a device that has held it since the
  *  start is not outranked by its owner's other device toggling later. */
 let micClaimedAt: number | undefined
+/** The linked device that most recently brought call media becomes the one
+ * speaker. One open speaker per person breaks the nearby-device echo loop. */
+let monitorClaimedAt: number | undefined
+/** Explicit escape hatch when a phone entered through the ordinary room link.
+ * There is no safe way to infer physical proximity from room or network data,
+ * so the person can silence this device while retaining its camera/share. */
+let besideAnotherDevice = false
 
 /**
  * What this device is publishing, as the roster should advertise it: the
@@ -2748,9 +2768,29 @@ function currentAdverts(): TrackAdvert[] {
 }
 
 function currentClaims(): Partial<Record<SingularRole, number>> {
-  if (!micTrack) return {}
-  micClaimedAt ??= nowSeconds()
-  return { mic: micClaimedAt }
+  const claims: Partial<Record<SingularRole, number>> = {}
+  if (!besideAnotherDevice && micTrack) {
+    micClaimedAt ??= nowSeconds()
+    claims.mic = micClaimedAt
+  }
+  if (!besideAnotherDevice && (micTrack || cameraTrack || screenTrack)) {
+    monitorClaimedAt ??= nowSeconds()
+    claims.monitor = monitorClaimedAt
+  }
+  return claims
+}
+
+function toggleCompanionMode(): void {
+  besideAnotherDevice = !besideAnotherDevice
+  if (besideAnotherDevice) {
+    if (micTrack) micTrack.enabled = false
+    micClaimedAt = monitorClaimedAt = undefined
+  } else {
+    if (micTrack) micClaimedAt = nowSeconds()
+    if (micTrack || cameraTrack || screenTrack) monitorClaimedAt = nowSeconds()
+  }
+  publishActiveTracks()
+  updateUi()
 }
 
 /** Send the live tracks to every peer, and tell the roster what they are.
@@ -2758,6 +2798,7 @@ function currentClaims(): Partial<Record<SingularRole, number>> {
  *  everybody else's tile reads to say "camera" or "connecting". */
 function publishActiveTracks(): void {
   if (!micTrack) micClaimedAt = undefined
+  if (!micTrack && !cameraTrack && !screenTrack) monitorClaimedAt = undefined
   session?.publishTracks(activeTracks(), { audience })
   session?.advertise(currentAdverts(), currentClaims()).catch(() => {})
 }
@@ -2772,6 +2813,8 @@ function updateUi(): void {
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  setToggle('toggleCompanion', besideAnotherDevice)
+  $('companionNote').hidden = !besideAnotherDevice
   // A background control with no camera running is a control for nothing.
   // Both open themselves the first time they appear rather than hiding
   // behind a disclosure: blur is on by default, so the control that turns it
@@ -2817,9 +2860,19 @@ function render(views: ParticipantView[], me: string): void {
   for (const view of views) if (view.agent) agentParticipants.add(view.participant)
   const mine = views.find((v) => v.participant === me)
 
+  // A paired phone and laptop are one participant. Whichever device most
+  // recently claimed the mic and monitor wins; the others must enforce that
+  // answer locally or the role markers are only decoration and two nearby
+  // speakers feed two nearby microphones.
+  if (mine?.mic && mine.mic !== myDeviceId && micTrack?.enabled) micTrack.enabled = false
+  const monitorHere = !besideAnotherDevice && (!mine?.monitor || mine.monitor === myDeviceId)
+  for (const audio of remoteAudios.values()) audio.el.muted = !monitorHere
+
   const micEl = $('micIndicator')
   if (mine?.mic) {
-    micEl.textContent = mine.mic === myDeviceId ? 'Mic: this device' : 'Mic: your other device'
+    micEl.textContent = mine.mic === myDeviceId
+      ? (micTrack?.enabled ? 'Mic: this device' : 'Mic: this device (muted)')
+      : 'Mic: your other device'
     micEl.classList.toggle('mine', mine.mic === myDeviceId)
   } else {
     micEl.textContent = micTrack ? 'Mic: on, not yet claimed' : 'Mic: off'
@@ -4940,7 +4993,7 @@ function screenSource(participant: string, device: string): ShareSource | undefi
     ? screenTrack : advert ? remoteVideos.get(`${device}|${advert.trackId}`)?.track : undefined
   if (!track || track.readyState !== 'live') return undefined
   const name = participant === meParticipant ? 'Your screen' : `${shownAs(participant, person.name).name ?? shortKey(participant)}’s screen`
-  return { track, title: name }
+  return { id: advert?.trackId ?? track.id, track, title: name }
 }
 const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamTrack }>()
 
@@ -5156,6 +5209,28 @@ function syncRemoteVideos(): void {
 
 setInterval(syncRemoteVideos, 1000)
 
+/**
+ * The roster's track id is the stable name of a camera, microphone or share.
+ * Chromium normally preserves it on the receiver, but may mint a different
+ * receiver id when the peer connection is rebuilt on another route. Keep the
+ * received object in the advertised slot so screen expansion and annotations
+ * survive a move to TURN.
+ */
+function advertisedTrackId(device: string, track: MediaStreamTrack): string {
+  const person = session?.participants().find(view => view.devices.includes(device))
+  const compatible = person?.tracks.filter(advert =>
+    advert.device === device &&
+    (track.kind === 'audio' ? advert.role === 'mic' || advert.role === 'screen-audio' : advert.role === 'camera' || advert.role === 'screen'),
+  ) ?? []
+  if (compatible.some(advert => advert.trackId === track.id)) return track.id
+  const collection = track.kind === 'audio' ? remoteAudios : remoteVideos
+  const available = compatible.find(advert => {
+    const current = collection.get(`${device}|${advert.trackId}`)
+    return current === undefined || current.track.readyState === 'ended'
+  })
+  return available?.trackId ?? track.id
+}
+
 function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
   let mediaEl = deviceMediaEls.get(device)
   if (!mediaEl) {
@@ -5164,7 +5239,20 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
     deviceMediaEls.set(device, mediaEl)
   }
   const container = mediaEl
-  const key = `${device}|${track.id}`
+  const key = `${device}|${advertisedTrackId(device, track)}`
+
+  // A track can arrive before its roster advert and initially be stored by
+  // the browser's receiver id. Once the advert arrives, move the existing
+  // element into its stable slot rather than displaying the same receiver
+  // twice under two names.
+  if (track.kind === 'video' && !remoteVideos.has(key)) {
+    const alias = [...remoteVideos].find(([, entry]) => entry.track === track)
+    if (alias) { remoteVideos.delete(alias[0]); remoteVideos.set(key, alias[1]) }
+  }
+  if (track.kind === 'audio' && !remoteAudios.has(key)) {
+    const alias = [...remoteAudios].find(([, entry]) => entry.track === track)
+    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]) }
+  }
 
   // One element PER TRACK, not per kind. A device sharing its screen while
   // its camera is on sends two video tracks, and a room where the second one
@@ -5263,6 +5351,32 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
 
   if (session) render(session.participants(), meParticipant)
 }
+
+/**
+ * Chromium can decode a receiver while omitting the `track` event during a
+ * rapid peer rebuild. The RTP counters then climb but the app has no media
+ * element, which is the exact blank-tile failure a person sees. Connections
+ * are already retained for diagnostics, so reconcile their live receivers
+ * with the UI as a recovery path. Re-attaching the same object is skipped.
+ */
+function recoverRemoteTracks(): void {
+  if (!session) return
+  for (const [key, pc] of openConnections) {
+    if (pc.connectionState !== 'connected') continue
+    const match = /^[^:]+:([0-9a-f]{64}):\d+$/.exec(key)
+    const device = match?.[1]
+    if (!device || !session.participants().some(view => view.devices.includes(device))) continue
+    for (const receiver of pc.getReceivers()) {
+      const track = receiver.track
+      if (!track || track.readyState !== 'live') continue
+      const stableKey = `${device}|${advertisedTrackId(device, track)}`
+      const entry = track.kind === 'video' ? remoteVideos.get(stableKey) : remoteAudios.get(stableKey)
+      if (entry?.track !== track || !entry.el.isConnected) attachRemoteTrack(device, track)
+    }
+  }
+}
+
+setInterval(recoverRemoteTracks, 2000)
 
 // ---------------------------------------------------------------------------
 // Diagnostics
@@ -5558,6 +5672,7 @@ async function startSession(asVisitor = false): Promise<void> {
       renderApprovals()
     })
     s.onRemoteTrack(({ device, track }) => { if (session === s) attachRemoteTrack(device, track); else track.stop() })
+    s.onAnnotation(({ annotation }) => { if (session === s) shareViewer.receive(annotation) })
 
     await s.join(currentAdverts(), currentClaims())
     if (session !== s) return
@@ -6322,7 +6437,8 @@ async function closeRoomSession(): Promise<void> {
   pendingMedia.clear()
   mic = camera = undefined
   micTrack = cameraTrack = screenTrack = undefined
-  micClaimedAt = undefined
+  micClaimedAt = monitorClaimedAt = undefined
+  besideAnotherDevice = false
   speakingMonitor.retain([])
   for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
   localPreviewEls.clear()
@@ -7060,6 +7176,7 @@ $('toggleCamera').addEventListener('click', () => {
 $('toggleScreen').addEventListener('click', () => {
   toggleScreen().catch((err) => setStatus(describeError(err)))
 })
+$('toggleCompanion').addEventListener('click', toggleCompanionMode)
 $('toggleAssist').addEventListener('click', () => {
   toggleAssist().catch((err) => setStatus(describeError(err)))
 })

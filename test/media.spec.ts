@@ -55,6 +55,14 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     await expectToSeeAndHear(pageA, 'Ada')
     await expectToSeeAndHear(pageB, 'Bob')
 
+    // A rapid route rebuild can leave Chromium decoding a receiver after its
+    // media element was lost. Remove the sink to model that browser edge;
+    // the receiver reconciliation must put the live picture back.
+    await pageA.locator('#room .participant:not(:has-text("(you)")) video').first().evaluate(video => video.remove())
+    await expect.poll(async () => (await pageA.evaluate(remotePictures)).length, {
+      message: 'a live receiver whose video element disappeared was not restored', timeout: 10_000,
+    }).toBeGreaterThan(0)
+
     // And you are in the room too: your own picture sits in your own tile
     // in the grid, beside everybody else's, not only in the preview strip
     // above the toggles. The preview strip is for before you join.
@@ -64,6 +72,50 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
   } finally {
     await contextA.close()
     await contextB.close()
+  }
+})
+
+test('a nearby device can silence feedback without losing its camera', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+
+  const laptop = await newDeviceContext(browser, baseURL!)
+  const phone = await newDeviceContext(browser, baseURL!)
+  try {
+    const pageLaptop = await laptop.newPage()
+    const pagePhone = await phone.newPage()
+    const url = await createRoom(pageLaptop, baseURL!)
+
+    await joinWithMedia(pageLaptop, url, 'Laptop')
+    // This deliberately uses the ordinary invitation, reproducing the easy
+    // mistake that pairing-only suppression cannot recognise.
+    await joinWithMedia(pagePhone, url, 'Phone')
+    await expectToSeeAndHear(pageLaptop, 'Laptop')
+    await expectToSeeAndHear(pagePhone, 'Phone')
+
+    await pagePhone.locator('#toggleCompanion').click()
+    await expect(pagePhone.locator('#toggleCompanion')).toHaveAttribute('aria-pressed', 'true')
+    await expect(pagePhone.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
+    await expect(pagePhone.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    await expect(pagePhone.locator('#companionNote')).toBeVisible()
+    await expect.poll(() => pagePhone.locator('#room audio').evaluateAll(audio =>
+      audio.length > 0 && audio.every(el => (el as HTMLAudioElement).muted),
+    )).toBe(true)
+
+    // The laptop still receives a live picture from the silenced phone.
+    await expect.poll(async () => (await pageLaptop.evaluate(remotePictures)).length).toBeGreaterThan(0)
+
+    // Choosing the microphone again is the obvious way out. It restores this
+    // device as a complete call endpoint rather than leaving two active modes.
+    await pagePhone.locator('#toggleMic').click()
+    await expect(pagePhone.locator('#toggleCompanion')).toHaveAttribute('aria-pressed', 'false')
+    await expect(pagePhone.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await expect(pagePhone.locator('#companionNote')).toBeHidden()
+    await expect.poll(() => pagePhone.locator('#room audio').evaluateAll(audio =>
+      audio.some(el => !(el as HTMLAudioElement).muted),
+    )).toBe(true)
+  } finally {
+    await laptop.close()
+    await phone.close()
   }
 })
 
@@ -177,12 +229,22 @@ test('one person on two devices delivers two live pictures to everybody else', a
     await open(pageCara, url, 'Cara')
     await pageCara.locator('#join').click()
     await expect(pageCara.locator('#roomArea')).toBeVisible()
+    await turnOnMedia(pageCara)
 
     // One person, two devices - the grouping e2e.spec.ts guards, restated
     // here only because the media assertion below is meaningless without it.
     const grouped = pageCara.locator('#room .participant.linked')
     await expect(grouped).toHaveCount(1, { timeout: 90_000 })
     await expect(grouped.locator('h3')).toContainText('2 devices')
+
+    // The phone joined the call after the laptop and therefore owns Ada's
+    // one monitor. Both devices receive Cara's audio, but only the phone may
+    // play it: two nearby speakers feeding one live mic is the feedback loop
+    // this paired-device role exists to break.
+    await expect.poll(() => pageLaptop.locator('#room audio').count(), { timeout: 60_000 }).toBeGreaterThan(0)
+    await expect.poll(() => pagePhone.locator('#room audio').count(), { timeout: 60_000 }).toBeGreaterThan(0)
+    await expect.poll(() => pageLaptop.locator('#room audio').evaluateAll(audio => audio.every(el => (el as HTMLAudioElement).muted))).toBe(true)
+    await expect.poll(() => pagePhone.locator('#room audio').evaluateAll(audio => audio.some(el => !(el as HTMLAudioElement).muted))).toBe(true)
 
     // And the part nothing checked before: TWO live pictures, in that one
     // tile, from that one person.

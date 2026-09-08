@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { wrapSignal, unwrapSignal, SIGNAL_MAX_AGE_SECONDS, type SignalBody } from './signal.js'
+import { wrapSignal, unwrapSignal, SIGNAL_MAX_AGE_SECONDS, MAX_ANNOTATION_POINTS, type SignalBody } from './signal.js'
 import { KINDS } from './kinds.js'
 
 const ROOM = 'd'.repeat(64)
@@ -106,5 +106,20 @@ describe('gift-wrapped signalling', () => {
     const ice: SignalBody = { type: 'ice', roomId: ROOM, candidate: 'candidate:1 1 udp 1 10.0.0.1 1 typ host' }
     const wrap = wrapSignal(ice, { senderSk, recipientPubkey: recipient })
     expect(unwrapSignal(wrap, { recipientSk, roomId: ROOM })?.body).toEqual(ice)
+  })
+
+  it('carries bounded screen markup and refuses hostile coordinates', () => {
+    const { senderSk, recipientSk, recipient } = fixture()
+    const annotation: SignalBody = {
+      type: 'annotation', roomId: ROOM,
+      annotation: { op: 'stroke', shareId: 'screen-track', strokeId: 'stroke-1', points: [{ x: .1, y: .2 }, { x: .8, y: .7 }] },
+    }
+    expect(unwrapSignal(wrapSignal(annotation, { senderSk, recipientPubkey: recipient }), { recipientSk, roomId: ROOM })?.body).toEqual(annotation)
+
+    const outside: SignalBody = { ...annotation, annotation: { ...annotation.annotation!, points: [{ x: -.1, y: .2 }, { x: .8, y: .7 }] } }
+    expect(unwrapSignal(wrapSignal(outside, { senderSk, recipientPubkey: recipient }), { recipientSk, roomId: ROOM })).toBeNull()
+
+    const flooded: SignalBody = { ...annotation, annotation: { ...annotation.annotation!, points: Array.from({ length: MAX_ANNOTATION_POINTS + 1 }, () => ({ x: .5, y: .5 })) } }
+    expect(unwrapSignal(wrapSignal(flooded, { senderSk, recipientPubkey: recipient }), { recipientSk, roomId: ROOM })).toBeNull()
   })
 })

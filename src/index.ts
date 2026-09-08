@@ -94,7 +94,7 @@ export { encodeRosterEvent, decodeRosterEvent } from './roster.js'
 export { resolveSingularRoles } from './roles.js'
 export type { RoleAssignment } from './roles.js'
 export { wrapSignal, unwrapSignal, unwrapSignalEvent, SIGNAL_EXPIRATION_SECONDS, SIGNAL_PROFILE, MAX_SIGNAL_WRAP_LENGTH } from './signal.js'
-export type { SignalBody } from './signal.js'
+export type { AnnotationPoint, ScreenAnnotation, SignalBody } from './signal.js'
 export type { RosterEntry, TrackAdvert, TrackRole, SingularRole, DeviceCredential } from './types.js'
 export {
   RoomSession,
@@ -139,7 +139,7 @@ export type { IssueAgentOwnershipOptions, VerifyAgentOwnershipOptions, Ownership
 export { Peer } from './peer.js'
 export type { RTCPeerConnectionLike, PeerFactory, PeerOptions, PeerContext, RouteTier } from './peer.js'
 export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS, DEFAULT_ROUTE_TIMEOUT_MS, DEFAULT_TURN_ROUTE_TIMEOUT_MS, EXHAUSTED_RETRY_MS, MAX_EXHAUSTED_RETRY_MS } from './mesh.js'
-export type { MeshOptions, MeshSession, RemoteTrack, ForwardingState, RouteView } from './mesh.js'
+export type { MeshOptions, MeshSession, RemoteAnnotation, RemoteTrack, ForwardingState, RouteView } from './mesh.js'
 export {
   ReachabilityProbe,
   classifyReachability,
