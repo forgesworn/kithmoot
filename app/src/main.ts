@@ -150,6 +150,13 @@ const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigat
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
 const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
+for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
+  document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
+}, { passive: true })
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
+})
+
 const shareViewer = new ShareViewer()
 const emojiPicker = new EmojiPicker()
 window.addEventListener('pagehide', () => shareViewer.close())
@@ -4782,15 +4789,35 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       button.setAttribute('aria-label', `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction, ${entries.length}`)
       button.title = entries.map(entry => `${senderLabel(entry)}${entry.reaction?.receipt === 'received' ? ` · received ${new Date(entry.sentAt * 1000).toLocaleString()} (room connection; reply may still be pending)` : ''}`).join(', ')
       button.setAttribute('aria-disabled', String(!writable))
-      button.addEventListener('click', () => { if (writable) react(emoji) })
+      button.addEventListener('click', () => {
+        if (!writable || button.getAttribute('aria-disabled') === 'true') return
+        button.setAttribute('aria-disabled', 'true')
+        if (!react(emoji)) button.setAttribute('aria-disabled', 'false')
+      })
       const chip = document.createElement('span')
       chip.className = 'reactionChip'
       const details = document.createElement('span')
       details.className = 'reactionDetails'
+      details.popover = 'manual'
       details.id = `reaction-details-${original.participant}-${original.id}-${REACTION_EMOJIS.indexOf(emoji)}`
       details.setAttribute('role', 'tooltip')
       details.textContent = `${emoji} · ${button.title}`
       button.setAttribute('aria-describedby', details.id)
+      const hideDetails = (): void => { if (details.matches(':popover-open')) details.hidePopover() }
+      const showDetails = (): void => {
+        // Top layer: a long list of names must not be clipped by the chat log.
+        document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(other => { if (other !== details) other.hidePopover() })
+        details.showPopover()
+        const anchor = button.getBoundingClientRect()
+        const bounds = details.getBoundingClientRect()
+        details.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8))}px`
+        const above = anchor.top - bounds.height - 4
+        details.style.top = `${Math.max(8, Math.min(above >= 8 ? above : anchor.bottom + 4, innerHeight - bounds.height - 8))}px`
+      }
+      button.addEventListener('pointerenter', showDetails)
+      button.addEventListener('pointerleave', hideDetails)
+      button.addEventListener('focus', showDetails)
+      button.addEventListener('blur', hideDetails)
       chip.append(button, details)
       reactionBar.append(chip)
     }

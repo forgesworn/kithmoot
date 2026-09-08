@@ -2908,7 +2908,5 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .visitorIdentity { border-left: 3px solid var(--accent); padding-left: .6rem; overflow-wrap: anywhere; }
 @media (max-width: 700px) { #sendingIdentity .sendingName { display: none; } }
 
-.reactionChip { position: relative; display: inline-flex; }
-.reactionDetails { display: none; position: absolute; z-index: 10; bottom: calc(100% + .25rem); left: 0; width: max-content; max-width: min(16rem, 60vw); padding: .5rem .65rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel); color: var(--text); box-shadow: 0 .25rem 1rem var(--drop-shadow); font-size: .8rem; overflow-wrap: anywhere; pointer-events: none; }
-.msg.mine .reactionDetails { left: auto; right: 0; }
-.reactionChip:hover .reactionDetails, .reactionChip:focus-within .reactionDetails { display: block; }
+.reactionChip { display: inline-flex; }
+.reactionDetails { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(20rem, calc(100vw - 1rem)); max-height: calc(100dvh - 1rem); overflow: auto; padding: .5rem .65rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel); color: var(--text); box-shadow: 0 .25rem 1rem var(--drop-shadow); font-size: .8rem; overflow-wrap: anywhere; pointer-events: none; }
