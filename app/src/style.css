@@ -3092,3 +3092,6 @@ button.primary:hover:not(:disabled) {
 #deviceControls .indicator:empty { display: none; }
 /* The extension as the way in: filled, full width, first. */
 #identity #joinNostr.primary { display: block; width: 100%; margin: .6rem 0 0; }
+
+/* Words, not codes: every search box holds what a person typed. */
+input[type="search"] { font-family: inherit; }

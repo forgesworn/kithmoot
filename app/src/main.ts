@@ -6614,7 +6614,7 @@ function roomMeta(room: KnownRoom): HTMLDivElement {
     // Presence is only what devices say of their own accord, once a
     // heartbeat: until one has had the chance to, an empty room is not yet
     // an empty room.
-    here.textContent = watched.watch.settled ? 'nobody here' : 'listening for who is here\u2026'
+    here.textContent = watched.watch.settled ? 'nobody here' : ''
     meta.append(here)
     return meta
   }
@@ -6840,7 +6840,9 @@ function renderRoomSwitcher(): void {
     ? 'Finish sending or stop adding files before switching. You can also open the other room in a new tab.'
     : callIsLive() || onCall()
       ? 'Your call stays connected while you browse. Switching will ask before leaving it; a new tab keeps this call here.'
-      : 'Your drafts stay in this tab while you switch.'
+      : hasUnsentWork()
+        ? 'Your drafts stay here while you switch.'
+        : ''
   const list = $('roomSwitcherList')
   const focused = document.activeElement as HTMLElement | null
   const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined

@@ -30,6 +30,10 @@ implementation reads this file to know what moved.
   people, never participants; "with just a name", never visitor; and the
   browser is no longer mentioned on the home and door screens. Per
   `docs/glossary.md`.
+- **Less furniture on the home and switcher.** The switcher only mentions
+  drafts when there are some; a room row no longer says it is "listening
+  for who is here"; the home fold is called Settings; search boxes use
+  the reading face rather than the code face.
 
 ## 0.4.1, 2026-09-09
 
