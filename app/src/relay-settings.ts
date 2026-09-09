@@ -1,12 +1,18 @@
 import { NostrRelayPool, normaliseRelayConfig, type RelayConfig, type RelayHealth } from '../../src/relay-pool.js'
 
 const STORAGE_KEY = 'kithmoot.relays.v1'
+/** The relays this person has marked as boxes of their own circle, by hand:
+ *  a box's drop tier fronted as `wss://`, named to them by its keeper rather
+ *  than read off a card. Saved on the device; the contact book's boxes join
+ *  it without being saved. */
+const CIRCLE_KEY = 'kithmoot.circle.v1'
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 type RelayHints = (string | RelayConfig)[]
 
 /** Device preferences, separate from relay hints shared in an invitation. */
 export class RelayConnections {
   #saved: Record<string, RelayConfig[]> = {}
+  #marks = new Set<string>()
   #pools = new Map<NostrRelayPool, { scope: string; hints: RelayHints }>()
   /** `circle` says whether a relay URL is a box of the person's own circle,
    *  known from a contact card; such a relay is marked on every
@@ -23,6 +29,24 @@ export class RelayConnections {
         }
       }
     } catch { /* Storage may be unavailable or contain an older shape. */ }
+    try {
+      const marks: unknown = JSON.parse(storage.getItem(CIRCLE_KEY) ?? '[]')
+      if (Array.isArray(marks)) for (const url of marks) if (typeof url === 'string') this.#marks.add(url)
+    } catch { /* A mark that cannot be read is not a mark. */ }
+  }
+  /** Whether `url` is a box of the person's circle: marked here by hand, or
+   *  known from a contact card. */
+  isCircle(url: string): boolean { return this.#marks.has(url) || this.circle(url) }
+  /** Whether `url` was marked by hand on this device (a card's box is not). */
+  isMarked(url: string): boolean { return this.#marks.has(url) }
+  /** Mark or unmark a relay as a circle box, by hand. Saved on the device;
+   *  every live pool is handed the new marks at once. */
+  markCircle(url: string, on: boolean): void {
+    const [relay] = normaliseRelayConfig([{ url, read: true, write: true }])
+    if (!relay) return
+    if (on) this.#marks.add(relay.url); else this.#marks.delete(relay.url)
+    this.storage.setItem(CIRCLE_KEY, JSON.stringify([...this.#marks]))
+    this.circleChanged()
   }
   #validScope(scope: string): boolean { return scope === 'default' || /^(room|inherited):[a-f0-9]{64}$/.test(scope) }
   configuration(scope: string, hints: RelayHints = []): RelayConfig[] {
@@ -37,7 +61,7 @@ export class RelayConnections {
   #marked(relays: RelayConfig[]): RelayConfig[] {
     return relays.map(relay => {
       const { circle: _claimed, ...rest } = relay
-      return this.circle(relay.url) ? { ...rest, circle: true } : rest
+      return this.isCircle(relay.url) ? { ...rest, circle: true } : rest
     })
   }
   /** The circle changed: a card was read or forgotten. Every live pool is
@@ -103,6 +127,8 @@ export class RelaySettingsPanel {
   constructor(private document: Document, private connections: RelayConnections, private opts: {
     room: () => { scope: string; hints: RelayHints } | undefined
     applied: (scope: string, relays: RelayConfig[]) => void
+    /** A circle mark changed: the lane the next message takes may have moved. */
+    circleChanged?: () => void
   }) {
     this.el('relaySettingsClose').addEventListener('click', () => this.dialog.close())
     this.dialog.addEventListener('close', () => { clearInterval(this.#timer); this.#returnFocus?.focus() })
@@ -155,7 +181,21 @@ export class RelaySettingsPanel {
       mode.addEventListener('change', () => { this.#draft[index] = { ...relay, read: mode.value !== 'write', write: mode.value !== 'read' }; this.#message('Access changed. Apply changes to use it.') })
       const remove = this.document.createElement('button'); remove.type = 'button'; remove.textContent = 'Remove'; remove.setAttribute('aria-label', `Remove ${relay.url}`)
       remove.addEventListener('click', () => { this.#draft.splice(index, 1); this.#render(); this.#message('Relay removed from the list. Apply changes to disconnect.') })
-      row.append(url, health, mode, remove); list.append(row)
+      // A relay marked as a box of the person's circle: a message that goes
+      // only to such relays shows as sheltered, and nothing else ever does.
+      // A card's box is marked for them and cannot be unmarked here.
+      const circle = this.document.createElement('label'); circle.className = 'relayCircle'
+      const tick = this.document.createElement('input'); tick.type = 'checkbox'
+      tick.checked = this.connections.isCircle(relay.url)
+      tick.disabled = tick.checked && !this.connections.isMarked(relay.url)
+      tick.setAttribute('aria-label', `${relay.url} is a box of my circle`)
+      tick.addEventListener('change', () => {
+        this.connections.markCircle(relay.url, tick.checked)
+        this.opts.circleChanged?.()
+        this.#message(tick.checked ? 'Marked as a box of your circle. A message to it alone shows as sheltered.' : 'No longer a box of your circle.')
+      })
+      circle.append(tick, this.document.createTextNode(tick.disabled ? ' Box on a contact card' : ' Box of my circle'))
+      row.append(url, health, mode, remove, circle); list.append(row)
     })
     this.#health()
   }

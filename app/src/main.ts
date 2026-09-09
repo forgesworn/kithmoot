@@ -7964,6 +7964,10 @@ function openProfileSettings(from: HTMLElement): void {
 $('roomProfileSettings').addEventListener('click', () => openProfileSettings($('roomMenu')))
 const relaySettings = new RelaySettingsPanel(document, relayConnections, {
   room: () => roomRelayScope === 'default' ? undefined : { scope: roomRelayScope, hints: roomRelayConfig },
+  // A relay marked as a circle box by hand moves the lane the same way a
+  // card's box does; the marks are already in every pool, so only the
+  // screen needs telling.
+  circleChanged: () => { if (session) render(session.participants(), meParticipant); renderLaneNote() },
   applied: (scope, entries) => {
     if (scope === 'default') RELAYS = relayConnections.configuration('default').map(relay => relay.url)
     if (scope === roomRelayScope) {
