@@ -13,12 +13,26 @@ export interface CreateCredentialOptions {
   identity: ParticipantIdentity
   /** The pubkey of the device being authorised. */
   devicePubkey: string
-  roomId: string
-  /** Unix seconds. */
+  /**
+   * The room this credential is for. Omit it, and pass `scope: 'person'`,
+   * for a credential that lets the device act for the participant in every
+   * room, DM and box: the same event with `d` set to the participant's own
+   * pubkey and a `scope` tag, so a verifier that knows one form knows the
+   * other. See docs/device-credential.md.
+   */
+  roomId?: string
+  /** `person` widens the credential from one room to the participant. */
+  scope?: 'person'
+  /** What the person calls this device. Shown to them and to nobody else. */
+  label?: string
+  /** Unix seconds. A person credential may not run more than 30 days. */
   expiresAt: number
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
 }
+
+/** The longest a person-scoped credential may run. A phone that leaves the house is better at seven days. */
+export const PERSON_CREDENTIAL_MAX_SECONDS = 30 * 24 * 60 * 60
 
 /**
  * Authorise a device to act for a participant in one room, until an expiry.
@@ -32,13 +46,20 @@ export interface CreateCredentialOptions {
  * unlocked. See `ParticipantIdentity`.
  */
 export async function createDeviceCredential(opts: CreateCredentialOptions): Promise<DeviceCredential> {
+  const now = (opts.now ?? (() => Math.floor(Date.now() / 1000)))()
+  const person = opts.scope === 'person'
+  if (person && opts.roomId !== undefined) throw new Error('a person credential names no room')
+  if (!person && opts.roomId === undefined) throw new Error('a room credential needs a room')
+  if (person && opts.expiresAt - now > PERSON_CREDENTIAL_MAX_SECONDS) throw new Error('a person credential may not run more than 30 days')
   const unsigned: UnsignedEvent = {
     kind: KINDS.CREDENTIAL,
-    created_at: (opts.now ?? (() => Math.floor(Date.now() / 1000)))(),
+    created_at: now,
     tags: [
-      ['d', opts.roomId],
+      ['d', person ? opts.identity.pubkey : opts.roomId!],
       ['device', opts.devicePubkey],
       ['expiration', String(opts.expiresAt)],
+      ...(person ? [['scope', 'person']] : []),
+      ...(opts.label !== undefined ? [['label', opts.label]] : []),
     ],
     content: '',
   }
@@ -75,14 +96,34 @@ export type VerifyResult =
   | { ok: true; participant: string; device: string }
   | { ok: false; reason: string }
 
+/**
+ * Verify a credential for one room (`roomId`) or for the person (`identity`,
+ * the participant pubkey the verifier expects). A person credential is
+ * accepted where a room credential is expected only when the caller says
+ * so with `acceptPerson`, which a room does when it admits the person and
+ * so admits their devices. A room credential is never accepted as a person
+ * credential, and a room credential carrying a `scope` tag is refused.
+ */
 export function verifyDeviceCredential(
   cred: DeviceCredential,
-  opts: { roomId: string; now: number },
+  opts: { roomId: string; now: number; acceptPerson?: boolean } | { identity: string; now: number },
 ): VerifyResult {
   if (cred.kind !== KINDS.CREDENTIAL) return { ok: false, reason: 'wrong kind' }
 
-  const room = cred.tags.find((t) => t[0] === 'd')?.[1]
-  if (room === undefined || !hexEquals(room, opts.roomId)) return { ok: false, reason: 'wrong room' }
+  const d = cred.tags.find((t) => t[0] === 'd')?.[1]
+  const scope = cred.tags.find((t) => t[0] === 'scope')?.[1]
+  if (d === undefined) return { ok: false, reason: 'no scope' }
+  const isPerson = scope === 'person'
+  if (scope !== undefined && !isPerson) return { ok: false, reason: 'unknown scope' }
+  if ('identity' in opts) {
+    if (!isPerson) return { ok: false, reason: 'not a person credential' }
+    if (!hexEquals(d, opts.identity) || !hexEquals(d, cred.pubkey)) return { ok: false, reason: 'wrong person' }
+  } else if (isPerson) {
+    if (!opts.acceptPerson) return { ok: false, reason: 'person credential where a room credential was expected' }
+    if (!hexEquals(d, cred.pubkey)) return { ok: false, reason: 'wrong person' }
+  } else if (!hexEquals(d, opts.roomId)) {
+    return { ok: false, reason: 'wrong room' }
+  }
 
   const expiration = cred.tags.find((t) => t[0] === 'expiration')?.[1]
   // A missing tag and a present-but-non-numeric one are the same failure:
@@ -96,6 +137,7 @@ export function verifyDeviceCredential(
   const expiresAt = expiration === undefined ? NaN : Number(expiration)
   if (!Number.isFinite(expiresAt)) return { ok: false, reason: 'no expiration' }
   if (expiresAt <= opts.now) return { ok: false, reason: 'expired' }
+  if (isPerson && expiresAt - cred.created_at > PERSON_CREDENTIAL_MAX_SECONDS) return { ok: false, reason: 'longer than 30 days' }
 
   const device = cred.tags.find((t) => t[0] === 'device')?.[1]
   if (!device) return { ok: false, reason: 'no device' }

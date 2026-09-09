@@ -83,7 +83,7 @@ export type {
   HostRoomInvitationOptions,
   RequestRoomAdmissionOptions,
 } from './invitation.js'
-export { createDeviceCredential, verifyDeviceCredential } from './credential.js'
+export { createDeviceCredential, verifyDeviceCredential, PERSON_CREDENTIAL_MAX_SECONDS } from './credential.js'
 export { encodePersistentInvitation, decodePersistentInvitation, requestPersistentRoomAdmission } from './persistent-invitation.js'
 export type { PersistentRoomAdmission } from './persistent-invitation.js'
 export type { CreateCredentialOptions, VerifyResult } from './credential.js'

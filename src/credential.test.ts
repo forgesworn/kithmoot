@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
+import { createDeviceCredential, verifyDeviceCredential, PERSON_CREDENTIAL_MAX_SECONDS } from './credential.js'
 import { localIdentity } from './identity.js'
 import { KINDS } from './kinds.js'
 
@@ -136,5 +136,36 @@ describe('device credentials', () => {
     })
     const result = verifyDeviceCredential(cred, { roomId: ROOM, now: NOW })
     expect(result).toEqual({ ok: true, participant: expect.any(String), device })
+  })
+})
+
+describe('person credentials', () => {
+  it('a person credential verifies for the person, is refused as a room credential unless the room accepts people, and never for another person', async () => {
+    const { participantSk, participant, device } = setup()
+    const cred = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, scope: 'person', label: 'phone', expiresAt: NOW + 7 * 24 * 3600, now: () => NOW })
+    expect(cred.tags).toContainEqual(['d', participant])
+    expect(cred.tags).toContainEqual(['scope', 'person'])
+    expect(verifyDeviceCredential(cred, { identity: participant, now: NOW })).toEqual({ ok: true, participant, device })
+    expect(verifyDeviceCredential(cred, { roomId: ROOM, now: NOW })).toEqual({ ok: false, reason: 'person credential where a room credential was expected' })
+    expect(verifyDeviceCredential(cred, { roomId: ROOM, now: NOW, acceptPerson: true })).toEqual({ ok: true, participant, device })
+    expect(verifyDeviceCredential(cred, { identity: 'f'.repeat(64), now: NOW }).ok).toBe(false)
+  })
+  it('a room credential is never a person credential, and a room credential with a scope tag is refused', async () => {
+    const { participantSk, participant, device } = setup()
+    const room = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, roomId: ROOM, expiresAt: NOW + 3600, now: () => NOW })
+    expect(verifyDeviceCredential(room, { identity: participant, now: NOW })).toEqual({ ok: false, reason: 'not a person credential' })
+    const scoped = finalizeEvent({ kind: KINDS.CREDENTIAL, created_at: NOW, tags: [['d', ROOM], ['device', device], ['expiration', String(NOW + 3600)], ['scope', 'person']], content: '' }, participantSk)
+    expect(verifyDeviceCredential(scoped, { roomId: ROOM, now: NOW }).ok).toBe(false)
+  })
+  it('a person credential may not run more than 30 days, at issue or at verification', async () => {
+    const { participantSk, participant, device } = setup()
+    await expect(createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, scope: 'person', expiresAt: NOW + PERSON_CREDENTIAL_MAX_SECONDS + 1, now: () => NOW })).rejects.toThrow(/30 days/)
+    const long = finalizeEvent({ kind: KINDS.CREDENTIAL, created_at: NOW, tags: [['d', participant], ['device', device], ['expiration', String(NOW + PERSON_CREDENTIAL_MAX_SECONDS + 1)], ['scope', 'person']], content: '' }, participantSk)
+    expect(verifyDeviceCredential(long, { identity: participant, now: NOW })).toEqual({ ok: false, reason: 'longer than 30 days' })
+  })
+  it('refuses a person credential that names a room, and a room credential that names none', async () => {
+    const { participantSk, device } = setup()
+    await expect(createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, scope: 'person', roomId: ROOM, expiresAt: NOW + 3600 })).rejects.toThrow(/names no room/)
+    await expect(createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, expiresAt: NOW + 3600 })).rejects.toThrow(/needs a room/)
   })
 })
