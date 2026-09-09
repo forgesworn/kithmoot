@@ -1325,11 +1325,14 @@ function shortKey(pubkey: string): string {
   return `${pubkey.slice(0, 12)}\u2026`
 }
 
-/** The start of the npub: what a person would recognise from their own
- *  profile, and never raw hex, which reads as a bug to anybody who is not a
+/** Both ends of the npub: the start is what a person recognises from their
+ *  own profile, and the end is what tells two keys with the same start
+ *  apart, which is how anybody checks a key against the one in their
+ *  signer. Never raw hex, which reads as a bug to anybody who is not a
  *  developer. */
 function shortNpub(pubkey: string): string {
-  return `${npubOf(pubkey).slice(0, 13)}\u2026`
+  const npub = npubOf(pubkey)
+  return `${npub.slice(0, 13)}\u2026${npub.slice(-6)}`
 }
 
 /**

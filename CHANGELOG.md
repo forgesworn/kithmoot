@@ -40,7 +40,9 @@ implementation reads this file to know what moved.
   no profile was ever asked for: a person signed in with their Nostr
   extension saw a bare npub where their name and picture had been, and
   read it as being signed in as somebody else. The lists are now merged
-  by the relay, not the spelling.
+  by the relay, not the spelling. And the short code beside a name now
+  shows both ends of the npub, `npub1mgvlrnf5…u0e7q2`, because the end is
+  what a person checks against the key in their signer.
 
 - **A connected Nostr extension is the way in.** The door never looked
   for one: with an extension present and no account signed in on this

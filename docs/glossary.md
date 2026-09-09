@@ -28,7 +28,7 @@ is for the people writing the interface.
 
 A name never stands alone when it has to do work: when two people in view
 have made the same claim, or when there is no name at all. Otherwise the
-name stands alone. The code is the start of the npub, never raw hex, and
+name stands alone. The code is both ends of the npub, never raw hex, and
 the whole npub is one tap away in Room details. Room ids are not keys and
 are shown only in Room details.
 
