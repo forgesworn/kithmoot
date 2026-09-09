@@ -2,7 +2,7 @@ import { test, expect, type BrowserContext } from '@playwright/test'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils'
-import { buildCard, buildLinkCard, cardLink } from 'nostr-contact-card'
+import { buildCard, buildLinkCard, cardLink, readCard } from 'nostr-contact-card'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
@@ -75,6 +75,25 @@ test('a contact card marks its holder and makes their box a sheltered relay, and
     await expect(sent).toBeVisible()
     await expect(sent.locator('.chip.lane')).toHaveText(/sheltered/)
     await expect.poll(() => rowan.chat.messages().some(m => m.text === 'through the box')).toBe(true)
+
+    // Ada's own card, signed by whatever holds her identity, reads back
+    // under her key with the relay this room uses.
+    await openRoomDetails(page)
+    await page.locator('#myCardShow').click()
+    const mine = page.locator('#myCardOut')
+    await expect(mine).toBeVisible()
+    const cardOut = await mine.inputValue()
+    const read = readCard(cardOut, now())
+    expect(read.ok).toBe(true)
+    if (read.ok) {
+      expect(read.card.event.kind).toBe(30641)
+      expect(read.card.name).toBe('Ada')
+      expect(read.card.boxes).toEqual([])
+      // Her public relays: the device's defaults, every one a wss URL.
+      expect(read.card.relays.length).toBeGreaterThan(0)
+      for (const r of read.card.relays) expect(r.startsWith('wss://')).toBe(true)
+    }
+    await page.locator('#roomSheetClose').click()
 
     // Forgotten, the relay is a public relay again.
     await openRoomDetails(page)

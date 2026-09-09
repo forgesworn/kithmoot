@@ -32,8 +32,9 @@ implementation reads this file to know what moved.
   sheltered when every relay a message goes to is one), its node id and
   the highest address serial are pinned per box, and every box says
   whether it is dialled on the card's endorsement or a refreshed address.
-  "Show my card" makes this device's own card, with no box and a
-  rendezvous key made here, for handing over. The circle mark on a relay
+  "Show my card" makes this person's own card, with no box and a
+  rendezvous key made here, for handing over; a card is a signed event
+  of the reserved kind 30641, so an extension or a bunker makes one too. The circle mark on a relay
   is never saved as a preference. No wire change: nothing about a card is
   published.
 
