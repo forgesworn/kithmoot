@@ -11,6 +11,8 @@ implementation reads this file to know what moved.
 
 ### Added
 
+- Relay settings: any relay can be marked as a box of your circle by hand, for a box's drop tier fronted as `wss://` and named to you by its keeper. A message that goes only to circle relays shows as sheltered; a card's box is marked for you and cannot be unmarked there.
+
 - **Quiet rooms.** Wire change. A policy may carry `quiet: true` beside
   `members`; such a room never publishes a bare kind 1460. Its chat rides
   inside kind 1059 room drops as `nostr-deaddrop` defines them: each to a
