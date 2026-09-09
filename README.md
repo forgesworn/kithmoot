@@ -403,7 +403,12 @@ both typed "Robin" are visibly two people.
 home. Uses [`signet-login`](https://www.npmjs.com/package/signet-login)
 for the whole picker (NIP-07 extensions, NIP-46/NostrConnect, bunker URIs,
 Amber on Android), and the participant key becomes
-your real Nostr identity, held wherever it already lives. The entrance shows
+your real Nostr identity, held wherever it already lives. Behind **Advanced**
+there is also the dangerous option: paste an `nsec`, or a password-protected
+`ncryptsec` ([NIP-49](https://github.com/nostr-protocol/nips/blob/master/49.md))
+that is decrypted in the browser once you enter its password. That key is
+held in memory for the page only, is never written to storage, and is gone
+on reload. The entrance shows
 the chosen key and explains that entering a name alone creates a separate
 visitor identity. See [Your identity in KithMoot](docs/nostr-identity.md) if an
 agent does not recognise you.

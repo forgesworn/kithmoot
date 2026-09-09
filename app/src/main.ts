@@ -409,6 +409,11 @@ function setStatus(message: string, tone: 'problem' | 'progress' | 'done' = 'pro
 // localStorage at all, so a stolen browser profile yields nothing that can
 // sign for the person.
 //
+// The picker's Advanced group also takes a pasted key - an nsec, or a
+// NIP-49 ncryptsec that is decrypted here with its password. That key lives
+// in memory for this page only and is gone on reload; signet-login never
+// writes it anywhere. It is the dangerous option and is labelled as such.
+//
 // Both satisfy `ParticipantIdentity` (src/identity.ts): a pubkey and an
 // async signEvent. Nothing else in the app has to know which one it has,
 // because the participant key signs exactly one thing - the device
@@ -584,7 +589,11 @@ async function signInWithNostr(): Promise<void> {
   let account: SignetSession | null
   try {
     account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
-      methods: ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect'] })
+      // 'nsec' is the dangerous route, kept behind Advanced by the picker:
+      // a pasted nsec, or a NIP-49 ncryptsec plus its password, held in
+      // memory for this page only. It exists for dogfooding and for people
+      // with no signer yet; the copy in the picker says what it costs.
+      methods: ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect', 'nsec'] })
   } finally { loginBusy = false; tryPendingJoin() }
   if (!account) return // cancelled or timed out - leave the page as it was
 

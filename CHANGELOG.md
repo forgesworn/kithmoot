@@ -115,6 +115,12 @@ Vector `rosterEvent/valid-on-call`.
 
 ### Added
 
+- **Sign in with a pasted key.** The Nostr picker's Advanced group now
+  offers the dangerous option: paste an `nsec`, or a NIP-49 `ncryptsec`
+  that the browser decrypts once you enter its password. The key is held
+  in memory for the page only, never written to storage, and gone on
+  reload. For dogfooding and for people with no signer yet; the picker
+  says so. Needs `signet-login` at b2e569b or later. No wire change.
 - **The message layer, on the wire.** Six shapes, each an optional field of
   the encrypted kind-1460 chat payload, so an older client shows the text
   and nothing breaks. Wire change, with vectors for every shape and the
