@@ -7,12 +7,17 @@ and is noted here when the web release depends on one. Dates are the
 release dates. Wire changes are called out as such, because a second
 implementation reads this file to know what moved.
 
-## 0.5.0, 2026-09-09
+## 0.5.2, 2026-09-09
 
 ### Added
 
 - **Contact cards are kind 21641.** Wire change. A card is a signed event in the ephemeral range with one `expiration` tag, so a relay that meets one by mistake does not store it; the addressable 30641 with its `d` tag is gone (`nostr-contact-card` 0.4.0). A card made by 0.5.1 does not read here, and the other way round; the Android client moves in step.
 - Relay settings: any relay can be marked as a box of your circle by hand, for a box's drop tier fronted as `wss://` and named to you by its keeper. A message that goes only to circle relays shows as sheltered; a card's box is marked for you and cannot be unmarked there.
+- The box's drop tier is fronted at `wss://kithmoot.forgesworn.dev/drops`: kind 1059 gift wraps accepted from anyone into a bounded tier and served by broadcast, the mailbox quiet mode's dead drops need. A quiet room still needs a plain relay beside it for its roster.
+
+## 0.5.0, 2026-09-09
+
+### Added
 
 - **Quiet rooms.** Wire change. A policy may carry `quiet: true` beside
   `members`; such a room never publishes a bare kind 1460. Its chat rides
