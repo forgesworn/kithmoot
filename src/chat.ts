@@ -697,16 +697,16 @@ export class ChatLog {
   sendLane(): Lane | undefined {
     const relays = this.#opts.transport.describe?.()
     if (!relays) return undefined
-    return laneOfRelays(relays.filter(r => r.write).map(r => r.url))
+    return laneOfRelays(relays.filter(r => r.write).map(r => r.url), circleOf(relays))
   }
 
   /** The lane a message read from this transport took, from the relay that
    *  delivered it, else from every relay the transport reads. */
   #laneOf(via: string | undefined): Lane | undefined {
-    if (via) return laneOfRelayUrl(via)
     const relays = this.#opts.transport.describe?.()
+    if (via) return laneOfRelayUrl(via, relays ? circleOf(relays) : undefined)
     if (!relays) return undefined
-    return laneOfRelays(relays.filter(r => r.read).map(r => r.url))
+    return laneOfRelays(relays.filter(r => r.read).map(r => r.url), circleOf(relays))
   }
 
   /**
@@ -913,6 +913,11 @@ export class ChatLog {
       }
     }
   }
+}
+
+/** The relays a transport marks as the circle's own boxes. */
+function circleOf(relays: readonly { url: string; circle?: boolean }[]): ReadonlySet<string> {
+  return new Set(relays.filter(r => r.circle).map(r => r.url))
 }
 
 /** Order by send time; a tie breaks on id, so every client in the room

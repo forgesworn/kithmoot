@@ -17,7 +17,10 @@ export interface RelayTransport {
   describe?(): RelayConfig[]
 }
 
-export interface RelayConfig { url: string; read: boolean; write: boolean }
+/** `circle` marks a relay the client knows to be a box of the person's own
+ *  circle, from a contact card or the keeper's claim. Only such a relay is
+ *  ever shown as sheltered; see `lane.ts`. */
+export interface RelayConfig { url: string; read: boolean; write: boolean; circle?: boolean }
 export interface RelayHealth extends RelayConfig {
   state: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'closed'
   lastConnectedAt?: number
@@ -39,7 +42,7 @@ export function normaliseRelayConfig(entries: readonly (string | RelayConfig)[])
     const url = normalizeURL(value.url.trim())
     if (seen.has(url)) throw new Error('that relay is already in the list')
     seen.add(url)
-    return { url, read: value.read, write: value.write }
+    return { url, read: value.read, write: value.write, ...(value.circle === true ? { circle: true } : {}) }
   })
 }
 

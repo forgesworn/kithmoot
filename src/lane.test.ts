@@ -2,16 +2,21 @@ import { describe, it, expect } from 'vitest'
 import { isDowngrade, isLane, laneOfRelayUrl, laneOfRelays, weakestLane, LANE_MEANING, LANES } from './lane.js'
 
 describe('lane', () => {
-  it('classifies an onion relay as sheltered and everything else as public', () => {
-    expect(laneOfRelayUrl('wss://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwxyz234567.onion')).toBe('sheltered')
-    expect(laneOfRelayUrl('ws://xyz.onion:8080')).toBe('sheltered')
-    expect(laneOfRelayUrl('wss://relay.damus.io')).toBe('public')
-    expect(laneOfRelayUrl('wss://onion.example.com')).toBe('public')
-    expect(laneOfRelayUrl('not a url')).toBe('public')
+  it('sheltered means a relay the circle runs; an onion on its own is public', () => {
+    const circle = new Set(['wss://box.example', 'wss://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwxyz234567.onion'])
+    expect(laneOfRelayUrl('wss://abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwxyz234567.onion', circle)).toBe('sheltered')
+    expect(laneOfRelayUrl('wss://box.example/', circle)).toBe('sheltered')
+    expect(laneOfRelayUrl('wss://BOX.example', circle)).toBe('sheltered')
+    expect(laneOfRelayUrl('ws://xyz.onion:8080')).toBe('public')
+    expect(laneOfRelayUrl('ws://xyz.onion:8080', circle)).toBe('public')
+    expect(laneOfRelayUrl('wss://relay.damus.io', circle)).toBe('public')
+    expect(laneOfRelayUrl('not a url', circle)).toBe('public')
   })
   it('a set of relays is as weak as its weakest', () => {
-    expect(laneOfRelays(['wss://a.onion', 'wss://relay.example'])).toBe('public')
-    expect(laneOfRelays(['wss://a.onion', 'wss://b.onion'])).toBe('sheltered')
+    const circle = new Set(['wss://a.onion', 'wss://b.onion'])
+    expect(laneOfRelays(['wss://a.onion', 'wss://relay.example'], circle)).toBe('public')
+    expect(laneOfRelays(['wss://a.onion', 'wss://b.onion'], circle)).toBe('sheltered')
+    expect(laneOfRelays(['wss://a.onion', 'wss://b.onion'])).toBe('public')
     expect(laneOfRelays([])).toBeUndefined()
     expect(weakestLane(['direct', 'sheltered'])).toBe('sheltered')
     expect(weakestLane(['direct'])).toBe('direct')

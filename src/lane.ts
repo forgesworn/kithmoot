@@ -11,9 +11,12 @@
  * - direct: only the two devices were involved.
  *
  * Today a room's traffic rides ordinary relays, so almost everything is
- * public. That is the honest answer and it is shown. An onion relay run by
- * the room's own people is sheltered. A data channel is direct. As more
- * carriers arrive they classify here, and nowhere else.
+ * public. That is the honest answer and it is shown. Sheltered means the
+ * relay is a box the person's own circle runs, known from a contact card
+ * or the keeper's claim; an onion address on its own hides the client's
+ * address and says nothing about who runs the relay, so it stays public.
+ * A data channel is direct. As more carriers arrive they classify here,
+ * and nowhere else.
  */
 export type Lane = 'public' | 'sheltered' | 'direct'
 
@@ -48,15 +51,25 @@ export function isLane(value: unknown): value is Lane {
   return value === 'public' || value === 'sheltered' || value === 'direct'
 }
 
-/** The lane one relay URL puts a message on. */
-export function laneOfRelayUrl(url: string): Lane {
+/**
+ * The lane one relay URL puts a message on. `circle` is the set of relay
+ * URLs the client knows to be boxes of the person's circle; a relay in it
+ * is sheltered and every other relay, onion or not, is public.
+ */
+export function laneOfRelayUrl(url: string, circle?: ReadonlySet<string>): Lane {
+  if (circle && circle.has(url)) return 'sheltered'
   try {
-    const host = new URL(url).hostname.toLowerCase()
-    if (host.endsWith('.onion')) return 'sheltered'
+    if (circle && circle.has(normaliseRelay(url))) return 'sheltered'
   } catch {
-    // An unparseable URL is nobody's onion.
+    // An unparseable URL is nobody's box.
   }
   return 'public'
+}
+
+function normaliseRelay(url: string): string {
+  const u = new URL(url)
+  u.hostname = u.hostname.toLowerCase()
+  return u.toString().replace(/\/$/, '')
 }
 
 /** The weakest of several lanes. Undefined when there are none. */
@@ -67,8 +80,8 @@ export function weakestLane(lanes: readonly Lane[]): Lane | undefined {
 }
 
 /** The lane a message takes when it is published to all of these relays. */
-export function laneOfRelays(urls: readonly string[]): Lane | undefined {
-  return weakestLane(urls.map(laneOfRelayUrl))
+export function laneOfRelays(urls: readonly string[], circle?: ReadonlySet<string>): Lane | undefined {
+  return weakestLane(urls.map((u) => laneOfRelayUrl(u, circle)))
 }
 
 /** A message went by a weaker lane than the one asked for. */

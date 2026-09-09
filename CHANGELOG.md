@@ -14,8 +14,10 @@ implementation reads this file to know what moved.
 - Every message shows the lane it actually travelled, public, sheltered or
   direct, worked out from the relay that delivered it and never from what
   the message says about itself. The composer shows the lane the next
-  message will take. An onion relay is sheltered; everything else is public
-  today, and it says so. `lane.ts` fixes the three meanings.
+  message will take. Sheltered means a relay the client knows to be a box
+  of the person's own circle (`RelayConfig.circle`); an onion address on its
+  own is public, because the operator is unknown. `lane.ts` fixes the three
+  meanings.
 
 ### M2 protocol
 
