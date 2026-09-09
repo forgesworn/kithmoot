@@ -92,6 +92,8 @@ test('a nearby device can silence feedback without losing its camera', async ({ 
     await expectToSeeAndHear(pageLaptop, 'Laptop')
     await expectToSeeAndHear(pagePhone, 'Phone')
 
+    // The switch is folded under "Two devices, agents" in the call controls.
+    await pagePhone.locator('#callMore').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
     await pagePhone.locator('#toggleCompanion').click()
     await expect(pagePhone.locator('#toggleCompanion')).toHaveAttribute('aria-pressed', 'true')
     await expect(pagePhone.locator('#toggleMic')).toHaveAttribute('data-on', 'false')

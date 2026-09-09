@@ -83,7 +83,9 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
     await expect(page.locator('#chatLog')).not.toContainText('(speech)')
 
     // She turns it on: her microphone's tone reaches the agent, is cut into
-    // utterances, and comes back as transcript lines she can read.
+    // utterances, and comes back as transcript lines she can read. The
+    // switch is folded under "Two devices, agents" in the call controls.
+    await page.locator('#callMore').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
     await page.locator('#toggleAgentsHear').click()
     await expect(page.locator('#toggleAgentsHear')).toHaveAttribute('data-on', 'true')
     await expect
