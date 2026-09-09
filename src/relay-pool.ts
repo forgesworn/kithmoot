@@ -149,7 +149,14 @@ export class NostrRelayPool implements RelayTransport {
         throw error
       }
     }))
-    if (!results.some(result => result.status === 'fulfilled')) throw new Error('every relay rejected the event')
+    if (!results.some(result => result.status === 'fulfilled')) {
+      // Each relay's own words, because they differ and the difference is
+      // the diagnosis: a box's drop tier says it holds kind 1059 only, and
+      // a room pinned to that box alone needs to be told that, not that
+      // something somewhere said no.
+      const reasons = results.map((result, i) => `${urls[i]}: ${result.status === 'rejected' ? errorText(result.reason) : 'ok'}`)
+      throw new Error(`every relay rejected the event (${reasons.join('; ')})`)
+    }
   }
 
   describe(): RelayConfig[] {
@@ -229,4 +236,9 @@ export class NostrRelayPool implements RelayTransport {
     this.#subscriptions.clear()
     this.#pool.destroy()
   }
+}
+
+function errorText(reason: unknown): string {
+  if (reason instanceof Error) return reason.message
+  return String(reason)
 }

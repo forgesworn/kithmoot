@@ -345,7 +345,10 @@
            opens its door directly, including while admission is pending. -->
       <section id="setup" hidden>
         <div class="homeActionGrid">
-        <form id="createRoomForm" class="homeCard">
+        <!-- autocomplete off on the form itself: Firefox restores every control
+             on a reload, and the last room started with "Ask me first" would
+             quietly make the next one ask too. Each start form begins as written. -->
+        <form id="createRoomForm" class="homeCard" autocomplete="off">
         <h3>Start a room</h3>
         <label for="roomName">Room name <span class="note">(optional)</span></label>
         <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"

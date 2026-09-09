@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { newDeviceContext } from './browser.js'
-import { testRelays } from './relays.js'
+import { testRelaysFor } from './relays.js'
 
 // A private room: a room that asks first, whose link is never handed out.
 // People get in by being invited from a room they share with somebody in
@@ -9,7 +9,7 @@ test('somebody invited from a shared room is let straight into a room that asks 
   test.setTimeout(240_000)
   const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
   try {
-    const relays = testRelays()
+    const relays = testRelaysFor(baseURL!)
     const ada = await a.newPage()
     if (relays) await ada.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
     await ada.addInitScript(() => localStorage.setItem('kithmoot.name', 'Ada'))

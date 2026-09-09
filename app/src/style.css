@@ -3114,7 +3114,11 @@ input[type="search"] { font-family: inherit; }
 /* Who can come in, on the start form: one short row, no box, so the
    Start button stays above the fold on a small phone. */
 .roomAccess { border: 0; padding: 0; margin: 0 0 .5rem; display: flex; flex-wrap: wrap; gap: .3rem 1rem; }
-.roomAccess label { display: inline-flex; gap: .4rem; align-items: center; font-size: .95rem; }
+/* Two choices on one line, not two field labels: the card's label rule
+   above (block, bold, .8rem over and .4rem under) would make each radio
+   its own 44px row, and on a 390 by 540 phone that alone pushed the Start
+   button off the bottom. Measured on Linux fonts, which are the widest. */
+.roomAccess label { display: inline-flex; gap: .4rem; align-items: center; margin: 0; font-size: .95rem; font-weight: 400; }
 .roomAccess input { margin: 0; width: 1.1rem; height: 1.1rem; }
 .approvalCard.knock .options button.primary { margin: 0; }
 
