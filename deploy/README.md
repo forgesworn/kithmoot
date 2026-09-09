@@ -485,7 +485,7 @@ The one-command version, from a checkout:
 ```bash
 KITHMOOT_ROOM_ID=<64 hex> \
 KITHMOOT_FORWARDER_SK=$(openssl rand -hex 32) \
-NOSTR_RELAYS=wss://relay.trotters.cc \
+NOSTR_RELAYS=wss://relay.example \
   npx kithmoot-forwarder
 ```
 
@@ -513,7 +513,7 @@ List the ids and give it a root secret instead of a literal key:
 ```bash
 KITHMOOT_ROOM_ID=<64 hex>,<64 hex>,<64 hex> \
 KITHMOOT_FORWARDER_ROOT_SK=$(openssl rand -hex 32) \
-NOSTR_RELAYS=wss://relay.trotters.cc \
+NOSTR_RELAYS=wss://relay.example \
   npx kithmoot-forwarder
 ```
 
@@ -578,7 +578,7 @@ ciphertext it cannot read, and ends with the one-line JSON to add to the
 room's descriptor:
 
 ```
-{"url":"wss://relay.trotters.cc","pubkey":"<64 hex>","label":"trotters box"}
+{"url":"wss://relay.example","pubkey":"<64 hex>","label":"my box"}
 ```
 
 ### Pointing a room at it
