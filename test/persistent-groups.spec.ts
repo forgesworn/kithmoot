@@ -129,7 +129,7 @@ test('replacing a group invitation rejects fresh arrivals on the old link while 
     const newcomer = await device(browser, baseURL!); contexts.push(newcomer)
     const arrival = await newcomer.newPage()
     await arrival.goto(link)
-    await expect(arrival.locator('#arrivalTitle')).toHaveText('This invitation is no longer valid')
+    await expect(arrival.locator('#arrivalTitle')).toHaveText('This invite link is no longer valid')
     await expect(arrival.locator('#join')).toBeHidden()
     await enter(arrival, replacement, 'New member')
     await newcomer.close()

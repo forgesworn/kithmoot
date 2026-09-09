@@ -625,11 +625,21 @@ async function signInWithNostr(): Promise<void> {
     )
   }
 
+  // Not the account this app knew. An extension holds several accounts and
+  // signs in with whichever is selected, so "reconnect" can quietly come
+  // back as somebody else, with none of the rooms saved under the first.
+  // Say so, once, rather than leaving a person to work out why their rooms
+  // are gone.
+  const previous = expectedAccount
   nostrSession = account
   rememberAccount(account.pubkey)
   startRoomBookmarks(account)
   profiles.want([account.pubkey])
   renderIdentity()
+  if (previous && previous !== account.pubkey) {
+    const now = shownAs(account.pubkey), before = shownAs(previous)
+    setStatus(`Signed in as ${now.name ?? now.npub}. Last time this was ${before.name ?? before.npub}, and the rooms saved under that account are not here. To get them back, select that account in your extension and sign in again.`)
+  }
 }
 
 async function signOutOfNostr(): Promise<void> {
@@ -1375,9 +1385,9 @@ function renderHowIn(): void {
   } else if (nostrSession) {
     how.textContent = 'Signed in with Nostr. Your key stays where it is kept; this page never holds it.'
   } else if (participant) {
-    how.textContent = 'A name only, with a key this browser made. Agents that know you by your Nostr account will not recognise it.'
+    how.textContent = 'A name only, with a key of its own. Agents that know you by your Nostr account will not recognise it.'
   } else {
-    how.textContent = 'A name only. This browser makes a key of its own the first time you go in.'
+    how.textContent = 'A name only. A key of its own is made the first time you go in.'
   }
   $('sheetHow').textContent = how.textContent
 }
@@ -1415,13 +1425,13 @@ function renderIdentity(): void {
   // so it is the filled button, and the visitor path says what it is. An
   // installed PWA has its own storage, which is how a sign-in done in a
   // tab is not there in the app; the extension is.
-  const extensionHere = extensionSignerPresent() && !needsAccountReconnect()
-  $('joinNostr').textContent = needsAccountReconnect() ? 'Reconnect Nostr account'
+  const extensionHere = extensionSignerPresent()
+  $('joinNostr').textContent = needsAccountReconnect() ? (extensionHere ? 'Reconnect with your Nostr extension' : 'Reconnect Nostr account')
     : extensionHere ? 'Join with your Nostr extension' : 'Already on Nostr? Sign in'
   $('joinNostr').classList.toggle('primary', extensionHere)
   $('joinNostr').classList.toggle('linkish', !extensionHere)
   $('joinVisitor').hidden = !needsAccountReconnect()
-  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : extensionHere ? 'Join as a visitor' : 'Join'
+  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : extensionHere ? 'Join with just a name' : 'Join'
   $('join').classList.toggle('primary', !extensionHere)
   $('join').classList.toggle('quiet', extensionHere)
   // The filled button comes first. With the extension the order is: the
@@ -1438,7 +1448,7 @@ function renderIdentity(): void {
   if (session) {
     const visitor = !nostrSession && !loadCredential()
     const shown = shownAs(meParticipant, joiningName())
-    const label = visitor ? 'Visitor' : 'Nostr'
+    const label = visitor ? 'Name only' : 'Nostr'
     const description = `Sending as ${visitor ? 'visitor' : 'Nostr account'}: ${shown.name ?? label}. ${shown.npub}${shown.nip05 ? `. ${shown.nip05}` : ''}`
     sending.title = description
     sending.setAttribute('aria-label', description)
@@ -1456,7 +1466,7 @@ function renderIdentity(): void {
     if (visitor) {
       ;(choice as HTMLButtonElement).type = 'button'
       choice.addEventListener('click', async () => {
-        if (await confirmRoomAction({ title: 'Sending as a visitor', message: `${description}. This is a separate browser identity. Agents may not recognise you. Leave the room to sign in with your usual Nostr account.`, confirmLabel: 'Leave to sign in', cancelLabel: 'Keep chatting' })) ($('leave') as HTMLButtonElement).click()
+        if (await confirmRoomAction({ title: 'Sending with just a name', message: `${description}. This is a separate identity, not your Nostr account. Agents may not recognise you. Leave the room to sign in with your usual Nostr account.`, confirmLabel: 'Leave to sign in', cancelLabel: 'Keep chatting' })) ($('leave') as HTMLButtonElement).click()
       })
     }
     sending.append(choice)
@@ -1492,7 +1502,7 @@ function renderIdentity(): void {
     if (!session && !nostrSession && extensionSignerPresent() && !needsAccountReconnect()) {
       const aside = document.createElement('span')
       aside.className = 'whoamiAside'
-      aside.textContent = ' as a visitor. Your Nostr extension is here and not in use yet.'
+      aside.textContent = ' with just a name. Your Nostr extension is here and not in use yet.'
       line.append(aside)
     }
   } else if (name !== undefined) {
@@ -1663,7 +1673,7 @@ async function roomFromLocation(): Promise<boolean> {
           // and that the next move is the reader's, which is the thing they
           // could not tell while a line saying "in progress" sat under a
           // button that was ready to be pressed.
-          setStatus('Invitation accepted. Go in when you are ready.', 'done')
+          setStatus('You are on the list. Go in when you are ready.', 'done')
         } finally {
           transport.close()
         }
@@ -2589,10 +2599,10 @@ async function makeRoomPersistent(): Promise<void> {
   history.replaceState(null, '', url)
   ;($('shareUrl') as HTMLInputElement).value = url
   $('makePersistent').hidden = true
-  $('invitationAvailability').textContent = 'This group stays available when everyone closes the app. Share the updated group invitation so people can join later.'
+  $('invitationAvailability').textContent = 'This room stays open when everyone closes the app. Share the updated invite link so people can join later.'
   rememberCurrentRoom()
   if (($('shareQrDetails') as HTMLDetailsElement).open) await renderQr($('shareQr') as HTMLCanvasElement, url)
-  setStatus('This is now a persistent group. Share the updated invitation; old temporary links still need an online member.')
+  setStatus('This room now stays open. Share the updated invite link; the old temporary link still needs somebody online.')
 }
 
 // ---------------------------------------------------------------------------
@@ -3940,7 +3950,7 @@ function renderHost(): void {
 }
 
 $('closeRoom').addEventListener('click', async () => {
-  if (!await confirmRoomAction({ title: 'Close this room for everybody?', message: 'The invitation link will stop answering and the keeper will leave.', confirmLabel: 'Close room', danger: true })) return
+  if (!await confirmRoomAction({ title: 'Close this room for everybody?', message: 'The invite link will stop working and the agent keeping the room open will leave.', confirmLabel: 'Close room', danger: true })) return
   sendHostControl({ op: 'close' }, 'Asked the keeper to close the room.')
 })
 
@@ -5318,7 +5328,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         const info = document.createElement('span')
         info.className = 'reactionPersonInfo'
         const name = document.createElement('strong')
-        name.textContent = `${shown.name ?? 'Unnamed participant'}${entry.participant === meParticipant ? ' (you)' : ''}`
+        name.textContent = `${shown.name ?? 'No name'}${entry.participant === meParticipant ? ' (you)' : ''}`
         info.append(name)
         if (shown.nip05) {
           const address = document.createElement('span')
@@ -6045,7 +6055,7 @@ async function startSession(asVisitor = false): Promise<void> {
       setStatus('Joining the room…', 'progress')
     }
     if (needsAccountReconnect() && !asVisitor) {
-      setStatus('Your Nostr account is disconnected. Reconnect it, or explicitly choose a separate visitor identity.')
+      setStatus('Your Nostr account is disconnected. Reconnect it, or choose to go in with just a name.')
       ;($('joinNostr') as HTMLButtonElement).focus()
       return
     }
@@ -6475,7 +6485,7 @@ function renderRooms(): void {
   if (!roomsListShown) return
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
-  $('importBrowserRooms').textContent = `Add ${importable.length} ${importable.length === 1 ? 'room' : 'rooms'} from this browser`
+  $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
   const rooms = knownRooms(roomStore())
   const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
   fillProjectFilter('homeProject', rooms)
@@ -6485,7 +6495,7 @@ function renderRooms(): void {
   $('rooms').hidden = rooms.length === 0 && !nostrSession
   $('notify').hidden = rooms.length === 0
   $('homeHeading').textContent = rooms.length ? 'Pick up the conversation.' : 'Make room for a conversation.'
-  $('roomsHeading').textContent = nostrSession ? 'Your rooms' : 'Rooms on this browser'
+  $('roomsHeading').textContent = 'Your rooms'
   $('roomsEmpty').hidden = rooms.length !== 0
   $('homeRoomSearch').hidden = rooms.length === 0
   $('clearHomeRoomQuery').hidden = !query
@@ -6530,7 +6540,7 @@ async function importBrowserRooms(): Promise<void> {
   const destination = nostrSession?.signer.nip44
     ? 'Their names and invitation links will be encrypted to your Nostr key and sent to relays.'
     : 'This signer cannot encrypt, so these bookmarks will stay in this browser only.'
-  if (!await confirmRoomAction({ title: 'Add browser rooms to this account?', message: `${rooms.map(knownRoomLabel).join('\n')}\n\n${destination}`, confirmLabel: 'Add rooms' })) return
+  if (!await confirmRoomAction({ title: 'Add these rooms to your account?', message: `${rooms.map(knownRoomLabel).join('\n')}\n\n${destination}`, confirmLabel: 'Add rooms' })) return
   for (const room of rooms) bookmarks.save(room)
   renderRooms()
 }
@@ -7374,7 +7384,7 @@ $('projectForm').addEventListener('submit', event => {
     ;($('projectEditor') as HTMLDialogElement).close()
     renderRooms()
   } catch {
-    $('projectError').textContent = 'This browser could not save the project. Try again after allowing storage for this site.'
+    $('projectError').textContent = 'The project could not be saved. Try again after allowing storage for this site.'
     $('projectError').hidden = false
   }
 })
@@ -7775,9 +7785,9 @@ $('joinVisitor').addEventListener('click', async () => {
   const generation = identityGeneration
   const room = roomGeneration
   if (!await confirmAction({
-    title: 'Join with a separate visitor identity?',
-    message: 'This browser key is different from your Nostr account, even if you use the same name. Agents that know your Nostr account may ignore these messages.',
-    confirmLabel: 'Join as visitor',
+    title: 'Join with just a name?',
+    message: 'This is not your Nostr account, even with the same name. Agents that know your account may ignore these messages.',
+    confirmLabel: 'Join with just a name',
     cancelLabel: 'Back to sign-in',
     isCurrent: () => generation === identityGeneration && room === roomGeneration && needsAccountReconnect() && !session && !joining,
   })) return
@@ -8701,7 +8711,7 @@ $('voiceMode').textContent = DEFAULT_VOICE_PRESET
 // dashboard stays hidden for an invitation, including one that cannot open.
 if (location.hash.length > 1) {
   $('identity').hidden = false
-  $('arrivalTitle').textContent = 'Opening your invitation'
+  $('arrivalTitle').textContent = 'Opening your invite link'
   const lead = $('arrivalLead')
   lead.textContent = 'Opening the link somebody sent you.'
   lead.hidden = false
@@ -8744,7 +8754,7 @@ function showArrivalFailure(err: unknown): void {
   try { parseRoomLink(location.href); valid = true } catch { /* Incomplete or malformed invitation. */ }
   const retired = reason.includes('retired')
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
-  $('arrivalTitle').textContent = retired ? 'This invitation is no longer valid' : valid ? persistent ? 'The group invitation could not be loaded' : 'The room has not answered' : 'This invitation is incomplete'
+  $('arrivalTitle').textContent = retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
   $('arrivalLead').textContent = retired
     ? 'Ask somebody in the room for its current invitation link.'
     : valid
@@ -8770,7 +8780,30 @@ renderIdentity()
 // awaited before the page is usable: a bunker over a relay can take seconds.
 // Joining waits for it so the room uses the same identity the account UI
 // shows. renderIdentity() runs again when it lands.
-const identityReady = restoreSession()
+/**
+ * `restoreSession`, with a moment's grace for an extension.
+ *
+ * An extension's content script lands after this module runs, so a sign-in
+ * stored as "extension" was restored while `window.nostr` did not exist
+ * yet, which signet-login reads as the extension having been uninstalled:
+ * it hands back an identity that can prove who you are and sign nothing,
+ * and the door said "Reconnect Nostr account" to a person whose extension
+ * was right there. Wait for it, briefly, and restore again.
+ */
+async function restoreSessionWithExtensionGrace(): Promise<SignetSession | null> {
+  const session = await restoreSession()
+  if (session?.signer.capabilities.canSignEvents) return session
+  let storedMethod: string | null = null
+  try { storedMethod = localStorage.getItem('signet:login.method') } catch { /* no storage, nothing stored */ }
+  if (storedMethod !== 'nip07') return session
+  for (let waited = 0; waited < 3000 && !extensionSignerPresent(); waited += 100) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  if (!extensionSignerPresent()) return session
+  return restoreSession()
+}
+
+const identityReady = restoreSessionWithExtensionGrace()
   .then((session) => {
     if (identityGeneration !== 0) return
     if (!session?.signer.capabilities.canSignEvents) {

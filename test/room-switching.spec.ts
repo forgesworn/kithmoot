@@ -297,7 +297,7 @@ test('a broken saved invitation offers a direct return to the previous room and 
     await page.locator('#chatInput').fill('Keep this through a failed invitation')
     await page.locator('#backToRooms').click()
     await page.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Project room', exact: true }).click()
-    await expect(page.locator('#arrivalTitle')).toHaveText('This invitation is incomplete')
+    await expect(page.locator('#arrivalTitle')).toHaveText('This invite link is incomplete')
     await expect(page.locator('#returnToPreviousRoom')).toBeVisible()
     await expect(page.locator('#returnToPreviousRoom')).toBeFocused()
     await page.locator('#returnToPreviousRoom').click()

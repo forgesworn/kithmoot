@@ -21,6 +21,7 @@ is for the people writing the interface.
 | **File** | Something sent in a message. | attachment, blob, share |
 | **Room details** | The one drawer that holds who is here, the invite link, conversations, agents, you, and Settings. | menu, sheet, panel |
 | **Settings** | Relays, servers, keyboard shortcuts, the Wildbloom import. Bottom of Room details, and only there. | preferences, advanced, options (except "File options") |
+| **Just a name** | Going in without an account: a name and a key made for the room. The phrase for it is "with just a name"; the chip on a message says "Name only". | visitor, guest, anonymous |
 | **Checked** | You did the words-out-loud check with this person. Shown as a badge on the member row. | verified, trusted |
 
 ## The code beside a name

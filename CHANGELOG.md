@@ -18,6 +18,18 @@ implementation reads this file to know what moved.
   installed PWA has its own storage, so a sign-in done in a tab is not
   there in the app; the extension is. Now the filled button is "Join with
   your Nostr extension" and the visitor way in says so.
+- **A stored extension sign-in survives the extension arriving late.** An
+  extension's script lands after the app's, so a sign-in stored as
+  "extension" was restored while `window.nostr` did not exist yet, read as
+  the extension being gone, and the door asked for a reconnect from a
+  person whose extension was right there. The restore now waits up to
+  three seconds for it. And when a reconnect comes back as a different
+  account, because the extension had another one selected, the app says
+  so and names both, instead of quietly showing an empty room list.
+- **The words, once.** Invite link, never invitation; room, never group;
+  people, never participants; "with just a name", never visitor; and the
+  browser is no longer mentioned on the home and door screens. Per
+  `docs/glossary.md`.
 
 ## 0.4.1, 2026-09-09
 

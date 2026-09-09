@@ -269,7 +269,7 @@
       <section id="home" hidden aria-labelledby="homeHeading">
         <div class="homeIntro">
           <h2 id="homeHeading">Make room for a conversation.</h2>
-          <p>Messages, files and calls for your people. Start with a room or an invitation.</p>
+          <p>Messages, files and calls for your people. Start a room, or open an invite link.</p>
         </div>
         <div id="homeStatus"></div>
         <div id="homeRooms"></div>
@@ -281,10 +281,10 @@
         <div id="accountHome" hidden>
           <h2 id="accountHeading">Keep your rooms with you</h2>
           <p id="accountProfile" class="whoami" hidden></p>
-          <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open an invitation; no account needed.</p>
+          <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.</p>
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
-          <button id="importBrowserRooms" type="button" class="quiet" hidden>Add rooms from this browser</button>
+          <button id="importBrowserRooms" type="button" class="quiet" hidden>Add the rooms already here</button>
           <details>
             <summary>Room sync and privacy</summary>
             <p id="accountHelp" class="note">Your signer encrypts room names and links. Relays see your public key and that you use KithMoot.</p>
@@ -296,7 +296,7 @@
         <p id="arrivalLead" class="lead" hidden></p>
         <p id="status" role="status"></p>
         <div id="arrivalActions" hidden>
-          <button id="retryArrival" type="button">Try invitation again</button>
+          <button id="retryArrival" type="button">Try the link again</button>
           <button id="arrivalHome" type="button" class="quiet">Back to rooms</button>
         </div>
         <button id="returnToPreviousRoom" type="button" hidden>Back to the previous room</button>
@@ -314,7 +314,7 @@
           <p id="whoami" class="whoami"></p>
           <p id="joinIdentityHelp" class="note" hidden></p>
           <button id="joinNostr" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
-          <button id="joinVisitor" type="button" class="quiet" hidden>Use a separate visitor identity</button>
+          <button id="joinVisitor" type="button" class="quiet" hidden>Go in with just a name instead</button>
           <p id="joinPrivacy" class="note">Your camera and microphone stay off until you turn them on.</p>
         </form>
       </section>
@@ -327,7 +327,7 @@
           <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
         </div>
         <p id="homeRoomResults" class="note" role="status" hidden></p>
-        <p id="roomsEmpty" class="note" hidden>No saved rooms yet. Start a room or open an invitation. Check Room sync and privacy below if you expected rooms from another device.</p>
+        <p id="roomsEmpty" class="note" hidden>No saved rooms yet. Start a room or open an invite link. Check Room sync and privacy below if you expected rooms from another device.</p>
         <div id="homeProjectFilter" class="projectFilter" hidden>
           <label for="homeProject">Project</label>
           <select id="homeProject"><option value="*">All projects</option></select>
@@ -357,11 +357,11 @@
         </p>
         </form>
         <form id="openRoomForm" class="homeCard" novalidate>
-        <h3>Have an invitation?</h3>
+        <h3>Have an invite link?</h3>
         <p class="note">Open a room link somebody sent you.</p>
-        <label for="url">Invitation link</label>
+        <label for="url">Invite link</label>
         <input id="url" type="url" placeholder="https://…#…" autocomplete="off" spellcheck="false" aria-describedby="linkError" />
-        <button id="openUrl" type="submit">Open invitation</button>
+        <button id="openUrl" type="submit">Open invite link</button>
         <p id="linkError" class="formError" role="alert" hidden></p>
         </form>
         </div>
@@ -668,7 +668,7 @@
         <div id="inviteHome">
         <div id="inviteContent" class="linkBox">
           <p class="note">Anyone with this link can join, including people it is forwarded to. Share it with people you trust.</p>
-          <label class="sr-only" for="shareUrl">Invitation link</label>
+          <label class="sr-only" for="shareUrl">Invite link</label>
           <input id="shareUrl" readonly aria-label="Link to this room" />
           <div class="inviteButtons">
             <button id="copyShare" type="button" class="primary">Copy link</button>
@@ -684,7 +684,7 @@
             <span id="keepNote" class="note inline"></span>
           </div>
           <button id="rotateShare" type="button" hidden>New link</button>
-          <button id="makePersistent" type="button" hidden>Keep as a group</button>
+          <button id="makePersistent" type="button" hidden>Keep this room open</button>
           <!-- Hidden with the button it describes. Only the browser that
                opened the room can make a new link, and everybody else was
                reading a sentence about a control that was not on their
@@ -694,7 +694,7 @@
             already here stays.
           </p>
           <details class="invitePrivacy">
-            <summary>How invitation links work</summary>
+            <summary>How invite links work</summary>
             <p class="note">The part after # stays in your browser when you open this website. The app you share it through may still read the complete link unless that chat uses end-to-end encryption.</p>
           </details>
           <details id="shareQrDetails">
@@ -827,8 +827,8 @@
         <button id="profileSettingsClose" type="button" aria-label="Close profile settings">Close</button>
       </div>
       <label class="profileChoice"><input id="lookupProfiles" type="checkbox" checked /> Show public profile pictures, names and Nostr addresses</label>
-      <p class="note">Show the picture and name published by each participant’s Nostr key. Names are chosen by their owners.</p>
-      <p class="note">This sends participant keys to the room’s relays and to public profile relays, and loads pictures from their hosts. Nostr addresses are checked with their domains. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
+      <p class="note">Show the picture and name published by each person’s Nostr key. Names are chosen by their owners.</p>
+      <p class="note">This sends people’s keys to the room’s relays and to public profile relays, and loads pictures from their hosts. Nostr addresses are checked with their domains. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
       <p class="note">A new room identity may not have a public profile. It keeps its name and short code here.</p>
     </dialog>
 

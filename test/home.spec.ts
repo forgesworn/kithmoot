@@ -133,7 +133,7 @@ test('an incomplete invitation has a clear way back to rooms', async ({ browser,
   try {
     const page = await context.newPage()
     await page.goto(baseURL! + '#bad')
-    await expect(page.locator('#arrivalTitle')).toHaveText('This invitation is incomplete')
+    await expect(page.locator('#arrivalTitle')).toHaveText('This invite link is incomplete')
     await expect(page.locator('#joinRoomForm')).toBeHidden()
     await expect(page.locator('#retryArrival')).toBeHidden()
     await expect(page.locator('#setup')).toBeHidden()
@@ -184,7 +184,7 @@ test('a retired invitation asks for a current link and does not offer a pointles
     await host.closeRoom()
     const page = await context.newPage()
     await page.goto(oldLink)
-    await expect(page.locator('#arrivalTitle')).toHaveText('This invitation is no longer valid')
+    await expect(page.locator('#arrivalTitle')).toHaveText('This invite link is no longer valid')
     await expect(page.locator('#arrivalLead')).toContainText('current invitation')
     await expect(page.locator('#retryArrival')).toBeHidden()
     await expect(page.locator('#joinRoomForm')).toBeHidden()
