@@ -636,3 +636,28 @@ ignore unknown fields and event types. Removing a field or changing an existing
 command or event's meaning requires a new protocol version. A protocol version
 identifies the pipe interface, separately from the room protocol and npm package
 version.
+
+## A word in private
+
+A person can message an agent privately. It is the same mechanism as a
+private conversation between two people (`docs/messages.md`): a room of
+two, whose link travels sealed to the agent in a chat message in a room
+both are already in. In the web client the button is "Message privately"
+on the agent's row in Room details, and it is shown only to the agent's
+owner and to the room's admins.
+
+`kithmoot-agent join` accepts those by default from the principal on its
+`--owner-proof` and from the room's admins, and `--dm anyone` or `--dm off`
+change that. Each accepted invitation opens the room of two beside the room
+the agent was given, with the same persona and memory and a brain of its
+own that answers everything said there, since in a room of two there is
+nobody else it could be talking to. With `--state <dir>` the accepted
+rooms are remembered in `private.json` there and reopened on restart;
+without it they close with the process. An agent driven over stdio holds
+one room, so it does not take private conversations; use `--brain ollama`
+or `--brain anthropic`.
+
+In the library, `RoomAgent.onInvite` hands the sealed invitation to the
+driver; opening it needs the agent's participant secret (`openInvite` in
+`src/dm.ts`), which the class does not hold, so the decision and the key
+stay together in the driver.

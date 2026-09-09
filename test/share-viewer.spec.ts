@@ -80,6 +80,11 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
     await presenter.locator('#toggleScreen').click()
     await expect(dialog).toContainText('Screen sharing has stopped or is reconnecting')
     expect(await video.evaluate((v: HTMLVideoElement) => v.srcObject)).toBe(null)
+    // And the tile behind the dialog: a stopped share comes off the
+    // viewer's screen on the roster's word, not left as a black box, and
+    // its Expand button goes with it.
+    await expect(viewer.locator('#room video.screenPreview')).toHaveCount(0, { timeout: 10_000 })
+    await expect(expand).toBeHidden()
     await presenter.locator('#toggleScreen').click()
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     await viewer.setViewportSize({ width: 320, height: 640 })

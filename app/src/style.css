@@ -3046,3 +3046,47 @@ button.primary:hover:not(:disabled) {
 
 /* The lane chip sits in the composer's button row. */
 #chatForm #laneNote { align-self: center; margin: 0 .25rem 0 0; flex: 0 0 auto; }
+
+/* The call stage.
+
+   While a call is on, the tiles are the screen: they fill the width, size
+   themselves by how many faces there are, turn with the phone, and a
+   shared screen takes the whole row and is spotlit. Before, every picture
+   was a 320px box in a grid built for 280px cards, so two people in
+   landscape sat side by side in the middle of a wide empty strip and a
+   third fell underneath. `data-tiles` is set by `render()` in main.ts. */
+#room .participant .media { display: grid; gap: .4rem; margin-top: .4rem; }
+#room .participant .media video {
+  width: 100%;
+  max-width: none;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+#room .participant .media video.screenPreview {
+  aspect-ratio: auto;
+  object-fit: contain;
+  max-height: 60dvh;
+}
+#room:has(video) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+#room[data-tiles="1"]:has(video) { grid-template-columns: minmax(0, 1fr); }
+#room[data-tiles="2"]:has(video) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#room.sharing .participant:has(video.screenPreview) { grid-column: 1 / -1; }
+#room .participant:has(.media ~ .media) { display: grid; grid-template-columns: 1fr 1fr; column-gap: .4rem; }
+#room .participant:has(.media ~ .media) > h3,
+#room .participant:has(.media ~ .media) > .tracks,
+#room .participant:has(.media ~ .media) > .shareExpand { grid-column: 1 / -1; }
+@media (max-width: 700px) and (orientation: portrait) {
+  #room[data-tiles="2"]:has(video) { grid-template-columns: minmax(0, 1fr); }
+  #room .participant .media video { max-height: 38dvh; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  #room:has(video) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #room[data-tiles="1"]:has(video) { grid-template-columns: minmax(0, 1fr); }
+  #room .participant .media video { max-height: 56dvh; }
+  #room .participant .media video.screenPreview { max-height: 80dvh; }
+}
+/* Compact controls: two rows, and the explanations behind their folds. */
+#deviceControls .toggles .toggle { margin: 0; }
+#deviceControls .indicator { margin: .3rem 0 0; font-size: .85rem; }
+#deviceControls .indicator:empty { display: none; }

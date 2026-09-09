@@ -357,3 +357,42 @@ describe('RoomAgent', () => {
     keeper.leave()
   })
 })
+
+describe('private conversations', () => {
+  it('an invitation sealed to the agent reaches onInvite, and the agent can open it', async () => {
+    const { localPeerCrypt, openInvite, sealInvite, dmPolicy } = await import('./dm.js')
+    const relay = new SimRelay({ replay: true })
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })
+    const agentSk = generateSecretKey()
+    const agent = await RoomAgent.join({ link: keeper.url, name: 'Tally', identity: localIdentity(agentSk), transport: transportFor(relay), announceJitterMs: 0 })
+    const adaSk = generateSecretKey()
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', identity: localIdentity(adaSk), agent: false, transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+
+    const received: Parameters<Parameters<RoomAgent['onInvite']>[0]>[0][] = []
+    const off = agent.onInvite((invitation) => received.push(invitation))
+
+    // Ada starts a room of two and seals its link to the agent, the way the
+    // web client's "Message privately" does.
+    const dmLink = encodeRoomLink(BASE, { ...parseRoomLink(keeper.url), policy: dmPolicy(ada.participant, agent.participant) })
+    const invite = await sealInvite(dmLink, { to: agent.participant, room: 'ab'.repeat(32), crypt: localPeerCrypt(adaSk) })
+    await ada.chat.send('Started a private conversation', { invite })
+    await settleUntil(() => received.length > 0)
+
+    expect(received).toHaveLength(1)
+    expect(received[0]!.from).toBe(ada.participant)
+    expect(received[0]!.name).toBe('Ada')
+    expect(received[0]!.room).toBe('ab'.repeat(32))
+    const opened = await openInvite(received[0]!.invite, { self: agent.participant, sender: ada.participant, crypt: localPeerCrypt(agentSk) })
+    expect(opened).toBe(dmLink)
+
+    // Not for the keeper: the invitation names its addressee.
+    const keeperGot: unknown[] = []
+    keeper.onInvite((invitation) => keeperGot.push(invitation))
+    await settle()
+    expect(keeperGot).toHaveLength(0)
+
+    off()
+    ada.leave(); agent.leave(); keeper.leave()
+  })
+})

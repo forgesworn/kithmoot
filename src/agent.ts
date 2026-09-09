@@ -24,6 +24,7 @@ import { normaliseHex } from './hex.js'
 import { randomBytes } from '@noble/hashes/utils'
 import type { PeerFactory } from './peer.js'
 import type { ChatLog, ChatMessage } from './chat.js'
+import type { ChatInvite } from './messages.js'
 import type { RemoteTrack } from './mesh.js'
 import type { AgentOwnership, ForwarderRef, KindredProof, RoomPolicy, SingularRole, TrackAdvert } from './types.js'
 import { parseForwarderRef } from './descriptor.js'
@@ -224,6 +225,24 @@ export interface CreateRoomOptions extends CommonAgentOptions {
  * rule about `by`, which is why it is here and why nothing in this file
  * interprets it.
  */
+/**
+ * A private conversation offered to this agent: the sealed invitation as it
+ * came, and who sent it. Opening it takes the agent's participant secret
+ * (see `openInvite` in `dm.ts`), which this class does not hold, so the
+ * decision and the key both stay with the driver - the same seam as
+ * `PresenceRequest`.
+ */
+export interface AgentInvitation {
+  invite: ChatInvite
+  /** Who offered it: the participant key on the message. */
+  from: string
+  /** The sender's name on the message, if they gave one. */
+  name?: string
+  /** The private room's id, so a driver can recognise one it already opened. */
+  room: string
+  sentAt: number
+}
+
 export interface PresenceRequest {
   op: 'invite' | 'dismiss' | 'catalogue?'
   /** The host addressed, absent on `catalogue?` which addresses everyone. */
@@ -780,6 +799,32 @@ export class RoomAgent {
   onPresenceRequest(cb: (request: PresenceRequest) => void): () => void {
     this.#presenceListeners.add(cb)
     return () => this.#presenceListeners.delete(cb)
+  }
+
+  /**
+   * Private invitations addressed to this agent, from the room's chat.
+   *
+   * A DM is a room of two (docs/messages.md), and the way in is an
+   * `invite` on a message in a room both are already in, sealed to the
+   * addressee. Replayed history counts: an invitation from before this
+   * process started is still a conversation somebody wanted, and a
+   * restarted agent that ignored it would have gone quiet on them. The
+   * driver dedupes by `room`. Nothing here decides whether to accept.
+   */
+  onInvite(cb: (invitation: AgentInvitation) => void): () => void {
+    const seen = new Set<string>()
+    return this.chat.onChange((messages) => {
+      for (const m of messages) {
+        if (!m.invite || seen.has(m.id)) continue
+        seen.add(m.id)
+        if (m.invite.to !== this.participant || m.participant === this.participant) continue
+        try {
+          cb({ invite: m.invite, from: m.participant, room: m.invite.room, sentAt: m.sentAt, ...(m.name ? { name: m.name } : {}) })
+        } catch {
+          // A driver that throws is not this class's problem to survive badly.
+        }
+      }
+    })
   }
 
   /** Say something on the control channel: a catalogue, or a refusal. */

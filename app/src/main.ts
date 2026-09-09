@@ -258,6 +258,16 @@ function configuredPool(urls: string[]): NostrRelayPool {
 // kind of central dependency this project exists to avoid. This is only a
 // sensible default for a room that never set its own.
 const DEFAULT_ICE_URLS = ['stun:stun.l.google.com:19302']
+
+/**
+ * Whether the last ICE resolution produced a relay (a `turn:` server with a
+ * credential). The route ladder's last rung is called TURN whatever this
+ * says, so a tile on that rung read "connecting via TURN…" on a device that
+ * had no relay to connect through - the credential endpoint had failed or
+ * the room's link named its own servers - and the person waited on a
+ * promise nobody had made. Read by `connectingWord`.
+ */
+let turnRelayConfigured = false
 /** How often a joined page re-fetches its TURN credential. The credential
  *  service mints for an hour; forty minutes keeps a fresh one in hand. */
 const ICE_REFRESH_MS = 40 * 60 * 1000
@@ -1492,6 +1502,20 @@ function sweepShareMarkOverlays(): void {
 // ever reparents this holder within a single synchronous pass.
 const localMediaEl = document.createElement('div')
 localMediaEl.className = 'media mine'
+
+/**
+ * One tile per participant, kept between renders.
+ *
+ * `render()` used to empty the grid and build every tile again, on every
+ * roster change - which, with heartbeats every twenty seconds from every
+ * device, is several times a minute in a small call. Each rebuild took
+ * every <video> out of the document and put it back in the same pass,
+ * which Chromium survives without pausing the picture but not without
+ * dropping its compositing layer: a black flash on every face, on a
+ * regular beat, for the whole call. Now the box stays, and only the words
+ * around the picture are rebuilt.
+ */
+const tileBoxes = new Map<string, HTMLDivElement>()
 $('local').append(localMediaEl)
 // One persistent <div class="media"> per remote device, holding at most one
 // <video> and one <audio>. Kept outside the room grid's own lifecycle and
@@ -1723,9 +1747,13 @@ async function fetchTurnCredential(endpoint: string): Promise<RTCIceServer | und
  */
 async function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
   const base: RTCIceServer[] = urls.map((iceUrl) => ({ urls: iceUrl }))
-  if (!TURN_CREDENTIAL_ENDPOINT || !isDefaultIceUrls(urls)) return base
+  if (!TURN_CREDENTIAL_ENDPOINT || !isDefaultIceUrls(urls)) {
+    turnRelayConfigured = urls.some((iceUrl) => iceUrl.toLowerCase().startsWith('turn'))
+    return base
+  }
 
   const turnServer = await fetchTurnCredential(TURN_CREDENTIAL_ENDPOINT)
+  turnRelayConfigured = turnServer !== undefined
   return turnServer ? [...base, turnServer] : base
 }
 
@@ -2224,6 +2252,18 @@ function onCall(): boolean {
   return session?.call !== undefined
 }
 
+/**
+ * Pressed Leave, and not Join since.
+ *
+ * Not the same as "not on the call". Somebody who has just walked into a
+ * room where a call is on sees and hears it before pressing anything - the
+ * media acceptance test pins that, and it is right: a person is not a
+ * spectator for having brought nothing. Somebody who has pressed Leave has
+ * said the opposite, and for them the pictures park and the sound stops
+ * until they press Join.
+ */
+let leftCall = false
+
 function newCallId(): string {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(16)))
 }
@@ -2234,6 +2274,7 @@ async function joinCall(): Promise<void> {
   const s = session
   if (!s || s.call) return
   const existing = s.calls()[0]
+  leftCall = false
   await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
   setCallOpen(true)
   updateUi()
@@ -2262,9 +2303,11 @@ async function leaveCall(): Promise<void> {
   stopLocalMedia()
   speakingMonitor.retain([...remoteAudios.keys()])
   publishActiveTracks()
+  leftCall = true
   if (s) await s.setCall(null)
   setCallOpen(false)
   updateUi()
+  if (session) render(session.participants(), meParticipant)
 }
 
 /**
@@ -2969,6 +3012,7 @@ function publishActiveTracks(): void {
   session?.advertise(currentAdverts(), currentClaims()).catch(() => {})
   const s = session
   if (s && !s.call && activeTracks().length > 0) {
+    leftCall = false
     s.setCall({ id: s.calls()[0]?.id ?? newCallId(), since: nowSeconds() }).catch(() => {})
   }
 }
@@ -3036,7 +3080,17 @@ function render(views: ParticipantView[], me: string): void {
   // speakers feed two nearby microphones.
   if (mine?.mic && mine.mic !== myDeviceId && micTrack?.enabled) micTrack.enabled = false
   const monitorHere = !besideAnotherDevice && (!mine?.monitor || mine.monitor === myDeviceId)
-  for (const audio of remoteAudios.values()) audio.el.muted = !monitorHere
+  // Never my own voice. A second device of mine on the call sends its
+  // microphone to this one like anybody else's, and playing it is how a
+  // person on a phone and a laptop heard themselves back, twice, a beat
+  // late. Somebody who has pressed Leave hears none of it either: the
+  // tracks still arrive, because the room's mesh outlives the call, but
+  // Leave has to mean quiet. See `leftCall`.
+  const ownDevices = new Set(mine?.devices ?? [])
+  for (const [key, audio] of remoteAudios) {
+    const device = key.slice(0, key.indexOf('|'))
+    audio.el.muted = !monitorHere || leftCall || ownDevices.has(device)
+  }
 
   {
     const twoDevices = (mine?.devices.length ?? 0) > 1
@@ -3058,8 +3112,15 @@ function render(views: ParticipantView[], me: string): void {
 
   renderAssist()
 
+  // After Leave, no pictures either. The mesh still delivers them - it is
+  // the room's, not the call's - but a person who has pressed Leave is
+  // shown the names and the banner, not the faces, until they press Join.
+  // The poll puts them back the moment they do.
+  if (leftCall) for (const entry of remoteVideos.values()) if (onScreen(entry)) parkPicture(entry.el)
+
   const root = $('room')
-  root.innerHTML = ''
+  const kept = new Set<string>()
+  let slot = 0
   const agentsRow = $('agentsRow')
   agentsRow.innerHTML = ''
 
@@ -3091,7 +3152,17 @@ function render(views: ParticipantView[], me: string): void {
       agentsRow.append(chip)
       continue
     }
-    const box = document.createElement('div')
+    let box = tileBoxes.get(view.participant)
+    if (!box) {
+      box = document.createElement('div')
+      tileBoxes.set(view.participant, box)
+    }
+    kept.add(view.participant)
+    // Everything but the media holders is rebuilt from the roster; the
+    // holders stay exactly where they are unless they have emptied.
+    for (const child of [...box.children]) {
+      if (!child.classList.contains('media') || child.childElementCount === 0) child.remove()
+    }
     box.className = 'participant'
     if (view.call) box.classList.add('onCall')
     // The claim this app exists to prove: two devices, one tile. Anything
@@ -3135,27 +3206,40 @@ function render(views: ParticipantView[], me: string): void {
       if (view.owner) heading.append(ownerRun(view.owner))
     }
     if (view.participant !== me) heading.append(verifyChip(view, shown.name ?? ''))
-    box.append(heading)
+    box.prepend(heading)
+    const place = (mediaEl: HTMLDivElement | undefined): void => {
+      if (!mediaEl || mediaEl.childElementCount === 0) { if (mediaEl?.parentElement === box) mediaEl.remove(); return }
+      if (mediaEl.parentElement !== box) box.append(mediaEl)
+    }
 
     if (view.participant === me) {
       // Our own live media, in our own tile: the same elements that were the
       // preview before joining, moved here rather than duplicated (see
       // localMediaEl). A chip only for what has no picture - the mic - and
       // for a track advertised but not currently previewed.
-      if (localMediaEl.childElementCount > 0) box.append(localMediaEl)
+      place(localMediaEl)
+      // My other devices' pictures, in the same tile. A phone's camera is
+      // a picture of me, and the laptop I am also on is the natural place
+      // to check what it is showing; leaving it out meant a person on two
+      // devices never saw their own phone's camera on their desktop and
+      // concluded the desktop was broken. Their sound stays muted, see the
+      // rule at the top of `render`.
+      for (const device of view.devices) if (device !== myDeviceId) place(deviceMediaEls.get(device))
       box.append(
         trackChips(view, (track) => {
           const kind = previewKindOf(track.role)
+          if (track.device !== myDeviceId) {
+            const mediaEl = deviceMediaEls.get(track.device)
+            const tag = track.role === 'mic' || track.role === 'screen-audio' ? 'audio' : 'video'
+            return mediaEl?.querySelector(tag) ? 'live' : 'waiting'
+          }
           return kind !== undefined && localPreviewEls.has(kind) ? 'live' : 'own'
         }),
       )
     } else {
       // Remote media: real video/audio wherever we have it, a waiting chip
       // wherever we do not (still negotiating, or never advertised).
-      for (const device of view.devices) {
-        const mediaEl = deviceMediaEls.get(device)
-        if (mediaEl && mediaEl.childElementCount > 0) box.append(mediaEl)
-      }
+      for (const device of view.devices) place(deviceMediaEls.get(device))
       box.append(
         trackChips(view, (track) => {
           const mediaEl = deviceMediaEls.get(track.device)
@@ -3170,23 +3254,52 @@ function render(views: ParticipantView[], me: string): void {
     for (const device of sharedDevices) {
       const source = () => screenSource(view.participant, device)
       const available = source()
-      if (!available) continue
+      // The button is there from the moment the roster says a screen is
+      // being shared, and only becomes pressable when the picture has
+      // arrived. Missing entirely until then, it looked to the person
+      // waiting as if there was nothing to expand, and on a phone the
+      // double-tap that also opened the viewer is not a gesture anybody
+      // finds. One tap on the preview opens it too.
       const expand = document.createElement('button')
-      expand.type = 'button'; expand.className = 'shareExpand'; expand.textContent = 'Expand screen share'
+      expand.type = 'button'; expand.className = 'shareExpand'
+      expand.textContent = available ? 'Expand screen share' : 'Screen share arriving…'
+      expand.disabled = !available
       expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? shown.short}`)
       expand.addEventListener('click', () => shareViewer.open(source, expand))
       box.append(expand)
-      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(`${device}|${available.track.id}`)?.el
+      if (!available) continue
+      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(`${device}|${available.id}`)?.el
+        ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el
       if (preview) {
-        preview.classList.add('screenPreview'); preview.ondblclick = () => shareViewer.open(source, expand)
+        preview.classList.add('screenPreview')
+        if (device === myDeviceId) preview.ondblclick = () => shareViewer.open(source, expand)
+        else preview.onclick = () => shareViewer.open(source, expand)
         // Marks drawn on this share show over its preview, so the person
         // sharing sees what is being pointed at without opening anything.
         if (!shareMarkOverlays.has(preview)) shareMarkOverlays.set(preview, shareViewer.overlay(preview, () => source()?.id))
       }
     }
     sweepShareMarkOverlays()
-    root.append(box)
+    // Into its place in the roster's order, moved only if it is not
+    // already there.
+    const at = root.children[slot] ?? null
+    if (at !== box) root.insertBefore(box, at)
+    slot++
   }
+  for (const [participant, box] of tileBoxes) {
+    if (kept.has(participant)) continue
+    box.remove()
+    tileBoxes.delete(participant)
+  }
+  // The stage lays itself out by how many faces are on it, and gives a
+  // shared screen the whole width. See `#room[data-tiles]` in style.css.
+  let tiles = 0, sharing = false
+  for (const box of tileBoxes.values()) {
+    if (box.querySelector('video')) tiles++
+    if (box.querySelector('video.screenPreview')) sharing = true
+  }
+  root.dataset.tiles = String(tiles)
+  root.classList.toggle('sharing', sharing)
 
   agentsRow.hidden = agentsRow.childElementCount === 0
   // Faces and voices, and only when there are some.
@@ -3328,7 +3441,12 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
     if (view.participant !== me) row.append(verifyChip(view, shown.name ?? ''))
     // A word in private, from the room you are both in. A DM is a room of
     // two; see docs/messages.md. Not offered on a room that already is one.
-    if (view.participant !== me && !view.agent && !dmPeer(roomPolicy, me)) {
+    // An agent takes one too, from its owner or a room admin: those are
+    // the people it answers to, and the agent's runner applies the same
+    // rule at its end (`--dm` in kithmoot-agent), so the button is only
+    // shown where it can work.
+    const mayDmAgent = view.agent === true && (view.owner?.principal === me || admins.has(me))
+    if (view.participant !== me && (!view.agent || mayDmAgent) && !dmPeer(roomPolicy, me)) {
       const dm = document.createElement('button')
       dm.type = 'button'
       dm.className = 'dmButton quiet'
@@ -3471,7 +3589,7 @@ function connectingWord(device: string): string {
   if (route.exhausted) return 'could not connect, trying again'
   switch (route.tier) {
     case 'turn':
-      return 'connecting via TURN…'
+      return turnRelayConfigured ? 'connecting via relay…' : 'no relay server, still trying…'
     case 'assist':
       return `connecting via ${nameOfDevice(route.endpoint)}…`
     case 'forwarder':
@@ -4181,14 +4299,46 @@ function followNamedConversation(name: string): ReturnType<RoomSession['channel'
     log = session.channel(name)
     channelLogs.set(name, log)
     channelCounts.set(name, log.messages().length)
-    log.onChange(messages => {
+    log.onChange(() => coalesceChatPaint(name, () => {
       if (session !== owner) return
+      const messages = log!.messages()
       channelCounts.set(name, messages.length)
       if (currentChannel === name) renderChat(messages)
       renderChannels()
-    })
+    }))
   }
   return log
+}
+
+/**
+ * One repaint per burst, not one per message.
+ *
+ * A relay replays a room's history as a run of events, each in its own
+ * websocket message, and each used to repaint the whole log: the log
+ * cleared, every message rebuilt, the thread structure resolved, the
+ * search index refreshed, notifications considered. Five hundred messages
+ * of history was five hundred full repaints, which is the "ages loading
+ * the chat" a person sees on opening a busy room or an agent's channel.
+ * Now the listener records that a paint is owed and the last one in a
+ * short window does it, reading the log's current messages when it runs.
+ * A message typed live still lands inside the same window, which is under
+ * a frame at 60 Hz.
+ */
+const CHAT_PAINT_COALESCE_MS = 40
+const chatPaintTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; paint: () => void }>()
+function coalesceChatPaint(key: string, paint: () => void): void {
+  const owed = chatPaintTimers.get(key)
+  // The newest closure wins: a room switched inside the window hands in a
+  // paint for the new log, and the old one's guard would have done nothing.
+  if (owed) { owed.paint = paint; return }
+  const entry = {
+    paint,
+    timer: setTimeout(() => {
+      chatPaintTimers.delete(key)
+      entry.paint()
+    }, CHAT_PAINT_COALESCE_MS),
+  }
+  chatPaintTimers.set(key, entry)
 }
 
 function conversationStorageKey(): string {
@@ -5236,8 +5386,22 @@ function screenSource(participant: string, device: string): ShareSource | undefi
   const person = session?.participants().find(view => view.participant === participant)
   if (!person) return undefined
   const advert = person.tracks.find(track => track.device === device && track.role === 'screen')
-  const track = participant === meParticipant && device === myDeviceId
+  let track = participant === meParticipant && device === myDeviceId
     ? screenTrack : advert ? remoteVideos.get(`${device}|${advert.trackId}`)?.track : undefined
+  // The advert says a screen is on and a picture from that device is
+  // playing under some other name: a receiver id the browser minted on a
+  // rebuilt connection, before the slot logic caught up. Any live video
+  // from the device that is not its camera is the share, and "Expand"
+  // must not be missing while the picture is plainly there.
+  if (!track && advert && device !== myDeviceId) {
+    const cameraId = person.tracks.find(t => t.device === device && t.role === 'camera')?.trackId
+    for (const [key, entry] of remoteVideos) {
+      if (!key.startsWith(`${device}|`) || entry.track.readyState !== 'live') continue
+      if (cameraId !== undefined && key === `${device}|${cameraId}`) continue
+      track = entry.track
+      break
+    }
+  }
   if (!track || track.readyState !== 'live') return undefined
   const name = participant === meParticipant ? 'Your screen' : `${shownAs(participant, person.name).name ?? shortKey(participant)}’s screen`
   return { id: advert?.trackId ?? track.id, track, title: name }
@@ -5420,10 +5584,55 @@ function onScreen(entry: RemoteVideo): boolean {
  * only for one that has started at all, which is why `played` gates the
  * stall count rather than the clock doing it alone.
  */
+/**
+ * Checks a picture or a sound may go without the roster naming its track
+ * before it is taken down. Three, at the one-second poll: a track that
+ * lands ahead of its own advert is given a slow relay's worth of time for
+ * the advert to arrive, and one whose advert has gone is off inside three
+ * seconds.
+ */
+const ORPHAN_CHECKS = 3
+const orphanChecks = new Map<string, number>()
+
+/**
+ * Whether the roster still says this remote track exists.
+ *
+ * The far end stopping a share or a camera removes the sender, and a
+ * removed sender does NOT end the receiver's track in any browser - it
+ * mutes it, which the stall rule cannot tell from a still picture, and a
+ * muted screen share decodes nothing, so the element sat on everybody's
+ * screen as a black box for the rest of the call. What the far end does
+ * say, and says promptly, is its roster advert: `publishActiveTracks`
+ * republishes the full set on every toggle. So the advert is the truth
+ * about whether a track is on, and a track the roster has stopped
+ * naming is over. Undefined while the roster has nothing to say about
+ * the device at all: a device between heartbeats is not a device that
+ * has turned everything off.
+ */
+function advertised(key: string): boolean | undefined {
+  const bar = key.indexOf('|')
+  const device = key.slice(0, bar), id = key.slice(bar + 1)
+  const person = session?.participants().find(view => view.devices.includes(device))
+  if (!person) return undefined
+  return person.tracks.some(track => track.device === device && track.trackId === id)
+}
+
+/** Count a check against an unadvertised track; true once it has had its
+ *  grace. Any check that finds it advertised again forgives it. */
+function orphanedFor(key: string): boolean {
+  const named = advertised(key)
+  if (named !== false) { orphanChecks.delete(key); return false }
+  const checks = (orphanChecks.get(key) ?? 0) + 1
+  orphanChecks.set(key, checks)
+  if (checks < ORPHAN_CHECKS) return false
+  orphanChecks.delete(key)
+  return true
+}
+
 function syncRemoteVideos(): void {
   let changed = false
   for (const [key, entry] of remoteVideos) {
-    if (entry.track.readyState === 'ended') {
+    if (entry.track.readyState === 'ended' || orphanedFor(key)) {
       if (onScreen(entry)) changed = true
       entry.el.remove()
       remoteVideos.delete(key)
@@ -5435,7 +5644,7 @@ function syncRemoteVideos(): void {
     if (moving) {
       entry.stalled = 0
       entry.played = true
-      if (!onScreen(entry)) {
+      if (!onScreen(entry) && !leftCall) {
         entry.container.append(entry.el)
         changed = true
       }
@@ -5451,6 +5660,20 @@ function syncRemoteVideos(): void {
       changed = true
     }
   }
+  // Sound, by the same roster rule. A screen share's audio, or a
+  // microphone switched off, leaves a silent element behind otherwise,
+  // and the tile keeps a "mic" chip for a mic that is off.
+  for (const [key, entry] of remoteAudios) {
+    if (entry.track.readyState !== 'ended' && !orphanedFor(key)) continue
+    entry.el.remove()
+    remoteAudios.delete(key)
+    const device = key.slice(0, key.indexOf('|'))
+    const remaining = [...remoteAudios].find(([other]) => other.startsWith(`${device}|`))
+    if (remaining) speakingMonitor.watch(device, remaining[1].track)
+    else speakingMonitor.unwatch(device)
+    changed = true
+  }
+  for (const key of orphanChecks.keys()) if (!remoteVideos.has(key) && !remoteAudios.has(key)) orphanChecks.delete(key)
   if (changed && session) render(session.participants(), meParticipant)
 }
 
@@ -5617,6 +5840,11 @@ function recoverRemoteTracks(): void {
       const track = receiver.track
       if (!track || track.readyState !== 'live') continue
       const stableKey = `${device}|${advertisedTrackId(device, track)}`
+      // A sender the far end removed leaves a receiver whose track is
+      // still `live` and forever muted. `syncRemoteVideos` took its
+      // element down on the roster's word; putting it back here every two
+      // seconds would be the black box again, on a timer.
+      if (advertised(stableKey) === false) continue
       const entry = track.kind === 'video' ? remoteVideos.get(stableKey) : remoteAudios.get(stableKey)
       if (entry?.track !== track || !entry.el.isConnected) attachRemoteTrack(device, track)
     }
@@ -5937,8 +6165,9 @@ async function startSession(asVisitor = false): Promise<void> {
     const roomLabelNow = () => currentRoomLabel()
     followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey)
     const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel })
-    s.chat.onChange((messages) => {
+    s.chat.onChange(() => coalesceChatPaint('chat', () => {
       if (session !== s) return
+      const messages = s.chat.messages()
       // Only when the main chat is the conversation on screen. Repainting
       // regardless put the main chat under whichever tab was selected and
       // left the tab lit, so the page said one thing and showed another.
@@ -5948,7 +6177,7 @@ async function startSession(asVisitor = false): Promise<void> {
       renderChannels()
       noteChatRead(messages)
       notifyChat(messages)
-    })
+    }))
     renderChat(s.chat.messages())
     noteChatRead(s.chat.messages())
     notifyChat(s.chat.messages())
@@ -6700,6 +6929,11 @@ async function closeRoomSession(): Promise<void> {
   remoteAudios.clear()
   for (const el of deviceMediaEls.values()) el.remove()
   deviceMediaEls.clear()
+  for (const box of tileBoxes.values()) box.remove()
+  tileBoxes.clear()
+  leftCall = false
+  orphanChecks.clear()
+  $('agentsRow').replaceChildren()
   const preview = $('voicePreviewAudio') as HTMLAudioElement
   preview.pause()
   if (preview.src) URL.revokeObjectURL(preview.src)
@@ -7206,12 +7440,12 @@ $('callToggle').addEventListener('click', () => {
     joinCall().catch((err) => setStatus(describeError(err)))
     return
   }
-  // Refuse to hide controls for a camera or microphone that is still on.
-  if (callIsLive()) {
-    setCallOpen(true)
-    return
-  }
-  setCallOpen($('callBay').hidden)
+  // On a call the controls stay up. Pressing "On call" used to fold them
+  // away, so the one button a person had just pressed to get the mic and
+  // camera hid the mic and camera; now it brings them back into view if
+  // the page has scrolled past them, and that is all.
+  setCallOpen(true)
+  $('deviceControls').scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 })
 $('joinCall').addEventListener('click', () => {
   joinCall().catch((err) => setStatus(describeError(err)))

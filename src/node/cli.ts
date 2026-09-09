@@ -13,7 +13,7 @@ import type { ForwarderRef } from '../types.js'
 import { issueAgentOwnership, normaliseAgentOwnership, verifyAgentOwnership } from '../ownership.js'
 import type { AgentOwnership } from '../types.js'
 import { localIdentity } from '../identity.js'
-import { localPeerCrypt } from '../dm.js'
+import { localPeerCrypt, openInvite } from '../dm.js'
 import { ContextFileStore } from './context-store.js'
 import { checkIdentity, npubOrHex } from './identity-guard.js'
 import { parseRoomLink } from '../link.js'
@@ -114,6 +114,11 @@ Options
   --model <name>           Model for ollama (required) or anthropic (default claude-opus-5)
   --ollama-url <url>       Default http://127.0.0.1:11434
   --respond <when>         mentions (default) | always
+  --dm <who>               (join) Accept private conversations from: owner (default:
+                           the principal on --owner-proof, and the room's admins) |
+                           anyone | off. Each one is a room of two, opened with the
+                           same brain, which answers everything said in it. With
+                           --state <dir> they are remembered and reopened on restart.
   --listen                 Receive audio and write transcripts (needs --whisperx)
   --whisperx <url>         WhisperX server, default http://127.0.0.1:8765
   --language <code>        Force the transcription language
@@ -214,6 +219,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       model: { type: 'string' },
       'ollama-url': { type: 'string' },
       respond: { type: 'string', default: 'mentions' },
+      dm: { type: 'string' },
       listen: { type: 'boolean', default: false },
       whisperx: { type: 'string' },
       language: { type: 'string' },
@@ -245,6 +251,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const name = values.name ?? env('NAME') ?? (command === 'host' ? 'Agent host' : undefined)
   if (!name) fail('--name is required')
   if (values.respond !== 'mentions' && values.respond !== 'always') fail('--respond must be mentions or always')
+  const dmMode = values.dm ?? env('DM') ?? 'owner'
+  if (dmMode !== 'owner' && dmMode !== 'anyone' && dmMode !== 'off') fail('--dm must be owner, anyone or off')
 
   const relays = [...(values.relay ?? []), ...(values.relays ? values.relays.split(',') : [])].map((s) => s.trim()).filter(Boolean)
   const common: Common = {
@@ -408,6 +416,61 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     log('listening: what reaches this agent is transcribed into the transcript channel')
   }
 
+  // Private conversations. A person in the room asks for a word in private
+  // by sending an invitation sealed to this agent; the agent opens the
+  // room of two beside the room it was given, with the same persona and a
+  // brain of its own that answers everything, because in a room of two
+  // there is nobody else it could be talking to. Only for `join`: a
+  // keeper, a host and a scribe are the room's furniture, not somebody's
+  // agent, and an MCP client's runtime is the one room it was pointed at.
+  //
+  // Remembered under --state (a directory, for join) as private.json, so a
+  // restarted agent is back in every conversation it accepted rather than
+  // silently gone from them.
+  const privateRooms = new Map<string, AgentRuntime>()
+  if (command === 'join' && dmMode !== 'off') {
+    if (common.brain === 'stdio') log('private conversations need --brain ollama or anthropic; stdio is one room only')
+    else {
+      const crypt = localPeerCrypt(participantSk)
+      const privateFile = statePath ? join(statePath, 'private.json') : undefined
+      const remembered: Record<string, { link: string; from: string; name?: string }> = privateFile ? await readPrivateRooms(privateFile) : {}
+      const openPrivateRoom = async (room: string, link: string, from: string, name?: string): Promise<void> => {
+        if (privateRooms.has(room)) return
+        const dm = await RoomAgent.join({ link, name: common.name, identity, relays: common.relays.length ? common.relays : undefined, owner })
+        const dmRuntime = new AgentRuntime(dm, { persona, memoryDir: common.memory }).start()
+        privateRooms.set(room, dmRuntime)
+        const brain = makeBrain({ ...common, respond: 'always' }, log)
+        if (brain) await brain.start(dmRuntime)
+        log(`private conversation with ${name ?? from.slice(0, 8)} open (room ${dm.roomId.slice(0, 8)})`)
+        const forget = () => {
+          void dmRuntime.close()
+          privateRooms.delete(room)
+          delete remembered[room]
+          if (privateFile) void writePrivateRooms(privateFile, remembered)
+        }
+        dm.onRemoved(forget)
+        dm.onClosed(forget)
+      }
+      for (const [room, entry] of Object.entries(remembered)) {
+        openPrivateRoom(room, entry.link, entry.from, entry.name).catch((err) => log(`private conversation ${room.slice(0, 8)} could not be reopened: ${err instanceof Error ? err.message : String(err)}`))
+      }
+      agent.onInvite((invitation) => {
+        void (async () => {
+          const from = invitation.from
+          const allowed = dmMode === 'anyone' || (owner !== undefined && owner.principal === from) || agent.admins.includes(from)
+          if (!allowed) { log(`private conversation from ${from.slice(0, 8)} declined: not the owner or an admin (--dm anyone to accept)`); return }
+          if (privateRooms.has(invitation.room)) return
+          const link = await openInvite(invitation.invite, { self: agent.participant, sender: from, crypt })
+          if (!link) { log(`private conversation from ${from.slice(0, 8)}: could not open the invitation`); return }
+          await openPrivateRoom(invitation.room, link, from, invitation.name)
+          remembered[invitation.room] = { link, from, ...(invitation.name ? { name: invitation.name } : {}) }
+          if (privateFile) await writePrivateRooms(privateFile, remembered)
+        })().catch((err) => log(`private conversation from ${invitation.from.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`))
+      })
+      log(`private conversations: ${dmMode === 'anyone' ? 'anyone in the room' : 'the owner and admins'} may start one${privateFile ? `, remembered in ${privateFile}` : ' (no --state, so forgotten on restart)'}`)
+    }
+  }
+
   const stop = () => {
     log('leaving')
     nudger?.stop()
@@ -417,7 +480,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     // presence timeout. Bounded, because a relay that never answers must
     // not keep a process that was told to stop alive.
     const bound = new Promise<void>((resolve) => setTimeout(resolve, 3_000).unref())
-    void Promise.race([runtime.close(), bound]).then(() => process.exit(0))
+    const closing = Promise.all([runtime.close(), ...[...privateRooms.values()].map((r) => r.close())])
+    void Promise.race([closing, bound]).then(() => process.exit(0))
   }
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)
@@ -475,6 +539,22 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const brain = makeBrain(common, log)
   if (brain) await brain.start(runtime)
   else log('no brain: in the room, saying nothing')
+}
+
+/** The private conversations a joined agent has accepted, by room id. A
+ *  link is a room key, so the file is the agent's alone: mode 0600. */
+async function readPrivateRooms(file: string): Promise<Record<string, { link: string; from: string; name?: string }>> {
+  try {
+    const parsed = JSON.parse(await readFile(file, 'utf8')) as { rooms?: Record<string, { link: string; from: string; name?: string }> }
+    return parsed.rooms ?? {}
+  } catch {
+    return {}
+  }
+}
+
+async function writePrivateRooms(file: string, rooms: Record<string, { link: string; from: string; name?: string }>): Promise<void> {
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(file, JSON.stringify({ rooms }, null, 2) + '\n', { mode: 0o600 })
 }
 
 function makeBrain(common: Common, log: (line: string) => void): Brain | undefined {

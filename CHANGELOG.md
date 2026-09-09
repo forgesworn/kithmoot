@@ -9,7 +9,53 @@ implementation reads this file to know what moved.
 
 ## Unreleased
 
+### Added
+
+- **A word in private with an agent.** "Message privately" on an agent's
+  row in Room details, shown to the agent's owner and the room's admins.
+  `kithmoot-agent join` accepts the invitation (`--dm owner`, the default,
+  `anyone` or `off`) and opens the room of two beside its room with the
+  same persona and a brain that answers everything said there, remembered
+  under `--state` across restarts. `RoomAgent.onInvite` in the library. Nothing on the wire changed: the
+  invitation is the one in `docs/messages.md`.
+
 ### Fixed
+
+- **A screen share that ends comes off everybody's screen.** Stopping a
+  share removes the sender, and no browser ends the receiver's track for
+  that; it mutes it, so the last frame, or a black box, sat on every other
+  tile for the rest of the call. The roster advert is now the truth: a
+  picture or sound the roster no longer names is taken down within three
+  seconds, and the recovery poll no longer puts it back.
+- **Expand screen share is reachable.** The button appears the moment the
+  roster says a screen is on, disabled until the picture lands, and one
+  tap on the preview opens the viewer; it used to need a double-tap and
+  went missing entirely when the picture arrived under a receiver id the
+  browser minted on a rebuilt connection.
+- **No more flashing video.** Every roster change, which is every
+  heartbeat from every device, rebuilt every tile and detached every
+  `<video>`; Chromium kept playing but dropped the compositing layer, a
+  black flash on a beat. Tiles now persist and only the words around a
+  picture are rebuilt.
+- **Call controls stay up.** Pressing "On call" folded the microphone and
+  camera away; now it only brings them into view.
+- **Never your own voice.** A person on two devices was sent their own
+  microphone from the other one and played it, a beat late. Audio from any
+  device of your own is never played, and after Leave nothing is played
+  and no pictures are shown until Join.
+- **Your other device's camera in your tile.** The "me" tile only ever
+  showed local media, so a phone's camera never appeared on the same
+  person's desktop.
+- **The call stage fills the window.** Tiles size by how many faces there
+  are, a shared screen spans the row, and a phone in landscape gets two
+  columns; pictures used to be 320 px boxes in a grid built for cards.
+- **"connecting via TURN" was sometimes a lie.** The last rung is called
+  TURN whether or not a relay credential was obtained; the chip now says
+  "no relay server, still trying…" when there is none.
+- **History loads in one pass.** Every replayed event repainted the whole
+  conversation, thread resolution and search index included, so a busy
+  room or an agent's channel took five hundred repaints to open. Now one
+  repaint per burst, per conversation.
 
 - **Marks on a screen share reach the person sharing.** Drawing on
   somebody's share was only ever painted inside the expanded viewer, so
