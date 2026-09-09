@@ -71,3 +71,11 @@ it('ignores forged profiles and invalid address URLs without contacting their ho
   expect(book.get(pubkey)?.name).toBe('Alice')
   expect(fetcher).not.toHaveBeenCalled()
 })
+
+it('hands the pool each relay once when the room and the public list spell it differently', () => {
+  const transport = vi.fn(() => ({ subscribe: () => () => {}, close() {} }) as unknown as NostrRelayPool)
+  const book = new ProfileBook({ relays: () => ['wss://nos.lol/', 'wss://relay.primal.net/', 'wss://purplepag.es', 'wss://nos.lol', 'wss://relay.primal.net'], onChange: vi.fn(), transport })
+  books.push(book)
+  book.want(['a'.repeat(64)])
+  expect(transport).toHaveBeenCalledWith(['wss://nos.lol/', 'wss://relay.primal.net/', 'wss://purplepag.es'])
+})
