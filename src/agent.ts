@@ -31,11 +31,11 @@ import type { AgentOwnership, ForwarderRef, KindredProof, RoomPolicy, SingularRo
 import { parseForwarderRef } from './descriptor.js'
 
 /**
- * The relays an agent uses when its link names none. The same three the
- * app defaults to, so a link written without hints lands in the same room
- * from either.
+ * The relays an agent uses when its link names none. The same two the app
+ * defaults to, so a link written without hints lands in the same room from
+ * either, and none of the project's own: see the app's note on its list.
  */
-export const DEFAULT_RELAYS = ['wss://relay.trotters.cc', 'wss://nos.lol', 'wss://relay.primal.net']
+export const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net']
 
 /**
  * The channel agents talk to each other on. Every member can open it - see

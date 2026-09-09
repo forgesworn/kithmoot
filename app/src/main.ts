@@ -250,15 +250,16 @@ function hasUnsentWork(): boolean {
   return outbox.pending || assignmentPanel.busy || assignmentPanel.hasDrafts || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
 }
 
-// Relays confirmed live for this room kind. relay.trotters.cc is the
-// project's own relay, so it goes first; nos.lol and relay.primal.net are
-// third-party fallbacks. relay.damus.io returned 503 during the stage 2
-// acceptance run and was dropped from the default list for that reason -
-// "no relay is load-bearing" already covers a room carrying a dead relay
-// in its hints, but there is no reason to default new rooms to one that is
-// currently flaky. Change this list, not code elsewhere, if a relay in it
-// goes down again.
-const DEFAULT_RELAYS = ['wss://relay.trotters.cc', 'wss://nos.lol', 'wss://relay.primal.net']
+// Relays confirmed live for this room kind: two third-party public relays,
+// and deliberately none of the project's own. A client that ships its
+// maker's relay as a default makes that relay load-bearing for everybody
+// who never changes the list, which is exactly the central dependency this
+// project exists to avoid; a person who wants their own or their circle's
+// box in the list adds it in relay settings, or reads it off a contact
+// card. relay.damus.io returned 503 during the stage 2 acceptance run and
+// was dropped for that reason. Change this list, not code elsewhere, if a
+// relay in it goes down again.
+const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net']
 const relayStorage = {
   getItem: (key: string) => localStorage.getItem(key),
   setItem: (key: string, value: string) => localStorage.setItem(key, value),

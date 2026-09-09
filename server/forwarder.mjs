@@ -183,7 +183,7 @@ export function loadConfigFromEnv(env = process.env) {
   if (relays.length === 0) {
     throw new Error(
       'NOSTR_RELAYS is not set - refusing to start. At least one relay is required, comma-separated for ' +
-        'more than one, e.g. "wss://relay.trotters.cc,wss://nos.lol". Use the same relays the room does, ' +
+        'more than one, e.g. "wss://nos.lol,wss://relay.primal.net". Use the same relays the room does, ' +
         'or the room will never see this forwarder answer.',
     )
   }
