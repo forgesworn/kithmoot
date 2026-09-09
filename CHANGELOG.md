@@ -25,6 +25,18 @@ implementation reads this file to know what moved.
   quiet room from its link and posts in drops. See `docs/decisions.md`
   and `docs/protocol.md`. Android does not read quiet rooms yet.
 
+- **Contact cards.** A contact book on this device, read from
+  `nostr-contact-card` cards: paste one in Room details, or open one as a
+  link at the door and press to keep it. The person's row shows "card",
+  the box on the card is one of the circle's relays (the lane says
+  sheltered when every relay a message goes to is one), its node id and
+  the highest address serial are pinned per box, and every box says
+  whether it is dialled on the card's endorsement or a refreshed address.
+  "Show my card" makes this device's own card, with no box and a
+  rendezvous key made here, for handing over. The circle mark on a relay
+  is never saved as a preference. No wire change: nothing about a card is
+  published.
+
 ### Fixed
 
 - **A connected Nostr extension is the way in.** The door never looked

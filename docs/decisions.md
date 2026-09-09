@@ -1299,6 +1299,57 @@ eight messages an hour from one device; the ninth waits for the next
 hour. None of this is hidden in a setting: the chip beside the composer,
 the note on the room sheet and the outbox row all say what is happening.
 
+## A contact card makes a contact, and the box on it is the first sheltered relay
+
+The lane indicator has said "sheltered" for a relay marked as a box of the
+person's circle since the day it shipped, and until now nothing could mark
+one. A contact card (`nostr-contact-card`, the profile's draft) is the
+thing that can: one link or QR from a person, carrying their key and name,
+their public relays, a rendezvous key and a fresh ephemeral, and the box
+they run, with the box's Link address card inside and endorsed by their
+signature. Reading it needs nothing from the network.
+
+**Kept per browser, never published.** A card is a capability: whoever
+holds it can reach the box and start deriving keys with the person. So the
+book is the same shape as the verifications: pure functions over the
+device store, per person, forgotten on a press, and nothing here is ever
+sent anywhere. The card the app makes for its own person carries no box
+and a rendezvous key made on this device (the profile wants that key as a
+child of a root the signer holds; this browser has no root, so its key is
+its own and rotates by being replaced), and the sheet says to hand it
+over and never post it. Only a device holding the identity can make one:
+an extension or a bunker signs events and nothing else, and a card's
+signature is over a digest, which is the draft's problem to solve before
+a signer-backed identity can hand out cards.
+
+**Two things the draft asks of a reader, and where they live.** The node
+id the person endorsed is pinned per box from the first read, so a fresh
+address from the box is accepted only under that id; and the highest Link
+card serial accepted per node is kept, because that is what stops an old
+card of the same node replaying, and without it any unexpired old card
+would do. A second card from the same person replaces the first and keeps
+the serial reached for a node that did not change. The refresh itself,
+fetching a fresh Link card from the box, waits on the box: the shape it
+publishes in is the box's to decide, and the app has the path ready
+(`refreshContactBox`) and shows, on every box, whether it is dialled on
+the card's endorsement or on a refreshed card.
+
+**The mark is a fact, not a preference.** Relay settings let a person
+choose relays and their access; they do not let a person declare a relay
+a box. The circle mark is read off the contact book every time a
+configuration is handed out and is stripped from anything saved, so a
+saved preference cannot claim it and a forgotten card takes it away at
+once, sockets untouched. What a person sees: the row of somebody whose
+card they hold says so, the composer says the next message is sheltered
+when every relay it writes to is a box on a card, and each message carries
+the lane it actually took.
+
+**What a card is not.** A card is trusted on first use. An impostor who
+hands you a card is an impostor you have a contact for; what narrows that
+is the spoken-word check this app already has, which the bond ceremony
+will one day replace, and how many independent channels confirm the key.
+The badge says "card", not "verified", for that reason.
+
 ## Three security-review proposals declined, 6 September 2026
 
 A security review of the app, the box and the deploy kit came back with a

@@ -58,3 +58,26 @@ describe('device relay preferences', () => {
     expect(profilePreference(saved)).toBe(true)
   })
 })
+
+describe('the circle\'s relays', () => {
+  it('marks a box known from a contact card on every configuration, never saves the mark, and moves it when the circle changes', () => {
+    const saved = storage()
+    const circle = new Set(['wss://box.test/'])
+    const connections = new RelayConnections(saved, ['wss://default.test', 'wss://box.test'], url => circle.has(url))
+    expect(connections.configuration('default')).toEqual([
+      { url: 'wss://default.test/', read: true, write: true },
+      { url: 'wss://box.test/', read: true, write: true, circle: true },
+    ])
+    // A saved preference claiming the mark does not get it: the mark is a fact about the relay.
+    connections.save('default', [{ url: 'wss://default.test', read: true, write: true, circle: true }])
+    expect(connections.configuration('default')).toEqual([{ url: 'wss://default.test/', read: true, write: true }])
+    expect(JSON.parse(saved.getItem('kithmoot.relays.v1')!).default[0].circle).toBeUndefined()
+    const pool = connections.pool(room, ['wss://box.test'])
+    try {
+      expect(pool.describe().map(r => r.circle)).toEqual([true])
+      circle.clear()
+      connections.circleChanged()
+      expect(pool.describe().map(r => r.circle)).toEqual([undefined])
+    } finally { pool.close() }
+  })
+})

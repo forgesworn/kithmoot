@@ -25,6 +25,7 @@ import {
   storeCredentialFor,
   storeKeptAdmission,
   type SavedRoomAdmission,
+  memoryDeviceStore,
 } from './device-store.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
@@ -120,6 +121,9 @@ import {
   type RelayTransport,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
+import { addContactFromCard, circleRelays, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
+import { buildCard, cardLink } from 'nostr-contact-card'
+import { schnorr } from '@noble/curves/secp256k1.js'
 import { ReadPositionSync } from './read-positions.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
@@ -154,7 +158,7 @@ import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
+import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 
 const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
@@ -258,7 +262,10 @@ const relayStorage = {
   getItem: (key: string) => localStorage.getItem(key),
   setItem: (key: string, value: string) => localStorage.setItem(key, value),
 }
-const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS)
+// A relay that is a contact's box is one of the circle's, and a message
+// that goes only to such relays shows as sheltered. Read off the contact
+// book each time, so a card read or forgotten moves the mark at once.
+const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, (url) => circleRelays(browserDeviceStore(localStorage)).has(url))
 let RELAYS = relayConnections.configuration('default').map(relay => relay.url)
 let roomRelayScope = 'default'
 function configuredPool(urls: string[]): NostrRelayPool {
@@ -2455,8 +2462,108 @@ function openRoomSheet(): void {
   if (session) renderSheetRoster(session.participants(), meParticipant)
   renderSheetRoom()
   renderChannels()
+  renderContacts()
   sheet.showModal()
   sheet.scrollTop = 0
+}
+
+// ---------------------------------------------------------------------------
+// The contact book: cards this browser holds. See app/src/contact-store.ts.
+// ---------------------------------------------------------------------------
+
+/** What a contact is called on screen: the name on their card, else the key. */
+function contactLabel(c: Contact): string {
+  return c.name ?? shortKey(c.p)
+}
+
+function renderContacts(): void {
+  const list = $('contactList')
+  list.replaceChildren()
+  for (const c of contacts(deviceStore)) {
+    const row = document.createElement('div')
+    row.className = 'contactRow'
+    const who = document.createElement('span')
+    who.className = 'contactWho'
+    who.textContent = contactLabel(c)
+    who.title = npubOf(c.p)
+    const key = document.createElement('span')
+    key.className = 'pubkey'
+    key.textContent = shortKey(c.p)
+    const when = document.createElement('span')
+    when.className = 'note'
+    const expired = c.expires <= nowSeconds()
+    when.textContent = expired ? `card expired ${new Date(c.expires * 1000).toLocaleDateString()}` : `card read ${new Date(c.readAt * 1000).toLocaleDateString()}`
+    const forget = document.createElement('button')
+    forget.type = 'button'
+    forget.className = 'quiet'
+    forget.textContent = 'Forget'
+    forget.setAttribute('aria-label', `Forget ${contactLabel(c)}'s card`)
+    forget.addEventListener('click', async () => {
+      if (!await confirmRoomAction({ title: `Forget ${contactLabel(c)}'s card?`, message: 'Their box stops counting as one of your circle\'s relays, and messages to it show as public again. Their key is not blocked; a new card adds them back.', confirmLabel: 'Forget card', danger: true })) return
+      forgetContact(deviceStore, c.p)
+      contactsChanged()
+    })
+    row.append(who, key, when, forget)
+    const boxes = document.createElement('span')
+    boxes.className = 'contactBoxes'
+    boxes.textContent = c.boxes.length === 0
+      ? 'No box on this card.'
+      : c.boxes.map((b) => `Box ${shortKey(b.p)}: ${b.relays.concat(b.onions).join(', ') || 'no address'} (${b.source === 'card' ? 'dialled on their card\'s endorsement' : `dialled on a fresh address card, refreshed ${new Date((b.refreshedAt ?? 0) * 1000).toLocaleDateString()}`})`).join(' ')
+    row.append(boxes)
+    list.append(row)
+  }
+  if (list.childElementCount === 0) {
+    const none = document.createElement('p')
+    none.className = 'note'
+    none.textContent = 'No contact cards yet.'
+    list.append(none)
+  }
+  // Only a device holding the identity can sign a card. An extension or a
+  // bunker signs events and nothing else, and a paired device holds no key.
+  $('myCard').hidden = !!nostrSession || isPairedSecondary(deviceStore)
+}
+
+/** A card was read or forgotten: the circle's relays moved, and so did the marks. */
+function contactsChanged(): void {
+  relayConnections.circleChanged()
+  renderContacts()
+  if (session) render(session.participants(), meParticipant)
+  renderLaneNote()
+}
+
+function addContact(text: string): boolean {
+  const r = addContactFromCard(deviceStore, text, nowSeconds())
+  const status = $('contactCardStatus')
+  if (!r.ok) {
+    status.textContent = `${r.words} (step ${r.step}: ${r.reason})`
+    return false
+  }
+  const boxes = r.contact.boxes.length
+  status.textContent = `${r.replaced ? 'Updated' : 'Added'} ${contactLabel(r.contact)}: ${boxes === 0 ? 'no box' : boxes === 1 ? 'one box' : `${boxes} boxes`}, ${r.contact.relays.length} public relay${r.contact.relays.length === 1 ? '' : 's'}.`
+  contactsChanged()
+  return true
+}
+
+/** This device's own card: its key, name and relays, a rendezvous key made
+ *  here, no box. Seven days. Handed over, never posted. */
+async function showMyCard(): Promise<void> {
+  const rz = bytesToHex(schnorr.getPublicKey(myRendezvousSecret(deviceStore, () => randomBytes(32))))
+  const card = buildCard({
+    identityPrivateKey: participantKey(),
+    rz,
+    ephemeralPrivateKey: randomBytes(32),
+    ...(typedName ? { name: typedName } : {}),
+    relays: RELAYS,
+    boxes: [],
+    ttlSeconds: 7 * 24 * 3600,
+  })
+  const link = cardLink(joinLinkBase(), card)
+  const out = $('myCardOut') as HTMLInputElement
+  out.value = link
+  out.hidden = false
+  const qr = $('myCardQr') as HTMLCanvasElement
+  qr.hidden = false
+  await renderQr(qr, link)
 }
 
 function closeRoomSheet(): void {
@@ -3539,6 +3646,14 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       row.append(badge)
     }
     if (view.participant !== me) row.append(verifyChip(view, shown.name ?? ''))
+    const card = view.participant !== me ? contactFor(deviceStore, view.participant) : undefined
+    if (card) {
+      const badge = document.createElement('span')
+      badge.className = 'badge card'
+      badge.textContent = `card: ${contactLabel(card)}`
+      badge.title = `You hold this person's contact card, read ${new Date(card.readAt * 1000).toLocaleDateString()}. Its name is theirs to claim, like any other; the key is what the card binds.`
+      row.append(badge)
+    }
     // A word in private, from the room you are both in. A DM is a room of
     // two; see docs/messages.md. Not offered on a room that already is one.
     // An agent takes one too, from its owner or a room admin: those are
@@ -7737,6 +7852,26 @@ $('clearHomeRoomQuery').addEventListener('click', () => {
 $('returnToPreviousRoom').addEventListener('click', () => {
   if (previousRoom) void switchRoom(previousRoom)
 })
+/** The card in the fragment, read but not kept, or undefined when the fragment is not one. */
+function cardAtTheDoor(): Contact | undefined {
+  const probe = memoryDeviceStore()
+  const r = addContactFromCard(probe, location.hash.slice(1), nowSeconds())
+  return r.ok ? r.contact : undefined
+}
+$('addCardArrival').addEventListener('click', () => {
+  const r = addContactFromCard(deviceStore, location.hash.slice(1), nowSeconds())
+  if (!r.ok) { setStatus(r.words); return }
+  contactsChanged()
+  $('arrivalLead').textContent = `${contactLabel(r.contact)} is in your contacts on this device.`
+  $('addCardArrival').hidden = true
+  setStatus(`${r.replaced ? 'Updated' : 'Added'} ${contactLabel(r.contact)}.`, 'done')
+})
+$('contactCardForm').addEventListener('submit', (event) => {
+  event.preventDefault()
+  const input = $('contactCardIn') as HTMLInputElement
+  if (addContact(input.value)) input.value = ''
+})
+$('myCardShow').addEventListener('click', () => { showMyCard().catch((err) => setStatus(describeError(err))) })
 $('retryArrival').addEventListener('click', () => {
   if (switchDestination) void switchRoom(switchDestination)
   else location.reload()
@@ -8861,6 +8996,23 @@ function showArrivalFailure(err: unknown): void {
   const reason = describeError(err)
   let valid = false
   try { parseRoomLink(location.href); valid = true } catch { /* Incomplete or malformed invitation. */ }
+  // Not a room link at all, but a contact card handed over as a link: the
+  // door offers to keep it. Read only on the person's say-so, so a link
+  // merely opened adds nobody.
+  const card = valid ? undefined : cardAtTheDoor()
+  if (card) {
+    $('arrivalTitle').textContent = 'This is a contact card'
+    $('arrivalLead').textContent = `From ${card.name ?? shortKey(card.p)} (${npubOf(card.p).slice(0, 16)}…): their key, ${card.relays.length} public relay${card.relays.length === 1 ? '' : 's'} and ${card.boxes.length === 0 ? 'no box' : card.boxes.length === 1 ? 'one box' : `${card.boxes.length} boxes`}. Add it to the contacts on this device?`
+    $('arrivalLead').hidden = false
+    $('joinRoomForm').hidden = true
+    $('identityMore').hidden = true
+    $('arrivalActions').hidden = false
+    $('retryArrival').hidden = true
+    $('addCardArrival').hidden = false
+    setStatus('')
+    return
+  }
+  $('addCardArrival').hidden = true
   const retired = reason.includes('retired')
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
   $('arrivalTitle').textContent = retired ? 'This invitation is no longer valid' : valid ? persistent ? 'The group invitation could not be loaded' : 'The room has not answered' : 'This invitation is incomplete'

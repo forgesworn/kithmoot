@@ -133,6 +133,14 @@ for the supported flow, worker tools, verification and recovery limits.
   beside the composer and the note on the room sheet say exactly what it
   hides and what it does not. Built on `nostr-deaddrop`; see
   `docs/decisions.md`.
+- Contact cards. Paste a person's card, or open it as a link at the door,
+  and this device holds their key, name, relays and the box they endorse,
+  read from the card's own bytes with nothing fetched. Their row says a
+  card is held; their box is one of your circle's relays, so a message
+  that goes only there shows as sheltered; the box's node id and address
+  serial are pinned so nothing older or other can stand in for it. "Show
+  my card" makes yours, to hand over and never post. Built on
+  `nostr-contact-card`; see `docs/decisions.md`.
 - Kindred-gated access tiers (`open` / `ken` / `kith` / `kin`), built on the
   `kindred` primitive. A room can admit anyone with the link, or require
   proof of anything up to a mutually-verified bond.
@@ -581,6 +589,14 @@ because a team is what this is now judged against:
   chat. Two devices per person can post; a third reads. Android reads
   and writes plain rooms only: a quiet room opened there shows nothing
   until the derivation lands in the native client.
+- **A contact card is trusted on first use, and the box is not refreshed
+  yet.** The badge says "card", not "verified". Fetching a fresh address
+  card from a box waits on the box saying what shape it publishes in; the
+  app keeps the pin and the serial for it and says on every box whether
+  it is dialled on the card's endorsement. Only a device holding its
+  identity key can make a card, because a card is signed over a digest,
+  not as an event; the rendezvous key on it is made here, not derived
+  from a root. The bond ceremony a card starts is not run here.
 - **No push.** A phone in a pocket learns nothing until the app is opened.
   A keeper can nudge a signed-in member over Nostr, and that is all.
 - **Named channels, removal and roles need a keeper.** A group admits and

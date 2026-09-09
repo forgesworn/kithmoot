@@ -297,6 +297,7 @@
         <p id="status" role="status"></p>
         <div id="arrivalActions" hidden>
           <button id="retryArrival" type="button">Try invitation again</button>
+          <button id="addCardArrival" type="button" hidden>Add this contact</button>
           <button id="arrivalHome" type="button" class="quiet">Back to rooms</button>
         </div>
         <button id="returnToPreviousRoom" type="button" hidden>Back to the previous room</button>
@@ -664,6 +665,27 @@
         <p class="note">You</p>
         <div id="sendingIdentity" class="sendingIdentity" hidden></div>
         <p id="sheetHow" class="note"></p>
+
+        <h3 class="sheetHead">Contact cards</h3>
+        <!-- The contact book. A card is read here, on this device, from
+             nothing but its own bytes; see app/src/contact-store.ts. A box
+             on a card is a relay of the circle, which is what lets a
+             message to it show as sheltered. -->
+        <p class="note">A contact card is one link or QR from a person: their key and name, their relays, and the box they run. Reading one needs nothing from the network. The box on a card is one of your circle’s relays: a message that goes only there shows as sheltered.</p>
+        <div id="contactList" class="contactList"></div>
+        <form id="contactCardForm" class="contactCardForm">
+          <input id="contactCardIn" type="text" autocomplete="off" placeholder="Paste a contact card or its link" aria-label="Contact card or its link" />
+          <button id="contactCardAdd" type="submit">Add contact</button>
+        </form>
+        <p id="contactCardStatus" class="note" role="status"></p>
+        <div id="myCard" hidden>
+          <div class="toolRow">
+            <button id="myCardShow" type="button" class="quiet">Show my card</button>
+          </div>
+          <p class="note">Hand it to the person it is for. A card lets its holder reach you and derive keys with you: never post it to a relay, a profile or a website. This card names no box and carries a rendezvous key made on this device.</p>
+          <input id="myCardOut" readonly hidden aria-label="My contact card link" />
+          <canvas id="myCardQr" hidden width="320" height="320" aria-label="My contact card as a QR code"></canvas>
+        </div>
 
         <h3 class="sheetHead">Invite people</h3>
         <div id="inviteHome">
