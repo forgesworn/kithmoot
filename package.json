@@ -1,6 +1,6 @@
 {
   "name": "kithmoot",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "description": "An open Slack with agents over Nostr - a workspace nobody owns",
   "author": "TheCryptoDonkey",
   "license": "MIT",
