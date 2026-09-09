@@ -1471,6 +1471,17 @@ let backgroundId = BACKGROUNDS[0]?.id ?? ''
 let videoInputs: MediaDeviceInfo[] = []
 
 const localPreviewEls = new Map<'camera' | 'screen', HTMLVideoElement>()
+/** The marks overlay on each preview of a screen share, own or received -
+ *  see `ShareViewer.overlay`. Swept when the preview leaves the page. */
+const shareMarkOverlays = new Map<HTMLVideoElement, () => void>()
+/** Drop the overlay of any preview that has left the page. Deferred, because
+ *  a render builds tiles before it attaches them, and a preview mid-move
+ *  reads as disconnected for a moment it will not stay disconnected. */
+function sweepShareMarkOverlays(): void {
+  setTimeout(() => {
+    for (const [video, dispose] of shareMarkOverlays) if (!video.isConnected) { dispose(); shareMarkOverlays.delete(video) }
+  }, 0)
+}
 // Where this device's own pictures live: one persistent holder, so the
 // element showing your camera is the same element wherever it is shown. It
 // sits in the preview strip under the toggles until you join, and in your
@@ -3166,8 +3177,14 @@ function render(views: ParticipantView[], me: string): void {
       expand.addEventListener('click', () => shareViewer.open(source, expand))
       box.append(expand)
       const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(`${device}|${available.track.id}`)?.el
-      if (preview) { preview.classList.add('screenPreview'); preview.ondblclick = () => shareViewer.open(source, expand) }
+      if (preview) {
+        preview.classList.add('screenPreview'); preview.ondblclick = () => shareViewer.open(source, expand)
+        // Marks drawn on this share show over its preview, so the person
+        // sharing sees what is being pointed at without opening anything.
+        if (!shareMarkOverlays.has(preview)) shareMarkOverlays.set(preview, shareViewer.overlay(preview, () => source()?.id))
+      }
     }
+    sweepShareMarkOverlays()
     root.append(box)
   }
 

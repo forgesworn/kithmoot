@@ -7,6 +7,18 @@ and is noted here when the web release depends on one. Dates are the
 release dates. Wire changes are called out as such, because a second
 implementation reads this file to know what moved.
 
+## Unreleased
+
+### Fixed
+
+- **Marks on a screen share reach the person sharing.** Drawing on
+  somebody's share was only ever painted inside the expanded viewer, so
+  the sharer, who has no reason to open a viewer on their own screen,
+  never saw what was being pointed at. Marks now show over every preview
+  of the share, the sharer's own tile first of all, and every mark fades
+  after a couple of seconds: solid for two, gone by three. Nothing on the
+  wire changed; a mark was always transient signalling and never chat.
+
 ## 0.4.0, 2026-09-09
 
 ### Shape

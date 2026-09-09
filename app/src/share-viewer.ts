@@ -1,4 +1,25 @@
 import type { AnnotationPoint, ScreenAnnotation } from '../../src/signal.js'
+import { ShareMarks, type LiveMark } from './share-marks.js'
+
+/** Paint strokes in normalised coordinates onto a canvas of any size, each
+ *  as strongly as its age allows - see `share-marks.ts`. */
+function paintMarks(canvas: HTMLCanvasElement, marks: LiveMark[], pending?: AnnotationPoint[]): void {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  const paintStroke = (points: AnnotationPoint[], alpha: number) => {
+    if (points.length < 2 || alpha <= 0) return
+    ctx.globalAlpha = alpha
+    ctx.beginPath(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(3, canvas.width / 260)
+    ctx.strokeStyle = '#ffd447'; ctx.shadowColor = 'rgb(0 0 0 / 75%)'; ctx.shadowBlur = ctx.lineWidth
+    ctx.moveTo(points[0]!.x * canvas.width, points[0]!.y * canvas.height)
+    for (const point of points.slice(1)) ctx.lineTo(point.x * canvas.width, point.y * canvas.height)
+    ctx.stroke(); ctx.shadowBlur = 0
+  }
+  for (const mark of marks) paintStroke(mark.annotation.points ?? [], mark.alpha)
+  if (pending) paintStroke(pending, 1)
+  ctx.globalAlpha = 1
+}
 
 /** A second, muted view of a live track. Closing it never stops the call's track. */
 export interface ShareSource { id: string; track: MediaStreamTrack; title: string }
@@ -14,32 +35,57 @@ export class ShareViewer {
   #dispose?: () => void
   #source?: () => ShareSource | undefined
   #returnFocus?: HTMLElement
-  #repaint?: () => void
-  readonly #annotations = new Map<string, ScreenAnnotation[]>()
+  /** Every mark on every share this page knows of, fading as they age.
+   *  Shared by the expanded viewer and by every preview overlay. */
+  readonly #marks = new ShareMarks()
 
   constructor(opts: ShareViewerOptions = {}) { this.#opts = opts }
 
   /** Apply a stroke received from another room device. */
   receive(annotation: ScreenAnnotation): void {
-    this.#remember(annotation)
-    this.#repaint?.()
+    this.#marks.remember(annotation)
   }
 
-  #remember(annotation: ScreenAnnotation): void {
-    if (annotation.op === 'clear') {
-      this.#annotations.delete(annotation.shareId)
-      return
+  /**
+   * Paint the marks for a share over a preview of it, wherever that preview
+   * is: the sharer's own tile above all, because a mark is drawn for the
+   * person sharing and they never open a viewer on their own screen. The
+   * canvas sits over the video's picture, letterboxing and all, and is
+   * hidden while there is nothing to show. Returns a function that takes
+   * the overlay away again.
+   */
+  overlay(video: HTMLVideoElement, shareId: () => string | undefined): () => void {
+    const doc = video.ownerDocument
+    const canvas = doc.createElement('canvas')
+    canvas.className = 'shareMarks'
+    canvas.setAttribute('aria-hidden', 'true')
+    canvas.hidden = true
+    video.after(canvas)
+    const paint = () => {
+      const parent = video.parentElement
+      if (!parent || !video.isConnected) { canvas.hidden = true; return }
+      const id = shareId()
+      const marks = id ? this.#marks.alive(id) : []
+      canvas.dataset.strokes = String(marks.length)
+      if (marks.length === 0) { canvas.hidden = true; return }
+      if (doc.defaultView?.getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
+      // The picture inside the element, under object-fit: contain.
+      const box = video.getBoundingClientRect(), outer = parent.getBoundingClientRect()
+      const frameWidth = video.videoWidth || 16, frameHeight = video.videoHeight || 9
+      const scale = Math.min(box.width / frameWidth, box.height / frameHeight)
+      const width = Math.max(1, Math.round(frameWidth * scale)), height = Math.max(1, Math.round(frameHeight * scale))
+      canvas.style.left = `${box.left - outer.left + (box.width - width) / 2}px`
+      canvas.style.top = `${box.top - outer.top + (box.height - height) / 2}px`
+      canvas.style.width = `${width}px`; canvas.style.height = `${height}px`
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height }
+      canvas.hidden = false
+      paintMarks(canvas, marks)
     }
-    const strokes = this.#annotations.get(annotation.shareId) ?? []
-    if (strokes.some(stroke => stroke.strokeId === annotation.strokeId)) return
-    strokes.push(annotation)
-    while (strokes.length > 100) strokes.shift()
-    this.#annotations.set(annotation.shareId, strokes)
-    while (this.#annotations.size > 16) {
-      const oldest = this.#annotations.keys().next().value
-      if (oldest === undefined) break
-      this.#annotations.delete(oldest)
-    }
+    const unsubscribe = this.#marks.subscribe(paint)
+    const size = new ResizeObserver(paint); size.observe(video)
+    video.addEventListener('loadedmetadata', paint)
+    paint()
+    return () => { unsubscribe(); size.disconnect(); video.removeEventListener('loadedmetadata', paint); canvas.remove() }
   }
 
   open(source: () => ShareSource | undefined, returnFocus?: HTMLElement): void {
@@ -67,7 +113,6 @@ export class ShareViewer {
     this.#popup = undefined
     if (popup && !popup.closed) popup.close()
     this.#source = undefined
-    this.#repaint = undefined
     if (this.#returnFocus?.isConnected) this.#returnFocus.focus({ preventScroll: true })
   }
 
@@ -125,14 +170,14 @@ export class ShareViewer {
       drawing = !drawing
       draw.setAttribute('aria-pressed', String(drawing))
       viewport.classList.toggle('drawing', drawing)
-      notice.textContent = drawing ? 'Draw on the shared screen. The other person will see each line when you lift your finger.' : 'Scroll or use + and − to zoom. Drag to move around.'
+      notice.textContent = drawing ? 'Draw on the shared screen. The person sharing sees each line when you lift your finger, and it fades after a couple of seconds.' : 'Scroll or use + and − to zoom. Drag to move around.'
     })
     draw.setAttribute('aria-pressed', 'false')
     const clear = makeButton('Clear marks', () => {
       const shareId = this.#source?.()?.id
       if (!shareId) return
       const annotation: ScreenAnnotation = { op: 'clear', shareId, strokeId: '' }
-      this.#remember(annotation); this.#opts.onAnnotation?.(annotation); renderAnnotations()
+      this.#marks.remember(annotation); this.#opts.onAnnotation?.(annotation)
     })
     const fullscreen = makeButton('Fullscreen', () => {
       const request = doc.fullscreenElement ? doc.exitFullscreen() : host.requestFullscreen?.()
@@ -151,20 +196,10 @@ export class ShareViewer {
       const pixelWidth = Math.max(640, Math.min(1920, video.videoWidth || 1280))
       const pixelHeight = Math.round(pixelWidth / ratio)
       if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) { canvas.width = pixelWidth; canvas.height = pixelHeight }
-      const ctx = canvas.getContext('2d')!; ctx.clearRect(0, 0, canvas.width, canvas.height)
-      const strokes = current ? this.#annotations.get(current.id) ?? [] : []
-      const paintStroke = (points: AnnotationPoint[]) => {
-        if (points.length < 2) return
-        ctx.beginPath(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(4, canvas.width / 260)
-        ctx.strokeStyle = '#ffd447'; ctx.shadowColor = 'rgb(0 0 0 / 75%)'; ctx.shadowBlur = ctx.lineWidth
-        ctx.moveTo(points[0]!.x * canvas.width, points[0]!.y * canvas.height)
-        for (const point of points.slice(1)) ctx.lineTo(point.x * canvas.width, point.y * canvas.height)
-        ctx.stroke(); ctx.shadowBlur = 0
-      }
-      for (const saved of strokes) paintStroke(saved.points ?? [])
-      if (stroke) paintStroke(stroke)
-      canvas.dataset.strokes = String(strokes.length)
-      clear.disabled = !current || strokes.length === 0
+      const marks = current ? this.#marks.alive(current.id) : []
+      paintMarks(canvas, marks, stroke)
+      canvas.dataset.strokes = String(marks.length)
+      clear.disabled = !current
     }
     const paint = () => {
       const vw = viewport.clientWidth, vh = viewport.clientHeight
@@ -222,7 +257,7 @@ export class ShareViewer {
         const shareId = this.#source?.()?.id
         if (shareId && points.length > 1) {
           const annotation: ScreenAnnotation = { op: 'stroke', shareId, strokeId: crypto.randomUUID(), points }
-          this.#remember(annotation); this.#opts.onAnnotation?.(annotation)
+          this.#marks.remember(annotation); this.#opts.onAnnotation?.(annotation)
         }
         renderAnnotations()
       }
@@ -262,8 +297,8 @@ export class ShareViewer {
     const pageGone = () => { if (popped && this.#popup === win) this.close() }
     if (popped) win.addEventListener('pagehide', pageGone)
     const timer = window.setInterval(refresh, 250)
-    this.#repaint = renderAnnotations
+    const unsubscribe = this.#marks.subscribe(renderAnnotations)
     refresh()
-    return () => { if (this.#repaint === renderAnnotations) this.#repaint = undefined; win.removeEventListener('pagehide', pageGone); window.clearInterval(timer); size.disconnect(); doc.removeEventListener('fullscreenchange', paint); video.pause(); video.srcObject = null }
+    return () => { unsubscribe(); win.removeEventListener('pagehide', pageGone); window.clearInterval(timer); size.disconnect(); doc.removeEventListener('fullscreenchange', paint); video.pause(); video.srcObject = null }
   }
 }

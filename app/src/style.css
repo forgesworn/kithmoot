@@ -864,6 +864,9 @@ dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100
 .shareStage video, .shareStage canvas { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; border: 0; border-radius: 0; }
 .shareStage video { object-fit: contain; pointer-events: none; }
 .shareAnnotations { pointer-events: none; }
+/* Marks over a preview tile of a share: the same strokes the viewer paints,
+   sized to the picture inside the video element. Hidden when there are none. */
+.shareMarks { position: absolute; pointer-events: none; z-index: 1; }
 .shareViewerNotice { flex: 0 0 auto; margin: 0; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: var(--muted); }
 body.sharePopup { margin: 0; padding: 0; max-width: none; width: 100vw; height: 100dvh; overflow: hidden; }
 body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding: 0; max-width: none; }

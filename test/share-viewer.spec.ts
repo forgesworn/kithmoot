@@ -17,21 +17,35 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     const previous = await video.evaluate((v: HTMLVideoElement) => v.currentTime)
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(previous)
-    // The viewer can mark the shared image and the presenter sees the same
-    // normalised stroke in their own view. It is transient signalling, so a
-    // clear removes it from both without creating a chat item.
+    // The viewer can mark the shared image. The presenter, who has opened
+    // nothing, sees the same normalised stroke over their own preview tile;
+    // it is a pointer, not a record, so it fades away after a couple of
+    // seconds and never becomes a chat item.
+    await dialog.getByRole('button', { name: 'Draw', exact: true }).click()
+    const drawStroke = async () => {
+      const drawRect = (await dialog.locator('.shareViewport').boundingBox())!
+      await viewer.mouse.move(drawRect.x + drawRect.width * .3, drawRect.y + drawRect.height * .35)
+      await viewer.mouse.down()
+      await viewer.mouse.move(drawRect.x + drawRect.width * .7, drawRect.y + drawRect.height * .65, { steps: 12 })
+      await viewer.mouse.up()
+    }
+    await drawStroke()
+    await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '1')
+    const presenterMarks = presenter.locator('canvas.shareMarks')
+    await expect(presenterMarks).toHaveAttribute('data-strokes', '1', { timeout: 10_000 })
+    await expect(presenterMarks).toBeVisible()
+    await expect(presenterMarks).toHaveAttribute('data-strokes', '0', { timeout: 10_000 })
+    await expect(presenterMarks).toBeHidden()
+    await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '0')
+    // The presenter's own expanded view paints the same marks, and a clear
+    // removes them from both ends before they would have faded.
     const presenterExpand = presenter.getByRole('button', { name: 'Expand screen share from Ada' })
     await expect(presenterExpand).toBeVisible(); await presenterExpand.click()
     const presenterDialog = presenter.getByRole('dialog', { name: 'Screen-share viewer' })
     await expect.poll(() => presenterDialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
-    await dialog.getByRole('button', { name: 'Draw', exact: true }).click()
-    const drawRect = (await dialog.locator('.shareViewport').boundingBox())!
-    await viewer.mouse.move(drawRect.x + drawRect.width * .3, drawRect.y + drawRect.height * .35)
-    await viewer.mouse.down()
-    await viewer.mouse.move(drawRect.x + drawRect.width * .7, drawRect.y + drawRect.height * .65, { steps: 12 })
-    await viewer.mouse.up()
+    await drawStroke()
     await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '1')
-    await expect(presenterDialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '1', { timeout: 10_000 })
+    await expect(presenterDialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '1', { timeout: 2_000 })
     await dialog.getByRole('button', { name: 'Clear marks', exact: true }).click()
     await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '0')
     await expect(presenterDialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '0', { timeout: 10_000 })
