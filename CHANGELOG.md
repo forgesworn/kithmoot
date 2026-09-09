@@ -32,6 +32,16 @@ implementation reads this file to know what moved.
 
 ### Fixed
 
+- **Your own name beside your account again.** Since 0.4.1 a profile was
+  looked for on the public profile relays as well as the room's, and the
+  two lists named nos.lol and relay.primal.net under different spellings,
+  one with a trailing slash. The relay pool refuses a list that holds a
+  relay twice, the lookup treated that as a relay it could not open, and
+  no profile was ever asked for: a person signed in with their Nostr
+  extension saw a bare npub where their name and picture had been, and
+  read it as being signed in as somebody else. The lists are now merged
+  by the relay, not the spelling.
+
 - **A connected Nostr extension is the way in.** The door never looked
   for one: with an extension present and no account signed in on this
   browser, it showed a visitor with the typed name and a small "Already on

@@ -1,5 +1,6 @@
 import { NostrRelayPool, verifyEventUncached, sanitiseDisplayName } from '../../src/index.js'
 import type { Event } from 'nostr-tools/pure'
+import { normalizeURL } from 'nostr-tools/utils'
 
 /**
  * Nostr profiles (kind 0) for the people in a room.
@@ -106,7 +107,8 @@ export class ProfileBook {
     // caller is `render()`.
     let unsub: () => void
     try {
-      this.#pool ??= this.#opts.transport?.(this.#opts.relays()) ?? new NostrRelayPool(this.#opts.relays())
+      const urls = uniqueRelays(this.#opts.relays())
+      this.#pool ??= this.#opts.transport?.(urls) ?? new NostrRelayPool(urls)
       unsub = this.#pool.subscribe([{ kinds: [0], authors: fresh }], (event) => this.#ingest(event))
     } catch {
       return
@@ -190,6 +192,25 @@ export class ProfileBook {
       // A malformed profile is a missing profile, not a broken room.
     }
   }
+}
+
+/**
+ * The room's relays come back from the settings store normalised, with a
+ * trailing slash; the public profile relays are written without one. The
+ * same relay under both spellings is one relay to the pool, which refuses
+ * a list that names it twice - and that refusal was swallowed above as "a
+ * relay that cannot be opened", so no profile was ever looked up while the
+ * room shared a relay with the public list, which the defaults do.
+ */
+function uniqueRelays(urls: string[]): string[] {
+  const seen = new Set<string>()
+  return urls.filter((url) => {
+    let key: string
+    try { key = normalizeURL(url) } catch { key = url }
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function safePicture(value: unknown): string | undefined {
