@@ -1,20 +1,68 @@
-# Browser and home messaging goals
+# KithMoot product goals
 
 Recorded 2026-09-09. These are accepted product goals; all remain open.
 Individual foundations already exist, but none of the complete journeys below
 is declared finished by this document.
 
+The [capability audit](workspace-capability-audit.md) records implemented work,
+remaining integrations and the T3 Code comparison. These goals extend the
+existing assignment, Den attention, agent-host and scoped-context models.
+
 ## The need
 
-A person wants to use messaging from their phone's browser, keep the supporting
-services and data on a computer at home, and avoid installing a collection of
-messaging apps. They may also need to keep conversations with people already
-using WhatsApp, Signal or Telegram.
+One person runs several projects with overlapping groups of people and agents.
+They need one chat-focused workspace to organise those projects, collaborate,
+make decisions and direct agent work from a desktop or a phone while away.
+The same person or agent can participate in several projects with different
+colleagues, roles and permissions in each.
 
-KithMoot should serve this need through a usable browser experience and optional
-infrastructure the person owns. A Windows desktop inside a browser must not be
-necessary for native KithMoot conversations. Access to existing networks is a
-separate goal: inviting someone to KithMoot does not satisfy it.
+The primary outcome is less time directing agents. People should spend their
+time communicating and collaborating with people, delegating outcomes once,
+and making decisions that need their judgement. Agents should retrieve relevant
+authorised context, coordinate routine work and verify results within agreed
+authority, without repeatedly asking for instructions already given.
+
+KithMoot is the everyday interface for this work: conversations, daily calls,
+agent requests, task control and results. Routine remote operation must not
+require opening a separate Claude or Codex remote-control interface, terminal,
+SSH client or remote desktop. Agents execute on connected hosts; KithMoot
+provides the authenticated, permissioned controls and visibility.
+
+The browser experience and Android app should expose the same project and
+work model, with layouts suited to desktop and touch. Supporting services and
+data may live on hardware the person owns. Browser messaging, home deployment
+and access to contacts already using WhatsApp, Signal or Telegram remain
+supporting goals; access to those external networks is a separate integration,
+not satisfied merely by sending a KithMoot invitation.
+
+## Primary experiences — clarified 2026-09-09
+
+Projects organise the primary experience: everyday chat among their people
+and agents. Human principals also hold daily
+video calls with agents listening, transcribing and taking assigned work away
+to execute asynchronously. Alongside that persistent workspace, people need
+anonymous temporary meetings reached through a link shared in Signal or a
+similar service, with video, voice masking, chat and screen sharing.
+
+These are distinct room experiences with visible retention rules:
+
+| | Workspace room | Temporary meeting |
+| --- | --- | --- |
+| Entrance | Return to a project and its conversations | Open a shared link and check devices/privacy before joining |
+| Main surface | Conversation and composer; calls open alongside chat | Meeting stage; chat and screen sharing remain easy to reach |
+| Identity | Continuing membership, human principals and attributed agents | Fresh meeting identity; no account or existing profile required |
+| Agent work | Visible listening, transcript, decisions and delegated tasks | Proposed default: agents, transcripts and retained tasks disabled |
+| After departure | Conversation and authorised agent work continue | Automatic room closure and application-managed cleanup |
+
+“Public” here means joinable by people holding the shared link. Searchable
+public discovery is not implied. “Offline tasks” means asynchronous work after
+the people leave the call; operation without network connectivity is a
+separate capability.
+
+Use clear entry actions such as **Start a conversation** and **Start a temporary
+meeting**, with matching terms and behaviour in the PWA and Android app. Room
+mode must be visible before joining. A temporary meeting must not silently
+become a saved workspace or acquire transcript/archive retention.
 
 ## G1 — Everyday messaging from a phone browser
 
@@ -148,10 +196,208 @@ Oathrun may optionally host a permissioned assistant participating in a room.
 It is not a prerequisite for messaging, a remote desktop, or an assumed bridge
 to the existing networks. Agent access must remain explicit and revocable.
 
+## G7 — Daily workspace calls with accountable agent follow-up
+
+Keep persistent chat as the primary surface on both platforms. A daily call
+brings the human principals together, with clearly identified agents able to
+listen and transcribe under the existing explicit media-access controls.
+
+Acceptance:
+
+- Move from room chat into a video call and back without losing the draft,
+  reading position, thread or call. On Android, everyday conversation must be
+  a primary screen rather than available only in a call screen's bottom sheet.
+- Show which agents are present, whose they are, who can hear each participant,
+  and whether transcription is active. Each participant can revoke agent media
+  access. Joining a call must not silently enable it.
+- Present attributed transcript, decisions and proposed actions in the room.
+  Distinguish agent transcription/summaries from statements actually sent by
+  participants; corrections remain possible.
+- Give accepted tasks an accountable principal, named agent, relevant context,
+  status and a route back to the source conversation. Agents can continue on
+  an available host after people leave the call, request required approvals,
+  and return results to the same project. Show host unavailability honestly.
+- Keep task context scoped to the room/project and authorised task. Continuing
+  work does not grant an agent unrestricted access to other projects.
+- Make transcript, task and any recording retention visible, including whether
+  an external model provider receives meeting content. Audio recording is a
+  separate choice from transcription.
+
+Existing foundations include [agents](agents.md), per-participant agent media
+access, transcription, minutes and approval cards. This goal concerns the
+complete daily-call journey and does not declare platform parity complete.
+
+## G8 — Anonymous temporary meetings with automatic teardown
+
+A person shares a meeting link through Signal or another channel. Guests can
+join without a KithMoot account, use a temporary name, and participate in
+video, voice-masked audio, ephemeral group chat and screen sharing. Leaving
+must not create a saved room or recoverable meeting history by default.
+
+Acceptance:
+
+- Generate independent meeting identities and keys. Do not attach an existing
+  account, contact card, profile or stable identifier automatically. Offer
+  camera/microphone controls and a local voice preview before transmitting.
+- Test voice masking on PWA and Android. If the selected mask fails or stalls,
+  mute outgoing audio and explain the failure; never silently publish raw
+  microphone audio. Test device changes, audio interruptions and reconnection.
+- Keep controls reachable during a call, while typing, and during screen
+  sharing. The invitation and pre-join screen state the temporary lifetime.
+- Proposed lifecycle: a short, declared reconnect grace after the last human
+  leaves, plus a hard meeting expiry. Agents must not keep the meeting alive
+  indefinitely. Support an explicit host end action and expired-link screen.
+  Specify partition/reconnection behaviour so an expired meeting cannot revive.
+- Enforce expiry and key retirement independently of browser unload callbacks.
+  Exercise closing the tab, force-stopping Android, network loss, host loss,
+  multiple devices, late joins and stale invitations on supported clients.
+- Keep meeting content and credentials out of saved-room lists, archives,
+  search indexes, analytics, notification previews, agent memories and routine
+  application logs. Verify IndexedDB/local storage, service-worker caches,
+  Android databases/backups, owned services and temporary media buffers. Static
+  application assets can remain cached; meeting data must not be mixed into them.
+- Proposed default: no recording/transcription agents or retained task export.
+  Adding any retention requires an explicit change visible to every participant;
+  that meeting cannot retain the same no-history promise.
+- Define and test network-metadata exposure separately from temporary identity
+  and encryption. Voice masking, camera blur and anonymous names are not proof
+  of anonymity from other participants or infrastructure operators.
+
+### Teardown claim and current gaps
+
+The product intent is a meeting that disappears when it ends. Release copy
+must describe the verified scope of application-managed deletion and avoid an
+absolute “without a trace” guarantee: a participant can retain a recording,
+invitation copies remain in external messengers, and infrastructure can retain
+metadata. [NIP-40](https://github.com/nostr-protocol/nips/blob/master/40.md)
+explicitly permits indefinite relay storage of expired events, so expiration
+alone cannot establish erasure.
+
+Existing temporary admission and ephemeral presence events do not establish
+this complete lifecycle. The current [voice-mask fallback](../README.md)
+prioritises continued speech and can revert to raw audio on a stalled output
+clock; G8 requires a fail-closed privacy behaviour. Inspect storage, transport,
+agent and teardown paths before claiming this mode meets the goal.
+
+## G9 — One workspace for projects, people and remote agent work
+
+Make KithMoot the single daily control surface across all of a person's
+projects. People and agents can be members of multiple projects without
+requiring separate accounts, application instances or vendor-specific remote
+control tools. Project membership, authority and context remain explicit.
+
+### Proposed navigation
+
+- **Inbox:** decisions needing this person's judgement, alongside human mentions
+  and replies across authorised projects. Routine progress stays in the project;
+  completion summaries can be batched. Every item names its project and opens
+  the originating conversation or task. Reuse Den's next-action projection and
+  the canonical assignment ID instead of creating another editable task store.
+- **Projects:** switch projects and their rooms directly. Inside a project,
+  conversation is the main surface; work, files, people/agents and calls are
+  available in context. Switching does not discard drafts or reading position.
+- **Work:** a cross-project view of assigned tasks, with project filters and
+  visible responsible humans and agents. Users only see work they can access.
+- Search and a people/agent directory make existing collaborators easy to
+  find and deliberately invite into another project. An invitation does not
+  carry another project's conversations, credentials or permissions with it.
+
+On desktop, retain project navigation beside the conversation, with task or
+thread detail alongside when useful. On phones, use a small set of stable
+navigation destinations and full-screen conversation/task views. These are
+layout proposals; validate them through the end-to-end journeys below.
+Temporary meetings remain a separate entrance and must not populate this
+persistent history by default.
+
+### Remote work acceptance
+
+- From one desktop session and a physical phone, operate at least three
+  projects with overlapping and disjoint human/agent memberships. Switch
+  between them without signing in again or losing the selected conversation.
+- Assign an agent work from chat, a thread or a meeting action; state the
+  intended project, scope, responsible principal and authorised capabilities.
+  Accept commands only from authorised principals, independently of chat
+  membership. Other participants can discuss work without inheriting control.
+- Inspect progress and results, answer a question, approve or reject a concrete
+  action, redirect a task, request pause/resume, cancel and retry from the PWA
+  and Android app. Where a runtime cannot support a control, say so before it
+  is requested; do not simulate success.
+- Show task states separately from connection state: queued, running, awaiting
+  input, awaiting approval, completed, failed and cancelled; host offline,
+  reconnecting or status stale. A sent command is not an acknowledged command,
+  and a cancel request is not proof that execution has stopped.
+- Use a project-bound agent session or equivalent enforced context boundary
+  for each task. The same named agent may serve several projects concurrently,
+  but membership alone grants no ambient access to their combined histories,
+  memories, tools or credentials. Deliberate sharing must be scoped,
+  attributable and revocable, with enforcement in execution and retrieval.
+- Closing the PWA or Android app must not stop tasks on an available host.
+  The user can resume control from another device over mobile data without
+  entering a vendor remote-control tool. If the execution host is asleep or
+  disconnected, show unavailability; do not imply work is continuing.
+- Exercise locked-phone notifications, expired approvals, concurrent decisions
+  from two devices, lost acknowledgements, duplicate delivery, host restart
+  and membership revocation. Reconnection must not execute an action twice
+  or replay stale authority. Task context, identity and approval state survive
+  supported recovery without leaking into another project.
+- Results, code changes, files and decision records return to the originating
+  project with a useful summary and an inspectable result. Task completion,
+  review, merge and deployment remain distinguishable states.
+
+Runtime adapters may connect independent agent hosts, including an Oathrun
+host where appropriate. The user-facing work controls must not depend on
+knowing which provider or harness powers an agent. This goal does not claim
+that current chat, host controls or approval messages already form a complete
+remote work interface.
+
+### Minimal supervision, context and efficient execution
+
+- Starting work should need an outcome and any new constraints. Reuse the
+  project's deliberately selected agent profile, available host, tool grants,
+  budget and completion criteria. Show inherited choices compactly and permit
+  overrides; do not silently expand permission when switching projects.
+- Within that authority, agents retrieve evidence, resolve routine implementation
+  choices, run checks and coordinate authorised work without involving the
+  principal in every tool call. Bring a concrete decision, recommendation and
+  consequences when judgement, new authority or an unresolved trade-off is
+  required. Do not merely suppress requests while execution remains blocked.
+- Establish reusable, bounded execution and communication permissions explicitly.
+  Oathrun currently reviews each outgoing room draft; routine progress and
+  results need a reviewed delivery policy before they can flow automatically.
+  Preserve separate approval where an action exceeds the standing authority.
+- Continue from an authorised task checkpoint after an interruption. Avoid
+  repeated context gathering and duplicate execution. A permission renewal,
+  reconnect or retry must not silently revive cancelled or uncertain work.
+- Extend the existing signed context collections with retrieval of relevant
+  decisions, code relationships, task history and evidence. Graphify-like links
+  should be attributable, correctable and derived from authorised sources.
+  Enforce project boundaries before retrieval and before releasing derived
+  output; shared membership never permits a combined cross-project memory.
+- Reuse Oathrun's task profiles, model selection, cache scoping, bounded inputs
+  and usage accounting. Measure cost and tokens per accepted outcome including
+  retries and human review; cache hit rate alone is not success. Model escalation
+  and delegation must remain within an explicitly authorised profile and budget.
+- Record a baseline and compare the same representative tasks after changes:
+  human minutes directing/reviewing, avoidable interruptions per accepted result,
+  time to useful work, repeated context requests, duplicate execution and total
+  cost. Demonstrate the journey from a physical phone as well as desktop.
+
+Already implemented: shared assignment creation, progress, questions, exact
+result review, cancellation/handoff and Den links; hosted-agent discovery;
+Oathrun project policies, context verification and prompt-efficiency controls.
+Remaining work includes the assignment-to-Oathrun execution bridge, unified
+project/attention surfaces, native Android work controls, durable session
+integration and graph retrieval. This is not a new task-engine proposal.
+
 ## Delivery and evidence
 
-Preserve the existing protocol, archive, search and push ordering described in
-the README. G1 spans those releases; G4 integrates them into an owned deployment.
+G9 defines the product shell and remote work journey; G7 fits daily calls into
+that workspace, and G8 provides the separate temporary meeting experience.
+Prioritise a complete desktop-to-phone journey through project selection,
+conversation, task assignment, an approval and a returned result.
+
+Preserve the existing protocol, archive, search and push dependencies described
+in the README. G1 spans those releases; G4 integrates them into an owned deployment.
 Investigate G5 and G6 independently so external-service restrictions do not
 hold up native messaging improvements.
 

@@ -69,6 +69,10 @@
         </div>
 
         <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
+        <div id="workAttention" class="workAttention" hidden>
+          <span id="workAttentionText"></span>
+          <button id="reviewWork" type="button">Review decisions</button>
+        </div>
         <!-- A call is on and you are not on it. Filled in by
              `renderCallState` in app/src/main.ts. -->
         <div id="callBanner" class="callBanner" role="status" hidden>
@@ -900,10 +904,14 @@
     </dialog>
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">
-      <div class="sheetBar"><h2 id="assignmentTitle">Shared work</h2><button id="assignmentClose" type="button">Close</button></div>
+      <div class="sheetBar"><h2 id="assignmentTitle" tabindex="-1">Shared work</h2><button id="assignmentClose" type="button">Close</button></div>
+      <div class="workFilters" role="group" aria-label="Show assignments">
+        <button id="assignmentAll" type="button" aria-pressed="true">All work</button>
+        <button id="assignmentDecisions" type="button" aria-pressed="false">Needs you</button>
+      </div>
       <p id="assignmentStatus" role="status" tabindex="-1">Connecting assignments…</p>
       <button id="assignmentRetry" type="button" hidden>Retry pending update</button>
-      <details>
+      <details id="assignmentNew">
         <summary>New assignment</summary>
         <form id="assignmentCreate">
           <fieldset id="assignmentFields">

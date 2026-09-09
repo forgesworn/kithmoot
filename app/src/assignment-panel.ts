@@ -1,5 +1,5 @@
 import type { AssignmentLog, AssignmentStorage } from '../../src/assignment-log.js'
-import type { Assignment, AssignmentAction, AssignmentOperation } from '../../src/assignments.js'
+import { assignmentHumanAction, type Assignment, type AssignmentAction, type AssignmentOperation } from '../../src/assignments.js'
 import type { RoomSession } from '../../src/session.js'
 import { confirmAction } from './confirm-action.js'
 
@@ -33,6 +33,8 @@ export class AssignmentPanel {
   #roomKey?: string
   #roomDrafts = new Map<string, WorkDraft>()
   #pendingCreate?: string
+  #decisionsOnly = false
+  #wide = matchMedia('(min-width: 1280px)')
   constructor(readonly root: Document, readonly people: () => AssignmentPerson[], readonly changed: () => void = () => {}) {
     this.#dialog = root.getElementById('assignmentPanel') as HTMLDialogElement
     this.#cards = root.getElementById('assignmentCards')!
@@ -41,9 +43,27 @@ export class AssignmentPanel {
     this.#owner = root.getElementById('assignmentOwner') as HTMLSelectElement
     this.#action = root.getElementById('assignmentAction') as HTMLSelectElement
     this.#inputs = root.getElementById('assignmentInputs')!
-    this.#button.onclick = () => { this.#owners(); this.#render(); this.#dialog.showModal() }
+    this.#button.onclick = () => { this.#decisionsOnly = false; this.#open() }
+    root.getElementById('reviewWork')!.onclick = () => { this.#decisionsOnly = true; this.#open() }
+    for (const [id, decisions] of [['assignmentAll', false], ['assignmentDecisions', true]] as const) {
+      root.getElementById(id)!.onclick = () => { this.#decisionsOnly = decisions; this.#render() }
+    }
+    this.#wide.addEventListener('change', () => {
+      if (!this.#dialog.open) return
+      this.#dialog.close()
+      this.#open()
+    })
+    root.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && this.#dialog.open && !root.querySelector('dialog:modal')) {
+        event.preventDefault(); this.#dialog.close()
+      }
+    })
     root.getElementById('assignmentClose')!.onclick = () => this.#dialog.close()
-    this.#dialog.addEventListener('close', () => { if (this.#roomKey) this.#button.focus({ preventScroll: true }) })
+    this.#dialog.addEventListener('close', () => {
+      if (this.#dialog.open) return
+      this.#button.setAttribute('aria-expanded', 'false')
+      if (this.#roomKey) this.#button.focus({ preventScroll: true })
+    })
     this.#dialog.addEventListener('click', event => { if (event.target === this.#dialog) {
       const bounds = this.#dialog.getBoundingClientRect()
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) this.#dialog.close()
@@ -88,6 +108,20 @@ export class AssignmentPanel {
     }
   }
   get busy(): boolean { return this.#busy }
+  #open(): void {
+    this.#owners(); this.#render()
+    if (!this.#dialog.open) {
+      if (this.#wide.matches) this.#dialog.show()
+      else this.#dialog.showModal()
+    }
+    this.#button.setAttribute('aria-expanded', 'true')
+    this.root.getElementById('assignmentTitle')!.focus({ preventScroll: true })
+  }
+  #needsYou(s: Assignment): boolean {
+    const participant = this.#log?.participant
+    return (s.creator === participant && Boolean(assignmentHumanAction(s))) ||
+      (s.owner === participant && ['offered', 'stopping'].includes(s.status))
+  }
   /** Choosing an advertised capability prepares a form; only sharing submits it. */
   offerTo(owner: string, action: string): void {
     if (!this.#roomKey) return
@@ -95,8 +129,8 @@ export class AssignmentPanel {
     const objective = form.elements.namedItem('objective') as HTMLTextAreaElement
     const criteria = form.elements.namedItem('criteria') as HTMLTextAreaElement
     form.closest('details')!.open = true
-    this.#render()
-    if (!this.#dialog.open) this.#dialog.showModal()
+    this.#decisionsOnly = false
+    this.#open()
     if (this.#busy || [objective.value, criteria.value, ...[...this.#inputs.querySelectorAll<HTMLInputElement>('input')].map(input => input.value)].some(Boolean)) {
       this.#status.textContent = this.#busy ? 'Wait for the current update to finish.' : 'You have an unfinished assignment. Share or discard that draft before starting another.'
       this.#status.focus({ preventScroll: true })
@@ -123,6 +157,8 @@ export class AssignmentPanel {
     if (this.#pendingCreate === this.#formValue()) {
       ;(this.root.getElementById('assignmentCreate') as HTMLFormElement).reset()
       this.#owners()
+      ;(this.root.getElementById('assignmentNew') as HTMLDetailsElement).open = false
+      this.#decisionsOnly = false
     }
     this.#pendingCreate = undefined
   }
@@ -197,6 +233,9 @@ export class AssignmentPanel {
     this.#owner.replaceChildren(); this.#action.replaceChildren(); this.#inputs.replaceChildren()
     this.#peopleKey = ''; this.#drafts = new Map(); this.#pendingCreate = undefined
     this.#status.textContent = 'Connecting assignments…'; this.#button.textContent = 'Work'
+    this.#button.removeAttribute('data-attention')
+    this.root.getElementById('workAttention')!.hidden = true
+    this.#decisionsOnly = false
     ;(this.root.getElementById('assignmentFields') as HTMLFieldSetElement).disabled = false
     ;(form.querySelector('button[type=submit]') as HTMLButtonElement).disabled = true
     ;(this.root.getElementById('assignmentDiscard') as HTMLButtonElement).disabled = false
@@ -249,18 +288,31 @@ export class AssignmentPanel {
     const snapshot = this.#log?.snapshot()
     if (!snapshot) return
     const active = snapshot.assignments.filter(s => !['accepted', 'cancelled'].includes(s.status))
+    const decisions = snapshot.assignments.filter(s => this.#needsYou(s))
     this.#button.textContent = active.length ? `Work (${active.length})` : 'Work'
-    if (updateStatus) this.#status.textContent = snapshot.error ?? (snapshot.pendingHistory ? 'Some assignment history is missing. Restore it before acting.' : !snapshot.ready ? 'Loading assignment history…' : snapshot.pendingSends ? 'An update is awaiting delivery. Retry the saved update.' : 'Shared with this room. Results remain pending until their creator accepts them.')
+    this.#button.toggleAttribute('data-attention', decisions.length > 0)
+    this.root.getElementById('workAttention')!.hidden = decisions.length === 0 || !snapshot.ready
+    this.root.getElementById('workAttentionText')!.textContent = `${decisions.length} ${decisions.length === 1 ? 'assignment needs' : 'assignments need'} your attention`
+    this.root.getElementById('assignmentAll')!.setAttribute('aria-pressed', String(!this.#decisionsOnly))
+    this.root.getElementById('assignmentDecisions')!.setAttribute('aria-pressed', String(this.#decisionsOnly))
+    this.root.getElementById('assignmentDecisions')!.textContent = `Needs you (${decisions.length})`
+    if (updateStatus) this.#status.textContent = snapshot.error ?? (snapshot.pendingHistory ? 'Some assignment history is missing. Restore it before acting.' : !snapshot.ready ? 'Loading assignment history…' : snapshot.pendingSends ? 'An update is awaiting delivery. Retry the saved update.' : '')
     const focused = this.root.activeElement
     const key = focused instanceof HTMLElement && this.#cards.contains(focused) ? focused.dataset.workField : undefined
     const selection = focused instanceof HTMLTextAreaElement ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] as const : undefined
     const scroll = this.#dialog.scrollTop
     const expanded = new Map([...this.#cards.querySelectorAll<HTMLDetailsElement>('details')].map(details => [details.dataset.workField, details.open]))
     this.#cards.replaceChildren()
-    for (const s of snapshot.assignments) this.#cards.append(this.#card(s))
-    if (!snapshot.assignments.length) { const p = this.root.createElement('p'); p.textContent = 'No shared assignments yet.'; this.#cards.append(p) }
+    const shown = this.#decisionsOnly ? decisions : snapshot.assignments
+    const ordered = [...shown].sort((a, b) => Number(this.#needsYou(b)) - Number(this.#needsYou(a)))
+    for (const s of ordered) this.#cards.append(this.#card(s))
+    if (!shown.length) {
+      const p = this.root.createElement('p'); p.className = 'workEmpty'
+      p.textContent = this.#decisionsOnly ? 'Nothing needs your decision. Follow progress in All work.' : 'Describe an outcome to start shared work with a person or agent.'
+      this.#cards.append(p)
+    }
     for (const button of this.#dialog.querySelectorAll<HTMLButtonElement>('button:not(#assignmentClose)')) {
-      const localDraft = button.id === 'assignmentDiscard'
+      const localDraft = ['assignmentDiscard', 'assignmentAll', 'assignmentDecisions'].includes(button.id)
       const retry = button.id === 'assignmentRetry'
       button.disabled = this.#busy || (!localDraft && (!snapshot.ready || snapshot.pendingHistory > 0 || (!retry && snapshot.pendingSends > 0)))
     }
@@ -279,14 +331,28 @@ export class AssignmentPanel {
   #card(s: Assignment): HTMLElement {
     const visibleDrafts = new Set<string>()
     const article = this.root.createElement('article'); article.className = 'assignmentCard'; article.dataset.assignment = s.id
+    article.dataset.attention = String(this.#needsYou(s))
     const title = this.root.createElement('h3'); title.textContent = s.objective; article.append(title)
     const owner = this.people().find(p => p.pubkey === s.owner)?.label ?? s.owner.slice(0, 12)
-    for (const line of [`${s.status} · ${owner} · attempt ${s.attempt}`, `Acceptance: ${s.criteria}`, s.next, s.progress, s.question, s.answer ? `Answer: ${s.answer}` : '']) {
+    const meta = this.root.createElement('p'); meta.className = 'workMeta'
+    const state = this.root.createElement('span'); state.className = 'workState'; state.textContent = s.status
+    meta.append(state, ` · ${owner}`); article.append(meta)
+    if (this.#needsYou(s)) {
+      const next = this.root.createElement('p'); next.className = 'workDecision'
+      next.textContent = s.creator === this.#log?.participant ? assignmentHumanAction(s) ?? s.next : s.next
+      article.append(next)
+    }
+    for (const line of [!this.#needsYou(s) && !s.result ? s.next : '', s.question, s.progress, s.answer ? `Answer: ${s.answer}` : '']) {
       if (!line) continue
       const p = this.root.createElement('p'); p.textContent = line; article.append(p)
     }
     if (s.result) {
-      const result = this.root.createElement('pre'); result.textContent = `${s.result.summary}\n\n${s.result.evidence}\n\nResult ${s.result.id}`; article.append(result)
+      const criteria = this.root.createElement('p'); criteria.className = 'note'; criteria.textContent = `Acceptance: ${s.criteria}`; article.append(criteria)
+      const result = this.root.createElement('p'); result.className = 'workResult'; result.textContent = s.result.summary; article.append(result)
+      const evidence = this.root.createElement('details'); evidence.dataset.workField = `${s.id}:evidence`
+      const summary = this.root.createElement('summary'); summary.textContent = 'Result evidence'; summary.dataset.workField = `${s.id}:evidence-toggle`
+      const content = this.root.createElement('pre'); content.textContent = `${s.result.evidence}\n\nResult ${s.result.id}`
+      evidence.append(summary, content); article.append(evidence)
     }
     const send = (op: AssignmentOperation, clearDraft?: string, text?: string) => this.#run(async log => {
       if (log.snapshot().assignments.find(a => a.id === s.id)?.head !== s.head) throw new Error('This assignment changed. Review its current state before acting.')
@@ -294,7 +360,7 @@ export class AssignmentPanel {
       if (log !== this.#log) return
       if (clearDraft && this.#drafts.get(clearDraft) === text) this.#drafts.delete(clearDraft)
     })
-    const button = (label: string, action: () => void) => { const b = this.root.createElement('button'); b.type = 'button'; b.textContent = label; b.dataset.workField = `${s.id}:${label}`; b.onclick = action; article.append(b) }
+    const button = (label: string, action: () => void) => { const b = this.root.createElement('button'); b.type = 'button'; b.textContent = label; b.dataset.workField = `${s.id}:${label}`; if (label === 'Accept this result') b.className = 'primary'; b.onclick = action; article.append(b) }
     const inputAction = (label: string, field: string, build: (text: string) => AssignmentOperation, into: HTMLElement = article) => {
       const form = this.root.createElement('form'); const l = this.root.createElement('label'); l.textContent = field
       const input = this.root.createElement('textarea'); input.required = true; input.maxLength = 2000; l.append(input)
@@ -315,7 +381,11 @@ export class AssignmentPanel {
     if (s.creator === this.#log?.participant) {
       if (s.status === 'review' && s.result) {
         button('Accept this result', () => { void send({ op: 'accept', result: s.result!.id }) })
-        inputAction('Request changes', 'What needs changing?', reason => ({ op: 'reject', result: s.result!.id, reason }))
+        const changes = this.root.createElement('details'); changes.dataset.workField = `${s.id}:changes`
+        const summary = this.root.createElement('summary'); summary.textContent = 'Request changes'; summary.dataset.workField = `${s.id}:changes-toggle`; changes.append(summary)
+        inputAction('Request changes', 'What needs changing?', reason => ({ op: 'reject', result: s.result!.id, reason }), changes)
+        changes.open = [...changes.querySelectorAll('textarea')].some(input => Boolean(input.value.trim()))
+        article.append(changes)
       }
       if (s.status === 'blocked') inputAction('Send answer', 'Answer for the owner', text => ({ op: 'answer', text }))
       if (['offered', 'running', 'blocked', 'review'].includes(s.status)) {
@@ -364,6 +434,8 @@ export class AssignmentPanel {
     }
     const history = this.root.createElement('details'); history.dataset.workField = `${s.id}:history`
     const summary = this.root.createElement('summary'); summary.textContent = 'History'; summary.dataset.workField = `${s.id}:history-toggle`; history.append(summary)
+    const criteria = this.root.createElement('p'); criteria.textContent = `Acceptance: ${s.criteria}`; history.append(criteria)
+    const attempt = this.root.createElement('p'); attempt.textContent = `Attempt ${s.attempt} · ${s.next}`; history.append(attempt)
     for (const entry of s.history) { const p = this.root.createElement('p'); p.textContent = `${new Date(entry.at * 1000).toLocaleString()} · ${entry.by.slice(0, 12)} · ${entry.operation.op}`; history.append(p) }
     article.append(history)
     return article
