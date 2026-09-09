@@ -112,15 +112,21 @@ REMOTE
 echo "==> shipping the tree"
 # What the CLI and the forwarder run and nothing else: the entry points, the
 # built library, the lockfile that pins its runtime dependencies (installed
-# on the box by keeper-install.sh with --omit=dev), the units, the install
-# scripts, and the docs the units link to. No checkout, no compiler, nothing
-# to build there.
+# on the box by keeper-install.sh with --omit=dev), the two workspace
+# packages the library imports (the lockfile links them, so their built
+# trees must be there or the links dangle and the CLI cannot start), the
+# units, the install scripts, and the docs the units link to. No checkout,
+# no compiler, nothing to build there.
 rsync -az --delete -e "ssh ${SSH_OPTS[*]}" --relative \
   ./bin/kithmoot-agent.mjs \
   ./server/forwarder.mjs \
   ./dist/src/ \
   ./package.json \
   ./package-lock.json \
+  ./packages/context/package.json \
+  ./packages/context/dist/ \
+  ./packages/context-tools/package.json \
+  ./packages/context-tools/dist/ \
   ./deploy/keeper@.service \
   ./deploy/keeper-install.sh \
   ./deploy/forwarder@.service \
