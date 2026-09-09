@@ -30,6 +30,12 @@ implementation reads this file to know what moved.
   chose. Nothing new on the wire; it is the sealed invite from
   `docs/messages.md` carrying a room link that is not a two-person one.
 
+- **A page that sends the browser back to the Android app.** Sign in with
+  Signet from the Android client goes to mysignet.app as a nostrconnect
+  invitation, and Signet will only send a browser back to an https address;
+  `/signet/` is that address, and all it does is open the app again with
+  the outcome. It holds nothing and is not indexed.
+
 ### Fixed
 
 - **Your own name beside your account again.** Since 0.4.1 a profile was
