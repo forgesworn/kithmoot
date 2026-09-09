@@ -133,13 +133,18 @@ export interface RoomWatchOptions {
   now?: () => number
   /** Something changed: a message arrived, or somebody came or went. */
   onChange?: () => void
+  /** A quiet room: its chat rides the gift-wrap stream, which a watch
+   *  does not pull. Reading a quiet room from the list would cost the
+   *  whole stream per room in the background; opening the room reads
+   *  it. Presence is still watched, since it is in the open. */
+  quiet?: boolean
 }
 
 export class RoomWatch {
   readonly #opts: RoomWatchOptions
   readonly #now: () => number
   readonly #startedAt: number
-  readonly #chat: ChatLog
+  readonly #chat?: ChatLog
   readonly #presence = new PresenceLedger()
   readonly #unsubRoster: () => void
 
@@ -147,14 +152,16 @@ export class RoomWatch {
     this.#opts = opts
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.#startedAt = this.#now()
-    this.#chat = new ChatLog({
-      transport: opts.transport,
-      roomId: opts.roomId,
-      roomKey: opts.roomKey,
-      policy: opts.policy,
-      now: this.#now,
-    })
-    this.#chat.onChange(() => opts.onChange?.())
+    if (!opts.quiet) {
+      this.#chat = new ChatLog({
+        transport: opts.transport,
+        roomId: opts.roomId,
+        roomKey: opts.roomKey,
+        policy: opts.policy,
+        now: this.#now,
+      })
+      this.#chat.onChange(() => opts.onChange?.())
+    }
     this.#unsubRoster = opts.transport.subscribe(
       [{ kinds: [KINDS.ROSTER], '#d': [opts.roomId] }],
       (event) => this.#ingest(event),
@@ -166,15 +173,20 @@ export class RoomWatch {
     return this.#opts.roomKey
   }
 
-  /** The room's chat as decoded here, oldest first. */
-  messages(): ChatMessage[] {
-    return this.#chat.messages()
+  /** Whether this watch reads the chat at all. False for a quiet room. */
+  get readsChat(): boolean {
+    return this.#chat !== undefined
   }
 
-  /** How many messages are newer than `readAt`. */
+  /** The room's chat as decoded here, oldest first. Empty for a quiet room. */
+  messages(): ChatMessage[] {
+    return this.#chat?.messages() ?? []
+  }
+
+  /** How many messages are newer than `readAt`. Zero for a quiet room, which says nothing either way. */
   unread(readAt: number): number {
     let count = 0
-    for (const message of this.#chat.messages()) if (message.sentAt > readAt && isConversation(message)) count++
+    for (const message of this.messages()) if (message.sentAt > readAt && isConversation(message)) count++
     return count
   }
 
@@ -192,7 +204,7 @@ export class RoomWatch {
 
   close(): void {
     this.#unsubRoster()
-    this.#chat.close()
+    this.#chat?.close()
   }
 
   #ingest(event: Event): void {

@@ -97,6 +97,7 @@ submission to the upstream registry is separate. Existing numbers do not change.
 | 20468 / 20469 | Epoch request / grant | Authority/device ciphertext; ephemeral |
 | 20470 | Member pass | Reserved signed presentation; no automatic relay publication |
 | 21059 | Ephemeral signal wrap | Shared upstream kind; recipient-addressed ciphertext |
+| 1059 | Quiet room drop | Shared upstream kind; a kind 1460 inside, addressed to a room-derived rendezvous key (`nostr-deaddrop` room case); regular |
 | 30460 | Service policy | Reserved addressable event; no publication in M2 |
 | 30461–30469 | Service policy expansion | Reserved only; no semantics assigned |
 | 30078 | Read positions | NIP-78, label `kithmoot.read.v1`; own-account ciphertext |
@@ -133,11 +134,18 @@ durable invitation. A creator's explicit conversion to a group issues a fresh
 bearer while retaining the conversation and authority. New v3 membership does
 not hand an inviter/delegation signing key to a joining member.
 
-An admission policy is `{tier,admitted?,agents?,members?}`. `tier` is `open`,
+An admission policy is `{tier,admitted?,agents?,members?,quiet?}`. `tier` is `open`,
 `ken`, `kith` or `kin`; `agents`, when present, is `owned-by-members`. `members`
-is an explicit participant restriction. Unsupported/malformed policy means
-reject the link, never an open room. The `accessEvaluation` and `kindredProof`
-vectors define the recognised proof and expiry cases.
+is an explicit participant restriction. `quiet`, when present, is exactly `true`
+and requires `members`: the room's kind 1460 events are never published bare,
+and ride instead inside kind 1059 room drops as `nostr-deaddrop` defines them,
+each addressed to a key derived from the current epoch key, the member's
+participant pubkey and a counter, one per slot per device with fillers between.
+Every reader derives every listed member's keys; a reader that does not know
+`quiet` would talk in the open, so a `quiet` in any other shape, or without
+`members`, rejects the link. Unsupported/malformed policy means reject the link,
+never an open room. The `accessEvaluation` and `kindredProof` vectors define the
+recognised proof and expiry cases.
 
 **Asking before letting people in.** The admission request body is
 `{"v":1,"device":<hex>}` and may also carry `"name"` (what the person

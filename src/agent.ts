@@ -3,6 +3,7 @@ import { RoomSession } from './session.js'
 import type { ParticipantView, PublishOptions, SessionTiming } from './session.js'
 import type { RelayTransport } from './relay-pool.js'
 import { NostrRelayPool } from './relay-pool.js'
+import { isQuietPolicy, quietRoomTransport, type QuietRoomOptions, type QuietRoomTransport } from './quiet.js'
 import { parseRoomLink, encodeRoomLink } from './link.js'
 import type { RoomLink } from './link.js'
 import { encodePersistentInvitation, requestPersistentRoomAdmission } from './persistent-invitation.js'
@@ -94,7 +95,13 @@ export interface KeeperState {
   channels?: string[]
 }
 
+/** How this agent takes part in a quiet room, when the link says the room
+ *  is one. Omit it and the agent posts as the identity's own device, slot
+ *  0, and keeps its used counters for this process only. See `quiet.ts`. */
+export type AgentQuietOptions = Partial<Pick<QuietRoomOptions, 'slot' | 'used' | 'onUsed' | 'onPosted' | 'onError' | 'intervalSeconds' | 'lookbackSeconds' | 'schedule' | 'slotOffset'>>
+
 interface CommonAgentOptions {
+  quiet?: AgentQuietOptions
   /** What the room calls this agent. */
   name: string
   /** The participant. A fresh local key when omitted, which is a perfectly
@@ -310,6 +317,12 @@ export class RoomAgent {
   #describeTimer?: ReturnType<typeof setTimeout>
   #rosterUnsub?: () => void
   readonly #transport: RelayTransport
+  /** The quiet transport, when this is a quiet room: what still waits to
+   *  be posted, and whether this agent may post at all. */
+  get quiet(): QuietRoomTransport | undefined {
+    const t = this.#transport as Partial<QuietRoomTransport>
+    return t.quiet === true ? (t as QuietRoomTransport) : undefined
+  }
   readonly #now: () => number
   #hostTransport?: RelayTransport
   #host?: { close(): void }
@@ -457,12 +470,18 @@ export class RoomAgent {
       forwarders?: ForwarderRef[]
     },
   ): Promise<RoomAgent> {
-    const transport = opts.makeTransport(opts.relays)
+    const identity = opts.identity ?? localIdentity(generateSecretKey())
+    const plain = opts.makeTransport(opts.relays)
+    // A quiet room's chat rides in drops; the session tells the wrapper
+    // the epoch key. Everything else the agent does stays in the open.
+    const transport: RelayTransport = isQuietPolicy(opts.link.policy)
+      ? quietRoomTransport(plain, { policy: opts.link.policy!, participant: identity.pubkey, slot: 0, now: opts.now, ...opts.quiet })
+      : plain
     let agent: RoomAgent | undefined
     const session = new RoomSession({
       transport,
       secret: opts.secret,
-      identity: opts.identity ?? localIdentity(generateSecretKey()),
+      identity,
       deviceSk: opts.deviceSk ?? generateSecretKey(),
       factory: opts.factory,
       policy: opts.link.policy,

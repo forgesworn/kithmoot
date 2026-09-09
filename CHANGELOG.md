@@ -11,6 +11,32 @@ implementation reads this file to know what moved.
 
 ### Added
 
+- **Quiet rooms.** Wire change. A policy may carry `quiet: true` beside
+  `members`; such a room never publishes a bare kind 1460. Its chat rides
+  inside kind 1059 room drops as `nostr-deaddrop` defines them: each to a
+  key derived from the epoch key, the member's participant pubkey and a
+  counter, one wrap every five minutes per device with fillers between,
+  read back from the gift-wrap stream over two days. A reader that does
+  not know `quiet` rejects the link. The web client starts one with
+  "Message quietly" on a person's row, keeps the counters it has spent
+  and the messages still waiting for a slot on the device, and gives the
+  device holding the identity and the device it paired disjoint halves
+  of the member's keys; a third device reads. `kithmoot-agent` joins a
+  quiet room from its link and posts in drops. See `docs/decisions.md`
+  and `docs/protocol.md`. Android does not read quiet rooms yet.
+
+- **Contact cards.** A contact book on this device, read from
+  `nostr-contact-card` cards: paste one in Room details, or open one as a
+  link at the door and press to keep it. The person's row shows "card",
+  the box on the card is one of the circle's relays (the lane says
+  sheltered when every relay a message goes to is one), its node id and
+  the highest address serial are pinned per box, and every box says
+  whether it is dialled on the card's endorsement or a refreshed address.
+  "Show my card" makes this device's own card, with no box and a
+  rendezvous key made here, for handing over. The circle mark on a relay
+  is never saved as a preference. No wire change: nothing about a card is
+  published.
+
 - **A room where people ask to come in.** At the start form, "People with
   the link ask, and somebody here lets them in". Somebody opening the link
   waits on the door while the person in the room sees "Rowan wants to

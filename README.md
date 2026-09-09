@@ -124,6 +124,23 @@ for the supported flow, worker tools, verification and recovery limits.
   link when they reconnect; the live room and everybody already in it stay
   put. Rotation is cooperative link retirement, not member revocation, and
   the UI says so.
+- Quiet rooms. A room of listed members can say `quiet` on its policy, and
+  its chat then rides the kind 1059 gift-wrap stream as dead drops: each
+  message to a key derived from the epoch key, the member and a counter,
+  one wrap every five minutes with fillers between, read back from the
+  whole stream. A relay cannot tell whether anything was said, by whom,
+  or when. Started with "Message quietly" on a person's row; the chip
+  beside the composer and the note on the room sheet say exactly what it
+  hides and what it does not. Built on `nostr-deaddrop`; see
+  `docs/decisions.md`.
+- Contact cards. Paste a person's card, or open it as a link at the door,
+  and this device holds their key, name, relays and the box they endorse,
+  read from the card's own bytes with nothing fetched. Their row says a
+  card is held; their box is one of your circle's relays, so a message
+  that goes only there shows as sheltered; the box's node id and address
+  serial are pinned so nothing older or other can stand in for it. "Show
+  my card" makes yours, to hand over and never post. Built on
+  `nostr-contact-card`; see `docs/decisions.md`.
 - Kindred-gated access tiers (`open` / `ken` / `kith` / `kin`), built on the
   `kindred` primitive. A room can admit anyone with the link, or require
   proof of anything up to a mutually-verified bond.
@@ -565,6 +582,21 @@ because a team is what this is now judged against:
   and keeps five hundred messages, edits and reactions included, and search
   covers only what the tab has loaded. A workspace ninety days old cannot
   show its first message.
+- **Quiet rooms hide what was said, not that you are there.** Presence,
+  signalling and epochs stay in the open, calls are not quiet, a message
+  waits up to five minutes, a device has eight an hour, relays hand back
+  two days of history, and the rooms list does not read a quiet room's
+  chat. Two devices per person can post; a third reads. Android reads
+  and writes plain rooms only: a quiet room opened there shows nothing
+  until the derivation lands in the native client.
+- **A contact card is trusted on first use, and the box is not refreshed
+  yet.** The badge says "card", not "verified". Fetching a fresh address
+  card from a box waits on the box saying what shape it publishes in; the
+  app keeps the pin and the serial for it and says on every box whether
+  it is dialled on the card's endorsement. Only a device holding its
+  identity key can make a card, because a card is signed over a digest,
+  not as an event; the rendezvous key on it is made here, not derived
+  from a root. The bond ceremony a card starts is not run here.
 - **No push.** A phone in a pocket learns nothing until the app is opened.
   A keeper can nudge a signed-in member over Nostr, and that is all.
 - **Named channels, removal and roles need a keeper.** A group admits and

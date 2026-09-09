@@ -8,7 +8,12 @@ type RelayHints = (string | RelayConfig)[]
 export class RelayConnections {
   #saved: Record<string, RelayConfig[]> = {}
   #pools = new Map<NostrRelayPool, { scope: string; hints: RelayHints }>()
-  constructor(private storage: StorageLike, private defaults: string[]) {
+  /** `circle` says whether a relay URL is a box of the person's own circle,
+   *  known from a contact card; such a relay is marked on every
+   *  configuration handed out, which is what lets a message to it show as
+   *  sheltered (`src/lane.ts`). The mark is a fact about the relay, not a
+   *  preference, so it is not saved and cannot be edited into place. */
+  constructor(private storage: StorageLike, private defaults: string[], private circle: (url: string) => boolean = () => false) {
     try {
       const saved: unknown = JSON.parse(storage.getItem(STORAGE_KEY) ?? '{}')
       if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
@@ -21,10 +26,25 @@ export class RelayConnections {
   }
   #validScope(scope: string): boolean { return scope === 'default' || /^(room|inherited):[a-f0-9]{64}$/.test(scope) }
   configuration(scope: string, hints: RelayHints = []): RelayConfig[] {
+    return this.#marked(this.#configuration(scope, hints))
+  }
+  #configuration(scope: string, hints: RelayHints): RelayConfig[] {
     if (this.#saved[scope]) return normaliseRelayConfig(this.#saved[scope])
     const inherited = this.#saved[scope.replace(/^room:/, 'inherited:')]
     if (hints.length) return normaliseRelayConfig(hints).map(relay => inherited?.find(saved => saved.url === relay.url) ?? relay)
     return normaliseRelayConfig(inherited ?? this.#saved.default ?? this.defaults)
+  }
+  #marked(relays: RelayConfig[]): RelayConfig[] {
+    return relays.map(relay => {
+      const { circle: _claimed, ...rest } = relay
+      return this.circle(relay.url) ? { ...rest, circle: true } : rest
+    })
+  }
+  /** The circle changed: a card was read or forgotten. Every live pool is
+   *  handed its configuration again, so the marks move without a reconnect. */
+  circleChanged(): void {
+    this.#prune()
+    for (const [pool, owner] of this.#pools) pool.setRelays(this.configuration(owner.scope, owner.hints))
   }
   inheritDefaults(scope: string): void {
     if (!/^room:[a-f0-9]{64}$/.test(scope)) throw new Error('No room is selected')
@@ -40,7 +60,8 @@ export class RelayConnections {
   }
   save(scope: string, entries: RelayConfig[]): void {
     if (!this.#validScope(scope)) throw new Error('No room is selected')
-    const relays = normaliseRelayConfig(entries)
+    // The circle mark is never saved: it is read off the contact book each time.
+    const relays = normaliseRelayConfig(entries).map(({ circle: _claimed, ...relay }) => relay)
     if (!relays.some(relay => relay.read) || !relays.some(relay => relay.write)) throw new Error('Keep at least one readable relay and one writable relay so the room can receive and send messages.')
     const next = { ...this.#saved, [scope]: relays }
     // Do not claim persistence or change connections if saving failed.

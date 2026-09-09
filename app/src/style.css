@@ -2863,6 +2863,20 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .chip.lane.public { color: var(--muted); }
 .chip.lane.sheltered { color: var(--accent); border-color: var(--accent); }
 .chip.lane.direct { color: var(--text); border-color: var(--text); }
+/* A quiet room's chip sits beside the lane chip: the lane says where the
+   bytes went, quiet says what they give away. Dashed, so it is told apart
+   from a lane without colour. */
+.chip.quiet { font-variant: small-caps; letter-spacing: 0.02em; color: var(--accent); border-color: var(--accent); border-style: dashed; }
+/* Somebody whose contact card this browser holds. A fact about this
+   browser, like a verification, and shown the same way. */
+.badge.card { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.contactList { display: flex; flex-direction: column; gap: 0.4rem; }
+.contactRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; }
+.contactRow .contactBoxes { flex-basis: 100%; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.contactCardForm { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.contactCardForm input { flex: 1; min-width: 0; }
+#myCardOut { width: 100%; margin-top: 0.5rem; }
+#myCardQr { display: block; margin-top: 0.5rem; max-width: 100%; }
 .laneNote { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0.25rem 0.35rem; font-size: 0.8rem; color: var(--muted); }
 .laneNote .laneWords { overflow-wrap: anywhere; }
 /* On a phone the reading space is the budget that matters and every message

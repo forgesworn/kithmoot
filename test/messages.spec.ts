@@ -114,7 +114,7 @@ test('a private conversation is started from a person and reaches them inside th
     await expect(rowan.locator('#roomArea')).toBeVisible()
 
     await openRoomDetails(rowan)
-    await rowan.getByRole('button', { name: /^Message Ada/ }).click()
+    await rowan.getByRole('button', { name: /^Message Ada privately/ }).click()
     await expect(rowan.locator('#status')).toContainText(/Private conversation with Ada/, { timeout: 30_000 })
     // Ada is told, in the room, and the room is on her list, named for Rowan.
     await expect(ada.locator('#chatLog')).toContainText('started a private conversation with you', { timeout: 30_000 })
@@ -134,7 +134,7 @@ test('a private conversation is started from a person and reaches them inside th
     // either of them leaves the workshop for the private room, the other's
     // "Message ..." button goes with them.
     await openRoomDetails(rowan)
-    await rowan.getByRole('button', { name: /^Message Ada/ }).click()
+    await rowan.getByRole('button', { name: /^Message Ada privately/ }).click()
     await expect(rowan.locator('#roomTitle')).toHaveText('Private: Ada', { timeout: 30_000 })
     await rowan.locator('#backToRooms').click()
     await expect(rowan.locator('#roomSwitcherList .switchRoom').filter({ hasText: 'Private: Ada' })).toHaveCount(1)
