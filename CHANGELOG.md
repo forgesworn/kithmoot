@@ -74,6 +74,16 @@ Vector `rosterEvent/valid-on-call`.
   own is public, because the operator is unknown. `lane.ts` fixes the three
   meanings.
 
+### Person credentials
+
+- A device credential (kind 20460) can now be scoped to the person rather
+  than one room: `d` is the participant's own pubkey, a `scope` tag says
+  `person`, an optional `label` names the device, and it may not run more
+  than 30 days. A room accepts one in place of a room credential only when
+  it says so (`acceptPerson`); a room credential is never a person
+  credential; a room credential carrying a `scope` tag is refused. Never on
+  a relay, as before. See `docs/device-credential.md`.
+
 ### M2 protocol
 
 - Add inner signalling profile/call tags and a 60-second outer expiry without
