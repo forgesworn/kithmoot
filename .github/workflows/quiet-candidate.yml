@@ -41,7 +41,10 @@ jobs:
         working-directory: client
         run: |
           npm ci
-          npm install --no-save --package-lock=false --ignore-scripts "$RUNNER_TEMP/nostr-deaddrop-0.2.1.tgz"
+          # The candidate changes no dependency requirements. Replace only
+          # its installed package; npm install --no-save can replace the
+          # client's local workspace links with their registry packages.
+          tar -xzf "$RUNNER_TEMP/nostr-deaddrop-0.2.1.tgz" --strip-components=1 -C node_modules/nostr-deaddrop
           npm ls nostr-deaddrop
       - name: Install browser
         working-directory: client
