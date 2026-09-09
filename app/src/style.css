@@ -3106,3 +3106,15 @@ button.primary:hover:not(:disabled) {
 #deviceControls .indicator:empty { display: none; }
 /* The extension as the way in: filled, full width, first. */
 #identity #joinNostr.primary { display: block; width: 100%; margin: .6rem 0 0; }
+
+/* Words, not codes: every search box holds what a person typed. */
+input[type="search"] { font-family: inherit; }
+/* Who can come in, on the start form: one short row, no box, so the
+   Start button stays above the fold on a small phone. */
+.roomAccess { border: 0; padding: 0; margin: 0 0 .5rem; display: flex; flex-wrap: wrap; gap: .3rem 1rem; }
+.roomAccess label { display: inline-flex; gap: .4rem; align-items: center; font-size: .95rem; }
+.roomAccess input { margin: 0; width: 1.1rem; height: 1.1rem; }
+.approvalCard.knock .options button.primary { margin: 0; }
+
+/* Which room to invite somebody to: one full-width button per room. */
+.inviteToRoomList button { display: block; width: 100%; margin: .35rem 0; min-height: 44px; text-align: left; }

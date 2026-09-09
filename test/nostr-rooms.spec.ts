@@ -252,7 +252,7 @@ test('existing browser rooms are imported only after explicit confirmation', asy
     await page.locator('#signIn').click()
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
-    await expect(page.locator('#importBrowserRooms')).toHaveText('Add 1 room from this browser')
+    await expect(page.locator('#importBrowserRooms')).toHaveText('Add the room already here')
     await page.locator('#importBrowserRooms').click()
     await page.locator('#actionCancel').click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
@@ -311,7 +311,7 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
     await expect(page.locator('#roomArea')).toBeHidden()
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
     await page.locator('#joinVisitor').click()
-    await expect(page.getByRole('alertdialog')).toContainText('different from your Nostr account')
+    await expect(page.getByRole('alertdialog')).toContainText('not your Nostr account')
     await page.locator('#actionCancel').click()
     await expect(page.locator('#roomArea')).toBeHidden()
     unavailable = false

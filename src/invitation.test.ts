@@ -332,3 +332,40 @@ describe('invitation exchange', () => {
     await expect(waiting).rejects.toThrow(/retired/)
   })
 })
+
+describe('asking before letting people in', () => {
+  it('a request carries who is asking, and a host with an admit hook grants only what it says yes to', async () => {
+    const relay = new SimRelay()
+    const host = createRoomInvitation()
+    const roomSecret = new Uint8Array(32).fill(41)
+    const asked: Array<{ name?: string; participant?: string }> = []
+    const participant = getPublicKey(generateSecretKey())
+    const serving = hostRoomInvitation({
+      transport: new SimTransport(relay),
+      invitation: host.invitation,
+      inviterSk: host.inviterSk,
+      roomSecret,
+      now,
+      admit: (request) => { asked.push({ name: request.name, participant: request.participant }); return request.name === 'Rowan' },
+    })
+    const admitted = await requestRoomAdmission({
+      transport: new SimTransport(relay), invitation: host.invitation, now, name: '  Rowan  ', participant,
+    })
+    expect(bytesToHex(admitted)).toBe(bytesToHex(roomSecret))
+    expect(asked).toEqual([{ name: 'Rowan', participant }])
+
+    await expect(requestRoomAdmission({
+      transport: new SimTransport(relay), invitation: host.invitation, now, name: 'Stranger', timeoutMs: 300, retryMs: 100,
+    })).rejects.toThrow()
+    expect(asked).toHaveLength(2)
+    serving.close()
+  })
+
+  it('a request with no name still decodes, and a bad participant is dropped rather than refused', () => {
+    const host = createRoomInvitation()
+    const sk = generateSecretKey()
+    const plain = encodeInvitationRequest({ invitation: host.invitation, requesterSk: sk, now: NOW })
+    expect(decodeInvitationRequest(plain, { invitation: host.invitation, now: NOW })).toEqual({ device: getPublicKey(sk), request: plain.id })
+    expect(() => encodeInvitationRequest({ invitation: host.invitation, requesterSk: sk, now: NOW, participant: 'nope' })).toThrow()
+  })
+})

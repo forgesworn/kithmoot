@@ -133,7 +133,7 @@ test('an incomplete invitation has a clear way back to rooms', async ({ browser,
   try {
     const page = await context.newPage()
     await page.goto(baseURL! + '#bad')
-    await expect(page.locator('#arrivalTitle')).toHaveText('This invitation is incomplete')
+    await expect(page.locator('#arrivalTitle')).toHaveText('This invite link is incomplete')
     await expect(page.locator('#joinRoomForm')).toBeHidden()
     await expect(page.locator('#retryArrival')).toBeHidden()
     await expect(page.locator('#setup')).toBeHidden()
@@ -159,9 +159,11 @@ test('an unanswered invitation can be retried without losing the name already en
     const page = await context.newPage()
     await page.clock.install()
     await page.goto(withRelays(host.url, [relay]))
-    await expect(page.locator('#status')).toContainText('Getting you in')
+    await expect(page.locator('#status')).toContainText('Asking to be let in')
     await page.locator('#displayName').fill('Keep my name')
-    await page.clock.fastForward(61_000)
+    // Two minutes: long enough for a person in the room to read a card and
+    // press Let in, which is what a link now waits for.
+    await page.clock.fastForward(121_000)
     await expect(page.locator('#arrivalTitle')).toHaveText('The room has not answered')
     await expect(page.locator('#retryArrival')).toBeVisible()
     await expect(page.locator('#joinRoomForm')).toBeHidden()
@@ -184,8 +186,8 @@ test('a retired invitation asks for a current link and does not offer a pointles
     await host.closeRoom()
     const page = await context.newPage()
     await page.goto(oldLink)
-    await expect(page.locator('#arrivalTitle')).toHaveText('This invitation is no longer valid')
-    await expect(page.locator('#arrivalLead')).toContainText('current invitation')
+    await expect(page.locator('#arrivalTitle')).toHaveText('This invite link is no longer valid')
+    await expect(page.locator('#arrivalLead')).toContainText('current invite link')
     await expect(page.locator('#retryArrival')).toBeHidden()
     await expect(page.locator('#joinRoomForm')).toBeHidden()
     await page.locator('#arrivalHome').click()

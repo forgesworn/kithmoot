@@ -37,6 +37,25 @@ implementation reads this file to know what moved.
   is never saved as a preference. No wire change: nothing about a card is
   published.
 
+- **A room where people ask to come in.** At the start form, "People with
+  the link ask, and somebody here lets them in". Somebody opening the link
+  waits on the door while the person in the room sees "Rowan wants to
+  join" with Let in and Decline; the switch is in Room details, on the
+  device that answers the link. There is no refusal on the wire: a
+  declined person sees that nobody let them in and is told somebody has
+  to accept them. **Wire, additive:** the admission request body (kind
+  20466, `v: 1`) gains optional `name` and `participant`; readers that do
+  not know them ignore them, and the Android client already does.
+
+- **Invite somebody to a room you are in.** On a person's row in Room
+  details, "Invite to a room" seals one of your rooms' links to them in
+  the conversation you share, the way a private conversation starts. They
+  find the room in their rooms, named as it names itself. A room that
+  asks first lets somebody you invited straight in, without the card:
+  that pair is a private room, a link nobody is handed and people you
+  chose. Nothing new on the wire; it is the sealed invite from
+  `docs/messages.md` carrying a room link that is not a two-person one.
+
 ### Fixed
 
 - **A connected Nostr extension is the way in.** The door never looked
@@ -46,6 +65,28 @@ implementation reads this file to know what moved.
   installed PWA has its own storage, so a sign-in done in a tab is not
   there in the app; the extension is. Now the filled button is "Join with
   your Nostr extension" and the visitor way in says so.
+- **A stored extension sign-in survives the extension arriving late.** An
+  extension's script lands after the app's, so a sign-in stored as
+  "extension" was restored while `window.nostr` did not exist yet, read as
+  the extension being gone, and the door asked for a reconnect from a
+  person whose extension was right there. The restore now waits up to
+  three seconds for it. And when a reconnect comes back as a different
+  account, because the extension had another one selected, the app says
+  so and names both, instead of quietly showing an empty room list.
+- **The words, once.** Invite link, never invitation; room, never group;
+  people, never participants; "with just a name", never visitor; and the
+  browser is no longer mentioned on the home and door screens. Per
+  `docs/glossary.md`.
+- **Comings and goings.** "Rowan came in." and "Rowan left." as lines in
+  the conversation, read off the roster after a settle window, so a person
+  reading the chat knows when the room changed. Nothing on the wire.
+- **A stranded joiner is told why.** When a temporary room's link finds
+  nobody online to let you in, the door says so and names the fix (Keep
+  this room open, in Room details) rather than "the room has not answered".
+- **Less furniture on the home and switcher.** The switcher only mentions
+  drafts when there are some; a room row no longer says it is "listening
+  for who is here"; the home fold is called Settings; search boxes use
+  the reading face rather than the code face.
 
 ## 0.4.1, 2026-09-09
 

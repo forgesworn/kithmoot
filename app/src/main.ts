@@ -124,6 +124,7 @@ import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store
 import { addContactFromCard, circleRelays, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
 import { buildCard, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
+import type { InvitationRequest } from '../../src/invitation.js'
 import { ReadPositionSync } from './read-positions.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
@@ -644,11 +645,21 @@ async function signInWithNostr(): Promise<void> {
     )
   }
 
+  // Not the account this app knew. An extension holds several accounts and
+  // signs in with whichever is selected, so "reconnect" can quietly come
+  // back as somebody else, with none of the rooms saved under the first.
+  // Say so, once, rather than leaving a person to work out why their rooms
+  // are gone.
+  const previous = expectedAccount
   nostrSession = account
   rememberAccount(account.pubkey)
   startRoomBookmarks(account)
   profiles.want([account.pubkey])
   renderIdentity()
+  if (previous && previous !== account.pubkey) {
+    const now = shownAs(account.pubkey), before = shownAs(previous)
+    setStatus(`Signed in as ${now.name ?? now.npub}. Last time this was ${before.name ?? before.npub}, and the rooms saved under that account are not here. To get them back, select that account in your extension and sign in again.`)
+  }
 }
 
 async function signOutOfNostr(): Promise<void> {
@@ -993,10 +1004,163 @@ function setKeepRoomChoice(on: boolean): void {
   renderKeepChoice()
 }
 
+// ---------------------------------------------------------------------------
+// Asking before letting people in.
+//
+// A temporary room's link makes a newcomer ask, and any device in the room
+// holding the invitation answers. With this switch on, that device asks its
+// owner first: a card names who is asking, with Let in and Decline. There is
+// no refusal on the wire; a declined person sees the room not answer, and
+// the door tells them somebody has to accept them. Remembered per room on
+// this device, because it is this device's owner who is asked.
+// ---------------------------------------------------------------------------
+
+const KNOCK_KEY_PREFIX = 'kithmoot.knock.v1.'
+/** How long a newcomer waits to be let in, and how long the card stays.
+ *  Long enough for a person to notice and press a button. */
+const KNOCK_WAIT_MS = 120_000
+
+function knockOn(roomId: string): boolean {
+  return deviceStore.get(KNOCK_KEY_PREFIX + roomId) === 'true'
+}
+
+function setKnock(roomId: string, on: boolean): void {
+  if (on) deviceStore.set(KNOCK_KEY_PREFIX + roomId, 'true')
+  else deviceStore.remove(KNOCK_KEY_PREFIX + roomId)
+}
+
+interface Knock extends InvitationRequest { at: number; resolve: (yes: boolean) => void }
+const knocks = new Map<string, Knock>()
+
+function knockLabel(knock: InvitationRequest): string {
+  if (knock.participant) return shownAs(knock.participant, knock.name).name ?? shortKey(knock.participant)
+  return knock.name ?? `Somebody (${shortKey(knock.device)})`
+}
+
+function askToLetIn(request: InvitationRequest): Promise<boolean> {
+  // Somebody this device invited is not asked about: inviting them was
+  // the answer. Anybody else with the link gets the card.
+  const roomId = currentRoomId()
+  if (roomId && request.participant && invitedTo(roomId).has(request.participant)) {
+    addSystemLine(`${knockLabel(request)} came in on your invite.`)
+    return Promise.resolve(true)
+  }
+  return new Promise((resolve) => {
+    const knock: Knock = { ...request, at: nowSeconds(), resolve }
+    knocks.set(knock.request, knock)
+    setStatus(`${knockLabel(knock)} wants to join. Let them in from the card above the conversation.`)
+    renderApprovals()
+    setTimeout(() => {
+      if (!knocks.delete(knock.request)) return
+      resolve(false)
+      renderApprovals()
+    }, KNOCK_WAIT_MS)
+  })
+}
+
+function answerKnock(knock: Knock, yes: boolean): void {
+  if (!knocks.delete(knock.request)) return
+  knock.resolve(yes)
+  addSystemLine(yes ? `You let ${knockLabel(knock)} in.` : `You declined ${knockLabel(knock)}.`)
+  renderApprovals()
+}
+
+// People this device invited to a room, by room. A knock from one of them
+// is let in without asking: inviting somebody was the decision.
+const INVITED_KEY_PREFIX = 'kithmoot.invited.v1.'
+function invitedTo(roomId: string): Set<string> {
+  try {
+    const raw = deviceStore.get(INVITED_KEY_PREFIX + roomId)
+    const list = raw ? (JSON.parse(raw) as unknown) : []
+    return new Set(Array.isArray(list) ? list.filter((p): p is string => typeof p === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+function noteInvited(roomId: string, participant: string): void {
+  const set = invitedTo(roomId)
+  set.add(participant)
+  deviceStore.set(INVITED_KEY_PREFIX + roomId, JSON.stringify([...set].slice(-200)))
+}
+
+let invitingPeer: { participant: string; name?: string } | undefined
+
+function openInviteToRoom(participant: string, name: string | undefined): void {
+  const here = currentRoomId()
+  const rooms = knownRooms(roomStore()).filter((room) => room.roomId !== here && !dmPeerOf(room))
+  if (rooms.length === 0) {
+    setStatus('No other rooms to invite to yet. Start one from Rooms first.')
+    return
+  }
+  invitingPeer = { participant, ...(name ? { name } : {}) }
+  const who = name ?? shortKey(participant)
+  $('inviteToRoomLead').textContent = `Which room should ${who} be invited to?`
+  const list = $('inviteToRoomList')
+  list.replaceChildren()
+  for (const room of rooms.sort((a, b) => b.openedAt - a.openedAt)) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = knownRoomLabel(room)
+    button.addEventListener('click', () => { void sendRoomInvite(room) })
+    list.append(button)
+  }
+  const dialog = $('inviteToRoom') as HTMLDialogElement
+  if (!dialog.open) dialog.showModal()
+}
+
+async function sendRoomInvite(room: KnownRoom): Promise<void> {
+  const s = session
+  const peer = invitingPeer
+  const dialog = $('inviteToRoom') as HTMLDialogElement
+  if (!s || !peer) return
+  const who = peer.name ?? shortKey(peer.participant)
+  const crypt = peerCrypt()
+  if (!crypt) {
+    setStatus(nostrSession
+      ? 'This signer cannot encrypt, so it cannot send an invite. Sign in with a signer that supports NIP-44.'
+      : 'A paired device cannot send an invite. Use the device that holds your identity.')
+    return
+  }
+  try {
+    const invite = await sealInvite(room.link, { to: peer.participant, room: room.roomId, crypt })
+    const text = 'Invited you to a room.'
+    outbox.send(text, 'Chat', s.chat.prepareSend(text, { invite }))
+    noteInvited(room.roomId, peer.participant)
+    addSystemLine(`You invited ${who} to ${knownRoomLabel(room)}.`)
+    setStatus(`${who} is invited to ${knownRoomLabel(room)}. They will find it in their rooms.`, 'done')
+  } catch (err) {
+    setStatus(describeError(err))
+  } finally {
+    invitingPeer = undefined
+    if (dialog.open) dialog.close()
+  }
+}
+
+function forgetKnocks(): void {
+  for (const knock of knocks.values()) knock.resolve(false)
+  knocks.clear()
+}
+
+/** The switch in Room details, for a device that answers this room's link
+ *  and could ask first. A self-service room has nobody to ask. */
+function renderKnockChoice(): void {
+  const row = $('knockRow')
+  const roomId = currentRoomId()
+  const answers = roomId !== undefined && roomInvitationCapability !== undefined && !roomInvitationCapability.persistent && invitationAuthoritySk !== undefined
+  row.hidden = !answers
+  if (!answers) return
+  const on = knockOn(roomId)
+  setToggle('toggleKnock', on)
+  $('knockNote').textContent = on
+    ? 'Somebody who opens the link waits until you let them in.'
+    : 'Anyone who opens the link comes straight in while you are here.'
+}
+
 /** The switch, shown to a joiner holding an admission, or to one who kept
  *  one earlier and may want to stop. The creator's own record is already
  *  on these terms, so the creator is not asked. */
 function renderKeepChoice(): void {
+  renderKnockChoice()
   const row = $('keepRow')
   const roomId = currentRoomId()
   const on = roomId !== undefined && knownRoom(roomStore(), roomId)?.keep === true
@@ -1036,6 +1200,7 @@ function serveCurrentInvitation(): void {
       // joined; before that, what this browser was itself told, or 0 for a
       // room this browser made.
       epoch: () => session?.epoch ?? expectedEpoch ?? 0,
+      ...(knockOn(deriveRoom(roomSecret).roomId) ? { admit: askToLetIn } : {}),
       // A delegated responder may receive recent requests replayed by a
       // lenient relay, including requests for people already admitted on a
       // different delegation branch. Serving those again is harmless, but it
@@ -1435,9 +1600,9 @@ function renderHowIn(): void {
   } else if (nostrSession) {
     how.textContent = 'Signed in with Nostr. Your key stays where it is kept; this page never holds it.'
   } else if (participant) {
-    how.textContent = 'A name only, with a key this browser made. Agents that know you by your Nostr account will not recognise it.'
+    how.textContent = 'A name only, with a key of its own. Agents that know you by your Nostr account will not recognise it.'
   } else {
-    how.textContent = 'A name only. This browser makes a key of its own the first time you go in.'
+    how.textContent = 'A name only. A key of its own is made the first time you go in.'
   }
   $('sheetHow').textContent = how.textContent
 }
@@ -1475,13 +1640,13 @@ function renderIdentity(): void {
   // so it is the filled button, and the visitor path says what it is. An
   // installed PWA has its own storage, which is how a sign-in done in a
   // tab is not there in the app; the extension is.
-  const extensionHere = extensionSignerPresent() && !needsAccountReconnect()
-  $('joinNostr').textContent = needsAccountReconnect() ? 'Reconnect Nostr account'
+  const extensionHere = extensionSignerPresent()
+  $('joinNostr').textContent = needsAccountReconnect() ? (extensionHere ? 'Reconnect with your Nostr extension' : 'Reconnect Nostr account')
     : extensionHere ? 'Join with your Nostr extension' : 'Already on Nostr? Sign in'
   $('joinNostr').classList.toggle('primary', extensionHere)
   $('joinNostr').classList.toggle('linkish', !extensionHere)
   $('joinVisitor').hidden = !needsAccountReconnect()
-  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : extensionHere ? 'Join as a visitor' : 'Join'
+  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : extensionHere ? 'Join with just a name' : 'Join'
   $('join').classList.toggle('primary', !extensionHere)
   $('join').classList.toggle('quiet', extensionHere)
   // The filled button comes first. With the extension the order is: the
@@ -1498,7 +1663,7 @@ function renderIdentity(): void {
   if (session) {
     const visitor = !nostrSession && !loadCredential()
     const shown = shownAs(meParticipant, joiningName())
-    const label = visitor ? 'Visitor' : 'Nostr'
+    const label = visitor ? 'Name only' : 'Nostr'
     const description = `Sending as ${visitor ? 'visitor' : 'Nostr account'}: ${shown.name ?? label}. ${shown.npub}${shown.nip05 ? `. ${shown.nip05}` : ''}`
     sending.title = description
     sending.setAttribute('aria-label', description)
@@ -1516,7 +1681,7 @@ function renderIdentity(): void {
     if (visitor) {
       ;(choice as HTMLButtonElement).type = 'button'
       choice.addEventListener('click', async () => {
-        if (await confirmRoomAction({ title: 'Sending as a visitor', message: `${description}. This is a separate browser identity. Agents may not recognise you. Leave the room to sign in with your usual Nostr account.`, confirmLabel: 'Leave to sign in', cancelLabel: 'Keep chatting' })) ($('leave') as HTMLButtonElement).click()
+        if (await confirmRoomAction({ title: 'Sending with just a name', message: `${description}. This is a separate identity, not your Nostr account. Agents may not recognise you. Leave the room to sign in with your usual Nostr account.`, confirmLabel: 'Leave to sign in', cancelLabel: 'Keep chatting' })) ($('leave') as HTMLButtonElement).click()
       })
     }
     sending.append(choice)
@@ -1552,7 +1717,7 @@ function renderIdentity(): void {
     if (!session && !nostrSession && extensionSignerPresent() && !needsAccountReconnect()) {
       const aside = document.createElement('span')
       aside.className = 'whoamiAside'
-      aside.textContent = ' as a visitor. Your Nostr extension is here and not in use yet.'
+      aside.textContent = ' with just a name. Your Nostr extension is here and not in use yet.'
       line.append(aside)
     }
   } else if (name !== undefined) {
@@ -1705,12 +1870,21 @@ async function roomFromLocation(): Promise<boolean> {
         cacheAdmission(invitation, cached)
         serveCurrentInvitation()
       } else {
-        setStatus('Getting you in…', 'progress')
+        setStatus(invitation.persistent ? 'Getting you in…' : 'Asking to be let in…', 'progress')
         const transport = configuredPool(relays)
         try {
+          // A temporary room's link is answered by a person, who may have
+          // been asked first: the request says who is asking, and the wait
+          // is long enough for somebody to read a card and press a button.
+          const askedAs = joiningName()
+          const askedFrom = currentParticipant()
           const admission = invitation.persistent
             ? await requestPersistentRoomAdmission({ transport, invitation })
-            : await requestRoomAdmissionCapability({ transport, invitation })
+            : await requestRoomAdmissionCapability({
+              transport, invitation, timeoutMs: KNOCK_WAIT_MS,
+              ...(askedAs !== undefined ? { name: askedAs } : {}),
+              ...(askedFrom !== undefined ? { participant: askedFrom } : {}),
+            })
           roomSecret = admission.secret
           roomRelayScope = `room:${deriveRoom(roomSecret).roomId}`
           useRoomRelays(parsedLink.relays)
@@ -1723,7 +1897,7 @@ async function roomFromLocation(): Promise<boolean> {
           // and that the next move is the reader's, which is the thing they
           // could not tell while a line saying "in progress" sat under a
           // button that was ready to be pressed.
-          setStatus('Invitation accepted. Go in when you are ready.', 'done')
+          setStatus('You are on the list. Go in when you are ready.', 'done')
         } finally {
           transport.close()
         }
@@ -2216,9 +2390,16 @@ async function toggleAssist(): Promise<void> {
 let startedHere = false
 
 async function startNewRoom(): Promise<void> {
-  const persistent = true
+  // "People ask, and somebody lets them in" is a temporary-style room: the
+  // link makes a person ask, and a device in the room answers - after
+  // asking its owner, see `askToLetIn`. It cannot be self-service from the
+  // relay, which is exactly the point, and it is why such a room needs
+  // somebody online to let people in.
+  const ask = (document.querySelector('input[name="roomAccess"]:checked') as HTMLInputElement | null)?.value === 'ask'
+  const persistent = !ask
   const secret = generateRoomSecret()
   const created = createRoomInvitation(persistent)
+  setKnock(deriveRoom(secret).roomId, ask)
   const relayScope = `room:${deriveRoom(secret).roomId}`
   // Snapshot access modes too: an invitation carries URLs, so reconstructing
   // this room from its link must not turn a read-only default into a writer.
@@ -2749,10 +2930,10 @@ async function makeRoomPersistent(): Promise<void> {
   history.replaceState(null, '', url)
   ;($('shareUrl') as HTMLInputElement).value = url
   $('makePersistent').hidden = true
-  $('invitationAvailability').textContent = 'This group stays available when everyone closes the app. Share the updated group invitation so people can join later.'
+  $('invitationAvailability').textContent = 'This room stays open when everyone closes the app. Share the updated invite link so people can join later.'
   rememberCurrentRoom()
   if (($('shareQrDetails') as HTMLDetailsElement).open) await renderQr($('shareQr') as HTMLCanvasElement, url)
-  setStatus('This is now a persistent group. Share the updated invitation; old temporary links still need an online member.')
+  setStatus('This room now stays open. Share the updated invite link; the old temporary link still needs somebody online.')
 }
 
 // ---------------------------------------------------------------------------
@@ -3679,6 +3860,20 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       hush.addEventListener('click', () => { void startDirectMessage(view.participant, shown.name, true) })
       row.append(hush)
     }
+    // Bring them into another room of yours. The invite travels sealed to
+    // them in this conversation, the same way a private conversation
+    // starts, and a room that asks first lets somebody you invited straight
+    // in. That pair is what a private room is: a link nobody is handed,
+    // and people you chose.
+    if (view.participant !== me && !view.agent) {
+      const invite = document.createElement('button')
+      invite.type = 'button'
+      invite.className = 'dmButton quiet'
+      invite.textContent = 'Invite to a room'
+      invite.setAttribute('aria-label', `Invite ${shown.name ?? shown.short} to a room`)
+      invite.addEventListener('click', () => openInviteToRoom(view.participant, shown.name))
+      row.append(invite)
+    }
     list.append(row)
   }
 }
@@ -3784,23 +3979,32 @@ async function handleInvites(messages: ChatMessage[]): Promise<void> {
     const link = await openInvite(m.invite, { self: me, sender: m.participant, crypt })
     if (generation !== roomGeneration) return
     if (!link) continue
+    let parsed: ReturnType<typeof parseRoomLink>
     try {
-      parseRoomLink(link)
+      parsed = parseRoomLink(link)
     } catch {
       continue
     }
-    // Named for the other person: the sender's name on the message when it
+    // Two kinds of sealed invite. A private conversation is a room of two,
+    // named for the other person: the sender's name on the message when it
     // was sent to us, and the addressee's roster name when we sent it from
-    // another device.
+    // another device. An invite to a room of the sender's is named as the
+    // room names itself.
+    const privateConversation = dmPeer(parsed.policy, me) !== undefined
     const peerName = m.participant === me
       ? session?.participants().find((v) => v.participant === m.invite!.to)?.name
       : m.name ?? shownAs(m.participant).name
-    const room = rememberRoom(roomStore(), { roomId: m.invite.room, link, openedAt: m.sentAt, ...(peerName ? { name: peerName } : {}) })
+    const name = privateConversation ? peerName : parsed.name
+    const room = rememberRoom(roomStore(), { roomId: m.invite.room, link, openedAt: m.sentAt, ...(name ? { name } : {}) })
     bookmarks?.save(room)
     const kind = isQuietRoom(room) ? 'quiet' : 'private'
-    addSystemLine(m.participant === me
-      ? `You started a ${kind} conversation from another device. It is in your rooms.`
-      : `${senderLabel(m)} started a ${kind} conversation with you. It is in your rooms.`, m.sentAt, room)
+    addSystemLine(privateConversation
+      ? m.participant === me
+        ? `You started a ${kind} conversation from another device. It is in your rooms.`
+        : `${senderLabel(m)} started a ${kind} conversation with you. It is in your rooms.`
+      : m.participant === me
+        ? `You invited somebody to ${knownRoomLabel(room)} from another device.`
+        : `${senderLabel(m)} invited you to ${knownRoomLabel(room)}. It is in your rooms.`, m.sentAt, room)
     if (roomsListShown) renderRooms()
   }
 }
@@ -3901,6 +4105,42 @@ interface SystemLine {
   room?: KnownRoom
 }
 const systemLines: SystemLine[] = []
+
+/**
+ * "Rowan came in." and "Rowan left.", as lines in the conversation.
+ *
+ * Who is here is on the roster and in Room details, but a person reading
+ * the chat wants to know when it changed, the way a channel says so. Read
+ * off the roster, with a settle window: the roster is rebuilt from relay
+ * replay for the first heartbeat after joining, and everybody already in
+ * the room would otherwise "come in" one by one as their entries arrive.
+ * Nothing here is on the wire; two devices may see the same person's
+ * comings a heartbeat apart, and that is fine.
+ */
+const ROSTER_SETTLE_MS = 25_000
+let rosterSeen: Map<string, string | undefined> | undefined
+let rosterJoinedAt = 0
+function announceComings(views: ParticipantView[], me: string): void {
+  const now = Date.now()
+  const present = new Map(views.filter(view => view.participant !== me).map(view => [view.participant, view.name] as const))
+  if (!rosterSeen) {
+    rosterSeen = new Map(present)
+    rosterJoinedAt = now
+    return
+  }
+  const settled = now - rosterJoinedAt > ROSTER_SETTLE_MS
+  const label = (participant: string, name: string | undefined, agent: boolean) =>
+    `${shownAs(participant, name).name ?? shortKey(participant)}${agent ? ' (agent)' : ''}`
+  for (const [participant, name] of present) {
+    if (rosterSeen.has(participant)) continue
+    if (settled) addSystemLine(`${label(participant, name, views.find(v => v.participant === participant)?.agent === true)} came in.`)
+  }
+  for (const [participant, name] of rosterSeen) {
+    if (present.has(participant)) continue
+    if (settled) addSystemLine(`${label(participant, name, agentParticipants.has(participant))} left.`)
+  }
+  rosterSeen = new Map(present)
+}
 
 function addSystemLine(text: string, at = nowSeconds(), room?: KnownRoom): void {
   systemLines.push(room ? { at, text, room } : { at, text })
@@ -4073,6 +4313,27 @@ function renderApprovals(): void {
     card.append(who, text, options)
     box.append(card)
   }
+  for (const knock of knocks.values()) {
+    const card = document.createElement('div')
+    card.className = 'approvalCard knock'
+    const who = document.createElement('span')
+    who.className = 'who'
+    if (knock.participant) who.append(identityRun(shownAs(knock.participant, knock.name), false))
+    else who.append(knock.name ?? 'Somebody')
+    who.append(' wants to join.')
+    const options = document.createElement('div')
+    options.className = 'options'
+    for (const [label, yes] of [['Let in', true], ['Decline', false]] as const) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = label
+      if (yes) button.classList.add('primary')
+      button.addEventListener('click', () => answerKnock(knock, yes))
+      options.append(button)
+    }
+    card.append(who, options)
+    box.append(card)
+  }
   // A card leaves on its own when its question expires.
   if (approvalTimer !== undefined) clearTimeout(approvalTimer)
   approvalTimer = undefined
@@ -4126,7 +4387,7 @@ function renderHost(): void {
 }
 
 $('closeRoom').addEventListener('click', async () => {
-  if (!await confirmRoomAction({ title: 'Close this room for everybody?', message: 'The invitation link will stop answering and the keeper will leave.', confirmLabel: 'Close room', danger: true })) return
+  if (!await confirmRoomAction({ title: 'Close this room for everybody?', message: 'The invite link will stop working and the agent keeping the room open will leave.', confirmLabel: 'Close room', danger: true })) return
   sendHostControl({ op: 'close' }, 'Asked the keeper to close the room.')
 })
 
@@ -5522,7 +5783,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         const info = document.createElement('span')
         info.className = 'reactionPersonInfo'
         const name = document.createElement('strong')
-        name.textContent = `${shown.name ?? 'Unnamed participant'}${entry.participant === meParticipant ? ' (you)' : ''}`
+        name.textContent = `${shown.name ?? 'No name'}${entry.participant === meParticipant ? ' (you)' : ''}`
         info.append(name)
         if (shown.nip05) {
           const address = document.createElement('span')
@@ -6249,7 +6510,7 @@ async function startSession(asVisitor = false): Promise<void> {
       setStatus('Joining the room…', 'progress')
     }
     if (needsAccountReconnect() && !asVisitor) {
-      setStatus('Your Nostr account is disconnected. Reconnect it, or explicitly choose a separate visitor identity.')
+      setStatus('Your Nostr account is disconnected. Reconnect it, or choose to go in with just a name.')
       ;($('joinNostr') as HTMLButtonElement).focus()
       return
     }
@@ -6408,6 +6669,7 @@ async function startSession(asVisitor = false): Promise<void> {
 
     s.onChange((views) => {
       if (session !== s) return
+      announceComings(views, meParticipant)
       assignmentPanel.refreshPeople()
       render(views, meParticipant)
       renderInvites()
@@ -6699,7 +6961,7 @@ function renderRooms(): void {
   if (!roomsListShown) return
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
-  $('importBrowserRooms').textContent = `Add ${importable.length} ${importable.length === 1 ? 'room' : 'rooms'} from this browser`
+  $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
   const rooms = knownRooms(roomStore())
   const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
   fillProjectFilter('homeProject', rooms)
@@ -6709,7 +6971,7 @@ function renderRooms(): void {
   $('rooms').hidden = rooms.length === 0 && !nostrSession
   $('notify').hidden = rooms.length === 0
   $('homeHeading').textContent = rooms.length ? 'Pick up the conversation.' : 'Make room for a conversation.'
-  $('roomsHeading').textContent = nostrSession ? 'Your rooms' : 'Rooms on this browser'
+  $('roomsHeading').textContent = 'Your rooms'
   $('roomsEmpty').hidden = rooms.length !== 0
   $('homeRoomSearch').hidden = rooms.length === 0
   $('clearHomeRoomQuery').hidden = !query
@@ -6754,7 +7016,7 @@ async function importBrowserRooms(): Promise<void> {
   const destination = nostrSession?.signer.nip44
     ? 'Their names and invitation links will be encrypted to your Nostr key and sent to relays.'
     : 'This signer cannot encrypt, so these bookmarks will stay in this browser only.'
-  if (!await confirmRoomAction({ title: 'Add browser rooms to this account?', message: `${rooms.map(knownRoomLabel).join('\n')}\n\n${destination}`, confirmLabel: 'Add rooms' })) return
+  if (!await confirmRoomAction({ title: 'Add these rooms to your account?', message: `${rooms.map(knownRoomLabel).join('\n')}\n\n${destination}`, confirmLabel: 'Add rooms' })) return
   for (const room of rooms) bookmarks.save(room)
   renderRooms()
 }
@@ -6830,7 +7092,7 @@ function roomMeta(room: KnownRoom): HTMLDivElement {
     // Presence is only what devices say of their own accord, once a
     // heartbeat: until one has had the chance to, an empty room is not yet
     // an empty room.
-    here.textContent = watched.watch.settled ? 'nobody here' : 'listening for who is here\u2026'
+    here.textContent = watched.watch.settled ? 'nobody here' : ''
     meta.append(here)
     return meta
   }
@@ -7061,7 +7323,9 @@ function renderRoomSwitcher(): void {
     ? 'Finish sending or stop adding files before switching. You can also open the other room in a new tab.'
     : callIsLive() || onCall()
       ? 'Your call stays connected while you browse. Switching will ask before leaving it; a new tab keeps this call here.'
-      : 'Your drafts stay in this tab while you switch.'
+      : hasUnsentWork()
+        ? 'Your drafts stay here while you switch.'
+        : ''
   const list = $('roomSwitcherList')
   const focused = document.activeElement as HTMLElement | null
   const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
@@ -7212,6 +7476,8 @@ async function closeRoomSession(): Promise<void> {
   for (const box of tileBoxes.values()) box.remove()
   tileBoxes.clear()
   leftCall = false
+  rosterSeen = undefined
+  forgetKnocks()
   orphanChecks.clear()
   $('agentsRow').replaceChildren()
   const preview = $('voicePreviewAudio') as HTMLAudioElement
@@ -7608,7 +7874,7 @@ $('projectForm').addEventListener('submit', event => {
     ;($('projectEditor') as HTMLDialogElement).close()
     renderRooms()
   } catch {
-    $('projectError').textContent = 'This browser could not save the project. Try again after allowing storage for this site.'
+    $('projectError').textContent = 'The project could not be saved. Try again after allowing storage for this site.'
     $('projectError').hidden = false
   }
 })
@@ -7709,6 +7975,7 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
 $('roomRelaySettings').addEventListener('click', () => { closeRoomSheet(); relaySettings.open($('roomMenu')) })
 $('defaultRelaySettings').addEventListener('click', () => relaySettings.open($('defaultRelaySettings')))
 $('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
+$('inviteToRoomClose').addEventListener('click', () => { invitingPeer = undefined; ($('inviteToRoom') as HTMLDialogElement).close() })
 $('profileSettings').addEventListener('close', () => profileReturnFocus.focus({ preventScroll: true }))
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
 // dialog element itself fills the screen, so a click that lands ON the
@@ -7764,6 +8031,14 @@ $('toggleNotifyText').addEventListener('click', () => {
   renderNotifyChoice()
 })
 $('toggleKeep').addEventListener('click', () => setKeepRoomChoice($('toggleKeep').dataset.on !== 'true'))
+$('toggleKnock').addEventListener('click', () => {
+  const roomId = currentRoomId()
+  if (!roomId) return
+  setKnock(roomId, $('toggleKnock').dataset.on !== 'true')
+  renderKnockChoice()
+  // The host loop reads the switch when it starts, so start it again.
+  serveCurrentInvitation()
+})
 $('toggleNudge').addEventListener('click', () => {
   const button = $('toggleNudge') as HTMLButtonElement
   button.disabled = true
@@ -8029,9 +8304,9 @@ $('joinVisitor').addEventListener('click', async () => {
   const generation = identityGeneration
   const room = roomGeneration
   if (!await confirmAction({
-    title: 'Join with a separate visitor identity?',
-    message: 'This browser key is different from your Nostr account, even if you use the same name. Agents that know your Nostr account may ignore these messages.',
-    confirmLabel: 'Join as visitor',
+    title: 'Join with just a name?',
+    message: 'This is not your Nostr account, even with the same name. Agents that know your account may ignore these messages.',
+    confirmLabel: 'Join with just a name',
     cancelLabel: 'Back to sign-in',
     isCurrent: () => generation === identityGeneration && room === roomGeneration && needsAccountReconnect() && !session && !joining,
   })) return
@@ -8955,7 +9230,7 @@ $('voiceMode').textContent = DEFAULT_VOICE_PRESET
 // dashboard stays hidden for an invitation, including one that cannot open.
 if (location.hash.length > 1) {
   $('identity').hidden = false
-  $('arrivalTitle').textContent = 'Opening your invitation'
+  $('arrivalTitle').textContent = 'Opening your invite link'
   const lead = $('arrivalLead')
   lead.textContent = 'Opening the link somebody sent you.'
   lead.hidden = false
@@ -9015,14 +9290,14 @@ function showArrivalFailure(err: unknown): void {
   $('addCardArrival').hidden = true
   const retired = reason.includes('retired')
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
-  $('arrivalTitle').textContent = retired ? 'This invitation is no longer valid' : valid ? persistent ? 'The group invitation could not be loaded' : 'The room has not answered' : 'This invitation is incomplete'
+  $('arrivalTitle').textContent = retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
   $('arrivalLead').textContent = retired
-    ? 'Ask somebody in the room for its current invitation link.'
+    ? 'Ask somebody in the room for its current invite link.'
     : valid
       ? persistent
-        ? 'Check your connection and try again. If it still cannot be found, ask for a current group invitation.'
-        : 'Check your connection and ask somebody with access to keep the room open while you try again.'
-      : 'Copy the whole invitation, including everything after #, then open it again.'
+        ? 'Check your connection and try again. If it still cannot be found, ask for a current invite link.'
+        : 'Nobody let you in. Somebody in the room has to be online and accept you: ask them, or try again when they are around. A room can also be kept open for anyone with the link (Room details, Keep this room open).'
+      : 'Copy the whole invite link, including everything after #, then open it again.'
   $('arrivalLead').hidden = false
   $('joinRoomForm').hidden = true
   $('identityMore').hidden = true
@@ -9041,7 +9316,30 @@ renderIdentity()
 // awaited before the page is usable: a bunker over a relay can take seconds.
 // Joining waits for it so the room uses the same identity the account UI
 // shows. renderIdentity() runs again when it lands.
-const identityReady = restoreSession()
+/**
+ * `restoreSession`, with a moment's grace for an extension.
+ *
+ * An extension's content script lands after this module runs, so a sign-in
+ * stored as "extension" was restored while `window.nostr` did not exist
+ * yet, which signet-login reads as the extension having been uninstalled:
+ * it hands back an identity that can prove who you are and sign nothing,
+ * and the door said "Reconnect Nostr account" to a person whose extension
+ * was right there. Wait for it, briefly, and restore again.
+ */
+async function restoreSessionWithExtensionGrace(): Promise<SignetSession | null> {
+  const session = await restoreSession()
+  if (session?.signer.capabilities.canSignEvents) return session
+  let storedMethod: string | null = null
+  try { storedMethod = localStorage.getItem('signet:login.method') } catch { /* no storage, nothing stored */ }
+  if (storedMethod !== 'nip07') return session
+  for (let waited = 0; waited < 3000 && !extensionSignerPresent(); waited += 100) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  if (!extensionSignerPresent()) return session
+  return restoreSession()
+}
+
+const identityReady = restoreSessionWithExtensionGrace()
   .then((session) => {
     if (identityGeneration !== 0) return
     if (!session?.signer.capabilities.canSignEvents) {
