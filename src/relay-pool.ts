@@ -7,8 +7,14 @@ import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 /** The transport seam shared by real relays and the in-process simulator. */
 export interface RelayTransport {
   publish(event: Event): Promise<void>
-  subscribe(filters: Filter[], onEvent: (event: Event) => void, onEose?: () => void): () => void
+  /** `via` is the relay URL that delivered the event, when the transport
+   *  knows it. A consumer works out a message's lane from it and from
+   *  nothing on the wire; see `lane.ts`. */
+  subscribe(filters: Filter[], onEvent: (event: Event, via?: string) => void, onEose?: () => void): () => void
   close(): void
+  /** The relays this transport reads from and writes to, when it has any.
+   *  Absent on transports that are not relays at all. */
+  describe?(): RelayConfig[]
 }
 
 export interface RelayConfig { url: string; read: boolean; write: boolean }
@@ -39,7 +45,7 @@ export function normaliseRelayConfig(entries: readonly (string | RelayConfig)[])
 
 type Subscription = {
   filters: Filter[]
-  onEvent: (event: Event) => void
+  onEvent: (event: Event, via?: string) => void
   onEose?: () => void
   seen: Set<string>
   bindings: Map<string, { stop: () => void }>
@@ -138,7 +144,11 @@ export class NostrRelayPool implements RelayTransport {
     if (!results.some(result => result.status === 'fulfilled')) throw new Error('every relay rejected the event')
   }
 
-  subscribe(filters: Filter[], onEvent: (event: Event) => void, onEose?: () => void): () => void {
+  describe(): RelayConfig[] {
+    return this.#relays.map(relay => ({ ...relay }))
+  }
+
+  subscribe(filters: Filter[], onEvent: (event: Event, via?: string) => void, onEose?: () => void): () => void {
     if (this.#closed) throw new Error('pool is closed')
     const sub: Subscription = { filters, onEvent, onEose, seen: new Set(), bindings: new Map(), eosed: new Set(), eoseSent: false }
     this.#subscriptions.add(sub)
@@ -181,7 +191,7 @@ export class NostrRelayPool implements RelayTransport {
       onevent: event => {
         if (!active() || sub.seen.has(event.id)) return
         sub.seen.add(event.id)
-        sub.onEvent(event)
+        sub.onEvent(event, url)
       },
     })
     binding.stop = () => handle.close()

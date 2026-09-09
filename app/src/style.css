@@ -2853,6 +2853,15 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 }
 .msg .chip.replyTo { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .msg.retracted .bubble { opacity: 0.7; font-style: italic; }
+/* The lane a message took. A glyph and a word, never colour alone; the
+   colour is a second cue for people who can use it. Public is the muted
+   default because it is the honest state of most traffic today. */
+.chip.lane { font-variant: small-caps; letter-spacing: 0.02em; }
+.chip.lane.public { color: var(--muted); }
+.chip.lane.sheltered { color: var(--accent); border-color: var(--accent); }
+.chip.lane.direct { color: var(--text); border-color: var(--text); }
+.laneNote { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0.25rem 0.35rem; font-size: 0.8rem; color: var(--muted); }
+.laneNote .laneWords { overflow-wrap: anywhere; }
 .msg.mentionsMe .bubble { box-shadow: inset 3px 0 0 var(--accent); }
 .composerContext {
   flex-basis: 100%;
