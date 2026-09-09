@@ -74,8 +74,11 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
 
     await rowan.locator('#chatInput').fill('meet at the mill')
     await rowan.locator('#chatInput').press('Enter')
-    // The outbox says what it is waiting for, and the message leaves at a slot.
+    // The outbox says what it is waiting for; the wrap reaches the relay at
+    // a slot; the other person reads it from the broadcast. Three steps,
+    // asserted apart, so a failure names the half that stalled.
     await expect(rowan.locator('#outbox')).toContainText('Waiting for this quiet room', { timeout: 10_000 })
+    await expect.poll(() => seen.filter((e) => e.kind === 1059).length, { timeout: 60_000, message: 'no wrap reached the relay after the send' }).toBeGreaterThan(wrapsBefore)
     await expect(ada.locator('#chatLog')).toContainText('meet at the mill', { timeout: 90_000 })
     await expect(rowan.locator('#chatLog .msg').filter({ hasText: 'meet at the mill' })).toBeVisible({ timeout: 30_000 })
     await expect(rowan.locator('#outbox')).toHaveJSProperty('hidden', true)
