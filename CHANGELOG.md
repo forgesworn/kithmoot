@@ -7,7 +7,7 @@ and is noted here when the web release depends on one. Dates are the
 release dates. Wire changes are called out as such, because a second
 implementation reads this file to know what moved.
 
-## Unreleased
+## 0.5.0, 2026-09-09
 
 ### Added
 
