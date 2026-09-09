@@ -9,6 +9,14 @@ implementation reads this file to know what moved.
 
 ## Unreleased
 
+### Lane indicator
+
+- Every message shows the lane it actually travelled, public, sheltered or
+  direct, worked out from the relay that delivered it and never from what
+  the message says about itself. The composer shows the lane the next
+  message will take. An onion relay is sheltered; everything else is public
+  today, and it says so. `lane.ts` fixes the three meanings.
+
 ### M2 protocol
 
 - Add inner signalling profile/call tags and a 60-second outer expiry without
