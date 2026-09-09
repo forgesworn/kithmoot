@@ -195,6 +195,13 @@ Vector `rosterEvent/valid-on-call`.
 
 ### Fixed
 
+- A keeper with no brain no longer enables assignments, which had it
+  writing under a home directory its hardened unit keeps read-only. On the
+  box that took every kept room down for two minutes on 9 September until
+  the fix shipped. Assignments are enabled for an agent with a brain, or
+  one handed `KITHMOOT_ASSIGNMENT_ACTIONS`. The keeper deploy now also
+  ships the two workspace packages the library imports; without them
+  `npm ci` on the box left dangling links and the CLI could not start.
 - What the first stranger test of the message layer tripped on, run on a
   phone-sized cold profile against the live site on 6 September: your own
   name in your own message lit as a mention of you; a private conversation

@@ -370,9 +370,16 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   const context = values.context ? new ContextFileStore(values.context, { identity: { ...identity, ...localPeerCrypt(participantSk) }, room: agent.roomId, servers: values['context-server'] }) : undefined
   const runtime = new AgentRuntime(agent, { persona, memoryDir: common.memory, context }).start()
-  const assignmentActions = validateAssignmentActions(JSON.parse(process.env.KITHMOOT_ASSIGNMENT_ACTIONS ?? '[]'))
-  if (!assignmentActions) throw new Error('KITHMOOT_ASSIGNMENT_ACTIONS is not a valid action catalogue')
-  await runtime.enableAssignments(join(common.memory ?? join(homedir(), '.kithmoot', 'agents', agent.participant), 'assignments', agent.roomId), assignmentActions)
+  // Assignments are for an agent that can act, or one an operator has handed
+  // an action catalogue. A keeper with no brain answers none, and must not
+  // go writing under a home directory its unit keeps read-only: on the box
+  // that EACCES took every room down with it.
+  const assignmentEnv = process.env.KITHMOOT_ASSIGNMENT_ACTIONS
+  if (common.brain !== 'none' || assignmentEnv !== undefined) {
+    const assignmentActions = validateAssignmentActions(JSON.parse(assignmentEnv ?? '[]'))
+    if (!assignmentActions) throw new Error('KITHMOOT_ASSIGNMENT_ACTIONS is not a valid action catalogue')
+    await runtime.enableAssignments(join(common.memory ?? join(homedir(), '.kithmoot', 'agents', agent.participant), 'assignments', agent.roomId), assignmentActions)
+  }
 
   // The keeper nudges members who asked. Only a keeper: a joiner is not
   // the room's availability, and two nudgers would be two DMs.
