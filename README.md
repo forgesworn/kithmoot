@@ -119,6 +119,13 @@ Den can link a private task to shared room work, with agent execution, questions
 handoffs and exact-result review. See [shared assignments with Den](docs/den-assignments.md)
 for the supported flow, worker tools, verification and recovery limits.
 
+Work opens beside the conversation on wide desktops and as a full-screen view
+on phones. Questions and result reviews appear in a room attention card; **Needs
+you** filters to your next actions while **All work** retains everyone's progress.
+Result evidence and history can be expanded when needed. This currently covers
+the connected room; native Android and cross-project attention are tracked in
+the [workspace delivery](docs/workspace-delivery.md).
+
 - Room creation and one-tap join by URL. New links carry a bearer invitation
   and a pinned, per-link inviter pubkey in the fragment, never the room
   traffic secret. A response returns that secret encrypted only to the

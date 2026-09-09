@@ -2923,8 +2923,8 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .relayHealth[data-state="disconnected"] { color: #b95040; }
 .relayAddForm { display: grid; gap: .5rem; margin: 1rem 0; }
 
-#assignmentPanel { box-sizing: border-box; width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 1rem; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); }
-#assignmentPanel .sheetBar { flex-wrap: wrap; padding: .5rem 0; }
+#assignmentPanel { box-sizing: border-box; width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 0 1.25rem 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); }
+#assignmentPanel .sheetBar { position: sticky; top: 0; z-index: 1; background: var(--bg); flex-wrap: wrap; padding: 1rem 0 .75rem; }
 #assignmentPanel .sheetBar h2 { font-size: 1.15rem; text-transform: none; }
 #assignmentPanel button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 #assignmentPanel [aria-invalid=true] { border-color: var(--danger); outline: 1px solid var(--danger); }
@@ -2937,6 +2937,29 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .assignmentCard h3 { margin-top: 0; }
 .assignmentCard > button { margin: .25rem .5rem .25rem 0; }
 .assignmentCard details { margin-top: 1rem; }
+.workAttention { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; padding: .6rem .85rem; margin-bottom: .6rem; border: 1px solid var(--accent); border-radius: .7rem; background: var(--accent-dim); font-size: .9rem; }
+.workAttention button { margin: 0; }
+.workFilters { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+.workFilters button { flex: 1; margin: 0; min-height: 44px; }
+.workFilters button[aria-pressed=true] { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+#assignmentStatus:empty { display: none; }
+#assignmentNew { padding: .75rem 1rem; border: 1px dashed var(--border); border-radius: .7rem; }
+#assignmentNew > summary { font-weight: 600; min-height: 24px; }
+.assignmentCard[data-attention=true] { border-color: var(--accent); }
+.assignmentCard h3 { margin-bottom: .5rem; font-size: 1.05rem; line-height: 1.4; }
+.assignmentCard .workMeta { color: var(--muted); font-size: .8rem; margin: 0 0 .8rem; }
+.workState { display: inline-block; padding: .15rem .45rem; border: 1px solid var(--border); border-radius: 1rem; }
+.workDecision { color: var(--accent); font-weight: 600; }
+.workResult { white-space: pre-wrap; line-height: 1.6; }
+.workEmpty { padding: 2rem .5rem; color: var(--muted); text-align: center; line-height: 1.6; }
+#openAssignments[data-attention] { color: var(--accent); background: var(--accent-dim); }
+@media (min-width: 1280px) {
+  #assignmentPanel[open] { position: fixed; inset: 0 0 0 auto; margin: 0; width: 28rem; max-height: none; height: 100dvh; border-radius: 0; border-width: 0 0 0 1px; z-index: 20; }
+  body:has(#assignmentPanel[open]) > main { box-sizing: border-box; padding-right: 28rem; }
+}
+@media (max-width: 700px) {
+  #assignmentPanel { width: 100%; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; padding-inline: 1rem; padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+}
 
 /* Inviting people is a primary room action; the same controls remain in details. */
 #inviteDialog { width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); overflow-wrap: anywhere; }

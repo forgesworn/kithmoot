@@ -26,16 +26,26 @@ test('room cards carry a question and exact-result review through reload at phon
     const card = page.locator(`.assignmentCard[data-assignment="${id}"]`)
     await expect(card).toContainText('offered')
     await log.submit(id, { op: 'claim', executor: 'browser_fixture_execution', next: 'Read the build evidence' }, 'browser_claim_0001')
+    await expect(page.locator('#workAttention')).toBeHidden()
     await log.submit(id, { op: 'block', executor: 'browser_fixture_execution', question: 'Which build should I check?' }, 'browser_block_0001')
     await expect(card).toContainText('Which build should I check?')
+    await page.locator('#assignmentClose').click()
+    await expect(page.locator('#workAttention')).toContainText('1 assignment needs your attention')
+    await page.locator('#reviewWork').click()
+    await expect(page.locator('#assignmentDecisions')).toHaveAttribute('aria-pressed', 'true')
     await card.getByLabel('Answer for the owner').fill('Build 54')
     await card.getByRole('button', { name: 'Send answer' }).click()
     await expect.poll(() => log.snapshot().assignments[0]?.answer).toBe('Build 54')
+    await expect(page.locator('#assignmentCards')).toContainText('Nothing needs your decision')
     const result = await log.submit(id, { op: 'result', executor: 'browser_fixture_execution', summary: 'Build 54 checked', evidence: 'artifact:build-54.txt; unit tests passed' }, 'browser_result_001')
     await expect(card).toContainText(result.result!.id)
+    await expect(card.getByText(result.result!.id, { exact: false })).toBeHidden()
+    await expect(page.locator('#assignmentCreate')).toBeHidden()
     await page.screenshot({ path: testInfo.outputPath('assignment-review-phone.png'), fullPage: true })
     await card.getByRole('button', { name: 'Accept this result' }).click()
     await expect.poll(() => log.snapshot().assignments[0]?.status).toBe('accepted')
+    await expect(page.locator('#assignmentCards')).toContainText('Nothing needs your decision')
+    await page.locator('#assignmentAll').click()
     await expect(card).toContainText('accepted')
     expect(await page.locator('#assignmentPanel').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await page.reload()
@@ -76,6 +86,7 @@ async function owner(page: Page, name: string) {
 }
 
 async function offer(page: Page, who: string, objective: string) {
+  if (!await page.locator('#assignmentCreate [name=objective]').isVisible()) await page.getByText('New assignment', { exact: true }).click()
   await page.locator('#assignmentCreate [name=objective]').fill(objective)
   await page.locator('#assignmentCreate [name=criteria]').fill('Provide the checked result and evidence')
   await owner(page, who)
@@ -142,6 +153,10 @@ test('two people go from creating and sharing a room to an accepted result witho
         await ada.page.screenshot({ path: testInfo.outputPath(`shared-work-${colorScheme}-${width}.png`) })
       }
     }
+    await ada.page.locator('#chatInput').fill('I can keep talking while reviewing the work.')
+    await ada.page.locator('#chatInput').press('Enter')
+    await expect(grace.page.locator('#chatLog')).toContainText('I can keep talking while reviewing the work.')
+    await expect(ada.page.locator('#assignmentPanel')).toBeVisible()
     await ada.page.setViewportSize({ width: 320, height: 740 })
     await ada.page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
     expect(await ada.page.locator('#assignmentPanel').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
@@ -243,6 +258,7 @@ test('assignment retries clear only the submitted form and keep a newer draft', 
     await page.locator('#openAssignments').click()
     await page.getByText('New assignment', { exact: true }).click()
     for (const [index, changeDraft] of [false, true].entries()) {
+      if (!await page.locator('#assignmentCreate [name=objective]').isVisible()) await page.getByText('New assignment', { exact: true }).click()
       reject = true
       await page.locator('#assignmentCreate [name=objective]').fill(`Submitted assignment ${index}`)
       await page.locator('#assignmentCreate [name=criteria]').fill('Check the saved result')
