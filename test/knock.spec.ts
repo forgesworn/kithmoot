@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { newDeviceContext } from './browser.js'
-import { testRelays } from './relays.js'
+import { testRelaysFor } from './relays.js'
 
 // A room where people with the link ask, and somebody in it lets them in.
 // The creator picks that at the start form; a joiner opening the link waits
@@ -11,7 +11,7 @@ test('people with the link ask, and the person in the room lets them in or decli
   const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!), c = await newDeviceContext(browser, baseURL!)
   try {
     const host = await a.newPage()
-    const relays = testRelays()
+    const relays = testRelaysFor(baseURL!)
     if (relays) await host.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
     await host.goto(baseURL!)
     await host.locator('#roomName').fill('Asked in')

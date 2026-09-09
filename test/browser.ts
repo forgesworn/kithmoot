@@ -253,7 +253,13 @@ export async function open(page: Page, url: string, name: string): Promise<void>
 
 export async function newDeviceContext(browser: Browser, baseURL: string): Promise<BrowserContext> {
   const context = await browser.newContext()
-  await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL).origin })
+  // Playwright's Firefox has no camera or microphone permission to grant -
+  // it throws "Unknown permission: camera" - and the specs that run there
+  // put nobody on camera, so there is nothing to grant. The other browsers
+  // still get the grant, because the media specs need it.
+  if (browser.browserType().name() !== 'firefox') {
+    await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL).origin })
+  }
   const relays = testRelays()
   if (relays) await context.addInitScript(urls => {
     if (!localStorage.getItem('kithmoot.relays.v1')) localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) }))

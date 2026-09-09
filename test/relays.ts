@@ -26,6 +26,24 @@ export function testRelays(): string[] | undefined {
   return env.split(',').map((s) => s.trim()).filter(Boolean)
 }
 
+/**
+ * The test relays as a page served over HTTPS can reach them.
+ *
+ * WebKit treats a plain `ws://` socket opened from an `https://` page as
+ * mixed content and blocks it, loopback included, so a spec that hands a
+ * WebKit page `ws://127.0.0.1:7777` watches every relay reject the join.
+ * The app's preview server proxies the local relay at `/__test-relay` over
+ * the page's own origin, and a spec that runs in every browser names that.
+ * Any other relay in the list is passed through as it is.
+ */
+export function testRelaysFor(baseURL: string): string[] | undefined {
+  const relays = testRelays()
+  if (!relays) return undefined
+  const proxied = new URL('/__test-relay', baseURL)
+  proxied.protocol = 'wss:'
+  return relays.map((r) => (r === LOCAL_TEST_RELAY ? proxied.href : r))
+}
+
 /** `url` with its relay list replaced by the test relays, when there are
  *  any; otherwise `url` untouched. */
 export function pinToTestRelays(url: string): string {

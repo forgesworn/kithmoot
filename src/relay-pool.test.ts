@@ -126,7 +126,10 @@ describe('NostrRelayPool', () => {
     a.rejectPublishes = true
     b.rejectPublishes = true
 
-    await expect(pool.publish(evt())).rejects.toThrow(/every relay rejected/)
+    // Each relay's own words ride the error: the reason a room cannot start
+    // is on a relay's lips, and a box that holds only drops says exactly
+    // what it holds.
+    await expect(pool.publish(evt())).rejects.toThrow(/every relay rejected the event \(.*blocked: this relay refuses everything.*\)/)
   })
 
   it('hears an event once, however many relays deliver it', async () => {

@@ -7,6 +7,15 @@ and is noted here when the web release depends on one. Dates are the
 release dates. Wire changes are called out as such, because a second
 implementation reads this file to know what moved.
 
+## Unreleased
+
+### Fixed
+
+- **The start form fits a small phone again.** The "who can come in" radios inherited the card's field-label spacing, which on Linux fonts pushed the Start button below the fold at 390 by 540. They sit on one short row now.
+- **The start form begins as written.** Firefox restored the last "Ask me first" choice across a reload, so the next room quietly asked too.
+- **A refused publish says who refused and why.** The pool's error carries each relay's own reason, so a room pinned to a box's drop tier alone reads `blocked: this tier holds kind 1059 only` rather than that every relay rejected it.
+- **Acceptance suite.** The knock and private-room specs reach the test relay over the page's origin, which WebKit requires, and skip the camera grant Firefox does not have.
+
 ## 0.5.2, 2026-09-09
 
 ### Added
