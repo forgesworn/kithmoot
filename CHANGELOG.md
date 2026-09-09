@@ -11,6 +11,7 @@ implementation reads this file to know what moved.
 
 ### Added
 
+- **Contact cards are kind 21641.** Wire change. A card is a signed event in the ephemeral range with one `expiration` tag, so a relay that meets one by mistake does not store it; the addressable 30641 with its `d` tag is gone (`nostr-contact-card` 0.4.0). A card made by 0.5.1 does not read here, and the other way round; the Android client moves in step.
 - Relay settings: any relay can be marked as a box of your circle by hand, for a box's drop tier fronted as `wss://` and named to you by its keeper. A message that goes only to circle relays shows as sheltered; a card's box is marked for you and cannot be unmarked there.
 
 - **Quiet rooms.** Wire change. A policy may carry `quiet: true` beside

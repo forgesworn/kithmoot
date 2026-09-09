@@ -86,7 +86,7 @@ test('a contact card marks its holder and makes their box a sheltered relay, and
     const read = readCard(cardOut, now())
     expect(read.ok).toBe(true)
     if (read.ok) {
-      expect(read.card.event.kind).toBe(30641)
+      expect(read.card.event.kind).toBe(21641)
       expect(read.card.name).toBe('Ada')
       expect(read.card.boxes).toEqual([])
       // Her public relays: the device's defaults, every one a wss URL.
