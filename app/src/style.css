@@ -2862,6 +2862,10 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .chip.lane.direct { color: var(--text); border-color: var(--text); }
 .laneNote { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0.25rem 0.35rem; font-size: 0.8rem; color: var(--muted); }
 .laneNote .laneWords { overflow-wrap: anywhere; }
+/* On a phone the reading space is the budget that matters and every message
+   already carries its lane chip, so the composer's note steps aside there.
+   The words stay reachable through each chip's title. */
+@media (max-width: 480px) { .laneNote { display: none; } }
 .msg.mentionsMe .bubble { box-shadow: inset 3px 0 0 var(--accent); }
 .composerContext {
   flex-basis: 100%;
