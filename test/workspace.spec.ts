@@ -42,7 +42,9 @@ test('projects group rooms, filter by name, survive reload and remain reachable 
   try {
     await join(page, rooms[0]!.link)
     await expect(page.getByRole('complementary', { name: 'Projects and rooms' })).toBeVisible()
-    await page.locator('#conversationNav button[data-channel=agents]').click()
+    // No agent here yet, so no Agents tab; Room details lists it.
+    await page.locator('#roomMenu').click()
+    await page.locator('#channelBar button[data-channel=agents]').click()
     await expect(page.locator('#agentActivityTitle')).toHaveText('No agents here yet')
     await expect(page.locator('#manageAgents')).toBeVisible()
     await project(page, 'Design workshop', 'KithMoot')
@@ -125,10 +127,9 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     await page.locator('#conversationNav button[data-channel=""]').click()
     await agent.session.channel('agents').send('The next update should be visible from Chat.')
     await expect(agents.locator('.conversationUnread')).toHaveText('1')
-    await agents.focus()
-    await page.keyboard.press('ArrowRight')
-    await expect(page.locator('#conversationNav button[data-channel=transcript]')).toBeFocused()
-    await page.keyboard.press('Enter')
+    // Transcript has no tab until a call has written to it; Room details lists it.
+    await page.locator('#roomMenu').click()
+    await page.locator('#channelBar button[data-channel=transcript]').click()
     await expect(page.locator('#chatForm')).toBeHidden()
     await expect(page.locator('#readOnlyNote')).toBeVisible()
     await agents.click()
@@ -222,7 +223,8 @@ test('catching up starts at unread messages and keeps your place across conversa
     await expect(page.locator('#conversationNav button[data-channel=agents] .conversationUnread')).toHaveCount(0)
     await log.evaluate(el => { el.scrollTop = 100 })
     const agentPlace = await readingPlace()
-    await page.locator('#conversationNav button[data-channel=transcript]').click()
+    await page.locator('#roomMenu').click()
+    await page.locator('#channelBar button[data-channel=transcript]').click()
     await expect(page.locator('#chatForm')).toBeHidden()
     await page.locator('#conversationNav button[data-channel=agents]').click()
     await expect.poll(async () => (await readingPlace()).id).toBe(agentPlace.id)
@@ -395,8 +397,12 @@ test('keyboard section shortcuts preserve drafts, skip hidden areas and leave di
     await expect(page.locator('#workspaceQuery')).toBeFocused()
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#roomIdentity')).toBeFocused()
-    await page.keyboard.press('Control+F6')
-    await expect(page.locator('#conversationNav [aria-pressed=true]')).toBeFocused()
+    // The tab row exists only when there is more than Chat to show; a
+    // hidden row is skipped like any other hidden area.
+    if (await page.locator('#conversationNav').isVisible()) {
+      await page.keyboard.press('Control+F6')
+      await expect(page.locator('#conversationNav [aria-pressed=true]')).toBeFocused()
+    }
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#chatSearch')).toBeFocused()
     await page.keyboard.press('Control+F6')
@@ -420,7 +426,8 @@ test('keyboard section shortcuts preserve drafts, skip hidden areas and leave di
     await expect(input).toBeFocused()
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#roomIdentity')).toBeFocused()
-    await page.locator('#conversationNav [data-channel=minutes]').click()
+    await page.locator('#roomMenu').click()
+    await page.locator('#channelBar button[data-channel=minutes]').click()
     await page.locator('#chatLog').focus()
     await page.keyboard.press('Control+F6')
     await expect(page.locator('#roomIdentity')).toBeFocused()

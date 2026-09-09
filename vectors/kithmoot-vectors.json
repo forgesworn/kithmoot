@@ -582,6 +582,120 @@
         }
       },
       {
+        "name": "valid-on-call",
+        "kind": "positive",
+        "note": "A roster entry carrying `call`: this device is on the call with that id, since that time. A call is read off presence and has no kind of its own. The id is 32 lower-case hex characters; a malformed one is dropped and the entry kept.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": 1799999940
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "d1d3f5b3475a810d558109925c05cf63f3b52580a14c2627eb9c515f22999f94",
+          "auxRandHex": "f1893ac662bdd0724c5ed970af5661c13af9c8fa99ceea06e3cecc8cdb9c1b1e"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AtHT9bNHWoENVYEJklwFz2PztSWAoUwmJ+ucUV8imZ+UKrFNb/R2I0rJTz2LeC4fUGOA9OyRW2W0DF82+iA42I3F2dhCFeD0zxkYPVg3CfHyLGu57sVbzb9P3q/vpetWTxH76ck+wkv7EFF1kVuqH6e6l9uBUidHxRUhXWgY+4plex4wa7gNzETjSzhfh03Wq7Qn5j0pIohGsnW5YEC2fIYSfw44ymW8Y7SUJllBsNcyKbVcIo61wYpZTSmBXZmuqLURevHv164l4NaW8bUpZXErYSlS0QTOmPZicYJhOo/CdvU2xhdTFumbcVV9Mrxir3ybVlpQr1guyAvsIu3cS57/1qccpVJoQwP/1yrVNsK5xIJ8MFwjIaPTOToa80zdKHArzrOPWLto23PJKlj5bNsb+F0gZvn9c+KXYmBwcN2G+h20dKshZBYLgSoDVExAzgV2idNj9mS8rNlSD/lSCd0hR2APARGUm9iv4m8Vmmyn0gFilfcJ0H0oK/pxP9JFF6m6jj+hXCFa+oEAdwHJrPw0Zjh4ETOiapHDc0zz9mGOwV/PnBDvojNft1gfB4e8OjZ5/UnkrNH+8CuT/ZpjmaE+5tOuoUvoTxYQIIakmdgYUg5SE0zMUSzQLy9UQ66pRGueBgzThSNFHqy2pPekpl7r72dH42YxjvJApfI2bJxSh+HtPLYO2PZsN45z/bDOhLf2o103GboL4gG+w9epiAS5F7OoygV0lv1f4crrfz9ibFBs5k0eWV8clL+Tt88Ur5Qpv3rnL8wdyenoJ6xN+KlaPojl0iTMqGz6xtSgNObLiplKCrmXOeMgi3w67i2rkbYBIyklcTZxDrhFj25JdjkXzGHtO0xwlzjYxRAJumdlDdet4kgRlRs/u3Cg6v+YySauhd5sfeEvBHr9JaX7IDHOLpbG//hel1JAvNwUCcwWZ22yLwKusv8Yc0SbMNbNZ7lX2ORbeiH1T3TfRCWHdvE+x1Mt5unfMiFgyXaBgJRosKCW3+Y7H0ZaTk4J21edBReLqzi4rqkyCNS+t4lk1+0wPfia6JTwkG53sEJOxAULWrcDmxym1b/JscLZsBOnd0iEJ9dehfrJgv1Ce7MTozCk3xltRbozWowLJdEXk4eyppmOh2aUMQgBRLmvUZv8rAQbNvKIUcpuFjcpQi7oXPnE9OCnjUFenVSaVZ5pOgkzjmPPPS1vNfLZNpJ8gHfx9JMDPgINzfYv8Dv9+FFhv+HnIpSRnya/UXd8RzP/W/f6JR9TNNN5TSMVfiX5oQkjKRXc",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "f4d4bd49bd11403ddc75617ef56d18f8dd6a26269a5f38b53a0f1544340ba027",
+            "sig": "ac836cc907fddb1b0620e01bac94a83f6451b2a40cde11692ae67a1c6ce72c452ccb7090c332e0b28e8006d1a5a5c27d72de029e0e05c346647ee11585399b24"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": 1799999940
+            }
+          }
+        }
+      },
+      {
         "name": "wrong-room-key",
         "kind": "negative",
         "note": "The same event, decrypted with room 2's key instead of the room it was actually published to - NIP-44 decryption fails its MAC check and the decoder must return null, not throw.",

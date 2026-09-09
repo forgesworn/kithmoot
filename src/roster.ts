@@ -7,7 +7,7 @@ import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { sanitiseAssistOffer } from './peer-assist.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
-import type { RosterEntry } from './types.js'
+import type { RosterEntry, CallMembership } from './types.js'
 
 export interface EncodeRosterOptions {
   roomId: string
@@ -136,6 +136,11 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     const assist = sanitiseAssistOffer(entry.assist)
     if (assist === undefined) delete entry.assist
     else entry.assist = assist
+    // A call membership is a claim like the rest: a bounded id and a time,
+    // or nothing. A malformed one costs the claim, never the entry.
+    const call = sanitiseCallMembership(entry.call)
+    if (call === undefined) delete entry.call
+    else entry.call = call
     // A farewell removes somebody from the room, so only an honest `true`
     // is one. A looser implementation's `1` or `"yes"` is not a departure;
     // it is an entry like any other, and the timeout deals with it.
@@ -195,6 +200,16 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
   } catch {
     return null
   }
+}
+
+/** A call id is opaque, but it is also a string another implementation
+ *  chose, so it is held to 32 lower-case hex characters and nothing else. */
+export function sanitiseCallMembership(value: unknown): CallMembership | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const { id, since } = value as { id?: unknown; since?: unknown }
+  if (typeof id !== 'string' || !/^[0-9a-f]{32}$/i.test(id)) return undefined
+  if (typeof since !== 'number' || !Number.isFinite(since) || since < 0) return undefined
+  return { id: id.toLowerCase(), since: Math.floor(since) }
 }
 
 /** Convenience for callers that hold a device secret key rather than a pubkey. */

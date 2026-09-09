@@ -42,8 +42,7 @@ import type {
   RoomPolicy,
   RosterEntry,
   SingularRole,
-  TrackAdvert,
-} from './types.js'
+  TrackAdvert, CallMembership } from './types.js'
 
 /** One person, however many devices they brought. */
 export interface ParticipantView {
@@ -81,6 +80,23 @@ export interface ParticipantView {
   mic?: string
   /** The single device playing the room's audio, if any. */
   monitor?: string
+  /**
+   * The call this person is on, when any of their devices says so. Where
+   * devices disagree - a phone still on the old call, a laptop on a new one
+   * - the most recently restated entry decides, the same way a name does.
+   * `since` is the earliest of their devices' join times on that call and
+   * `devices` the ones on it. See `RosterEntry.call`.
+   */
+  call?: CallMembership & { devices: string[] }
+}
+
+/** A call in progress in the room, read off presence. */
+export interface CallView {
+  id: string
+  /** When the earliest device still on it joined. */
+  since: number
+  /** Everybody with at least one device on it. */
+  participants: string[]
 }
 
 export interface RoomSessionBaseOptions {
@@ -354,7 +370,7 @@ export class RoomSession {
   #assignmentsOpening?: Promise<AssignmentLog>
   /** What this device is currently advertising, so an answer to a new
    *  arrival carries the same state as the announcement did. */
-  #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>> }
+  #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>>; call?: CallMembership }
   /** This participant's own name, sanitised once at construction. */
   readonly #name?: string
   /** This agent's verified ownership proof, when it has one. */
@@ -1179,6 +1195,7 @@ export class RoomSession {
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(reply ? { reply: true } : {}),
       ...(left ? { left: true } : {}),
+      ...(self.call && !left ? { call: self.call } : {}),
     }
     const event = encodeRosterEvent(entry, {
       roomId: this.roomId,
@@ -1283,6 +1300,46 @@ export class RoomSession {
     if (!this.#self || this.#left) return
     this.#self = { ...this.#self, tracks, claims }
     await this.#publishEntry(true)
+  }
+
+  /**
+   * Go on a call, or off it.
+   *
+   * Starting and joining are the same act: say which call this device is
+   * on. A fresh id starts one; somebody else's id joins theirs. `null`
+   * drops off it, which is also what `leave()` says. Restated as an answer,
+   * like a changed track list, because nothing has arrived. Tracks are a
+   * separate matter: a device can be on a call with everything switched
+   * off, which is how somebody listens in from a train.
+   */
+  async setCall(call: CallMembership | null): Promise<void> {
+    if (!this.#self || this.#left) return
+    const { call: _dropped, ...rest } = this.#self
+    this.#self = call ? { ...rest, call: { id: call.id.toLowerCase(), since: Math.floor(call.since) } } : rest
+    await this.#publishEntry(true)
+  }
+
+  /** The call this device says it is on, if any. */
+  get call(): CallMembership | undefined {
+    return this.#self?.call
+  }
+
+  /**
+   * The calls in progress, read off presence: one entry per call id, with
+   * everybody who has a device on it. Usually zero or one. Two means two
+   * people pressed Start at once, and a client should offer the bigger or
+   * the older one and let the other wither.
+   */
+  calls(): CallView[] {
+    const byId = new Map<string, CallView>()
+    for (const view of this.participants()) {
+      if (!view.call) continue
+      let call = byId.get(view.call.id)
+      if (!call) byId.set(view.call.id, call = { id: view.call.id, since: view.call.since, participants: [] })
+      call.since = Math.min(call.since, view.call.since)
+      call.participants.push(view.participant)
+    }
+    return [...byId.values()].sort((a, b) => b.participants.length - a.participants.length || a.since - b.since)
   }
 
   /**
@@ -1501,6 +1558,8 @@ export class RoomSession {
     const byParticipant = new Map<string, ParticipantView>()
     /** When the name currently held for a participant was last restated. */
     const nameStamp = new Map<string, number>()
+    /** Which call a participant is held to be on, and when that was last restated. */
+    const callStamp = new Map<string, { id: string; at: number }>()
 
     for (const entry of entries) {
       let view = byParticipant.get(entry.participant)
@@ -1531,6 +1590,18 @@ export class RoomSession {
       if (entry.assist) {
         view.assist = view.assist ?? []
         view.assist.push({ ...entry.assist, device: entry.device })
+      }
+      if (entry.call) {
+        const held = callStamp.get(entry.participant)
+        if (!view.call || held === undefined || entry.updatedAt > held.at && entry.call.id !== held.id) {
+          // A newer entry on a different call replaces the old answer.
+          view.call = { id: entry.call.id, since: entry.call.since, devices: [entry.device] }
+          callStamp.set(entry.participant, { id: entry.call.id, at: entry.updatedAt })
+        } else if (entry.call.id === view.call.id) {
+          view.call.since = Math.min(view.call.since, entry.call.since)
+          view.call.devices.push(entry.device)
+          if (entry.updatedAt > held.at) callStamp.set(entry.participant, { id: held.id, at: entry.updatedAt })
+        }
       }
     }
 
@@ -1569,7 +1640,8 @@ export class RoomSession {
     // anyway - so there is only one path to test.
     let farewell: Promise<void> = Promise.resolve()
     if (this.#self && !this.#left) {
-      this.#self = { ...this.#self, tracks: [], claims: {} }
+      const { call: _off, ...rest } = this.#self
+      this.#self = { ...rest, tracks: [], claims: {} }
       // Flagged the same way an answer is, because a farewell is not an
       // arrival either: without it, the last thing a leaving device does is
       // provoke every remaining device into re-announcing at it. And flagged

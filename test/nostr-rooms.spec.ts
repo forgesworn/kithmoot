@@ -1,5 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { npubEncode } from 'nostr-tools/nip19'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { RoomAgent } from '../src/agent.js'
 import { generateRoomSecret } from '../src/room.js'
@@ -72,13 +73,12 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
     const page = await context.newPage()
     await page.goto(link)
     await expect(page.locator('#joinNostr')).toBeVisible()
-    await expect(page.locator('#joinIdentityHelp')).toContainText('separate browser key')
     await page.locator('#joinNostr').click()
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#whoami')).toContainText('Account Alice')
     await expect(page.locator('#whoami')).toContainText('alice@profile.example')
     await expect(page.locator('#whoami img')).toHaveJSProperty('naturalWidth', 16)
-    await expect(page.locator('#whoami')).toContainText(pubkey.slice(0, 8))
+    await expect(page.locator('#whoami')).toContainText(npubEncode(pubkey).slice(0, 12))
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#chatInput').fill('Tally, this is my account')
@@ -107,7 +107,7 @@ test('a saved paired credential cannot override a different signed-in Nostr acco
     await page.evaluate(entries => { for (const [key, value] of entries) localStorage.setItem(key!, value!) }, store.keys().map(key => [key, store.get(key)]))
     await page.goto(link)
     await page.reload()
-    await expect(page.locator('#whoami')).toContainText(getPublicKey(secret).slice(0, 8))
+    await expect(page.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#chatInput').fill('Tally, use the selected account')
@@ -172,7 +172,7 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     await returning.locator('#roomList').getByRole('button', { name: 'Open Standing town hall', exact: true }).click()
     await expect(returning.locator('#join')).toBeVisible()
     await expect(returning.locator('#roomTitle')).toHaveText('Standing town hall')
-    await expect(returning.locator('#whoami')).toContainText(getPublicKey(secret).slice(0, 8))
+    await expect(returning.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
 
     const guest = await visitor.newPage()
     await guest.goto(link)
@@ -288,7 +288,7 @@ test('switching conversations restores the same Nostr identity before entering',
     await first.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Second account room', exact: true }).click()
     await expect(first.locator('#roomTitle')).toHaveText('Second account room')
     await expect(first.locator('#roomArea')).toBeVisible()
-    await expect(first.locator('#whoami')).toContainText(getPublicKey(secret).slice(0, 8))
+    await expect(first.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
   } finally { await context.close() }
 })
 
@@ -319,8 +319,10 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#roomMenu').click()
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as Nostr account/)
     await expect(page.locator('#sendingIdentity')).not.toContainText('visitor')
+    await page.locator('#roomSheetClose').click()
     await page.locator('#chatInput').fill('Tally, reconnected correctly')
     await page.locator('#chatInput').press('Enter')
     await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, reconnected correctly')?.participant).toBe(getPublicKey(secret))
@@ -342,12 +344,14 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
     await page.locator('#joinVisitor').click()
     await page.locator('#actionConfirm').click()
     await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#roomMenu').click()
     await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as visitor/)
     await expect(page.locator('#sendingIdentity')).toContainText('Same familiar name')
     await page.locator('#sendingIdentity button').click()
     await expect(page.getByRole('alertdialog')).toContainText('Agents may not recognise you')
     await expect(page.getByRole('button', { name: 'Leave to sign in', exact: true })).toBeVisible()
     await page.locator('#actionCancel').click()
+    await page.locator('#roomSheetClose').click()
     await page.locator('#chatInput').fill('Deliberate visitor message')
     await page.locator('#chatInput').press('Enter')
     await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Deliberate visitor message')).toBeTruthy()

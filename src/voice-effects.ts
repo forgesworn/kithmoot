@@ -121,12 +121,17 @@ export interface VoiceSettings {
   formantRatio: number
 }
 
-export type VoicePreset = 'off' | 'lower' | 'higher' | 'neutral'
+export type VoicePreset = 'off' | 'lower' | 'higher' | 'neutral' | 'deep' | 'bright'
 
 export const IDENTITY_VOICE_SETTINGS: VoiceSettings = { semitones: 0, formantRatio: 1 }
 
 /**
- * The four the UI offers.
+ * The six the UI offers.
+ *
+ * `deep` and `bright` are the two people asked for after living with the
+ * first three: the same trick, pushed as far as it goes while every word
+ * still lands on a bad line. They disguise more and sound less like a
+ * person; that trade is the point of them, and it is theirs to make.
  *
  * Presets rather than sliders because a slider invites someone to find the
  * setting that sounds least like them, which is a different and much worse
@@ -144,6 +149,8 @@ export const VOICE_PRESETS: Record<VoicePreset, VoiceSettings> = {
   lower: { semitones: -4, formantRatio: 0.88 },
   higher: { semitones: 4, formantRatio: 1.14 },
   neutral: { semitones: -2, formantRatio: 1.06 },
+  deep: { semitones: -8, formantRatio: 0.78 },
+  bright: { semitones: 8, formantRatio: 1.3 },
 }
 
 /** Off, because turning someone's own voice into somebody else's without

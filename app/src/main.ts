@@ -158,7 +158,9 @@ for (const target of [$('chatLog'), window]) target.addEventListener('scroll', (
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
 }, { passive: true })
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
+  if (event.key !== 'Escape') return
+  document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
+  if (!$('callBay').hidden && !callIsLive() && !document.querySelector('dialog[open]')) setCallOpen(false)
 })
 
 const shareViewer = new ShareViewer({
@@ -583,7 +585,7 @@ async function signInWithNostr(): Promise<void> {
   try {
     account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
       methods: ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect'] })
-  } finally { loginBusy = false }
+  } finally { loginBusy = false; tryPendingJoin() }
   if (!account) return // cancelled or timed out - leave the page as it was
 
   // An auth-only account proves who somebody is and then cannot sign
@@ -1110,10 +1112,44 @@ const donations = new DonationLedger({
   },
 })
 
-/** Twelve hex characters is enough to read aloud and to tell two keys apart
- *  at a glance, and short enough to sit on a tile beside a name. */
+/** Twelve hex characters is enough to read aloud and to tell two ROOM ids
+ *  apart at a glance. Room ids are not keys and are never shown as npubs. */
 function shortKey(pubkey: string): string {
   return `${pubkey.slice(0, 12)}\u2026`
+}
+
+/** The start of the npub: what a person would recognise from their own
+ *  profile, and never raw hex, which reads as a bug to anybody who is not a
+ *  developer. */
+function shortNpub(pubkey: string): string {
+  return `${npubOf(pubkey).slice(0, 13)}\u2026`
+}
+
+/**
+ * Every name that has been drawn for every key, so that "two people are
+ * called Robin" is known wherever either of them is drawn next - on a tile,
+ * a chat line or a chip - and not only when both are on the roster.
+ * Names compare case-insensitively and trimmed, because "robin" and
+ * "Robin " are the same claim to a reader.
+ */
+const namesSeen = new Map<string, Set<string>>()
+let collisionsChanged = false
+function noteName(pubkey: string, name: string | undefined): void {
+  if (name === undefined) return
+  const key = name.trim().toLocaleLowerCase()
+  if (!key) return
+  let keys = namesSeen.get(key)
+  if (!keys) namesSeen.set(key, keys = new Set())
+  if (keys.has(pubkey)) return
+  keys.add(pubkey)
+  // A second key behind a name that was drawn alone until now: everything
+  // already on screen under that name needs its code.
+  if (keys.size === 2) collisionsChanged = true
+}
+function nameCollides(pubkey: string, name: string | undefined): boolean {
+  if (name === undefined) return true
+  const keys = namesSeen.get(name.trim().toLocaleLowerCase())
+  return keys !== undefined && (keys.size > 1 || !keys.has(pubkey))
 }
 
 /** The full npub, for a title attribute - somewhere the whole key is
@@ -1127,9 +1163,10 @@ function npubOf(pubkey: string): string {
 }
 
 interface Shown {
+  pubkey: string
   /** What to call them, or undefined when nobody typed anything. */
   name?: string
-  /** Always present. */
+  /** Always present: the short npub. */
   short: string
   npub: string
   picture?: string
@@ -1150,9 +1187,12 @@ function shownAs(pubkey: string, asserted?: string): Shown {
   // every render by design - it does nothing for a total that is still
   // fresh, and nothing at all when the feature is off.
   if (profile !== undefined) donations.want([pubkey])
+  const name = profile?.name ?? asserted
+  noteName(pubkey, name)
   return {
-    name: profile?.name ?? asserted,
-    short: shortKey(pubkey),
+    pubkey,
+    name,
+    short: shortNpub(pubkey),
     npub: npubOf(pubkey),
     picture: profile?.picture,
     nip05: profile?.nip05,
@@ -1209,7 +1249,7 @@ function pictureOf(shown: Shown, withFallback = false): HTMLElement | undefined 
 /** Build the name-and-key run that identifies one person. Deliberately the
  *  only place that decides what a person looks like, so a tile and a chat
  *  line can never drift apart on it. */
-function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false): DocumentFragment {
+function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false, withKey = false): DocumentFragment {
   const run = document.createDocumentFragment()
 
   // The picture, and the donor ring around it, live here rather than in one
@@ -1226,11 +1266,16 @@ function identityRun(shown: Shown, isSelf: boolean, withAvatarFallback = false):
     run.append(name)
   }
 
-  const key = document.createElement('span')
-  key.className = 'pubkey'
-  key.textContent = shown.short
-  key.title = shown.npub
-  run.append(key)
+  // The code, only when it is doing work: no name at all, two people in
+  // view making the same claim, or a line whose whole point is "which key
+  // is this" - who you are about to go in as, and your own account line.
+  if (withKey || nameCollides(shown.pubkey, shown.name)) {
+    const key = document.createElement('span')
+    key.className = 'pubkey'
+    key.textContent = shown.short
+    key.title = shown.npub
+    run.append(key)
+  }
 
   if (shown.nip05) {
     const address = document.createElement('span')
@@ -1284,15 +1329,15 @@ function renderHowIn(): void {
   const how = $('nameHow')
   const participant = currentParticipant()
   if (loadCredential()) {
-    how.textContent = 'This device has been paired with another one of yours, so it goes in as the same person.'
+    how.textContent = 'This device is paired with another one of yours, so it goes in as the same person.'
   } else if (nostrSession) {
     how.textContent = 'Signed in with Nostr. Your key stays where it is kept; this page never holds it.'
   } else if (participant) {
-    how.textContent = 'A name only. Anybody can type any name, so the short code beside it is the part that says which one is you.'
+    how.textContent = 'A name only, with a key this browser made. Agents that know you by your Nostr account will not recognise it.'
   } else {
-    how.textContent =
-      'A name only. Your device makes a code of its own the first time you go in, and it will show here beside your name.'
+    how.textContent = 'A name only. This browser makes a key of its own the first time you go in.'
   }
+  $('sheetHow').textContent = how.textContent
 }
 
 /**
@@ -1318,12 +1363,12 @@ function renderIdentity(): void {
   accountProfile.hidden = !nostrSession
   if (nostrSession) {
     profiles.want([nostrSession.pubkey])
-    accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true))
+    accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true, true))
   }
   $('joinNostr').hidden = !!nostrSession || !!loadCredential()
-  $('joinNostr').textContent = needsAccountReconnect() ? 'Reconnect Nostr account' : 'Sign in with Nostr'
+  $('joinNostr').textContent = needsAccountReconnect() ? 'Reconnect Nostr account' : 'Already on Nostr? Sign in'
   $('joinVisitor').hidden = !needsAccountReconnect()
-  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : nostrSession || loadCredential() ? 'Join room' : 'Join as visitor'
+  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : 'Join'
   $('previousAccount').hidden = !needsAccountReconnect()
   $('previousAccount').textContent = needsAccountReconnect()
     ? `Your previous Nostr account is disconnected (${npubEncode(expectedAccount!)}). Reconnect it to speak as yourself.` : ''
@@ -1356,11 +1401,11 @@ function renderIdentity(): void {
     }
     sending.append(choice)
   }
-  $('joinIdentityHelp').textContent = nostrSession
-    ? 'Your messages use this Nostr account. Agents recognise its public key.'
-    : loadCredential()
-      ? 'This device uses the Nostr identity it was paired with.'
-      : 'A name alone makes you a visitor with a separate browser key. Sign in with your usual Nostr account for agents that know you.'
+  // Said once you are in, in Room details, where "how am I in here" is a
+  // question somebody actually asks. At the door it was three lines between
+  // the person and the name field.
+  $('joinIdentityHelp').textContent = ''
+  $('joinIdentityHelp').hidden = true
   renderRooms()
 
   const line = $('whoami')
@@ -1383,7 +1428,7 @@ function renderIdentity(): void {
   line.append(session ? 'In this room as ' : 'Going in as ')
 
   if (participant) {
-    line.append(identityRun(shownAs(participant, name), false))
+    line.append(identityRun(shownAs(participant, name), false, false, true))
   } else if (name !== undefined) {
     // No key yet, and deliberately so: minting one here would write a
     // secret before the person has done anything, and would be the wrong
@@ -2061,7 +2106,7 @@ function showRoomUi(): void {
   $('joinRoomForm').hidden = false
   $('arrivalActions').hidden = true
   $('arrivalActions').before($('status'))
-  $('nostrOption').hidden = false
+  $('nostrOption').hidden = nostrSession === undefined
   $('nostrOption').append($('accountHome'))
   $('accountHome').hidden = false
   $('setup').hidden = true
@@ -2080,6 +2125,7 @@ function showRoomUi(): void {
   renderKeepChoice()
   renderArrival()
   $('join').hidden = false
+  tryPendingJoin()
   ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
@@ -2144,6 +2190,95 @@ function callIsLive(): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// The call, as a thing.
+//
+// Until September 2026 "a call" meant "this device has a track": nobody could
+// start one for other people to join, and a person with everything switched
+// off looked exactly like one who had never joined. Now a call is a
+// membership carried on presence - see `RosterEntry.call` - so Start, Join,
+// Leave and "Rowan started a call, 2 on it" are all things the room can say.
+// ---------------------------------------------------------------------------
+
+/** On the call, whatever is or is not switched on. */
+function onCall(): boolean {
+  return session?.call !== undefined
+}
+
+function newCallId(): string {
+  return bytesToHex(crypto.getRandomValues(new Uint8Array(16)))
+}
+
+/** Start a call, or join the one that is on. The same act: say which call
+ *  this device is on. Nothing is switched on by joining; the controls are. */
+async function joinCall(): Promise<void> {
+  const s = session
+  if (!s || s.call) return
+  const existing = s.calls()[0]
+  await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
+  setCallOpen(true)
+  updateUi()
+}
+
+/** Everything of this device's that was live, off, and the previews with it.
+ *  Shared by leaving a call and closing the room. */
+function stopLocalMedia(): void {
+  micTrack?.removeEventListener('ended', onMicEnded)
+  for (const track of activeTracks()) track.stop()
+  mic?.stop()
+  camera?.stop()
+  for (const pipeline of pendingMedia) pipeline.stop()
+  pendingMedia.clear()
+  mic = camera = undefined
+  micTrack = cameraTrack = screenTrack = undefined
+  micClaimedAt = monitorClaimedAt = undefined
+  besideAnotherDevice = false
+  for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
+  localPreviewEls.clear()
+}
+
+/** Off the call. The room, and everybody else's call, carry on. */
+async function leaveCall(): Promise<void> {
+  const s = session
+  stopLocalMedia()
+  speakingMonitor.retain([...remoteAudios.keys()])
+  publishActiveTracks()
+  if (s) await s.setCall(null)
+  setCallOpen(false)
+  updateUi()
+}
+
+/**
+ * The call button, the banner, and who is on it. Called from `render`, so
+ * it follows presence: a call somebody else started shows up the moment
+ * their heartbeat says so, and ends when the last of them stops saying so.
+ */
+function renderCallState(views: ParticipantView[]): void {
+  const calls = session?.calls() ?? []
+  const mineOn = onCall()
+  const button = $('callToggle')
+  const current = calls[0]
+  button.textContent = mineOn ? 'On call' : current ? 'Join call' : 'Call'
+  button.dataset.live = String(mineOn)
+  button.title = mineOn ? 'Your call controls' : current ? 'A call is on in this room' : 'Start a call in this room'
+
+  const banner = $('callBanner')
+  banner.hidden = mineOn || !current
+  if (current && !mineOn) {
+    const on = views.filter(view => view.call?.id === current.id).sort((a, b) => (a.call?.since ?? 0) - (b.call?.since ?? 0))
+    const starter = on[0]
+    const who = starter ? (shownAs(starter.participant, starter.name).name ?? 'Somebody') : 'Somebody'
+    const others = current.participants.length - 1
+    $('callBannerText').textContent = others > 0 ? `${who} started a call · ${current.participants.length} on it` : `${who} started a call`
+  }
+
+  if (mineOn && current) {
+    const names = views.filter(view => view.call?.id === current.id && view.participant !== meParticipant)
+      .map(view => shownAs(view.participant, view.name).name ?? 'somebody')
+    $('callWho').textContent = names.length === 0 ? 'On the call. Nobody else yet.' : `On the call with ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Room details
 //
 // A modal dialog rather than a panel on the page: it traps focus, Escape
@@ -2178,10 +2313,10 @@ function renderArrival(): void {
   }
   $('arrivalTitle').textContent = roomName ?? (startedHere ? 'Your new room' : 'Join the room')
   lead.textContent = startedHere
-    ? 'Your room is ready. Choose a name, then use Invite people to bring others in.'
+    ? 'Your room is ready. Pick a name and go in, then use Invite people to bring others in.'
     : roomInvitationCapability?.persistent
-      ? 'Choose your name. This device will remember the group so you can come back later.'
-      : 'Choose how you appear to the people in this room.'
+      ? 'Pick a name to go in. This device will remember the room.'
+      : 'Pick a name to go in.'
   lead.hidden = false
 }
 
@@ -2418,9 +2553,14 @@ async function toggleMic(): Promise<void> {
     mic = pipeline
     micTrack.addEventListener('ended', onMicEnded)
     // Choosing the microphone is an explicit choice to use this device for
-    // the conversation, even if it was previously in camera-only mode.
+    // the conversation, even if it was previously in camera-only mode. It
+    // is NOT a claim on the speaker: a phone brought in beside a laptop is
+    // a microphone, and its owner is listening on the laptop. The speaker
+    // is claimed weakly, so it is this device's only when nothing else of
+    // theirs is playing sound - see `WEAK_MONITOR_CLAIM`.
     besideAnotherDevice = false
-    micClaimedAt = monitorClaimedAt = nowSeconds()
+    micClaimedAt = nowSeconds()
+    monitorClaimedAt ??= WEAK_MONITOR_CLAIM
     // Our own tile lights up too, so a person can see they are being picked
     // up rather than guessing. Muting sets `track.enabled = false`, which
     // feeds the analyser silence, so a muted mic goes dark on its own.
@@ -2430,10 +2570,11 @@ async function toggleMic(): Promise<void> {
   } else {
     micTrack.enabled = !micTrack.enabled
     if (micTrack.enabled) {
-      // An explicit unmute is how this device takes the mic and speaker back
-      // from another paired device.
+      // An explicit unmute is how this device takes the mic back from
+      // another paired device. The speaker stays where it was.
       besideAnotherDevice = false
-      micClaimedAt = monitorClaimedAt = nowSeconds()
+      micClaimedAt = nowSeconds()
+      monitorClaimedAt ??= WEAK_MONITOR_CLAIM
       publishActiveTracks()
     }
   }
@@ -2754,6 +2895,10 @@ let monitorClaimedAt: number | undefined
  * There is no safe way to infer physical proximity from room or network data,
  * so the person can silence this device while retaining its camera/share. */
 let besideAnotherDevice = false
+/** A speaker claim that loses to any real one. A device with only a
+ *  microphone on claims the speaker this weakly, so two devices of one
+ *  person never both play sound unless the person asks. */
+const WEAK_MONITOR_CLAIM = 1
 
 /**
  * What this device is publishing, as the roster should advertise it: the
@@ -2802,6 +2947,10 @@ function publishActiveTracks(): void {
   if (!micTrack && !cameraTrack && !screenTrack) monitorClaimedAt = undefined
   session?.publishTracks(activeTracks(), { audience })
   session?.advertise(currentAdverts(), currentClaims()).catch(() => {})
+  const s = session
+  if (s && !s.call && activeTracks().length > 0) {
+    s.setCall({ id: s.calls()[0]?.id ?? newCallId(), since: nowSeconds() }).catch(() => {})
+  }
 }
 
 function setToggle(id: string, on: boolean): void {
@@ -2810,7 +2959,7 @@ function setToggle(id: string, on: boolean): void {
 }
 
 function updateUi(): void {
-  if (callIsLive()) setCallOpen(true)
+  if (callIsLive() || onCall()) setCallOpen(true)
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
@@ -2869,6 +3018,13 @@ function render(views: ParticipantView[], me: string): void {
   const monitorHere = !besideAnotherDevice && (!mine?.monitor || mine.monitor === myDeviceId)
   for (const audio of remoteAudios.values()) audio.el.muted = !monitorHere
 
+  {
+    const twoDevices = (mine?.devices.length ?? 0) > 1
+    const monEl = $('monitorIndicator')
+    monEl.hidden = !twoDevices
+    monEl.textContent = !twoDevices ? '' : monitorHere ? 'Sound plays on this device.' : 'Sound plays on your other device, so this one stays quiet.'
+    ;($('listenHere') as HTMLButtonElement).hidden = !twoDevices || monitorHere
+  }
   const micEl = $('micIndicator')
   if (mine?.mic) {
     micEl.textContent = mine.mic === myDeviceId
@@ -2909,7 +3065,7 @@ function render(views: ParticipantView[], me: string): void {
       const badge = document.createElement('span')
       badge.className = 'badge agent'
       badge.textContent = 'agent'
-      badge.title = 'This one says it is a computer helper, not a person'
+      badge.title = 'An agent, not a person'
       chip.append(badge)
       if (view.owner) chip.append(ownerRun(view.owner))
       agentsRow.append(chip)
@@ -2917,6 +3073,7 @@ function render(views: ParticipantView[], me: string): void {
     }
     const box = document.createElement('div')
     box.className = 'participant'
+    if (view.call) box.classList.add('onCall')
     // The claim this app exists to prove: two devices, one tile. Anything
     // else in the styling is decoration.
     if (view.devices.length > 1) box.classList.add('linked')
@@ -3025,6 +3182,16 @@ function render(views: ParticipantView[], me: string): void {
   // synchronous pass, so it is never out of the document long enough for
   // the browser to pause the picture in it.
   if (!localMediaEl.isConnected) $('local').append(localMediaEl)
+
+  renderCallState(views)
+  // Which tabs are worth showing depends on who is here (Agents appears
+  // when an agent does), so a roster change can change the row.
+  const tabKey = navTabs().map(([name]) => name ?? '').join('\n')
+  if (tabKey !== renderedTabKey) { renderedTabKey = tabKey; renderConversationNav() }
+  if (collisionsChanged) {
+    collisionsChanged = false
+    repaintActiveChat()
+  }
 }
 
 /** Small numbers read better as words in a sentence a stranger has to take
@@ -3122,7 +3289,7 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       const badge = document.createElement('span')
       badge.className = 'badge agent'
       badge.textContent = 'agent'
-      badge.title = 'This one says it is a computer helper, not a person'
+      badge.title = 'An agent, not a person'
       row.append(badge)
       if (view.owner) row.append(ownerRun(view.owner))
     }
@@ -3913,10 +4080,7 @@ function renderLaneNote(): void {
   if (!lane) { note.hidden = true; return }
   note.hidden = false
   note.append(laneChip(lane))
-  const words = document.createElement('span')
-  words.className = 'laneWords'
-  words.textContent = LANE_MEANING[lane]
-  note.append(words)
+  note.title = LANE_MEANING[lane]
 }
 
 function renderChat(messages: ChatMessage[]): void {
@@ -4132,7 +4296,7 @@ function channelPurpose(name: string | undefined): string {
   }
   if (name === AGENT_CHANNEL) {
     return (
-      'The computer helpers’ shared conversation. Messages appear here as they arrive. ' +
+      'The agents’ shared conversation. Messages appear here as they arrive. ' +
       'Everybody in this room can read and reply.'
     )
   }
@@ -4245,7 +4409,28 @@ function markConversationRead(): boolean {
   return true
 }
 
+/**
+ * The tabs a room shows above its conversation: Chat, and the others only
+ * once there is something in them. A room with no agent and no call was
+ * showing Chat, Agents, Transcript and Minutes, three of them empty, to
+ * everybody who walked in. Room details still lists every conversation.
+ */
+function navTabs(): Array<[string | undefined, string]> {
+  const agentsHere = (session?.participants() ?? []).some(view => view.agent)
+  const pending = new Set(Array.from(drafts.pending(), draft => draft.channel))
+  return conversationTabs().filter(([name]) => {
+    if (name === undefined || name === currentChannel || pending.has(name)) return true
+    if ((channelCounts.get(name) ?? 0) > 0) return true
+    // Agents: when one is here, or a host has said which could be asked in.
+    if (name === AGENT_CHANNEL) return agentsHere || [...catalogues.values()].some(catalogue => catalogue.agents.length > 0)
+    // A conversation somebody opened on purpose is shown even while empty.
+    return name !== TRANSCRIPT_CHANNEL && name !== MINUTES_CHANNEL
+  })
+}
+
+let renderedTabKey = ''
 function renderConversationNav(): void {
+  renderedTabKey = navTabs().map(([name]) => name ?? '').join('\n')
   const next = nextUnreadConversation()
   $('nextUnread').hidden = !next
   $('nextUnread').textContent = next ? `Next unread: ${next[1]} (${conversationUnread(next[0])})` : ''
@@ -4255,7 +4440,9 @@ function renderConversationNav(): void {
   const focusedChannel = focused && nav.contains(focused) ? focused.closest<HTMLElement>('[data-channel]')?.dataset.channel : undefined
   const scroll = nav.scrollLeft
   nav.replaceChildren()
-  for (const [name, label] of conversationTabs()) {
+  const tabs = navTabs()
+  nav.hidden = tabs.length < 2
+  for (const [name, label] of tabs) {
     const button = document.createElement('button')
     button.type = 'button'
     button.dataset.channel = name ?? ''
@@ -4370,7 +4557,7 @@ function renderChannels(): void {
  *  there is room for it and where somebody is actually reading. */
 function channelSummary(name: string | undefined): string {
   if (name === undefined) return 'Everybody here can read and write.'
-  if (name === AGENT_CHANNEL) return 'What the computer helpers say to each other.'
+  if (name === AGENT_CHANNEL) return 'What the agents say to each other.'
   if (name === TRANSCRIPT_CHANNEL) return 'What was said out loud, written down.'
   if (name === MINUTES_CHANNEL) return 'A write-up of what a call came to.'
   return 'Another conversation in this room.'
@@ -4765,7 +4952,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         const badge = document.createElement('span')
         badge.className = 'badge agent'
         badge.textContent = 'agent'
-        badge.title = 'This one says it is a computer helper, not a person'
+        badge.title = 'An agent, not a person'
         sender.append(badge)
       }
       // Whose agent wrote this, from the proof carried on the message and
@@ -5947,6 +6134,7 @@ function stopWatching(roomId: string): void {
 }
 
 function showRoomsList(): void {
+  pendingJoin = false
   $('nostrOption').hidden = true
   $('home').hidden = false
   $('identity').hidden = true
@@ -6063,11 +6251,8 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   name.setAttribute('aria-label', `Open ${knownRoomLabel(room)}`)
   name.textContent = knownRoomLabel(room)
   name.addEventListener('click', () => openKnownRoom(room))
-  const id = document.createElement('span')
-  id.className = 'pubkey'
-  id.textContent = shortKey(room.roomId)
-  id.title = room.roomId
-  heading.append(name, id)
+  name.title = shortKey(room.roomId)
+  heading.append(name)
   main.append(heading)
   const project = projectOf(room)
   if (project) { const label = document.createElement('span'); label.className = 'roomProject'; label.textContent = project; main.append(label) }
@@ -6082,7 +6267,8 @@ function roomRow(room: KnownRoom): HTMLLIElement {
   forget.setAttribute('aria-label', `Forget ${knownRoomLabel(room)}`)
   forget.textContent = 'Forget'
   forget.addEventListener('click', () => forgetKnownRoom(room))
-  actions.append(projectButton(room), forget)
+  if (organising()) actions.append(projectButton(room))
+  actions.append(forget)
 
   row.append(main, actions)
   return row
@@ -6227,6 +6413,15 @@ function fillProjectFilter(id: string, rooms: KnownRoom[]): void {
   if (Array.from(select.options).map(option => option.value).join('\n') === options.map(([value]) => value).join('\n')) return
   select.replaceChildren(...options.map(([value, label]) => new Option(label, value)))
   select.value = options.some(([key]) => key === value) ? value : '*'
+  const filter = select.closest<HTMLElement>('.projectFilter')
+  if (filter) filter.hidden = projectNames(rooms).length === 0
+}
+
+/** Whether projects are worth a control at all: somebody has made one, or
+ *  there are enough rooms that grouping them would help. */
+function organising(): boolean {
+  const rooms = knownRooms(roomStore())
+  return rooms.length >= 3 || projectNames(rooms).length > 0
 }
 
 function projectButton(room: KnownRoom): HTMLButtonElement {
@@ -6271,6 +6466,7 @@ function renderWorkspace(): void {
     const group = document.createElement('section')
     const heading = document.createElement('h3')
     heading.textContent = project || 'No project'
+    heading.hidden = groups.length === 1 && !project
     group.append(heading)
     for (const room of rooms.filter(room => (projectOf(room) ?? '') === project)) {
       const row = document.createElement('div')
@@ -6287,15 +6483,18 @@ function renderWorkspace(): void {
       button.addEventListener('click', () => {
         void switchRoom(room)
       })
-      const organise = projectButton(room)
-      organise.textContent = '⋯'
-      row.append(button, organise)
+      row.append(button)
+      if (organising()) {
+        const organise = projectButton(room)
+        organise.textContent = '⋯'
+        row.append(organise)
+      }
       group.append(row)
     }
     list.append(group)
   }
   $('workspaceEmpty').hidden = rooms.length > 0
-  $('workspaceNote').textContent = busy ? 'Finish sending or stop adding files before switching rooms.' : 'Drafts stay in this tab when you switch rooms. Use ⋯ to organise rooms into projects.'
+  $('workspaceNote').textContent = busy ? 'Finish sending or stop adding files before switching rooms.' : organising() ? 'Use ⋯ to organise rooms into projects.' : ''
   if (focusedRoom && action) {
     const row = Array.from(list.querySelectorAll<HTMLElement>('[data-room]')).find(row => row.dataset.room === focusedRoom)
     ;(row?.querySelector<HTMLElement>(`[data-action="${action}"]`) ?? $('workspaceQuery')).focus({ preventScroll: true })
@@ -6327,9 +6526,9 @@ function renderRoomSwitcher(): void {
   const busy = switchingBlocked()
   $('roomSwitcherNote').textContent = busy
     ? 'Finish sending or stop adding files before switching. You can also open the other room in a new tab.'
-    : callIsLive()
+    : callIsLive() || onCall()
       ? 'Your call stays connected while you browse. Switching will ask before leaving it; a new tab keeps this call here.'
-      : 'Choose a room to go straight to its conversation. Your drafts and staged files stay in this tab.'
+      : 'Your drafts stay in this tab while you switch.'
   const list = $('roomSwitcherList')
   const focused = document.activeElement as HTMLElement | null
   const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
@@ -6348,7 +6547,7 @@ function renderRoomSwitcher(): void {
     name.textContent = knownRoomLabel(room)
     const detail = document.createElement('span')
     detail.className = 'switchRoomCode'
-    detail.textContent = `${projectOf(room) ?? 'No project'} · ${room.roomId.slice(0, 12)}…${room.roomId === current ? ' · Current room' : ''}`
+    detail.textContent = [organising() ? projectOf(room) ?? 'No project' : '', room.roomId === current ? 'Current room' : ''].filter(Boolean).join(' · ')
     button.append(name, detail)
     if (room.roomId === current) button.setAttribute('aria-current', 'true')
     button.disabled = busy && room.roomId !== current
@@ -6365,7 +6564,7 @@ function renderRoomSwitcher(): void {
       link.setAttribute('aria-label', `Open ${knownRoomLabel(room)} in a new tab`)
       row.append(link)
     }
-    row.append(projectButton(room))
+    if (organising()) row.append(projectButton(room))
     list.append(row)
   }
   if (focusedRoom && focusedAction) {
@@ -6384,7 +6583,7 @@ async function switchRoom(room: KnownRoom): Promise<void> {
     return
   }
   if (switchingBlocked()) { openRoomSwitcher(); renderRoomSwitcher(); return }
-  if (callIsLive() && !await confirmRoomAction({ title: `Switch to ${knownRoomLabel(room)}?`, message: 'This leaves your current call. Your microphone and camera will be off in the other room.', confirmLabel: 'Leave call and switch' })) return
+  if ((callIsLive() || onCall()) && !await confirmRoomAction({ title: `Switch to ${knownRoomLabel(room)}?`, message: 'This leaves your current call. Your microphone and camera will be off in the other room.', confirmLabel: 'Leave call and switch' })) return
   if (switchingRoom || switchingBlocked()) { renderRoomSwitcher(); return }
   const account = nostrSession?.pubkey
   const identity = identityGeneration
@@ -6463,19 +6662,8 @@ async function closeRoomSession(): Promise<void> {
   if (assistTimer !== undefined) clearInterval(assistTimer)
   if (approvalTimer !== undefined) clearTimeout(approvalTimer)
   iceRefreshTimer = assistTimer = approvalTimer = undefined
-  micTrack?.removeEventListener('ended', onMicEnded)
-  for (const track of activeTracks()) track.stop()
-  mic?.stop()
-  camera?.stop()
-  for (const pipeline of pendingMedia) pipeline.stop()
-  pendingMedia.clear()
-  mic = camera = undefined
-  micTrack = cameraTrack = screenTrack = undefined
-  micClaimedAt = monitorClaimedAt = undefined
-  besideAnotherDevice = false
+  stopLocalMedia()
   speakingMonitor.retain([])
-  for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
-  localPreviewEls.clear()
   for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
     entry.track.stop()
     entry.el.pause()
@@ -6724,7 +6912,7 @@ async function openLink(url: string): Promise<void> {
   }
   if (target.origin !== location.origin || !target.href.startsWith(joinLinkBase())) return
   if (alreadyHere(target.href)) return
-  if ((hasUnsentWork() || callIsLive()) && !await confirmRoomAction({ title: 'Open the other room?', message: 'This leaves your call and discards unfinished messages and files in this tab.', confirmLabel: 'Leave and open room', danger: true })) return
+  if ((hasUnsentWork() || callIsLive() || onCall()) && !await confirmRoomAction({ title: 'Open the other room?', message: 'This leaves your call and discards unfinished messages and files in this tab.', confirmLabel: 'Leave and open room', danger: true })) return
   history.replaceState(null, '', target.href)
   approvedReload()
 }
@@ -6899,7 +7087,7 @@ $('roomSwitcherClose').addEventListener('click', () => ($('roomSwitcher') as HTM
 $('roomSearch').addEventListener('input', renderRoomSwitcher)
 $('roomSwitcherHome').addEventListener('click', async () => {
   if (hasUnsentWork()) { renderRoomSwitcher(); return }
-  if (callIsLive() && !await confirmRoomAction({ title: 'Leave this call?', message: 'You will return to all rooms. Your microphone and camera will turn off.', confirmLabel: 'Leave call' })) return
+  if ((callIsLive() || onCall()) && !await confirmRoomAction({ title: 'Leave this call?', message: 'You will return to all rooms. Your microphone and camera will turn off.', confirmLabel: 'Leave call' })) return
   backToRooms()
 })
 $('roomSwitcher').addEventListener('click', event => {
@@ -6988,12 +7176,28 @@ $('roomSheet').addEventListener('click', (event) => {
   if (event.target === $('roomSheet')) closeRoomSheet()
 })
 $('callToggle').addEventListener('click', () => {
+  if (!onCall()) {
+    joinCall().catch((err) => setStatus(describeError(err)))
+    return
+  }
   // Refuse to hide controls for a camera or microphone that is still on.
   if (callIsLive()) {
     setCallOpen(true)
     return
   }
   setCallOpen($('callBay').hidden)
+})
+$('joinCall').addEventListener('click', () => {
+  joinCall().catch((err) => setStatus(describeError(err)))
+})
+$('leaveCall').addEventListener('click', () => {
+  leaveCall().catch((err) => setStatus(describeError(err)))
+})
+$('listenHere').addEventListener('click', () => {
+  besideAnotherDevice = false
+  monitorClaimedAt = nowSeconds()
+  publishActiveTracks()
+  updateUi()
 })
 
 // The way back into the room this tab just left. A fragment-only change is
@@ -7273,9 +7477,27 @@ $('joinVisitor').addEventListener('click', async () => {
   await startSession(true)
 })
 
+/** Enter pressed while the door was still being built, or while a sign-in
+ *  was being restored. It used to be dropped on the floor: the person saw
+ *  "Going in as Kit" and nothing else happened. Now it is kept and acted on
+ *  the moment the door is ready. */
+let pendingJoin = false
+function tryPendingJoin(): void {
+  if (!pendingJoin) return
+  const join = $('join') as HTMLButtonElement
+  if (join.hidden || join.disabled || loginBusy || session || joining) return
+  pendingJoin = false
+  startSession().catch((err) => setStatus(describeError(err)))
+}
 $('joinRoomForm').addEventListener('submit', event => {
   event.preventDefault()
-  if (($('join') as HTMLButtonElement).hidden || ($('join') as HTMLButtonElement).disabled) return
+  const join = $('join') as HTMLButtonElement
+  if (session || joining) return
+  if (join.hidden || join.disabled || loginBusy) {
+    pendingJoin = true
+    setStatus('One moment…', 'progress')
+    return
+  }
   startSession().catch((err) => setStatus(describeError(err)))
 })
 
@@ -8101,6 +8323,9 @@ $('attachToggle').addEventListener('click', () => {
   const draft = captureDraft()
   draft.panelOpen = !draft.panelOpen
   draftChanged(draft)
+  // The picker is the first thing in the panel and takes focus. Not
+  // opened programmatically: a native chooser opened from script blocks
+  // the page in some browsers, and cannot be dismissed by the app.
   if (draft.panelOpen) $('attachFile').focus()
 })
 $('attachCancel').addEventListener('click', () => {

@@ -9,6 +9,61 @@ implementation reads this file to know what moved.
 
 ## Unreleased
 
+### Shape
+
+The stranger test: somebody with a link should meet the conversation, not
+the setup. No wire change.
+
+- The door is a name, a filled Join, and "Already on Nostr? Sign in" as a
+  line under it. The three paragraphs about visitors, browser keys and
+  codes are gone; how you are in the room is said in Room details.
+- Enter pressed before the door was ready, or while a sign-in was being
+  restored, is kept and acted on. It used to be dropped.
+- The code beside a name appears only when two people in view share a
+  name, or there is no name. It is the start of the npub, never hex.
+  Room rows and the switcher show the name alone.
+- Conversation tabs appear only when there is more than Chat to show.
+  Agents appears when an agent is in the room; Transcript and Minutes
+  when a call has written to them. Room details still lists them all.
+- Send and Start a room are filled. The identity chip has moved from the
+  composer to Room details, under "You".
+- Plus opens the file picker straight away. The paragraph about locked
+  lumps is one sentence, and the file store and Wildbloom import are
+  under "File options".
+- Escape closes the call controls when nothing of yours is live.
+- Project and Forget are offered once there are rooms to organise, not on
+  a stranger's only room. The switcher and sidebar drop the room id.
+- Room details puts Keyboard shortcuts, Nostr relays and Profile pictures
+  under Settings at the bottom.
+- The lane beside the composer is the chip with the sentence as its
+  tooltip; the sentence no longer takes a line above every message box.
+- `docs/glossary.md` fixes the words.
+
+### Calls are a thing
+
+**Wire change, additive.** A roster entry may carry `call: { id, since }`:
+this device is on the call with that id, since that time. A call is read
+off presence and has no kind of its own: it is on while any present device
+says so and ends when the last one stops. `id` is 32 lower-case hex
+characters chosen by whoever started it; a malformed value is dropped and
+the entry kept. A client that has never heard of calls ignores the field.
+Vector `rosterEvent/valid-on-call`.
+
+- The Call button starts a call. Everybody else in the room sees "Sam
+  started a call" with a Join button; joining switches nothing on. On the
+  call, the button reads On call, the controls say who is on it, and Leave
+  call turns your media off and takes you off it. Dropping out and
+  rejoining is the same Join. Turning on a microphone, camera or screen
+  share joins the call if you were not on it.
+- A second device of the same person that turns its microphone on does
+  not take the speaker: sound keeps playing where it was, and the call
+  controls say so, with a button to move it.
+- "Use beside another device" and "Let agents hear me" fold under "Two
+  devices, agents" in the call controls.
+- Two more voice presets, Deep and Bright: the same pitch-and-formant
+  trick pushed as far as it goes while every word still lands. More
+  disguise, less like a person. Still masking, not anonymity.
+
 ### Lane indicator
 
 - Every message shows the lane it actually travelled, public, sheltered or

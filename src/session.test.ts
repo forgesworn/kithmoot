@@ -150,6 +150,49 @@ describe('RoomSession', () => {
     expect(observer.participants()).toHaveLength(1)
   })
 
+  it('starts, joins, and drops a call through presence, and a farewell drops it too', async () => {
+    const relay = new SimRelay()
+    const make = () => new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    const ada = make()
+    const bob = make()
+    const observer = make()
+    await ada.join([], {})
+    await bob.join([], {})
+    await observer.join([], {})
+    await settle()
+    expect(observer.calls()).toEqual([])
+
+    // Ada starts one with nothing switched on: on the call, publishing nothing.
+    const id = 'c'.repeat(32)
+    await ada.setCall({ id, since: NOW })
+    await settle()
+    expect(observer.calls()).toEqual([{ id, since: NOW, participants: [ada.participant] }])
+    expect(observer.participants().find((v) => v.participant === ada.participant)?.call).toEqual({ id, since: NOW, devices: [ada.device] })
+    expect(observer.participants().find((v) => v.participant === bob.participant)?.call).toBeUndefined()
+
+    // Bob joins it; the call's start stays Ada's.
+    await bob.setCall({ id, since: NOW + 5 })
+    await settle()
+    expect(observer.calls()[0]?.participants.sort()).toEqual([ada.participant, bob.participant].sort())
+    expect(observer.calls()[0]?.since).toBe(NOW)
+
+    // Ada drops off; Bob is still on it. Then Bob leaves the room, and the
+    // farewell carries no call, so it ends.
+    await ada.setCall(null)
+    await settle()
+    expect(observer.calls()).toEqual([{ id, since: NOW + 5, participants: [bob.participant] }])
+    await bob.leave()
+    await settle()
+    expect(observer.calls()).toEqual([])
+  })
+
   it('notifies subscribers when the roster changes', async () => {
     const relay = new SimRelay()
     const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })

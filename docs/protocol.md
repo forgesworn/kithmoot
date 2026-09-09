@@ -152,7 +152,12 @@ The roster is kind 20461, signed by the device, tagged `d` with the current
 room/epoch selector, and NIP-44-encrypted with the current room/epoch key. Its
 inner credential must agree with the outer author. `updatedAt`, tracks, claims,
 name, verified ownership and optional assist advertisement are interpreted by
-`rosterEvent` vectors. A farewell uses `left:true`. Presence expires; replayed
+`rosterEvent` vectors. A farewell uses `left:true`. An optional `call`
+object `{ id, since }` says the device is on the call with that id (32
+lower-case hex characters, chosen by whoever started it) since that Unix
+second; a call is read off presence, has no kind of its own, and ends when
+the last present device stops carrying it (`valid-on-call` vector). A
+malformed `call` is dropped and the entry kept. Presence expires; replayed
 presence is not a permanent guest list. New arrivals announce and existing
 members answer because relays need not retain presence.
 

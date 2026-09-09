@@ -27,6 +27,7 @@ test('drafts stay with their conversations, including files and a visit to read-
     await page.locator('#chatInput').fill('A draft for the main chat')
     await page.locator('#chatInput').evaluate((input: HTMLTextAreaElement) => input.setSelectionRange(2, 7))
     await page.locator('#attachToggle').click()
+    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await page.locator('#attachEvent').fill(JSON.stringify(event))
     await page.locator('#attachKey').fill('cd'.repeat(32))
     await page.locator('#attachAdd').click()
@@ -74,6 +75,7 @@ test('an upload finishes in its original draft while another conversation is use
   try {
     await page.locator('#chatInput').fill('This file belongs in Chat')
     await page.locator('#attachToggle').click()
+    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await page.locator('#attachServer').fill('https://files.example')
     await page.locator('#attachServer').press('Tab')
     await page.locator('#attachFile').setInputFiles({ name: 'workshop.txt', mimeType: 'text/plain', buffer: Buffer.from('Workshop materials') })
@@ -131,10 +133,12 @@ test('unfinished file details stay in their draft and are never stored on disk',
   const { page, context } = await setup(browser, baseURL!)
   try {
     await page.locator('#attachToggle').click()
+    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await page.locator('#attachEvent').fill('Unfinished file details')
     await page.locator('#attachKey').fill('Secret for this draft only')
     await goToConversation(page, 'Agents')
     await page.locator('#attachToggle').click()
+    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await expect(page.locator('#attachEvent')).toHaveValue('')
     await expect(page.locator('#attachKey')).toHaveValue('')
     await page.locator('#attachEvent').fill('A different file')
@@ -161,6 +165,7 @@ test('stopping an upload permits another attempt without adding the late result'
   })
   try {
     await page.locator('#attachToggle').click()
+    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await page.locator('#attachServer').fill('https://files.example')
     await page.locator('#attachServer').press('Tab')
     await page.locator('#attachFile').setInputFiles({ name: 'cancelled.txt', mimeType: 'text/plain', buffer: Buffer.from('Do not attach this') })
@@ -213,6 +218,7 @@ test('stopping during a stalled relay announcement releases the draft and ignore
   })
   try {
     await page.locator('#attachToggle').click()
+    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await page.locator('#attachServer').fill('https://files.example')
     await page.locator('#attachServer').press('Tab')
     await page.locator('#attachFile').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('Do not attach the late result') })

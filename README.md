@@ -527,8 +527,10 @@ match it, and it does not survive a forensic comparison. Do not lean on it
 where being identified would matter. The words "anonymous" and
 "unidentifiable" appear nowhere in the interface, deliberately.
 
-Four presets - off, lower, higher, neutral - rather than free sliders, so the
-result is predictable and every option stays intelligible on a bad line.
+Six presets - off, lower, higher, neutral, deep, bright - rather than free
+sliders, so the result is predictable and every option stays intelligible on
+a bad line. Deep and bright push the same trick as far as it goes: more
+disguise, less like a person.
 "Hear yourself" records three seconds of the outgoing audio and plays it
 back, so you hear what the room hears rather than what your own skull tells
 you.

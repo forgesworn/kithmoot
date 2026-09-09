@@ -61,9 +61,7 @@
             <span id="roomWho" class="roomWho"></span>
           </button>
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
-                  title="Camera, microphone and screen share" aria-label="Open call and sharing controls">
-            <span class="callLabelWide">Call / Share</span><span class="callLabelNarrow">Call</span>
-          </button>
+                  title="Call: microphone, camera and screen share" aria-label="Call controls">Call</button>
           <button id="openAssignments" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
           <button id="roomMenu" type="button" class="barBtn" aria-haspopup="dialog"
                   aria-label="Room details">
@@ -72,6 +70,12 @@
         </div>
 
         <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
+        <!-- A call is on and you are not on it. Filled in by
+             `renderCallState` in app/src/main.ts. -->
+        <div id="callBanner" class="callBanner" role="status" hidden>
+          <span id="callBannerText"></span>
+          <button id="joinCall" type="button" class="primary">Join call</button>
+        </div>
         <div id="agentActivity" class="agentActivity" hidden>
           <div><strong id="agentActivityTitle"></strong><span id="agentActivityNote"></span></div>
           <button id="watchAgents" type="button">Watch agents</button>
@@ -83,16 +87,29 @@
              and kept open for as long as anything of yours is live. -->
         <div id="callBay" hidden>
           <section id="deviceControls" hidden>
-            <p>Turn on your microphone, camera or screen share:</p>
+            <div class="callHead">
+              <p id="callWho" class="callWho">On the call.</p>
+              <button id="leaveCall" type="button" class="danger">Leave call</button>
+            </div>
             <div class="toggles">
               <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false">Microphone</button>
               <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false">Camera</button>
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false">Screen share</button>
             </div>
             <p id="micIndicator" class="indicator"></p>
-            <button id="toggleCompanion" class="toggle" data-on="false" aria-pressed="false">Use beside another device</button>
-            <p id="companionNote" class="indicator" hidden>This device’s microphone and speaker are off. Its camera and screen share still work.</p>
-            <p class="note">For next time, Room details → Add my phone also groups both devices as one person and keeps one microphone and speaker active.</p>
+            <!-- Two of your devices on one call: sound comes out of one of
+                 them, and the newest microphone does not take it. -->
+            <p id="monitorIndicator" class="indicator" hidden></p>
+            <button id="listenHere" type="button" class="quiet" hidden>Play sound on this device instead</button>
+            <details id="callMore" class="callMore">
+              <summary>Two devices, agents</summary>
+              <button id="toggleCompanion" class="toggle" data-on="false" aria-pressed="false" title="Silence this device's microphone and speaker; its camera and screen share still work">Use beside another device</button>
+              <p id="companionNote" class="indicator" hidden>This device’s microphone and speaker are off. Its camera and screen share still work.</p>
+              <div class="toggles agentsHear">
+                <button id="toggleAgentsHear" class="toggle" data-on="false" aria-pressed="false" title="Off: nothing that says it is an agent is sent your camera or microphone">Let agents hear me</button>
+                <span id="agentsHearNote" class="note inline">Off: agents in the room are sent nothing from your camera or microphone.</span>
+              </div>
+            </details>
 
             <div id="effects">
               <details id="cameraEffects" hidden>
@@ -128,6 +145,8 @@
                   <button type="button" class="seg" data-preset="lower">Lower</button>
                   <button type="button" class="seg" data-preset="higher">Higher</button>
                   <button type="button" class="seg" data-preset="neutral">Neutral</button>
+                  <button type="button" class="seg" data-preset="deep">Deep</button>
+                  <button type="button" class="seg" data-preset="bright">Bright</button>
                 </div>
                 <div class="effectRow">
                   <button id="voicePreview" type="button">Hear yourself</button>
@@ -148,13 +167,6 @@
             </div>
 
             <div id="local"></div>
-            <div class="toggles agentsHear">
-              <button id="toggleAgentsHear" class="toggle" data-on="false" aria-pressed="false">Let agents hear me</button>
-              <span id="agentsHearNote" class="note inline">
-                Off: nothing that says it is an agent is sent your camera or
-                microphone. It never leaves this device for them.
-              </span>
-            </div>
           </section>
         </div>
 
@@ -198,7 +210,6 @@
           <!-- Which lane the next message will take, and what that lane
                delivers. Worked out from where the bytes go, never claimed.
                Filled in by `renderLaneNote` in app/src/main.ts. -->
-          <div id="laneNote" class="laneNote" role="status" hidden></div>
           <div id="mentions" class="mentions" role="listbox" aria-label="People and agents in this room" hidden></div>
           <!-- A box, not a line. It was one line that scrolled sideways, so
                a long message could not be read back before it was sent -
@@ -215,38 +226,38 @@
                NOT allowed to rename itself as you use it - the count goes
                in its own span - because a control that changes identity
                under a person is a control they stop trusting. -->
-          <div id="sendingIdentity" class="sendingIdentity" hidden></div>
+          <!-- The lane the next message takes, as a chip in the button row
+               rather than a row of its own above the box: a row above the
+               box was a row taken from the conversation on every phone. -->
+          <div id="laneNote" class="laneNote" role="status" hidden></div>
           <button type="button" id="emojiToggle" aria-label="Choose an emoji" title="Emoji">😊</button>
           <button type="button" id="attachToggle" aria-label="Add a file"
                   title="Send a file: drop one here, or pick one">
             <span class="attachIcon" aria-hidden="true">+</span>
             <span class="attachWord">Add a file</span><span id="attachCount" class="attachCount"></span>
           </button>
-          <button type="submit">Send</button>
+          <button type="submit" class="primary">Send</button>
         </form>
         <div id="attachStaged"></div>
         <div id="attachPanel" class="attachPanel" hidden>
-          <p class="note">
-            Drop a file on the chat, or pick one. It is locked on this device
-            under a fresh key before any of it leaves, the locked bytes go to
-            the file store named below, and the key travels inside your
-            message, locked to the room like the words around it. The store
-            sees a locked lump it cannot open. Nobody downloads it until they
-            choose to.
-          </p>
           <div class="attachRow">
             <input id="attachFile" type="file" multiple aria-label="Choose a file to share" />
+            <span class="note inline">Files are encrypted on this device before they leave it.</span>
           </div>
-          <input id="attachServer" type="url" placeholder="File store to put files on, e.g. https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
-          <p class="note">
-            Or a file already shared through Wildbloom: paste what Wildbloom
-            gave you, and the key that opens it.
-          </p>
-          <input id="attachEvent" aria-label="Wildbloom file event" placeholder="What Wildbloom showed you: an id, note1, nevent1, or the JSON" autocomplete="off" spellcheck="false" />
-          <input id="attachKey" type="password" aria-label="File recovery key" placeholder="Key that opens it (wbk1_…)" autocomplete="off" spellcheck="false" />
-          <div class="attachRow">
+          <details id="attachOptions" class="attachOptions">
+            <summary>File options</summary>
+            <label for="attachServer" class="note">Where encrypted files are stored</label>
+            <input id="attachServer" type="url" placeholder="https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
+            <p class="note">
+              A file already shared through Wildbloom: paste what Wildbloom
+              gave you, and the key that opens it.
+            </p>
+            <input id="attachEvent" aria-label="Wildbloom file event" placeholder="Wildbloom id, note1, nevent1 or JSON" autocomplete="off" spellcheck="false" />
+            <input id="attachKey" type="password" aria-label="File recovery key" placeholder="Key that opens it (wbk1_…)" autocomplete="off" spellcheck="false" />
             <button type="button" id="attachAdd">Add to message</button>
-            <button type="button" id="attachCancel">Cancel</button>
+          </details>
+          <div class="attachRow">
+            <button type="button" id="attachCancel">Close</button>
             <button type="button" id="cancelFileWork" hidden>Stop adding files</button>
             <span id="attachStatus" class="note" role="status"></span>
           </div>
@@ -290,9 +301,7 @@
         </div>
         <button id="returnToPreviousRoom" type="button" hidden>Back to the previous room</button>
         <form id="joinRoomForm">
-          <p id="joinIdentityHelp" class="note"></p>
           <p id="previousAccount" class="note visitorIdentity" hidden></p>
-          <button id="joinNostr" type="button">Sign in with Nostr</button>
           <label for="displayName">What should we call you?</label>
           <input
             id="displayName"
@@ -301,9 +310,11 @@
             autocomplete="nickname"
             enterkeyhint="go"
           />
-          <button id="join" type="submit" class="primary" hidden>Join room</button>
-          <button id="joinVisitor" type="button" class="quiet" hidden>Use a separate visitor identity</button>
+          <button id="join" type="submit" class="primary" hidden>Join</button>
           <p id="whoami" class="whoami"></p>
+          <p id="joinIdentityHelp" class="note" hidden></p>
+          <button id="joinNostr" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
+          <button id="joinVisitor" type="button" class="quiet" hidden>Use a separate visitor identity</button>
           <p id="joinPrivacy" class="note">Your camera and microphone stay off until you turn them on.</p>
         </form>
       </section>
@@ -326,11 +337,7 @@
              comes back for the rooms, and three lines about how the list is
              read were three lines between them and the first one - enough,
              on a 375 by 540 phone, to leave no room visible at all. -->
-        <p id="roomsNote" class="note">
-          The rooms this device has been in. We look for new messages using
-          the key this device already has, and we send nothing out to do it,
-          so nobody in the room can tell that you looked.
-        </p>
+        <p id="roomsNote" class="note" hidden></p>
       </section>
 
       <!-- These actions belong to the dashboard. Following an invitation
@@ -344,9 +351,9 @@
                aria-label="Room name" aria-describedby="roomNameNote" />
         <button id="create" type="submit" class="primary">Start a room</button>
         <p id="createError" class="formError" role="alert" hidden></p>
-        <p id="roomTypeNote" class="note">Groups remember your access and let people join when everyone is offline.</p>
+        <p id="roomTypeNote" class="note" hidden></p>
         <p id="roomNameNote" class="note">
-          No account needed. Choose your display name next.
+          No account needed. You pick a name next.
         </p>
         </form>
         <form id="openRoomForm" class="homeCard" novalidate>
@@ -382,25 +389,12 @@
            667 viewport kept passing. Nothing is deleted; it is one line
            lower or one line in. -->
       <section id="identityMore">
-        <details id="nameHelp">
-          <summary>Why there is a code beside your name</summary>
-          <p class="note">
-            Type any name you like. Nobody checks it, so a short code is always
-            shown next to it. Everybody's code is different, and that is the
-            part that really tells two people apart.
-          </p>
-          <!-- Which of the ways in this device is on, and what that means.
-               It was on the identity line above the action, where it ran to
-               three lines. Filled in by `renderIdentity` in
-               app/src/main.ts. -->
-          <p id="nameHow" class="note"></p>
-        </details>
+        <!-- Which of the ways in this device is on. Filled in by
+             `renderHowIn` in app/src/main.ts; shown in Room details, not
+             at the door. -->
+        <p id="nameHow" class="note" hidden></p>
         <details id="nostrOption">
-          <summary>I already have a Nostr key</summary>
-          <p class="note">
-            Goes in with a key you already have, kept in an add-on, an app or
-            another device of yours. Your profile and public key identify you to people and agents in the room.
-          </p>
+          <summary>Your account</summary>
         </details>
       </section>
 
@@ -451,7 +445,7 @@
       <div class="sheetBody">
         <p id="roomSwitcherNote" class="note"></p>
         <label for="roomSearch">Find a room</label>
-        <input id="roomSearch" type="search" placeholder="Room, project or code" autocomplete="off" />
+        <input id="roomSearch" type="search" placeholder="Find a room" autocomplete="off" />
         <div class="projectFilter"><label for="switcherProject">Project</label><select id="switcherProject"><option value="*">All projects</option></select></div>
         <ul id="roomSwitcherList" class="roomList"></ul>
         <p id="roomSwitcherEmpty" class="note" hidden>No matching rooms. Rooms you open while signed in appear here.</p>
@@ -619,7 +613,6 @@
 
       <div class="sheetBody">
         <h3 class="sheetHead">This room</h3>
-        <button id="keyboardHelp" type="button" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">Keyboard shortcuts</button>
         <!-- The name and the code, together, here. The bar at the top of
              the room shows the NAME, because that is what every messaging
              app puts at the head of a conversation - and a room with no
@@ -628,10 +621,6 @@
              database row rather than a place people are talking. -->
         <p id="sheetRoomId" class="roomIdLine"></p>
         <p id="roomLockState" class="note" hidden></p>
-        <p class="note">
-          Two rooms can be called the same thing, so the code beside the
-          name is the part that tells them apart.
-        </p>
 
         <h3 class="sheetHead">Conversations</h3>
         <button id="searchConversation" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search this conversation</button>
@@ -660,15 +649,20 @@
           <div id="inviteList"></div>
         </details>
 
-        <button id="roomRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
         <h3 class="sheetHead">Who is here</h3>
-        <button id="roomProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
         <!-- What the `agent` tag means. It is said again as the first note
              in every conversation, where a first-time reader actually meets
              it, and it lives here permanently for anybody who comes looking.
              Filled in by `render` in app/src/main.ts. -->
         <p id="agentsExplain" class="agentsExplain" hidden></p>
         <div id="sheetRoster" class="sheetRoster"></div>
+        <!-- You: how this device is in the room, and the way to change it.
+             Moved here from the message box, where it was the first control
+             on the line and answered a question nobody was asking while
+             they typed. -->
+        <p class="note">You</p>
+        <div id="sendingIdentity" class="sendingIdentity" hidden></div>
+        <p id="sheetHow" class="note"></p>
 
         <h3 class="sheetHead">Invite people</h3>
         <div id="inviteHome">
@@ -793,6 +787,12 @@
              as one of them, and a bug report is not a setting: it is what
              you reach for on a bad day. Still here, still one click, and
              now it says what it is for before you press it. -->
+        <h3 class="sheetHead">Settings</h3>
+        <div class="toolRow">
+          <button id="roomProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
+          <button id="roomRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
+          <button id="keyboardHelp" type="button" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">Keyboard shortcuts</button>
+        </div>
         <details id="troubleshooting">
           <summary>If something here is not working</summary>
           <p class="note">

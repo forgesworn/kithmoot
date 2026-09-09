@@ -151,8 +151,8 @@ describe('semitones', () => {
 })
 
 describe('presets', () => {
-  it('offers exactly the four the UI offers, and off is off', () => {
-    expect(Object.keys(VOICE_PRESETS).sort()).toEqual(['higher', 'lower', 'neutral', 'off'])
+  it('offers exactly the six the UI offers, and off is off', () => {
+    expect(Object.keys(VOICE_PRESETS).sort()).toEqual(['bright', 'deep', 'higher', 'lower', 'neutral', 'off'])
     expect(VOICE_PRESETS.off).toEqual(IDENTITY_VOICE_SETTINGS)
     expect(DEFAULT_VOICE_PRESET).toBe('off')
   })
@@ -160,6 +160,8 @@ describe('presets', () => {
   it('moves pitch in the direction the name says', () => {
     expect(VOICE_PRESETS.lower.semitones).toBeLessThan(0)
     expect(VOICE_PRESETS.higher.semitones).toBeGreaterThan(0)
+    expect(VOICE_PRESETS.deep.semitones).toBeLessThan(VOICE_PRESETS.lower.semitones)
+    expect(VOICE_PRESETS.bright.semitones).toBeGreaterThan(VOICE_PRESETS.higher.semitones)
   })
 
   it('moves formants with pitch for lower and higher, and against it for neutral', () => {

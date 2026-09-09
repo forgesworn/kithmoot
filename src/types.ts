@@ -243,6 +243,36 @@ export interface RosterEntry {
    * as it always did. Absent on every entry that is not a farewell.
    */
   left?: boolean
+  /**
+   * The call this device is on, when it is on one.
+   *
+   * A call is a thing people start, join, drop out of and rejoin, and until
+   * this field existed there was no such thing on the wire: "a call is on"
+   * meant "this device has a track", so nobody could start one for others
+   * to join, and a device with everything switched off looked exactly like
+   * one that was not on the call at all.
+   *
+   * It rides presence rather than a kind of its own, on purpose. Presence
+   * is already ephemeral, encrypted to the room key and refreshed on the
+   * heartbeat, which is exactly what a live call needs and nothing a relay
+   * should keep: a stored call event would be a durable public record that
+   * a room exists. So "a call is on in this room" is "a present device says
+   * it is on one", who is on it is read off the roster, and it ends when
+   * the last of them stops saying so. `id` is random, chosen by whoever
+   * started it and carried by everybody who joins, so two calls started at
+   * once in one room are visibly two; `since` is when this device joined.
+   * Absent on every entry that is not on a call, so the wire is
+   * byte-identical for a client that has never heard of calls.
+   */
+  call?: CallMembership
+}
+
+/** See `RosterEntry.call`. */
+export interface CallMembership {
+  /** 32 hex characters, chosen by whoever started the call. */
+  id: string
+  /** Unix seconds: when this device joined it. */
+  since: number
 }
 
 /**

@@ -223,6 +223,16 @@ describe('roster event', () => {
     expect(result).toEqual(v.input.entry)
   })
 
+  it('valid-on-call: reproduces the exact event, and the call membership survives the decode', () => {
+    const v = vec('rosterEvent', 'valid-on-call')
+    const event = rebuildRoster(v)
+    expect(event).toEqual(v.output.event)
+
+    const result = decodeRosterEvent(event, { roomId: v.input.roomId, roomKey: hexToBytes(v.input.roomKeyHex), now: fx.NOW })
+    expect(result).toEqual(v.expected.result)
+    expect(result?.call).toEqual(v.input.entry.call)
+  })
+
   it('wrong-room-key: the real implementation returns null rather than throwing', () => {
     const v = vec('rosterEvent', 'wrong-room-key')
     const result = decodeRosterEvent(v.input.event as Event, {

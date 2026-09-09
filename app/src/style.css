@@ -2951,3 +2951,95 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .reactionPerson > .avatar { width: 2rem; height: 2rem; }
 
 .reactionFeedback { position: fixed; inset: auto; margin: 0; padding: 0; border: 0; background: transparent; font-size: 2.5rem; line-height: 1.2; overflow: visible; pointer-events: none; }
+
+/* ---------------------------------------------------------------------------
+   Shape pass, September 2026. One obvious next move on every screen.
+   --------------------------------------------------------------------------- */
+
+/* The primary action is filled, not tinted. Start a room, Join and Send
+   were the same pale wash as every other button, and Close was the
+   strongest thing on the search sheet. */
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+#chatForm button[type=submit].primary {
+  font-size: 1rem;
+  padding: 0.5rem 1.2rem;
+}
+
+/* The Nostr way in, as a line of text under the button rather than a
+   second button competing with it. */
+#identity #joinNostr.linkish {
+  display: inline-block;
+  margin: .6rem 0 0;
+  padding: .3rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: .2em;
+  font-size: .95rem;
+}
+#identity #joinNostr.linkish:hover { color: var(--text); }
+#identity #joinNostr.linkish:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* Tabs hide themselves when only Chat is left. */
+.conversationNav[hidden] { display: none; }
+
+/* File options fold away under the picker. */
+.attachOptions summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+.attachOptions > * + * { margin-top: .4rem; }
+.attachOptions input { width: 100%; box-sizing: border-box; }
+
+/* "You" in Room details, where the identity chip now lives. */
+#roomSheet #sendingIdentity { max-width: none; font-size: .95rem; margin: .25rem 0; }
+#roomSheet #sendingIdentity[hidden] { display: none; }
+
+/* The file picker as a button, not a bare browser control. */
+#attachFile::file-selector-button {
+  font: inherit;
+  min-height: 40px;
+  padding: .4rem .9rem;
+  margin-right: .6rem;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--control);
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* The call as a thing: a banner while one is on without you, a live header
+   button while you are on it, and a ring on the tiles of everybody on it. */
+.callBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  margin: 0 0 .5rem;
+  padding: .5rem .7rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-dim);
+}
+.callBanner button.primary { margin: 0; white-space: nowrap; }
+#callToggle[data-live="true"] {
+  background: var(--live);
+  border-color: var(--live);
+  color: #fff;
+}
+.callHead { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .4rem; }
+.callHead p { margin: 0; }
+#leaveCall { margin: 0; white-space: nowrap; }
+#room .participant.onCall { border-color: var(--live); }
+
+.callMore { margin: .4rem 0 0; }
+.callMore summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+.callMore > * + * { margin-top: .4rem; }
+
+/* The lane chip sits in the composer's button row. */
+#chatForm #laneNote { align-self: center; margin: 0 .25rem 0 0; flex: 0 0 auto; }

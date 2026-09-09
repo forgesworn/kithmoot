@@ -34,6 +34,20 @@ async function fixture() {
 }
 
 describe('roster events', () => {
+  it('carries a call membership, and drops a malformed one without losing the entry', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const onCall: RosterEntry = { ...entry, call: { id: 'A'.repeat(32), since: NOW - 30 } }
+    const decoded = decodeRosterEvent(encodeRosterEvent(onCall, { roomId, roomKey, deviceSk }), { roomId, roomKey, now: NOW })
+    expect(decoded?.call).toEqual({ id: 'a'.repeat(32), since: NOW - 30 })
+
+    for (const bad of [{ id: 'short', since: NOW }, { id: 'a'.repeat(32), since: 'now' }, { id: 'a'.repeat(32) }, 'a'.repeat(32), true]) {
+      const broken = { ...entry, call: bad } as unknown as RosterEntry
+      const back = decodeRosterEvent(encodeRosterEvent(broken, { roomId, roomKey, deviceSk }), { roomId, roomKey, now: NOW })
+      expect(back, JSON.stringify(bad)).not.toBeNull()
+      expect(back!.call, JSON.stringify(bad)).toBeUndefined()
+    }
+  })
+
   it('round-trips an entry through encryption', async () => {
     const { roomId, roomKey, deviceSk, entry } = await fixture()
     const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })

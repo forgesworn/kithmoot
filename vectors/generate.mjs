@@ -396,6 +396,38 @@ vectors.rosterEvent.push({
   },
 })
 
+{
+  // The same device, on a call: an optional field a client that has never
+  // heard of calls ignores, and one that has reads off presence.
+  const onCall = { ...rosterEntry, call: { id: 'c0ffee'.repeat(5) + 'c0', since: fx.NOW - 60 } }
+  const callRoster = buildRoster({
+    entry: onCall,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-call-nonce',
+    auxRandLabel: 'roster-call-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'valid-on-call',
+    kind: 'positive',
+    note: 'A roster entry carrying `call`: this device is on the call with that id, since that time. A call is read off presence and has no kind of its own. The id is 32 lower-case hex characters; a malformed one is dropped and the entry kept.',
+    input: {
+      entry: onCall,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: callRoster.nonceHex,
+      auxRandHex: callRoster.auxRandHex,
+    },
+    output: { event: callRoster.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeRosterEvent(callRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
 vectors.rosterEvent.push({
   name: 'wrong-room-key',
   kind: 'negative',

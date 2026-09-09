@@ -95,7 +95,7 @@ export { resolveSingularRoles } from './roles.js'
 export type { RoleAssignment } from './roles.js'
 export { wrapSignal, unwrapSignal, unwrapSignalEvent, SIGNAL_EXPIRATION_SECONDS, SIGNAL_PROFILE, MAX_SIGNAL_WRAP_LENGTH } from './signal.js'
 export type { AnnotationPoint, ScreenAnnotation, SignalBody } from './signal.js'
-export type { RosterEntry, TrackAdvert, TrackRole, SingularRole, DeviceCredential } from './types.js'
+export type { RosterEntry, TrackAdvert, TrackRole, SingularRole, DeviceCredential, CallMembership } from './types.js'
 export {
   RoomSession,
   PRESENCE_TTL_SECONDS,
@@ -106,6 +106,7 @@ export {
 } from './session.js'
 export type {
   ParticipantView,
+  CallView,
   PublishOptions,
   RoomSessionOptions,
   RoomSessionBaseOptions,

@@ -47,7 +47,9 @@ test('the in-room picker preserves the current conversation and switches directl
     await page.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Town hall', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
     await expect(page.locator('#roomArea')).toBeVisible()
-    await page.locator('#conversationNav [data-channel=minutes]').click()
+    // Minutes has no tab until a call has written to it; Room details lists it.
+    await page.locator('#roomMenu').click()
+    await page.locator('#channelBar button[data-channel=minutes]').click()
     await page.locator('#backToRooms').click()
     await page.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Project room', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Project room')
@@ -82,6 +84,7 @@ test('room switches retain separate drafts, selections and staged files without 
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished message')
     const event = finalizeEvent(buildFileEvent({ url: `https://files.example/${'ab'.repeat(32)}`, sha256: 'ab'.repeat(32), size: 65608 }), generateSecretKey())
     await page.locator('#attachToggle').click()
+    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await page.locator('#attachEvent').fill(JSON.stringify(event))
     await page.locator('#attachKey').fill('cd'.repeat(32))
     await page.locator('#attachAdd').click()
@@ -186,6 +189,8 @@ test('a late media permission result cannot start a call after a room switch', a
       await page.locator('#backToRooms').click()
       const next = index % 2 === 0 ? 'Project room' : 'Town hall'
       await page.locator('#roomSwitcherList').getByRole('button', { name: `Switch to ${next}`, exact: true }).click()
+      // The Call button put this device on a call, so switching asks first.
+      await page.locator('#actionConfirm').click()
       await expect(page.locator('#roomTitle')).toHaveText(next)
       await expect(page.locator('#roomArea')).toBeVisible()
       await page.evaluate(() => (window as any).releaseMedia())
@@ -259,6 +264,7 @@ test('stopping an upload releases room switching and ignores its late result', a
   try {
     await page.locator('#chatInput').fill('Keep this while stopping the upload')
     await page.locator('#attachToggle').click()
+    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await page.locator('#attachServer').fill('https://files.example')
     await page.locator('#attachServer').press('Tab')
     await page.locator('#attachFile').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('Room-bound file') })

@@ -82,7 +82,9 @@ test('the front page lists every room this device has been in, with what is new 
     const rows = page.locator('#roomList .roomRow')
     await expect(rows).toHaveCount(2)
     expect((await rows.locator('.roomName').allTextContents()).sort()).toEqual(['Bench', 'Town hall'])
-    await expect(rows.locator('.pubkey')).toHaveCount(2)
+    // No code beside a room name: two rooms with the same name is rare, and
+    // the id lives in Room details.
+    await expect(rows.locator('.pubkey')).toHaveCount(0)
     const townHallRow = page.locator('#roomList .roomRow', { has: page.locator('.roomName', { hasText: 'Town hall' }) })
     const benchRow = page.locator('#roomList .roomRow', { has: page.locator('.roomName', { hasText: 'Bench' }) })
     // Read with the creator's key, which this device holds: nothing new
@@ -110,7 +112,8 @@ test('the front page lists every room this device has been in, with what is new 
     await expect(townHallRow.locator('.unread')).toHaveText('1 unread', { timeout: 60_000 })
     await expect(townHallRow.locator('.here')).toHaveText('1 person here:', { timeout: 60_000 })
     await expect(townHallRow.locator('.hereChip .name')).toHaveText('Ada')
-    await expect(townHallRow.locator('.hereChip .pubkey')).toHaveCount(1)
+    // One Ada: no code beside the name until a second Ada turns up.
+    await expect(townHallRow.locator('.hereChip .pubkey')).toHaveCount(0)
     await expect(townHallRow.locator('.hereChip .badge.agent')).toHaveCount(0)
     await expect(benchRow.locator('.unread')).toHaveText('nothing new')
 
