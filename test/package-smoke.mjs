@@ -20,7 +20,15 @@ try {
   const resolved = require.resolve(root)
   const api = await import(pathToFileURL(resolved).href)
   assert.equal(api.generateRoomSecret().length, 32)
+  const protocol = execFileSync(process.execPath, [join(root, 'bin/kithmoot-agent.mjs'), '--stdio-protocol'], {
+    cwd: tarDir,
+    encoding: 'utf8',
+    timeout: 10_000,
+    env: { ...process.env, KITHMOOT_LINK: 'invalid-room-link', KITHMOOT_NSEC: 'invalid-secret' },
+  })
+  assert.deepEqual(JSON.parse(protocol), { protocol: 'kithmoot-agent-stdio', version: 1 })
   console.log('Packed library resolves, imports and exposes its declarations.')
+  console.log('Packed agent reports its stdio protocol without room configuration.')
 } finally {
   rmSync(dir, { recursive: true, force: true })
   rmSync(tarDir, { recursive: true, force: true })

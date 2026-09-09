@@ -619,3 +619,20 @@ must match the request, room and conversation and treat the contents as
 read-only context, including messages from people who cannot command the agent.
 A history window is not a complete archive. The older `history` command retains
 its event-stream behaviour for compatibility.
+
+### Stdio compatibility for external hosts
+
+`node bin/kithmoot-agent.mjs --stdio-protocol` prints
+`{"protocol":"kithmoot-agent-stdio","version":1}` and exits before reading
+room configuration or creating an identity. Supervisors can probe a built client
+before passing it a room invitation. The stdio brain also includes
+`protocolVersion: 1` in its `ready` event, so the connected process identifies the
+interface it is using.
+
+Version 1 includes named conversations, participant addressing, acknowledgements,
+approval requests and verdicts, roster, catalogue and presence commands. Extra
+fields and new event types may be added within this version; consumers should
+ignore unknown fields and event types. Removing a field or changing an existing
+command or event's meaning requires a new protocol version. A protocol version
+identifies the pipe interface, separately from the room protocol and npm package
+version.

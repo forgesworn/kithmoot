@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { AgentRuntime, Channel, RuntimeEvent } from './runtime.js'
+import { STDIO_PROTOCOL } from './stdio-protocol.js'
 
 /**
  * What drives an agent.
@@ -57,7 +58,7 @@ export type StdioEvent =
       attachments?: ChatAttachment[]
     }
   | { type: 'roster'; participants: Array<{ participant: string; name?: string; agent: boolean; tracks: string[] }> }
-  | { type: 'ready'; participant: string; device: string; room: string; url: string; hosting: boolean }
+  | { type: 'ready'; protocolVersion: number; participant: string; device: string; room: string; url: string; hosting: boolean }
   /** How a request made with `approval-request` ended: a verdict and who
    *  gave it, or `expired` with nobody. */
   | { type: 'approval'; id: string; verdict: string; by?: string; note?: string; expired: boolean }
@@ -141,6 +142,7 @@ export class StdioBrain implements Brain {
 
     write({
       type: 'ready',
+      protocolVersion: STDIO_PROTOCOL.version,
       participant: runtime.agent.participant,
       device: runtime.agent.device,
       room: runtime.agent.roomId,
