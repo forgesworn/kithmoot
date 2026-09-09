@@ -1095,7 +1095,10 @@ const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://nos
 
 const profiles = new ProfileBook({
   relays: () => [...new Set([...relays, ...PROFILE_RELAYS])],
-  transport: configuredPool,
+  // Its own scope. Under the room's scope this pool's wider list counted
+  // towards the room's relay health, and the door waited on public relays
+  // the room never chose before it would show Join.
+  transport: (urls) => relayConnections.pool('profiles', urls),
   onChange: () => {
     renderIdentity()
     if (session) {

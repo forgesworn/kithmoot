@@ -100,8 +100,17 @@ export class ProfileBook {
     for (const pubkey of fresh) this.#asked.add(pubkey)
 
     // Lazily, so a browser that never opens a room never opens a socket.
-    this.#pool ??= this.#opts.transport?.(this.#opts.relays()) ?? new NostrRelayPool(this.#opts.relays())
-    const unsub = this.#pool.subscribe([{ kinds: [0], authors: fresh }], (event) => this.#ingest(event))
+    // And guarded: a profile is decoration, and a relay that cannot be
+    // opened - a blocked host, a bad URL, a browser that refuses the
+    // socket - must never take the door or the room down with it. The
+    // caller is `render()`.
+    let unsub: () => void
+    try {
+      this.#pool ??= this.#opts.transport?.(this.#opts.relays()) ?? new NostrRelayPool(this.#opts.relays())
+      unsub = this.#pool.subscribe([{ kinds: [0], authors: fresh }], (event) => this.#ingest(event))
+    } catch {
+      return
+    }
     this.#unsubs.add(unsub)
 
     // A profile that never arrives was not found on these relays. It may

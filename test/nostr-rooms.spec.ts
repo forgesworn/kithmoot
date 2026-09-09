@@ -36,7 +36,7 @@ async function device(browser: Browser, baseURL: string, secret = generateSecret
     const NativeWebSocket = window.WebSocket
     window.WebSocket = class extends NativeWebSocket {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://relay.trotters.cc', 'wss://nos.lol', 'wss://relay.primal.net']
+        const defaults = ['wss://relay.trotters.cc', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io']
         if (!defaults.includes(String(url).replace(/\/$/, '')) && String(url) !== relay) throw new Error('External relay blocked by acceptance test')
         super(defaults.includes(String(url).replace(/\/$/, '')) ? relay : url, protocols)
       }
