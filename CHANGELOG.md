@@ -9,6 +9,18 @@ implementation reads this file to know what moved.
 
 ## Unreleased
 
+### Added
+
+- **A room where people ask to come in.** At the start form, "People with
+  the link ask, and somebody here lets them in". Somebody opening the link
+  waits on the door while the person in the room sees "Rowan wants to
+  join" with Let in and Decline; the switch is in Room details, on the
+  device that answers the link. There is no refusal on the wire: a
+  declined person sees that nobody let them in and is told somebody has
+  to accept them. **Wire, additive:** the admission request body (kind
+  20466, `v: 1`) gains optional `name` and `participant`; readers that do
+  not know them ignore them, and the Android client already does.
+
 ### Fixed
 
 - **A connected Nostr extension is the way in.** The door never looked

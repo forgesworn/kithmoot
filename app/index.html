@@ -349,6 +349,11 @@
         <label for="roomName">Room name <span class="note">(optional)</span></label>
         <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
                aria-label="Room name" aria-describedby="roomNameNote" />
+        <fieldset class="roomAccess" aria-label="Who can come in">
+          <legend class="sr-only">Who can come in</legend>
+          <label><input type="radio" name="roomAccess" value="anyone" checked /> Anyone with the link</label>
+          <label><input type="radio" name="roomAccess" value="ask" /> Ask me first</label>
+        </fieldset>
         <button id="create" type="submit" class="primary">Start a room</button>
         <p id="createError" class="formError" role="alert" hidden></p>
         <p id="roomTypeNote" class="note" hidden></p>
@@ -679,6 +684,10 @@
             Leave this tab open. It is what lets the next person in when
             they follow the link.
           </p>
+          <div id="knockRow" class="toggles switchRow" hidden>
+            <button id="toggleKnock" class="toggle" data-on="false" aria-pressed="false">Ask me before letting people in</button>
+            <span id="knockNote" class="note inline"></span>
+          </div>
           <div id="keepRow" class="toggles switchRow" hidden>
             <button id="toggleKeep" class="toggle" data-on="false" aria-pressed="false">Remember this room here</button>
             <span id="keepNote" class="note inline"></span>

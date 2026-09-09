@@ -125,12 +125,34 @@ function requestKey(invitation: RoomInvitation): Uint8Array {
 interface InvitationRequestBody {
   v: 1
   device: string
+  /** What the person asking calls themselves, so a host who is asked
+   *  before letting people in has a name to decide on. Optional, and a
+   *  claim like any name: the host's card says who *says* they are. */
+  name?: string
+  /** Their participant key, when they hold one: a Nostr account, or a
+   *  room identity already made. A host can then recognise a member
+   *  coming back, or a key the room already knows. */
+  participant?: string
 }
+
+/** How much of a name an admission request carries. The same bound as a
+ *  display name on the roster. */
+const MAX_REQUEST_NAME_LENGTH = 64
 
 export interface EncodeInvitationRequestOptions {
   invitation: RoomInvitation
   requesterSk: Uint8Array
   now: number
+  name?: string
+  participant?: string
+}
+
+/** Who is asking, as decoded from a request. */
+export interface InvitationRequest {
+  device: string
+  request: string
+  name?: string
+  participant?: string
 }
 
 /** Prove possession of the bearer without putting it, or a traffic key, on a relay. */
@@ -138,6 +160,9 @@ export function encodeInvitationRequest(opts: EncodeInvitationRequestOptions): E
   require32(opts.requesterSk, 'requester secret key')
   const device = getPublicKey(opts.requesterSk)
   const body: InvitationRequestBody = { v: 1, device }
+  const name = opts.name?.trim().slice(0, MAX_REQUEST_NAME_LENGTH)
+  if (name) body.name = name
+  if (opts.participant !== undefined) body.participant = requirePubkey(opts.participant)
   return finalizeEvent(
     {
       kind: KINDS.INVITATION_REQUEST,
@@ -162,7 +187,7 @@ export interface DecodeInvitationRequestOptions {
 export function decodeInvitationRequest(
   event: Event,
   opts: DecodeInvitationRequestOptions,
-): { device: string; request: string } | null {
+): InvitationRequest | null {
   try {
     if (event.kind !== KINDS.INVITATION_REQUEST) return null
     if (!verifyEventUncached(event)) return null
@@ -176,7 +201,15 @@ export function decodeInvitationRequest(
     ) as Partial<InvitationRequestBody>
     if (body.v !== 1 || typeof body.device !== 'string') return null
     if (!hexEquals(body.device, event.pubkey)) return null
-    return { device: requirePubkey(body.device), request: event.id }
+    const decoded: InvitationRequest = { device: requirePubkey(body.device), request: event.id }
+    // Optional, and dropped rather than refused when malformed: a host
+    // that cannot read the name can still let the device in.
+    if (typeof body.name === 'string') {
+      const name = body.name.trim().slice(0, MAX_REQUEST_NAME_LENGTH)
+      if (name) decoded.name = name
+    }
+    if (typeof body.participant === 'string' && /^[0-9a-f]{64}$/i.test(body.participant)) decoded.participant = body.participant.toLowerCase()
+    return decoded
   } catch {
     return null
   }
@@ -412,6 +445,16 @@ export interface HostRoomInvitationOptions {
   /** The epoch this responder is at, asked on every grant because it
    *  moves. Omit to say nothing, which a joiner treats as unknown. */
   epoch?: () => number
+  /**
+   * Asked before every grant, when present. Return true to let the
+   * request in, false to leave it unanswered: there is no refusal on the
+   * wire, so a declined person sees the room not answer, which is the same
+   * as nobody being home. A request is asked about once, whatever its
+   * retries; a person who tries again with a fresh request is asked about
+   * again. Absent, every request is granted, which is what a temporary
+   * room's link has always meant.
+   */
+  admit?: (request: InvitationRequest) => boolean | Promise<boolean>
 }
 
 export interface EncodeInvitationRetirementOptions {
@@ -514,26 +557,36 @@ export function hostRoomInvitation(opts: HostRoomInvitationOptions): { close(): 
       // bound. Duplicate requests are harmless after eviction: they only
       // cause the same encrypted grant to be sent again.
       if (answered.size > 256) answered.delete(answered.values().next().value!)
-      let grant: Event
-      try {
-        grant = encodeInvitationGrant({
-          invitation: opts.invitation,
-          inviterSk: opts.inviterSk,
-          requester: request.device,
-          request: request.request,
-          roomSecret: opts.roomSecret,
-          now: now(),
-          delegation,
-          ...(opts.epoch ? { epoch: opts.epoch() } : {}),
-        })
-      } catch {
-        // Expired or maximum-depth authority is no authority. Subscription
-        // callbacks must never throw and take the caller's relay loop down.
-        close()
-        return
+      const grantNow = (): void => {
+        if (closed) return
+        let grant: Event
+        try {
+          grant = encodeInvitationGrant({
+            invitation: opts.invitation,
+            inviterSk: opts.inviterSk,
+            requester: request.device,
+            request: request.request,
+            roomSecret: opts.roomSecret,
+            now: now(),
+            delegation,
+            ...(opts.epoch ? { epoch: opts.epoch() } : {}),
+          })
+        } catch {
+          // Expired or maximum-depth authority is no authority. Subscription
+          // callbacks must never throw and take the caller's relay loop down.
+          close()
+          return
+        }
+        opts.transport.publish(grant).catch(() => {})
+        opts.onAdmitted?.(request.device)
       }
-      opts.transport.publish(grant).catch(() => {})
-      opts.onAdmitted?.(request.device)
+      if (!opts.admit) { grantNow(); return }
+      // A host that asks first answers later, if at all. Never awaited in
+      // the relay callback, and a hook that throws declines.
+      Promise.resolve()
+        .then(() => opts.admit!(request))
+        .then((yes) => { if (yes) grantNow() })
+        .catch(() => {})
     },
   )
   return { close }
@@ -546,6 +599,9 @@ export interface RequestRoomAdmissionOptions {
   now?: () => number
   timeoutMs?: number
   retryMs?: number
+  /** Carried in the request for a host who asks before letting people in. */
+  name?: string
+  participant?: string
 }
 
 /** Resolve the room and a bounded responder delegation, with no account or
@@ -555,7 +611,11 @@ export function requestRoomAdmissionCapability(opts: RequestRoomAdmissionOptions
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
   const requesterSk = opts.requesterSk ?? generateSecretKey()
   const requester = getPublicKey(requesterSk)
-  const request = encodeInvitationRequest({ invitation: opts.invitation, requesterSk, now: now() })
+  const request = encodeInvitationRequest({
+    invitation: opts.invitation, requesterSk, now: now(),
+    ...(opts.name !== undefined ? { name: opts.name } : {}),
+    ...(opts.participant !== undefined ? { participant: opts.participant } : {}),
+  })
 
   return new Promise<RoomAdmission>((resolve, reject) => {
     let settled = false

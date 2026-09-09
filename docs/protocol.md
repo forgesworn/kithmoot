@@ -139,6 +139,16 @@ is an explicit participant restriction. Unsupported/malformed policy means
 reject the link, never an open room. The `accessEvaluation` and `kindredProof`
 vectors define the recognised proof and expiry cases.
 
+**Asking before letting people in.** The admission request body is
+`{"v":1,"device":<hex>}` and may also carry `"name"` (what the person
+asking calls themselves, at most 64 characters, a claim) and
+`"participant"` (their participant key, when they hold one). Both are
+optional and additive: a responder that does not know them grants as it
+always did, and a responder whose owner has asked to be consulted shows
+them on a card before answering. There is no refusal on the wire; a
+declined request is simply never answered, which is indistinguishable
+from nobody being online, and the door says so.
+
 ## Credentials, roster and room state
 
 A kind-20460 credential has empty content and tags `d` = room ID, `device` =

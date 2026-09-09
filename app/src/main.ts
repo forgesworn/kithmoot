@@ -112,6 +112,7 @@ import {
   type SendOptions,
   type PeerCrypt,
 } from '../../src/index.js'
+import type { InvitationRequest } from '../../src/invitation.js'
 import { ReadPositionSync } from './read-positions.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
@@ -984,10 +985,85 @@ function setKeepRoomChoice(on: boolean): void {
   renderKeepChoice()
 }
 
+// ---------------------------------------------------------------------------
+// Asking before letting people in.
+//
+// A temporary room's link makes a newcomer ask, and any device in the room
+// holding the invitation answers. With this switch on, that device asks its
+// owner first: a card names who is asking, with Let in and Decline. There is
+// no refusal on the wire; a declined person sees the room not answer, and
+// the door tells them somebody has to accept them. Remembered per room on
+// this device, because it is this device's owner who is asked.
+// ---------------------------------------------------------------------------
+
+const KNOCK_KEY_PREFIX = 'kithmoot.knock.v1.'
+/** How long a newcomer waits to be let in, and how long the card stays.
+ *  Long enough for a person to notice and press a button. */
+const KNOCK_WAIT_MS = 120_000
+
+function knockOn(roomId: string): boolean {
+  return deviceStore.get(KNOCK_KEY_PREFIX + roomId) === 'true'
+}
+
+function setKnock(roomId: string, on: boolean): void {
+  if (on) deviceStore.set(KNOCK_KEY_PREFIX + roomId, 'true')
+  else deviceStore.remove(KNOCK_KEY_PREFIX + roomId)
+}
+
+interface Knock extends InvitationRequest { at: number; resolve: (yes: boolean) => void }
+const knocks = new Map<string, Knock>()
+
+function knockLabel(knock: InvitationRequest): string {
+  if (knock.participant) return shownAs(knock.participant, knock.name).name ?? shortKey(knock.participant)
+  return knock.name ?? `Somebody (${shortKey(knock.device)})`
+}
+
+function askToLetIn(request: InvitationRequest): Promise<boolean> {
+  return new Promise((resolve) => {
+    const knock: Knock = { ...request, at: nowSeconds(), resolve }
+    knocks.set(knock.request, knock)
+    setStatus(`${knockLabel(knock)} wants to join. Let them in from the card above the conversation.`)
+    renderApprovals()
+    setTimeout(() => {
+      if (!knocks.delete(knock.request)) return
+      resolve(false)
+      renderApprovals()
+    }, KNOCK_WAIT_MS)
+  })
+}
+
+function answerKnock(knock: Knock, yes: boolean): void {
+  if (!knocks.delete(knock.request)) return
+  knock.resolve(yes)
+  addSystemLine(yes ? `You let ${knockLabel(knock)} in.` : `You declined ${knockLabel(knock)}.`)
+  renderApprovals()
+}
+
+function forgetKnocks(): void {
+  for (const knock of knocks.values()) knock.resolve(false)
+  knocks.clear()
+}
+
+/** The switch in Room details, for a device that answers this room's link
+ *  and could ask first. A self-service room has nobody to ask. */
+function renderKnockChoice(): void {
+  const row = $('knockRow')
+  const roomId = currentRoomId()
+  const answers = roomId !== undefined && roomInvitationCapability !== undefined && !roomInvitationCapability.persistent && invitationAuthoritySk !== undefined
+  row.hidden = !answers
+  if (!answers) return
+  const on = knockOn(roomId)
+  setToggle('toggleKnock', on)
+  $('knockNote').textContent = on
+    ? 'Somebody who opens the link waits until you let them in.'
+    : 'Anyone who opens the link comes straight in while you are here.'
+}
+
 /** The switch, shown to a joiner holding an admission, or to one who kept
  *  one earlier and may want to stop. The creator's own record is already
  *  on these terms, so the creator is not asked. */
 function renderKeepChoice(): void {
+  renderKnockChoice()
   const row = $('keepRow')
   const roomId = currentRoomId()
   const on = roomId !== undefined && knownRoom(roomStore(), roomId)?.keep === true
@@ -1027,6 +1103,7 @@ function serveCurrentInvitation(): void {
       // joined; before that, what this browser was itself told, or 0 for a
       // room this browser made.
       epoch: () => session?.epoch ?? expectedEpoch ?? 0,
+      ...(knockOn(deriveRoom(roomSecret).roomId) ? { admit: askToLetIn } : {}),
       // A delegated responder may receive recent requests replayed by a
       // lenient relay, including requests for people already admitted on a
       // different delegation branch. Serving those again is harmless, but it
@@ -1655,12 +1732,21 @@ async function roomFromLocation(): Promise<boolean> {
         cacheAdmission(invitation, cached)
         serveCurrentInvitation()
       } else {
-        setStatus('Getting you in…', 'progress')
+        setStatus(invitation.persistent ? 'Getting you in…' : 'Asking to be let in…', 'progress')
         const transport = configuredPool(relays)
         try {
+          // A temporary room's link is answered by a person, who may have
+          // been asked first: the request says who is asking, and the wait
+          // is long enough for somebody to read a card and press a button.
+          const askedAs = joiningName()
+          const askedFrom = currentParticipant()
           const admission = invitation.persistent
             ? await requestPersistentRoomAdmission({ transport, invitation })
-            : await requestRoomAdmissionCapability({ transport, invitation })
+            : await requestRoomAdmissionCapability({
+              transport, invitation, timeoutMs: KNOCK_WAIT_MS,
+              ...(askedAs !== undefined ? { name: askedAs } : {}),
+              ...(askedFrom !== undefined ? { participant: askedFrom } : {}),
+            })
           roomSecret = admission.secret
           roomRelayScope = `room:${deriveRoom(roomSecret).roomId}`
           useRoomRelays(parsedLink.relays)
@@ -2166,9 +2252,16 @@ async function toggleAssist(): Promise<void> {
 let startedHere = false
 
 async function startNewRoom(): Promise<void> {
-  const persistent = true
+  // "People ask, and somebody lets them in" is a temporary-style room: the
+  // link makes a person ask, and a device in the room answers - after
+  // asking its owner, see `askToLetIn`. It cannot be self-service from the
+  // relay, which is exactly the point, and it is why such a room needs
+  // somebody online to let people in.
+  const ask = (document.querySelector('input[name="roomAccess"]:checked') as HTMLInputElement | null)?.value === 'ask'
+  const persistent = !ask
   const secret = generateRoomSecret()
   const created = createRoomInvitation(persistent)
+  setKnock(deriveRoom(secret).roomId, ask)
   const relayScope = `room:${deriveRoom(secret).roomId}`
   // Snapshot access modes too: an invitation carries URLs, so reconstructing
   // this room from its link must not turn a read-only default into a writer.
@@ -3931,6 +4024,27 @@ function renderApprovals(): void {
       options.append(button)
     }
     card.append(who, text, options)
+    box.append(card)
+  }
+  for (const knock of knocks.values()) {
+    const card = document.createElement('div')
+    card.className = 'approvalCard knock'
+    const who = document.createElement('span')
+    who.className = 'who'
+    if (knock.participant) who.append(identityRun(shownAs(knock.participant, knock.name), false))
+    else who.append(knock.name ?? 'Somebody')
+    who.append(' wants to join.')
+    const options = document.createElement('div')
+    options.className = 'options'
+    for (const [label, yes] of [['Let in', true], ['Decline', false]] as const) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = label
+      if (yes) button.classList.add('primary')
+      button.addEventListener('click', () => answerKnock(knock, yes))
+      options.append(button)
+    }
+    card.append(who, options)
     box.append(card)
   }
   // A card leaves on its own when its question expires.
@@ -7029,6 +7143,7 @@ async function closeRoomSession(): Promise<void> {
   tileBoxes.clear()
   leftCall = false
   rosterSeen = undefined
+  forgetKnocks()
   orphanChecks.clear()
   $('agentsRow').replaceChildren()
   const preview = $('voicePreviewAudio') as HTMLAudioElement
@@ -7580,6 +7695,14 @@ $('toggleNotifyText').addEventListener('click', () => {
   renderNotifyChoice()
 })
 $('toggleKeep').addEventListener('click', () => setKeepRoomChoice($('toggleKeep').dataset.on !== 'true'))
+$('toggleKnock').addEventListener('click', () => {
+  const roomId = currentRoomId()
+  if (!roomId) return
+  setKnock(roomId, $('toggleKnock').dataset.on !== 'true')
+  renderKnockChoice()
+  // The host loop reads the switch when it starts, so start it again.
+  serveCurrentInvitation()
+})
 $('toggleNudge').addEventListener('click', () => {
   const button = $('toggleNudge') as HTMLButtonElement
   button.disabled = true
@@ -8800,7 +8923,7 @@ function showArrivalFailure(err: unknown): void {
     : valid
       ? persistent
         ? 'Check your connection and try again. If it still cannot be found, ask for a current invite link.'
-        : 'Nobody from this room is online to let you in. Ask somebody in it to keep the room open (Room details, Keep this room open), or try again when they are back.'
+        : 'Nobody let you in. Somebody in the room has to be online and accept you: ask them, or try again when they are around. A room can also be kept open for anyone with the link (Room details, Keep this room open).'
       : 'Copy the whole invite link, including everything after #, then open it again.'
   $('arrivalLead').hidden = false
   $('joinRoomForm').hidden = true
