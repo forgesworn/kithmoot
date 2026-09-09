@@ -7,7 +7,6 @@
     <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
     <meta name="referrer" content="no-referrer" />
     <meta name="description" content="A workspace nobody owns." />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>KithMoot</title>
@@ -19,7 +18,7 @@
       <button id="updateApp" type="button">Update now</button>
     </aside>
     <header>
-      <h1>KithMoot</h1>
+      <h1 class="app-brand"><img src="/pwa-192x192.png" width="44" height="44" alt="" />KithMoot</h1>
       <p class="tagline">A workspace nobody owns.</p>
     </header>
 
@@ -40,7 +39,7 @@
     <main>
       <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
       <aside id="workspaceNav" aria-label="Projects and rooms" hidden>
-        <div class="workspaceBrand">KithMoot</div>
+        <div class="workspaceBrand"><img src="/pwa-192x192.png" width="32" height="32" alt="" />KithMoot</div>
         <button id="workspaceSwitch" type="button" aria-haspopup="dialog" aria-controls="roomSwitcher">Find a room <kbd>⌘ / Ctrl K</kbd></button>
         <label class="sr-only" for="workspaceQuery">Filter projects and rooms</label>
         <input id="workspaceQuery" type="search" placeholder="Filter projects and rooms" autocomplete="off" />
