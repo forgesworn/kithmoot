@@ -77,6 +77,12 @@ export function parseRoomPolicy(raw: unknown): RoomPolicy | undefined {
   if (policy.agents !== undefined && !AGENT_RULES.includes(policy.agents)) {
     throw new Error('join URL carries an access policy with an unknown agent rule')
   }
+  // A quiet room without a members list has nobody to derive keys for, and
+  // a quiet flag in any shape but `true` is a reader that would talk in the
+  // open while the rest of the room talks in drops. Both refused.
+  if (policy.quiet !== undefined && (policy.quiet !== true || policy.members === undefined)) {
+    throw new Error('join URL asks for a quiet room without a members list')
+  }
   // The allow-list is exactly the case this rule was written for: entries a
   // person typed or pasted into a link. Canonicalise here, at the point they
   // enter the system off the URL, rather than relying on every reader to
@@ -86,6 +92,7 @@ export function parseRoomPolicy(raw: unknown): RoomPolicy | undefined {
     : { tier: policy.tier }
   if (policy.agents !== undefined) parsed.agents = policy.agents
   if (policy.members !== undefined) parsed.members = [...new Set(policy.members.map(normaliseHex))]
+  if (policy.quiet === true) parsed.quiet = true
   return parsed
 }
 

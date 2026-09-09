@@ -15,6 +15,11 @@ export interface RelayTransport {
   /** The relays this transport reads from and writes to, when it has any.
    *  Absent on transports that are not relays at all. */
   describe?(): RelayConfig[]
+  /** Told the room's epoch key when a session opens on this transport and
+   *  on every epoch it moves to. A transport that derives anything from
+   *  the key, such as a quiet room's drop keys, implements it; a relay
+   *  pool has no use for the key and leaves it out. See `quiet.ts`. */
+  rekey?(key: Uint8Array): void
 }
 
 /** `circle` marks a relay the client knows to be a box of the person's own

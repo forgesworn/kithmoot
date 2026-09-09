@@ -436,6 +436,9 @@ export class RoomSession {
     this.#opts = opts
     this.#epochSecret = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : { epoch: 0, secret: opts.secret }
     this.#epoch = deriveEpoch(this.#epochSecret)
+    // A transport that derives from the epoch key is told it before
+    // anything is subscribed or published through it. See `quiet.ts`.
+    opts.transport.rekey?.(this.#epoch.key.slice())
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.device = getPublicKey(opts.deviceSk)
     this.#name = sanitiseDisplayName(opts.name)
@@ -909,6 +912,9 @@ export class RoomSession {
   #moveToEpoch(next: RoomEpoch, notice: RekeyNotice): void {
     this.#epochSecret = next
     this.#epoch = deriveEpoch(next)
+    // Before the logs resubscribe, so a quiet transport matches the new
+    // key's drops from the first one.
+    this.#opts.transport.rekey?.(this.#epoch.key.slice())
     for (const p of notice.removed) this.#removed.add(p)
     for (const [device, entry] of this.#entries) {
       if (!this.#removed.has(entry.participant)) continue

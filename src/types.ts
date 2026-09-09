@@ -36,6 +36,13 @@ export interface RoomPolicy {
    *  says. A direct message is a room whose policy lists two. See
    *  `docs/messages.md`. */
   members?: string[]
+  /** A quiet room: its chat rides the kind 1059 firehose as dead drops to
+   *  keys derived from the epoch key, on a cadence, so a relay cannot tell
+   *  whether anything was said, by whom, or when. Only with `members`,
+   *  because everybody derives every member's keys. Rides here so that
+   *  everyone who joins agrees on how the room talks, exactly as they
+   *  agree on who may enter. See `quiet.ts`. */
+  quiet?: true
 }
 
 /**
