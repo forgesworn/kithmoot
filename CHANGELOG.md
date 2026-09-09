@@ -7,6 +7,18 @@ and is noted here when the web release depends on one. Dates are the
 release dates. Wire changes are called out as such, because a second
 implementation reads this file to know what moved.
 
+## Unreleased
+
+### Fixed
+
+- **A connected Nostr extension is the way in.** The door never looked
+  for one: with an extension present and no account signed in on this
+  browser, it showed a visitor with the typed name and a small "Already on
+  Nostr?" link, which read as the app about to invent an account. An
+  installed PWA has its own storage, so a sign-in done in a tab is not
+  there in the app; the extension is. Now the filled button is "Join with
+  your Nostr extension" and the visitor way in says so.
+
 ## 0.4.1, 2026-09-09
 
 ### Added

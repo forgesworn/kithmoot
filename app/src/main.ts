@@ -583,6 +583,12 @@ function currentIdentity(): ParticipantIdentity {
 
 /** The pubkey this device would join as, without minting a key to find out -
  *  so the identity line can be shown before anything is committed to. */
+/** Whether a NIP-07 signer is injected into this page: an extension such as
+ *  nos2x, Alby or Bark, or the Android signer's page-side shim. */
+function extensionSignerPresent(): boolean {
+  return typeof window !== 'undefined' && 'nostr' in window && window.nostr !== undefined && window.nostr !== null
+}
+
 function currentParticipant(): string | undefined {
   if (nostrSession) return nostrSession.pubkey
   const existing = loadParticipantKey()
@@ -1402,9 +1408,27 @@ function renderIdentity(): void {
     accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true, true))
   }
   $('joinNostr').hidden = !!nostrSession || !!loadCredential()
-  $('joinNostr').textContent = needsAccountReconnect() ? 'Reconnect Nostr account' : 'Already on Nostr? Sign in'
+  // A signer extension in this browser, and no account signed in here: the
+  // door used to show a visitor with the typed name and a small link, and
+  // a person whose extension was connected read that as the app about to
+  // invent an account for them. The extension is the identity they mean,
+  // so it is the filled button, and the visitor path says what it is. An
+  // installed PWA has its own storage, which is how a sign-in done in a
+  // tab is not there in the app; the extension is.
+  const extensionHere = extensionSignerPresent() && !needsAccountReconnect()
+  $('joinNostr').textContent = needsAccountReconnect() ? 'Reconnect Nostr account'
+    : extensionHere ? 'Join with your Nostr extension' : 'Already on Nostr? Sign in'
+  $('joinNostr').classList.toggle('primary', extensionHere)
+  $('joinNostr').classList.toggle('linkish', !extensionHere)
   $('joinVisitor').hidden = !needsAccountReconnect()
-  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : 'Join'
+  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : extensionHere ? 'Join as a visitor' : 'Join'
+  $('join').classList.toggle('primary', !extensionHere)
+  $('join').classList.toggle('quiet', extensionHere)
+  // The filled button comes first. With the extension the order is: the
+  // name, join with the extension, then the visitor way in and its line.
+  const joinNostr = $('joinNostr'), join = $('join')
+  if (extensionHere && joinNostr.nextElementSibling !== join) join.before(joinNostr)
+  else if (!extensionHere && join.nextElementSibling !== $('whoami')) $('joinIdentityHelp').before(joinNostr)
   $('previousAccount').hidden = !needsAccountReconnect()
   $('previousAccount').textContent = needsAccountReconnect()
     ? `Your previous Nostr account is disconnected (${npubEncode(expectedAccount!)}). Reconnect it to speak as yourself.` : ''
@@ -1465,6 +1489,12 @@ function renderIdentity(): void {
 
   if (participant) {
     line.append(identityRun(shownAs(participant, name), false, false, true))
+    if (!session && !nostrSession && extensionSignerPresent() && !needsAccountReconnect()) {
+      const aside = document.createElement('span')
+      aside.className = 'whoamiAside'
+      aside.textContent = ' as a visitor. Your Nostr extension is here and not in use yet.'
+      line.append(aside)
+    }
   } else if (name !== undefined) {
     // No key yet, and deliberately so: minting one here would write a
     // secret before the person has done anything, and would be the wrong

@@ -3090,3 +3090,5 @@ button.primary:hover:not(:disabled) {
 #deviceControls .toggles .toggle { margin: 0; }
 #deviceControls .indicator { margin: .3rem 0 0; font-size: .85rem; }
 #deviceControls .indicator:empty { display: none; }
+/* The extension as the way in: filled, full width, first. */
+#identity #joinNostr.primary { display: block; width: 100%; margin: .6rem 0 0; }
