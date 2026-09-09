@@ -1,0 +1,61 @@
+# Candidate verification only. This branch does not change the shipped
+# dependency or publish a package; the normal release still needs its lockfile.
+name: Quiet transport candidate
+
+on:
+  push:
+    branches: [fix/quiet-delivery-readiness]
+
+permissions:
+  contents: read
+
+jobs:
+  quiet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          path: client
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: forgesworn/nostr-deaddrop
+          ref: 9f6dd7de6e520598e9af5db61d79805009acadcb
+          path: dependency
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+      - name: Build candidate package
+        working-directory: dependency
+        run: |
+          npm ci
+          npm run build
+          npm pack --pack-destination "$RUNNER_TEMP"
+      - name: Install client and candidate
+        working-directory: client
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false --ignore-scripts "$RUNNER_TEMP/nostr-deaddrop-0.2.1.tgz"
+          npm ls nostr-deaddrop
+      - name: Install browser
+        working-directory: client
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Quiet conversation acceptance
+        working-directory: client
+        run: npx playwright test test/quiet.spec.ts --project=${{ matrix.browser }} --workers=1
+        env:
+          E2E_RELAYS: local
+      - name: Keep failure traces
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: quiet-candidate-${{ matrix.browser }}
+          path: client/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
