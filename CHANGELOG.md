@@ -21,6 +21,11 @@ implementation reads this file to know what moved.
 
 ### Fixed
 
+- **Profiles are found where they live.** A kind-0 profile was looked for
+  on the room's relays only, so in a room on your own relay a person who
+  signed in with a real Nostr account still showed as a short code. The
+  lookup now also asks the public profile relays (purplepag.es and the big
+  general relays), read only, and only while the profiles switch is on.
 - **A screen share that ends comes off everybody's screen.** Stopping a
   share removes the sender, and no browser ends the receiver's track for
   that; it mutes it, so the last frame, or a black box, sat on every other

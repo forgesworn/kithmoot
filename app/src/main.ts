@@ -1079,8 +1079,22 @@ let myDeviceId = ''
 //      normal way to use this - it is not a lesser one.
 // ---------------------------------------------------------------------------
 
+/**
+ * Where a kind-0 profile is looked for, beyond the room's own relays.
+ *
+ * A room on somebody's own box, or a keeper's, holds the room's events and
+ * nothing else; a member's profile lives wherever they published it, which
+ * for almost everybody is the public relays. Asked only on the room's
+ * relays, a person who signed in with a real Nostr account still showed as
+ * a short code beside their name. purplepag.es exists to aggregate exactly
+ * this kind; the rest are the big general relays. Only ever read from, and
+ * only while the "show public profiles" switch is on: that switch is what
+ * decides whether participant keys leave the room's relays at all.
+ */
+const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
+
 const profiles = new ProfileBook({
-  relays: () => relays,
+  relays: () => [...new Set([...relays, ...PROFILE_RELAYS])],
   transport: configuredPool,
   onChange: () => {
     renderIdentity()
