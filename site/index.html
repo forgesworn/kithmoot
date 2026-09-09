@@ -7,7 +7,6 @@
     <meta name="description" content="An open workspace with rooms, threads, private conversations, files, calls and agents, over Nostr and encrypted end to end. No account to register and no company holding the guest list. Your phone and laptop join as one person." />
     <meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
-    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="canonical" href="https://kithmoot.forgesworn.dev/" />
@@ -15,14 +14,15 @@
     <meta property="og:title" content="KithMoot: a workspace nobody owns" />
     <meta property="og:description" content="Rooms, threads, private conversations, files, calls and agents for your people, encrypted end to end. Your phone and laptop join as one person. No account needed to visit." />
     <meta property="og:url" content="https://kithmoot.forgesworn.dev/" />
-    <meta property="og:image" content="https://kithmoot.forgesworn.dev/pwa-512x512.png" />
+    <meta property="og:image" content="https://kithmoot.forgesworn.dev/img/kithmoot-artwork.png" />
+    <meta property="og:image:alt" content="KithMoot's six blue pieces forming an assembly of equals." />
     <meta name="twitter:card" content="summary" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
     <header class="site-header wrap">
-      <a class="brand" href="./" aria-label="KithMoot home"><img src="favicon.svg" width="36" height="36" alt="" />KithMoot</a>
+      <a class="brand" href="./" aria-label="KithMoot home"><img src="pwa-192x192.png" width="36" height="36" alt="" />KithMoot</a>
       <nav aria-label="Main navigation">
         <a href="#what">Features</a>
         <a href="#privacy">Privacy</a>
@@ -41,11 +41,7 @@
           </div>
           <p class="under">Free and open source. No account, nothing to install: an invitation is all anyone needs.<br />Already on Nostr? <a href="j/?signin=nostr">Sign in with Nostr</a> and your rooms follow you.</p>
         </div>
-        <figure class="hero-preview">
-          <div class="preview-label"><span class="status-dot" aria-hidden="true"></span> A room in KithMoot</div>
-          <img src="img/web-conversation.png" width="390" height="880" alt="The web app in a room called The workshop: Rowan asks for a check on the venue line of the budget, Ada's correction sits under it in a thread, marked edited and given a thumbs up, Scribe, labelled as an agent, notes the change for the minutes, and the composer waits beneath." fetchpriority="high" />
-          <figcaption>The web app, with an example conversation.</figcaption>
-        </figure>
+        <div class="hero-art"><picture><source srcset="img/kithmoot-artwork.webp" type="image/webp" /><img src="img/kithmoot-artwork.png" width="1254" height="1254" alt="Six blue pieces forming KithMoot's assembly mark." fetchpriority="high" /></picture></div>
       </section>
 
       <div class="proof-strip wrap" aria-label="About KithMoot">
@@ -55,10 +51,17 @@
       <p class="audience wrap">A team of five and the agents that work for them. A family. A community group. A project and its contributors. An agency and the clients it would rather not put on somebody else's platform. Anyone you would send a link to.</p>
 
       <section id="what" class="section wrap" aria-labelledby="features-title">
+        <div class="product-overview">
         <div class="section-intro">
           <p class="eyebrow">Not a meeting link</p>
           <h2 id="features-title">A workspace you come back to.</h2>
           <p>The conversation, the files and the people stay put between calls. Answer in threads, fix what you said, take a message back, and pick up where you left off from whichever device is in your hand.</p>
+        </div>
+        <figure class="hero-preview">
+          <div class="preview-label"><span class="status-dot" aria-hidden="true"></span> A room in KithMoot</div>
+          <img src="img/web-conversation.png" width="390" height="880" alt="The web app with a threaded example conversation, an agent and a message composer." loading="lazy" />
+          <figcaption>The web app, with an example conversation.</figcaption>
+        </figure>
         </div>
         <div class="feature-grid">
           <article><span class="feature-number" aria-hidden="true">01</span><h3>Rooms that stay open</h3><p>A new room is a group by default. It can sit empty for days and still let the next person in from the link. Come back to the messages, the files and the channels inside it.</p></article>
@@ -118,7 +121,7 @@
       <section class="closing wrap" aria-labelledby="closing-title"><h2 id="closing-title">Bring your people into a workspace.</h2><a class="button primary" href="j/">Start a room <span aria-hidden="true">↗</span></a></section>
     </main>
     <footer class="wrap">
-      <a class="brand" href="./"><img src="favicon.svg" width="30" height="30" alt="" />KithMoot</a>
+      <a class="brand" href="./"><img src="pwa-192x192.png" width="30" height="30" alt="" />KithMoot</a>
       <p>Made by <a href="https://forgesworn.dev/">Forgesworn</a>. Open source under the MIT licence.</p>
       <nav aria-label="Source and support"><a href="https://github.com/forgesworn/kithmoot">Source code</a><a href="https://github.com/forgesworn/kithmoot/issues">Report an issue</a><a href="#privacy">Privacy</a></nav>
     </footer>

@@ -1,5 +1,7 @@
 # KithMoot
 
+<img src="art/brand/2026-09-09/artwork.png" alt="KithMoot's assembly of six equal pieces" width="240" />
+
 **Want to run your own bot? [Create a bot, connect it and invite your testers](docs/your-own-bot.md).**
 Includes a local-model setup, an existing-agent connection and the privacy boundaries.
 
@@ -62,6 +64,11 @@ and five hundred messages, search beyond what a tab has loaded, and a push
 to a phone in a pocket. Those are next, in that order. `CHANGELOG.md`
 records what has shipped and
 [what does not work yet](#what-does-not-work-yet) is the honest list.
+
+The [browser and home messaging goals](docs/product-goals.md) cover everyday
+use without a native app, pocket notifications, durable history, infrastructure
+you own, and access to existing messaging services. They record intended
+outcomes and acceptance criteria, not additional shipped features.
 
 ## The link, and what a relay sees
 

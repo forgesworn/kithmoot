@@ -1,6 +1,6 @@
 {
   "name": "kithmoot",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "An open Slack with agents over Nostr - a workspace nobody owns",
   "author": "TheCryptoDonkey",
   "license": "MIT",
@@ -17,6 +17,7 @@
     "vectors/kithmoot-vectors.json"
   ],
   "scripts": {
+    "brand:build": "node scripts/build-brand-assets.mjs",
     "build": "npm run build:context && vite build --config app/vite.config.ts",
     "build:lib": "npm run build:context && tsc -p tsconfig.json",
     "prepack": "npm run build:lib",

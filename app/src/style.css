@@ -152,6 +152,9 @@ h1 {
   margin-bottom: 0;
 }
 
+.app-brand, .workspaceBrand { display: flex; align-items: center; gap: .6rem; }
+.app-brand img, .workspaceBrand img { flex: 0 0 auto; border-radius: 22%; }
+
 h2 {
   font-size: 1rem;
   text-transform: uppercase;

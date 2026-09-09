@@ -35,6 +35,11 @@ nav a { display: inline-flex; align-items: center; min-height: 44px; font-size: 
 nav a:hover { text-decoration: underline; }
 nav .nav-open { color: var(--text); font-weight: 700; }
 .hero { display: grid; grid-template-columns: 1.2fr 1fr; align-items: center; gap: clamp(2rem, 6vw, 6rem); padding-block: 4rem; }
+.hero-art { overflow: hidden; border-radius: 24px; background: #101114; }
+.hero-art img { display: block; width: 100%; height: auto; }
+.brand img { border-radius: 22%; }
+.product-overview { display: grid; grid-template-columns: 1fr minmax(240px, 320px); gap: 3rem; align-items: center; margin-bottom: 3rem; }
+@media (max-width: 650px) { .product-overview { grid-template-columns: 1fr; gap: 1.5rem; } }
 .eyebrow { color: var(--accent); font-size: .8rem; font-weight: 750; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 1.3rem; }
 .lead { color: var(--muted); font-size: clamp(1.15rem, 1.6vw, 1.3rem); max-width: 39ch; }
 .actions { display: flex; flex-wrap: wrap; gap: .7rem; margin: 2rem 0 1.3rem; }
@@ -113,3 +118,16 @@ footer nav { gap: 1.2rem; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
 @media (forced-colors: active) { .button, .hero-preview, .platform { border: 1px solid ButtonText; } }
+
+/* Keep the approved artwork in the first phone viewport, beside the headline
+   and primary action rather than below several paragraphs of introduction. */
+@media (max-width: 650px) {
+  .hero { display: flex; flex-direction: column; gap: 1.2rem; align-items: stretch; }
+  .hero-copy { display: contents; }
+  .hero .eyebrow { order: 0; margin: 0; }
+  .hero h1 { order: 1; margin: 0; }
+  .hero-art { order: 2; width: min(100%, 300px); align-self: center; }
+  .hero .actions { order: 3; margin: 0; }
+  .hero .lead { order: 4; margin: 0; }
+  .hero .under { order: 5; margin: 0; }
+}

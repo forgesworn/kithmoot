@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.4 — 9 September 2026
+
+- Use the approved sculptural assembly artwork for web/PWA icons, workspace
+  branding, the marketing hero and social previews. Keep the artwork beside the
+  headline and primary action on phones, with a smaller WebP download.
+- Record the browser and home messaging goals and their acceptance criteria.
+
+
 What shipped, by release. Releases are cut from `main` and published as
 [GitHub releases](https://github.com/forgesworn/kithmoot/releases); the
 Android client has [its own releases](https://github.com/forgesworn/kithmoot-android/releases)
