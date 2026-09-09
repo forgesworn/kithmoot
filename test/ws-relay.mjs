@@ -12,7 +12,7 @@
 // (20000-29999) are delivered to open subscriptions and never stored, so a
 // device that subscribes late learns nothing from the relay - which is the
 // property the announce-and-answer roster is built to survive, and the
-// property `wss://relay.trotters.cc` provides in the live run. Every event's
+// property the live run's relays provide. Every event's
 // signature is verified before it is accepted, as a real relay does.
 //
 //   node test/ws-relay.mjs            # ws://127.0.0.1:7777
