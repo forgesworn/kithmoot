@@ -30,6 +30,12 @@ implementation reads this file to know what moved.
   people, never participants; "with just a name", never visitor; and the
   browser is no longer mentioned on the home and door screens. Per
   `docs/glossary.md`.
+- **Comings and goings.** "Rowan came in." and "Rowan left." as lines in
+  the conversation, read off the roster after a settle window, so a person
+  reading the chat knows when the room changed. Nothing on the wire.
+- **A stranded joiner is told why.** When a temporary room's link finds
+  nobody online to let you in, the door says so and names the fix (Keep
+  this room open, in Room details) rather than "the room has not answered".
 - **Less furniture on the home and switcher.** The switcher only mentions
   drafts when there are some; a room row no longer says it is "listening
   for who is here"; the home fold is called Settings; search boxes use

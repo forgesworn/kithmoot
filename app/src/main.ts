@@ -3731,6 +3731,42 @@ interface SystemLine {
 }
 const systemLines: SystemLine[] = []
 
+/**
+ * "Rowan came in." and "Rowan left.", as lines in the conversation.
+ *
+ * Who is here is on the roster and in Room details, but a person reading
+ * the chat wants to know when it changed, the way a channel says so. Read
+ * off the roster, with a settle window: the roster is rebuilt from relay
+ * replay for the first heartbeat after joining, and everybody already in
+ * the room would otherwise "come in" one by one as their entries arrive.
+ * Nothing here is on the wire; two devices may see the same person's
+ * comings a heartbeat apart, and that is fine.
+ */
+const ROSTER_SETTLE_MS = 25_000
+let rosterSeen: Map<string, string | undefined> | undefined
+let rosterJoinedAt = 0
+function announceComings(views: ParticipantView[], me: string): void {
+  const now = Date.now()
+  const present = new Map(views.filter(view => view.participant !== me).map(view => [view.participant, view.name] as const))
+  if (!rosterSeen) {
+    rosterSeen = new Map(present)
+    rosterJoinedAt = now
+    return
+  }
+  const settled = now - rosterJoinedAt > ROSTER_SETTLE_MS
+  const label = (participant: string, name: string | undefined, agent: boolean) =>
+    `${shownAs(participant, name).name ?? shortKey(participant)}${agent ? ' (agent)' : ''}`
+  for (const [participant, name] of present) {
+    if (rosterSeen.has(participant)) continue
+    if (settled) addSystemLine(`${label(participant, name, views.find(v => v.participant === participant)?.agent === true)} came in.`)
+  }
+  for (const [participant, name] of rosterSeen) {
+    if (present.has(participant)) continue
+    if (settled) addSystemLine(`${label(participant, name, agentParticipants.has(participant))} left.`)
+  }
+  rosterSeen = new Map(present)
+}
+
 function addSystemLine(text: string, at = nowSeconds(), room?: KnownRoom): void {
   systemLines.push(room ? { at, text, room } : { at, text })
   systemLines.sort((a, b) => a.at - b.at)
@@ -6196,6 +6232,7 @@ async function startSession(asVisitor = false): Promise<void> {
 
     s.onChange((views) => {
       if (session !== s) return
+      announceComings(views, meParticipant)
       assignmentPanel.refreshPeople()
       render(views, meParticipant)
       renderInvites()
@@ -6991,6 +7028,7 @@ async function closeRoomSession(): Promise<void> {
   for (const box of tileBoxes.values()) box.remove()
   tileBoxes.clear()
   leftCall = false
+  rosterSeen = undefined
   orphanChecks.clear()
   $('agentsRow').replaceChildren()
   const preview = $('voicePreviewAudio') as HTMLAudioElement
@@ -8758,12 +8796,12 @@ function showArrivalFailure(err: unknown): void {
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
   $('arrivalTitle').textContent = retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
   $('arrivalLead').textContent = retired
-    ? 'Ask somebody in the room for its current invitation link.'
+    ? 'Ask somebody in the room for its current invite link.'
     : valid
       ? persistent
-        ? 'Check your connection and try again. If it still cannot be found, ask for a current group invitation.'
-        : 'Check your connection and ask somebody with access to keep the room open while you try again.'
-      : 'Copy the whole invitation, including everything after #, then open it again.'
+        ? 'Check your connection and try again. If it still cannot be found, ask for a current invite link.'
+        : 'Nobody from this room is online to let you in. Ask somebody in it to keep the room open (Room details, Keep this room open), or try again when they are back.'
+      : 'Copy the whole invite link, including everything after #, then open it again.'
   $('arrivalLead').hidden = false
   $('joinRoomForm').hidden = true
   $('identityMore').hidden = true
