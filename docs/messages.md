@@ -160,6 +160,14 @@ receive DM invitations, the same limit they have on bookmarks.
 sees the other's, both clients keep the invitation with the earlier
 `sentAt`, then the lower room id, and leave the other. One DM per pair.
 
+**Quiet.** A DM's policy may carry `quiet: true`, in which case the room
+of two is a quiet room: its chat rides the kind 1059 stream as dead drops
+and a relay cannot tell whether anything was said, by whom, or when. It
+is a different room from a plain DM with the same person, started with
+"Message quietly", and a pair may have one of each. Everything in this
+section applies unchanged; what changes is the carriage, described in
+`docs/decisions.md` and `src/quiet.ts`.
+
 **On screen.** A room whose policy lists two members, one of them you, is
 labelled by the other member's name. The room is otherwise a room: files,
 calls, agents and everything above work in it unchanged. In the web client

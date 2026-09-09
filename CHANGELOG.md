@@ -9,6 +9,22 @@ implementation reads this file to know what moved.
 
 ## Unreleased
 
+### Added
+
+- **Quiet rooms.** Wire change. A policy may carry `quiet: true` beside
+  `members`; such a room never publishes a bare kind 1460. Its chat rides
+  inside kind 1059 room drops as `nostr-deaddrop` defines them: each to a
+  key derived from the epoch key, the member's participant pubkey and a
+  counter, one wrap every five minutes per device with fillers between,
+  read back from the gift-wrap stream over two days. A reader that does
+  not know `quiet` rejects the link. The web client starts one with
+  "Message quietly" on a person's row, keeps the counters it has spent
+  and the messages still waiting for a slot on the device, and gives the
+  device holding the identity and the device it paired disjoint halves
+  of the member's keys; a third device reads. `kithmoot-agent` joins a
+  quiet room from its link and posts in drops. See `docs/decisions.md`
+  and `docs/protocol.md`. Android does not read quiet rooms yet.
+
 ### Fixed
 
 - **A connected Nostr extension is the way in.** The door never looked

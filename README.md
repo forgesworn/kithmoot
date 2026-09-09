@@ -124,6 +124,15 @@ for the supported flow, worker tools, verification and recovery limits.
   link when they reconnect; the live room and everybody already in it stay
   put. Rotation is cooperative link retirement, not member revocation, and
   the UI says so.
+- Quiet rooms. A room of listed members can say `quiet` on its policy, and
+  its chat then rides the kind 1059 gift-wrap stream as dead drops: each
+  message to a key derived from the epoch key, the member and a counter,
+  one wrap every five minutes with fillers between, read back from the
+  whole stream. A relay cannot tell whether anything was said, by whom,
+  or when. Started with "Message quietly" on a person's row; the chip
+  beside the composer and the note on the room sheet say exactly what it
+  hides and what it does not. Built on `nostr-deaddrop`; see
+  `docs/decisions.md`.
 - Kindred-gated access tiers (`open` / `ken` / `kith` / `kin`), built on the
   `kindred` primitive. A room can admit anyone with the link, or require
   proof of anything up to a mutually-verified bond.
@@ -565,6 +574,13 @@ because a team is what this is now judged against:
   and keeps five hundred messages, edits and reactions included, and search
   covers only what the tab has loaded. A workspace ninety days old cannot
   show its first message.
+- **Quiet rooms hide what was said, not that you are there.** Presence,
+  signalling and epochs stay in the open, calls are not quiet, a message
+  waits up to five minutes, a device has eight an hour, relays hand back
+  two days of history, and the rooms list does not read a quiet room's
+  chat. Two devices per person can post; a third reads. Android reads
+  and writes plain rooms only: a quiet room opened there shows nothing
+  until the derivation lands in the native client.
 - **No push.** A phone in a pocket learns nothing until the app is opened.
   A keeper can nudge a signed-in member over Nostr, and that is all.
 - **Named channels, removal and roles need a keeper.** A group admits and

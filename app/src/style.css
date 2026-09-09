@@ -2863,6 +2863,10 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .chip.lane.public { color: var(--muted); }
 .chip.lane.sheltered { color: var(--accent); border-color: var(--accent); }
 .chip.lane.direct { color: var(--text); border-color: var(--text); }
+/* A quiet room's chip sits beside the lane chip: the lane says where the
+   bytes went, quiet says what they give away. Dashed, so it is told apart
+   from a lane without colour. */
+.chip.quiet { font-variant: small-caps; letter-spacing: 0.02em; color: var(--accent); border-color: var(--accent); border-style: dashed; }
 .laneNote { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0.25rem 0.35rem; font-size: 0.8rem; color: var(--muted); }
 .laneNote .laneWords { overflow-wrap: anywhere; }
 /* On a phone the reading space is the budget that matters and every message

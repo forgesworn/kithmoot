@@ -1241,6 +1241,64 @@ cannot tie it to a room id it carries. The limit is inherited honestly: a
 signer without NIP-44 keeps its positions in one browser, exactly as it
 keeps its bookmarks.
 
+## A quiet room hides that anything was said, and says what it does not hide
+
+A room's chat is encrypted to the room key, and that is where the promise
+ended. Every message was a kind 1460 with the channel's `d` tag, signed by
+a device key, stamped when it was sent, on a relay that keeps it for
+thirty days. The relay could not read a word, and could still say: this
+room exists, it has these devices, they spoke at these times, this often.
+For most rooms that is the honest trade and it is stated. For a room whose
+members would rather the relay could not say even that, there is now a
+second shape, and the choice between them is the room's, made once.
+
+**The switch is `quiet` on the policy, beside `members`.** It could have
+been a per-device preference, a descriptor field, or a second room type.
+A preference would have split a room: a member in drops and a member in
+the open never see each other. A descriptor can change under people. The
+policy is the thing every joiner already agrees to by holding the link,
+and it is the thing that lists the members, which quiet needs, because
+everybody derives everybody's keys. So it lives there, is only valid
+with `members`, and a reader that meets it in a shape it does not
+understand refuses the link rather than joining in the open.
+
+**What rides in drops is chat, and only chat.** `nostr-deaddrop` wraps
+each kind 1460, channels and assignments and reactions included, to a key
+derived from the epoch key, the member and a counter, one wrap a slot, a
+filler when there is nothing to say, read back from the whole gift-wrap
+stream. The roster, the signalling, pairing and epochs stay in the open,
+because a slot of delay ends a call and because a rekey has to be found
+from the room id by a member who missed it. So a quiet room says, on its
+own sheet: the relay cannot tell whether anything was said, by whom, or
+when; it can still tell that you are here while you are here, and calls
+are not quiet. That sentence is the deliverable as much as the code is.
+
+**Two devices, disjoint halves.** A member has sixteen keys an hour, and a
+key used twice is the one thing the design cannot allow. Two devices of
+one person cannot coordinate a draw in real time, so they do not try: the
+device holding the identity draws from the first eight, the device it
+paired from the second eight, and a third device reads and cannot post,
+and says so. A key seen on the wire for one's own member is spent for
+this device too, so two devices that both hold the identity outside
+pairing repeat a key only inside the relay's propagation delay. The
+counters spent this hour and whatever waits for a slot are kept on the
+device, so a reload inside the hour draws no key twice and tells nobody a
+message was sent that was not.
+
+**The costs, stated.** A message waits up to five minutes. A device posts
+a wrap every five minutes whether or not anybody spoke, about 5.6 KB
+each, larger than most gift wraps on a public relay because a chat event
+carries its credential and the bucket has to fit the longest message
+allowed. Reading the room means pulling every gift wrap the relay served
+in two days, tens of megabytes on a busy public relay and nothing on a
+circle's own box; history from a relay reaches two days back, and older
+messages stay on the devices that read them. The rooms list does not read
+a quiet room's chat, because that would be the stream again per room in
+the background, and says "open it to read" instead. A member has at most
+eight messages an hour from one device; the ninth waits for the next
+hour. None of this is hidden in a setting: the chip beside the composer,
+the note on the room sheet and the outbox row all say what is happening.
+
 ## Three security-review proposals declined, 6 September 2026
 
 A security review of the app, the box and the deploy kit came back with a

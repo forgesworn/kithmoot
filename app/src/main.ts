@@ -111,7 +111,15 @@ import {
   type ResolvedMessage,
   type SendOptions,
   type PeerCrypt,
+  decodeChatEvent,
+  isQuietPolicy,
+  quietRoomTransport,
+  QUIET_SLOT_SECONDS,
+  QUIET_HISTORY_SECONDS,
+  type QuietRoomTransport,
+  type RelayTransport,
 } from '../../src/index.js'
+import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
 import { ReadPositionSync } from './read-positions.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
@@ -149,7 +157,11 @@ import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 
-const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation)
+const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
+  quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
+function slotWords(): string {
+  return QUIET_SLOT >= 60 ? `${Math.ceil(QUIET_SLOT / 60)} minutes` : `${QUIET_SLOT} seconds`
+}
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
 const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
@@ -1066,6 +1078,47 @@ let iceRefreshTimer: ReturnType<typeof setInterval> | undefined
 /** The relay pool the session publishes through, for a file dropped into
  *  the chat to announce itself on. Set and cleared with `session`. */
 let sessionTransport: NostrRelayPool | undefined
+/** The quiet wrapper over `sessionTransport` when the room is a quiet one.
+ *  Chat rides through it in drops; see src/quiet.ts. */
+let quietTransport: QuietRoomTransport | undefined
+/** Seconds between a quiet room's slots. The library's default, which a
+ *  build may only shorten (`VITE_QUIET_SLOT_SECONDS`, for the acceptance
+ *  suite, whose browsers cannot wait five minutes for a message): never a
+ *  runtime switch, never longer than the default. */
+const QUIET_SLOT = Math.max(5, Math.min(QUIET_SLOT_SECONDS, Number(import.meta.env.VITE_QUIET_SLOT_SECONDS) || QUIET_SLOT_SECONDS))
+
+/** Keep what a quiet room owes this device between visits: the counters
+ *  spent this epoch and whatever still waits for a slot. */
+function persistQuiet(): void {
+  const roomId = currentRoomId()
+  if (!quietTransport || !roomId) return
+  try {
+    storeQuietState(deviceStore, roomId, { used: quietTransport.exportUsed(), epoch: session?.epoch ?? 0, queued: quietTransport.queued() }, nowSeconds())
+  } catch { /* Storage may be unavailable; the counters are still held in memory for this visit. */ }
+}
+
+/** Put back what waited for a slot when the page went away, through the
+ *  outbox so the person sees it leave. A message written for an epoch the
+ *  room has since left is not sent as it stands: it is said so, and the
+ *  person writes it again. */
+function requeueQuiet(s: RoomSession): void {
+  const roomId = currentRoomId()
+  if (!quietTransport || !roomId) return
+  const kept = loadQuietState(deviceStore, roomId, nowSeconds())
+  if (kept.queued.length === 0) return
+  const transport = quietTransport
+  const root = s.epochKeys()
+  const { roomKey } = deriveRoom(roomSecret)
+  for (const event of kept.queued) {
+    const msg = decodeChatEvent(event, { roomId, roomKey, now: nowSeconds(), policy: roomPolicy, ...(root.epoch > 0 ? { epoch: { id: root.id, key: root.key } } : {}) })
+    if (!msg || kept.epoch !== root.epoch) {
+      addSystemLine('A message you wrote before this page reloaded was not sent: the room changed its key while it waited. Write it again if it still applies.')
+      continue
+    }
+    outbox.send(msg.text, 'Chat', () => transport.publish(event))
+  }
+  persistQuiet()
+}
 let meParticipant = ''
 let myDeviceId = ''
 
@@ -3499,8 +3552,17 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       dm.className = 'dmButton quiet'
       dm.textContent = 'Message privately'
       dm.setAttribute('aria-label', `Message ${shown.name ?? shown.short} privately`)
-      dm.addEventListener('click', () => { void startDirectMessage(view.participant, shown.name) })
+      dm.addEventListener('click', () => { void startDirectMessage(view.participant, shown.name, false) })
       row.append(dm)
+      // The same room of two, with its chat in drops. See src/quiet.ts.
+      const hush = document.createElement('button')
+      hush.type = 'button'
+      hush.className = 'dmButton quiet'
+      hush.textContent = 'Message quietly'
+      hush.title = QUIET_MEANING
+      hush.setAttribute('aria-label', `Message ${shown.name ?? shown.short} quietly`)
+      hush.addEventListener('click', () => { void startDirectMessage(view.participant, shown.name, true) })
+      row.append(hush)
     }
     list.append(row)
   }
@@ -3533,19 +3595,21 @@ function peerCrypt(): PeerCrypt | undefined {
 }
 
 let startingDm = false
-async function startDirectMessage(peer: string, peerName: string | undefined): Promise<void> {
+async function startDirectMessage(peer: string, peerName: string | undefined, quiet: boolean): Promise<void> {
   const s = session
   const me = meParticipant
   if (!s || !me || startingDm) return
   const who = peerName ?? shortKey(peer)
-  // One conversation per pair. Started twice, or from both ends, it is the
-  // room that already exists - the earliest of them, the same choice every
-  // device makes (see `preferredDm`).
+  // One conversation per pair, and one quiet one: a quiet room and a plain
+  // one are different rooms, since the plain one's chat is on the relay in
+  // the open. Started twice, or from both ends, it is the room that
+  // already exists - the earliest of them, the same choice every device
+  // makes (see `preferredDm`).
   const existing = preferredDm(knownRooms(roomStore())
-    .filter((room) => dmPeerOf(room) === peer)
+    .filter((room) => dmPeerOf(room) === peer && isQuietRoom(room) === quiet)
     .map((room) => ({ room: room.roomId, sentAt: room.openedAt, known: room })))
   if (existing) {
-    setStatus(`Opening your private conversation with ${who}…`, 'progress')
+    setStatus(`Opening your ${quiet ? 'quiet' : 'private'} conversation with ${who}…`, 'progress')
     switchRoom(existing.known)
     return
   }
@@ -3558,20 +3622,21 @@ async function startDirectMessage(peer: string, peerName: string | undefined): P
   }
   startingDm = true
   try {
-    setStatus(`Starting a private conversation with ${who}…`, 'progress')
+    setStatus(`Starting a ${quiet ? 'quiet' : 'private'} conversation with ${who}…`, 'progress')
     const secret = generateRoomSecret()
     const created = createRoomInvitation(true)
     const { roomId } = deriveRoom(secret)
     storeInvitationOwner(created.invitation, secret, created.inviterSk)
     await publishGroupInvitation(created.invitation, secret, created.inviterSk, relays)
-    const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays, iceUrls, policy: dmPolicy(me, peer) })
+    const policy: RoomPolicy = quiet ? { ...dmPolicy(me, peer), quiet: true } : dmPolicy(me, peer)
+    const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays, iceUrls, policy })
     const invite = await sealInvite(link, { to: peer, room: roomId, crypt })
     const text = inviteText()
     outbox.send(text, 'Chat', s.chat.prepareSend(text, { invite }))
     const room = rememberRoom(roomStore(), { roomId, link, openedAt: nowSeconds(), ...(peerName ? { name: peerName } : {}) })
     bookmarks?.save(room)
-    addSystemLine(`You started a private conversation with ${who}.`, nowSeconds(), room)
-    setStatus(`Private conversation with ${who} started. It is in your rooms; ${who} will find it in theirs.`, 'done')
+    addSystemLine(`You started a ${quiet ? 'quiet' : 'private'} conversation with ${who}.`, nowSeconds(), room)
+    setStatus(`${quiet ? 'Quiet' : 'Private'} conversation with ${who} started. It is in your rooms; ${who} will find it in theirs.`, 'done')
   } catch (err) {
     setStatus(describeError(err))
   } finally {
@@ -3617,9 +3682,10 @@ async function handleInvites(messages: ChatMessage[]): Promise<void> {
       : m.name ?? shownAs(m.participant).name
     const room = rememberRoom(roomStore(), { roomId: m.invite.room, link, openedAt: m.sentAt, ...(peerName ? { name: peerName } : {}) })
     bookmarks?.save(room)
+    const kind = isQuietRoom(room) ? 'quiet' : 'private'
     addSystemLine(m.participant === me
-      ? 'You started a private conversation from another device. It is in your rooms.'
-      : `${senderLabel(m)} started a private conversation with you. It is in your rooms.`, m.sentAt, room)
+      ? `You started a ${kind} conversation from another device. It is in your rooms.`
+      : `${senderLabel(m)} started a ${kind} conversation with you. It is in your rooms.`, m.sentAt, room)
     if (roomsListShown) renderRooms()
   }
 }
@@ -3740,6 +3806,11 @@ function renderRoomLockState(): void {
   state.hidden = epoch === 0
   state.textContent = epoch > 0
     ? `The room lock has changed ${epoch === 1 ? 'once' : `${epoch} times`}. Removed members cannot read new messages.`
+    : ''
+  const quiet = $('quietState')
+  quiet.hidden = !quietTransport
+  quiet.textContent = quietTransport
+    ? `${QUIET_MEANING} Relays hand back ${Math.round(QUIET_HISTORY_SECONDS / 86400)} days of it; older messages stay on the devices that read them. Being here still shows while you are here, and calls are not quiet.${quietTransport.canSend ? '' : ` ${QUIET_READ_ONLY}`}`
     : ''
 }
 
@@ -4268,11 +4339,29 @@ function renderLaneNote(): void {
   const note = $('laneNote')
   const lane = activeChat()?.sendLane()
   note.replaceChildren()
-  if (!lane) { note.hidden = true; return }
+  if (!lane && !quietTransport) { note.hidden = true; return }
   note.hidden = false
-  note.append(laneChip(lane))
-  note.title = LANE_MEANING[lane]
+  if (lane) {
+    note.append(laneChip(lane))
+    note.title = LANE_MEANING[lane]
+  }
+  if (quietTransport) note.append(quietChip(quietTransport.canSend))
 }
+
+/** The lane chip says where the bytes went; this one says what they give
+ *  away. A quiet room's chat is one wrap a slot to a key the relay never
+ *  sees again, so the relay cannot tell whether anything was said. */
+function quietChip(canSend: boolean): HTMLSpanElement {
+  const span = document.createElement('span')
+  span.className = 'chip quiet'
+  span.textContent = canSend ? '◌ quiet' : '◌ quiet, reading only'
+  span.title = canSend ? QUIET_MEANING : `${QUIET_MEANING} ${QUIET_READ_ONLY}`
+  span.setAttribute('aria-label', span.title)
+  return span
+}
+
+const QUIET_MEANING = `Quiet room. Messages ride the gift-wrap stream as dead drops, one every ${slotWords()} at most, and a relay cannot tell whether anything was said, by whom, or when.`
+const QUIET_READ_ONLY = 'This device reads and cannot post: two devices per person can, the one holding the identity and the one it paired.'
 
 function renderChat(messages: ChatMessage[]): void {
   renderLaneNote()
@@ -6122,8 +6211,26 @@ async function startSession(asVisitor = false): Promise<void> {
     // Held here as well as inside the session, because a file dropped into
     // the chat announces itself with a kind-1063 event on the room's own
     // relays, through the sockets the room already has open.
-    const transport = configuredPool(relays)
-    sessionTransport = transport
+    const pool = configuredPool(relays)
+    sessionTransport = pool
+    // A quiet room's chat rides in drops: wrap the pool, and the session
+    // hands the wrapper the epoch key. The device holding the identity is
+    // slot 0, the device it paired slot 1; each draws from its own half of
+    // the member's drop keys, so no key is used twice. See src/quiet.ts.
+    const quietRoomId = deriveRoom(roomSecret).roomId
+    quietTransport = isQuietPolicy(roomPolicy)
+      ? quietRoomTransport(pool, {
+          policy: roomPolicy!,
+          participant: credential ? credential.pubkey : currentIdentity().pubkey,
+          slot: credential ? 1 : 0,
+          used: loadQuietState(deviceStore, quietRoomId, nowSeconds()).used,
+          intervalSeconds: QUIET_SLOT,
+          onUsed: () => persistQuiet(),
+          onPosted: () => persistQuiet(),
+          onError: (error) => console.warn('quiet room', error),
+        })
+      : undefined
+    const transport: RelayTransport = quietTransport ?? pool
     const s = credential
       ? new RoomSession({
           transport,
@@ -6198,6 +6305,7 @@ async function startSession(asVisitor = false): Promise<void> {
 
     await s.join(currentAdverts(), currentClaims())
     if (session !== s) return
+    requeueQuiet(s)
     // A reply draft reads its original message from the new session. Its
     // logs must exist before restoring that context.
     selectRoomDrafts()
@@ -6417,6 +6525,7 @@ function watchKnownRoom(room: KnownRoom): void {
     roomId,
     roomKey,
     policy: link.policy,
+    quiet: isQuietPolicy(link.policy),
     onChange: () => {
       renderRooms()
       notify(watch.messages())
@@ -6593,7 +6702,9 @@ function roomMeta(room: KnownRoom): HTMLDivElement {
   const count = document.createElement('span')
   count.className = 'unread'
   count.dataset.count = String(unread)
-  count.textContent = unread === 0 ? 'nothing new' : `${unread} unread`
+  // A quiet room's chat is not read from the list: it would cost the whole
+  // gift-wrap stream per room in the background. Open it to read.
+  count.textContent = !watched.watch.readsChat ? 'quiet room: open it to read' : unread === 0 ? 'nothing new' : `${unread} unread`
   meta.append(count)
 
   const present = watched.watch.present()
@@ -6637,6 +6748,11 @@ function roomMeta(room: KnownRoom): HTMLDivElement {
  *  room's link, or undefined for any other room. Cached by link, because
  *  the rooms list asks on every repaint. */
 const dmPeerCache = new Map<string, string | undefined>()
+/** Whether a known room's link says it is a quiet one. */
+function isQuietRoom(room: Pick<KnownRoom, 'link'>): boolean {
+  try { return isQuietPolicy(parseRoomLink(room.link).policy) } catch { return false }
+}
+
 function dmPeerOf(room: Pick<KnownRoom, 'link'>): string | undefined {
   const me = meParticipant || currentParticipant()
   if (!me) return undefined
@@ -6656,7 +6772,7 @@ function knownRoomLabel(room: KnownRoom): string {
   if (!peer) return roomLabel(room)
   // The name remembered when the conversation was started or received, then
   // whatever a profile says, then the key. A DM link carries no room name.
-  return `Private: ${room.name ?? shownAs(peer).name ?? shortKey(peer)}`
+  return `${isQuietRoom(room) ? 'Quiet' : 'Private'}: ${room.name ?? shownAs(peer).name ?? shortKey(peer)}`
 }
 
 /** The room this page is in, named the same way. */
@@ -6672,7 +6788,7 @@ function dmPeerName(peer: string): string {
 function currentRoomLabel(): string {
   const me = meParticipant || currentParticipant()
   const peer = me ? dmPeer(roomPolicy, me) : undefined
-  if (peer) return `Private: ${dmPeerName(peer)}`
+  if (peer) return `${isQuietPolicy(roomPolicy) ? 'Quiet' : 'Private'}: ${dmPeerName(peer)}`
   return roomLabel({ roomId: currentRoomId() ?? '', name: roomName })
 }
 
@@ -6945,8 +7061,10 @@ async function closeRoomSession(): Promise<void> {
   ++roomGeneration
   const old = session
   const transport = sessionTransport
+  persistQuiet()
   session = undefined
   sessionTransport = undefined
+  quietTransport = undefined
   assignmentPanel.detach()
   contextPanel.close()
   messageActions.close(false)
@@ -7051,6 +7169,7 @@ async function forgetKnownRoom(room: KnownRoom): Promise<void> {
   stopWatching(room.roomId)
   forgetRoomAccess(deviceStore, room.roomId)
   forgetRoomAccess(browserDeviceStore(sessionStorage), room.roomId)
+  forgetQuietState(deviceStore, room.roomId)
   if (bookmarks) bookmarks.remove(room.roomId)
   else forgetRoom(deviceStore, room.roomId)
   renderRooms()

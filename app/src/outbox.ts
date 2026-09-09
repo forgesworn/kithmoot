@@ -6,7 +6,10 @@ export class Outbox {
   readonly #root: HTMLElement
   readonly #items = new Set<HTMLElement>()
 
-  constructor(root: HTMLElement, private readonly onChange: () => void = () => {}) {
+  /** `sending` is what a row says while its publish is in flight: a relay
+   *  takes an ordinary message in a moment, a quiet room's at its next slot,
+   *  and the row should say which it is waiting for. */
+  constructor(root: HTMLElement, private readonly onChange: () => void = () => {}, private readonly sending: () => string = () => 'Sending…') {
     this.#root = root
   }
 
@@ -36,7 +39,7 @@ export class Outbox {
     })
     const attempt = async () => {
       retry.hidden = discard.hidden = true
-      status.textContent = 'Sending…'
+      status.textContent = this.sending()
       try {
         await publish()
         remove()
