@@ -593,10 +593,8 @@ because a team is what this is now judged against:
   yet.** The badge says "card", not "verified". Fetching a fresh address
   card from a box waits on the box saying what shape it publishes in; the
   app keeps the pin and the serial for it and says on every box whether
-  it is dialled on the card's endorsement. Only a device holding its
-  identity key can make a card, because a card is signed over a digest,
-  not as an event; the rendezvous key on it is made here, not derived
-  from a root. The bond ceremony a card starts is not run here.
+  it is dialled on the card's endorsement. The rendezvous key on a
+  card made here is made here, not derived from a root. The bond ceremony a card starts is not run here.
 - **No push.** A phone in a pocket learns nothing until the app is opened.
   A keeper can nudge a signed-in member over Nostr, and that is all.
 - **Named channels, removal and roles need a keeper.** A group admits and

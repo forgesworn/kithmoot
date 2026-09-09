@@ -122,7 +122,7 @@ import {
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
 import { addContactFromCard, circleRelays, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
-import { buildCard, cardLink } from 'nostr-contact-card'
+import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import type { InvitationRequest } from '../../src/invitation.js'
 import { ReadPositionSync } from './read-positions.js'
@@ -2703,9 +2703,10 @@ function renderContacts(): void {
     none.textContent = 'No contact cards yet.'
     list.append(none)
   }
-  // Only a device holding the identity can sign a card. An extension or a
-  // bunker signs events and nothing else, and a paired device holds no key.
-  $('myCard').hidden = !!nostrSession || isPairedSecondary(deviceStore)
+  // A card is a signed event, so any identity that signs events can make
+  // one: a local key, an extension, a bunker. A paired device holds no key
+  // and signs nothing.
+  $('myCard').hidden = isPairedSecondary(deviceStore)
 }
 
 /** A card was read or forgotten: the circle's relays moved, and so did the marks. */
@@ -2729,12 +2730,14 @@ function addContact(text: string): boolean {
   return true
 }
 
-/** This device's own card: its key, name and relays, a rendezvous key made
- *  here, no box. Seven days. Handed over, never posted. */
+/** This person's own card: their key, name and relays, a rendezvous key
+ *  made here, no box. Seven days. Signed by whatever holds the identity,
+ *  which sees a kind, a time and a content it can read. Handed over, never
+ *  posted. */
 async function showMyCard(): Promise<void> {
   const rz = bytesToHex(schnorr.getPublicKey(myRendezvousSecret(deviceStore, () => randomBytes(32))))
-  const card = buildCard({
-    identityPrivateKey: participantKey(),
+  const identity = currentIdentity()
+  const card = await buildCardWith(identity.pubkey, (unsigned) => identity.signEvent(unsigned), {
     rz,
     ephemeralPrivateKey: randomBytes(32),
     ...(typedName ? { name: typedName } : {}),

@@ -1317,10 +1317,12 @@ sent anywhere. The card the app makes for its own person carries no box
 and a rendezvous key made on this device (the profile wants that key as a
 child of a root the signer holds; this browser has no root, so its key is
 its own and rotates by being replaced), and the sheet says to hand it
-over and never post it. Only a device holding the identity can make one:
-an extension or a bunker signs events and nothing else, and a card's
-signature is over a digest, which is the draft's problem to solve before
-a signer-backed identity can hand out cards.
+over and never post it. Any identity that signs events can make one, an
+extension or a bunker included: the card is a signed event of a reserved
+kind, never posted, and the signer sees a kind, a time and a content it
+can read. An earlier form of the draft signed a bare digest, which only a
+client holding the raw key could do; it was replaced the same day it was
+wired here, and nothing was issued under it.
 
 **Two things the draft asks of a reader, and where they live.** The node
 id the person endorsed is pinned per box from the first read, so a fresh
