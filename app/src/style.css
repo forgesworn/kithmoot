@@ -3101,3 +3101,6 @@ input[type="search"] { font-family: inherit; }
 .roomAccess label { display: inline-flex; gap: .4rem; align-items: center; font-size: .95rem; }
 .roomAccess input { margin: 0; width: 1.1rem; height: 1.1rem; }
 .approvalCard.knock .options button.primary { margin: 0; }
+
+/* Which room to invite somebody to: one full-width button per room. */
+.inviteToRoomList button { display: block; width: 100%; margin: .35rem 0; min-height: 44px; text-align: left; }

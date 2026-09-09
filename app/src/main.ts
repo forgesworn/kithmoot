@@ -1019,6 +1019,13 @@ function knockLabel(knock: InvitationRequest): string {
 }
 
 function askToLetIn(request: InvitationRequest): Promise<boolean> {
+  // Somebody this device invited is not asked about: inviting them was
+  // the answer. Anybody else with the link gets the card.
+  const roomId = currentRoomId()
+  if (roomId && request.participant && invitedTo(roomId).has(request.participant)) {
+    addSystemLine(`${knockLabel(request)} came in on your invite.`)
+    return Promise.resolve(true)
+  }
   return new Promise((resolve) => {
     const knock: Knock = { ...request, at: nowSeconds(), resolve }
     knocks.set(knock.request, knock)
@@ -1037,6 +1044,77 @@ function answerKnock(knock: Knock, yes: boolean): void {
   knock.resolve(yes)
   addSystemLine(yes ? `You let ${knockLabel(knock)} in.` : `You declined ${knockLabel(knock)}.`)
   renderApprovals()
+}
+
+// People this device invited to a room, by room. A knock from one of them
+// is let in without asking: inviting somebody was the decision.
+const INVITED_KEY_PREFIX = 'kithmoot.invited.v1.'
+function invitedTo(roomId: string): Set<string> {
+  try {
+    const raw = deviceStore.get(INVITED_KEY_PREFIX + roomId)
+    const list = raw ? (JSON.parse(raw) as unknown) : []
+    return new Set(Array.isArray(list) ? list.filter((p): p is string => typeof p === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+function noteInvited(roomId: string, participant: string): void {
+  const set = invitedTo(roomId)
+  set.add(participant)
+  deviceStore.set(INVITED_KEY_PREFIX + roomId, JSON.stringify([...set].slice(-200)))
+}
+
+let invitingPeer: { participant: string; name?: string } | undefined
+
+function openInviteToRoom(participant: string, name: string | undefined): void {
+  const here = currentRoomId()
+  const rooms = knownRooms(roomStore()).filter((room) => room.roomId !== here && !dmPeerOf(room))
+  if (rooms.length === 0) {
+    setStatus('No other rooms to invite to yet. Start one from Rooms first.')
+    return
+  }
+  invitingPeer = { participant, ...(name ? { name } : {}) }
+  const who = name ?? shortKey(participant)
+  $('inviteToRoomLead').textContent = `Which room should ${who} be invited to?`
+  const list = $('inviteToRoomList')
+  list.replaceChildren()
+  for (const room of rooms.sort((a, b) => b.openedAt - a.openedAt)) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = knownRoomLabel(room)
+    button.addEventListener('click', () => { void sendRoomInvite(room) })
+    list.append(button)
+  }
+  const dialog = $('inviteToRoom') as HTMLDialogElement
+  if (!dialog.open) dialog.showModal()
+}
+
+async function sendRoomInvite(room: KnownRoom): Promise<void> {
+  const s = session
+  const peer = invitingPeer
+  const dialog = $('inviteToRoom') as HTMLDialogElement
+  if (!s || !peer) return
+  const who = peer.name ?? shortKey(peer.participant)
+  const crypt = peerCrypt()
+  if (!crypt) {
+    setStatus(nostrSession
+      ? 'This signer cannot encrypt, so it cannot send an invite. Sign in with a signer that supports NIP-44.'
+      : 'A paired device cannot send an invite. Use the device that holds your identity.')
+    return
+  }
+  try {
+    const invite = await sealInvite(room.link, { to: peer.participant, room: room.roomId, crypt })
+    const text = 'Invited you to a room.'
+    outbox.send(text, 'Chat', s.chat.prepareSend(text, { invite }))
+    noteInvited(room.roomId, peer.participant)
+    addSystemLine(`You invited ${who} to ${knownRoomLabel(room)}.`)
+    setStatus(`${who} is invited to ${knownRoomLabel(room)}. They will find it in their rooms.`, 'done')
+  } catch (err) {
+    setStatus(describeError(err))
+  } finally {
+    invitingPeer = undefined
+    if (dialog.open) dialog.close()
+  }
 }
 
 function forgetKnocks(): void {
@@ -3605,6 +3683,20 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       dm.addEventListener('click', () => { void startDirectMessage(view.participant, shown.name) })
       row.append(dm)
     }
+    // Bring them into another room of yours. The invite travels sealed to
+    // them in this conversation, the same way a private conversation
+    // starts, and a room that asks first lets somebody you invited straight
+    // in. That pair is what a private room is: a link nobody is handed,
+    // and people you chose.
+    if (view.participant !== me && !view.agent) {
+      const invite = document.createElement('button')
+      invite.type = 'button'
+      invite.className = 'dmButton quiet'
+      invite.textContent = 'Invite to a room'
+      invite.setAttribute('aria-label', `Invite ${shown.name ?? shown.short} to a room`)
+      invite.addEventListener('click', () => openInviteToRoom(view.participant, shown.name))
+      row.append(invite)
+    }
     list.append(row)
   }
 }
@@ -3707,22 +3799,31 @@ async function handleInvites(messages: ChatMessage[]): Promise<void> {
     const link = await openInvite(m.invite, { self: me, sender: m.participant, crypt })
     if (generation !== roomGeneration) return
     if (!link) continue
+    let parsed: ReturnType<typeof parseRoomLink>
     try {
-      parseRoomLink(link)
+      parsed = parseRoomLink(link)
     } catch {
       continue
     }
-    // Named for the other person: the sender's name on the message when it
+    // Two kinds of sealed invite. A private conversation is a room of two,
+    // named for the other person: the sender's name on the message when it
     // was sent to us, and the addressee's roster name when we sent it from
-    // another device.
+    // another device. An invite to a room of the sender's is named as the
+    // room names itself.
+    const privateConversation = dmPeer(parsed.policy, me) !== undefined
     const peerName = m.participant === me
       ? session?.participants().find((v) => v.participant === m.invite!.to)?.name
       : m.name ?? shownAs(m.participant).name
-    const room = rememberRoom(roomStore(), { roomId: m.invite.room, link, openedAt: m.sentAt, ...(peerName ? { name: peerName } : {}) })
+    const name = privateConversation ? peerName : parsed.name
+    const room = rememberRoom(roomStore(), { roomId: m.invite.room, link, openedAt: m.sentAt, ...(name ? { name } : {}) })
     bookmarks?.save(room)
-    addSystemLine(m.participant === me
-      ? 'You started a private conversation from another device. It is in your rooms.'
-      : `${senderLabel(m)} started a private conversation with you. It is in your rooms.`, m.sentAt, room)
+    addSystemLine(privateConversation
+      ? m.participant === me
+        ? 'You started a private conversation from another device. It is in your rooms.'
+        : `${senderLabel(m)} started a private conversation with you. It is in your rooms.`
+      : m.participant === me
+        ? `You invited somebody to ${knownRoomLabel(room)} from another device.`
+        : `${senderLabel(m)} invited you to ${knownRoomLabel(room)}. It is in your rooms.`, m.sentAt, room)
     if (roomsListShown) renderRooms()
   }
 }
@@ -7640,6 +7741,7 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
 $('roomRelaySettings').addEventListener('click', () => { closeRoomSheet(); relaySettings.open($('roomMenu')) })
 $('defaultRelaySettings').addEventListener('click', () => relaySettings.open($('defaultRelaySettings')))
 $('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
+$('inviteToRoomClose').addEventListener('click', () => { invitingPeer = undefined; ($('inviteToRoom') as HTMLDialogElement).close() })
 $('profileSettings').addEventListener('close', () => profileReturnFocus.focus({ preventScroll: true }))
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
 // dialog element itself fills the screen, so a click that lands ON the

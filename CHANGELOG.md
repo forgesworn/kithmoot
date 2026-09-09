@@ -21,6 +21,15 @@ implementation reads this file to know what moved.
   20466, `v: 1`) gains optional `name` and `participant`; readers that do
   not know them ignore them, and the Android client already does.
 
+- **Invite somebody to a room you are in.** On a person's row in Room
+  details, "Invite to a room" seals one of your rooms' links to them in
+  the conversation you share, the way a private conversation starts. They
+  find the room in their rooms, named as it names itself. A room that
+  asks first lets somebody you invited straight in, without the card:
+  that pair is a private room, a link nobody is handed and people you
+  chose. Nothing new on the wire; it is the sealed invite from
+  `docs/messages.md` carrying a room link that is not a two-person one.
+
 ### Fixed
 
 - **A connected Nostr extension is the way in.** The door never looked
