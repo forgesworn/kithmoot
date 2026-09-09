@@ -126,6 +126,7 @@ import {
 } from '../../src/peer-assist.js'
 import type { AssistBlock, AssistEnvironment } from '../../src/peer-assist.js'
 import { UplinkProbe } from '../../src/uplink.js'
+import { LANE_GLYPH, LANE_LABEL, LANE_MEANING, type Lane } from '../../src/lane.js'
 import type { StatLike } from '../../src/uplink.js'
 import type { AssistOffer } from '../../src/types.js'
 import {
@@ -3890,7 +3891,36 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
   return card
 }
 
+/** The lane indicator: a glyph and a word, the meaning as its title. */
+function laneChip(lane: Lane): HTMLSpanElement {
+  const span = document.createElement('span')
+  span.className = `chip lane ${lane}`
+  span.textContent = `${LANE_GLYPH[lane]} ${LANE_LABEL[lane]}`
+  span.title = LANE_MEANING[lane]
+  span.setAttribute('aria-label', `${LANE_LABEL[lane]} lane. ${LANE_MEANING[lane]}`)
+  return span
+}
+
+/**
+ * What lane the next message would take, beside the box people type into,
+ * so the answer is there before they send rather than after. Read off the
+ * relays the conversation writes to; nothing to show when it cannot say.
+ */
+function renderLaneNote(): void {
+  const note = $('laneNote')
+  const lane = activeChat()?.sendLane()
+  note.replaceChildren()
+  if (!lane) { note.hidden = true; return }
+  note.hidden = false
+  note.append(laneChip(lane))
+  const words = document.createElement('span')
+  words.className = 'laneWords'
+  words.textContent = LANE_MEANING[lane]
+  note.append(words)
+}
+
 function renderChat(messages: ChatMessage[]): void {
+  renderLaneNote()
   // Minutes are written in paragraphs with their line breaks doing the
   // structural work, so the one log has to know which conversation it is
   // showing. See `#chatLog.minutes` in style.css.
@@ -4745,6 +4775,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     }
     // The time it was first said. An edit does not move a message.
     header.append(timeChip(original.sentAt, true))
+    // The lane it travelled, from where the bytes went and never from what
+    // the message says about itself. Glyph and word, so it reads without
+    // colour; the meaning is in the title and is the same everywhere.
+    if (original.lane) header.append(laneChip(original.lane))
     if (r.edited && !r.retracted) {
       header.append(chip('edited', `Edited${r.edits.length > 1 ? ` ${r.edits.length} times` : ''}. Earlier versions are kept on every device that received them.`, 'edited'))
     }

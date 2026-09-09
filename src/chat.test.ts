@@ -16,6 +16,8 @@ import {
 } from './chat.js'
 import { issueKindredProof } from './access.js'
 import type { ChatMessage } from './chat.js'
+import type { Filter } from 'nostr-tools/filter'
+import type { RelayConfig, RelayTransport } from './relay-pool.js'
 import { KINDS } from './kinds.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 
@@ -251,6 +253,61 @@ describe('encodeChatEvent / decodeChatEvent', () => {
 })
 
 describe('ChatLog', () => {
+  /** A transport that says which relay delivered each event and what relays it has. */
+  const attributed = (inner: SimTransport, via: string, relays: RelayConfig[]): RelayTransport => ({
+    publish: (event: Event) => inner.publish(event),
+    subscribe: (filters: Filter[], onEvent: (event: Event, via?: string) => void, onEose?: () => void) =>
+      inner.subscribe(filters, (event) => onEvent(event, via), onEose),
+    close: () => inner.close(),
+    describe: () => relays,
+  })
+  const ONION = `wss://${'a'.repeat(56)}.onion`
+
+  it('records the lane a message actually travelled', async () => {
+    const f = await fixture()
+    const sheltered = new ChatLog({ ...f, transport: attributed(new SimTransport(new SimRelay()), ONION, [{ url: ONION, read: true, write: true, circle: true }]), now: () => NOW })
+    await sheltered.send('by the lane')
+    expect(sheltered.sendLane()).toBe('sheltered')
+    expect(sheltered.messages()[0]!.lane).toBe('sheltered')
+    sheltered.close()
+
+    const mixed = attributed(new SimTransport(new SimRelay()), 'wss://relay.example', [
+      { url: 'wss://relay.example', read: true, write: true },
+      { url: ONION, read: true, write: true, circle: true },
+    ])
+    const pub = new ChatLog({ ...f, transport: mixed, now: () => NOW })
+    await pub.send('in the open')
+    expect(pub.sendLane()).toBe('public')
+    expect(pub.messages()[0]!.lane).toBe('public')
+    pub.close()
+
+    const plain = new ChatLog({ ...f, transport: new SimTransport(new SimRelay()), now: () => NOW })
+    await plain.send('nobody said')
+    expect(plain.sendLane()).toBeUndefined()
+    expect(plain.messages()[0]!.lane).toBeUndefined()
+    plain.close()
+
+    // An onion that is not the circle's box is public: the address is hidden, the operator is unknown.
+    const strangerOnion = new ChatLog({ ...f, transport: attributed(new SimTransport(new SimRelay()), ONION, [{ url: ONION, read: true, write: true }]), now: () => NOW })
+    await strangerOnion.send("through someone else's onion")
+    expect(strangerOnion.sendLane()).toBe('public')
+    expect(strangerOnion.messages()[0]!.lane).toBe('public')
+    strangerOnion.close()
+  })
+
+  it('ignores any lane the wire claims for itself', async () => {
+    const f = await fixture()
+    const relay = new SimRelay()
+    const log = new ChatLog({ ...f, transport: attributed(new SimTransport(relay), 'wss://relay.example', [{ url: 'wss://relay.example', read: true, write: true }]), now: () => NOW })
+    const claim = { ...f.msg, id: 'claimed', text: 'I went by the lane, honest', sentAt: NOW, lane: 'sheltered' } as unknown as ChatMessage
+    relay.publish(encodeChatEvent(claim, { roomId: f.roomId, roomKey: f.roomKey, deviceSk: f.deviceSk }))
+    const got = log.messages().find(m => m.id === 'claimed')
+    expect(got).toBeDefined()
+    expect(got!.lane).toBe('public')
+    expect(decodeChatEvent(encodeChatEvent(claim, { roomId: f.roomId, roomKey: f.roomKey, deviceSk: f.deviceSk }), { roomId: f.roomId, roomKey: f.roomKey, now: NOW })!.lane).toBeUndefined()
+    log.close()
+  })
+
   it('retries the identical event after delivery with a lost acknowledgement', async () => {
     const f = await fixture()
     const transport = new SimTransport(new SimRelay())

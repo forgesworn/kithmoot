@@ -130,6 +130,8 @@ export type {
   RequestPairingOptions,
 } from './pairing.js'
 export { NostrRelayPool, normaliseRelayConfig } from './relay-pool.js'
+export { LANES, LANE_MEANING, LANE_LABEL, LANE_GLYPH, isLane, laneOfRelayUrl, laneOfRelays, weakestLane, isDowngrade } from './lane.js'
+export type { Lane } from './lane.js'
 export type { RelayTransport, RelayConfig, RelayHealth } from './relay-pool.js'
 export { evaluateAccess, evaluateAgentAccess, issueKindredProof } from './access.js'
 export type { IssueKindredProofOptions } from './access.js'

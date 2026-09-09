@@ -195,6 +195,10 @@
                a message, or replacing one of yours. Filled in by
                `renderComposerContext` in app/src/main.ts. -->
           <div id="composerContext" class="composerContext" hidden></div>
+          <!-- Which lane the next message will take, and what that lane
+               delivers. Worked out from where the bytes go, never claimed.
+               Filled in by `renderLaneNote` in app/src/main.ts. -->
+          <div id="laneNote" class="laneNote" role="status" hidden></div>
           <div id="mentions" class="mentions" role="listbox" aria-label="People and agents in this room" hidden></div>
           <!-- A box, not a line. It was one line that scrolled sideways, so
                a long message could not be read back before it was sent -

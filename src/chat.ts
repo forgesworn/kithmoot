@@ -22,6 +22,7 @@ import { sanitiseDisplayName } from './display-name.js'
 import { evaluateAccess } from './access.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RelayTransport } from './relay-pool.js'
+import { laneOfRelayUrl, laneOfRelays, type Lane } from './lane.js'
 import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from './types.js'
 
 export const MAX_CHAT_TEXT_LENGTH = 2_000
@@ -60,6 +61,14 @@ export type ChatMessageKind = 'transcript' | 'directive'
 export interface ChatMessage {
   /** Authenticated shared-work operation, inside room encryption only. */
   assignment?: Event
+  /**
+   * The lane this message actually travelled, worked out by the reader
+   * from the relay that delivered it. Never on the wire: a decoder strips
+   * any `lane` a payload carries, because the sender does not get to say
+   * how private the delivery was. Undefined when the transport could not
+   * say. See `lane.ts`.
+   */
+  lane?: Lane
   id: string
   participant: string
   device: string
@@ -434,6 +443,9 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     if (msg.text.length === 0 || msg.text.length > MAX_CHAT_TEXT_LENGTH) return null
     if (!Number.isSafeInteger(msg.sentAt)) return null
 
+    // The lane is the reader's finding, never the sender's claim.
+    delete (msg as { lane?: unknown }).lane
+
     // This is a boundary: `device`/`participant` are free-text JSON fields
     // with nothing forcing lower case. Canonicalise them here, once, same as
     // `decodeRosterEvent` - see `hex.ts`'s `normaliseHex`.
@@ -673,8 +685,28 @@ export class ChatLog {
     const { id } = deriveChannel(root.id, root.key, this.#opts.channel)
     return this.#opts.transport.subscribe(
       [{ kinds: [KINDS.CHAT], '#d': [id], since: this.#now() - CHAT_RETENTION_SECONDS }],
-      (event) => this.#ingest(event),
+      (event, via) => this.#ingest(event, via),
     )
+  }
+
+  /**
+   * The lane a message sent now would take: the weakest of the relays this
+   * log writes to. Undefined when the transport cannot say. Shown beside
+   * the box people type into, so the answer is there before they send.
+   */
+  sendLane(): Lane | undefined {
+    const relays = this.#opts.transport.describe?.()
+    if (!relays) return undefined
+    return laneOfRelays(relays.filter(r => r.write).map(r => r.url), circleOf(relays))
+  }
+
+  /** The lane a message read from this transport took, from the relay that
+   *  delivered it, else from every relay the transport reads. */
+  #laneOf(via: string | undefined): Lane | undefined {
+    const relays = this.#opts.transport.describe?.()
+    if (via) return laneOfRelayUrl(via, relays ? circleOf(relays) : undefined)
+    if (!relays) return undefined
+    return laneOfRelays(relays.filter(r => r.read).map(r => r.url), circleOf(relays))
   }
 
   /**
@@ -834,7 +866,7 @@ export class ChatLog {
     this.#listeners.clear()
   }
 
-  #ingest(event: Event): void {
+  #ingest(event: Event, via?: string): void {
     const msg = decodeChatEvent(event, {
       roomId: this.#opts.roomId,
       roomKey: this.#opts.roomKey,
@@ -844,6 +876,7 @@ export class ChatLog {
       ...(this.#epoch ? { epoch: this.#epoch } : {}),
     })
     if (!msg) return
+    msg.lane = this.#laneOf(via)
     if (msg.sentAt < this.#now() - CHAT_RETENTION_SECONDS) return
     if (this.#seen.has(msg.id)) return
 
@@ -880,6 +913,11 @@ export class ChatLog {
       }
     }
   }
+}
+
+/** The relays a transport marks as the circle's own boxes. */
+function circleOf(relays: readonly { url: string; circle?: boolean }[]): ReadonlySet<string> {
+  return new Set(relays.filter(r => r.circle).map(r => r.url))
 }
 
 /** Order by send time; a tie breaks on id, so every client in the room
