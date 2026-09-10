@@ -74,7 +74,9 @@ describe('AgentRuntime', () => {
       await expect(runtime.brief(' ')).rejects.toThrow('query')
       await expect(runtime.brief('x'.repeat(501))).rejects.toThrow('query')
     } finally { await runtime.close(); keeper.leave(); await rm(dir, { recursive: true, force: true }) }
-  })
+  // This integration repeatedly verifies signed history after encrypted disk
+  // reloads; allow for the slower CPUs used by the hosted Node matrix.
+  }, 20_000)
 
   it('omits oversized context whole and labels cache failures without implying no blockers', async () => {
     const sk = generateSecretKey()
