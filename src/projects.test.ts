@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, verifiedSymbol, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
+import { base64urlnopad } from '@scure/base'
 import { localIdentity } from './identity.js'
 import { localPeerCrypt } from './dm.js'
 import { createRoomInvitation } from './invitation.js'
@@ -71,6 +72,26 @@ describe('signed shared project wire boundary', () => {
     const follow = await signProject(member.identity, { v: 1, op: 'follow', owner: owner.identity.pubkey, project: record().project, revision: 1, parents: [], request: 'follow-shared-00001', membership: 1, invitation: inner.id, joined: true }, now)
     expect(projectForRecipient(follow, owner.identity.pubkey, now)).toBeUndefined()
     expect(await unwrapProject(wrapProject(follow, member.identity.pubkey, now), member.identity, now)).toEqual(follow)
+  })
+
+  it('refuses native identity credentials hidden in otherwise valid persistent invitations', async () => {
+    const signer = { ...owner.identity, signEvent: vi.fn(owner.identity.signEvent) }
+    const url = new URL(roomLink(true))
+    const invitation = JSON.parse(new TextDecoder().decode(base64urlnopad.decode(url.hash.slice(1))))
+    for (const field of ['k', 'x', 's', 'c']) for (const value of ['04'.repeat(32), '', null, { credential: 'synthetic' }]) {
+      const link = new URL(url)
+      link.hash = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify({ ...invitation, [field]: value })))
+      const body = record()
+      if (body.op !== 'snapshot') throw new Error('fixture')
+      body.definition.rooms = [{ room: 'ab'.repeat(32), name: 'Room', link: link.href }]
+      signer.signEvent.mockClear()
+      await expect(signProject(signer, body, now)).rejects.toThrow('Invalid shared project')
+      expect(signer.signEvent).not.toHaveBeenCalled()
+      const signed = raw(body)
+      expect(projectRecord(signed, now)).toBeUndefined()
+      expect(projectForRecipient(signed, member.identity.pubkey, now)).toBeUndefined()
+      expect(() => wrapProject(signed, member.identity.pubkey, now)).toThrow('recipient')
+    }
   })
 
   it('keeps same-named projects distinct by owner and creation request', () => {
