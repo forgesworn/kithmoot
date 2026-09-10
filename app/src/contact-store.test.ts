@@ -62,7 +62,7 @@ describe('the contact book', () => {
     expect(r.contact.relays).toEqual(['wss://relay.example'])
     expect(r.contact.boxes).toEqual([{
       p: ada.box.p, claim: ada.box.claim, nodeId: expect.stringMatching(/^[0-9a-f]{64}$/), highestSerial: 7,
-      relays: ['wss://box.ada.example'], onions: [], linkExpiresAt: NOW + 6 * 24 * 3600, source: 'card',
+      relays: ['wss://box.ada.example'], onions: [], linkExpiresAt: NOW + 6 * 24 * 3600, source: 'card', card: ada.box.card,
     }])
     expect(contactFor(store, ada.card.p.toUpperCase())).toEqual(r.contact)
     expect(store.keys()).toEqual([CONTACT_PREFIX + ada.card.p])

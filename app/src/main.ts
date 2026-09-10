@@ -121,7 +121,9 @@ import {
   type RelayTransport,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
-import { addContactFromCard, circleRelays, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
+import { BoxRelayReader } from './box-relay-reader.js'
+import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
+import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
 import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import type { InvitationRequest } from '../../src/invitation.js'
@@ -172,13 +174,27 @@ const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
 installReactionHold($('chatLog'))
 for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
-  document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
+  document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(positionReactionDetails)
 }, { passive: true })
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
   if (!$('callBay').hidden && !callIsLive() && !document.querySelector('dialog[open]')) setCallOpen(false)
 })
+
+function positionReactionDetails(details: HTMLElement): void {
+  const button = details.parentElement?.querySelector('button')
+  if (!button) return
+  const anchor = button.getBoundingClientRect()
+  const log = $('chatLog').getBoundingClientRect()
+  if (anchor.bottom <= Math.max(0, log.top) || anchor.top >= Math.min(innerHeight, log.bottom)) {
+    details.hidePopover(); return
+  }
+  const bounds = details.getBoundingClientRect()
+  details.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8))}px`
+  const above = anchor.top - bounds.height - 4
+  details.style.top = `${Math.max(8, Math.min(above >= 8 ? above : anchor.bottom + 4, innerHeight - bounds.height - 8))}px`
+}
 
 const shareViewer = new ShareViewer({
   onAnnotation: annotation => session?.publishAnnotation(annotation),
@@ -267,7 +283,8 @@ const relayStorage = {
 // Circle attribution is reserved for verified message endpoints. A message
 // that goes only to such relays shows as sheltered. Contact cards alone
 // grant no message-relay ownership; explicit keeper-confirmed marks remain.
-const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, (url) => circleRelays(browserDeviceStore(localStorage)).has(url))
+let boxDiscovery: BoxDiscovery | undefined
+const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, url => boxDiscovery?.circleRelays().has(url) ?? false)
 let RELAYS = relayConnections.configuration('default').map(relay => relay.url)
 let roomRelayScope = 'default'
 function configuredPool(urls: string[]): NostrRelayPool {
@@ -2689,11 +2706,27 @@ function renderContacts(): void {
       contactsChanged()
     })
     row.append(who, key, when, forget)
-    const boxes = document.createElement('span')
+    const boxes = document.createElement('div')
     boxes.className = 'contactBoxes'
-    boxes.textContent = c.boxes.length === 0
-      ? 'No box on this card.'
-      : c.boxes.map((b) => `Box ${shortKey(b.p)}: ${b.relays.concat(b.onions).join(', ') || 'no address'} (${b.source === 'card' ? 'dialled on their card\'s endorsement' : `dialled on a fresh address card, refreshed ${new Date((b.refreshedAt ?? 0) * 1000).toLocaleDateString()}`})`).join(' ')
+    if (!c.boxes.length) boxes.textContent = 'No box on this card.'
+    for (const b of c.boxes) {
+      const box = document.createElement('div')
+      box.className = 'contactBox'
+      const detail = document.createElement('p')
+      detail.textContent = `Box ${shortKey(b.p)}. ${boxDiscovery?.message(c.p, b.p) ?? 'Box status is not being checked.'}`
+      const action = document.createElement('button')
+      action.type = 'button'; action.className = 'quiet'
+      const enabled = boxDiscovery?.enabled(c.p, b.p) ?? false
+      action.textContent = enabled ? 'Stop checking box' : 'Check box status'
+      action.disabled = expired && !enabled
+      action.addEventListener('click', async () => {
+        if (!boxDiscovery) return
+        if (!enabled && !await confirmRoomAction({ title: 'Check this box?', message: 'Your default read relays will see this box’s key and its keeper’s claim. Checking continues on this device until you stop or replace the contact card. A verified endpoint can label messages using an existing relay connection; checking does not change where your room sends messages.', confirmLabel: 'Check box' })) return
+        try { boxDiscovery.setEnabled(c.p, b.p, !enabled, boxDiscoveryRevision(c, b)) }
+        catch (error) { detail.textContent = describeError(error) }
+      })
+      box.append(detail, action); boxes.append(box)
+    }
     row.append(boxes)
     list.append(row)
   }
@@ -2711,6 +2744,7 @@ function renderContacts(): void {
 
 /** A card was read or forgotten: refresh its holder badge and lane attribution. */
 function contactsChanged(): void {
+  boxDiscovery?.reconcile()
   relayConnections.circleChanged()
   renderContacts()
   if (session) render(session.participants(), meParticipant)
@@ -5516,6 +5550,11 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
  */
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
+  // A receipt or roster update replaces the rows while someone may be
+  // reading a reaction tooltip. Reopen that same message's details using
+  // the new contents and anchor, after scroll restoration has finished.
+  const openReaction = log.querySelector<HTMLElement>('.reactionDetails:popover-open')?.id
+  let restoreReaction: (() => void) | undefined
   const unread = unreadMessageIds(currentChannel)
   const restoreScroll = chatScroll.before(currentChannel ?? '', unread)
   log.innerHTML = ''
@@ -5826,11 +5865,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         // Top layer: a long list of names must not be clipped by the chat log.
         document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(other => { if (other !== details) other.hidePopover() })
         details.showPopover()
-        const anchor = button.getBoundingClientRect()
-        const bounds = details.getBoundingClientRect()
-        details.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8))}px`
-        const above = anchor.top - bounds.height - 4
-        details.style.top = `${Math.max(8, Math.min(above >= 8 ? above : anchor.bottom + 4, innerHeight - bounds.height - 8))}px`
+        positionReactionDetails(details)
       }
       button.addEventListener('pointerenter', showDetails)
       button.addEventListener('pointerleave', queueHideDetails)
@@ -5838,6 +5873,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       details.addEventListener('pointerleave', queueHideDetails)
       button.addEventListener('focus', showDetails)
       button.addEventListener('blur', hideDetails)
+      if (details.id === openReaction) restoreReaction = showDetails
       chip.append(button, details)
       reactionBar.append(chip)
     }
@@ -5863,6 +5899,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   if (countId) $(countId).textContent = conversation.byKey.size ? `(${conversation.byKey.size})` : ''
   restoreScroll()
   messageActions.refresh()
+  restoreReaction?.()
 }
 
 /**
@@ -6078,6 +6115,15 @@ function parkPicture(el: HTMLVideoElement): void {
   $('parked').append(el)
 }
 
+/** Removing a media element can run the browser's pause steps. Reattaching
+ * the same receiver does not reliably restart autoplay; resume only when
+ * recovering an element that actually left the document. */
+function restoreRemoteElement(el: HTMLMediaElement, container: HTMLElement): void {
+  const detached = !el.isConnected
+  container.append(el)
+  if (detached) void el.play().catch(() => { /* A later user gesture can resume blocked playback. */ })
+}
+
 /** Whether this picture is currently on screen, in its own device's tile. */
 function onScreen(entry: RemoteVideo): boolean {
   return entry.el.parentElement === entry.container
@@ -6164,7 +6210,7 @@ function syncRemoteVideos(): void {
       entry.stalled = 0
       entry.played = true
       if (!onScreen(entry) && !leftCall) {
-        entry.container.append(entry.el)
+        restoreRemoteElement(entry.el, entry.container)
         changed = true
       }
       continue
@@ -6213,6 +6259,11 @@ function advertisedTrackId(device: string, track: MediaStreamTrack): string {
   ) ?? []
   if (compatible.some(advert => advert.trackId === track.id)) return track.id
   const collection = track.kind === 'audio' ? remoteAudios : remoteVideos
+  // Once this receiver has been placed in an advertised slot, retain that
+  // binding. Its browser-issued id may differ from the sender's track id;
+  // falling back to it on the next poll makes a live receiver look orphaned.
+  const bound = compatible.find(advert => collection.get(`${device}|${advert.trackId}`)?.track === track)
+  if (bound) return bound.trackId
   const available = compatible.find(advert => {
     const current = collection.get(`${device}|${advert.trackId}`)
     return current === undefined || current.track.readyState === 'ended'
@@ -6279,7 +6330,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       // renegotiation hands the same track over and `ontrack` fires afresh.
       // Back on screen, with the stall count reset: if it really is still
       // frozen, the next two checks say so and park it again.
-      container.append(el)
+      restoreRemoteElement(el, container)
       existing.stalled = 0
     }
     if (replaced) {
@@ -6313,7 +6364,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       remoteAudios.set(key, { el, track })
       container.append(el)
     } else if (!el.isConnected) {
-      container.append(el)
+      restoreRemoteElement(el, container)
     }
     // Same rule as the picture: a rebuilt connection hands the same track id
     // over as a new object, and only the track on the element now may end
@@ -7969,7 +8020,10 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
   // screen needs telling.
   circleChanged: () => { if (session) render(session.participants(), meParticipant); renderLaneNote() },
   applied: (scope, entries) => {
-    if (scope === 'default') RELAYS = relayConnections.configuration('default').map(relay => relay.url)
+    if (scope === 'default') {
+      RELAYS = relayConnections.configuration('default').map(relay => relay.url)
+      boxDiscovery?.restart()
+    }
     if (scope === roomRelayScope) {
       roomRelayConfig = entries
       relays = entries.map(relay => relay.url)
@@ -9396,3 +9450,12 @@ Promise.all([roomArrival, identityReady]).then(([found]) => {
 // first room is ever opened.
 const known = currentParticipant()
 if (known) profiles.want([known])
+
+// Restore only explicit discovery preferences after all screen state exists.
+boxDiscovery = new BoxDiscovery({
+  store: deviceStore,
+  transport: unavailable => new BoxRelayReader(relayConnections.configuration('default'), unavailable),
+  changed: () => { renderContacts(); renderLaneNote() },
+})
+boxDiscovery.reconcile()
+document.addEventListener('visibilitychange', () => { if (!document.hidden) boxDiscovery?.tick() })

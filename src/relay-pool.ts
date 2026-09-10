@@ -23,7 +23,7 @@ export interface RelayTransport {
 }
 
 /** `circle` marks a relay the client knows to be a box of the person's own
- *  circle, from a contact card or the keeper's claim. Only such a relay is
+ *  circle, from verified current box status or an explicit keeper-confirmed mark. Only such a relay is
  *  ever shown as sheltered; see `lane.ts`. */
 export interface RelayConfig { url: string; read: boolean; write: boolean; circle?: boolean }
 export interface RelayHealth extends RelayConfig {
@@ -72,7 +72,7 @@ export class NostrRelayPool implements RelayTransport {
   #attempted = new Map<string, number>()
   #recovery: ReturnType<typeof setInterval>
 
-  constructor(relays: readonly (string | RelayConfig)[]) {
+  constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean) {
     this.#relays = normaliseRelayConfig(relays)
     this.#pool = this.#createPool()
     this.#recovery = setInterval(() => this.#recoverSubscriptions(), 5_000)
@@ -100,11 +100,11 @@ export class NostrRelayPool implements RelayTransport {
   }
 
   get closed(): boolean { return this.#closed }
-  configuration(): RelayConfig[] { return this.#relays.map(relay => ({ ...relay })) }
+  configuration(): RelayConfig[] { return this.describe() }
 
   health(): RelayHealth[] {
     const connections = this.#pool.listConnectionStatus()
-    return this.#relays.map(relay => {
+    return this.describe().map(relay => {
       const previous = this.#health.get(relay.url)
       const connected = connections.get(relay.url)
       const state = this.#closed ? 'closed' : connected === true ? 'connected'
@@ -160,7 +160,11 @@ export class NostrRelayPool implements RelayTransport {
   }
 
   describe(): RelayConfig[] {
-    return this.#relays.map(relay => ({ ...relay }))
+    return this.#relays.map(relay => {
+      if (!this.circleAtUse) return { ...relay }
+      const { circle: _previous, ...rest } = relay
+      return this.circleAtUse(relay.url) ? { ...rest, circle: true } : rest
+    })
   }
 
   subscribe(filters: Filter[], onEvent: (event: Event, via?: string) => void, onEose?: () => void): () => void {

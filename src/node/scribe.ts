@@ -215,8 +215,10 @@ export class Scribe {
       // Messages in the same second order by id, which is random, so the
       // second half of the minutes must not share a second with the first.
       if (lastSecond !== undefined) await this.#nextSecond(lastSecond)
-      lastSecond = Math.floor(this.#now() / 1000)
       await this.#runtime.agent.minutes.send(chunk)
+      // The send itself can cross the boundary before stamping the message.
+      // Wait from completion, so the next part cannot reuse that second.
+      lastSecond = Math.floor(this.#now() / 1000)
     }
   }
 
