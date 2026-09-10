@@ -68,7 +68,8 @@ test('somebody invited from a shared room is let straight into a room that asks 
     await rowan.locator('#backToRooms').click()
     await rowan.locator('#roomSwitcherHome').click()
     await rowan.getByRole('button', { name: 'Open Private build', exact: true }).click()
-    await expect(rowan.locator('#status')).toContainText('Asking to be let in', { timeout: 60_000 })
+    // A pre-approved invitation may complete before the next browser poll.
+    // The admission and its acknowledgement are the durable result to verify.
     await expect(rowan.locator('#status')).toContainText('You are on the list', { timeout: 90_000 })
     await expect(ada.locator('#approvals .approvalCard.knock')).toHaveCount(0)
     await expect(ada.locator('#chatLog')).toContainText('Rowan came in on your invite.')
