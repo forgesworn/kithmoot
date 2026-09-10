@@ -356,7 +356,7 @@ export class AssignmentPanel {
     }
     const send = (op: AssignmentOperation, clearDraft?: string, text?: string) => this.#run(async log => {
       if (log.snapshot().assignments.find(a => a.id === s.id)?.head !== s.head) throw new Error('This assignment changed. Review its current state before acting.')
-      await log.submit(s.id, op, crypto.randomUUID())
+      await log.submit(s.id, op, crypto.randomUUID(), s.head)
       if (log !== this.#log) return
       if (clearDraft && this.#drafts.get(clearDraft) === text) this.#drafts.delete(clearDraft)
     })
