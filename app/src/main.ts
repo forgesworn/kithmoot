@@ -353,9 +353,9 @@ const TURN_CREDENTIAL_ENDPOINT: string | undefined = '/turn'
 // encrypted blob and the device key that signed the upload, nothing else,
 // but which server sees that is still the person's choice, made once in
 // the Attach panel and remembered on this device. An operator hosting this
-// app for a community names their own here, or sets it to '' and the panel
-// asks, which is what Wildbloom itself does.
-const BLOSSOM_ENDPOINT = 'https://kithmoot.forgesworn.dev'
+// app for a community gets their own origin automatically. A person can
+// choose a different server in the Attach panel.
+const BLOSSOM_ENDPOINT = window.location.origin
 
 // The donor ring: a coloured ring on a profile picture showing what somebody
 // has put into the project, summed in this browser from public zap receipts.

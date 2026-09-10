@@ -20,6 +20,20 @@ async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: B
   return { page, context }
 }
 
+test('file storage defaults to this app origin and remembers a chosen server', async ({ browser, baseURL }) => {
+  const { page, context } = await setup(browser, baseURL!)
+  try {
+    await page.locator('#attachToggle').click()
+    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await expect(page.locator('#attachServer')).toHaveValue(new URL(baseURL!).origin)
+    await page.locator('#attachServer').fill('https://files.example')
+    await page.locator('#attachServer').press('Tab')
+    await page.reload()
+    // The start page initialises the remembered setting before a room is joined.
+    await expect(page.locator('#attachServer')).toHaveValue('https://files.example')
+  } finally { await context.close() }
+})
+
 test('drafts stay with their conversations, including files and a visit to read-only minutes', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
   try {
