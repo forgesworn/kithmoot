@@ -12,8 +12,8 @@ retain the complete requirements. An individual slice is not completion.
 | --- | --- | --- |
 | Conversation and decisions | PR #60 merged and deployed. All five CI jobs passed; 24 deployed app files matched the build. Room attention, desktop work beside chat and phone decision review are live. | Authorised cross-project attention and physical-phone acceptance. |
 | Shared projects | Existing device-local room labels and preserved drafts. | Synced project model mapped to Oathrun authority, overlapping memberships and device continuity. |
-| Oathrun assignment execution | Existing assignment protocol/journal and Oathrun room route audited. Isolated runtime worktree created. | Canonical assignment claim, progress, question/answer, stop acknowledgement, result and exact acceptance; task-bound authority; restart/uncertain-effect handling; live supported host. |
-| Minimal supervision | Oathrun profiles, grants, budgets and same-task continuation exist. | Reusable setup; bounded routine reporting, continuation and delegation; demonstrate fewer avoidable interventions without broadening authority. |
+| Oathrun assignment execution | Durable encrypted assignment bridge and bounded route implemented in the isolated Oathrun worktree. The browser/native-host/container journey covers claim, one model question, principal answer, bounded continuation, evidence result and exact principal acceptance. Cross-project denial, positive cleanup before stop acknowledgement, encrypted action discovery, late refresh and withdrawal are tested. | Held-execution reconciliation; richer progress/failure decisions; live supported host. |
+| Minimal supervision | Oathrun profiles, grants and budgets exist. A reviewed assignment route now handles claim, question and result reports without per-report approval, and continues from the principal’s answer under the original task and project authority. | Reusable setup; delegation and failure decisions; demonstrate fewer avoidable interventions and cost per accepted outcome on real work. |
 | Native Android | PR #17 merged; complete hosted CI passed. The 0.5.6 (14) debug preview is published on GitHub and the public site with its verified existing preview certificate. Primary chat, Call tab and draft/search/reading-position retention are included. | Agent/work/approval controls, same assignment contract, physical-device and locked-phone acceptance. |
 | Context and efficiency | Signed context collections, scoped verification, literal retrieval, cache controls and usage accounting. | Relevant project retrieval and graph links, freshness/corrections, cross-project denial tests and cost per accepted outcome. |
 | Calls and temporary meetings | Existing media/transcript/agent controls; G7/G8 retained. | Daily call-to-assignment acceptance, platform parity; separate temporary identity/retention/teardown mode and fail-closed masking. |
@@ -26,8 +26,9 @@ retain the complete requirements. An individual slice is not completion.
   branch `feat/chat-workspace`, merged PR #17, source head `f80be80`;
   main merge `0289197`.
 - Oathrun integration: sibling `.workspace-delivery/oathrun` worktree,
-  branch `feat/kithmoot-assignment-delivery`, based on `d3e39be`; durable bridge commit `6bd6a0d`,
-  recovery and immutable-digest improvement `9fd465c`.
+  branch `feat/kithmoot-assignment-delivery`, reconciled with committed recovery
+  baseline `2a99782`; durable bridge `c8bcbf9`, immutable-digest improvement
+  `cc89d9d`, assignment execution `220e27e`, and action discovery `93add8e`.
   The original Oathrun checkout contains concurrent recovery and branding work;
   preserve that work and reconcile the integration before merging.
 
@@ -90,3 +91,28 @@ The quiet-message dependency is now `nostr-deaddrop` 0.2.2. Its deadline timer
 fixes missed random send offsets; the old once-per-slot polling phase could
 repeatedly check too early. Both quiet-message delivery and assignment review
 passed after consuming the published dependency fix.
+
+
+## Oathrun assignment execution — local acceptance
+
+The final reconciled implementation passed 320 Rust tests (four ignored).
+The direct and isolated client checks passed identity, executable-action and
+replay refusal. The final native-host journey also passed late catalogue refresh
+and removal of a withdrawn action. Same-second messages are verified by their
+new IDs because canonical history order uses an ID tie break.
+The browser-configured route completed the encrypted room journey through a
+real Rust WebSocket host and isolated containers, using synthetic principals
+and a loopback model. It created exactly two jobs for one question and one
+answer continuation, and waited for exact principal acceptance of the result.
+
+The same agent’s membership in another project does not permit binding that
+project’s task to this room. Stop acknowledgement requires positive execution
+cleanup; cancelled flags alone are insufficient. Restart restores the encrypted
+canonical journal without automatically retrying an uncertain outgoing effect.
+Changed authority holds the execution for review.
+
+The evidence and implementation are committed in the isolated Oathrun worktree;
+`docs/evidence/assignment-catalogue-2026-09-10.json` records exact source hashes
+and the direct-client, isolated-client and native-host results.
+Oathrun has no configured Git remote, and no live agent migration has occurred.
+This establishes local integration, not a deployed executor or Android work parity.
