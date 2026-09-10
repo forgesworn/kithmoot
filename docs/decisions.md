@@ -1299,7 +1299,17 @@ eight messages an hour from one device; the ninth waits for the next
 hour. None of this is hidden in a setting: the chip beside the composer,
 the note on the room sheet and the outbox row all say what is happening.
 
-## A contact card makes a contact, and the box on it is the first sheltered relay
+## A contact card makes a contact
+
+**Correction, 2026-09-10:** the original relay attribution below was wrong.
+Link SPEC §2.2 defines a relay hint as where the node keeps an outbound
+transport session. That is not a Nostr storage endpoint or proof that the
+contact owns the relay. Both clients now keep automatic attribution closed,
+including for previously stored and refreshed cards. A manually marked
+message relay still counts when its keeper has confirmed it. Automatic
+attribution needs verified box status and claim binding before it returns.
+The following records the original implementation and the rest of the card
+flow; its automatic sheltered-label behaviour is superseded by this fix.
 
 The lane indicator has said "sheltered" for a relay marked as a box of the
 person's circle since the day it shipped, and until now nothing could mark

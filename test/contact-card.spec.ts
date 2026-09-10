@@ -13,9 +13,9 @@ import { openRoomDetails } from './browser.js'
  * A contact card, as a person meets it: pasted into Room details, or opened
  * as a link at the door. What it changes is visible in two places, and both
  * are checked: the person's row says a card is held for them, and a message
- * to their box shows as sheltered, because the box on a card is one of the
- * circle's relays and nothing else ever is (src/lane.ts). Forgetting the
- * card puts both back.
+ * to a Link relay hint stays public: the card does not establish ownership
+ * of a Nostr message relay (src/lane.ts). Forgetting the card removes the
+ * holder badge and leaves the public lane unchanged.
  */
 
 async function device(context: BrowserContext) {
@@ -32,7 +32,7 @@ function rowansCard(rowanSk: Uint8Array, boxRelay: string, base: string): string
   return cardLink(base, card)
 }
 
-test('a contact card marks its holder and makes their box a sheltered relay, and forgetting it undoes both', async ({ browser, baseURL }) => {
+test('a contact card marks its holder without treating its transport relay as sheltered', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 900, height: 760 } })
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
@@ -67,13 +67,14 @@ test('a contact card marks its holder and makes their box a sheltered relay, and
     await expect(rowanRow.locator('.badge.card')).toHaveText('card: Rowan')
     await page.locator('#roomSheetClose').click()
 
-    // The box is now one of the circle's relays: the next message is sheltered, and says so.
-    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/sheltered/)
+    // A signed card endorses a box, not ownership of its Link transport relay.
+    // Using that address for Nostr messages must still show public.
+    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/public/)
     await page.locator('#chatInput').fill('through the box')
     await page.locator('#chatInput').press('Enter')
     const sent = page.locator('#chatLog .msg').filter({ hasText: 'through the box' })
     await expect(sent).toBeVisible()
-    await expect(sent.locator('.chip.lane')).toHaveText(/sheltered/)
+    await expect(sent.locator('.chip.lane')).toHaveText(/public/)
     await expect.poll(() => rowan.chat.messages().some(m => m.text === 'through the box')).toBe(true)
 
     // Ada's own card, signed by whatever holds her identity, reads back
@@ -95,7 +96,7 @@ test('a contact card marks its holder and makes their box a sheltered relay, and
     }
     await page.locator('#roomSheetClose').click()
 
-    // Forgotten, the relay is a public relay again.
+    // Forgetting the card removes its holder badge; the relay stays public.
     await openRoomDetails(page)
     await page.getByRole('button', { name: "Forget Rowan's card" }).click()
     await page.getByRole('button', { name: 'Forget card' }).click()

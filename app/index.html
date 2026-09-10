@@ -680,9 +680,9 @@
         <h3 class="sheetHead">Contact cards</h3>
         <!-- The contact book. A card is read here, on this device, from
              nothing but its own bytes; see app/src/contact-store.ts. A box
-             on a card is a relay of the circle, which is what lets a
-             message to it show as sheltered. -->
-        <p class="note">A contact card is one link or QR from a person: their key and name, their relays, and the box they run. Reading one needs nothing from the network. The box on a card is one of your circle’s relays: a message that goes only there shows as sheltered.</p>
+             on a card carries transport hints, not ownership of a
+             Nostr message relay. -->
+        <p class="note">A contact card is one link or QR from a person: their key and name, their relays, and the box they run. Reading one needs nothing from the network. A card identifies their box. Mark its message relay in relay settings only when its keeper has confirmed the address to you.</p>
         <div id="contactList" class="contactList"></div>
         <form id="contactCardForm" class="contactCardForm">
           <input id="contactCardIn" type="text" autocomplete="off" placeholder="Paste a contact card or its link" aria-label="Contact card or its link" />

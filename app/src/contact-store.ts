@@ -19,15 +19,13 @@
  * card of the same node replaying (Link SPEC §2.3 rule 8); without it any
  * unexpired old card would do.
  *
- * What the book feeds: a box's relays are the circle's relays, which is
- * what makes a message to them show as sheltered (`src/lane.ts`), and a
- * participant whose key matches a card is shown as carrying one. The
- * bond handshake is kept for the ceremony that makes kith; the card alone
- * is ken.
+ * A participant whose key matches a card is shown as carrying one. Link
+ * relay hints locate the box's transport session; they do not establish
+ * ownership of a Nostr message relay. The bond handshake is kept for the
+ * ceremony that makes kith; the card alone is ken.
  *
  * Pure functions over the injected store, like the others in this app.
  */
-import { normalizeURL } from 'nostr-tools/utils'
 import { readCard, refreshBox, type Card, type Box, type LinkCard, type BondHandshake } from 'nostr-contact-card'
 import type { DeviceStore } from './device-store.js'
 
@@ -232,32 +230,14 @@ export interface CircleRelay {
 }
 
 /**
- * Every relay URL that is a contact's box, by URL as the relay pool
- * normalises it. These are the circle's relays: a message that goes only
- * to them is sheltered, and nothing else ever is (`src/lane.ts`).
+ * Contact cards carry Link transport hints, not Nostr storage endpoints.
+ * Keep this attribution seam closed until a box's signed status, claim
+ * binding and endpoint have been verified. This also prevents cards saved
+ * by older clients from upgrading third-party transport relays to sheltered.
+ * Explicit circle-box marks in relay settings are independent of the book.
  */
-export function circleRelays(store: DeviceStore): Map<string, CircleRelay> {
-  const out = new Map<string, CircleRelay>()
-  for (const c of contacts(store)) {
-    for (const b of c.boxes) {
-      for (const url of b.relays) {
-        const key = normalise(url)
-        if (!key || out.has(key)) continue
-        out.set(key, { url: key, contact: c.p, ...(c.name !== undefined ? { name: c.name } : {}), box: b.p, source: b.source })
-      }
-    }
-  }
-  return out
-}
-
-/** The same normalisation the relay pool applies, so a card's URL and a
- *  saved relay compare equal. */
-export function normalise(url: string): string | undefined {
-  try {
-    return normalizeURL(url.trim())
-  } catch {
-    return undefined
-  }
+export function circleRelays(_store: DeviceStore): Map<string, CircleRelay> {
+  return new Map()
 }
 
 /**

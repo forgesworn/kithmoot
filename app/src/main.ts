@@ -264,9 +264,9 @@ const relayStorage = {
   getItem: (key: string) => localStorage.getItem(key),
   setItem: (key: string, value: string) => localStorage.setItem(key, value),
 }
-// A relay that is a contact's box is one of the circle's, and a message
-// that goes only to such relays shows as sheltered. Read off the contact
-// book each time, so a card read or forgotten moves the mark at once.
+// Circle attribution is reserved for verified message endpoints. A message
+// that goes only to such relays shows as sheltered. Contact cards alone
+// grant no message-relay ownership; explicit keeper-confirmed marks remain.
 const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, (url) => circleRelays(browserDeviceStore(localStorage)).has(url))
 let RELAYS = relayConnections.configuration('default').map(relay => relay.url)
 let roomRelayScope = 'default'
@@ -2684,7 +2684,7 @@ function renderContacts(): void {
     forget.textContent = 'Forget'
     forget.setAttribute('aria-label', `Forget ${contactLabel(c)}'s card`)
     forget.addEventListener('click', async () => {
-      if (!await confirmRoomAction({ title: `Forget ${contactLabel(c)}'s card?`, message: 'Their box stops counting as one of your circle\'s relays, and messages to it show as public again. Their key is not blocked; a new card adds them back.', confirmLabel: 'Forget card', danger: true })) return
+      if (!await confirmRoomAction({ title: `Forget ${contactLabel(c)}'s card?`, message: 'Their card and saved box details will be removed from this device. Their key is not blocked; a new card adds them back.', confirmLabel: 'Forget card', danger: true })) return
       forgetContact(deviceStore, c.p)
       contactsChanged()
     })
@@ -2709,7 +2709,7 @@ function renderContacts(): void {
   $('myCard').hidden = isPairedSecondary(deviceStore)
 }
 
-/** A card was read or forgotten: the circle's relays moved, and so did the marks. */
+/** A card was read or forgotten: refresh its holder badge and lane attribution. */
 function contactsChanged(): void {
   relayConnections.circleChanged()
   renderContacts()
