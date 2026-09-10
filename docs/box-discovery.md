@@ -57,3 +57,9 @@ published feature or a completed Vennel production gate. Hosted three-browser
 checks, independent Android parity, real Bothy interoperability and physical
 owned-box journeys remain required. No public drop tier is enabled by this
 change, and the Bothy design disagreements above remain open.
+
+The 34 signed status and 8 claim cases in `vectors/box-discovery.json` are
+also checked by the native Android verifier. Regenerate with Node 24 using
+`npm run build:lib && node vectors/generate-box-discovery.mjs`; expected
+acceptance is explicit in the generator and checked before writing. These
+client-generated cases do not replace interoperability with a running Bothy.
