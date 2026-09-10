@@ -30,6 +30,7 @@ import {
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { roomProject, setRoomProject } from './room-projects.js'
+import { SharedProjectsPanel } from './shared-projects.js'
 import { RoomWatch } from './room-watch.js'
 import { RoomBookmarks } from './room-bookmarks.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
@@ -685,6 +686,7 @@ async function signOutOfNostr(): Promise<void> {
   if (session || joining) throw new Error('Leave the room before signing out.')
   identityGeneration++
   const account = nostrSession
+  void sharedProjects.detach()
   bookmarks?.close()
   bookmarks = undefined
   readSync?.close()
@@ -718,6 +720,11 @@ function refreshAccountRooms(): void {
 }
 
 function startRoomBookmarks(account: SignetSession): void {
+  const crypt = account.signer.nip44
+  if (crypt) void sharedProjects.attach({ pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event),
+    encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text),
+  }, relayConnections.pool('default'))
+  else void sharedProjects.detach()
   bookmarks?.close()
   bookmarks = new RoomBookmarks(deviceStore, account.signer, relayConnections.pool('default'), () => {
     if (roomsListShown) {
@@ -7020,7 +7027,7 @@ function renderRooms(): void {
   const importable = browserRoomsToImport()
   $('importBrowserRooms').hidden = !nostrSession || importable.length === 0
   $('importBrowserRooms').textContent = `Add the ${importable.length === 1 ? 'room' : `${importable.length} rooms`} already here`
-  const rooms = knownRooms(roomStore())
+  const rooms = navigationRooms()
   const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
   fillProjectFilter('homeProject', rooms)
   const project = ($('homeProject') as HTMLSelectElement).value
@@ -7228,6 +7235,7 @@ function currentRoomLabel(): string {
 }
 
 function openKnownRoom(room: KnownRoom): void {
+  if (sharedProjects.forRoom(room.roomId).length) { void switchRoom(room); return }
   // A fragment-only change is a same-document navigation, which never
   // re-runs this module; the reload is what reads the link.
   // A synced bookmark is data, not a redirect to a different website.
@@ -7237,11 +7245,23 @@ function openKnownRoom(room: KnownRoom): void {
 }
 
 function projectOf(room: Pick<KnownRoom, 'roomId'>): string | undefined {
-  return roomProject(deviceStore, nostrSession?.pubkey, room.roomId)
+  const shared = sharedProjects.forRoom(room.roomId)
+  return shared.length ? shared.map(p => p.definition!.name).join(', ') : roomProject(deviceStore, nostrSession?.pubkey, room.roomId)
+}
+
+function projectChoices(rooms: KnownRoom[]): Array<{ key: string; name: string }> {
+  const shared = sharedProjects.joined().filter(p => p.definition!.rooms.some(r => rooms.some(room => room.roomId === r.room)))
+  const labels = [...new Set(rooms.filter(r => !sharedProjects.forRoom(r.roomId).length).map(r => roomProject(deviceStore, nostrSession?.pubkey, r.roomId)).filter((name): name is string => !!name))]
+  const duplicate = (name: string) => shared.filter(p => p.definition!.name === name).length + labels.filter(label => label === name).length > 1
+  return [
+    ...shared.map(p => ({ key: `shared:${p.key}`, name: p.definition!.name + (duplicate(p.definition!.name) ? ` · ${p.owner === nostrSession?.pubkey ? 'Yours' : shownAs(p.owner).name ?? npubEncode(p.owner).slice(0, 12) + '…'} · ${p.project.slice(0, 6)}` : '') })),
+    ...labels.map(name => ({ key: `project:${name}`, name: name + (duplicate(name) ? ' · Personal label' : '') })),
+  ].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
 }
 
 function navigationRooms(): KnownRoom[] {
   const rooms = knownRooms(roomStore())
+  for (const room of sharedProjects.sharedRooms()) if (!rooms.some(r => r.roomId === room.roomId)) rooms.push(room)
   const current = currentRoomId()
   if (current && !rooms.some(room => room.roomId === current)) {
     rooms.unshift({ roomId: current, name: roomName, link: encodeRoomUrl(joinLinkBase(), relays, iceUrls), openedAt: nowSeconds(), readAt: 0 })
@@ -7250,7 +7270,10 @@ function navigationRooms(): KnownRoom[] {
 }
 
 function matchesRoom(room: KnownRoom, query: string, project = '*'): boolean {
-  return (project === '*' || (projectOf(room) ? `project:${projectOf(room)}` : '') === project)
+  const shared = sharedProjects.forRoom(room.roomId)
+  const local = roomProject(deviceStore, nostrSession?.pubkey, room.roomId)
+  const inProject = project === '*' || (project.startsWith('shared:') ? shared.some(p => `shared:${p.key}` === project) : project === '' ? !shared.length && !local : !shared.length && `project:${local}` === project)
+  return inProject
     && `${knownRoomLabel(room)} ${room.roomId} ${projectOf(room) ?? ''}`.toLocaleLowerCase().includes(query)
 }
 
@@ -7261,7 +7284,7 @@ function projectNames(rooms: KnownRoom[]): string[] {
 function fillProjectFilter(id: string, rooms: KnownRoom[]): void {
   const select = $(id) as HTMLSelectElement
   const value = select.value
-  const options: Array<[string, string]> = [['*', 'All projects'], ...projectNames(rooms).map(name => [`project:${name}`, name] as [string, string]), ['', 'No project']]
+  const options: Array<[string, string]> = [['*', 'All projects'], ...projectChoices(rooms).map(p => [p.key, p.name] as [string, string]), ['', 'No project']]
   // Do not replace a native select while the person is choosing from it.
   if (Array.from(select.options).map(option => option.value).join('\n') === options.map(([value]) => value).join('\n')) return
   select.replaceChildren(...options.map(([value, label]) => new Option(label, value)))
@@ -7273,8 +7296,8 @@ function fillProjectFilter(id: string, rooms: KnownRoom[]): void {
 /** Whether projects are worth a control at all: somebody has made one, or
  *  there are enough rooms that grouping them would help. */
 function organising(): boolean {
-  const rooms = knownRooms(roomStore())
-  return rooms.length >= 3 || projectNames(rooms).length > 0
+  const rooms = navigationRooms()
+  return !!nostrSession?.signer.nip44 || rooms.length >= 3 || projectNames(rooms).length > 0
 }
 
 function projectButton(room: KnownRoom): HTMLButtonElement {
@@ -7292,6 +7315,7 @@ let projectRoom: KnownRoom | undefined
 let projectReturn: HTMLElement | undefined
 let projectReturnList: HTMLElement | undefined
 function openProjectEditor(room: KnownRoom, opener: HTMLElement): void {
+  if (nostrSession?.signer.nip44) { sharedProjects.open(opener, room); return }
   projectRoom = room
   projectReturn = opener
   projectReturnList = opener.closest<HTMLElement>('#workspaceRooms, #roomSwitcherList, #roomList') ?? undefined
@@ -7313,15 +7337,16 @@ function renderWorkspace(): void {
   const rooms = navigationRooms().filter(room => matchesRoom(room, query))
   const current = currentRoomId()
   const busy = switchingBlocked()
-  const groups = [...projectNames(rooms), ...(rooms.some(room => !projectOf(room)) ? [''] : [])]
+  const groups = [...projectChoices(rooms), ...(rooms.some(room => !projectOf(room)) ? [{ key: '', name: 'No project' }] : [])]
   list.replaceChildren()
   for (const project of groups) {
     const group = document.createElement('section')
     const heading = document.createElement('h3')
-    heading.textContent = project || 'No project'
-    heading.hidden = groups.length === 1 && !project
+    heading.textContent = project.name
+    heading.hidden = groups.length === 1 && !project.key
+    group.dataset.project = project.key
     group.append(heading)
-    for (const room of rooms.filter(room => (projectOf(room) ?? '') === project)) {
+    for (const room of rooms.filter(room => matchesRoom(room, '', project.key))) {
       const row = document.createElement('div')
       row.className = 'workspaceRoom'
       row.dataset.room = room.roomId
@@ -7464,6 +7489,7 @@ async function switchRoom(room: KnownRoom): Promise<void> {
     $('arrivalActions').hidden = true
     setStatus('')
     if (!await roomFromLocation()) throw new Error('The room has no invitation link.')
+    if (sharedProjects.forRoom(room.roomId).length && currentRoomId() !== room.roomId) throw new Error('This project invitation opened a different room. Ask the project owner to correct it before continuing.')
     showRoomUi()
     renderIdentity()
     if (($('join') as HTMLButtonElement).disabled) return
@@ -7987,6 +8013,15 @@ inviteDialog.addEventListener('click', event => {
   if (event.target !== inviteDialog) return
   const bounds = inviteDialog.getBoundingClientRect()
   if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) inviteDialog.close()
+})
+
+const sharedProjects = new SharedProjectsPanel(document, {
+  store: deviceStore,
+  rooms: navigationRooms,
+  people: () => (session?.participants() ?? []).map(p => ({ pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true })),
+  changed: renderRooms,
+  openRoom: room => { void switchRoom(room) },
+  signIn: () => { void signInWithNostr().catch(e => setStatus(e instanceof Error ? e.message : 'Sign-in did not finish.')) },
 })
 
 const assignmentPanel = new AssignmentPanel(document, () => {
