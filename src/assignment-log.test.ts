@@ -88,6 +88,27 @@ describe('durable encrypted assignment transport', () => {
     expect(f.a.snapshot().pendingSends).toBe(0)
   })
 
+  it('checks an expected head after a queued incoming durable save', async () => {
+    const f = await fixture()
+    const created = await f.a.submit(undefined, { op: 'create', objective: 'Review current work', criteria: 'Use the approved version', owner: f.worker.participant }, 'version_create_001', null)
+    await vi.waitFor(() => expect(f.b.snapshot().assignments).toHaveLength(1))
+    let saving = false
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const save = f.bStore.save.bind(f.bStore)
+    f.bStore.save = async value => { saving = true; await gate; await save(value) }
+    await f.a.submit(created.id, { op: 'stop', purpose: 'cancel', reason: 'Scope changed' }, 'version_stop_001', created.head)
+    await vi.waitFor(() => expect(saving).toBe(true))
+    expect(f.b.snapshot().assignments[0]?.head).toBe(created.head)
+    const before = f.relay.published.length
+    const claim = f.b.submit(created.id, { op: 'claim', executor: 'version_executor_001', next: 'Run the old plan' }, 'version_claim_001', created.head)
+    const refused = expect(claim).rejects.toThrow('Assignment version changed')
+    release()
+    await refused
+    expect(f.b.snapshot().pendingSends).toBe(0)
+    expect(f.relay.published).toHaveLength(before)
+  })
+
   it('refuses an update from a room member who does not own the assignment', async () => {
     const f = await fixture()
     const created = await f.a.submit(undefined, { op: 'create', objective: 'Owned task', criteria: 'Named worker only', owner: f.worker.participant }, 'owned_request_001')

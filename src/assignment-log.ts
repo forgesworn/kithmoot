@@ -133,7 +133,7 @@ export class AssignmentLog {
 
   /** Stable request IDs are mandatory at this boundary. Failed/ambiguous sends
    * remain in the encrypted outbox and retry the exact same signed operation. */
-  async submit(assignment: string | undefined, operation: AssignmentOperation, request: string): Promise<Assignment> {
+  async submit(assignment: string | undefined, operation: AssignmentOperation, request: string, expectedHead?: string | null): Promise<Assignment> {
     const pending = await this.#serial(async () => {
       if (!this.snapshot().ready) throw new Error(this.#error ?? 'Wait for assignment history to finish loading')
       const identity = this.#opts.identity
@@ -144,12 +144,16 @@ export class AssignmentLog {
       if (old) {
         const payload = assignmentPayload(old, this.roomId)!
         if (JSON.stringify(payload.operation) !== JSON.stringify(operation) || (assignment && payload.assignment !== assignment)) throw new Error('Request ID already used for different work')
+        if (expectedHead !== undefined && payload.previous !== expectedHead) throw new Error('Assignment version changed')
         return retry ?? { inner: old, outer: undefined }
       }
       if (this.#outbox.size) throw new Error('Resolve the pending assignment send before another update')
       const id = assignment ?? assignmentId(identity.pubkey, request)
       const before = this.snapshot().assignments.find(s => s.id === id)
       if (assignment && !before) throw new Error('Assignment history is missing')
+      // Compare inside the serial update, after any queued incoming saves.
+      // A host approval for one head must never sign against a newer head.
+      if (expectedHead !== undefined && (before?.head ?? null) !== expectedHead) throw new Error('Assignment version changed')
       const inner = await signAssignment(identity, this.roomId, { v: 1, assignment: id, request, previous: before?.head ?? null, device: getPublicKey(this.#opts.deviceSk), operation }, this.#now())
       const projected = projectAssignments([...this.#events.values(), inner], this.roomId)
       const next = projected.assignments.find(s => s.id === id)
