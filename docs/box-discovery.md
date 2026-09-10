@@ -66,3 +66,14 @@ also checked by the native Android verifier. Regenerate with Node 24 using
 `npm run build:lib && node vectors/generate-box-discovery.mjs`; expected
 acceptance is explicit in the generator and checked before writing. These
 client-generated cases do not replace interoperability with a running Bothy.
+
+Eight additional cases in `vectors/bothy-issued-discovery.json` come from
+Vennel's Rust interoperability harness: Bothy's production claim/status
+builders, `CardIssuer` over a real loopback Link endpoint, and its real Link
+verifier. Bothy validity and freshness are recorded separately. Web and
+Android consume the exact bytes for drops off/on, endpoint discovery, stale
+status, an expired card in a fresh status, Link rotation, a bad Link signature
+inside a valid box signature, and an endorsed retired claim. The generator
+checks source and dependency-lock provenance before running. This advances
+implementation interoperability; it is not a running bothyd or owned-box
+network/device journey.
