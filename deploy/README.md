@@ -787,8 +787,8 @@ envelope under a fresh key, puts the sealed bytes on a Blossom server
 (BUD-01: `PUT /upload`, authorised by a signed kind-24242 event), and hands
 the key to the room inside the message; `docs/agents.md`, "Dropping a file
 in", has the whole of it. The server is a default on the same terms as
-TURN, not a dependency: `BLOSSOM_ENDPOINT` in `app/src/main.ts` names the
-app's own origin, the Attach panel lets anyone name another, and a fork
+TURN, not a dependency: `BLOSSOM_ENDPOINT` in `app/src/main.ts` takes the
+app's actual origin at runtime, the Attach panel lets anyone name another, and a fork
 that runs none sets the constant back to `''` and the panel asks.
 
 The kit runs [blossom-server-ts](https://github.com/hzrd149/blossom-server),

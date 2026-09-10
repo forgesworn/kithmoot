@@ -25,15 +25,16 @@ test('two people share encrypted context, keep personal notes private, and recov
     await c.route('**/turn', r => r.fulfill({ status: 503, body: '' }))
     return c
   }))
+  const blobOrigin = new URL(baseURL!).origin
   const blobs = new Map<string, Buffer>(); let fetches = 0
-  for (const c of contexts) await c.route('https://kithmoot.forgesworn.dev/**', async route => {
+  for (const c of contexts) await c.route(url => url.origin === blobOrigin && (url.pathname === '/upload' || url.pathname.startsWith('/blossom/')), async route => {
     fetches++
     const req = route.request()
     if (req.method() === 'PUT') {
       const bytes = req.postDataBuffer()!, hash = sha256Hex(bytes)
       expect(bytes.includes('Check the board display')).toBe(false)
       blobs.set('/blossom/' + hash, bytes)
-      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ sha256: hash, size: bytes.length, url: 'https://kithmoot.forgesworn.dev/blossom/' + hash }) })
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ sha256: hash, size: bytes.length, url: blobOrigin + '/blossom/' + hash }) })
     } else { const blob = blobs.get(new URL(req.url()).pathname); await route.fulfill({ status: blob ? 200 : 404, body: blob ?? '' }) }
   })
   const [alice, bob] = await Promise.all(contexts.map(c => c.newPage()))
