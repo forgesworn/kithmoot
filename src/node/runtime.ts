@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { randomFraction } from '../random.js'
 import type { ApprovalOutcome, ApprovalRequestOptions, RoomAgent } from '../agent.js'
 import type { ChatLog, ChatMessage } from '../chat.js'
 import type { ParticipantView } from '../session.js'
@@ -243,7 +244,7 @@ export class AgentRuntime {
     // This remains a connection receipt, never a claim of model completion.
     let cancel!: () => void
     const pause = new Promise<void>(resolve => {
-      const timer = setTimeout(resolve, 1_500 + Math.random() * 1_500)
+      const timer = setTimeout(resolve, 1_500 + randomFraction() * 1_500)
       cancel = () => { clearTimeout(timer); resolve() }
     })
     const promise = pause.then(async () => {
