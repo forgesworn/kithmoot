@@ -81,3 +81,59 @@ describe('the circle\'s relays', () => {
     } finally { pool.close() }
   })
 })
+
+describe('session-only relay identity permission', () => {
+  const identity = { pubkey: 'd'.repeat(64), signEvent: async () => { throw new Error('no signature is requested by preferences') } }
+  it('scopes permission to the chosen connection and never serialises it or inherits it from defaults', () => {
+    const saved = storage(), connections = new RelayConnections(saved, defaults)
+    const first = connections.pool(room), other = connections.pool(`room:${'b'.repeat(64)}`), account = connections.pool('default')
+    try {
+      connections.authenticate(room, defaults[0]!, identity)
+      expect(first.health()[0]?.authentication).toBe('allowed')
+      expect(other.health()[0]?.authentication).toBeUndefined()
+      expect(account.health()[0]?.authentication).toBeUndefined()
+      connections.authenticate('default', defaults[0]!, identity)
+      connections.inheritDefaults(`room:${'c'.repeat(64)}`)
+      expect(connections.authenticationIdentity(`room:${'c'.repeat(64)}`, 'wss://default.test/')).toBeUndefined()
+      connections.save(room, connections.configuration(room))
+      expect(saved.getItem('kithmoot.relays.v1')).not.toContain(identity.pubkey)
+      expect(saved.getItem('kithmoot.relays.v1')).not.toContain('authentication')
+      const restored = new RelayConnections(saved, defaults)
+      expect(restored.authenticationIdentity(room, 'wss://default.test/')).toBeUndefined()
+    } finally { first.close(); other.close(); account.close() }
+  })
+  it('withdraws permission from existing and future pools when the account changes', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    const first = connections.pool(room)
+    let later: ReturnType<RelayConnections['pool']> | undefined
+    try {
+      connections.authenticate(room, defaults[0]!, identity)
+      connections.clearAuthentication()
+      expect(first.health()[0]?.authentication).toBe('withdrawn')
+      later = connections.pool(room)
+      expect(later.health()[0]?.authentication).toBe('withdrawn')
+      connections.reconnect(room)
+      expect(first.health()[0]?.authentication).toBe('withdrawn')
+      connections.authenticate(room, defaults[0]!, identity)
+      expect(first.health()[0]?.authentication).toBe('allowed')
+      expect(later.health()[0]?.authentication).toBe('allowed')
+    } finally { first.close(); later?.close() }
+  })
+  it('forgets room permissions when an inherited default endpoint is removed', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    connections.authenticate(room, defaults[0]!, identity)
+    connections.save('default', [{ url: 'wss://other.test', read: true, write: true }])
+    connections.save('default', [{ url: defaults[0]!, read: true, write: true }])
+    expect(connections.authenticationIdentity(room, 'wss://default.test/')).toBeUndefined()
+    const recreated = connections.pool(room)
+    try { expect(recreated.health()[0]?.authentication).toBeUndefined() } finally { recreated.close() }
+  })
+  it('does not restore a grant when a removed endpoint is added again', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    connections.authenticate(room, defaults[0]!, identity)
+    connections.save(room, [{ url: 'wss://other.test', read: true, write: true }])
+    connections.save(room, [{ url: defaults[0]!, read: true, write: true }])
+    expect(connections.authenticationIdentity(room, 'wss://default.test/')).toBeUndefined()
+    expect(() => connections.authenticate(room, 'wss://invitation-only.test', identity)).toThrow('Apply this relay')
+  })
+})

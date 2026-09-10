@@ -81,6 +81,11 @@ device keys. They do not see room contents, participant identities or names
 from those events. KithMoot reduces metadata; it does not pretend metadata
 does not exist.
 
+If you explicitly choose **Use signed-in account** in relay settings, that
+relay also learns your account's public identity through NIP-42 authentication.
+The permission is limited to the selected connection scope and this tab;
+signing out withdraws it. See [relay authentication](docs/relay-authentication.md).
+
 The fragment protects the invitation from KithMoot's HTTP server and ordinary
 link-preview fetchers, not from the service carrying the message. In an
 end-to-end encrypted conversation that service cannot read the link; in a

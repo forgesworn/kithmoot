@@ -670,6 +670,7 @@ async function signInWithNostr(): Promise<void> {
   // Say so, once, rather than leaving a person to work out why their rooms
   // are gone.
   const previous = expectedAccount
+  relayConnections.clearAuthentication()
   nostrSession = account
   rememberAccount(account.pubkey)
   startRoomBookmarks(account)
@@ -685,6 +686,7 @@ async function signOutOfNostr(): Promise<void> {
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
   identityGeneration++
+  relayConnections.clearAuthentication()
   const account = nostrSession
   void sharedProjects.detach()
   bookmarks?.close()
@@ -8049,6 +8051,18 @@ function openProfileSettings(from: HTMLElement): void {
 }
 $('roomProfileSettings').addEventListener('click', () => openProfileSettings($('roomMenu')))
 const relaySettings = new RelaySettingsPanel(document, relayConnections, {
+  canAuthenticate: () => !!nostrSession?.signer.capabilities.canSignEvents,
+  authenticate: async (scope, url) => {
+    const account = nostrSession, generation = identityGeneration
+    if (!account?.signer.capabilities.canSignEvents) throw new Error('Sign in to choose an authentication identity')
+    const purpose = scope === 'default' ? 'default connections and account sync' : 'this room'
+    if (!await confirmRoomAction({ title: 'Identify to this relay?',
+      message: `${url} will learn your public identity, ${npubEncode(account.pubkey)}, when connecting for ${purpose}. This permission lasts in this tab and is not saved or shared in invitations.`,
+      confirmLabel: 'Use this account', cancelLabel: 'Cancel' })) return false
+    if (nostrSession !== account || identityGeneration !== generation || (scope !== 'default' && scope !== roomRelayScope)) throw new Error('Account or room changed; choose the identity again')
+    relayConnections.authenticate(scope, url, account.signer, scope === roomRelayScope ? roomRelayConfig : [])
+    return true
+  },
   room: () => roomRelayScope === 'default' ? undefined : { scope: roomRelayScope, hints: roomRelayConfig },
   // A relay marked as a circle box by hand moves the lane the same way a
   // card's box does; the marks are already in every pool, so only the

@@ -425,3 +425,5 @@ export { ProjectDirectory } from './project-directory.js'
 export type { ProjectDirectoryStorage, ProjectDirectorySnapshot, SharedProject } from './project-directory.js'
 export { PROJECT_APP, PROJECT_KIND, PROJECT_WRAP_KIND, projectKey, projectId, projectAuthority, projectRecord, signProject, projectForRecipient, wrapProject, unwrapProject } from './projects.js'
 export type { ProjectIdentity, ProjectMember, ProjectRoom, ProjectDefinition, ProjectReference, ProjectRevision, ProjectRecord } from './projects.js'
+
+export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
