@@ -1,8 +1,11 @@
-import { SimplePool } from 'nostr-tools/pool'
+import { AbstractSimplePool, SimplePool } from 'nostr-tools/pool'
+import { verifyEventUncached } from './verify.js'
 import { normalizeURL } from 'nostr-tools/utils'
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
 import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
+import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
+export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
 /** The transport seam shared by real relays and the in-process simulator. */
 export interface RelayTransport {
@@ -32,7 +35,9 @@ export interface RelayHealth extends RelayConfig {
   lastPublishedAt?: number
   publishLatencyMs?: number
   lastError?: string
+  authentication?: 'allowed' | 'authenticated' | 'failed' | 'withdrawn'
 }
+
 
 export function normaliseRelayConfig(entries: readonly (string | RelayConfig)[]): RelayConfig[] {
   if (entries.length === 0) throw new Error('at least one relay is required')
@@ -62,7 +67,7 @@ type Subscription = {
 }
 
 export class NostrRelayPool implements RelayTransport {
-  #pool: SimplePool
+  #pool: AbstractSimplePool
   #relays: RelayConfig[]
   #health = new Map<string, Partial<RelayHealth>>()
   #subscriptions = new Set<Subscription>()
@@ -71,27 +76,83 @@ export class NostrRelayPool implements RelayTransport {
   #closed = false
   #attempted = new Map<string, number>()
   #recovery: ReturnType<typeof setInterval>
+  #authentication = new Map<string, AuthenticationGrant | null>()
+  #authFailures = new Map<string, string>()
+  readonly #authTimeout: number
 
-  constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean) {
+  constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean, private readonly options: RelayPoolOptions = {}) {
     this.#relays = normaliseRelayConfig(relays)
+    this.#authTimeout = options.authenticationTimeoutMs ?? AUTH_TIMEOUT_MS
+    if (!Number.isSafeInteger(this.#authTimeout) || this.#authTimeout < 100 || this.#authTimeout > 120_000) throw new Error('Invalid relay authentication deadline')
+    this.#authentication = this.#grants(options.authentication ?? [])
     this.#pool = this.#createPool()
     this.#recovery = setInterval(() => this.#recoverSubscriptions(), 5_000)
     ;(this.#recovery as unknown as { unref?: () => void }).unref?.()
   }
 
-  #createPool(): SimplePool {
+  #createPool(): AbstractSimplePool {
     const generation = this.#generation
     // Own subscription recovery, including failed first connections and
     // stalled reconnect handshakes. Dependency reconnects can wait forever
     // without a timeout and leave a running agent unable to hear the room.
-    const pool = new SimplePool({ enableReconnect: false, enablePing: true })
+    const owner = this
+    const current = (url: string) => !this.#closed && generation === this.#generation && !this.#authError(url)
+    const base = this.options.websocketImplementation ?? globalThis.WebSocket
+    const websocketImplementation = this.#authentication.size
+      ? authenticatedWebSocket(base, url => this.#authentication.get(url) ?? undefined, current, (url, reason) => {
+          if (generation === this.#generation) {
+            this.#authFailures.set(url, reason)
+            this.#mark(url, { state: 'disconnected', lastError: reason })
+          }
+        }, this.#authTimeout)
+      : this.options.websocketImplementation
+    const pool = websocketImplementation ? new class extends AbstractSimplePool {
+      override ensureRelay(url: string, params?: Parameters<AbstractSimplePool['ensureRelay']>[1]) {
+        return super.ensureRelay(url, owner.#authentication.get(normalizeURL(url))
+          ? { ...params, connectionTimeout: owner.#authTimeout + 8_000 }
+          : params)
+      }
+    }({ enableReconnect: false, enablePing: true, websocketImplementation,
+      verifyEvent: verifyEventUncached, maxWaitForConnection: 3_000 })
+      : new SimplePool({ enableReconnect: false, enablePing: true })
+    pool.allowConnectingToRelay = url => current(normalizeURL(url))
     pool.onRelayConnectionSuccess = url => {
       if (generation === this.#generation) this.#mark(url, { state: 'connected', lastConnectedAt: Date.now(), lastError: undefined })
     }
     pool.onRelayConnectionFailure = url => {
-      if (generation === this.#generation) this.#mark(url, { state: 'disconnected', lastError: 'Connection failed' })
+      if (generation === this.#generation) this.#mark(url, { state: 'disconnected', lastError: this.#authError(normalizeURL(url)) ?? 'Connection failed' })
     }
     return pool
+  }
+
+  #grants(entries: readonly RelayAuthentication[]): Map<string, AuthenticationGrant | null> {
+    const grants = new Map<string, AuthenticationGrant | null>()
+    for (const entry of entries) {
+      const url = normaliseRelayConfig([entry.url])[0]!.url
+      if (!this.#relays.some(relay => relay.url === url) || grants.has(url)) {
+        throw new Error('Authentication must name one configured relay')
+      }
+      if (entry.identity === null) { grants.set(url, null); continue }
+      if (!/^[a-f0-9]{64}$/.test(entry.identity?.pubkey) || typeof entry.identity?.signEvent !== 'function') {
+        throw new Error('Authentication needs an explicit signing identity')
+      }
+      grants.set(url, { pubkey: entry.identity.pubkey, sign: entry.identity.signEvent.bind(entry.identity) })
+    }
+    return grants
+  }
+
+  /** Replace session-only permissions. Withdrawing one closes existing sockets
+   * and invalidates an outstanding signer response before it can be sent. */
+  setAuthentication(entries: readonly RelayAuthentication[]): void {
+    if (this.#closed) throw new Error('pool is closed')
+    const next = this.#grants(entries)
+    for (const url of this.#authentication.keys()) if (!next.has(url)) next.set(url, null)
+    this.#authentication = next
+    this.setRelays(this.#relays)
+  }
+
+  #authError(url: string): string | undefined {
+    return this.#authFailures.get(url) ?? (this.#authentication.get(url) === null ? 'Relay authentication permission withdrawn' : undefined)
   }
 
   #mark(url: string, update: Partial<RelayHealth>): void {
@@ -109,7 +170,11 @@ export class NostrRelayPool implements RelayTransport {
       const connected = connections.get(relay.url)
       const state = this.#closed ? 'closed' : connected === true ? 'connected'
         : previous?.state === 'connected' ? 'disconnected' : previous?.state ?? 'idle'
-      return { ...previous, ...relay, state }
+      const grant = this.#authentication.get(relay.url)
+      const authentication = grant === null ? 'withdrawn' : grant
+        ? this.#authFailures.has(relay.url) ? 'failed' : connected ? 'authenticated' : 'allowed'
+        : undefined
+      return { ...previous, ...relay, state, authentication }
     })
   }
 
@@ -122,7 +187,10 @@ export class NostrRelayPool implements RelayTransport {
     for (const sub of this.#subscriptions) this.#stop(sub)
     this.#pool.destroy()
     this.#relays = next
+    for (const url of this.#authentication.keys()) if (!next.some(relay => relay.url === url)) this.#authentication.delete(url)
+    this.#authFailures.clear()
     this.#health.clear()
+    for (const [url, grant] of this.#authentication) if (grant === null) this.#mark(url, { state: 'disconnected', lastError: this.#authError(url) })
     this.#attempted.clear()
     this.#abort = new AbortController()
     this.#pool = this.#createPool()
@@ -145,7 +213,7 @@ export class NostrRelayPool implements RelayTransport {
         await result
         if (generation === this.#generation) this.#mark(urls[i]!, { state: 'connected', lastPublishedAt: Date.now(), publishLatencyMs: Date.now() - start, lastError: undefined })
       } catch (error) {
-        if (generation === this.#generation) this.#mark(urls[i]!, { lastError: 'Last publish failed or was rejected' })
+        if (generation === this.#generation) this.#mark(urls[i]!, { lastError: this.#authError(urls[i]!) ?? 'Last publish failed or was rejected' })
         throw error
       }
     }))
@@ -200,7 +268,7 @@ export class NostrRelayPool implements RelayTransport {
       abort: this.#abort.signal,
       maxWait: 8_000,
       oneose: () => {
-        if (!active()) return
+        if (!active() || this.#authError(url)) return
         sub.eosed.add(url)
         if (!sub.eoseSent && this.#relays.filter(relay => relay.read).every(relay => sub.eosed.has(relay.url))) {
           sub.eoseSent = true
@@ -221,7 +289,8 @@ export class NostrRelayPool implements RelayTransport {
     const connected = this.#pool.listConnectionStatus()
     const now = Date.now()
     for (const relay of this.#relays) {
-      if (!relay.read || connected.get(relay.url) || now - (this.#attempted.get(relay.url) ?? 0) < 15_000) continue
+      if (!relay.read || this.#authError(relay.url) || connected.get(relay.url) ||
+          now - (this.#attempted.get(relay.url) ?? 0) < (this.#authentication.get(relay.url) && this.#health.get(relay.url)?.state === 'connecting' ? this.#authTimeout + 8_000 : 15_000)) continue
       // Keep healthy relays and their consumers running. Replaying the
       // original filters catches missed events; each consumer retains its
       // deduplication set across reconnections, including same-second events.

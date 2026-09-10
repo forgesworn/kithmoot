@@ -1,4 +1,6 @@
-import { NostrRelayPool, normaliseRelayConfig, type RelayConfig, type RelayHealth } from '../../src/relay-pool.js'
+import { NostrRelayPool, normaliseRelayConfig, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
+
+import type { ParticipantIdentity } from '../../src/identity.js'
 
 const STORAGE_KEY = 'kithmoot.relays.v1'
 /** The relays this person has marked as boxes of their own circle, by hand:
@@ -13,6 +15,8 @@ type RelayHints = (string | RelayConfig)[]
 export class RelayConnections {
   #saved: Record<string, RelayConfig[]> = {}
   #marks = new Set<string>()
+  #authentication = new Map<string, Map<string, ParticipantIdentity | null>>()
+  #authenticationHints = new Map<string, RelayHints>()
   #pools = new Map<NostrRelayPool, { scope: string; hints: RelayHints }>()
   /** `circle` says whether a relay URL is a box of the person's own circle,
    *  verified from current signed box status; such a relay is marked on every
@@ -48,6 +52,34 @@ export class RelayConnections {
     this.storage.setItem(CIRCLE_KEY, JSON.stringify([...this.#marks]))
     this.circleChanged()
   }
+  /** Authentication is session-only and scoped to the selected room or
+   * account-sync connection. Saved relay hints cannot grant identity access. */
+  authenticate(scope: string, url: string, identity: ParticipantIdentity | null, hints: RelayHints = []): void {
+    if (!this.#validScope(scope)) throw new Error('No room is selected')
+    const normal = normaliseRelayConfig([url])[0]!.url
+    if (!this.configuration(scope, hints).some(relay => relay.url === normal)) throw new Error('Apply this relay before authenticating')
+    if (identity && (!/^[a-f0-9]{64}$/.test(identity.pubkey) || typeof identity.signEvent !== 'function')) throw new Error('Choose a signing account first')
+    const grants = this.#authentication.get(scope) ?? new Map<string, ParticipantIdentity | null>()
+    grants.set(normal, identity)
+    this.#authentication.set(scope, grants)
+    this.#authenticationHints.set(scope, hints.map(hint => typeof hint === 'string' ? hint : { ...hint }))
+    this.#prune()
+    for (const [pool, owner] of this.#pools) if (owner.scope === scope) pool.setAuthentication(this.#grants(scope, pool.configuration()))
+  }
+  authenticationIdentity(scope: string, url: string): string | undefined {
+    return this.#authentication.get(scope)?.get(url)?.pubkey
+  }
+  clearAuthentication(): void {
+    for (const grants of this.#authentication.values()) for (const url of grants.keys()) grants.set(url, null)
+    this.#prune()
+    for (const [pool, owner] of this.#pools) if (this.#authentication.has(owner.scope)) pool.setAuthentication(this.#grants(owner.scope, pool.configuration()))
+  }
+  #grants(scope: string, relays: RelayConfig[]): RelayAuthentication[] {
+    return [...(this.#authentication.get(scope) ?? [])]
+      .filter(([url]) => relays.some(relay => relay.url === url))
+      .map(([url, identity]) => ({ url, identity }))
+  }
+
   #validScope(scope: string): boolean { return scope === 'default' || /^(room|inherited):[a-f0-9]{64}$/.test(scope) }
   configuration(scope: string, hints: RelayHints = []): RelayConfig[] {
     return this.#marked(this.#configuration(scope, hints))
@@ -75,7 +107,8 @@ export class RelayConnections {
   pool(scope: string, hints: RelayHints = []): NostrRelayPool {
     this.#prune()
     // Recheck at use time: a suspended tab can miss an expiry timer.
-    const pool = new NostrRelayPool(this.configuration(scope, hints), url => this.isCircle(url))
+    const configuration = this.configuration(scope, hints)
+    const pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration) })
     this.#pools.set(pool, { scope, hints })
     return pool
   }
@@ -88,6 +121,10 @@ export class RelayConnections {
     // Do not claim persistence or change connections if saving failed.
     this.storage.setItem(STORAGE_KEY, JSON.stringify(next))
     this.#saved = next
+    for (const [permissionScope, grants] of this.#authentication) {
+      const available = this.configuration(permissionScope, this.#authenticationHints.get(permissionScope) ?? [])
+      for (const url of grants.keys()) if (!available.some(relay => relay.url === url)) grants.delete(url)
+    }
     this.#prune()
     for (const [pool, owner] of this.#pools) {
       if (owner.scope === scope || (scope === 'default' && !owner.hints.length && !this.#saved[owner.scope])) pool.setRelays(this.configuration(owner.scope, owner.hints))
@@ -105,6 +142,7 @@ export class RelayConnections {
       const lastWrite = matches.filter(health => health.lastPublishedAt).sort((a, b) => b.lastPublishedAt! - a.lastPublishedAt!)[0]
       const failed = matches.find(health => health.lastError)
       return { ...lastWrite, ...relay, lastError: failed?.lastError,
+        authentication: matches.find(health => health.authentication === 'authenticated')?.authentication ?? matches.find(health => health.authentication)?.authentication,
         state: connected ? 'connected' : matches.some(health => health.state === 'connecting') ? 'connecting'
           : matches.some(health => health.state === 'disconnected') ? 'disconnected' : 'idle' }
     })
@@ -126,6 +164,8 @@ export class RelaySettingsPanel {
     applied: (scope: string, relays: RelayConfig[]) => void
     /** A circle mark changed: the lane the next message takes may have moved. */
     circleChanged?: () => void
+    canAuthenticate?: () => boolean
+    authenticate?: (scope: string, url: string) => Promise<boolean>
   }) {
     this.el('relaySettingsClose').addEventListener('click', () => this.dialog.close())
     this.dialog.addEventListener('close', () => { clearInterval(this.#timer); this.#returnFocus?.focus() })
@@ -192,7 +232,31 @@ export class RelaySettingsPanel {
         this.#message(tick.checked ? 'Marked as a box of your circle. A message to it alone shows as sheltered.' : 'No longer a box of your circle.')
       })
       circle.append(tick, this.document.createTextNode(tick.disabled ? ' Verified box endpoint' : ' Box of my circle'))
-      row.append(url, health, mode, remove, circle); list.append(row)
+      row.append(url, health, mode, remove, circle)
+      if (this.opts.authenticate) {
+        const auth = this.document.createElement('button'); auth.type = 'button'; auth.className = 'quiet relayAuthenticate'
+        const permitted = this.connections.authenticationIdentity(this.#scope, relay.url)
+        auth.textContent = permitted ? 'Stop identifying' : 'Use signed-in account'
+        auth.setAttribute('aria-label', `${auth.textContent} with ${relay.url}`)
+        const applied = this.connections.configuration(this.#scope, this.#hints()).some(saved => saved.url === relay.url)
+        auth.disabled = !applied || (!permitted && !this.opts.canAuthenticate?.())
+        auth.title = !applied ? 'Apply this relay first' : !permitted && !this.opts.canAuthenticate?.() ? 'Sign in to choose an authentication identity' : ''
+        auth.addEventListener('click', async () => {
+          const scope = this.#scope
+          auth.disabled = true
+          try {
+            if (permitted) {
+              this.connections.authenticate(scope, relay.url, null, this.#hints())
+              this.#message('Identity permission withdrawn. This relay stays disconnected here until you approve it again or remove it.')
+            } else if (await this.opts.authenticate!(scope, relay.url)) {
+              this.#message('Identity permitted here for this tab. Your signer may ask you to approve authentication.')
+            }
+          } catch (error) { this.#message((error as Error).message) }
+          if (scope === this.#scope) this.#render()
+        })
+        row.append(auth)
+      }
+      list.append(row)
     })
     this.#health()
   }
@@ -204,6 +268,8 @@ export class RelaySettingsPanel {
       const labels = { connected: 'Connected', connecting: 'Connecting…', disconnected: 'Disconnected', closed: 'Closed', idle: 'Not connected yet' }
       text.textContent = found ? labels[found.state] : 'Not applied yet'
       text.dataset.state = found?.state ?? 'idle'
+      if (found?.authentication === 'authenticated') text.textContent += ' · Account authenticated'
+      else if (found?.authentication === 'allowed' && found.state === 'connecting') text.textContent = 'Authenticating…'
       if (found?.lastPublishedAt) text.textContent += ` · Last accepted write ${new Date(found.lastPublishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} (${found.publishLatencyMs} ms)`
       if (found?.lastError) text.textContent += ` · ${found.lastError}`
     }
