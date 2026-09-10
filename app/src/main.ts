@@ -724,7 +724,7 @@ function startRoomBookmarks(account: SignetSession): void {
   if (crypt) void sharedProjects.attach({ pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event),
     encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text),
   }, relayConnections.pool('default'))
-  else void sharedProjects.detach()
+  else void sharedProjects.unavailable('Your signer does not support encrypted shared projects. Connect a Nostr signer with NIP-44 support to use them.')
   bookmarks?.close()
   bookmarks = new RoomBookmarks(deviceStore, account.signer, relayConnections.pool('default'), () => {
     if (roomsListShown) {
@@ -7286,7 +7286,7 @@ function fillProjectFilter(id: string, rooms: KnownRoom[]): void {
   const value = select.value
   const options: Array<[string, string]> = [['*', 'All projects'], ...projectChoices(rooms).map(p => [p.key, p.name] as [string, string]), ['', 'No project']]
   // Do not replace a native select while the person is choosing from it.
-  if (Array.from(select.options).map(option => option.value).join('\n') === options.map(([value]) => value).join('\n')) return
+  if (JSON.stringify(Array.from(select.options).map(option => [option.value, option.text])) === JSON.stringify(options)) return
   select.replaceChildren(...options.map(([value, label]) => new Option(label, value)))
   select.value = options.some(([key]) => key === value) ? value : '*'
   const filter = select.closest<HTMLElement>('.projectFilter')

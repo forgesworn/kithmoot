@@ -49,6 +49,7 @@ export class SharedProjectsPanel {
     this.el('sharedProjectCancel').addEventListener('click', () => this.editor.close())
     this.el('sharedProjectForm').addEventListener('submit', event => { event.preventDefault(); void this.save() })
     this.el('sharedProjectAddPerson').addEventListener('click', () => this.addPerson())
+    for (const id of ['sharedProjectName', 'sharedProjectArchived']) this.el(id).addEventListener('input', () => { this.#request = undefined })
     this.editor.addEventListener('cancel', event => { if (this.#busy) event.preventDefault() })
     this.editor.addEventListener('close', () => { if (this.dialog.open) this.el('sharedProjectNew').focus() })
     this.dialog.addEventListener('close', () => this.#return?.isConnected && this.#return.focus({ preventScroll: true }))
@@ -104,8 +105,16 @@ export class SharedProjectsPanel {
     this.#directory = undefined; this.#release = undefined; this.#identity = undefined; this.#transport = undefined
     this.#editing = undefined; this.#selectedMembers.clear(); this.#selectedRooms.clear(); this.#request = undefined; this.#busy = false
     this.#status = 'Sign in with your Nostr account to share projects across people and devices.'
+    ;(this.el('sharedProjectSave') as HTMLButtonElement).disabled = false
+    ;(this.el('sharedProjectCancel') as HTMLButtonElement).disabled = false
     this.editor.close(); this.dialog.close(); this.render()
     await directory?.close(); release?.()
+  }
+  async unavailable(message: string): Promise<void> {
+    const detached = this.detach(), generation = this.#generation
+    await detached
+    if (generation !== this.#generation) return
+    this.#status = message; this.render()
   }
   open(from?: HTMLElement, room?: KnownRoom): void {
     this.#return = from
@@ -116,8 +125,8 @@ export class SharedProjectsPanel {
       this.edit(current, room)
     }
   }
-  #button(text: string, action: () => void, primary = false): HTMLButtonElement {
-    const b = this.root.createElement('button'); b.type = 'button'; b.textContent = text; b.className = primary ? 'primary' : 'quiet'; b.addEventListener('click', action); return b
+  #button(text: string, action: () => void, primary = false, key = text): HTMLButtonElement {
+    const b = this.root.createElement('button'); b.type = 'button'; b.textContent = text; b.dataset.action = key; b.className = primary ? 'primary' : 'quiet'; b.addEventListener('click', action); return b
   }
   render(): void {
     const state = this.#directory?.snapshot()
@@ -126,8 +135,11 @@ export class SharedProjectsPanel {
     this.el('sharedProjectsSignIn').hidden = !!this.#identity
     this.el('sharedProjectsRetry').hidden = !this.#identity || !!state?.ready && !state.pendingSends
     ;(this.el('sharedProjectNew') as HTMLButtonElement).disabled = !state?.ready
-    this.el('sharedProjectsStatus').textContent = state?.error ?? (!state ? this.#status : !state.ready ? 'Checking encrypted project history…' : state.pendingSends ? `${state.pendingSends} encrypted ${state.pendingSends === 1 ? 'delivery' : 'deliveries'} awaiting relay confirmation. Retry when connected.` : 'Projects are encrypted to their members. Relay lookup cannot prove that every update has arrived.')
-    const list = this.el('sharedProjectsList'); list.replaceChildren()
+    this.el('sharedProjectsStatus').textContent = state?.error ?? (!state ? this.#status : !state.ready ? 'Loading your projects…' : state.pendingSends ? `${state.pendingSends} encrypted ${state.pendingSends === 1 ? 'delivery' : 'deliveries'} awaiting relay confirmation. Retry when connected.` : 'Shared with the people and agents listed below.')
+    const list = this.el('sharedProjectsList'), focused = this.root.activeElement as HTMLElement | null
+    const focusedProject = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-project]')?.dataset.project : undefined
+    const focusedAction = focused?.dataset.action
+    list.replaceChildren()
     const visible = state?.projects.filter(p => !p.withdrawn) ?? []
     this.el('sharedProjectsEmpty').hidden = visible.length !== 0 || !state?.ready
     for (const project of visible) {
@@ -141,17 +153,23 @@ export class SharedProjectsPanel {
         if (project.owner === this.#identity?.pubkey) card.append(this.#button('Resolve project', () => this.edit(project)))
       } else if (project.definition) {
         const d = project.definition, summary = this.root.createElement('p')
-        summary.textContent = `${d.members.filter(m => m.kind === 'person').length} people · ${d.members.filter(m => m.kind === 'agent').length} agents · ${d.rooms.length} rooms${d.archived ? ' · Archived' : ''}`; card.append(summary)
+        const people = d.members.filter(m => m.kind === 'person').length, agents = d.members.filter(m => m.kind === 'agent').length
+        summary.textContent = `${people} ${people === 1 ? 'person' : 'people'} · ${agents} ${agents === 1 ? 'agent' : 'agents'} · ${d.rooms.length} ${d.rooms.length === 1 ? 'room' : 'rooms'}${d.archived ? ' · Archived' : ''}`; card.append(summary)
         if (!project.joined && !d.archived) card.append(this.#button('Review and join', () => this.review(project), true))
         else if (!d.archived) {
           const rooms = this.root.createElement('div'); rooms.className = 'sharedProjectRooms'
-          for (const room of d.rooms) rooms.append(this.#button(room.name, () => { this.dialog.close(); this.options.openRoom({ roomId: room.room, name: room.name, link: room.link, openedAt: 0, readAt: 0 }) }))
+          for (const room of d.rooms) rooms.append(this.#button(room.name, () => { this.dialog.close(); this.options.openRoom({ roomId: room.room, name: room.name, link: room.link, openedAt: 0, readAt: 0 }) }, false, `room:${room.room}`))
           card.append(rooms)
         }
         if (project.owner === this.#identity?.pubkey) card.append(this.#button('Edit project', () => this.edit(project)))
         else if (project.joined) card.append(this.#button('Hide from my projects', () => { void this.#follow(project, false) }))
       }
       list.append(card)
+    }
+    if (focusedProject && focusedAction && this.dialog.open && !this.editor.open) {
+      const card = Array.from(list.children).find(el => (el as HTMLElement).dataset.project === focusedProject)
+      const next = Array.from(card?.querySelectorAll<HTMLElement>('[data-action]') ?? []).find(el => el.dataset.action === focusedAction)
+      ;(next ?? this.el('sharedProjectsClose')).focus({ preventScroll: true })
     }
   }
   review(project: SharedProject): void {
@@ -249,10 +267,11 @@ export class SharedProjectsPanel {
       if (generation === this.#generation) { this.editor.close(); this.render(); this.options.changed() }
     } catch (e) { if (generation === this.#generation) this.error(e instanceof Error ? e.message : 'Project could not be saved.') }
     finally {
-      if (generation !== this.#generation) return
-      this.#busy = false
-      ;(this.el('sharedProjectSave') as HTMLButtonElement).disabled = false
-      ;(this.el('sharedProjectCancel') as HTMLButtonElement).disabled = false
+      if (generation === this.#generation) {
+        this.#busy = false
+        ;(this.el('sharedProjectSave') as HTMLButtonElement).disabled = false
+        ;(this.el('sharedProjectCancel') as HTMLButtonElement).disabled = false
+      }
     }
   }
 }

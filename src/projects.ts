@@ -7,6 +7,7 @@ import type { PeerCrypt } from './dm.js'
 import { parseRoomLink } from './link.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { verifyEventUncached } from './verify.js'
+import { randomFraction } from './random.js'
 
 export const PROJECT_APP = 'kithmoot.projects.v1'
 export const PROJECT_KIND = 30078
@@ -95,26 +96,34 @@ export function projectAuthority(ref: ProjectReference, definition: ProjectDefin
   }))))
 }
 
+function parseProjectRecord(content: string, owner: string): ProjectRecord | undefined {
+  try {
+    if (!hex.test(owner) || encoder.encode(content).length > MAX_PROJECT_BYTES) return
+    const p: unknown = JSON.parse(content)
+    if (!object(p) || p.v !== 1 || typeof p.project !== 'string' || !hex.test(p.project) ||
+        !revision(p.revision) || typeof p.request !== 'string' || !requestId.test(p.request) ||
+        !Array.isArray(p.parents) || p.parents.length > 8 || p.parents.some(h => typeof h !== 'string' || !hex.test(h)) ||
+        new Set(p.parents).size !== p.parents.length || (p.revision === 1 ? p.parents.length !== 0 : p.parents.length === 0)) return
+    const fields = ['v', 'project', 'revision', 'request', 'parents', 'op'], revisionValue = p.revision
+    if (p.op === 'snapshot' && exact(p, [...fields, 'definition']) && validDefinition(p.definition, owner) && p.definition.authorityRevision <= revisionValue && p.definition.members.every(m => m.epoch <= revisionValue)) return p as unknown as ProjectRecord
+    if (p.op === 'withdraw' && exact(p, [...fields, 'recipient']) && typeof p.recipient === 'string' && hex.test(p.recipient) && p.recipient !== owner) return p as unknown as ProjectRecord
+    if (p.op === 'follow' && exact(p, [...fields, 'owner', 'joined', 'membership', 'invitation']) && typeof p.owner === 'string' && hex.test(p.owner) && typeof p.joined === 'boolean' && revision(p.membership) && typeof p.invitation === 'string' && hex.test(p.invitation)) return p as unknown as ProjectRecord
+  } catch { /* Invalid signatures or hostile input never become a project. */ }
+}
+
 export function projectRecord(event: Event, now = Math.floor(Date.now() / 1000)): ProjectRecord | undefined {
   try {
     if (event.kind !== PROJECT_KIND || typeof event.content !== 'string' || encoder.encode(event.content).length > MAX_PROJECT_BYTES ||
         !Number.isSafeInteger(event.created_at) || event.created_at < 0 || event.created_at > now + 60 || !verifyEventUncached(event)) return
-    const p: unknown = JSON.parse(event.content)
-    if (!object(p) || p.v !== 1 || typeof p.project !== 'string' || !hex.test(p.project) ||
-        !revision(p.revision) || typeof p.request !== 'string' || !requestId.test(p.request) ||
-        !Array.isArray(p.parents) || p.parents.length > 8 || p.parents.some(h => typeof h !== 'string' || !hex.test(h)) ||
-        new Set(p.parents).size !== p.parents.length || (p.revision === 1 ? p.parents.length !== 0 : p.parents.length === 0) ||
-        JSON.stringify(event.tags) !== JSON.stringify([['d', p.project], ['l', PROJECT_APP]])) return
-    const fields = ['v', 'project', 'revision', 'request', 'parents', 'op'], revisionValue = p.revision
-    if (p.op === 'snapshot' && exact(p, [...fields, 'definition']) && validDefinition(p.definition, event.pubkey) && p.definition.authorityRevision <= revisionValue && p.definition.members.every(m => m.epoch <= revisionValue)) return p as unknown as ProjectRecord
-    if (p.op === 'withdraw' && exact(p, [...fields, 'recipient']) && typeof p.recipient === 'string' && hex.test(p.recipient) && p.recipient !== event.pubkey) return p as unknown as ProjectRecord
-    if (p.op === 'follow' && exact(p, [...fields, 'owner', 'joined', 'membership', 'invitation']) && typeof p.owner === 'string' && hex.test(p.owner) && typeof p.joined === 'boolean' && revision(p.membership) && typeof p.invitation === 'string' && hex.test(p.invitation)) return p as unknown as ProjectRecord
-  } catch { /* Invalid signatures or hostile input never become a project. */ }
+    const p = parseProjectRecord(event.content, event.pubkey)
+    if (p && JSON.stringify(event.tags) === JSON.stringify([['d', p.project], ['l', PROJECT_APP]])) return p
+  } catch { /* Verification errors are invalid input, not directory state. */ }
 }
 
 export async function signProject(identity: ParticipantIdentity, record: ProjectRecord, now = Math.floor(Date.now() / 1000)): Promise<Event> {
   const template = { kind: PROJECT_KIND, created_at: now, tags: [['d', record.project], ['l', PROJECT_APP]], content: JSON.stringify(record) }
   if (encoder.encode(template.content).length > MAX_PROJECT_BYTES) throw new Error('The project exceeds the shared directory size limit')
+  if (!Number.isSafeInteger(now) || now < 0 || !parseProjectRecord(template.content, identity.pubkey)) throw new Error('Invalid shared project update')
   const signed = await identity.signEvent(template)
   if (signed.pubkey !== identity.pubkey || signed.kind !== template.kind || signed.created_at !== template.created_at ||
       signed.content !== template.content || JSON.stringify(signed.tags) !== JSON.stringify(template.tags) || !projectRecord(signed, now)) throw new Error('The signer changed or refused the project update')
@@ -138,7 +147,7 @@ export function wrapProject(event: Event, recipient: string, now = Math.floor(Da
   try {
     const content = nip44.v2.encrypt(JSON.stringify(event), nip44.v2.utils.getConversationKey(ephemeral, recipient))
     if (content.length > MAX_PROJECT_WRAP_BYTES) throw new Error('The encrypted project exceeds the transport limit')
-    return finalizeEvent({ kind: PROJECT_WRAP_KIND, created_at: Math.max(0, now - Math.floor(Math.random() * 172800)),
+    return finalizeEvent({ kind: PROJECT_WRAP_KIND, created_at: Math.max(0, now - Math.floor(randomFraction() * 172800)),
       tags: [['p', recipient], ['l', PROJECT_APP]], content }, ephemeral)
   } finally { ephemeral.fill(0) }
 }

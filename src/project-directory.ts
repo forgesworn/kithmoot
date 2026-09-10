@@ -191,7 +191,7 @@ export class ProjectDirectory {
       this.#require()
       if (ref.owner !== this.identity) throw new Error('Only the project owner can change its shared directory')
       const key = projectKey(ref), parents = [...expectedHeads].sort(), intentHash = intent(ref, 'snapshot', definition, parents)
-      const existing = this.#receipt(request, intentHash); if (existing) return existing
+      const existing = this.#receipt(request, intentHash); if (existing) return { ...existing }
       const current = this.snapshot().projects.find(p => p.key === key)
       if (create ? !!current || parents.length !== 0 : !current || JSON.stringify(current.heads) !== JSON.stringify(parents)) throw new Error('Project changed; review its current people and rooms before saving')
       const revision = (current?.revision ?? 0) + 1
@@ -202,10 +202,12 @@ export class ProjectDirectory {
         const epoch = prior.length && prior.every(m => m && m.epoch === prior[0]!.epoch) ? prior[0]!.epoch : revision
         return { ...member, epoch }
       })
-      canonical.authorityRevision = current?.definition?.authorityRevision ?? revision
+      const previousAuthorities = previous.map(d => projectAuthority(ref, d))
+      const previousAuthority = previousAuthorities.length && previousAuthorities.every(a => a === previousAuthorities[0]) ? previousAuthorities[0] : undefined
+      canonical.authorityRevision = previousAuthority ? previous[0]!.authorityRevision : revision
       // Validate before asking an external signer. Metadata-only updates keep
       // the authority revision; removal and re-addition can never revive it.
-      if (!current?.authority || projectAuthority(ref, canonical) !== current.authority) canonical.authorityRevision = revision
+      if (!previousAuthority || projectAuthority(ref, canonical) !== previousAuthority) canonical.authorityRevision = revision
       projectAuthority(ref, canonical)
       const primary = await signProject(this.options.identity, { v: 1, op: 'snapshot', project: ref.project, revision, request, parents, definition: canonical }, this.#now())
       const previousMembers = new Set((this.#groups().get('project:' + key) ?? []).flatMap(v => v.body.op === 'snapshot' ? v.body.definition.members.map(m => m.pubkey) : []))
@@ -224,7 +226,7 @@ export class ProjectDirectory {
     const receipt = await this.#serial(async () => {
       this.#require()
       const key = projectKey(ref), intentHash = intent(ref, 'follow', joined, expectedHeads)
-      const existing = this.#receipt(request, intentHash); if (existing) return existing
+      const existing = this.#receipt(request, intentHash); if (existing) return { ...existing }
       const current = this.snapshot().projects.find(p => p.key === key)
       if (!current || current.withdrawn || current.conflicted || JSON.stringify(current.heads) !== JSON.stringify([...expectedHeads].sort())) throw new Error('The project invitation changed; review it again')
       const previous = this.#groups().get('follow:' + key) ?? []

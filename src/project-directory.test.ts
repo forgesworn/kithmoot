@@ -97,6 +97,7 @@ describe('shared projects across independent people and devices', () => {
       await expect(a.update(conflict, [left.id], definition('Lost update', owner), 'incomplete-merge-01')).rejects.toThrow('Project changed')
       await a.update(conflict, conflict.heads, definition('Resolved', owner), 'resolve-project-001'); await synced(a)
       expect(a.snapshot().projects[0]).toMatchObject({ revision: 3, conflicted: false, definition: { name: 'Resolved' } })
+      expect(a.snapshot().projects[0]!.authority).toBe(initial.authority)
       relay.publish(wrapProject(left, owner.pubkey))
       await new Promise(r => setTimeout(r, 20))
       expect(a.snapshot().projects[0]!.definition!.name).toBe('Resolved')
@@ -128,9 +129,54 @@ describe('shared projects across independent people and devices', () => {
         await expect(restored.update(current, current.heads, definition('Must not publish', owner), 'failed-save-0000001')).rejects.toThrow('disk full')
         expect(relay.published).toHaveLength(before)
         expect(restored.snapshot().projects[0]!.definition!.name).toBe('Later edit')
+        expect(restored.snapshot().ready).toBe(false)
+        await expect(restored.create(definition('Blocked until recovery', owner), 'after-save-failed-01')).rejects.toThrow('disk full')
       } finally { await restored.close() }
       const leaked = relay.published.find(e => e.tags.some(t => t[0] === 'p' && t[1] === member.pubkey))!
       expect(await unwrapProject(leaked, identity())).toBeUndefined()
     } finally { await Promise.all([a.close(), b.close()]) }
   }, 20_000)
+
+  it('keeps exact retry receipts immutable and never revives earlier authority after archive and restore', async () => {
+    const owner = identity(), relay = new SimRelay({ replay: true }), a = await open(owner, relay)
+    try {
+      const draft = definition('A project', owner), request = 'create-idempotent-01'
+      const created = await a.create(draft, request); await synced(a)
+      const count = relay.published.length
+      const retried = await a.create(draft, request)
+      expect(retried).toEqual(created)
+      retried.head = '00'.repeat(32)
+      expect(await a.create(draft, request)).toEqual(created)
+      expect(relay.published).toHaveLength(count)
+      await expect(a.create({ ...draft, name: 'Different intent' }, request)).rejects.toThrow('different project change')
+      const before = a.snapshot().projects[0]!
+      await a.update(before, before.heads, { ...before.definition!, archived: true }, 'archive-project-001'); await synced(a)
+      const archived = a.snapshot().projects[0]!
+      expect(archived.authority).not.toBe(before.authority)
+      await a.update(archived, archived.heads, { ...archived.definition!, archived: false }, 'restore-project-001'); await synced(a)
+      expect(a.snapshot().projects[0]!.authority).not.toBe(before.authority)
+      expect(a.snapshot().projects[0]!.authority).not.toBe(archived.authority)
+    } finally { await a.close() }
+  })
+
+  it('does not prompt for empty cache encryption and does not publish if closed while an external signer is pending', async () => {
+    const owner = identity(), relay = new SimRelay(), encrypt = vi.fn(owner.encrypt)
+    let release!: () => void, started!: () => void
+    const signing = new Promise<void>(resolve => { started = resolve })
+    const held = new Promise<void>(resolve => { release = resolve })
+    const signEvent = vi.fn(async (...args: Parameters<ProjectIdentity['signEvent']>) => { started(); await held; return owner.signEvent(...args) })
+    const cache = storage(), d = await open({ ...owner, encrypt, signEvent }, relay, cache)
+    expect(encrypt).not.toHaveBeenCalled()
+    expect(await cache.load()).toBeUndefined()
+    const creating = d.create(definition('Closed before signing', owner), 'create-closed-00001')
+    const rejected = expect(creating).rejects.toThrow('closed while signing')
+    await signing
+    const closing = d.close()
+    release()
+    await rejected; await closing
+    expect(relay.published).toHaveLength(0)
+    expect(await cache.load()).toBeUndefined()
+    expect(d.snapshot().projects).toHaveLength(0)
+    expect(d.snapshot().ready).toBe(false)
+  })
 })
