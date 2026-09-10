@@ -26,6 +26,7 @@
  *
  * Pure functions over the injected store, like the others in this app.
  */
+import { base64urlnopad } from '@scure/base'
 import { readCard, refreshBox, type Card, type Box, type LinkCard, type BondHandshake } from 'nostr-contact-card'
 import type { DeviceStore } from './device-store.js'
 
@@ -42,6 +43,8 @@ export interface ContactBox {
   /** The box's own key. */
   p: string
   claim: string
+  /** Verified Link bytes, retained so a byte-identical reannouncement is safe. */
+  card?: string
   /** The Link node id the person endorsed by signing the card; pinned. */
   nodeId: string
   /** The highest Link card serial accepted for this node. */
@@ -103,7 +106,7 @@ function readStored(store: DeviceStore, p: string): Contact | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const c = raw as Partial<Contact>
   // A hand-edited or half-written entry is dropped rather than trusted:
-  // this decides which relays are shown as sheltered.
+  // malformed contact pins must not enter discovery.
   if (c.p !== p || !HEX64.test(String(c.rz)) || typeof c.eph !== 'string' || !Array.isArray(c.relays) || !Array.isArray(c.boxes)) return undefined
   if (!c.boxes.every(validBox)) return undefined
   if (typeof c.issued !== 'number' || typeof c.expires !== 'number' || typeof c.readAt !== 'number') return undefined
@@ -146,6 +149,7 @@ function boxFrom(box: Box, link: LinkCard, previous: ContactBox | undefined): Co
   return {
     p: box.p,
     claim: box.claim,
+    card: samePin && previous!.highestSerial >= link.serial ? previous!.card : box.card,
     nodeId: link.nodeId,
     highestSerial: samePin ? Math.max(previous!.highestSerial, link.serial) : link.serial,
     relays: link.relays,
@@ -206,6 +210,7 @@ export function refreshContactBox(store: DeviceStore, contactP: string, boxP: st
   if (!v.ok) return { ok: false, reason: v.reason }
   const box: ContactBox = {
     ...held,
+    card: base64urlnopad.encode(freshLinkCard),
     highestSerial: Math.max(held.highestSerial, v.link.serial),
     relays: v.link.relays,
     onions: v.link.onions,

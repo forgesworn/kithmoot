@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext } from '@playwright/test'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils'
 import { buildCard, buildLinkCard, cardLink, readCard } from 'nostr-contact-card'
@@ -7,6 +7,8 @@ import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
+import { matchFilters, type Filter } from 'nostr-tools/filter'
+import { boxFixture } from './box-status-fixture.js'
 import { openRoomDetails } from './browser.js'
 
 /**
@@ -63,7 +65,7 @@ test('a contact card marks its holder without treating its transport relay as sh
     await page.locator('#contactCardAdd').click()
     await expect(page.locator('#contactCardStatus')).toContainText('Added Rowan: one box')
     await expect(page.locator('#contactList')).toContainText('Rowan')
-    await expect(page.locator('#contactList')).toContainText("dialled on their card's endorsement")
+    await expect(page.locator('#contactList')).toContainText('Box status is not being checked.')
     await expect(rowanRow.locator('.badge.card')).toHaveText('card: Rowan')
     await page.locator('#roomSheetClose').click()
 
@@ -129,4 +131,65 @@ test('a card opened as a link is offered at the door, and kept only on a press',
   } finally {
     await context.close()
   }
+})
+
+
+test('explicit box discovery verifies endpoints, removes stale trust and closes forgotten subscriptions', async ({ browser, baseURL }) => {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const fixture = boxFixture(now())
+  let latest = fixture.status(fixture.withTag('drops', ['on', relay.href]))
+  const queries: Filter[][] = []
+  const readers: { send: (event: Event) => void; close: () => void }[] = []
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
+  await context.addInitScript(() => {
+    if (!localStorage.getItem('kithmoot.relays.v1')) localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: [{ url: 'wss://discovery.test/', read: true, write: true }] }))
+  })
+  await context.routeWebSocket(url => url.href !== relay.href, ws => {
+    if (ws.url() !== 'wss://discovery.test/') { ws.close(); return }
+    const subs = new Map<string, Filter[]>()
+    readers.push({ send: event => { for (const [id, filters] of subs) if (matchFilters(filters, event)) ws.send(JSON.stringify(['EVENT', id, event])) }, close: () => ws.close() })
+    ws.onMessage(raw => {
+      const message = JSON.parse(String(raw))
+      if (message[0] === 'CLOSE') { subs.delete(message[1]); return }
+      if (message[0] !== 'REQ') return
+      const filters = message.slice(2) as Filter[]; subs.set(message[1], filters)
+      if (filters.some(f => f.kinds?.includes(30640) || f.kinds?.includes(10640))) queries.push(filters)
+      for (const event of [fixture.claim, latest]) if (matchFilters(filters, event)) ws.send(JSON.stringify(['EVENT', message[1], event]))
+      ws.send(JSON.stringify(['EOSE', message[1]]))
+    })
+  })
+  await device(context)
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Box checks', relays: [relay.href], iceUrls: [] })
+  try {
+    const page = await context.newPage(); await page.goto(link)
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openRoomDetails(page)
+    await page.locator('#contactCardIn').fill(fixture.contactCard); await page.locator('#contactCardAdd').click()
+    await expect(page.locator('#contactList')).toContainText('Box status is not being checked.')
+    expect(queries).toHaveLength(0)
+    await page.getByRole('button', { name: 'Check box status', exact: true }).click()
+    await page.getByRole('button', { name: 'Check box', exact: true }).click()
+    await expect(page.locator('#contactList')).toContainText('Verified message endpoint:')
+    expect(queries.some(q => q.some(f => f['#d']?.includes(fixture.p)))).toBe(true)
+    await page.locator('#roomSheetClose').click()
+    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/sheltered/)
+
+    latest = fixture.status(fixture.withTag('drops', ['off']), fixture.now + 1)
+    for (const reader of readers) reader.send(latest)
+    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/public/)
+    latest = fixture.status(fixture.withTag('drops', ['on', relay.href]), fixture.now + 2)
+    for (const reader of readers) reader.send(latest)
+    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/sheltered/)
+
+    const retired = finalizeEvent({ ...fixture.claim, created_at: fixture.now + 3, tags: fixture.claim.tags.filter(t => !(t[0] === 'p' && t[3] === 'stash')).map(t => t[0] === 'status' ? ['status', 'retired'] : t) }, fixture.masterKey)
+    for (const reader of readers) reader.send(retired)
+    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/public/)
+    await openRoomDetails(page)
+    await expect(page.locator('#contactList')).toContainText('retired')
+    await page.getByRole('button', { name: "Forget Rowan's card", exact: true }).click()
+    await page.getByRole('button', { name: 'Forget card', exact: true }).click()
+    await expect(page.locator('#contactList')).toContainText('No contact cards yet.')
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('kithmoot.box-discovery.')))).toEqual([])
+  } finally { await context.close() }
 })

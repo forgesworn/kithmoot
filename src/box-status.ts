@@ -87,27 +87,56 @@ function endpoint(s: string): string {
   return url.href
 }
 
+export interface VerifiedBoxClaim {
+  id: string
+  node: string
+  master: string
+  createdAt: number
+  state: 'active' | 'retired'
+}
+
+/** Verify authority before considering a claim update or retirement. Stored
+ * monotonicity and terminal retirement are enforced by the discovery book. */
+export function readBoxClaim(raw: unknown, now: number): { ok: true; claim: VerifiedBoxClaim } | { ok: false; reason: string } {
+  try {
+    requireThat(Number.isSafeInteger(now) && now >= 0, 'clock')
+    const c = event(raw, 30640)
+    const node = value(c, 'd')!
+    requireThat(HEX.test(node), 'claim node')
+    requireThat(c.content === '' && c.created_at <= now + 300, 'claim content or time')
+    oneOf(value(c, 'role'), ['phone', 'box'], 'role')
+    const state = value(c, 'status')!
+    oneOf(state, ['active', 'retired'], 'claim status')
+    const allowed = new Set(['d', 'p', 'role', 'status', 'region', 'name', 'alt'])
+    requireThat(c.tags.every(t => allowed.has(t[0]!)), 'unknown claim tag')
+    const people = c.tags.filter(t => t[0] === 'p')
+    requireThat(people.every(t => t.length === 4 && HEX.test(t[1]!) && ['node', 'master', 'stash', 'persona'].includes(t[3]!)), 'claim keys')
+    requireThat(new Set(people.map(t => t[1])).size === people.length, 'duplicate claim key')
+    for (const role of ['node', 'master']) requireThat(people.filter(t => t[3] === role).length === 1, `claim ${role} key`)
+    requireThat(people.find(t => t[3] === 'node')![1] === node && people.find(t => t[3] === 'master')![1] === c.pubkey, 'claim key binding')
+    for (const [key, max] of [['region', 64], ['name', 32]] as const) {
+      const s = value(c, key, false); if (s !== undefined) requireThat(bytes(s) <= max, `claim ${key} too long`)
+    }
+    value(c, 'alt', false)
+    requireThat(state === 'active' ? people.filter(t => t[3] === 'stash').length === 1 : people.every(t => t[3] !== 'stash' && t[3] !== 'persona'), 'claim stash or retirement')
+
+    return { ok: true, claim: { id: c.id, node, master: c.pubkey, createdAt: c.created_at, state: state as 'active' | 'retired' } }
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : 'invalid box claim' }
+  }
+}
+
 /** Reject stale, malformed, revoked, substituted and replayed discovery data. */
 export function readBoxStatus(rawStatus: unknown, rawClaim: unknown, pin: BoxPin, now: number): BoxStatusResult {
   try {
     requireThat(Number.isSafeInteger(now) && now >= 0, 'clock')
     requireThat(HEX.test(pin.p) && HEX.test(pin.claim) && HEX.test(pin.nodeId) && Number.isSafeInteger(pin.highestSerial) && pin.highestSerial >= 0, 'box pin')
     const c = event(rawClaim, 30640)
-    requireThat(c.id === pin.claim && value(c, 'd') === pin.p, 'claim is not the contact-endorsed claim')
-    requireThat(c.content === '' && c.created_at <= now + 300, 'claim content or time')
-    oneOf(value(c, 'role'), ['phone', 'box'], 'role')
-    requireThat(value(c, 'status') === 'active', 'claim is not active')
-    const allowed = new Set(['d', 'p', 'role', 'status', 'region', 'name', 'alt'])
-    requireThat(c.tags.every(t => allowed.has(t[0]!)), 'unknown claim tag')
-    const people = c.tags.filter(t => t[0] === 'p')
-    requireThat(people.every(t => t.length === 4 && HEX.test(t[1]!) && ['node', 'master', 'stash', 'persona'].includes(t[3]!)), 'claim keys')
-    requireThat(new Set(people.map(t => t[1])).size === people.length, 'duplicate claim key')
-    for (const role of ['node', 'master', 'stash']) requireThat(people.filter(t => t[3] === role).length === 1, `claim ${role} key`)
-    requireThat(people.find(t => t[3] === 'node')![1] === pin.p && people.find(t => t[3] === 'master')![1] === c.pubkey, 'claim key binding')
-    for (const [key, max] of [['region', 64], ['name', 32]] as const) {
-      const s = value(c, key, false); if (s !== undefined) requireThat(bytes(s) <= max, `claim ${key} too long`)
-    }
-    value(c, 'alt', false)
+    const accepted = readBoxClaim(c, now)
+    requireThat(accepted.ok, accepted.ok ? '' : accepted.reason)
+    if (!accepted.ok) throw new Error('claim')
+    requireThat(accepted.claim.id === pin.claim && accepted.claim.node === pin.p, 'claim is not the contact-endorsed claim')
+    requireThat(accepted.claim.state === 'active', 'claim is not active')
 
     const s = event(rawStatus, 10640)
     requireThat(s.pubkey === pin.p && value(s, 'claim') === c.id, 'status claim binding')

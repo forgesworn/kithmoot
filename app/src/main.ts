@@ -121,7 +121,9 @@ import {
   type RelayTransport,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
-import { addContactFromCard, circleRelays, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
+import { BoxRelayReader } from './box-relay-reader.js'
+import { BoxDiscovery } from './box-discovery.js'
+import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
 import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import type { InvitationRequest } from '../../src/invitation.js'
@@ -267,7 +269,8 @@ const relayStorage = {
 // Circle attribution is reserved for verified message endpoints. A message
 // that goes only to such relays shows as sheltered. Contact cards alone
 // grant no message-relay ownership; explicit keeper-confirmed marks remain.
-const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, (url) => circleRelays(browserDeviceStore(localStorage)).has(url))
+let boxDiscovery: BoxDiscovery | undefined
+const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, url => boxDiscovery?.circleRelays().has(url) ?? false)
 let RELAYS = relayConnections.configuration('default').map(relay => relay.url)
 let roomRelayScope = 'default'
 function configuredPool(urls: string[]): NostrRelayPool {
@@ -2689,11 +2692,27 @@ function renderContacts(): void {
       contactsChanged()
     })
     row.append(who, key, when, forget)
-    const boxes = document.createElement('span')
+    const boxes = document.createElement('div')
     boxes.className = 'contactBoxes'
-    boxes.textContent = c.boxes.length === 0
-      ? 'No box on this card.'
-      : c.boxes.map((b) => `Box ${shortKey(b.p)}: ${b.relays.concat(b.onions).join(', ') || 'no address'} (${b.source === 'card' ? 'dialled on their card\'s endorsement' : `dialled on a fresh address card, refreshed ${new Date((b.refreshedAt ?? 0) * 1000).toLocaleDateString()}`})`).join(' ')
+    if (!c.boxes.length) boxes.textContent = 'No box on this card.'
+    for (const b of c.boxes) {
+      const box = document.createElement('div')
+      box.className = 'contactBox'
+      const detail = document.createElement('p')
+      detail.textContent = `Box ${shortKey(b.p)}. ${boxDiscovery?.message(c.p, b.p) ?? 'Box status is not being checked.'}`
+      const action = document.createElement('button')
+      action.type = 'button'; action.className = 'quiet'
+      const enabled = boxDiscovery?.enabled(c.p, b.p) ?? false
+      action.textContent = enabled ? 'Stop checking box' : 'Check box status'
+      action.disabled = expired && !enabled
+      action.addEventListener('click', async () => {
+        if (!boxDiscovery) return
+        if (!enabled && !await confirmRoomAction({ title: 'Check this box?', message: 'Your default read relays will see this box’s key and its keeper’s claim. Checking continues on this device until you stop or replace the contact card. A verified endpoint can label messages using an existing relay connection; checking does not change where your room sends messages.', confirmLabel: 'Check box' })) return
+        try { boxDiscovery.setEnabled(c.p, b.p, !enabled) }
+        catch (error) { detail.textContent = describeError(error) }
+      })
+      box.append(detail, action); boxes.append(box)
+    }
     row.append(boxes)
     list.append(row)
   }
@@ -2711,6 +2730,7 @@ function renderContacts(): void {
 
 /** A card was read or forgotten: refresh its holder badge and lane attribution. */
 function contactsChanged(): void {
+  boxDiscovery?.reconcile()
   relayConnections.circleChanged()
   renderContacts()
   if (session) render(session.participants(), meParticipant)
@@ -7969,7 +7989,10 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
   // screen needs telling.
   circleChanged: () => { if (session) render(session.participants(), meParticipant); renderLaneNote() },
   applied: (scope, entries) => {
-    if (scope === 'default') RELAYS = relayConnections.configuration('default').map(relay => relay.url)
+    if (scope === 'default') {
+      RELAYS = relayConnections.configuration('default').map(relay => relay.url)
+      boxDiscovery?.restart()
+    }
     if (scope === roomRelayScope) {
       roomRelayConfig = entries
       relays = entries.map(relay => relay.url)
@@ -9396,3 +9419,12 @@ Promise.all([roomArrival, identityReady]).then(([found]) => {
 // first room is ever opened.
 const known = currentParticipant()
 if (known) profiles.want([known])
+
+// Restore only explicit discovery preferences after all screen state exists.
+boxDiscovery = new BoxDiscovery({
+  store: deviceStore,
+  transport: unavailable => new BoxRelayReader(relayConnections.configuration('default'), unavailable),
+  changed: () => { renderContacts(); renderLaneNote() },
+})
+boxDiscovery.reconcile()
+document.addEventListener('visibilitychange', () => { if (!document.hidden) boxDiscovery?.tick() })

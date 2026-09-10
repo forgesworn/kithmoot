@@ -21,21 +21,39 @@ shared wire format or approve enabling the public drop tier. The design
 draft also accepts `charge-control=mains`, while the inspected daemon enum
 has not yet added it. The client accepts the documented value.
 
-This is the verification primitive, not a completed discovery flow. Before
-automatic sheltered attribution is enabled, the client still needs:
+The browser integration in `app/src/box-discovery.ts` is opt-in for each
+contact box. “Check box status” explains that the configured default read
+relays will see the box key and keeper claim. No Link hint or advertised
+endpoint is dialled by discovery, and room routing is unchanged. A verified
+endpoint labels an already configured matching relay; it is not automatically
+added as a room relay. The ordinary roster relay remains necessary.
 
-- An explicit discovery action which explains the public relay query and
-  fetches signed events from the person's configured read relays.
-- The latest claim under its verified master and node, so a retired or
-  rotated claim cannot be replaced by an old event fetched only by id.
-- Stored card bytes and monotonic pins; a result cannot overwrite a card
-  replaced or forgotten while the request was running.
-- Live invalidation on claim retirement, status `drops off`, changed
-  endpoints, expiry and lost verification. Lane classification must check
-  validity at use time, including after a browser wakes from sleep.
-- Browser acceptance covering discovery, expiry, restart and revocation,
-  plus the independent Android implementation and box interoperability.
+The reader fetches the exact endorsed claim, then follows the latest claim
+under that verified master and node. Retirement is terminal in the saved
+history. Contact replacement resets consent; forgetting deletes the discovery
+record and makes late callbacks inert. Saved card bytes, serials, signed
+status watermarks and conflict timestamps protect against rollback across
+restart. Signed malformed newer statuses also invalidate an older grant.
+Saved records alone never restore a trusted label.
 
-Until those steps are implemented and verified, automatic relay attribution
-remains closed in both clients. A parser test is not evidence that a live
-conversation used an owned box.
+`BoxRelayReader` completes history only on actual EOSE frames from every
+configured read relay. Timeout, CLOSED or disconnect removes current trust
+and restarts all reads. It is read-only, caps the three subscriptions per box,
+limits frame size and traffic, and bounds concurrent box watches. These
+client-side bounds do not supply the box daemon's pending flood protection.
+An untrusted relay can withhold statements; signed freshness and independent
+configured relays bound this exposure but cannot prove universal absence of
+a retirement. Status is accepted for at most three hours, shortened by Link
+card or event expiry.
+
+Attribution is checked when a transport describes its lane, including while
+a sleeping tab has missed its expiry timer. Trust changes do not reconnect
+room transports. Explicit keeper-confirmed relay marks remain independent.
+
+The draft includes verifier and lifecycle unit tests, real EOSE/timeout and
+reconnect tests, and browser acceptance for explicit discovery, endpoint
+attribution, drops off, retirement and forgetting. The work is not yet a
+published feature or a completed Vennel production gate. Hosted three-browser
+checks, independent Android parity, real Bothy interoperability and physical
+owned-box journeys remain required. No public drop tier is enabled by this
+change, and the Bothy design disagreements above remain open.

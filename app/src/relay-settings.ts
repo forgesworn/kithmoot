@@ -15,7 +15,7 @@ export class RelayConnections {
   #marks = new Set<string>()
   #pools = new Map<NostrRelayPool, { scope: string; hints: RelayHints }>()
   /** `circle` says whether a relay URL is a box of the person's own circle,
-   *  known from a contact card; such a relay is marked on every
+   *  verified from current signed box status; such a relay is marked on every
    *  configuration handed out, which is what lets a message to it show as
    *  sheltered (`src/lane.ts`). The mark is a fact about the relay, not a
    *  preference, so it is not saved and cannot be edited into place. */
@@ -35,7 +35,7 @@ export class RelayConnections {
     } catch { /* A mark that cannot be read is not a mark. */ }
   }
   /** Whether `url` is a box of the person's circle: marked here by hand, or
-   *  known from a contact card. */
+   *  verified from current signed box status. */
   isCircle(url: string): boolean { return this.#marks.has(url) || this.circle(url) }
   /** Whether `url` was marked by hand on this device (a card's box is not). */
   isMarked(url: string): boolean { return this.#marks.has(url) }
@@ -64,12 +64,8 @@ export class RelayConnections {
       return this.isCircle(relay.url) ? { ...rest, circle: true } : rest
     })
   }
-  /** The circle changed: a card was read or forgotten. Every live pool is
-   *  handed its configuration again, so the marks move without a reconnect. */
-  circleChanged(): void {
-    this.#prune()
-    for (const [pool, owner] of this.#pools) pool.setRelays(this.configuration(owner.scope, owner.hints))
-  }
+  /** Attribution is read at use time; changing trust must not reconnect rooms. */
+  circleChanged(): void { this.#prune() }
   inheritDefaults(scope: string): void {
     if (!/^room:[a-f0-9]{64}$/.test(scope)) throw new Error('No room is selected')
     // Access modes survive reopening; inherited URLs must never override a
@@ -78,13 +74,14 @@ export class RelayConnections {
   }
   pool(scope: string, hints: RelayHints = []): NostrRelayPool {
     this.#prune()
-    const pool = new NostrRelayPool(this.configuration(scope, hints))
+    // Recheck at use time: a suspended tab can miss an expiry timer.
+    const pool = new NostrRelayPool(this.configuration(scope, hints), url => this.isCircle(url))
     this.#pools.set(pool, { scope, hints })
     return pool
   }
   save(scope: string, entries: RelayConfig[]): void {
     if (!this.#validScope(scope)) throw new Error('No room is selected')
-    // The circle mark is never saved: it is read off the contact book each time.
+    // The circle mark is never saved: it is verified at use time.
     const relays = normaliseRelayConfig(entries).map(({ circle: _claimed, ...relay }) => relay)
     if (!relays.some(relay => relay.read) || !relays.some(relay => relay.write)) throw new Error('Keep at least one readable relay and one writable relay so the room can receive and send messages.')
     const next = { ...this.#saved, [scope]: relays }
@@ -194,7 +191,7 @@ export class RelaySettingsPanel {
         this.opts.circleChanged?.()
         this.#message(tick.checked ? 'Marked as a box of your circle. A message to it alone shows as sheltered.' : 'No longer a box of your circle.')
       })
-      circle.append(tick, this.document.createTextNode(tick.disabled ? ' Box on a contact card' : ' Box of my circle'))
+      circle.append(tick, this.document.createTextNode(tick.disabled ? ' Verified box endpoint' : ' Box of my circle'))
       row.append(url, health, mode, remove, circle); list.append(row)
     })
     this.#health()
