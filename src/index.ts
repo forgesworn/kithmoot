@@ -420,3 +420,8 @@ export type { ContextScope, ContextRole, ContextIdentity, ContextGrant, ContextP
 
 export { encodeMemberPass, decodeMemberPass, encodeServicePolicy, decodeServicePolicy, deriveServiceKey, deriveServiceRoom, normaliseServiceAudience } from './service-admission.js'
 export type { MemberPass, ServicePolicy, ServiceAudience, ServicePermission, ServiceType } from './service-admission.js'
+
+export { ProjectDirectory } from './project-directory.js'
+export type { ProjectDirectoryStorage, ProjectDirectorySnapshot, SharedProject } from './project-directory.js'
+export { PROJECT_APP, PROJECT_KIND, PROJECT_WRAP_KIND, projectKey, projectId, projectAuthority, projectRecord, signProject, projectForRecipient, wrapProject, unwrapProject } from './projects.js'
+export type { ProjectIdentity, ProjectMember, ProjectRoom, ProjectDefinition, ProjectReference, ProjectRevision, ProjectRecord } from './projects.js'

@@ -2761,6 +2761,25 @@ select {
 #projectRoomName { font-weight: 650; overflow-wrap: anywhere; }
 #projectName { font-family: inherit; }
 .organiseRoom { margin: 0; font-size: .85rem; min-height: 44px; }
+.sharedProjectsSheet { width: min(48rem, calc(100vw - 2rem)); padding: 0; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 12px; max-height: calc(100svh - 2rem); }
+.sharedProjectsSheet::backdrop { background: rgb(0 0 0 / 55%); }
+.sharedProjectsLead { font-size: 1.12rem; margin-top: 0; }
+.sharedProjectsActions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+.sharedProjectsActions button { margin: 0; }
+#sharedProjectsList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 1rem; margin-top: 1rem; }
+.sharedProjectCard { padding: 1.1rem; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; min-width: 0; overflow-wrap: anywhere; }
+.sharedProjectCard h3 { margin: 0 0 .4rem; font-size: 1.2rem; }
+.sharedProjectCard p { margin: .4rem 0 .8rem; }
+.sharedProjectRooms { display: flex; flex-direction: column; align-items: stretch; gap: .4rem; }
+.sharedProjectRooms button { text-align: left; margin: 0; }
+.projectChoices { display: grid; gap: .3rem; }
+.projectChoice { display: flex; align-items: center; gap: .7rem; padding: .5rem; min-height: 44px; margin: 0; border-radius: 6px; overflow-wrap: anywhere; }
+.projectChoice:hover { background: var(--panel); }
+.projectChoice input[type=checkbox] { width: 1.2rem; height: 1.2rem; flex: 0 0 auto; margin: 0; }
+.sharedProjectContactRow { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.sharedProjectContactRow input { flex: 1 1 12rem; min-width: 0; margin: 0; }
+.sharedProjectContactRow button, .sharedProjectContactRow select { margin: 0; }
+#sharedProjectReview { overflow-wrap: anywhere; }
 #workspaceNav { display: none; }
 
 /* At intermediate widths the conversation still uses the available height. */

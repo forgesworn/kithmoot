@@ -209,3 +209,32 @@ Exact source digests and reconciliation results are in Oathrun's
 `docs/evidence/bounded-context-retrieval-2026-09-10.json`. These tests use synthetic
 principals and a local container image; live agent migration, physical-phone
 acceptance and real-task cost reduction remain open.
+
+## Shared project directory candidate — 2026-09-10
+
+The PWA now supports owner-signed project identities, explicit people/agent lists,
+persistent room selections and separately signed personal joins. Joined projects
+appear in home, room switching and desktop navigation; same-named projects remain
+distinct. A received directory does not automatically admit a room or launch work.
+The [wire, recovery and authority contract](shared-projects.md) describes exact
+limits and the remaining Oathrun and native Android integration.
+
+The candidate is based on main `a4ea229`, retaining the merged box discovery and
+cryptographic timing changes. All 1,671 unit tests in 106 files, typecheck and the
+production build passed. Twenty-seven Chromium account, workspace and room-switching
+checks passed. A further focused browser run verified stale invitation refusal,
+rename propagation and keyboard focus retention in the three-project journey.
+Both phone-width project management and desktop project navigation were rendered
+and inspected. Tests use synthetic accounts, local relays and real persistent
+room admission; they are not physical-phone or live-agent acceptance.
+
+Signed-record tests reject forged/cached-verdict events, unexpected fields, wrong
+recipients and temporary, pairing or legacy traffic-key links. Recovery checks
+cover encrypted caches without relay history, competing owner revisions, preserved
+withdrawal notices, member re-addition, archive/restore authority, exact retry
+receipts, failed storage and closure while signing. Invalid changes are rejected
+before invoking the external signer. Normal navigation retains keyboard focus
+through background directory updates.
+
+This records local candidate verification. Hosted checks, merge and production
+activation are separate release evidence. The full G9 and G1–G8 gates remain open.

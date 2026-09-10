@@ -361,3 +361,111 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
     }
   } finally { await context.close(); await clerk.leave() }
 })
+
+test('shared projects keep three scopes separate and carry a reviewed invitation from desktop to another phone session', async ({ browser, baseURL }, testInfo) => {
+  test.setTimeout(120_000)
+  const aliceSk = generateSecretKey(), bobSk = generateSecretKey(), carolSk = generateSecretKey(), agentSk = generateSecretKey()
+  const aliceKey = getPublicKey(aliceSk), bobKey = getPublicKey(bobSk), carolKey = getPublicKey(carolSk), agentKey = getPublicKey(agentSk)
+  const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
+  const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, relays: ['ws://127.0.0.1:7777'] })))
+  const roomLinks = keepers.map(k => ({ roomId: k.roomId, name: k.link.name!, link: encodeRoomLink(baseURL!, { ...k.link, relays: [relay.href] }), openedAt: 1, readAt: 0 }))
+  const aContext = await device(browser, baseURL!, aliceSk), bContext = await device(browser, baseURL!, bobSk), cContext = await device(browser, baseURL!, carolSk)
+  const contexts = [aContext, bContext, cContext]
+  await aContext.addInitScript(({ rooms, pubkey }) => {
+    if (localStorage.getItem('shared-project-fixture')) return
+    for (const room of rooms) localStorage.setItem(`kithmoot.account.${pubkey}.kithmoot.room.${room.roomId}`, JSON.stringify(room))
+    localStorage.setItem('shared-project-fixture', 'true')
+  }, { rooms: roomLinks, pubkey: aliceKey })
+  const a = await aContext.newPage(), b = await bContext.newPage(), c = await cContext.newPage()
+  const errors: string[] = []
+  for (const p of [a, b, c]) p.on('pageerror', e => errors.push(e.message))
+  async function loginAccount(page: Page) {
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await expect(page.locator('#signOut')).toBeVisible()
+    await page.locator('#homeSharedProjects').click()
+    await expect(page.locator('#sharedProjectNew')).toBeEnabled()
+  }
+  async function createProject(name: string, room: string, members: [string, 'person' | 'agent'][]) {
+    await a.locator('#sharedProjectNew').click()
+    await a.locator('#sharedProjectName').fill(name)
+    for (const [pubkey, kind] of members) {
+      await a.locator('#sharedProjectNpub').fill(npubEncode(pubkey))
+      await a.locator('#sharedProjectContactKind').selectOption(kind)
+      await a.locator('#sharedProjectAddPerson').click()
+    }
+    await a.locator('#sharedProjectRooms').getByRole('checkbox', { name: room, exact: true }).check()
+    await a.locator('#sharedProjectSave').click()
+    await expect(a.locator('#sharedProjectEditor')).not.toBeVisible()
+    await expect(a.locator('#sharedProjectsList h3', { hasText: name })).toHaveCount(1)
+  }
+  try {
+    await a.setViewportSize({ width: 1440, height: 900 })
+    await loginAccount(a); await loginAccount(b); await loginAccount(c)
+    await createProject('Kithmoot', 'Kithmoot room', [[bobKey, 'person'], [agentKey, 'agent']])
+    await createProject('Bothy', 'Bothy room', [[carolKey, 'person'], [agentKey, 'agent']])
+    await createProject('Research', 'Research room', [[carolKey, 'person']])
+    await expect(b.locator('#sharedProjectsList h3')).toHaveText(['Kithmoot'])
+    await expect(c.locator('#sharedProjectsList h3')).toHaveText(['Bothy', 'Research'])
+    await expect(b.locator('#sharedProjectsList')).not.toContainText('Bothy')
+    await b.getByRole('button', { name: 'Review and join', exact: true }).click()
+    await expect(b.locator('#sharedProjectPeople input:checked')).toHaveCount(3)
+    await expect(b.locator('#sharedProjectRooms')).toContainText('Kithmoot room')
+    const ownerCard = a.locator('.sharedProjectCard').filter({ has: a.getByRole('heading', { name: 'Kithmoot', exact: true }) })
+    async function renameKithmoot(name: string) {
+      await a.locator('.sharedProjectCard').filter({ has: a.getByRole('button', { name: 'Kithmoot room', exact: true }) }).getByRole('button', { name: 'Edit project', exact: true }).click()
+      await a.locator('#sharedProjectName').fill(name)
+      await a.locator('#sharedProjectSave').click()
+      await expect(a.locator('#sharedProjectEditor')).not.toBeVisible()
+      await expect(b.locator('#sharedProjectsList h3')).toHaveText([name])
+    }
+    await expect(ownerCard).toBeVisible()
+    await renameKithmoot('Kithmoot updated')
+    await b.locator('#sharedProjectSave').click()
+    await expect(b.locator('#sharedProjectError')).toContainText('invitation changed')
+    await expect(b.locator('#sharedProjectEditor')).toBeVisible()
+    await b.locator('#sharedProjectCancel').click()
+    await renameKithmoot('Kithmoot')
+    await b.getByRole('button', { name: 'Review and join', exact: true }).click()
+    await b.locator('#sharedProjectSave').click()
+    await expect(b.locator('#sharedProjectEditor')).not.toBeVisible()
+    await expect(b.locator('#sharedProjectsList').getByRole('button', { name: 'Kithmoot room', exact: true })).toBeVisible()
+    await expect(b.locator('#sharedProjectsStatus')).not.toContainText('awaiting relay confirmation')
+    const roomButton = b.locator('#sharedProjectsList').getByRole('button', { name: 'Kithmoot room', exact: true })
+    await roomButton.focus()
+    await renameKithmoot('Kithmoot updated')
+    await expect(roomButton).toBeFocused()
+    await expect(b.locator('#homeProject option[value^="shared:"]')).toHaveText(['Kithmoot updated'])
+    await renameKithmoot('Kithmoot')
+    await expect(roomButton).toBeFocused()
+    await b.screenshot({ path: testInfo.outputPath('shared-project-phone.png') })
+    expect(await b.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+    const privateCache = await b.evaluate(pubkey => localStorage.getItem(`kithmoot.shared-projects.v1.${pubkey}`), bobKey)
+    expect(privateCache).toBeTruthy(); expect(privateCache).not.toContain('Kithmoot'); expect(privateCache).not.toContain(carolKey)
+
+    const phoneContext = await device(browser, baseURL!, bobSk); contexts.push(phoneContext)
+    const phone = await phoneContext.newPage(); phone.on('pageerror', e => errors.push(e.message))
+    await loginAccount(phone)
+    await expect(phone.locator('#sharedProjectsList h3')).toHaveText(['Kithmoot'])
+    await expect(phone.locator('#sharedProjectsList').getByRole('button', { name: 'Review and join' })).toHaveCount(0)
+    await phone.locator('#sharedProjectsList').getByRole('button', { name: 'Kithmoot room', exact: true }).click()
+    await expect(phone.locator('#roomArea')).toBeVisible()
+    await expect(phone.locator('#roomTitle')).toHaveText('Kithmoot room')
+    await phone.locator('#chatInput').fill('Hello from the shared project on my phone')
+    await phone.locator('#chatInput').press('Enter')
+    await expect.poll(() => keepers[0]!.chat.messages().some(m => m.text === 'Hello from the shared project on my phone')).toBe(true)
+
+    await a.locator('#sharedProjectsList').getByRole('button', { name: 'Kithmoot room', exact: true }).click()
+    await expect(a.locator('#roomArea')).toBeVisible()
+    await expect(a.locator('#workspaceRooms h3')).toHaveText(['Bothy', 'Kithmoot', 'Research'])
+    await a.locator('#chatInput').fill('Keep this draft in Kithmoot')
+    await a.locator('#workspaceRooms').getByRole('button', { name: 'Bothy room', exact: true }).click()
+    await expect(a.locator('#roomTitle')).toHaveText('Bothy room')
+    await expect(a.locator('#chatInput')).toHaveValue('')
+    await a.locator('#workspaceRooms').getByRole('button', { name: 'Kithmoot room', exact: true }).click()
+    await expect(a.locator('#chatInput')).toHaveValue('Keep this draft in Kithmoot')
+    await a.screenshot({ path: testInfo.outputPath('shared-project-desktop.png') })
+    expect(await a.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+    expect(errors).toEqual([])
+  } finally { for (const keeper of keepers) keeper.leave(); await Promise.all(contexts.map(context => context.close())) }
+})

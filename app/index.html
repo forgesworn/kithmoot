@@ -40,6 +40,7 @@
       <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
       <aside id="workspaceNav" aria-label="Projects and rooms" hidden>
         <div class="workspaceBrand"><img src="/pwa-192x192.png" width="32" height="32" alt="" />KithMoot</div>
+        <button id="workspaceSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
         <button id="workspaceSwitch" type="button" aria-haspopup="dialog" aria-controls="roomSwitcher">Find a room <kbd>⌘ / Ctrl K</kbd></button>
         <label class="sr-only" for="workspaceQuery">Filter projects and rooms</label>
         <input id="workspaceQuery" type="search" placeholder="Filter projects and rooms" autocomplete="off" />
@@ -325,6 +326,7 @@
 
       <section id="rooms" hidden>
         <h2 id="roomsHeading">Your rooms</h2>
+        <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
         <div id="homeRoomSearch" class="roomSearchRow" hidden>
           <label for="homeRoomQuery" class="sr-only">Search saved rooms</label>
           <input id="homeRoomQuery" type="search" placeholder="Search rooms or projects" autocomplete="off" spellcheck="false" />
@@ -460,6 +462,7 @@
         <input id="roomSearch" type="search" placeholder="Find a room" autocomplete="off" />
         <div class="projectFilter"><label for="switcherProject">Project</label><select id="switcherProject"><option value="*">All projects</option></select></div>
         <ul id="roomSwitcherList" class="roomList"></ul>
+        <button id="switcherSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
         <p id="roomSwitcherEmpty" class="note" hidden>No matching rooms. Rooms you open while signed in appear here.</p>
         <button id="roomSwitcherHome" type="button" class="quiet">All rooms / Start a room</button>
       </div>
@@ -509,6 +512,51 @@
          Reachable and dismissible by thumb: a Close button that stays on
          screen, Escape, and a tap on the backdrop.
          ===================================================================== -->
+    <dialog id="sharedProjects" class="sharedProjectsSheet" aria-labelledby="sharedProjectsTitle">
+      <div class="sheetBar"><h2 id="sharedProjectsTitle">Projects</h2><button id="sharedProjectsClose" type="button">Close</button></div>
+      <div class="sheetBody">
+        <p class="sharedProjectsLead">Your people, agents and conversations, together.</p>
+        <div class="sharedProjectsActions">
+          <button id="sharedProjectNew" type="button" class="primary">New project</button>
+          <button id="sharedProjectsSignIn" type="button">Sign in</button>
+          <button id="sharedProjectsRetry" type="button" class="quiet" hidden>Retry project sync</button>
+        </div>
+        <p id="sharedProjectsStatus" class="note" role="status"></p>
+        <p id="sharedProjectsEmpty" class="note" hidden>Create a project or join an invitation from someone you work with.</p>
+        <div id="sharedProjectsList"></div>
+      </div>
+    </dialog>
+    <dialog id="sharedProjectEditor" class="sharedProjectsSheet" aria-labelledby="sharedProjectEditorTitle">
+      <form id="sharedProjectForm">
+        <div class="sheetBar"><h2 id="sharedProjectEditorTitle">Create a shared project</h2><button id="sharedProjectCancel" type="button">Cancel</button></div>
+        <div class="sheetBody">
+          <p id="sharedProjectReview" class="note" hidden></p>
+          <div id="sharedProjectFields">
+            <label for="sharedProjectName">Project name</label>
+            <input id="sharedProjectName" maxlength="64" autocomplete="off" placeholder="e.g. Bothy" />
+            <label class="projectChoice"><input id="sharedProjectArchived" type="checkbox" /><span>Archive this project</span></label>
+          </div>
+          <h3>People and agents</h3>
+          <div id="sharedProjectPeople" class="projectChoices"></div>
+          <div id="sharedProjectAddContact">
+            <label for="sharedProjectNpub">Add a Nostr contact</label>
+            <div class="sharedProjectContactRow">
+              <input id="sharedProjectNpub" autocomplete="off" spellcheck="false" placeholder="npub…" aria-label="Contact Nostr public key" />
+              <select id="sharedProjectContactKind" aria-label="Contact type"><option value="person">Person</option><option value="agent">Agent</option></select>
+              <button id="sharedProjectAddPerson" type="button">Add</button>
+            </div>
+          </div>
+          <h3>Rooms</h3>
+          <div id="sharedProjectRooms" class="projectChoices"></div>
+          <p id="sharedProjectNoRooms" class="note">No persistent rooms selected yet. You can add them after creating the project.</p>
+          <p class="note">Selected room invitations are shared with everyone listed. Room admission and agent execution permissions remain separate. Temporary meetings are not included.</p>
+          <p id="sharedProjectRemovalNote" class="note" hidden>Removing someone stops project-directory updates. Use the room and agent controls to revoke existing room access or running work.</p>
+          <p id="sharedProjectError" class="formError" role="alert" hidden></p>
+          <button id="sharedProjectSave" type="submit" class="primary">Create and share project</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="projectEditor" aria-labelledby="projectEditorTitle">
       <form id="projectForm">
         <div class="sheetBar">

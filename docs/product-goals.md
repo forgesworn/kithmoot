@@ -286,6 +286,12 @@ projects. People and agents can be members of multiple projects without
 requiring separate accounts, application instances or vendor-specific remote
 control tools. Project membership, authority and context remain explicit.
 
+The PWA [shared project directory](shared-projects.md) supplies signed project
+identities, deliberate membership joins and encrypted device synchronisation.
+Its Oathrun authority mapping, native Android directory and physical-phone
+journey remain acceptance work; directory membership grants no task or context
+authority by itself.
+
 ### Proposed navigation
 
 - **Inbox:** decisions needing this person's judgement, alongside human mentions
