@@ -119,8 +119,17 @@ An existing `kithmoot-agent` process can take `--context <cache>` and repeated
 `--context-server <origin>` flags. Its model briefings refresh the local
 encrypted cache on every turn. MCP `describe_room` does the same, with
 context tools included; stdio clients can request `{"op":"context"}`.
-Room and participant must match. Briefings include up to eight collections
-and eight recent active records per collection; query the tools for more.
+Room and participant must match. Built-in model turns use the incoming request
+as a retrieval query (at most 500 characters), across up to eight collections.
+Each compact JSON context result is capped at 2048 bytes and four complete
+records. The full new messages remain in the model prompt. Omitted records are
+explicit; agents can request full evidence through the context tools. This
+bounds context input, not the entire conversation prompt or provider token bill.
+
+MCP `describe_room` accepts `contextQuery`, and stdio `context` accepts `query`,
+for the same behaviour. Calls without a query preserve the existing view of up
+to eight recent active records per collection. All briefings reload the encrypted
+cache and recheck its audience and current cached grants.
 
 Use `--personal` instead of `--room` only for a separate private assistant.
 Never wire that adapter into a shared room. A worker should have its own

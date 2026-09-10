@@ -151,10 +151,10 @@ export async function serveMcp(runtime: AgentRuntime, opts: { name?: string; ver
     'describe_room',
     {
       title: 'The room as text',
-      description: 'Everything at once, as a readable briefing: who is here, and the tail of every conversation.',
-      inputSchema: {},
+      description: 'A room briefing: people and recent conversations. Optional contextQuery selects bounded relevant signed context instead of recent-record prefetch; inspect omitted records with context_read when needed.',
+      inputSchema: { contextQuery: z.string().trim().min(1).max(500).optional() },
     },
-    async () => text(await runtime.brief()),
+    async ({ contextQuery }) => text(await runtime.brief(contextQuery)),
   )
 
   server.registerTool(

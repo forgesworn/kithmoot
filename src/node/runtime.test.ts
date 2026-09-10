@@ -1,5 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { generateSecretKey } from 'nostr-tools/pure'
+import { localIdentity, type ParticipantIdentity } from '../identity.js'
+import { localPeerCrypt } from '../dm.js'
+import { ContextFileStore } from './context-store.js'
+import type { ContextRetrieval } from '../context.js'
 import { RoomAgent } from '../agent.js'
 import { SimRelay, SimTransport } from '../../test/sim-relay.js'
 import { AgentRuntime } from './runtime.js'
@@ -16,16 +24,84 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0))
 }
 
-async function room() {
+async function room(identity?: ParticipantIdentity) {
   const relay = new SimRelay({ replay: true })
   const transport = () => new SimTransport(relay)
   const keeper = await RoomAgent.create({ base: BASE, name: 'Person', relays: ['wss://sim'], transport, announceJitterMs: 0, agent: false })
-  const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport, announceJitterMs: 0 })
+  const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport, announceJitterMs: 0, identity })
   await settle()
   return { relay, keeper, ada }
 }
 
 describe('AgentRuntime', () => {
+  it('briefs from bounded relevant evidence and reloads corrections from the encrypted cache', async () => {
+    const sk = generateSecretKey()
+    const identity = { ...localIdentity(sk), ...localPeerCrypt(sk) }
+    const { keeper, ada } = await room(identity)
+    const dir = await mkdtemp(join(tmpdir(), 'kith-brief-'))
+    const context = new ContextFileStore(join(dir, 'context.json'), { identity, room: ada.roomId })
+    const runtime = new AgentRuntime(ada, { context })
+    const extract = (brief: string) => JSON.parse(brief.slice(brief.lastIndexOf('\n') + 1)) as ContextRetrieval[]
+    try {
+      const original = await context.run(async v => {
+        let view = await v.create({ title: 'Workshop', scope: 'kith', room: ada.roomId })
+        view = await v.append(view.id, view.head, { kind: 'evidence', text: 'Turbine inspection approved.', source: 'fixture://inspection/1', observedAt: 1 })
+        const record = view.records[0]!
+        for (let i = 0; i < 9; i++) view = await v.append(view.id, view.head, { kind: 'fact', text: `Catering update ${i}.`, source: `fixture://catering/${i}`, observedAt: i + 2 })
+        return { collection: view.id, record }
+      }, true)
+      const first = extract(await runtime.brief('turbine'))[0]!
+      expect(first.records).toHaveLength(1)
+      expect(first.records[0]).toMatchObject(original.record)
+      expect(first.records[0]).toMatchObject({ author: identity.pubkey, match: 'query' })
+      expect(first.bytesUsed).toBe(Buffer.byteLength(JSON.stringify(first)))
+      expect(first.bytesUsed).toBeLessThanOrEqual(2048)
+      expect(await runtime.brief()).not.toContain(original.record.text)
+
+      const writer = new ContextFileStore(context.path, context.options)
+      const correction = await writer.run(async v => {
+        const view = v.read(original.collection)
+        return v.append(view.id, view.head, { kind: 'evidence', text: 'Turbine inspection refused pending repair.', source: 'fixture://inspection/2', observedAt: 20, supersedes: original.record.id })
+      }, true)
+      const current = extract(await runtime.brief('turbine'))[0]!
+      expect(current.head).toBe(correction.head)
+      expect(current.records.map(r => r.text)).toEqual(['Turbine inspection refused pending repair.'])
+      expect(current.records[0]!.supersedes).toBe(original.record.id)
+      expect(extract(await runtime.brief('zebras'))[0]!.records).toEqual([])
+      expect(await readFile(context.path, 'utf8')).not.toContain('Turbine')
+      expect(() => new AgentRuntime(ada, { context: new ContextFileStore(context.path, { ...context.options, room: 'ff'.repeat(32) }) })).toThrow('pinned')
+      expect(() => new AgentRuntime(keeper, { context })).toThrow('pinned')
+      await expect(runtime.brief(' ')).rejects.toThrow('query')
+      await expect(runtime.brief('x'.repeat(501))).rejects.toThrow('query')
+    } finally { await runtime.close(); keeper.leave(); await rm(dir, { recursive: true, force: true }) }
+  // This integration repeatedly verifies signed history after encrypted disk
+  // reloads; allow for the slower CPUs used by the hosted Node matrix.
+  }, 20_000)
+
+  it('omits oversized context whole and labels cache failures without implying no blockers', async () => {
+    const sk = generateSecretKey()
+    const identity = { ...localIdentity(sk), ...localPeerCrypt(sk) }
+    const { keeper, ada } = await room(identity)
+    const dir = await mkdtemp(join(tmpdir(), 'kith-brief-size-'))
+    const context = new ContextFileStore(join(dir, 'context.json'), { identity, room: ada.roomId })
+    const runtime = new AgentRuntime(ada, { context })
+    try {
+      await context.run(async v => {
+        let view = await v.create({ title: 'Evidence', scope: 'kith', room: ada.roomId })
+        view = await v.append(view.id, view.head, { kind: 'evidence', text: 'Turbine ' + '界'.repeat(3000), source: 'fixture://large', observedAt: 1 })
+        await v.append(view.id, view.head, { kind: 'evidence', text: 'Turbine bearing replaced.', source: 'fixture://small', observedAt: 2 })
+      }, true)
+      const brief = await runtime.brief('turbine')
+      const result = JSON.parse(brief.slice(brief.lastIndexOf('\n') + 1))[0] as ContextRetrieval
+      expect(result.records.map(r => r.text)).toEqual(['Turbine bearing replaced.'])
+      expect(result.omitted).toBe(1)
+      expect(result.bytesUsed).toBeLessThanOrEqual(2048)
+      expect(brief).toContain('omitted records are not evidence of absence')
+      vi.spyOn(context, 'run').mockRejectedValueOnce(new Error('unreadable cache'))
+      expect(await runtime.brief('turbine')).toContain('Do not assume there are no blockers')
+    } finally { await runtime.close(); keeper.leave(); await rm(dir, { recursive: true, force: true }) }
+  })
+
   it('follows named conversations and emits one signed receipt in the addressed conversation', async () => {
     const { keeper, ada } = await room()
     const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: '' } }).start()
@@ -192,6 +268,21 @@ class ScriptedBrain extends ModelBrain {
 }
 
 describe('ModelBrain', () => {
+  it('uses incoming text for bounded context lookup while keeping the full request in the model turn', async () => {
+    const { keeper, ada } = await room()
+    const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: '' } }).start()
+    const brief = vi.spyOn(runtime, 'brief')
+    const brain = new ScriptedBrain(['/quiet'])
+    const stop = await brain.start(runtime)
+    try {
+      const message = 'Ada, inspect the turbine. ' + 'inspection detail '.repeat(40) + ' Preserve this final constraint.'
+      await keeper.chat.send(message)
+      await vi.waitFor(() => expect(brain.prompts).toHaveLength(1))
+      expect(brief).toHaveBeenCalledWith(message.slice(0, 500))
+      expect(brain.prompts[0]).toContain(message)
+    } finally { await stop(); await runtime.close(); keeper.leave() }
+  })
+
   it('speaks when named, whispers when told to, and stays quiet otherwise', async () => {
     const { keeper, ada } = await room()
     const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: 'Be brief.' } }).start()
@@ -299,6 +390,12 @@ describe('StdioBrain', () => {
 
     expect(parsed()[0]!.type).toBe('ready')
     expect(keeper.chat.messages().map((m) => m.text)).toContain('hello from the pipe')
+    const brief = vi.spyOn(runtime, 'brief')
+    input.write(JSON.stringify({ op: 'context', query: 'turbine inspection' }) + '\n')
+    await vi.waitFor(() => expect(parsed().some(e => e.type === 'context')).toBe(true))
+    expect(brief).toHaveBeenCalledWith('turbine inspection')
+    input.write(JSON.stringify({ op: 'context', query: 42 }) + '\n')
+    await vi.waitFor(() => expect(parsed().some(e => e.type === 'error')).toBe(true))
     await stop()
     await runtime.close()
     keeper.leave()
