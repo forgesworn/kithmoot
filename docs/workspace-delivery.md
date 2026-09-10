@@ -14,21 +14,22 @@ retain the complete requirements. An individual slice is not completion.
 | Shared projects | Existing device-local room labels and preserved drafts. | Synced project model mapped to Oathrun authority, overlapping memberships and device continuity. |
 | Oathrun assignment execution | Durable encrypted assignment bridge and bounded route implemented in the isolated Oathrun worktree. The browser/native-host/container journey covers claim, one model question, principal answer, bounded continuation, evidence result and exact principal acceptance. Cross-project denial, positive cleanup before stop acknowledgement, encrypted action discovery, late refresh and withdrawal are tested. | Held-execution reconciliation; richer progress/failure decisions; live supported host. |
 | Minimal supervision | Oathrun profiles, grants and budgets exist. A reviewed assignment route now handles claim, question and result reports without per-report approval, and continues from the principal’s answer under the original task and project authority. | Reusable setup; delegation and failure decisions; demonstrate fewer avoidable interventions and cost per accepted outcome on real work. |
-| Native Android | PR #17 merged; complete hosted CI passed. The 0.5.6 (14) debug preview is published on GitHub and the public site with its verified existing preview certificate. Primary chat, Call tab and draft/search/reading-position retention are included. | Agent/work/approval controls, same assignment contract, physical-device and locked-phone acceptance. |
+| Native Android | [PR #21](https://github.com/forgesworn/kithmoot-android/pull/21) prepares 0.5.8 (16): native Work cards, action discovery, the shared signed assignment contract, encrypted history and exact retry. All 347 local unit tests, both lint variants and the 17-test emulator recovery suite passed. Hosted CI and publication are pending. | Quiet shared work, paired-device signing, cross-project attention, live executor pairing, physical-device and locked-phone acceptance. |
 | Context and efficiency | Signed context collections, scoped verification, literal retrieval, cache controls and usage accounting. | Relevant project retrieval and graph links, freshness/corrections, cross-project denial tests and cost per accepted outcome. |
 | Calls and temporary meetings | Existing media/transcript/agent controls; G7/G8 retained. | Daily call-to-assignment acceptance, platform parity; separate temporary identity/retention/teardown mode and fail-closed masking. |
 
 ## Work locations
 
 - PWA: `kithmoot` checkout; first slice merged into main as `3b344e3`.
-  Further integration work continues on `feat/workspace-execution`.
+  Release copy and the current delivery record continue on `release/android-shared-work`.
 - Android: sibling `.workspace-delivery/kithmoot-android` worktree,
-  branch `feat/chat-workspace`, merged PR #17, source head `f80be80`;
-  main merge `0289197`.
+  branch `feat/shared-agent-work`, PR #21, source head `8a9036b`;
+  based on the committed 0.5.7 baseline `97a182c`.
 - Oathrun integration: sibling `.workspace-delivery/oathrun` worktree,
   branch `feat/kithmoot-assignment-delivery`, reconciled with committed recovery
   baseline `2a99782`; durable bridge `c8bcbf9`, immutable-digest improvement
-  `cc89d9d`, assignment execution `220e27e`, and action discovery `93add8e`.
+  `cc89d9d`, assignment execution `220e27e`, action discovery `93add8e`,
+  bounded control messages `5df1c0e` and ordered catalogue changes `b8ae2ec`.
   The original Oathrun checkout contains concurrent recovery and branding work;
   preserve that work and reconcile the integration before merging.
 
@@ -77,7 +78,7 @@ Desktop (1440 px) and phone-width (390 px) live browser checks returned HTTP 200
 rendered room entry controls and reported no page errors or horizontal overflow.
 The prior web release remains available for rollback.
 
-The public Android download is `kithmoot-0.5.6-debug.apk`, version 0.5.6 (14),
+The Android download published with this release was `kithmoot-0.5.6-debug.apk`, version 0.5.6 (14),
 SHA-256 `34a3067c25c2a111b3611e11d9e5cc5cc6b468944a7f577a12a18bfa588eacef`.
 [Android PR #17](https://github.com/forgesworn/kithmoot-android/pull/17) merged
 as `0289197`; its complete hosted
@@ -115,4 +116,31 @@ The evidence and implementation are committed in the isolated Oathrun worktree;
 `docs/evidence/assignment-catalogue-2026-09-10.json` records exact source hashes
 and the direct-client, isolated-client and native-host results.
 Oathrun has no configured Git remote, and no live agent migration has occurred.
-This establishes local integration, not a deployed executor or Android work parity.
+This establishes local executor integration. The Android acceptance below is
+independent; a live Android-to-Oathrun project journey remains open.
+
+
+## Native shared-work candidate — 2026-09-10
+
+[Android PR #21](https://github.com/forgesworn/kithmoot-android/pull/21),
+source `8a9036ba64f67b3763ac8ba7bd2107be567b5538`, adds native assignment
+verification and projection from signed TypeScript vectors, a separate encrypted
+journal, explicit exact retry and the Work tab. The installed-app journey caught
+and now guards against closing work on the room's initial null epoch state.
+The same assignment survives real view-model publication, leaving and reopening
+the room; microphone and camera remain off. Native sockets and the Android vault
+also completed question, answer, exact result acceptance and recovery with no
+relay history. No live model or agent was used for these Android checks.
+
+The exact 0.5.8 (16) debug candidate passed 200 app and 147 protocol unit tests,
+debug/release lint, debug/unsigned-release builds, and all 17 checks in the
+recovery-emulator script. Its APK SHA-256 is
+`38638bda17306207418ab688062e7875d2b44baf4097715e13a92ccac5696883`;
+the existing preview certificate is retained. Source digests and test boundaries
+are in the Android repository's `docs/evidence/shared-work-2026-09-10.json`.
+The PR's hosted checks and preview publication remain pending at this record.
+
+[Web PR #67](https://github.com/forgesworn/kithmoot/pull/67) merged as
+`2344514bcca217c731d1a4e7a53506379f33e3b4` after all five checks passed.
+It fixes an invitation test that raced the intermediate admission label; durable
+admission, host acknowledgement and actual entry assertions remain in place.
