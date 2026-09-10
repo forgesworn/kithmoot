@@ -25,6 +25,28 @@ function storage() {
 }
 
 describe('portable context without a KithMoot runtime', () => {
+  it('rechecks retrieval grants and room scope even after a successful derived lookup', async () => {
+    const store = storage()
+    let clock = now
+    const room = 'a1'.repeat(32)
+    const a = new ContextVault({ identity: owner, fetch: store.fetch, servers: [origin], now: () => clock })
+    let view = await a.create({ title: 'Project A', scope: 'kith', room })
+    view = await a.setGrants(view.id, view.head, [{ subject: reader.pubkey, role: 'read', expiresAt: now + 100 }])
+    view = await a.append(view.id, view.head, { kind: 'decision', text: 'Repair the turbine.', source: 'fixture://project-a', observedAt: now })
+    await a.upload(view.id, origin)
+    const access = await a.access(view.id, reader.pubkey)
+    const b = new ContextVault({ identity: reader, room, fetch: store.fetch, servers: [origin], now: () => clock })
+    await b.importAccess(access)
+    expect(b.retrieve(view.id, { query: 'turbine' }).records).toHaveLength(1)
+    const requests = store.requests()
+    const foreign = new ContextVault({ identity: reader, room: 'b2'.repeat(32), fetch: store.fetch, servers: [origin], now: () => clock })
+    await expect(foreign.importAccess(access)).rejects.toThrow()
+    expect(() => foreign.retrieve(view.id, { query: 'turbine' })).toThrow('not available')
+    clock = now + 101
+    expect(() => b.retrieve(view.id, { query: 'turbine' })).toThrow('not available')
+    expect(store.requests()).toBe(requests)
+  })
+
   it('shares and restores sourced records between plain Nostr identities', async () => {
     const store = storage()
     const a = new ContextVault({ identity: owner, fetch: store.fetch, servers: [origin], now: () => now })

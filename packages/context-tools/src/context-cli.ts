@@ -34,5 +34,7 @@ export async function main(options: ContextCliOptions = {}): Promise<void> {
   for await (const part of process.stdin) { input += part; if (input.length > 120000) throw new Error('Context request too large.') }
   let args
   try { args = JSON.parse(input || '{}') } catch { throw new Error('Invalid context request JSON.') }
-  process.stdout.write(JSON.stringify(await callContextTool(store, positionals[1], args), null, 2) + '\n')
+  // Retrieval budgets its compact JSON payload, including provenance. Do not
+  // inflate that payload with CLI-only indentation after measuring it.
+  process.stdout.write(JSON.stringify(await callContextTool(store, positionals[1], args), null, positionals[1] === 'context_retrieve' ? undefined : 2) + '\n')
 }

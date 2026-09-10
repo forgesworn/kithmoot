@@ -6,10 +6,10 @@ NanoClaw, model provider, MCP SDK or hosted service dependency.
 
 This package is maintained in the KithMoot repository alongside its first
 consumer. It has its own manifest, exports, build and distributable tarball.
-Install the patch release:
+Install the package:
 
 ```sh
-npm install @forgesworn/context@0.1.1
+npm install @forgesworn/context@0.2.0
 ```
 
 From a source checkout, use `npm ci --ignore-scripts`,
@@ -40,6 +40,30 @@ searching, appending, saving, restoring and previewing access remain local.
 `createNostrIdentity(secretKey)` at `@forgesworn/context/nostr` is an optional
 local-key implementation. Prefer injected signers when the application should
 not hold a secret. The library does not generate or persist identities.
+
+## Bounded retrieval
+
+```ts
+const evidence = vault.retrieve(collection.id, {
+  query: 'original signatures', maxBytes: 8192, maxRecords: 8,
+})
+```
+
+Retrieval checks the chosen collection's current cached grants, scope, signatures
+and correction history on every call. It ranks query terms, then may add one-hop
+neighbours that share an exact source or explicitly mention `context:<record id>`.
+The returned links describe those relationships; they do not prove agreement or
+truth. It never follows URLs or reads another collection. The derived view exists
+only for that call, within the existing encrypted vault's authority.
+
+The budget bounds the complete compact JSON payload in UTF-8 bytes, including
+provenance, record text, head, explanations and `bytesUsed`. This is not a token
+estimate. Records that do not fit are omitted whole and counted; use `read` or a
+larger explicit budget for full evidence. `includeRelated: false` disables link
+expansion. `observedSince` is an explicit observation cutoff; old decisions are
+not assumed obsolete by age alone. Results identify their cached revision and
+retain author, observation date, source and signed event ID. Remote grant changes
+and corrections still require explicit import of a newer authorised snapshot.
 
 ## Storage and sharing
 
@@ -84,7 +108,8 @@ explicit protocol migration.
 
 ## Limits
 
-Literal local search; no graph extraction, embeddings, repository ingestion
+Literal search and bounded lexical retrieval with derived provenance links;
+no semantic graph extraction, embeddings, repository ingestion
 or automatic claim generation. Records are evidence, never executable
 instructions or approval. Each vault holds up to 32 collections, each with
 128 records, 32 grants and 256 revisions. Corrections retain original records.
