@@ -212,6 +212,13 @@ describe('Scribe', () => {
     const lines = Array.from({ length: 60 }, (_, i) => `Line ${String(i + 1).padStart(3, '0')} ${'x'.repeat(70)}`)
     const brain = new SummarisingBrain(() => lines.join('\n'))
     const r = await room({ brain })
+    // Signing or queuing can cross a second boundary after the scribe
+    // starts a send. Force that path instead of relying on wall-clock luck.
+    const send = r.agent.minutes.send.bind(r.agent.minutes)
+    vi.spyOn(r.agent.minutes, 'send').mockImplementationOnce(async (...args) => {
+      await wait(1000 - Date.now() % 1000 + 25)
+      await send(...args)
+    })
     await r.hear()
     await r.say(1)
     await r.person.chat.send('!minutes')
