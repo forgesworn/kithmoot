@@ -383,8 +383,11 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#signOut')).toBeVisible()
-    await page.locator('#homeSharedProjects').click()
+    // History restores the home heading and room list. Wait for that state
+    // before clicking: its layout can move this button during a pointer tap.
     await expect(page.locator('#sharedProjectNew')).toBeEnabled()
+    await page.locator('#homeSharedProjects').click()
+    await expect(page.locator('#sharedProjects')).toBeVisible()
   }
   async function createProject(name: string, room: string, members: [string, 'person' | 'agent'][]) {
     await a.locator('#sharedProjectNew').click()
