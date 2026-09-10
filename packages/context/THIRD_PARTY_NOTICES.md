@@ -1,6 +1,6 @@
 # Third-party notices
 
-These notices accompany `@forgesworn/context@0.1.1`. The package itself is
+These notices accompany `@forgesworn/context@0.2.0`. The package itself is
 MIT licensed, Copyright (c) 2026 TheCryptoDonkey; see `LICENSE`.
 
 Runtime dependencies are installed separately by the package manager, not

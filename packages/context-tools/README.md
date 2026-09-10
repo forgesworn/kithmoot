@@ -7,7 +7,7 @@ never enter its root import. No KithMoot or NanoClaw runtime dependency.
 Install the patch release, which depends on the matching core package:
 
 ```sh
-npm install @forgesworn/context-tools@0.1.1
+npm install @forgesworn/context-tools@0.2.0
 ```
 
 The source is maintained in the KithMoot workspace. Build with
@@ -28,12 +28,21 @@ Supply an existing identity; no key is minted. Startup does not contact
 storage. The legacy `room` name denotes a hex audience binding; it does not
 join any room. Use a separate state file for every identity and binding.
 
-The tools are `context_list`, `context_read`, `context_create`,
+The tools are `context_list`, `context_read`, `context_retrieve`, `context_create`,
 `context_append`, `context_preview`, `context_import`, `context_upload`,
 `context_access`, `context_grants` and `context_set_grants`. They preserve the
 existing tool names and request shapes. Preview before importing. Writes stay
 local until explicitly uploaded and access events delivered. Tools send no
 messages and records are never execution authority.
+
+`context_retrieve` requires `collection` and `query`. It returns complete signed
+records selected by lexical relevance and optional one-hop provenance links,
+with an 8192-byte compact JSON payload budget by default. `maxBytes` includes
+record text, source, author, signed event IDs, head and derived-link explanations;
+transport framing is outside that payload. `maxRecords`, `includeRelated` and
+`observedSince` are optional. Oversized records are omitted, never silently cut.
+Every call rechecks the cached grant and audience. No source URL is fetched,
+no other collection is traversed, and no plaintext index persists.
 
 Applications can import `ContextFileStore` from `./store`, tool registration
 and dispatch from `./mcp`, or `main` from `./cli`. The CLI's `configureVault`

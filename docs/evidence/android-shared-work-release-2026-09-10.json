@@ -1,0 +1,190 @@
+{
+  "release": "20260910T023141Z",
+  "source": "cd135bd9faf57e7a299b1e9fa0c2d4c4d3db763f",
+  "previousRelease": "20260910T010811Z",
+  "checks": [
+    {
+      "path": "j/apple-touch-icon.png",
+      "status": 200,
+      "bytes": 39936,
+      "sha256": "6a3fdb005db57b202481b07e781699a96d78f6224c8a279065d802621530de20"
+    },
+    {
+      "path": "j/favicon-32.png",
+      "status": 200,
+      "bytes": 2202,
+      "sha256": "af793a25e6b3778bb88fa71c6f419dc97264cefed1cf9ea7dfbdf46c4c5d96bf"
+    },
+    {
+      "path": "j/favicon.svg",
+      "status": 200,
+      "bytes": 1274,
+      "sha256": "02236bce5fe50d3332a139948614beeb5c6836b816d568551fd2f828bc43d5cd"
+    },
+    {
+      "path": "j/index.html",
+      "status": 200,
+      "bytes": 58314,
+      "sha256": "0123c6e373db989bbd198e2aaa7348b5248002f6a78bd8dc5a17b59cda466545"
+    },
+    {
+      "path": "j/manifest.webmanifest",
+      "status": 200,
+      "bytes": 433,
+      "sha256": "ee59592fae43776c378d5cd6d321463fb98b5ac54896a3521e0f9069ff6e0f61"
+    },
+    {
+      "path": "j/maskable-icon-512x512.png",
+      "status": 200,
+      "bytes": 242288,
+      "sha256": "3b9634df42015a6840847d5e4a28da8aab8147dab56b9cd31a6d807892edca8f"
+    },
+    {
+      "path": "j/notify-sw.js",
+      "status": 200,
+      "bytes": 1018,
+      "sha256": "e5eb188104f7b3b2ab06c7464704f82b6c826258a1c965c3da181a393483ba8e"
+    },
+    {
+      "path": "j/pwa-192x192.png",
+      "status": 200,
+      "bytes": 44600,
+      "sha256": "9a3e79a319c9a0991258f7da3a35057fb4d70ddfdd7e35f48b3d9fe90a792ba3"
+    },
+    {
+      "path": "j/pwa-512x512.png",
+      "status": 200,
+      "bytes": 242288,
+      "sha256": "3b9634df42015a6840847d5e4a28da8aab8147dab56b9cd31a6d807892edca8f"
+    },
+    {
+      "path": "j/sw.js",
+      "status": 200,
+      "bytes": 1602,
+      "sha256": "7497f0c220016ac76e6303b431004072a7987c819ae1046575ff1998dc6dad39"
+    },
+    {
+      "path": "j/voice-worklet.js",
+      "status": 200,
+      "bytes": 4671,
+      "sha256": "d7963ed4a3f13fd511c06439032dad0605f644bd85e94bf79228fa933847d891"
+    },
+    {
+      "path": "j/workbox-2fbc6a65.js",
+      "status": 200,
+      "bytes": 15026,
+      "sha256": "39c2e6ae44c3f29666f6a328b6523bf13a053a1d95c74af8ddea82b1045b0b6e"
+    },
+    {
+      "path": "j/models/selfie_segmenter.tflite",
+      "status": 200,
+      "bytes": 249537,
+      "sha256": "191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b"
+    },
+    {
+      "path": "j/mediapipe/vision_wasm_internal.js",
+      "status": 200,
+      "bytes": 323377,
+      "sha256": "e170ee67dd4e16c1a6fcd8840a206687e5a59b22c20e4a902bc445b095454d73"
+    },
+    {
+      "path": "j/mediapipe/vision_wasm_internal.wasm",
+      "status": 200,
+      "bytes": 11756954,
+      "sha256": "8da277a733926eacd0474b8704b36742d6ec3231c57a860c5b889dff8f1df886"
+    },
+    {
+      "path": "j/mediapipe/vision_wasm_nosimd_internal.js",
+      "status": 200,
+      "bytes": 323180,
+      "sha256": "e81d715a3d42cc3373602eb2f7aff795d164934db680e32496b65dab537f9658"
+    },
+    {
+      "path": "j/mediapipe/vision_wasm_nosimd_internal.wasm",
+      "status": 200,
+      "bytes": 10960242,
+      "sha256": "a28483cd42e74e855bf5ebdb6b40d9b66a5b49e35e95020bc97669e6822a3192"
+    },
+    {
+      "path": "j/backgrounds/ember.svg",
+      "status": 200,
+      "bytes": 646,
+      "sha256": "f9fdb9652315615e19f427ffada8f75a73fa0b74a2256760009a63fc2df262ad"
+    },
+    {
+      "path": "j/backgrounds/fen.svg",
+      "status": 200,
+      "bytes": 645,
+      "sha256": "794b801caf1e2e960106b1e8b605f87384357b6aaaa8e0f84db439abce246e9f"
+    },
+    {
+      "path": "j/backgrounds/slate.svg",
+      "status": 200,
+      "bytes": 597,
+      "sha256": "6058b860bf5e38def18364bff3855977d9deffb3b41700535a9f309c007677d1"
+    },
+    {
+      "path": "j/assets/index-BJnNq3-t.js",
+      "status": 200,
+      "bytes": 917485,
+      "sha256": "3483013ec2fcf7a63a1479e97beb4915bfd3b4adbea106ada1a951a0299a8469"
+    },
+    {
+      "path": "j/assets/index-CewZB1K7.css",
+      "status": 200,
+      "bytes": 55859,
+      "sha256": "77c9de38cb8d762a1e144f9df7e008892050d28f147ea85abfe797ac1234d4a7"
+    },
+    {
+      "path": "j/assets/vision_bundle-DGKkcuX8.js",
+      "status": 200,
+      "bytes": 153606,
+      "sha256": "0647d10586ac5879e0e0a910de736c9eeb0c8df0c91205bd9c0fdf6702adec6d"
+    },
+    {
+      "path": "j/assets/workbox-window.prod.es5-Bd17z0YL.js",
+      "status": 200,
+      "bytes": 5653,
+      "sha256": "17bcc17d60dc78f927834b880c39649b03af46fd1f5cdbb8c42c5ae2b515dce9"
+    },
+    {
+      "path": "",
+      "status": 200,
+      "bytes": 16333,
+      "sha256": "d4b4d69bbaa0b7f28465d34b654ef4d2f86e67d0e92c46b056eec8c1de8bbab4"
+    },
+    {
+      "path": "apk/kithmoot-latest.apk",
+      "status": 200,
+      "bytes": 54681430,
+      "sha256": "38638bda17306207418ab688062e7875d2b44baf4097715e13a92ccac5696883"
+    }
+  ],
+  "pages": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "siteStatus": 200,
+      "appStatus": 200,
+      "siteOverflow": false,
+      "overflow": false,
+      "errors": []
+    },
+    {
+      "name": "phone",
+      "width": 390,
+      "height": 844,
+      "siteStatus": 200,
+      "appStatus": 200,
+      "siteOverflow": false,
+      "overflow": false,
+      "errors": []
+    }
+  ],
+  "androidMerge": "23c88023e73c20574d2810769dd603ca7bab105c",
+  "androidCi": "https://github.com/forgesworn/kithmoot-android/actions/runs/34428897674",
+  "webCi": "https://github.com/forgesworn/kithmoot/actions/runs/34428963363",
+  "androidPreview": "https://github.com/forgesworn/kithmoot-android/releases/tag/v0.5.8",
+  "physicalDeviceAcceptance": false
+}

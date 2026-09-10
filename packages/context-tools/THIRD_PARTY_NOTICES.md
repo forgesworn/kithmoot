@@ -1,6 +1,6 @@
 # Third-party notices
 
-These notices accompany `@forgesworn/context-tools@0.1.1`. The package itself is
+These notices accompany `@forgesworn/context-tools@0.2.0`. The package itself is
 MIT licensed, Copyright (c) 2026 TheCryptoDonkey; see `LICENSE`.
 
 Runtime dependencies are installed separately by the package manager, not
@@ -9,9 +9,9 @@ notices below cover direct runtime dependencies; retain the licence files
 from transitive dependencies as well when redistributing an installation or
 bundle. Dependency versions and source links refer to this release.
 
-## @forgesworn/context@0.1.1
+## @forgesworn/context@0.2.0
 
-Declared licence: MIT. Source package: https://www.npmjs.com/package/@forgesworn/context/v/0.1.1
+Declared licence: MIT. Source package: https://www.npmjs.com/package/@forgesworn/context/v/0.2.0
 
 ```text
 MIT License

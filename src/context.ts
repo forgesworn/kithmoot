@@ -7,7 +7,7 @@ import { verifyAgentOwnership } from './ownership.js'
 import type { AgentOwnership } from './types.js'
 
 export type { ContextScope, ContextRole, ContextIdentity, ContextRecord,
-  ContextPointer, ContextView } from '@forgesworn/context'
+  ContextPointer, ContextView, ContextRetrievalOptions, ContextRetrieval, ContextLink } from '@forgesworn/context'
 export interface ContextGrant extends Omit<PortableGrant, 'agent'> { agent?: AgentOwnership }
 export interface ContextPolicy extends Omit<PortablePolicy, 'grants'> { grants: ContextGrant[] }
 export type ContextVaultOptions = Omit<PortableOptions, 'verifyDelegation'>

@@ -14,8 +14,8 @@ retain the complete requirements. An individual slice is not completion.
 | Shared projects | Existing device-local room labels and preserved drafts. | Synced project model mapped to Oathrun authority, overlapping memberships and device continuity. |
 | Oathrun assignment execution | Durable encrypted assignment bridge and bounded route implemented in the isolated Oathrun worktree. The browser/native-host/container journey covers claim, one model question, principal answer, bounded continuation, evidence result and exact principal acceptance. Cross-project denial, positive cleanup before stop acknowledgement, encrypted action discovery, late refresh and withdrawal are tested. | Held-execution reconciliation; richer progress/failure decisions; live supported host. |
 | Minimal supervision | Oathrun profiles, grants and budgets exist. A reviewed assignment route now handles claim, question and result reports without per-report approval, and continues from the principal’s answer under the original task and project authority. | Reusable setup; delegation and failure decisions; demonstrate fewer avoidable interventions and cost per accepted outcome on real work. |
-| Native Android | [PR #21](https://github.com/forgesworn/kithmoot-android/pull/21) prepares 0.5.8 (16): native Work cards, action discovery, the shared signed assignment contract, encrypted history and exact retry. All 347 local unit tests, both lint variants and the 17-test emulator recovery suite passed. Hosted CI and publication are pending. | Quiet shared work, paired-device signing, cross-project attention, live executor pairing, physical-device and locked-phone acceptance. |
-| Context and efficiency | Signed context collections, scoped verification, literal retrieval, cache controls and usage accounting. | Relevant project retrieval and graph links, freshness/corrections, cross-project denial tests and cost per accepted outcome. |
+| Native Android | [PR #21](https://github.com/forgesworn/kithmoot-android/pull/21) merged and 0.5.8 (16) is published on GitHub and the public site: native Work cards, action discovery, the shared signed assignment contract, encrypted history and exact retry. All 347 local unit tests, both lint variants, the 17-test local emulator suite and both hosted jobs passed. | Quiet shared work, paired-device signing, cross-project attention, live executor pairing, physical-device and locked-phone acceptance. |
+| Context and efficiency | Signed context collections, scoped verification, literal search, cache controls and usage accounting. A separate 0.2.0 candidate adds budgeted lexical retrieval and one-hop provenance links; 1,556 unit/integration tests and independent package consumers pass locally. | Hosted candidate verification/publication, Oathrun adapter adoption, derived repository/semantic graph coverage and measured cost per accepted outcome. |
 | Calls and temporary meetings | Existing media/transcript/agent controls; G7/G8 retained. | Daily call-to-assignment acceptance, platform parity; separate temporary identity/retention/teardown mode and fail-closed masking. |
 
 ## Work locations
@@ -138,9 +138,49 @@ recovery-emulator script. Its APK SHA-256 is
 `38638bda17306207418ab688062e7875d2b44baf4097715e13a92ccac5696883`;
 the existing preview certificate is retained. Source digests and test boundaries
 are in the Android repository's `docs/evidence/shared-work-2026-09-10.json`.
-The PR's hosted checks and preview publication remain pending at this record.
+The candidate record preceded hosted checks; the release result follows below.
 
 [Web PR #67](https://github.com/forgesworn/kithmoot/pull/67) merged as
 `2344514bcca217c731d1a4e7a53506379f33e3b4` after all five checks passed.
 It fixes an invitation test that raced the intermediate admission label; durable
 admission, host acknowledgement and actual entry assertions remain in place.
+
+
+## Android shared-work release — 2026-09-10
+
+[Android PR #21](https://github.com/forgesworn/kithmoot-android/pull/21) merged
+as `23c88023e73c20574d2810769dd603ca7bab105c`. Both verification and the
+recovery-emulator job passed in
+[run 34428897674](https://github.com/forgesworn/kithmoot-android/actions/runs/34428897674).
+The [0.5.8 preview](https://github.com/forgesworn/kithmoot-android/releases/tag/v0.5.8)
+is published, with the recorded candidate APK and existing preview certificate.
+The signed app source matches the merged tree.
+
+[Web PR #68](https://github.com/forgesworn/kithmoot/pull/68) merged as
+`cd135bd9faf57e7a299b1e9fa0c2d4c4d3db763f` after all five hosted checks passed
+in [run 34428963363](https://github.com/forgesworn/kithmoot/actions/runs/34428963363).
+Production release `20260910T023141Z` serves the download page and exact APK.
+HTTP checks matched all 24 built app files, the page and APK. Desktop (1440 px)
+and phone (390 px) browser checks rendered entry controls with no page errors
+or horizontal overflow. The previous release `20260910T010811Z` is retained.
+Physical-device, quiet shared work, paired-device signing and live Oathrun
+pairing acceptance remain open.
+
+## Bounded context retrieval candidate
+
+The portable context and MCP packages prepare version 0.2.0. A call names one
+explicit collection and query. The library rechecks cached grants, audience,
+signatures and correction history, then returns complete records within a
+compact JSON byte budget. Exact shared sources and explicit signed-record
+references may add one-hop neighbours. It does not follow URLs, traverse another
+collection, persist a plaintext index or treat records as execution authority.
+Remote grant changes still depend on importing a newer authorised snapshot;
+already downloaded copies cannot be recalled.
+
+Typecheck, all 1,556 tests, and independently installed Node/browser/CLI package
+consumers passed. Tests include scope and expiry refusal after successful reads,
+superseded records, source revision boundaries, one-hop expansion and complete
+UTF-8 payload limits. This is lexical retrieval with provenance links; no
+repository crawler, semantic extraction, embedding model or measured real-task
+token savings are claimed. Oathrun adoption and live outcome acceptance remain
+separate work. The signed v1 collection format remains unchanged.
