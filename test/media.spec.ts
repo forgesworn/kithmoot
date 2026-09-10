@@ -58,10 +58,21 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     // A rapid route rebuild can leave Chromium decoding a receiver after its
     // media element was lost. Remove the sink to model that browser edge;
     // the receiver reconciliation must put the live picture back.
-    await pageA.locator('#room .participant:not(:has-text("(you)")) video').first().evaluate(video => video.remove())
+    await pageA.locator('#room .participant:not(:has-text("(you)")) video').first().evaluate(element => {
+      const video = element as HTMLVideoElement
+      // Model a browser-issued receiver id distinct from the sender advert,
+      // while retaining the already established receiver-to-slot binding.
+      const track = (video.srcObject as MediaStream).getVideoTracks()[0]!
+      Object.defineProperty(track, 'id', { value: `receiver-${track.id}`, configurable: true })
+      video.pause(); video.remove()
+    })
     await expect.poll(async () => (await pageA.evaluate(remotePictures)).length, {
       message: 'a live receiver whose video element disappeared was not restored', timeout: 10_000,
     }).toBeGreaterThan(0)
+    await expect.poll(() => pageA.locator('#room .participant:not(:has-text("(you)")) video').first().evaluate(video => !(video as HTMLVideoElement).paused), {
+      message: 'the restored receiver must resume playback', timeout: 10_000,
+    }).toBe(true)
+    await expectToSeeAndHear(pageA, 'Ada after receiver recovery')
 
     // And you are in the room too: your own picture sits in your own tile
     // in the grid, beside everybody else's, not only in the preview strip

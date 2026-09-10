@@ -6098,6 +6098,15 @@ function parkPicture(el: HTMLVideoElement): void {
   $('parked').append(el)
 }
 
+/** Removing a media element can run the browser's pause steps. Reattaching
+ * the same receiver does not reliably restart autoplay; resume only when
+ * recovering an element that actually left the document. */
+function restoreRemoteElement(el: HTMLMediaElement, container: HTMLElement): void {
+  const detached = !el.isConnected
+  container.append(el)
+  if (detached) void el.play().catch(() => { /* A later user gesture can resume blocked playback. */ })
+}
+
 /** Whether this picture is currently on screen, in its own device's tile. */
 function onScreen(entry: RemoteVideo): boolean {
   return entry.el.parentElement === entry.container
@@ -6184,7 +6193,7 @@ function syncRemoteVideos(): void {
       entry.stalled = 0
       entry.played = true
       if (!onScreen(entry) && !leftCall) {
-        entry.container.append(entry.el)
+        restoreRemoteElement(entry.el, entry.container)
         changed = true
       }
       continue
@@ -6233,6 +6242,11 @@ function advertisedTrackId(device: string, track: MediaStreamTrack): string {
   ) ?? []
   if (compatible.some(advert => advert.trackId === track.id)) return track.id
   const collection = track.kind === 'audio' ? remoteAudios : remoteVideos
+  // Once this receiver has been placed in an advertised slot, retain that
+  // binding. Its browser-issued id may differ from the sender's track id;
+  // falling back to it on the next poll makes a live receiver look orphaned.
+  const bound = compatible.find(advert => collection.get(`${device}|${advert.trackId}`)?.track === track)
+  if (bound) return bound.trackId
   const available = compatible.find(advert => {
     const current = collection.get(`${device}|${advert.trackId}`)
     return current === undefined || current.track.readyState === 'ended'
@@ -6299,7 +6313,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       // renegotiation hands the same track over and `ontrack` fires afresh.
       // Back on screen, with the stall count reset: if it really is still
       // frozen, the next two checks say so and park it again.
-      container.append(el)
+      restoreRemoteElement(el, container)
       existing.stalled = 0
     }
     if (replaced) {
@@ -6333,7 +6347,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       remoteAudios.set(key, { el, track })
       container.append(el)
     } else if (!el.isConnected) {
-      container.append(el)
+      restoreRemoteElement(el, container)
     }
     // Same rule as the picture: a rebuilt connection hands the same track id
     // over as a new object, and only the track on the element now may end
