@@ -314,6 +314,11 @@ persistent history by default.
 - From one desktop session and a physical phone, operate at least three
   projects with overlapping and disjoint human/agent memberships. Switch
   between them without signing in again or losing the selected conversation.
+- Keep navigation responsive with representative project and conversation
+  histories. Load authorised summaries for the inbox and hydrate conversation
+  detail as needed; opening navigation must not subscribe to every project's
+  complete history. Measure switching, scrolling, reconnect and memory use on
+  the physical phone as well as desktop.
 - Assign an agent work from chat, a thread or a meeting action; state the
   intended project, scope, responsible principal and authorised capabilities.
   Accept commands only from authorised principals, independently of chat
