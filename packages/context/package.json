@@ -1,6 +1,6 @@
 {
   "name": "@forgesworn/context",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Portable signed and encrypted context collections",
   "license": "MIT",
   "type": "module",

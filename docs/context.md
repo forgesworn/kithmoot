@@ -108,7 +108,7 @@ Use a separate cache file for each identity and room. Unix cache files are
 writers retry after a busy response. After a crash, the operator may remove
 a stale `.lock` only after verifying no process still owns it.
 
-Tools: `context_list`, `context_read`, `context_create`, `context_append`,
+Tools: `context_list`, `context_read`, `context_retrieve`, `context_create`, `context_append`,
 `context_preview`, `context_import`, `context_upload`, `context_access`,
 `context_grants`, `context_set_grants`. Preview/import accept an `access`
 string containing the downloaded JSON event. No tool sends chat messages.
@@ -160,8 +160,17 @@ coordinate a writer to preserve both sets of sourced records.
 
 ## Current limits
 
-This is a bounded collection store with literal local search, not a graph
-extractor, vector search engine or Graphify clone. It does not crawl repos,
+This is a bounded collection store with literal search and budgeted retrieval.
+`context_retrieve` selects an explicit authorised collection and returns complete
+records by lexical relevance, with optional one-hop links from exact sources or
+`context:<record id>` references. Its default compact JSON payload cap is 8192
+UTF-8 bytes, including provenance. It checks cached authority and corrections on
+every call, persists no plaintext index and never follows a source URL or another
+collection. These links describe provenance relationships, not semantic claims
+or execution permission. Oversized records are omitted whole and counted.
+
+It is not a semantic graph extractor, vector search engine or Graphify clone.
+It does not crawl repos,
 auto-extract claims, run embedded instructions, publish public indexes or
 sync access files in the background. Data remains evidence, not execution
 approval. Any context supplied to an LLM inherits that provider's data

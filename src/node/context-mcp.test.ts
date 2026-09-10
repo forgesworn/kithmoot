@@ -77,6 +77,11 @@ it.each([
     await agent.close()
     const restarted = await connect('agent', agentSk), calls = downloads
     expect((await call(restarted, 'context_read', { collection: collection.id })).records).toHaveLength(1)
+    const retrieval = await call(restarted, 'context_retrieve', { collection: collection.id, query: 'physical display', maxBytes: 2048 })
+    expect(retrieval.head).toBe(collection.head)
+    expect(retrieval.records[0].text).toContain('physical display')
+    expect(Buffer.byteLength(JSON.stringify(retrieval))).toBe(retrieval.bytesUsed)
+    expect(retrieval.bytesUsed).toBeLessThanOrEqual(2048)
     expect(downloads).toBe(calls)
     for (const text of ['A second record.', 'A third record.']) collection = await call(owner, 'context_append', { collection: collection.id, expectedHead: collection.head, kind: 'fact', text, source: 'fixture', observedAt: Math.floor(Date.now() / 1000) })
     await call(owner, 'context_upload', { collection: collection.id, server: origin })
@@ -84,6 +89,7 @@ it.each([
     expect((await call(restarted, 'context_import', { access: JSON.stringify(ticket) })).records).toHaveLength(3)
     const wrongRoom = await connect('other-room', agentSk, 'cd'.repeat(32)), before = downloads
     await expect(call(wrongRoom, 'context_import', { access: JSON.stringify(ticket) })).rejects.toThrow('not available')
+    await expect(call(wrongRoom, 'context_retrieve', { collection: collection.id, query: 'physical display' })).rejects.toThrow('not available')
     expect(downloads).toBe(before)
     await call(owner, 'context_set_grants', { collection: collection.id, expectedHead: collection.head, grants: [] })
     await call(owner, 'context_upload', { collection: collection.id, server: origin })

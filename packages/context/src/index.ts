@@ -7,6 +7,8 @@ import { sha256 } from '@noble/hashes/sha2'
 import type { Event } from 'nostr-tools/pure'
 import { verifyEventUncached } from './verify.js'
 import { encryptEnvelope, decryptEnvelope, uploadEnvelope, normaliseBlossomServer } from './blossom.js'
+import { retrieveView, type ContextRetrievalOptions, type ContextRetrieval } from './retrieval.js'
+export type { ContextRetrievalOptions, ContextRetrieval, ContextLink } from './retrieval.js'
 
 export type ContextScope = 'personal' | 'kin' | 'kith'
 export type ContextRole = 'read' | 'write'
@@ -261,6 +263,12 @@ export class ContextVault {
     return { id: p.collection, owner: p.owner, title: p.title, scope: p.scope, ...(p.room ? { room: p.room } : {}), epoch: p.epoch,
       head: entry.snapshot.id, revision: s.body.revision, updatedAt: entry.snapshot.created_at,
       role: this.#checks.role(p, this.#identity.pubkey, this.#now())!, uploaded: !!entry.pointer, records }
+  }
+
+  /** Recheck scope, grants, signatures and corrections on every retrieval. The
+   * derived graph is discarded after this call and cannot outlive authority. */
+  retrieve(collection: string, options: ContextRetrievalOptions): ContextRetrieval {
+    return retrieveView(this.read(collection), options)
   }
 
   async append(collection: string, expectedHead: string, input: Omit<ContextRecord, 'id'>): Promise<ContextView> {
