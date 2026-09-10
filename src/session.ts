@@ -1,6 +1,7 @@
 import { getPublicKey } from 'nostr-tools/pure'
 import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
+import { randomFraction } from './random.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import type { ParticipantIdentity } from './identity.js'
@@ -1288,7 +1289,7 @@ export class RoomSession {
         this.#replyTimer = undefined
         this.#publishEntry(true).catch(() => {})
       },
-      Math.floor(Math.random() * jitter),
+      Math.floor(randomFraction() * jitter),
     )
   }
 
