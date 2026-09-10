@@ -150,9 +150,9 @@ the [workspace delivery](docs/workspace-delivery.md).
 - Contact cards. Paste a person's card, or open it as a link at the door,
   and this device holds their key, name, relays and the box they endorse,
   read from the card's own bytes with nothing fetched. Their row says a
-  card is held; their box is one of your circle's relays, so a message
-  that goes only there shows as sheltered; the box's node id and address
-  serial are pinned so nothing older or other can stand in for it. "Show
+  card is held. Transport relay hints on a card do not mark a Nostr relay
+  as sheltered; that requires a keeper-confirmed message endpoint. The
+  box's node id and address serial are pinned so nothing older or other can stand in for it. "Show
   my card" makes yours, to hand over and never post. Built on
   `nostr-contact-card`; see `docs/decisions.md`.
 - Kindred-gated access tiers (`open` / `ken` / `kith` / `kin`), built on the

@@ -70,17 +70,20 @@ describe('the contact book', () => {
     expect(contacts(store)).toEqual([])
   })
 
-  it('a box on a card is a relay of the circle, and a forgotten card takes it back out', () => {
+  it('contact cards cannot grant sheltered status to Link transport relay hints', () => {
     const store = memoryDeviceStore()
     const ada = person('Ada', [], ['wss://box.ada.example', 'wss://Box.Ada.Example/'])
     const rowan = person('Rowan', [], ['wss://box.rowan.example'])
     addContactFromCard(store, ada.link, NOW)
     addContactFromCard(store, rowan.link, NOW + 1)
     const circle = circleRelays(store)
-    expect([...circle.keys()].sort()).toEqual(['wss://box.ada.example/', 'wss://box.rowan.example/'])
-    expect(circle.get('wss://box.ada.example/')).toEqual({ url: 'wss://box.ada.example/', contact: ada.card.p, name: 'Ada', box: ada.box.p, source: 'card' })
+    expect([...circle.keys()]).toEqual([])
+    expect(contacts(store)).toHaveLength(2)
+    expect(circle.get('wss://box.ada.example/')).toBeUndefined()
+    // Reopening the existing stored cards grants no relay ownership either.
+    expect(circleRelays(store).size).toBe(0)
     forgetContact(store, ada.card.p)
-    expect([...circleRelays(store).keys()]).toEqual(['wss://box.rowan.example/'])
+    expect([...circleRelays(store).keys()]).toEqual([])
   })
 
   it('a second card from the same person replaces the first, keeping the serial reached for an unchanged node and starting afresh for a new one', () => {
@@ -123,7 +126,7 @@ describe('the contact book', () => {
     expect(held.highestSerial).toBe(6)
     expect(held.relays).toEqual(['wss://fresh.example'])
     expect(held.refreshedAt).toBe(later)
-    expect(circleRelays(store).get('wss://fresh.example/')?.source).toBe('refreshed')
+    expect(circleRelays(store).has('wss://fresh.example/')).toBe(false)
     expect(refreshContactBox(store, ada.card.p, 'f'.repeat(64), fresh, later)).toEqual({ ok: false, reason: 'this contact endorses no such box' })
     expect(refreshContactBox(store, 'f'.repeat(64), ada.box.p, fresh, later)).toEqual({ ok: false, reason: 'no such contact' })
   })
