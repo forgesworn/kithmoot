@@ -2,6 +2,7 @@ import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { bytesToHex } from '@noble/hashes/utils'
 import { sha256 } from '@noble/hashes/sha2'
+import { base64urlnopad } from '@scure/base'
 import type { ParticipantIdentity } from './identity.js'
 import type { PeerCrypt } from './dm.js'
 import { parseRoomLink } from './link.js'
@@ -70,6 +71,11 @@ function validDefinition(value: unknown, owner: string): value is ProjectDefinit
       const link = parseRoomLink(r.link)
       const url = new URL(r.link)
       if (url.protocol !== 'https:' || url.username || url.password || !link.invitation || !link.invitation.persistent || link.pairingCode) return false
+      // Android pairing links extend an invitation with k/x (device key and
+      // credential), or k/c in the older format. A web reader ignores those
+      // extensions, but must never distribute them as a project invitation.
+      const payload = JSON.parse(new TextDecoder().decode(base64urlnopad.decode(url.hash.slice(1)))) as Record<string, unknown>
+      if (['k', 'x', 's', 'c'].some(field => Object.hasOwn(payload, field))) return false
     } catch { return false }
     rooms.add(r.room)
   }
