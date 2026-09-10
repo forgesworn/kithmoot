@@ -81,6 +81,30 @@ describe('NostrRelayPool', () => {
     expect(b.connections).toBe(1)
   })
 
+  it('restores readers when a publish reconnects the socket before subscription recovery', async () => {
+    vi.useFakeTimers()
+    pool.close()
+    pool = new NostrRelayPool([URL_A, URL_B])
+    const first = evt(), missed = evt()
+    a.seed(first); b.seed(first)
+    const seen: string[] = []
+    pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
+    await vi.advanceTimersByTimeAsync(1)
+    const healthyRequests = b.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length
+    a.disconnectAll()
+    a.seed(missed)
+    // A presence heartbeat can reopen the socket before the recovery timer.
+    // A connected socket does not imply that the old readers survived.
+    const published = pool.publish(evt(20462))
+    await vi.advanceTimersByTimeAsync(1)
+    await published
+    expect(pool.health()[0]!.state).toBe('connected')
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(seen).toEqual([first.id, missed.id])
+    expect(b.connections).toBe(1)
+    expect(b.frames.filter(frame => JSON.parse(frame)[0] === 'REQ')).toHaveLength(healthyRequests)
+  })
+
   it('does not recreate a closed subscription while its relay is unavailable', async () => {
     vi.useFakeTimers()
     pool.close()
