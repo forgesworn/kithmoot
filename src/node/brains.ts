@@ -85,7 +85,7 @@ export type StdioCommand =
   | { op: 'acknowledge'; channel: string; id: string }
   | { op: 'whisper'; text: string }
   | { op: 'roster' }
-  | { op: 'context' }
+  | { op: 'context'; query?: string }
   | { op: 'history'; channel?: Channel; limit?: number }
   | { op: 'history-snapshot'; id: string; channel: string; limit?: number }
   /** Ask a person in the room for a decision. The answer arrives later as
@@ -213,7 +213,7 @@ export class StdioBrain implements Brain {
           write({ type: 'roster', participants: roster() })
           return
         case 'context':
-          write({ type: 'context', briefing: await runtime.brief() })
+          write({ type: 'context', briefing: await runtime.brief(command.query) })
           return
         case 'history-snapshot': {
           if (typeof command.id !== 'string' || !command.id || typeof command.channel !== 'string') throw new Error('A history request needs an id and conversation')
@@ -465,8 +465,11 @@ export abstract class ModelBrain implements Brain {
       const onlyAgents = news.every((e) => e.type === 'backchannel')
       if (onlyAgents) this.#agentTurns++
       const system = [runtime.persona.system.trim(), ROOM_PROTOCOL].filter(Boolean).join('\n\n')
+      // The full new messages still follow this briefing. Only the retrieval
+      // query is bounded; never turn a context snippet into execution authority.
+      const contextQuery = news.flatMap(e => 'message' in e ? [e.message.text] : []).join('\n').trim().slice(0, 500)
       const user = [
-        await runtime.brief(),
+        await runtime.brief(contextQuery || undefined),
         '',
         'New since your last turn:',
         ...news.map((e) =>

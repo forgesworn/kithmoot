@@ -125,6 +125,24 @@ not our multi-person authority model: retain project-bound mandates, budgets
 and explicit revocable context grants. These are product integration choices,
 not reasons to discard its useful interaction patterns.
 
+The subsequent source check at `0f602b3372b300ae94084bd3fe7dbaadaa58ba3a`
+also gives a concrete performance pattern: sidebar rows lease live status near
+the viewport, and detailed thread prewarming is capped at three subscriptions.
+The source explicitly identifies full thread history as a renderer-memory and
+server-load multiplier. For our project inbox, subscribe to authorised summaries
+and hydrate the selected conversation; do not load every project's complete
+history just to draw navigation. Validate scrolling, switching, reconnect and
+memory use with representative histories on a physical phone. This remains a
+recommendation from source, not a measured T3 client performance result.
+[Subscription implementation](https://github.com/pingdotgg/t3code/blob/0f602b3372b300ae94084bd3fe7dbaadaa58ba3a/apps/web/src/components/Sidebar.logic.ts#L24).
+
+The same revision's remote setup uses one-time pairing links with persistent
+device sessions and separate revocation. This is a useful setup model for an
+Oathrun host: pair once, select explicit project profiles, and retain that
+choice. Device connection authority must remain separate from each project's
+task, tool and context authority.
+[Pairing and revocation](https://github.com/pingdotgg/t3code/blob/0f602b3372b300ae94084bd3fe7dbaadaa58ba3a/docs/user/remote-access.md#pair-over-a-lan-or-private-network).
+
 Herdr provides a complementary runtime reference: persistent terminals,
 several machines in one view and working/blocked/idle visibility.
 [Herdr repository](https://github.com/herdrdev/herdr). The inspected material

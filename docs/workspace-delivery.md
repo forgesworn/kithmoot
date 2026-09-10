@@ -15,7 +15,7 @@ retain the complete requirements. An individual slice is not completion.
 | Oathrun assignment execution | Durable encrypted assignment bridge and bounded route implemented in the isolated Oathrun worktree. The browser/native-host/container journey covers claim, one model question, principal answer, bounded continuation, evidence result and exact principal acceptance. Cross-project denial, positive cleanup before stop acknowledgement, encrypted action discovery, late refresh and withdrawal are tested. | Held-execution reconciliation; richer progress/failure decisions; live supported host. |
 | Minimal supervision | Oathrun profiles, grants and budgets exist. A reviewed assignment route now handles claim, question and result reports without per-report approval, and continues from the principal’s answer under the original task and project authority. | Reusable setup; delegation and failure decisions; demonstrate fewer avoidable interventions and cost per accepted outcome on real work. |
 | Native Android | [PR #21](https://github.com/forgesworn/kithmoot-android/pull/21) merged and 0.5.8 (16) is published on GitHub and the public site: native Work cards, action discovery, the shared signed assignment contract, encrypted history and exact retry. All 347 local unit tests, both lint variants, the 17-test local emulator suite and both hosted jobs passed. | Quiet shared work, paired-device signing, cross-project attention, live executor pairing, physical-device and locked-phone acceptance. |
-| Context and efficiency | Signed context collections, scoped verification, literal search, cache controls and usage accounting. A separate 0.2.0 candidate adds budgeted lexical retrieval and one-hop provenance links; 1,556 unit/integration tests and independent package consumers pass locally. | Hosted candidate verification/publication, Oathrun adapter adoption, derived repository/semantic graph coverage and measured cost per accepted outcome. |
+| Context and efficiency | PR #69 merged after all five hosted checks passed; bounded lexical retrieval and one-hop provenance are deployed with the PWA. Oathrun adapter adoption passed 336 Rust tests and both native journeys on the reconciled recovery baseline. | npm 0.2.0 publication requires publishing authentication; derived repository/semantic graph coverage and measured cost per accepted outcome remain open. |
 | Calls and temporary meetings | Existing media/transcript/agent controls; G7/G8 retained. | Daily call-to-assignment acceptance, platform parity; separate temporary identity/retention/teardown mode and fail-closed masking. |
 
 ## Work locations
@@ -27,11 +27,10 @@ retain the complete requirements. An individual slice is not completion.
   based on the committed 0.5.7 baseline `97a182c`.
 - Oathrun integration: sibling `.workspace-delivery/oathrun` worktree,
   branch `feat/kithmoot-assignment-delivery`, reconciled with committed recovery
-  baseline `2a99782`; durable bridge `c8bcbf9`, immutable-digest improvement
-  `cc89d9d`, assignment execution `220e27e`, action discovery `93add8e`,
-  bounded control messages `5df1c0e` and ordered catalogue changes `b8ae2ec`.
+  baseline `cafd303`. The integration and bounded context work are recorded at
+  `ddf5d52`; `cec6c2b` adds fixture compatibility and final reconciled evidence.
   The original Oathrun checkout contains concurrent recovery and branding work;
-  preserve that work and reconcile the integration before merging.
+  preserve that work. This isolated branch has no configured remote.
 
 ## PWA verification notes
 
@@ -184,3 +183,29 @@ UTF-8 payload limits. This is lexical retrieval with provenance links; no
 repository crawler, semantic extraction, embedding model or measured real-task
 token savings are claimed. Oathrun adoption and live outcome acceptance remain
 separate work. The signed v1 collection format remains unchanged.
+
+## Bounded context source release and executor adoption
+
+[PR #69](https://github.com/forgesworn/kithmoot/pull/69) merged as
+`7d5f68c9dd1e9543446a6dc4b1ad06c692d27bf0` after all five checks passed in
+[run 34430040944](https://github.com/forgesworn/kithmoot/actions/runs/34430040944).
+Production release `20260910T025239Z` passed 26 public HTTP hash comparisons
+(app, marketing page and existing Android APK), plus desktop and phone-width
+rendering with no page errors or overflow. The previous `023141Z` release is
+retained. npm publishing of the independently verified 0.2.0 tarballs returned
+`EOTP`; neither package is claimed published. Source deployment and package
+registry publication are separate states.
+
+Oathrun's signed-context broker now accepts optional bounded retrieval under
+the existing project-bound `context.read` permission and one request reservation.
+It validates the complete byte-limited result, provenance and returned links,
+and rechecks authority after container execution. The reconciled branch passed
+336 Rust tests (four ignored), the seven-stage native context journey and the
+26-check native room/assignment journey. In-flight grant and identity revocation
+remain enforced. The duplicate-file-descriptor state-lock regression failed
+before the explicit lock-release fix and passes with it.
+
+Exact source digests and reconciliation results are in Oathrun's
+`docs/evidence/bounded-context-retrieval-2026-09-10.json`. These tests use synthetic
+principals and a local container image; live agent migration, physical-phone
+acceptance and real-task cost reduction remain open.
