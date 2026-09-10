@@ -26,6 +26,9 @@ export class SharedProjectsPanel {
   #return?: HTMLElement
   #busy = false
   #request?: string
+  #projects: SharedProject[] = []
+  #joined: SharedProject[] = []
+  #roomProjects = new Map<string, SharedProject[]>()
   readonly dialog: HTMLDialogElement
   readonly editor: HTMLDialogElement
   constructor(readonly root: Document, readonly options: {
@@ -56,14 +59,14 @@ export class SharedProjectsPanel {
     this.render()
   }
   el(id: string): HTMLElement { const el = this.root.getElementById(id); if (!el) throw new Error(`Missing project element ${id}`); return el }
-  projects(): SharedProject[] { return this.#directory?.snapshot().projects ?? [] }
-  joined(): SharedProject[] { return this.projects().filter(p => p.joined && p.definition && !p.definition.archived) }
+  projects(): readonly SharedProject[] { return this.#projects }
+  joined(): readonly SharedProject[] { return this.#joined }
   sharedRooms(): KnownRoom[] {
     const rooms = new Map<string, KnownRoom>()
     for (const p of this.joined()) for (const r of p.definition!.rooms) if (!rooms.has(r.room)) rooms.set(r.room, { roomId: r.room, name: r.name, link: r.link, openedAt: 0, readAt: 0 })
     return [...rooms.values()]
   }
-  forRoom(room: string): SharedProject[] { return this.joined().filter(p => p.definition!.rooms.some(r => r.room === room)) }
+  forRoom(room: string): readonly SharedProject[] { return this.#roomProjects.get(room) ?? [] }
   async attach(identity: ProjectIdentity, transport: RelayTransport): Promise<void> {
     const detached = this.detach(), generation = this.#generation
     await detached
@@ -130,6 +133,16 @@ export class SharedProjectsPanel {
   }
   render(): void {
     const state = this.#directory?.snapshot()
+    // Navigation asks about the same room repeatedly while building filters,
+    // labels and groups. Project the signed directory once per update, rather
+    // than revalidating and hashing every project's invitations for each row.
+    this.#projects = state?.projects ?? []
+    this.#joined = this.#projects.filter(p => p.joined && p.definition && !p.definition.archived)
+    this.#roomProjects = new Map()
+    for (const project of this.#joined) for (const room of project.definition!.rooms) {
+      const projects = this.#roomProjects.get(room.room) ?? []
+      projects.push(project); this.#roomProjects.set(room.room, projects)
+    }
     const invitations = state?.projects.filter(p => !p.joined && !p.withdrawn && !p.conflicted && !p.definition?.archived).length ?? 0
     for (const id of ['homeSharedProjects', 'workspaceSharedProjects', 'switcherSharedProjects']) this.el(id).textContent = invitations ? `Projects · ${invitations} invitation${invitations === 1 ? '' : 's'}` : 'Projects'
     this.el('sharedProjectsSignIn').hidden = !!this.#identity
