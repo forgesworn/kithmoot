@@ -95,6 +95,42 @@ Patterns to adapt to our existing models:
 These are recommendations inferred from inspected source and documentation,
 not measured proof that T3 reduces supervision or supplies our memory model.
 
+### Refreshed comparison — 2026-09-10
+
+Reviewed T3 Code's current source and documentation at
+`b7b3ef1e6fcb5c22a9790d2578fe8af7ce396835`. This remains a source review;
+the T3 clients have not been installed or tested here. The findings reinforce
+the existing delivery direction rather than establish another task system.
+
+| Pattern to adapt | KithMoot / Oathrun acceptance |
+| --- | --- |
+| Separate approval, input, working, monitoring, failure and unread state. | Routine agent activity stays quiet. A project decision shows its question, recommendation, evidence and consequences; answering it clears the same decision on every authorised device. Unread human chat remains independently visible. |
+| Remember project and execution defaults; keep thread order stable across devices. | Starting another assignment reuses the explicitly authorised project profile. Switching projects or devices preserves drafts, reading positions and work identity without importing unrelated history. |
+| Keep execution on the host while clients reconnect. | Close the desktop, continue from Android and return to the same assignment and attempt. A lost acknowledgement or host restart cannot duplicate work or imply that an external effect completed. |
+| Open the relevant thread from a mobile alert. | A locked-phone decision alert opens the exact current assignment. Suppress resolved or revoked decisions and duplicate alerts; ordinary progress does not interrupt. Prove the actual push route on a physical device. |
+| Settle inactive work without destroying its conversation. | Keep the active workspace small while preserving recoverable history and result evidence. A stopped agent or merged PR alone cannot mark the canonical assignment accepted. |
+
+Sources: [status resolver](https://github.com/pingdotgg/t3code/blob/b7b3ef1e6fcb5c22a9790d2578fe8af7ce396835/apps/web/src/components/Sidebar.logic.ts#L784),
+[thread behaviour](https://github.com/pingdotgg/t3code/blob/b7b3ef1e6fcb5c22a9790d2578fe8af7ce396835/docs/user/thread-sidebar.md),
+[project settings](https://github.com/pingdotgg/t3code/blob/b7b3ef1e6fcb5c22a9790d2578fe8af7ce396835/docs/user/project-settings.md),
+[architecture](https://github.com/pingdotgg/t3code/blob/b7b3ef1e6fcb5c22a9790d2578fe8af7ce396835/docs/internals/overview.md),
+[mobile notifications](https://github.com/pingdotgg/t3code/blob/b7b3ef1e6fcb5c22a9790d2578fe8af7ce396835/docs/user/mobile-notifications.md).
+
+T3's documented background mobile notifications depend on T3 Connect, with
+Google Play services required on Android. Direct pairing or Tailscale alone
+does not provide that delivery. Its documented Full access default is also
+not our multi-person authority model: retain project-bound mandates, budgets
+and explicit revocable context grants. These are product integration choices,
+not reasons to discard its useful interaction patterns.
+
+Herdr provides a complementary runtime reference: persistent terminals,
+several machines in one view and working/blocked/idle visibility.
+[Herdr repository](https://github.com/herdrdev/herdr). The inspected material
+does not substantiate the suggested funding amount. Neither comparison proves
+our shared human collaboration, daily call-to-task flow, temporary meeting
+cleanup or graph retrieval. The primary measure remains human minutes and
+avoidable interventions per accepted outcome.
+
 ## UX evidence
 
 Current browser test screenshots show working shared assignments at desktop and

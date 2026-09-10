@@ -17,6 +17,7 @@ set -euo pipefail
 #   DEPLOY_KEY       ~/.ssh/id_ed25519
 #   DEPLOY_ROOT      /var/www/kithmoot
 #   ANDROID_REPO     ../kithmoot-android
+#   ANDROID_VARIANT  debug (or release for an explicitly built signed release)
 #
 # The published layout:
 #
@@ -73,7 +74,7 @@ Usage: deploy/deploy.sh [--install-caddy] [--reload-caddy] [--prune N] [--dry-ru
                    touch nothing on the box.
   -h, --help       Show this help.
 
-Env overrides: DEPLOY_HOST, DEPLOY_KEY, DEPLOY_ROOT, ANDROID_REPO.
+Env overrides: DEPLOY_HOST, DEPLOY_KEY, DEPLOY_ROOT, ANDROID_REPO, ANDROID_VARIANT.
 EOF
 }
 
@@ -144,15 +145,17 @@ echo "    $(find "$staging" -type f | wc -l | tr -d ' ') files, $(du -sh "$stagi
 
 apk_src=""
 apk_name=""
-if [[ -d "$ANDROID_REPO/app/build/outputs/apk" ]]; then
-  # Newest APK wins, whichever variant it is; the variant goes in the filename
-  # so a debug build is never mistaken for a release one.
-  apk_src="$(find "$ANDROID_REPO/app/build/outputs/apk" -name '*.apk' -type f -print0 \
-    | xargs -0 ls -t 2>/dev/null | head -1 || true)"
-fi
+variant="${ANDROID_VARIANT:-debug}"
+case "$variant" in
+  debug|release) ;;
+  *) echo "deploy.sh: ANDROID_VARIANT must be debug or release" >&2; exit 2 ;;
+esac
+# Instrumentation builds live beside the app and are often newer. Select the
+# app artefact explicitly; never publish a test APK or an unsigned release.
+apk_candidate="$ANDROID_REPO/app/build/outputs/apk/$variant/app-$variant.apk"
+if [[ -f "$apk_candidate" ]]; then apk_src="$apk_candidate"; fi
 
 if [[ -n "$apk_src" && -f "$apk_src" ]]; then
-  variant="$(basename "$(dirname "$apk_src")")"
   version="$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' "$ANDROID_REPO/app/build.gradle.kts" | head -1)"
   version="${version:-unknown}"
   apk_name="kithmoot-${version}-${variant}.apk"
