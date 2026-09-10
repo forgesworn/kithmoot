@@ -1,7 +1,9 @@
 # Workspace and agent supervision capability audit
 
 Recorded 2026-09-09. This is a source and focused test audit, not a declaration
-of production acceptance for the combined system.
+of production acceptance for the combined system. The tables describe that
+initial snapshot; [the delivery ledger](workspace-delivery.md) records later
+implementation and verification, including native shared work.
 
 ## Finding
 
