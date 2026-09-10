@@ -17,7 +17,8 @@ type Watch = {
   statusConflictAt?: number; claimConflictAt?: number
 }
 const keyOf = (contact: string, box: string) => PREFIX + contact + '.' + box
-const revision = (c: Contact, b: ContactBox) => JSON.stringify([c.issued, c.expires, c.readAt, b.claim, b.nodeId, c.rz, c.eph])
+export const boxDiscoveryRevision = (c: Contact, b: ContactBox) => JSON.stringify([c.issued, c.expires, c.readAt, b.claim, b.nodeId, c.rz, c.eph])
+const revision = boxDiscoveryRevision
 const signed = (e: Event, kind: number, author?: string): boolean => {
   try { return e.kind === kind && (!author || e.pubkey === author) && Number.isSafeInteger(e.created_at) && e.created_at >= 0 && verifyEventUncached(e) } catch { return false }
 }
@@ -27,6 +28,7 @@ const signed = (e: Event, kind: number, author?: string): boolean => {
  * The caller owns read-relay selection; no contact hint is ever dialled. */
 export class BoxDiscovery {
   #watches = new Map<string, Watch>()
+  #stopped = new Set<string>()
   #timer?: ReturnType<typeof setInterval>
   constructor(private opts: { store: DeviceStore; transport: (unavailable: () => void) => RelayTransport; changed: () => void; now?: () => number; ticking?: boolean }) {
     if (opts.ticking !== false) this.#timer = setInterval(() => this.tick(), 30_000)
@@ -54,17 +56,26 @@ export class BoxDiscovery {
     return true
   }
   enabled(contact: string, box: string): boolean {
+    if (this.#stopped.has(keyOf(contact, box))) return false
     const c = contactFor(this.opts.store, contact), b = c?.boxes.find(b => b.p === box)
     const saved = this.#saved(keyOf(contact, box))
     return !!c && !!b && saved?.enabled === true && saved.revision === revision(c, b)
   }
-  setEnabled(contact: string, box: string, enabled: boolean): void {
+  setEnabled(contact: string, box: string, enabled: boolean, expectedRevision?: string): void {
+    const key = keyOf(contact, box)
+    if (!enabled) {
+      this.#stopped.add(key)
+      const watch = this.#watches.get(key)
+      if (watch) this.#stop(watch)
+    }
     const c = contactFor(this.opts.store, contact), b = c?.boxes.find(b => b.p === box)
     if (!c || !b) throw new Error('This contact no longer has that box.')
+    if (enabled && expectedRevision !== undefined && expectedRevision !== revision(c, b)) throw new Error('This card changed. Check its current box before continuing.')
     if (enabled && c.expires <= this.#now()) throw new Error('Add a current contact card before checking this box.')
     if (enabled && !this.enabled(contact, box) && this.#watches.size >= LIMIT) throw new Error(`Check at most ${LIMIT} boxes at once. Stop checking another box first.`)
-    const key = keyOf(contact, box), old = this.#saved(key)
+    const old = this.#saved(key)
     this.opts.store.set(key, JSON.stringify({ ...(old?.nodeId === b.nodeId ? old : { claim: old?.claim, claimConflictAt: old?.claimConflictAt }), revision: revision(c, b), nodeId: b.nodeId, enabled }))
+    if (enabled) this.#stopped.delete(key)
     this.reconcile()
     this.opts.changed()
   }
@@ -81,7 +92,7 @@ export class BoxDiscovery {
       const saved = this.#saved(key)
       const w = this.#watches.get(key)
       if (w && (!saved?.enabled || saved.revision !== revision(c, b) || c.expires <= this.#now())) this.#stop(w)
-      if (saved?.enabled && saved.revision === revision(c, b) && c.expires > this.#now() && !this.#watches.has(key) && this.#watches.size < LIMIT) this.#start(c, b, saved)
+      if (saved?.enabled && !this.#stopped.has(key) && saved.revision === revision(c, b) && c.expires > this.#now() && !this.#watches.has(key) && this.#watches.size < LIMIT) this.#start(c, b, saved)
     }
     for (const w of [...this.#watches.values()]) if (!held.has(w.key)) this.#stop(w)
     for (const key of this.opts.store.keys()) if (key.startsWith(PREFIX) && !held.has(key)) this.opts.store.remove(key)

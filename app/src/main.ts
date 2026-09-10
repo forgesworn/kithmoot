@@ -122,7 +122,7 @@ import {
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
 import { BoxRelayReader } from './box-relay-reader.js'
-import { BoxDiscovery } from './box-discovery.js'
+import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
 import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
@@ -174,13 +174,27 @@ const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
 installReactionHold($('chatLog'))
 for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
-  document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
+  document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(positionReactionDetails)
 }, { passive: true })
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
   if (!$('callBay').hidden && !callIsLive() && !document.querySelector('dialog[open]')) setCallOpen(false)
 })
+
+function positionReactionDetails(details: HTMLElement): void {
+  const button = details.parentElement?.querySelector('button')
+  if (!button) return
+  const anchor = button.getBoundingClientRect()
+  const log = $('chatLog').getBoundingClientRect()
+  if (anchor.bottom <= Math.max(0, log.top) || anchor.top >= Math.min(innerHeight, log.bottom)) {
+    details.hidePopover(); return
+  }
+  const bounds = details.getBoundingClientRect()
+  details.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8))}px`
+  const above = anchor.top - bounds.height - 4
+  details.style.top = `${Math.max(8, Math.min(above >= 8 ? above : anchor.bottom + 4, innerHeight - bounds.height - 8))}px`
+}
 
 const shareViewer = new ShareViewer({
   onAnnotation: annotation => session?.publishAnnotation(annotation),
@@ -2708,7 +2722,7 @@ function renderContacts(): void {
       action.addEventListener('click', async () => {
         if (!boxDiscovery) return
         if (!enabled && !await confirmRoomAction({ title: 'Check this box?', message: 'Your default read relays will see this box’s key and its keeper’s claim. Checking continues on this device until you stop or replace the contact card. A verified endpoint can label messages using an existing relay connection; checking does not change where your room sends messages.', confirmLabel: 'Check box' })) return
-        try { boxDiscovery.setEnabled(c.p, b.p, !enabled) }
+        try { boxDiscovery.setEnabled(c.p, b.p, !enabled, boxDiscoveryRevision(c, b)) }
         catch (error) { detail.textContent = describeError(error) }
       })
       box.append(detail, action); boxes.append(box)
@@ -5536,6 +5550,11 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
  */
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
+  // A receipt or roster update replaces the rows while someone may be
+  // reading a reaction tooltip. Reopen that same message's details using
+  // the new contents and anchor, after scroll restoration has finished.
+  const openReaction = log.querySelector<HTMLElement>('.reactionDetails:popover-open')?.id
+  let restoreReaction: (() => void) | undefined
   const unread = unreadMessageIds(currentChannel)
   const restoreScroll = chatScroll.before(currentChannel ?? '', unread)
   log.innerHTML = ''
@@ -5846,11 +5865,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         // Top layer: a long list of names must not be clipped by the chat log.
         document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(other => { if (other !== details) other.hidePopover() })
         details.showPopover()
-        const anchor = button.getBoundingClientRect()
-        const bounds = details.getBoundingClientRect()
-        details.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8))}px`
-        const above = anchor.top - bounds.height - 4
-        details.style.top = `${Math.max(8, Math.min(above >= 8 ? above : anchor.bottom + 4, innerHeight - bounds.height - 8))}px`
+        positionReactionDetails(details)
       }
       button.addEventListener('pointerenter', showDetails)
       button.addEventListener('pointerleave', queueHideDetails)
@@ -5858,6 +5873,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       details.addEventListener('pointerleave', queueHideDetails)
       button.addEventListener('focus', showDetails)
       button.addEventListener('blur', hideDetails)
+      if (details.id === openReaction) restoreReaction = showDetails
       chip.append(button, details)
       reactionBar.append(chip)
     }
@@ -5883,6 +5899,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   if (countId) $(countId).textContent = conversation.byKey.size ? `(${conversation.byKey.size})` : ''
   restoreScroll()
   messageActions.refresh()
+  restoreReaction?.()
 }
 
 /**

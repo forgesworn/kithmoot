@@ -4,8 +4,8 @@ import { matchFilters, type Filter } from 'nostr-tools/filter'
 import { boxFixture } from '../../test/box-status-fixture.js'
 import type { RelayTransport } from '../../src/relay-pool.js'
 import { BOX_STATUS_MAX_AGE } from '../../src/box-status.js'
-import { BoxDiscovery } from './box-discovery.js'
-import { addContactFromCard, forgetContact } from './contact-store.js'
+import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
+import { addContactFromCard, contactFor, forgetContact } from './contact-store.js'
 import { memoryDeviceStore } from './device-store.js'
 import { RelayConnections } from './relay-settings.js'
 
@@ -128,9 +128,32 @@ describe('box discovery lifecycle', () => {
     reopened.send(f.status(f.tags, f.now + 1))
     expect(again.circleRelays().size).toBe(1); again.close()
   })
+  it('a confirmation for the previous card cannot opt its replacement into relay reads', () => {
+    const f = setup(), original = contactFor(f.store, f.master)!
+    const consent = boxDiscoveryRevision(original, original.boxes[0]!)
+    expect(addContactFromCard(f.store, f.contactCard, f.now + 1).ok).toBe(true)
+    expect(() => f.book.setEnabled(f.master, f.p, true, consent)).toThrow('This card changed')
+    expect(f.pools).toHaveLength(0)
+    expect(f.book.enabled(f.master, f.p)).toBe(false)
+    const current = contactFor(f.store, f.master)!
+    f.book.setEnabled(f.master, f.p, true, boxDiscoveryRevision(current, current.boxes[0]!))
+    expect(f.pools).toHaveLength(1); f.book.close()
+  })
   it('stopping discovery closes subscriptions and removes the automatic label', () => {
     const f = setup(), pool = f.start(); f.verify(pool)
     f.book.setEnabled(f.master, f.p, false)
     expect(pool.closed).toBe(true); expect(f.book.circleRelays().size).toBe(0); f.book.close()
+  })
+  it('stops network reads even when the preference cannot be saved', () => {
+    const f = setup(), pool = f.start(); f.verify(pool)
+    const save = f.store.set
+    f.store.set = () => { throw new Error('storage full') }
+    expect(() => f.book.setEnabled(f.master, f.p, false)).toThrow('storage full')
+    expect(pool.closed).toBe(true); expect(f.book.circleRelays().size).toBe(0)
+    expect(f.book.enabled(f.master, f.p)).toBe(false)
+    f.store.set = save; f.book.tick(); f.book.restart()
+    expect(f.pools).toHaveLength(1)
+    f.book.setEnabled(f.master, f.p, true)
+    expect(f.pools).toHaveLength(2); f.book.close()
   })
 })

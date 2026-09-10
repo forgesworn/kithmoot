@@ -31,7 +31,10 @@ added as a room relay. The ordinary roster relay remains necessary.
 The reader fetches the exact endorsed claim, then follows the latest claim
 under that verified master and node. Retirement is terminal in the saved
 history. Contact replacement resets consent; forgetting deletes the discovery
-record and makes late callbacks inert. Saved card bytes, serials, signed
+record and makes late callbacks inert. A confirmation is bound to the card
+that was displayed. Stop closes the reads even if saving the preference
+fails, and this process will not restart them without fresh consent. Saved
+card bytes, serials, signed
 status watermarks and conflict timestamps protect against rollback across
 restart. Signed malformed newer statuses also invalidate an older grant.
 Saved records alone never restore a trusted label.

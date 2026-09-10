@@ -12,9 +12,9 @@ the existing stall rules. A receiver already bound to an advertised track
 also keeps that binding when its browser-issued id differs from the sender's
 id; otherwise a later reconciliation could incorrectly treat it as orphaned.
 
-The strengthened acceptance test pauses and removes the receiver element,
-models a distinct receiver id, and requires resumed playback plus moving
-pictures and received audio. It failed before the repair and passed three
-consecutive Chromium runs afterwards. Type checking passes. Full hosted
+Pausing and removing the receiver element reproduced the failure before the
+repair. The final acceptance test also models a distinct receiver id and
+requires resumed playback plus moving pictures and received audio. That
+expanded test passed three consecutive Chromium runs after the repair. Type checking passes. Full hosted
 browser checks remain required; this is browser acceptance, not physical
 phone or VPN/TURN certification.

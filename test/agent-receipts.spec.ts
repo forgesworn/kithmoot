@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { AgentRuntime } from '../src/node/runtime.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
-import { goToConversation, open } from './browser.js'
+import { goToConversation, open, openRoomDetails } from './browser.js'
 
 test('an agent acknowledges a mention in a named conversation with a visible received time', async ({ browser, baseURL }) => {
   test.setTimeout(45000)
@@ -60,6 +60,13 @@ test('Chip completes by name and @all receives acknowledgements from both agents
     const page = await context.newPage()
     await open(page, browserLink, 'Ada'); await page.locator('#join').click()
     await goToConversation(page, 'workshop')
+    // Explicit recipient keys can name only participants already known to
+    // this browser. Wait for both signed roster entries before exercising
+    // the compatibility expansion; the everyone sentinel itself reaches both
+    // agents even when their presence arrives later.
+    await openRoomDetails(page)
+    for (const name of ['Tally', 'Chip']) await expect(page.locator('#sheetRoster .rosterRow').filter({ hasText: name })).toBeVisible()
+    await page.locator('#roomSheetClose').click()
     const input = page.locator('#chatInput')
     await input.fill('extract these numbers: 3, 7 @Ch please')
     await input.evaluate((el: HTMLTextAreaElement) => {
@@ -88,6 +95,10 @@ test('Chip completes by name and @all receives acknowledgements from both agents
     await receipt.hover()
     const details = row.locator('.reactionDetails:popover-open')
     await expect(details.locator('.reactionPerson')).toHaveCount(2)
+    // Another room event redraws the log while these details are being read.
+    // Keep the same popover open with the refreshed receipt data.
+    await tally.channel('workshop').send('Receipt details stay readable')
+    await expect(page.locator('#chatLog .msg').filter({ hasText: 'Receipt details stay readable' })).toBeVisible()
     for (const name of ['Chip', 'Tally']) await expect(details.locator('.reactionPerson').filter({ hasText: name })).toContainText('Received')
     await expect(row.locator('.mention.me')).toHaveText('@all')
     for (const agent of [tally, chip]) {
