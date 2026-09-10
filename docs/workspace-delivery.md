@@ -12,20 +12,23 @@ retain the complete requirements. An individual slice is not completion.
 | --- | --- | --- |
 | Conversation and decisions | PR #60 merged and deployed. All five CI jobs passed; 24 deployed app files matched the build. Room attention, desktop work beside chat and phone decision review are live. | Authorised cross-project attention and physical-phone acceptance. |
 | Shared projects | Existing device-local room labels and preserved drafts. | Synced project model mapped to Oathrun authority, overlapping memberships and device continuity. |
-| Oathrun assignment execution | Existing assignment protocol/journal and Oathrun room route audited. Isolated runtime worktree created. | Canonical assignment claim, progress, question/answer, stop acknowledgement, result and exact acceptance; task-bound authority; restart/uncertain-effect handling; live supported host. |
-| Minimal supervision | Oathrun profiles, grants, budgets and same-task continuation exist. | Reusable setup; bounded routine reporting, continuation and delegation; demonstrate fewer avoidable interventions without broadening authority. |
-| Native Android | PR #17 implements primary chat, separate Call tab, draft/search/reading-position retention. Android 15 emulator workspace and chat/media regression tests passed. | CI/merge/release for PR #17; agent/work/approval controls, same assignment contract, physical-device and locked-phone acceptance. |
+| Oathrun assignment execution | Durable encrypted assignment bridge and bounded route implemented in the isolated Oathrun worktree. The browser/native-host/container journey covers claim, one model question, principal answer, bounded continuation, evidence result and exact principal acceptance. Cross-project denial, positive cleanup before stop acknowledgement, encrypted action discovery, late refresh and withdrawal are tested. | Held-execution reconciliation; richer progress/failure decisions; live supported host. |
+| Minimal supervision | Oathrun profiles, grants and budgets exist. A reviewed assignment route now handles claim, question and result reports without per-report approval, and continues from the principal’s answer under the original task and project authority. | Reusable setup; delegation and failure decisions; demonstrate fewer avoidable interventions and cost per accepted outcome on real work. |
+| Native Android | PR #17 merged; complete hosted CI passed. The 0.5.6 (14) debug preview is published on GitHub and the public site with its verified existing preview certificate. Primary chat, Call tab and draft/search/reading-position retention are included. | Agent/work/approval controls, same assignment contract, physical-device and locked-phone acceptance. |
 | Context and efficiency | Signed context collections, scoped verification, literal retrieval, cache controls and usage accounting. | Relevant project retrieval and graph links, freshness/corrections, cross-project denial tests and cost per accepted outcome. |
 | Calls and temporary meetings | Existing media/transcript/agent controls; G7/G8 retained. | Daily call-to-assignment acceptance, platform parity; separate temporary identity/retention/teardown mode and fail-closed masking. |
 
 ## Work locations
 
 - PWA: `kithmoot` checkout; first slice merged into main as `3b344e3`.
-  Further integration work continues on `feat/workspace-runtime`.
+  Further integration work continues on `feat/workspace-execution`.
 - Android: sibling `.workspace-delivery/kithmoot-android` worktree,
-  branch `feat/chat-workspace`, PR #17, head `9dbf037`.
+  branch `feat/chat-workspace`, merged PR #17, source head `f80be80`;
+  main merge `0289197`.
 - Oathrun integration: sibling `.workspace-delivery/oathrun` worktree,
-  branch `feat/kithmoot-assignment-delivery`, based on `1f38f1b`.
+  branch `feat/kithmoot-assignment-delivery`, reconciled with committed recovery
+  baseline `2a99782`; durable bridge `c8bcbf9`, immutable-digest improvement
+  `cc89d9d`, assignment execution `220e27e`, and action discovery `93add8e`.
   The original Oathrun checkout contains concurrent recovery and branding work;
   preserve that work and reconcile the integration before merging.
 
@@ -57,3 +60,59 @@ No live Oathrun agent migration has been performed for this delivery.
 Local WebKit stalled in `BrowserContext.newPage` before app navigation. A separate
 blank-page probe also failed to open within ten seconds. Use Linux CI to verify
 WebKit; do not treat the local launch failure as passing browser acceptance.
+
+## Web and Android preview release — 2026-09-10
+
+[PR #62](https://github.com/forgesworn/kithmoot/pull/62) merged as
+`c027e790effe1b1292f09fb36c6e1f8bd5593669`. All five hosted checks passed
+at source head `619e421` in
+[run 34421504835](https://github.com/forgesworn/kithmoot/actions/runs/34421504835).
+The merged tree also retains PR #63's corrected contact-relay attribution;
+seven focused Chromium assignment/contact-card tests and typecheck passed
+on that merged tree before deployment.
+
+Production release `20260910T004405Z` serves the merged code. Public HTTP hashes
+matched all 24 built app files, the marketing page and the exact Android APK.
+Desktop (1440 px) and phone-width (390 px) live browser checks returned HTTP 200,
+rendered room entry controls and reported no page errors or horizontal overflow.
+The prior web release remains available for rollback.
+
+The public Android download is `kithmoot-0.5.6-debug.apk`, version 0.5.6 (14),
+SHA-256 `34a3067c25c2a111b3611e11d9e5cc5cc6b468944a7f577a12a18bfa588eacef`.
+[Android PR #17](https://github.com/forgesworn/kithmoot-android/pull/17) merged
+as `0289197`; its complete hosted
+[verification and recovery/media suite](https://github.com/forgesworn/kithmoot-android/actions/runs/34419881451)
+passed. The same artifact is available in the
+[0.5.6 preview release](https://github.com/forgesworn/kithmoot-android/releases/tag/v0.5.6).
+It retains the previous public preview's certificate. This is a debug-signed
+preview, with no physical-device or production-store acceptance claimed.
+
+The quiet-message dependency is now `nostr-deaddrop` 0.2.2. Its deadline timer
+fixes missed random send offsets; the old once-per-slot polling phase could
+repeatedly check too early. Both quiet-message delivery and assignment review
+passed after consuming the published dependency fix.
+
+
+## Oathrun assignment execution — local acceptance
+
+The final reconciled implementation passed 320 Rust tests (four ignored).
+The direct and isolated client checks passed identity, executable-action and
+replay refusal. The final native-host journey also passed late catalogue refresh
+and removal of a withdrawn action. Same-second messages are verified by their
+new IDs because canonical history order uses an ID tie break.
+The browser-configured route completed the encrypted room journey through a
+real Rust WebSocket host and isolated containers, using synthetic principals
+and a loopback model. It created exactly two jobs for one question and one
+answer continuation, and waited for exact principal acceptance of the result.
+
+The same agent’s membership in another project does not permit binding that
+project’s task to this room. Stop acknowledgement requires positive execution
+cleanup; cancelled flags alone are insufficient. Restart restores the encrypted
+canonical journal without automatically retrying an uncertain outgoing effect.
+Changed authority holds the execution for review.
+
+The evidence and implementation are committed in the isolated Oathrun worktree;
+`docs/evidence/assignment-catalogue-2026-09-10.json` records exact source hashes
+and the direct-client, isolated-client and native-host results.
+Oathrun has no configured Git remote, and no live agent migration has occurred.
+This establishes local integration, not a deployed executor or Android work parity.
