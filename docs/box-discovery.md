@@ -40,7 +40,7 @@ restart. Signed malformed newer statuses also invalidate an older grant.
 Saved records alone never restore a trusted label.
 
 `BoxRelayReader` completes history only on actual EOSE frames from every
-configured read relay. Timeout, CLOSED or disconnect removes current trust
+configured read relay. Timeout, a closed live history or disconnect removes current trust
 and restarts all reads. It is read-only, caps the three subscriptions per box,
 limits frame size and traffic, and bounds concurrent box watches. These
 client-side bounds do not supply the box daemon's pending flood protection.
@@ -77,3 +77,10 @@ inside a valid box signature, and an endorsed retired claim. The generator
 checks source and dependency-lock provenance before running. This advances
 implementation interoperability; it is not a running bothyd or owned-box
 network/device journey.
+
+An exact full-event-id lookup may receive `CLOSED` after that relay's real
+`EOSE`: those bytes are immutable, and the initial lookup is finished. This
+does not complete other relays, does not apply to prefix ids or a closure
+before EOSE, and does not apply to live status or keeper-claim history. The
+real Bothy local-relay UI run exposed this normal NIP-01 completion pattern;
+web and native now test it, including the remaining refusal paths.

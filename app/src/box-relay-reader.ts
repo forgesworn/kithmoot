@@ -65,7 +65,14 @@ export class BoxRelayReader implements RelayTransport {
               const complete = this.#urls.every(u => request.eosed.has(u))
               request.eosed.add(url)
               if (!complete && this.#urls.every(u => request.eosed.has(u))) { clearTimeout(request.timer); request.timer = undefined; request.ready?.() }
-            } else if (frame[0] === 'CLOSED') this.#failed()
+            } else if (frame[0] === 'CLOSED') {
+              // Exact event ids name immutable data. Some relays close that
+              // completed lookup after EOSE; live status/keeper history must
+              // still remain subscribed, and a closure before EOSE is a loss.
+              const immutable = request.filters.length > 0 && request.filters.every(f =>
+                Array.isArray(f.ids) && f.ids.length > 0 && f.ids.every(id => /^[0-9a-f]{64}$/.test(id)))
+              if (!immutable || !request.eosed.has(url)) this.#failed()
+            }
             else if (frame[0] === 'EVENT' && frame.length === 3 && matchFilters(request.filters, frame[2] as Event)) request.receive(frame[2] as Event)
           } catch { /* Malformed input never completes history or grants trust. */ }
         }
