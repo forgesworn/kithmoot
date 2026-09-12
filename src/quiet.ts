@@ -106,6 +106,9 @@ export interface QuietRoomOptions {
   schedule?: (tick: () => void, everyMs: number) => () => void
   /** Where inside each slot this device posts (tests pass `() => 0`). */
   slotOffset?: (slot: number) => number
+  /** Counters delegated to another sender for this epoch. Checked on every
+   * draw, so future leases remain excluded when the clock crosses an hour. */
+  reservedCounters?: (epochIndex: number) => Iterable<number>
 }
 
 export interface QuietRoomTransport extends RelayTransport {
@@ -157,6 +160,7 @@ export function quietRoomTransport(inner: RelayTransport, opts: QuietRoomOptions
     now,
     ...(opts.schedule ? { schedule: opts.schedule } : {}),
     ...(opts.slotOffset ? { slotOffset: opts.slotOffset } : {}),
+    ...(opts.reservedCounters ? { reservedCounters: opts.reservedCounters } : {}),
     onError: (e) => opts.onError?.(e),
     onPosted: ({ inner: posted }) => {
       if (posted) {

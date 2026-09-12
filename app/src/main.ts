@@ -33,6 +33,7 @@ import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
 import { RoomWatch } from './room-watch.js'
 import { RoomBookmarks } from './room-bookmarks.js'
+import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
@@ -6667,6 +6668,7 @@ async function startSession(asVisitor = false): Promise<void> {
           participant: credential ? credential.pubkey : currentIdentity().pubkey,
           slot: credential ? 1 : 0,
           used: loadQuietState(deviceStore, quietRoomId, nowSeconds()).used,
+          reservedCounters: epoch => cadenceReservedCounters(deviceStore, quietRoomId, myDeviceId, epoch),
           intervalSeconds: QUIET_SLOT,
           onUsed: () => persistQuiet(),
           onPosted: () => persistQuiet(),
