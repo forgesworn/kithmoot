@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { RoomSession } from './session.js'
 import { RoomAgent } from './agent.js'
@@ -60,6 +60,31 @@ describe('a quiet policy', () => {
 })
 
 describe('a quiet room', () => {
+  it('leaves a durable delegate its counters before and after an epoch rollover', async () => {
+    const relay = new SimRelay({ replay: true })
+    let now = NOW
+    const clock = () => now
+    const sk = generateSecretKey(), participant = getPublicKey(sk)
+    const epoch = Math.floor(NOW / 3600)
+    const policy: RoomPolicy = { tier: 'open', members: [participant], quiet: true }
+    const reserved = new Map([[epoch, [0, 1, 2, 3, 4, 5, 6]], [epoch + 1, [0, 1, 2, 3, 4, 5, 7]]])
+    const quiet = quietFor(relay, policy, participant, 0, clock, { reservedCounters: at => reserved.get(at) ?? [] })
+    quiet.rekey(SECRET)
+    const event = (text: string) => finalizeEvent({ kind: KINDS.CHAT, created_at: now, tags: [['d', 'a'.repeat(64)]], content: text }, sk)
+    const first = quiet.publish(event('first'))
+    await quiet.tick(); await first
+    expect(quiet.exportUsed()[participant]?.counters).toEqual([7])
+    now += SLOT
+    void quiet.publish(event('waiting'))
+    await quiet.tick()
+    expect(quiet.pending).toBe(1)
+    now = (epoch + 1) * 3600
+    await quiet.tick()
+    expect(quiet.pending).toBe(0)
+    expect(quiet.exportUsed()[participant]?.counters).toEqual([6])
+    quiet.close()
+  })
+
   it('carries chat in gift wraps: no kind 1460 reaches the relay, and the other member reads it', async () => {
     const relay = new SimRelay({ replay: true })
     let now = NOW

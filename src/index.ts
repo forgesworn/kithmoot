@@ -134,6 +134,44 @@ export { NostrRelayPool, normaliseRelayConfig } from './relay-pool.js'
 export { LANES, LANE_MEANING, LANE_LABEL, LANE_GLYPH, isLane, laneOfRelayUrl, laneOfRelays, weakestLane, isDowngrade } from './lane.js'
 export { QUIET_SLOT_SECONDS, QUIET_KINDS, QUIET_DEVICE_SLOTS, QUIET_HISTORY_SECONDS, QUIET_BUCKET_BYTES, QUIET_CANNOT_SEND, QUIET_TOO_LONG, isQuietPolicy, quietCounterRange, quietRoomTransport } from './quiet.js'
 export type { QuietRoomOptions, QuietRoomTransport, QuietUsedState } from './quiet.js'
+export {
+  CADENCE_VERSION,
+  CADENCE_EPOCH_SECONDS,
+  CADENCE_SLOT_SECONDS,
+  CADENCE_BUCKET_BYTES,
+  CADENCE_DEVICE_SLOTS,
+  CADENCE_COUNTERS_PER_DEVICE,
+  CADENCE_MAX_LEASE_EPOCHS,
+  CADENCE_MAX_FUTURE_START_EPOCHS,
+  CADENCE_INNER_KINDS,
+  CADENCE_CONTENT_TYPE,
+  CADENCE_AUTH_KIND,
+  cadenceServer,
+  cadenceLeasePath,
+  cadenceQueuePath,
+  cadenceLeaseStatusPath,
+  cadenceStopPath,
+  cadenceWithdrawPath,
+  deriveCadenceDropPublicKeys,
+  buildCadenceLease,
+  buildCadenceQueue,
+  buildCadenceMutation,
+  buildCadenceStatus,
+  serialiseCadenceBody,
+  cadencePayloadSha256,
+  signCadenceRequest,
+} from './box-cadence.js'
+export type {
+  CadenceDropPublicKey,
+  CadenceLeaseRequest,
+  CadenceQueueRequest,
+  CadenceMutationRequest,
+  CadenceStatusRequest,
+  CadenceReceipt,
+  CadenceSignedRequest,
+  CadenceScope,
+  BuildCadenceLeaseOptions,
+} from './box-cadence.js'
 export type { AgentQuietOptions } from './agent.js'
 export type { Lane } from './lane.js'
 export type { RelayTransport, RelayConfig, RelayHealth } from './relay-pool.js'
