@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { createRoom, newDeviceContext, open, openCall } from './browser.js'
 
 test('a viewer enlarges, pans and pops out a real received synthetic screen without stopping it', async ({ browser, baseURL }) => {
@@ -96,4 +96,82 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
     await expand.click(); await dialog.getByRole('button', { name: 'Pop out', exact: true }).click()
     await expect(dialog).toContainText('The pop-out was blocked')
   } finally { await a.close(); await b.close() }
+})
+
+interface MarkAuthorData { strokeId: string; label: string; color: string }
+
+/** `data-authors` on a marks canvas, in the same spirit as the `data-strokes`
+ *  and `data-zoom` this file already reads off other canvases and elements:
+ *  the one thing a screenshot cannot answer reliably here is whose stroke is
+ *  which colour and what its chip says, so app/src/share-viewer.ts puts that
+ *  on the canvas as data for exactly this. */
+async function markAuthors(canvas: Locator): Promise<MarkAuthorData[]> {
+  return JSON.parse((await canvas.getAttribute('data-authors')) ?? '[]') as MarkAuthorData[]
+}
+
+test('marks from two different drawers get two colours and the right name on each chip, seen by the sharer and a third viewer', async ({ browser, baseURL }) => {
+  const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!), c = await newDeviceContext(browser, baseURL!)
+  try {
+    const presenter = await a.newPage(), rowan = await b.newPage(), sam = await c.newPage()
+    const link = await createRoom(presenter, baseURL!)
+    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(rowan, link, 'Rowan'); await rowan.locator('#join').click(); await expect(rowan.locator('#roomArea')).toBeVisible()
+    await open(sam, link, 'Sam'); await sam.locator('#join').click(); await expect(sam.locator('#roomArea')).toBeVisible()
+    await openCall(presenter); await openCall(rowan); await openCall(sam)
+    await presenter.locator('#toggleScreen').click()
+
+    // Both other participants open the viewer and switch to Draw before
+    // anybody actually draws, so a stroke's arrival on their screens is
+    // timed by signalling alone. A mark's whole life is a couple of seconds
+    // (see HOLD_MS and FADE_MS in share-marks.ts), and opening a viewer from
+    // cold - waiting for "Expand" to appear, for the video to decode a first
+    // frame - is not reliably faster than that.
+    const openDrawing = async (page: Page): Promise<Locator> => {
+      const expand = page.getByRole('button', { name: 'Expand screen share from Ada' })
+      await expect(expand).toBeVisible({ timeout: 60_000 }); await expand.click()
+      const dialog = page.getByRole('dialog', { name: 'Screen-share viewer' })
+      await expect.poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+      await dialog.getByRole('button', { name: 'Draw', exact: true }).click()
+      return dialog
+    }
+    const drawStroke = async (page: Page, dialog: Locator): Promise<void> => {
+      const rect = (await dialog.locator('.shareViewport').boundingBox())!
+      await page.mouse.move(rect.x + rect.width * 0.3, rect.y + rect.height * 0.3)
+      await page.mouse.down()
+      await page.mouse.move(rect.x + rect.width * 0.6, rect.y + rect.height * 0.6, { steps: 8 })
+      await page.mouse.up()
+    }
+
+    const rowanDialog = await openDrawing(rowan)
+    const samDialog = await openDrawing(sam)
+    const presenterOverlay = presenter.locator('canvas.shareMarks')
+
+    await drawStroke(rowan, rowanDialog)
+    await expect(presenterOverlay).toHaveAttribute('data-strokes', '1', { timeout: 5_000 })
+    const rowanOnSharer = (await markAuthors(presenterOverlay)).find(m => m.label.startsWith('Rowan'))
+    expect(rowanOnSharer, 'the sharer never saw a mark labelled for Rowan').toBeDefined()
+
+    // This device's own stroke, on its own screen, keeps the drawing tool's
+    // one long-standing colour rather than a hash of its own pubkey.
+    const rowanOnOwnScreen = (await markAuthors(rowanDialog.locator('.shareAnnotations'))).find(m => m.label.startsWith('Rowan'))
+    expect(rowanOnOwnScreen?.color).toBe('#ffd447')
+
+    // Sam is neither the sharer nor (yet) a drawer: a third viewer, seeing
+    // Rowan's mark with no coordination between Sam's page and the sharer's.
+    await expect.poll(async () => (await markAuthors(samDialog.locator('.shareAnnotations'))).some(m => m.label.startsWith('Rowan')), {
+      timeout: 5_000, message: 'a third viewer never saw a mark labelled for Rowan',
+    }).toBe(true)
+    const rowanOnThirdViewer = (await markAuthors(samDialog.locator('.shareAnnotations'))).find(m => m.label.startsWith('Rowan'))!
+    expect(rowanOnThirdViewer.color).toBe(rowanOnSharer!.color)
+
+    await drawStroke(sam, samDialog)
+    await expect.poll(async () => (await markAuthors(presenterOverlay)).some(m => m.label.startsWith('Sam')), {
+      timeout: 5_000, message: 'the sharer never saw a mark labelled for Sam',
+    }).toBe(true)
+    const samOnSharer = (await markAuthors(presenterOverlay)).find(m => m.label.startsWith('Sam'))!
+
+    // Two different drawers, two different colours, both readable from the
+    // sharer's own tile - where neither mark is ever "this device's own".
+    expect(samOnSharer.color).not.toBe(rowanOnSharer!.color)
+  } finally { await a.close(); await b.close(); await c.close() }
 })

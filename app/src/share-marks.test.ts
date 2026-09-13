@@ -1,9 +1,19 @@
 import { describe, it, expect, vi } from 'vitest'
-import { FADE_MS, HOLD_MS, MARK_LIFETIME_MS, ShareMarks, markAlpha } from './share-marks.js'
+import { FADE_MS, HOLD_MS, MARK_LIFETIME_MS, OWN_MARK_COLOUR, ShareMarks, colourForParticipant, markAlpha, type MarkAuthor } from './share-marks.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
+
+const ADA = 'ad'.repeat(32)
+const ROWAN = 'ro'.repeat(32)
 
 const stroke = (shareId: string, strokeId: string): ScreenAnnotation =>
   ({ op: 'stroke', shareId, strokeId, points: [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.5 }] })
+
+/** A drawer, for tests that do not care who: same colour and label every
+ *  time, distinct from any real participant's. */
+const ME: MarkAuthor = { key: 'me', label: 'You', color: OWN_MARK_COLOUR }
+
+const authorFor = (participant: string, label: string): MarkAuthor =>
+  ({ key: participant, label, color: colourForParticipant(participant) })
 
 /** A clock and a scheduler the test drives by hand. */
 function harness() {
@@ -34,10 +44,20 @@ describe('markAlpha', () => {
   })
 })
 
+describe('colourForParticipant', () => {
+  it('is stable for one pubkey and different for another, and never the own-stroke colour', () => {
+    const ada = colourForParticipant(ADA)
+    expect(colourForParticipant(ADA)).toBe(ada)
+    expect(colourForParticipant(ROWAN)).not.toBe(ada)
+    expect(ada).not.toBe(OWN_MARK_COLOUR)
+    expect(colourForParticipant(ROWAN)).not.toBe(OWN_MARK_COLOUR)
+  })
+})
+
 describe('ShareMarks', () => {
   it('shows a stroke solid, fades it, and forgets it after a couple of seconds', () => {
     const { marks, advance } = harness()
-    marks.remember(stroke('share-a', 's1'))
+    marks.remember(stroke('share-a', 's1'), ME)
     expect(marks.alive('share-a')).toHaveLength(1)
     expect(marks.alive('share-a')[0]!.alpha).toBe(1)
     advance(HOLD_MS + FADE_MS / 2)
@@ -51,7 +71,7 @@ describe('ShareMarks', () => {
     const { marks, advance, queue } = harness()
     const painter = vi.fn()
     marks.subscribe(painter)
-    marks.remember(stroke('share-a', 's1'))
+    marks.remember(stroke('share-a', 's1'), ME)
     expect(painter).toHaveBeenCalledTimes(1)
     advance(MARK_LIFETIME_MS + 100)
     // One notification per tick across the lifetime, then no more ticks.
@@ -64,22 +84,35 @@ describe('ShareMarks', () => {
 
   it('ignores a stroke it already holds and clears a share on request', () => {
     const { marks } = harness()
-    marks.remember(stroke('share-a', 's1'))
-    marks.remember(stroke('share-a', 's1'))
-    marks.remember(stroke('share-a', 's2'))
-    marks.remember(stroke('share-b', 's3'))
+    marks.remember(stroke('share-a', 's1'), ME)
+    marks.remember(stroke('share-a', 's1'), ME)
+    marks.remember(stroke('share-a', 's2'), ME)
+    marks.remember(stroke('share-b', 's3'), ME)
     expect(marks.alive('share-a')).toHaveLength(2)
-    marks.remember({ op: 'clear', shareId: 'share-a', strokeId: '' })
+    marks.remember({ op: 'clear', shareId: 'share-a', strokeId: '' }, ME)
     expect(marks.alive('share-a')).toEqual([])
     expect(marks.alive('share-b')).toHaveLength(1)
   })
 
   it('keeps a bounded number of strokes per share and of shares', () => {
     const { marks } = harness()
-    for (let i = 0; i < 120; i++) marks.remember(stroke('share-a', `s${i}`))
+    for (let i = 0; i < 120; i++) marks.remember(stroke('share-a', `s${i}`), ME)
     expect(marks.alive('share-a')).toHaveLength(100)
-    for (let i = 0; i < 20; i++) marks.remember(stroke(`share-${i}`, 'x'))
+    for (let i = 0; i < 20; i++) marks.remember(stroke(`share-${i}`, 'x'), ME)
     expect(marks.alive('share-a')).toEqual([])
     expect(marks.alive('share-19')).toHaveLength(1)
+  })
+
+  it('keeps each stroke with the author who drew it: two drawers, two colours, the right name on each', () => {
+    const { marks } = harness()
+    const ada = authorFor(ADA, 'Ada npub1ad…')
+    const rowan = authorFor(ROWAN, 'Rowan npub1ro…')
+    marks.remember(stroke('share-a', 's1'), ada)
+    marks.remember(stroke('share-a', 's2'), rowan)
+    const alive = marks.alive('share-a')
+    const byStroke = (strokeId: string) => alive.find(m => m.annotation.strokeId === strokeId)!
+    expect(byStroke('s1').author).toEqual(ada)
+    expect(byStroke('s2').author).toEqual(rowan)
+    expect(byStroke('s1').author.color).not.toBe(byStroke('s2').author.color)
   })
 })
