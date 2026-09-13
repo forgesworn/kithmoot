@@ -527,14 +527,14 @@ envelope to a Blossom server, and publishes a NIP-94 kind-1063 event that
 says where the envelope is and what its bytes hash to. The key is shown to
 the uploader once and goes nowhere public; passing it on is the uploader's
 business. In a room, the chat is how it is passed on. `ChatMessage.attachments`
-carries, for each file, the event id, the envelope's URL, its hash and the
-recovery key, and all of it rides inside the room-key ciphertext like the
-words beside it. Everybody in the room can open the file; nobody outside
-it can. That is not a weakening of Wildbloom's model but the case it was
-built for: the key travels by a channel the people concerned already
-trust, and the room is that channel. A client that has never heard of
-attachments sees the text, which the sender wrote as the caption, and
-nothing else.
+carries, for each file, the envelope's URL, its hash, the recovery key, and
+the event id when one was published, and all of it rides inside the
+room-key ciphertext like the words beside it. Everybody in the room can
+open the file; nobody outside it can. That is not a weakening of
+Wildbloom's model but the case it was built for: the key travels by a
+channel the people concerned already trust, and the room is that channel.
+A client that has never heard of attachments sees the text, which the
+sender wrote as the caption, and nothing else.
 
 Nothing is fetched until a person clicks. A fetch reaches the Blossom
 server, which is a fact about this device and its network, and a message
@@ -562,17 +562,24 @@ for byte), the envelope is put on a Blossom server with a BUD-01 upload
 authorised by a signed kind-24242 event (`uploadEnvelope`), a kind-1063
 event with every tag Wildbloom writes announces it on the room's relays
 (`buildFileEvent`), and the result is staged exactly as a pasted share
-is. Files over 64 MiB are refused before any of that starts. The key is
-in the staged attachment and then in the message, and nowhere else: not
-in a log line, not in an error, not in storage.
+is. A quiet room does not take that last step: no kind-1063 event leaves
+the device, because the chat message about to carry the attachment
+already says everything a member needs, and an announcement bare on the
+relay would say what a quiet room exists to hide. Files over 64 MiB are
+refused before any of that starts. The key is in the staged attachment
+and then in the message, and nowhere else: not in a log line, not in an
+error, not in storage.
 
 Who learns what. The Blossom server learns that some device, identified
 by the key that signed the upload, stored an encrypted blob of a certain
 size. It does not learn the file's name, type, or contents: the envelope
 is uploaded under Wildbloom's fixed name and media type, and its metadata
-is inside the ciphertext. The relays learn that the same device key
-published a kind-1063 event naming a URL and a hash, which is what any
-Wildbloom upload tells them. Neither learns the room, because the device
+is inside the ciphertext. In an ordinary room the relays learn that the
+same device key published a kind-1063 event naming a URL and a hash,
+which is what any Wildbloom upload tells them; in a quiet room they learn
+nothing at all about the file, because that event is never published
+(`docs/decisions.md`, "A quiet room hides that anything was said").
+Neither learns the room, because the device
 key is per room and the room id is not on the event. The key that signs
 both is the device key, never the participant's identity: a person signed
 in with a hardware signer is not asked to press a button per file, and a

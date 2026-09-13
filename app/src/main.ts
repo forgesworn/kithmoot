@@ -6654,7 +6654,9 @@ async function startSession(asVisitor = false): Promise<void> {
     const name = joiningName()
     // Held here as well as inside the session, because a file dropped into
     // the chat announces itself with a kind-1063 event on the room's own
-    // relays, through the sockets the room already has open.
+    // relays, through the sockets the room already has open - in an
+    // ordinary room only; a quiet room sends no such announcement. See
+    // `shareDroppedFile`.
     const pool = configuredPool(relays)
     sessionTransport = pool
     // A quiet room's chat rides in drops: wrap the pool, and the session
@@ -9125,9 +9127,16 @@ function dropProgress(draft: ConversationDraft, stage: string, file: File): void
  * sealed here under a fresh key, put on the Blossom server as an opaque
  * blob, announced with a kind-1063 event on the room's relays, and then
  * staged exactly as a pasted Wildbloom share is. The device key signs the
- * upload and the announcement, so a hardware signer is never asked and a
- * relay learns only that this device shared some encrypted bytes. The key
- * goes into the staged attachment and nowhere else.
+ * upload and any announcement, so a hardware signer is never asked and a
+ * relay learns only that this device shared some encrypted bytes.
+ *
+ * A quiet room never gets that announcement: the chat message a moment
+ * later already carries the url, hash, key, name, type and size inside its
+ * ciphertext (or gift wrap), and a kind-1063 event bare on the relay would
+ * say, in the open, that a device in this room shared a file and when -
+ * exactly what a quiet room promises never to show. See `src/quiet.ts`.
+ *
+ * The key goes into the staged attachment and nowhere else.
  */
 async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string): Promise<void> {
   signal.throwIfAborted()
@@ -9160,13 +9169,19 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   const descriptor = await uploadEnvelope(origin, sealed.envelope, { sign: (t) => finalizeEvent(t, deviceSk), signal })
 
   signal.throwIfAborted()
-  dropProgress(draft, 'Announcing', file)
-  const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
-  await transport.publish(event)
+  // In a quiet room, no announcement leaves this device: see the function
+  // comment above. `quietTransport` is set exactly when this room is one.
+  let eventId: string | undefined
+  if (!quietTransport) {
+    dropProgress(draft, 'Announcing', file)
+    const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
+    await transport.publish(event)
+    eventId = event.id
+  }
 
   signal.throwIfAborted()
   draft.attachments.push({
-    event: event.id,
+    ...(eventId !== undefined ? { event: eventId } : {}),
     url: descriptor.url,
     sha256: descriptor.sha256,
     key: sealed.key,
