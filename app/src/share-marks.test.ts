@@ -1,19 +1,22 @@
 import { describe, it, expect, vi } from 'vitest'
-import { FADE_MS, HOLD_MS, MARK_LIFETIME_MS, OWN_MARK_COLOUR, ShareMarks, colourForParticipant, markAlpha, type MarkAuthor } from './share-marks.js'
+import { FADE_MS, HOLD_MS, MARK_COLOURS, MARK_LIFETIME_MS, ShareMarks, colourForParticipant, coloursForShare, markAlpha, type MarkAuthor } from './share-marks.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
 
 const ADA = 'ad'.repeat(32)
 const ROWAN = 'ro'.repeat(32)
+// Hashes to the same index as ADA (both land on MARK_COLOURS[1]) and sorts
+// before it, so `coloursForShare` has to move one of them - a fixture for
+// the clash-resolution tests, not a real pubkey shape.
+const CLASHES_WITH_ADA = '00'.repeat(32)
 
 const stroke = (shareId: string, strokeId: string): ScreenAnnotation =>
   ({ op: 'stroke', shareId, strokeId, points: [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.5 }] })
 
-/** A drawer, for tests that do not care who: same colour and label every
- *  time, distinct from any real participant's. */
-const ME: MarkAuthor = { key: 'me', label: 'You', color: OWN_MARK_COLOUR }
+/** A drawer, for tests that do not care who: a fixed identity distinct from
+ *  any of the named participants above. */
+const ME: MarkAuthor = { key: 'me', label: 'You' }
 
-const authorFor = (participant: string, label: string): MarkAuthor =>
-  ({ key: participant, label, color: colourForParticipant(participant) })
+const authorFor = (participant: string, label: string): MarkAuthor => ({ key: participant, label })
 
 /** A clock and a scheduler the test drives by hand. */
 function harness() {
@@ -45,12 +48,39 @@ describe('markAlpha', () => {
 })
 
 describe('colourForParticipant', () => {
-  it('is stable for one pubkey and different for another, and never the own-stroke colour', () => {
+  it('is stable for one pubkey and, usually, different for another - the same colour wherever it is computed, including on the drawer\'s own screen', () => {
     const ada = colourForParticipant(ADA)
     expect(colourForParticipant(ADA)).toBe(ada)
     expect(colourForParticipant(ROWAN)).not.toBe(ada)
-    expect(ada).not.toBe(OWN_MARK_COLOUR)
-    expect(colourForParticipant(ROWAN)).not.toBe(OWN_MARK_COLOUR)
+  })
+})
+
+describe('coloursForShare', () => {
+  it('gives two people who do not hash to the same index their own colours', () => {
+    const colours = coloursForShare([ADA, ROWAN])
+    expect(colours.get(ADA)).toBe(colourForParticipant(ADA))
+    expect(colours.get(ROWAN)).toBe(colourForParticipant(ROWAN))
+    expect(colours.get(ADA)).not.toBe(colours.get(ROWAN))
+  })
+
+  it('resolves a clash deterministically by participant key order, moving the one that sorts later', () => {
+    expect(colourForParticipant(CLASHES_WITH_ADA)).toBe(colourForParticipant(ADA))
+    const colours = coloursForShare([ADA, CLASHES_WITH_ADA])
+    // '00...0' sorts before 'ad...d', so it keeps the shared hash index and
+    // ADA is the one moved on to the next free colour.
+    expect(colours.get(CLASHES_WITH_ADA)).toBe(colourForParticipant(CLASHES_WITH_ADA))
+    expect(colours.get(ADA)).not.toBe(colourForParticipant(ADA))
+    expect(colours.get(ADA)).not.toBe(colours.get(CLASHES_WITH_ADA))
+    // Order of the input does not change the outcome - it is sorted inside.
+    expect(coloursForShare([CLASHES_WITH_ADA, ADA])).toEqual(colours)
+  })
+
+  it('runs out and repeats once there are more concurrent drawers than colours - a documented limit, not a crash', () => {
+    const participants = Array.from({ length: MARK_COLOURS.length + 2 }, (_, i) => `p${i}`.repeat(8))
+    const colours = coloursForShare(participants)
+    expect(colours.size).toBe(participants.length)
+    const used = new Set(colours.values())
+    expect(used.size).toBeLessThanOrEqual(MARK_COLOURS.length)
   })
 })
 
@@ -113,6 +143,31 @@ describe('ShareMarks', () => {
     const byStroke = (strokeId: string) => alive.find(m => m.annotation.strokeId === strokeId)!
     expect(byStroke('s1').author).toEqual(ada)
     expect(byStroke('s2').author).toEqual(rowan)
-    expect(byStroke('s1').author.color).not.toBe(byStroke('s2').author.color)
+    expect(byStroke('s1').color).not.toBe(byStroke('s2').color)
+  })
+
+  it('agrees on a colour with a second, independent ShareMarks that has heard the same strokes - the sharer, the drawer and a third viewer all seeing the same colour needs nothing exchanged but the strokes themselves', () => {
+    const sharer = harness().marks
+    const thirdViewer = harness().marks
+    const ada = authorFor(ADA, 'Ada npub1ad…')
+    const rowan = authorFor(ROWAN, 'Rowan npub1ro…')
+    for (const marks of [sharer, thirdViewer]) {
+      marks.remember(stroke('share-a', 's1'), ada)
+      marks.remember(stroke('share-a', 's2'), rowan)
+    }
+    const colourOf = (marks: ShareMarks, strokeId: string) => marks.alive('share-a').find(m => m.annotation.strokeId === strokeId)!.color
+    expect(colourOf(sharer, 's1')).toBe(colourOf(thirdViewer, 's1'))
+    expect(colourOf(sharer, 's2')).toBe(colourOf(thirdViewer, 's2'))
+    expect(colourOf(sharer, 's1')).not.toBe(colourOf(sharer, 's2'))
+  })
+
+  it('gives a stroke still being drawn the colour it would get once remembered, clashes included', () => {
+    const { marks } = harness()
+    marks.remember(stroke('share-a', 's1'), authorFor(ADA, 'Ada'))
+    // CLASHES_WITH_ADA has not drawn yet, so it is not one of `alive`'s
+    // marks, but `colourFor` still has to account for ADA already being
+    // live on this share so a stroke still in progress does not flash a
+    // different colour the moment it is released.
+    expect(marks.colourFor('share-a', CLASHES_WITH_ADA)).toBe(coloursForShare([ADA, CLASHES_WITH_ADA]).get(CLASHES_WITH_ADA))
   })
 })

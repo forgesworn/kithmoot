@@ -109,7 +109,7 @@ async function markAuthors(canvas: Locator): Promise<MarkAuthorData[]> {
   return JSON.parse((await canvas.getAttribute('data-authors')) ?? '[]') as MarkAuthorData[]
 }
 
-test('marks from two different drawers get two colours and the right name on each chip, seen by the sharer and a third viewer', async ({ browser, baseURL }) => {
+test('a drawer gets the same colour on every screen, two different drawers get two different colours, and each chip names the right person', async ({ browser, baseURL }) => {
   const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!), c = await newDeviceContext(browser, baseURL!)
   try {
     const presenter = await a.newPage(), rowan = await b.newPage(), sam = await c.newPage()
@@ -151,10 +151,12 @@ test('marks from two different drawers get two colours and the right name on eac
     const rowanOnSharer = (await markAuthors(presenterOverlay)).find(m => m.label.startsWith('Rowan'))
     expect(rowanOnSharer, 'the sharer never saw a mark labelled for Rowan').toBeDefined()
 
-    // This device's own stroke, on its own screen, keeps the drawing tool's
-    // one long-standing colour rather than a hash of its own pubkey.
+    // Rowan's own stroke, on Rowan's own screen, is the very same colour the
+    // sharer sees - "the blue arrow" has to mean the same arrow to everybody,
+    // including whoever drew it, so there is no separate "this device's own"
+    // colour any more.
     const rowanOnOwnScreen = (await markAuthors(rowanDialog.locator('.shareAnnotations'))).find(m => m.label.startsWith('Rowan'))
-    expect(rowanOnOwnScreen?.color).toBe('#ffd447')
+    expect(rowanOnOwnScreen?.color).toBe(rowanOnSharer!.color)
 
     // Sam is neither the sharer nor (yet) a drawer: a third viewer, seeing
     // Rowan's mark with no coordination between Sam's page and the sharer's.
@@ -168,10 +170,24 @@ test('marks from two different drawers get two colours and the right name on eac
     await expect.poll(async () => (await markAuthors(presenterOverlay)).some(m => m.label.startsWith('Sam')), {
       timeout: 5_000, message: 'the sharer never saw a mark labelled for Sam',
     }).toBe(true)
-    const samOnSharer = (await markAuthors(presenterOverlay)).find(m => m.label.startsWith('Sam'))!
+    // Read both marks off the sharer's tile in the same snapshot: a clash
+    // is resolved against whoever else is live right now (share-marks.ts's
+    // `coloursForShare`), so comparing a fresh colour against one read
+    // before Sam ever drew could catch a colour mid-shift and call it a
+    // difference that was never really there.
+    const onSharerWithBoth = await markAuthors(presenterOverlay)
+    const samOnSharer = onSharerWithBoth.find(m => m.label.startsWith('Sam'))!
+    const rowanOnSharerNow = onSharerWithBoth.find(m => m.label.startsWith('Rowan'))
+
+    // Sam's own stroke, on Sam's own screen, is likewise the same colour
+    // the sharer sees for it.
+    const samOnOwnScreen = (await markAuthors(samDialog.locator('.shareAnnotations'))).find(m => m.label.startsWith('Sam'))
+    expect(samOnOwnScreen?.color).toBe(samOnSharer.color)
 
     // Two different drawers, two different colours, both readable from the
-    // sharer's own tile - where neither mark is ever "this device's own".
-    expect(samOnSharer.color).not.toBe(rowanOnSharer!.color)
+    // sharer's own tile - unless Rowan's mark has already faded off it by
+    // now, in which case there is nothing left to compare and the fade is
+    // doing its job, not this assertion.
+    if (rowanOnSharerNow) expect(samOnSharer.color).not.toBe(rowanOnSharerNow.color)
   } finally { await a.close(); await b.close(); await c.close() }
 })

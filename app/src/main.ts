@@ -12,7 +12,7 @@ import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
-import { OWN_MARK_COLOUR, colourForParticipant, type MarkAuthor } from './share-marks.js'
+import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
   browserDeviceStore,
@@ -4150,18 +4150,17 @@ function personLabel(pubkey: string): string {
 
 /**
  * Who to credit a screen-share mark to: the same name and short key
- * `personLabel` puts on a status line, and a colour that is this device's
- * own established one for this device's own strokes and a deterministic
- * pick from the rest of the palette for anybody else's - see
- * `colourForParticipant` in share-marks.ts for why that needs no
- * coordination between devices.
+ * `personLabel` puts on a status line. Colour is not decided here - see
+ * `colourForParticipant` and `coloursForShare` in share-marks.ts - because
+ * "the blue arrow" has to mean the same arrow to everybody, including
+ * whoever drew it, so it cannot depend on whether this participant happens
+ * to be this device's own.
  */
 function markAuthor(participant: string): MarkAuthor {
   const mine = participant === meParticipant
   return {
     key: participant,
     label: mine ? `${personLabel(participant)} (you)` : personLabel(participant),
-    color: mine ? OWN_MARK_COLOUR : colourForParticipant(participant),
   }
 }
 

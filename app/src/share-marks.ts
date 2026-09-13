@@ -22,8 +22,12 @@ export function markAlpha(ageMs: number): number {
 
 /**
  * Who drew a mark, resolved once when it arrives rather than looked up
- * fresh on every paint - a person's name or colour changing mid-fade is not
- * worth the coupling to a live roster this module otherwise has no need of.
+ * fresh on every paint - a person's name changing mid-fade is not worth the
+ * coupling to a live roster this module otherwise has no need of. Colour is
+ * deliberately not part of this: see `colourForParticipant` for why it has
+ * to depend on who else is drawing on the same share right now, and so is
+ * resolved fresh, on `LiveMark`, every time marks are read rather than
+ * stored with the stroke.
  */
 export interface MarkAuthor {
   /** The participant pubkey. Every device of theirs, and every stroke of
@@ -34,35 +38,78 @@ export interface MarkAuthor {
    *  the app shows beside names everywhere (see `personLabel` in main.ts),
    *  or just the short key when there is no name yet. */
   label: string
-  color: string
 }
-
-/** This device's own strokes keep the one colour the drawing tool always
- *  had, from before other people's strokes needed telling apart. */
-export const OWN_MARK_COLOUR = '#ffd447'
-
-/** Everybody else's strokes, in a small set of colours picked to stay
- *  legible over arbitrary screen content - a slide, a terminal, a video
- *  tile - the way `paintStroke` always draws them: a dark halo under a
- *  fairly light, saturated line. Deliberately without `OWN_MARK_COLOUR`,
- *  so nobody else's stroke is ever mistaken for this device's own. */
-const OTHER_MARK_COLOURS = ['#5ec8ff', '#ff6b9d', '#7ee787', '#c792ea', '#ff9f5b', '#8fa6ff']
 
 /**
- * Which of `OTHER_MARK_COLOURS` a participant's strokes get.
- *
- * Deterministic and needing no coordination: every device in the room hashes
- * the same pubkey to the same index, so two people's marks never need to
- * negotiate who is which colour, and the same person is the same colour
- * again after a reload or on somebody else's screen entirely.
+ * Every stroke's colour, whoever drew it and wherever it is seen: "the blue
+ * arrow" has to mean the same arrow to everybody in the room, including the
+ * person who drew it, so there is no separate "this device's own" colour
+ * any more - one hash of the pubkey, used everywhere. Picked to stay
+ * legible over arbitrary screen content - a slide, a terminal, a video tile
+ * - the way `paintStroke` always draws them: a dark halo under a fairly
+ * light, saturated line.
  */
-export function colourForParticipant(participant: string): string {
+export const MARK_COLOURS = ['#ffd447', '#5ec8ff', '#ff6b9d', '#7ee787', '#c792ea', '#ff9f5b', '#8fa6ff']
+
+function hashIndex(participant: string): number {
   let hash = 0
   for (let i = 0; i < participant.length; i++) hash = (Math.imul(hash, 31) + participant.charCodeAt(i)) >>> 0
-  return OTHER_MARK_COLOURS[hash % OTHER_MARK_COLOURS.length]!
+  return hash % MARK_COLOURS.length
 }
 
-export interface LiveMark { annotation: ScreenAnnotation; alpha: number; author: MarkAuthor }
+/**
+ * A participant's colour on its own, with no regard to who else is drawing.
+ *
+ * Deterministic and needing no coordination: every device in the room hashes
+ * the same pubkey to the same index, so the same person is the same colour
+ * everywhere - their own screen, the sharer's, a third viewer's - with
+ * nothing exchanged to agree on it. Two different people can still hash to
+ * the same colour; `coloursForShare` is what a painter actually wants,
+ * because it tells two people apart when they are both drawing on the same
+ * share right now.
+ */
+export function colourForParticipant(participant: string): string {
+  return MARK_COLOURS[hashIndex(participant)]!
+}
+
+/**
+ * Colours for everyone currently drawing on one share, clash-free while the
+ * palette allows it.
+ *
+ * Each participant starts at their `colourForParticipant` index. Sorted by
+ * pubkey - an order every device can compute alone - a clash moves to the
+ * next free index, wrapping around, so two devices that agree on who is
+ * currently drawing on a share agree on this too, with nothing exchanged
+ * beyond the strokes themselves. With more concurrent drawers on one share
+ * than `MARK_COLOURS` has entries, the palette runs out and repeats - a
+ * known limit, not a bug, and one this many people drawing at once on a
+ * single screen is unlikely to reach.
+ *
+ * The one thing this cannot promise: two devices that do not yet agree on
+ * who is currently drawing - one has heard of a stroke the other has not,
+ * or has already let one fade - can resolve a clash differently until they
+ * catch up. Once they agree on the set, they agree on the colours. A
+ * corollary worth knowing: because this is recomputed fresh from whoever is
+ * live each time (see `ShareMarks.alive`), an already-shown mark's colour
+ * can shift if a clashing colour's owner starts, or stops, drawing on the
+ * same share while it is still fading - the price of actually telling two
+ * concurrent drawers apart rather than a colour fixed for life the moment a
+ * stroke lands.
+ */
+export function coloursForShare(participants: Iterable<string>): Map<string, string> {
+  const sorted = [...new Set(participants)].sort()
+  const used = new Set<number>()
+  const colours = new Map<string, string>()
+  for (const participant of sorted) {
+    let index = hashIndex(participant)
+    if (used.size < MARK_COLOURS.length) while (used.has(index)) index = (index + 1) % MARK_COLOURS.length
+    used.add(index)
+    colours.set(participant, MARK_COLOURS[index]!)
+  }
+  return colours
+}
+
+export interface LiveMark { annotation: ScreenAnnotation; alpha: number; author: MarkAuthor; color: string }
 
 const MAX_STROKES_PER_SHARE = 100
 const MAX_SHARES = 16
@@ -107,7 +154,8 @@ export class ShareMarks {
   }
 
   /** The strokes still showing on a share, each with how strongly to paint
-   *  it. Strokes past their lifetime are forgotten on the way out. */
+   *  it and a colour resolved against everybody else currently on it.
+   *  Strokes past their lifetime are forgotten on the way out. */
   alive(shareId: string): LiveMark[] {
     const strokes = this.#kept.get(shareId)
     if (!strokes) return []
@@ -115,7 +163,21 @@ export class ShareMarks {
     const live = strokes.filter(kept => now - kept.at < MARK_LIFETIME_MS)
     if (live.length === 0) this.#kept.delete(shareId)
     else if (live.length !== strokes.length) this.#kept.set(shareId, live)
-    return live.map(kept => ({ annotation: kept.annotation, alpha: markAlpha(now - kept.at), author: kept.author }))
+    const colours = coloursForShare(live.map(kept => kept.author.key))
+    return live.map(kept => ({ annotation: kept.annotation, alpha: markAlpha(now - kept.at), author: kept.author, color: colours.get(kept.author.key)! }))
+  }
+
+  /** The colour a participant would get on a share right now, alongside
+   *  whoever is already live on it - for a stroke still being drawn, which
+   *  is not yet one of `alive`'s marks and so would otherwise be left out
+   *  of the same clash resolution. */
+  colourFor(shareId: string, participant: string): string {
+    const now = this.#now()
+    const keys = (this.#kept.get(shareId) ?? [])
+      .filter(kept => now - kept.at < MARK_LIFETIME_MS)
+      .map(kept => kept.author.key)
+    keys.push(participant)
+    return coloursForShare(keys).get(participant)!
   }
 
   /** True while any share has a stroke still showing. */

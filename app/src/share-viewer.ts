@@ -1,10 +1,12 @@
 import type { AnnotationPoint, ScreenAnnotation } from '../../src/signal.js'
-import { OWN_MARK_COLOUR, ShareMarks, type LiveMark, type MarkAuthor } from './share-marks.js'
+import { ShareMarks, type LiveMark, type MarkAuthor } from './share-marks.js'
 
 /** A stroke still being drawn on this device: not yet a `LiveMark` - it has
  *  no stroke id and has gone nowhere - but shown exactly like one, at full
- *  strength, while a finger or a pointer is still down. */
-interface PendingMark { points: AnnotationPoint[]; author: MarkAuthor }
+ *  strength, while a finger or a pointer is still down. Its colour is
+ *  resolved the same clash-aware way as everybody else's, via
+ *  `ShareMarks.colourFor`. */
+interface PendingMark { points: AnnotationPoint[]; author: MarkAuthor; color: string }
 
 /** Paint strokes in normalised coordinates onto a canvas of any size, each
  *  as strongly as its age allows and in the colour of whoever drew it - see
@@ -42,11 +44,11 @@ function paintMarks(canvas: HTMLCanvasElement, marks: LiveMark[], pending?: Pend
   }
   for (const mark of marks) {
     const points = mark.annotation.points ?? []
-    paintStroke(points, mark.alpha, mark.author.color)
+    paintStroke(points, mark.alpha, mark.color)
     if (points.length > 0) paintChip(points[points.length - 1]!, mark.author.label, mark.alpha)
   }
   if (pending && pending.points.length > 0) {
-    paintStroke(pending.points, 1, pending.author.color)
+    paintStroke(pending.points, 1, pending.color)
     paintChip(pending.points[pending.points.length - 1]!, pending.author.label, 1)
   }
   ctx.globalAlpha = 1
@@ -57,7 +59,7 @@ function paintMarks(canvas: HTMLCanvasElement, marks: LiveMark[], pending?: Pend
  *  one thing a screenshot cannot answer reliably - whose stroke is which
  *  colour, and what its chip says. Nothing here a person ever reads. */
 function authorsData(marks: LiveMark[]): string {
-  return JSON.stringify(marks.map(mark => ({ strokeId: mark.annotation.strokeId, label: mark.author.label, color: mark.author.color })))
+  return JSON.stringify(marks.map(mark => ({ strokeId: mark.annotation.strokeId, label: mark.author.label, color: mark.color })))
 }
 
 /** A second, muted view of a live track. Closing it never stops the call's track. */
@@ -65,7 +67,7 @@ export interface ShareSource { id: string; track: MediaStreamTrack; title: strin
 
 /** Credited to nobody in particular - only reached if a caller never
  *  supplies `author`, which every real caller in main.ts does. */
-const UNKNOWN_AUTHOR: MarkAuthor = { key: '', label: '', color: OWN_MARK_COLOUR }
+const UNKNOWN_AUTHOR: MarkAuthor = { key: '', label: '' }
 
 export interface ShareViewerOptions {
   onAnnotation?: (annotation: ScreenAnnotation) => void
@@ -252,7 +254,9 @@ export class ShareViewer {
       const pixelHeight = Math.round(pixelWidth / ratio)
       if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) { canvas.width = pixelWidth; canvas.height = pixelHeight }
       const marks = current ? this.#marks.alive(current.id) : []
-      paintMarks(canvas, marks, stroke ? { points: stroke, author: this.#myAuthor() } : undefined)
+      const author = this.#myAuthor()
+      const pending = stroke && current ? { points: stroke, author, color: this.#marks.colourFor(current.id, author.key) } : undefined
+      paintMarks(canvas, marks, pending)
       canvas.dataset.strokes = String(marks.length)
       canvas.dataset.authors = authorsData(marks)
       clear.disabled = !current
