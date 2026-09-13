@@ -1462,7 +1462,7 @@ Binding request on the exact listener it answers a TURN Allocate on -
 same-host guess on the standard port 3478, but only for a non-loopback
 `https:` origin; and nothing at all on `localhost` or a plain `http:`
 origin, where two processes on one machine already connect on host
-candidates alone. See `app/src/ice-defaults.ts` for the derivation and its
+candidates alone. See `src/ice-defaults.ts` for the derivation and its
 tests, and `resolveIceServers` in `app/src/main.ts` for where the TURN
 credential fetch actually happens. A room that names its own ICE servers
 is untouched by any of this, exactly as before.
@@ -1483,21 +1483,50 @@ anything else keeps its whole list untouched - only the single-entry case
 is ambiguous with the old default, and it is resolved in favour of leaving
 this origin, not Google, in every call made from here on. New links stop
 emitting any ICE hint at all when a room has not named its own servers -
-see `DEFAULT_ICE_URLS` in `app/src/ice-defaults.ts`, now empty.
+see `DEFAULT_ICE_URLS` in `src/ice-defaults.ts`, now empty.
 
-**Node agents, keepers and the forwarder get no default at all, and say
-so.** `src/node/webrtc.ts`'s `createWeriftFactory` and
+**The forwarder gets no default at all, and says so.**
 `server/forwarder.mjs`'s `createWeriftStack` used the same Google STUN
-server as their fallback when nothing was configured. Both now default to
-no STUN and no TURN, and log one plain line at start-up saying so: STUN is
-already configurable there (`--ice`/`KITHMOOT_ICE` for the CLI,
-`KITHMOOT_STUN_URL` for the forwarder, added alongside this change), a
-process with a public address needs neither, and a process that does sit
-behind NAT was never actually served by a default pointed at Google rather
-than its own working infrastructure - see "Why no default STUN server" in
-`deploy/README.md`. `kithmoot-keeper@.service`'s standard invocation
-(`create --brain none`, no `--listen`) never opened a WebRTC connection at
-all and is unaffected.
+server as its fallback when nothing was configured. It now defaults to no
+STUN and no TURN, and logs one plain line at start-up saying so:
+`KITHMOOT_STUN_URL` (added alongside this change) configures one
+explicitly, and a forwarder is normally a small box with a public address
+(deploy/README.md) that needs neither - see "Why no default STUN server"
+there. A forwarder that does itself sit behind NAT needs `KITHMOOT_STUN_URL`
+set; that is flagged as the owner's call in the PR that made this change
+rather than guessed at here, because there is no way to know from this
+repository alone which shape any given deployment is.
+
+**Node agents and keepers derive the same origin-relative default the web
+app does - corrected 14 September 2026.** The first version of this change
+also defaulted `src/node/webrtc.ts`'s `createWeriftFactory` to no STUN and
+no TURN, on the reasoning above. That was wrong for this case, and never
+shipped: agents and keepers are exactly the processes most likely to run
+on an ordinary home connection behind NAT, not a box with a public
+address, and losing their implicit STUN would have been a silent
+regression for every one of them on their next restart, caught in review
+before merge. `src/node/cli.ts`'s `create` and `join` now call
+`resolveNodeIceServers` (`src/node/ice-resolve.ts`) whenever neither
+`--ice`/`KITHMOOT_ICE` nor the room's own link names a server: it fetches
+`<origin>/turn` from `--base` (`create`) or the room link's own origin
+(`join`) - the same endpoint and response shape the web app's
+`fetchTurnCredential` reads - derives STUN from the returned TURN host the
+same way (`stunFromTurnUrl`), and falls back to a same-host guess
+(`originStunGuess`) when the endpoint doesn't answer. `createWeriftFactory`
+gained a `refresh` option so a long-running agent re-resolves on the same
+40-minute schedule as the web app's own `ICE_REFRESH_MS`, against the same
+hour-long minted credential. `kithmoot-keeper@.service`'s standard
+invocation (`create --brain none`, no `--listen`) never opens a WebRTC
+connection at all and is unaffected either way.
+
+The `/turn` endpoint's CORS check (`applyCors` in
+`server/turn-credentials.mjs`) treats a request with no `Origin` header as
+not a cross-origin browser request and lets it through regardless of
+`ALLOWED_ORIGINS` - already true of any non-browser caller, and unchanged
+by this: a plain Node `fetch` has no `Origin` header to send in the first
+place, so it is granted exactly the access a `curl` from the box always
+had, and setting one explicitly would only risk a 403 on a box whose
+`ALLOWED_ORIGINS` doesn't happen to list it. No server change was needed.
 
 Android is a separate client and a separate repository
 (`kithmoot-android`); this change does not touch it. Its `RoomViewModel.kt`

@@ -1,25 +1,33 @@
 /**
- * KithMoot's ICE default: no host outside this origin, and no host outside
- * what the room itself named.
+ * KithMoot's ICE default: no host outside the origin that served the room,
+ * and no host outside what the room itself named.
  *
  * A room names its own STUN and TURN servers in its join URL, the way it
- * names its relays (see encodeRoomUrl and decodeExtras in main.ts). This
- * module is only what stands in for a room that never set its own - and
- * until 2026-09-13 that stand-in was `stun:stun.l.google.com:19302`,
- * hardcoded into every fresh install. That named a specific third party by
- * default, on every call, whether or not a person ever chose it: Google
- * learned the IP address and timing of every call attempt made on
- * defaults. See docs/decisions.md, 2026-09-13, for the full finding.
+ * names its relays (see encodeRoomUrl and decodeExtras in
+ * app/src/main.ts). This module is only what stands in for a room that
+ * never set its own - and until 2026-09-13 that stand-in was
+ * `stun:stun.l.google.com:19302`, hardcoded into every fresh install. That
+ * named a specific third party by default, on every call, whether or not a
+ * person ever chose it: Google learned the IP address and timing of every
+ * call attempt made on defaults. See docs/decisions.md, 2026-09-13, for the
+ * full finding.
  *
  * The replacement is origin-relative rather than a different hardcoded
- * host: derive a STUN server from this app's own TURN endpoint when one
+ * host: derive a STUN server from the room's own TURN endpoint when one
  * answers (coturn answers STUN on the same listener it answers TURN on -
  * deploy/coturn/turnserver.conf carries no `no-stun`), fall back to a
  * same-host guess on the standard port when it doesn't, and add nothing at
  * all on localhost, where host candidates already connect two processes on
- * one machine. See resolveIceServers in main.ts, which is where the TURN
- * credential fetch actually happens - this module only has the parts that
- * don't need the network to decide.
+ * one machine.
+ *
+ * This module has no runtime dependency of its own - no DOM, no Node
+ * builtin - so both callers that actually fetch a TURN credential share it:
+ * `resolveIceServers` in app/src/main.ts (the browser, reading
+ * `location`), and `resolveNodeIceServers` in src/node/ice-resolve.ts (a
+ * long-running agent or keeper, reading the room link's or `--base`'s
+ * origin instead of `location`, since a Node process has neither). Kept
+ * here, in the shared library, rather than under app/src, precisely
+ * because both need it.
  */
 
 /**

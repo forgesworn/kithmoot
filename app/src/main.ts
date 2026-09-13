@@ -123,7 +123,7 @@ import {
   type RelayTransport,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
-import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from './ice-defaults.js'
+import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'

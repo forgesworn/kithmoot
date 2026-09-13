@@ -4,7 +4,7 @@ import { join, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
- * KithMoot's whole ICE-default design (app/src/ice-defaults.ts, and
+ * KithMoot's whole ICE-default design (src/ice-defaults.ts, and
  * docs/decisions.md, 13 September 2026) rests on naming no host outside the
  * origin that served a room's page and what the room itself named.
  * `stun.l.google.com` sneaking back into shipped source - a copy-pasted
@@ -20,17 +20,17 @@ import { fileURLToPath } from 'node:url'
  * what they guard against - including this one).
  *
  * One production file is allowed to carry the literal string, and only
- * that one: `app/src/ice-defaults.ts`'s `LEGACY_DEFAULT_ICE_URLS`, which
- * exists specifically to recognise it in an existing link's ICE hint and
- * upgrade that room to this origin's own STUN/TURN (see `isDefaultIceUrls`
- * there, and docs/decisions.md). That is remembering the old default to
- * retire it, not naming a new one - every other production file must have
- * no reason whatsoever to mention Google's server.
+ * that one: `src/ice-defaults.ts`'s `LEGACY_DEFAULT_ICE_URLS`, which exists
+ * specifically to recognise it in an existing link's ICE hint and upgrade
+ * that room to this origin's own STUN/TURN (see `isDefaultIceUrls` there,
+ * and docs/decisions.md). That is remembering the old default to retire
+ * it, not naming a new one - every other production file must have no
+ * reason whatsoever to mention Google's server.
  */
 const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url))
 const SCAN_ROOTS = ['app/src', 'src', 'server']
 const FORBIDDEN = 'stun.l.google.com'
-const ALLOWED = new Set(['app/src/ice-defaults.ts'])
+const ALLOWED = new Set(['src/ice-defaults.ts'])
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mjs', '.js', '.html'])
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.git'])
 
