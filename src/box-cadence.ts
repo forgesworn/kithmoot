@@ -50,6 +50,7 @@ export interface CadenceLeaseRequest {
   generation: number
   server: string
   room: string
+  traffic_room: string
   persona: string
   device: string
   credential: DeviceCredential
@@ -79,6 +80,8 @@ export interface CadenceQueueRequest {
   generation: number
   server: string
   room: string
+  traffic_room: string
+  room_generation: number
   persona: string
   device: string
   credential: DeviceCredential
@@ -93,11 +96,14 @@ export interface CadenceMutationRequest {
   generation: number
   server: string
   room: string
+  traffic_room: string
+  room_generation: number
   persona: string
   device: string
   credential: DeviceCredential
   grant_id: string
   boundary_epoch: number | null
+  next_room_generation: number | null
 }
 
 export interface CadenceStatusRequest {
@@ -105,6 +111,8 @@ export interface CadenceStatusRequest {
   request_id: string
   server: string
   room: string
+  traffic_room: string
+  room_generation: number
   persona: string
   device: string
   credential: DeviceCredential
@@ -140,7 +148,12 @@ export interface CadenceSignedRequest<T> {
 
 export interface CadenceScope {
   nodeId: string
+  /** Stable room id carried by the credential, grant and Link consent. */
   room: string
+  /** Current room-epoch id carried by encrypted kind 1460 events. */
+  trafficRoom: string
+  /** Protocol room epoch plus one. */
+  roomGeneration: number
   persona: string
   device: string
   credential: DeviceCredential
@@ -151,7 +164,6 @@ export interface BuildCadenceLeaseOptions extends CadenceScope {
   requestId: string
   leaseId: string
   generation: number
-  roomGeneration: number
   deviceSlot: number
   currentEpoch: number
   startEpoch: number
@@ -208,6 +220,10 @@ export function cadenceStopPath(leaseId: string): string {
   return `${cadenceLeasePath(leaseId)}/stop`
 }
 
+export function cadenceRekeyPath(leaseId: string): string {
+  return `${cadenceLeasePath(leaseId)}/rekey`
+}
+
 export function cadenceWithdrawPath(leaseId: string, eventId: string): string {
   exactId(eventId, HEX64, 'event id')
   return `${cadenceQueuePath(leaseId)}/${eventId}/withdraw`
@@ -239,6 +255,7 @@ export function deriveCadenceDropPublicKeys(
 export function buildCadenceLease(options: BuildCadenceLeaseOptions): CadenceLeaseRequest {
   const nodeId = exactId(options.nodeId, NODE52, 'node id')
   const room = exactId(normaliseHex(options.room), HEX64, 'room')
+  const trafficRoom = exactId(normaliseHex(options.trafficRoom), HEX64, 'traffic room')
   const persona = exactId(normaliseHex(options.persona), HEX64, 'persona')
   const device = exactId(normaliseHex(options.device), HEX64, 'device')
   exactId(options.requestId, ID32, 'request id'); exactId(options.leaseId, ID32, 'lease id'); exactId(options.grantId, ID32, 'grant id')
@@ -263,9 +280,10 @@ export function buildCadenceLease(options: BuildCadenceLeaseOptions): CadenceLea
     generation: options.generation,
     server: cadenceServer(nodeId),
     room,
+    traffic_room: trafficRoom,
     persona,
     device,
-    credential: options.credential,
+    credential: cadenceWireEvent(options.credential),
     grant_id: options.grantId,
     device_slot: options.deviceSlot,
     room_generation: options.roomGeneration,
@@ -289,12 +307,13 @@ export function buildCadenceLease(options: BuildCadenceLeaseOptions): CadenceLea
 export function buildCadenceQueue(lease: CadenceLeaseRequest, requestId: string, event: Event): CadenceQueueRequest {
   exactId(requestId, ID32, 'request id')
   const roomTags = event.tags.filter(tag => tag[0] === 'd')
-  if (event.kind !== 1460 || !hexEquals(event.pubkey, lease.device) || !verifyEventUncached(event) || roomTags.length !== 1 || roomTags[0]!.length !== 2 || !hexEquals(roomTags[0]![1]!, lease.room)) throw new Error('invalid cadence queue event')
+  if (event.kind !== 1460 || !hexEquals(event.pubkey, lease.device) || !verifyEventUncached(event) || roomTags.length !== 1 || roomTags[0]!.length !== 2 || !hexEquals(roomTags[0]![1]!, lease.traffic_room)) throw new Error('invalid cadence queue event')
   if (utf8.encode(JSON.stringify({ e: event, pad: '' })).length > CADENCE_BUCKET_BYTES) throw new Error('cadence queue event exceeds bucket')
   return {
     v: CADENCE_VERSION, request_id: requestId, lease_id: lease.lease_id, generation: lease.generation,
-    server: lease.server, room: lease.room, persona: lease.persona, device: lease.device,
-    credential: lease.credential, grant_id: lease.grant_id, event,
+    server: lease.server, room: lease.room, traffic_room: lease.traffic_room, room_generation: lease.room_generation,
+    persona: lease.persona, device: lease.device,
+    credential: lease.credential, grant_id: lease.grant_id, event: cadenceWireEvent(event),
   }
 }
 
@@ -303,23 +322,57 @@ export function buildCadenceMutation(lease: CadenceLeaseRequest, requestId: stri
   if (boundaryEpoch !== null) integer(boundaryEpoch, 'boundary epoch')
   return {
     v: CADENCE_VERSION, request_id: requestId, lease_id: lease.lease_id, generation: lease.generation,
-    server: lease.server, room: lease.room, persona: lease.persona, device: lease.device,
-    credential: lease.credential, grant_id: lease.grant_id, boundary_epoch: boundaryEpoch,
+    server: lease.server, room: lease.room, traffic_room: lease.traffic_room, room_generation: lease.room_generation,
+    persona: lease.persona, device: lease.device, credential: lease.credential, grant_id: lease.grant_id,
+    boundary_epoch: boundaryEpoch, next_room_generation: null,
+  }
+}
+
+export function buildCadenceRekey(
+  lease: CadenceLeaseRequest,
+  requestId: string,
+  nextRoomGeneration: number,
+): CadenceMutationRequest {
+  exactId(requestId, ID32, 'request id')
+  integer(nextRoomGeneration, 'next room generation')
+  if (nextRoomGeneration <= lease.room_generation) throw new Error('invalid cadence next room generation')
+  return {
+    v: CADENCE_VERSION, request_id: requestId, lease_id: lease.lease_id, generation: lease.generation,
+    server: lease.server, room: lease.room, traffic_room: lease.traffic_room, room_generation: lease.room_generation,
+    persona: lease.persona, device: lease.device, credential: lease.credential, grant_id: lease.grant_id,
+    boundary_epoch: null, next_room_generation: nextRoomGeneration,
   }
 }
 
 export function buildCadenceStatus(scope: CadenceScope, requestId: string, lease?: Pick<CadenceLeaseRequest, 'lease_id' | 'generation'>): CadenceStatusRequest {
+  integer(scope.roomGeneration, 'room generation')
+  if (scope.roomGeneration === 0) throw new Error('invalid cadence room generation')
   return {
     v: CADENCE_VERSION,
     request_id: exactId(requestId, ID32, 'request id'),
     server: cadenceServer(scope.nodeId),
     room: exactId(normaliseHex(scope.room), HEX64, 'room'),
+    traffic_room: exactId(normaliseHex(scope.trafficRoom), HEX64, 'traffic room'),
+    room_generation: scope.roomGeneration,
     persona: exactId(normaliseHex(scope.persona), HEX64, 'persona'),
     device: exactId(normaliseHex(scope.device), HEX64, 'device'),
-    credential: scope.credential,
+    credential: cadenceWireEvent(scope.credential),
     grant_id: exactId(scope.grantId, ID32, 'grant id'),
     lease_id: lease?.lease_id ?? null,
     generation: lease?.generation ?? null,
+  }
+}
+
+/** Keep event object insertion order identical to Rust serde and Kotlin. */
+function cadenceWireEvent(event: Event): Event {
+  return {
+    id: event.id,
+    pubkey: event.pubkey,
+    created_at: event.created_at,
+    kind: event.kind,
+    tags: event.tags,
+    content: event.content,
+    sig: event.sig,
   }
 }
 
