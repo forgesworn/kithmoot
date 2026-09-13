@@ -8,7 +8,7 @@ import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { base64 } from '@scure/base'
-import { bytesToHex } from '@noble/hashes/utils'
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import {
   buildCadenceLease,
   buildCadenceQueue,
@@ -18,7 +18,7 @@ import {
   cadenceRekeyPath,
   cadencePayloadSha256,
 } from '../dist/src/box-cadence.js'
-import { deriveSecretKey, finalizeDeterministic, seed32 } from './lib/determinism.mjs'
+import { finalizeDeterministic, seed32 } from './lib/determinism.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const output = join(here, 'cadence-v1.json')
@@ -27,8 +27,8 @@ const now = 1_800_000_000
 const nodeId = 'a'.repeat(52)
 const stableRoom = '42'.repeat(32)
 const trafficRoom = '43'.repeat(32)
-const personaSecret = deriveSecretKey('cadence-persona')
-const deviceSecret = deriveSecretKey('cadence-device')
+const personaSecret = hexToBytes('ee'.repeat(32))
+const deviceSecret = hexToBytes('dd'.repeat(32))
 const persona = bytesToHex((await import('@noble/curves/secp256k1.js')).schnorr.getPublicKey(personaSecret))
 const device = bytesToHex((await import('@noble/curves/secp256k1.js')).schnorr.getPublicKey(deviceSecret))
 const expiry = 500_004 * 3_600

@@ -283,7 +283,7 @@ export function buildCadenceLease(options: BuildCadenceLeaseOptions): CadenceLea
     traffic_room: trafficRoom,
     persona,
     device,
-    credential: options.credential,
+    credential: cadenceWireEvent(options.credential),
     grant_id: options.grantId,
     device_slot: options.deviceSlot,
     room_generation: options.roomGeneration,
@@ -313,7 +313,7 @@ export function buildCadenceQueue(lease: CadenceLeaseRequest, requestId: string,
     v: CADENCE_VERSION, request_id: requestId, lease_id: lease.lease_id, generation: lease.generation,
     server: lease.server, room: lease.room, traffic_room: lease.traffic_room, room_generation: lease.room_generation,
     persona: lease.persona, device: lease.device,
-    credential: lease.credential, grant_id: lease.grant_id, event,
+    credential: lease.credential, grant_id: lease.grant_id, event: cadenceWireEvent(event),
   }
 }
 
@@ -356,10 +356,23 @@ export function buildCadenceStatus(scope: CadenceScope, requestId: string, lease
     room_generation: scope.roomGeneration,
     persona: exactId(normaliseHex(scope.persona), HEX64, 'persona'),
     device: exactId(normaliseHex(scope.device), HEX64, 'device'),
-    credential: scope.credential,
+    credential: cadenceWireEvent(scope.credential),
     grant_id: exactId(scope.grantId, ID32, 'grant id'),
     lease_id: lease?.lease_id ?? null,
     generation: lease?.generation ?? null,
+  }
+}
+
+/** Keep event object insertion order identical to Rust serde and Kotlin. */
+function cadenceWireEvent(event: Event): Event {
+  return {
+    id: event.id,
+    pubkey: event.pubkey,
+    created_at: event.created_at,
+    kind: event.kind,
+    tags: event.tags,
+    content: event.content,
+    sig: event.sig,
   }
 }
 
