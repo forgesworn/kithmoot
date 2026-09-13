@@ -8,15 +8,18 @@ import {
   CADENCE_EPOCH_SECONDS,
   CADENCE_SLOT_SECONDS,
   buildCadenceLease,
+  buildCadenceRekey,
   buildCadenceQueue,
   cadenceLeasePath,
   cadencePayloadSha256,
   cadenceQueuePath,
+  cadenceRekeyPath,
   deriveCadenceDropPublicKeys,
   serialiseCadenceBody,
   signCadenceRequest,
   type CadenceLeaseRequest,
   type CadenceQueueRequest,
+  type CadenceMutationRequest,
 } from './box-cadence.js'
 import type { ParticipantIdentity, UnsignedEvent } from './identity.js'
 
@@ -25,6 +28,7 @@ type WireVector = {
   now: number
   lease: { body: string; path: string; method: 'PUT'; payload_sha256: string; authorization: string; authorization_event: Event }
   queue: { body: string; path: string; method: 'POST'; payload_sha256: string; authorization: string; authorization_event: Event }
+  rekey: { body: string; path: string; method: 'PUT'; payload_sha256: string; authorization: string; authorization_event: Event }
 }
 const vector = vectors as WireVector
 
@@ -39,10 +43,10 @@ function vectorSigner(event: Event): ParticipantIdentity {
 }
 
 describe('Bothy cadence v1 wire compatibility', () => {
-  for (const name of ['lease', 'queue'] as const) {
+  for (const name of ['lease', 'queue', 'rekey'] as const) {
     it(`reproduces the frozen Rust ${name} bytes, hash and NIP-98 header`, async () => {
       const wire = vector[name]
-      const value = JSON.parse(wire.body) as CadenceLeaseRequest | CadenceQueueRequest
+      const value = JSON.parse(wire.body) as CadenceLeaseRequest | CadenceQueueRequest | CadenceMutationRequest
       expect(serialiseCadenceBody(value)).toBe(wire.body)
       expect(cadencePayloadSha256(wire.body)).toBe(wire.payload_sha256)
       const signed = await signCadenceRequest({ nodeId: vector.node_id, method: wire.method, path: wire.path, value, signer: vectorSigner(wire.authorization_event), now: vector.now })
@@ -69,6 +73,15 @@ describe('a phone delegates only a finite public key range', () => {
     const queue = JSON.parse(vector.queue.body) as CadenceQueueRequest
     expect(serialiseCadenceBody(buildCadenceQueue(lease, queue.request_id, queue.event))).toBe(vector.queue.body)
     expect(() => buildCadenceQueue(lease, queue.request_id, { ...queue.event, kind: 1 })).toThrow(/queue event/)
+    const stableTagged = { ...queue.event, tags: [['d', lease.room]] }
+    expect(() => buildCadenceQueue(lease, queue.request_id, stableTagged)).toThrow(/queue event/)
+  })
+
+  it('rebuilds the frozen immediate room-generation retirement', () => {
+    const rekey = JSON.parse(vector.rekey.body) as CadenceMutationRequest
+    expect(serialiseCadenceBody(buildCadenceRekey(lease, rekey.request_id, rekey.next_room_generation!))).toBe(vector.rekey.body)
+    expect(cadenceRekeyPath(lease.lease_id)).toBe(vector.rekey.path)
+    expect(() => buildCadenceRekey(lease, rekey.request_id, lease.room_generation)).toThrow(/next room generation/)
   })
 
   it('derives exactly one device half for every future epoch and exposes no scalar', () => {
@@ -83,7 +96,8 @@ describe('a phone delegates only a finite public key range', () => {
   it('builds the exact fixed profile and refuses current, overlong or third-device ranges', () => {
     const common = {
       nodeId: vector.node_id, requestId: lease.request_id, leaseId: lease.lease_id, generation: 1,
-      roomGeneration: 1, deviceSlot: 0, currentEpoch: 500000, startEpoch: 500002, endEpoch: 500004,
+      trafficRoom: lease.traffic_room, roomGeneration: lease.room_generation,
+      deviceSlot: 0, currentEpoch: 500000, startEpoch: 500002, endEpoch: 500004,
       roomKey: new Uint8Array(32).fill(9), publicRelays: lease.public_relays, circleBoxes: lease.circle_boxes,
       room: lease.room, persona: lease.persona, device: lease.device, credential: lease.credential,
       grantId: lease.grant_id, now: vector.now,

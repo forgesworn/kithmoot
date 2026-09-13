@@ -4,13 +4,13 @@
     "wss://relay-a.example",
     "wss://relay-b.example"
   ],
-  "generated_by": "bothy-node crates/bothy-core cadence vector generator",
+  "generated_by": "kithmoot vectors/generate-cadence.mjs",
   "grant": {
     "active": true,
-    "device": "ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd",
+    "device": "fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13",
     "expires_at": 1800014400,
     "grant_id": "33333333333333333333333333333333",
-    "persona": "a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1",
+    "persona": "c52e40ca50d9076e83d51725bdb07f637d42bc35df2a32839d235176e24e2384",
     "room": "4242424242424242424242424242424242424242424242424242424242424242",
     "server": "ws://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/events",
     "write_1460": true
@@ -31,8 +31,20 @@
     {
       "name": "room",
       "target": "lease.body.room",
-      "replacement": "4343434343434343434343434343434343434343434343434343434343434343",
+      "replacement": "4444444444444444444444444444444444444444444444444444444444444444",
       "expect": "scope"
+    },
+    {
+      "name": "traffic_room",
+      "target": "queue.body.traffic_room",
+      "replacement": "4242424242424242424242424242424242424242424242424242424242424242",
+      "expect": "scope"
+    },
+    {
+      "name": "room_generation",
+      "target": "lease.body.room_generation",
+      "replacement": 0,
+      "expect": "id or generation"
     },
     {
       "name": "persona",
@@ -73,7 +85,7 @@
     {
       "name": "credential_expiration",
       "target": "lease.body.credential.tags.expiration",
-      "replacement": "1800007199",
+      "replacement": "1800014399",
       "expect": "credential expires before lease"
     },
     {
@@ -102,18 +114,16 @@
     }
   ],
   "lease": {
-    "authorization": "Nostr eyJpZCI6ImQ0MDJmMTljOGY4MjQzZGVjNmFkZWI1ODg1Y2E5OGMzOTM5MTJjNDcwZmZmNmY2MWVjMjIzNzExYjVjOWNjMTIiLCJwdWJrZXkiOiJlZDgzNzA0Yzk1ZDgyOTA0NmYxYWMyNzgwNjIxMTEzMjEwMmMzNGU5YWM3ZmZhMWI3MTExMDY1OGU1YjlkMWJkIiwiY3JlYXRlZF9hdCI6MTgwMDAwMDAwMCwia2luZCI6MjcyMzUsInRhZ3MiOltbInUiLCJodHRwOi8vYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYS9jYWRlbmNlL3YxL2xlYXNlcy8yMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMiJdLFsibWV0aG9kIiwiUFVUIl0sWyJwYXlsb2FkIiwiNTc2MTc1YWJhMzIwOTAyMzNmZTU3OTE2OWI4Nzg2ZWFlOTRmOTIxNmYwMGZiZTYwNzdkYjc3MjhiMTI1MzlmZSJdXSwiY29udGVudCI6IiIsInNpZyI6IjZmODBkMTBmNWM0YzU4MmI4MDEwZGRkYjM3ZjQzYWU1ZmQ5YzlmMjQ3ODMwZTc1M2I1M2IxOTQ0MjU0ZTZiNmRiNDEzZTM3ZWNlZWZkOTcwZWIxZDUzNWExYzNhN2EwYjA3NjNhY2I5MmUyYWJjMGY0MWMwMWVlOGM0YjY5ZGUwIn0=",
+    "authorization": "Nostr eyJpZCI6IjU1ZDVlODk5YjljZGY3MTYyM2Y4NzY5ZGYxOThhNDMwMDdjZDI5MGU3ZTQ5ZGZjZjU1YzlkYWVhYmVlNzZjMzQiLCJwdWJrZXkiOiJmZTdlMThiM2ZmMGRiYzQyN2FjNzFmNjE4YjcxMzkxODU5NGQ1M2I0NDgxNTFkNWU2OTJiMjgyODNmMzE1YzEzIiwiY3JlYXRlZF9hdCI6MTgwMDAwMDAwMCwia2luZCI6MjcyMzUsInRhZ3MiOltbInUiLCJodHRwOi8vYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYS9jYWRlbmNlL3YxL2xlYXNlcy8xMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMSJdLFsibWV0aG9kIiwiUFVUIl0sWyJwYXlsb2FkIiwiZjlmODJjZjIzZTdkYjZhNWNhNjkzOWQ5OGU5Mzg4ZWUzN2ViN2U3YmZiNWFhOTFhZGFkOThhZTg0ZGUyNGMxOSJdXSwiY29udGVudCI6IiIsInNpZyI6IjBjNjM1ZGNkZDVkYzg1OWQ2MTMzNmI2ZmRhMDY0M2JjNjc5YjY1MmI3NGI3ZmUwYzU0NDVmMDZiNjU4MGJmNjNmMmE0MmU0Yzc5MTIwZWZiNDYyNTdlNzc4ZDliYWZlZTYyZWYyOWMyN2FkNDk1YmJmNzFmOWZmMWExOTQ3MmE5In0=",
     "authorization_event": {
-      "content": "",
+      "id": "55d5e899b9cdf71623f8769df198a43007cd290e7e49dfcf55c9daeabee76c34",
+      "pubkey": "fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13",
       "created_at": 1800000000,
-      "id": "d402f19c8f8243dec6adeb5885ca98c393912c470fff6f61ec223711b5c9cc12",
       "kind": 27235,
-      "pubkey": "ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd",
-      "sig": "6f80d10f5c4c582b8010dddb37f43ae5fd9c9f247830e753b53b1944254e6b6db413e37eceefd970eb1d535a1c3a7a0b0763acb92e2abc0f41c01ee8c4b69de0",
       "tags": [
         [
           "u",
-          "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cadence/v1/leases/22222222222222222222222222222222"
+          "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cadence/v1/leases/11111111111111111111111111111111"
         ],
         [
           "method",
@@ -121,31 +131,31 @@
         ],
         [
           "payload",
-          "576175aba32090233fe579169b8786eae94f9216f00fbe6077db7728b12539fe"
+          "f9f82cf23e7db6a5ca6939d98e9388ee37eb7e7bfb5aa91adad98ae84de24c19"
         ]
-      ]
+      ],
+      "content": "",
+      "sig": "0c635dcdd5dc859d61336b6fda0643bc679b652b74b7fe0c5445f06b6580bf63f2a42e4c79120efb46257e778d9bafee62ef29c27ad495bbf71f9ff1a19472a9"
     },
-    "body": "{\"v\":1,\"request_id\":\"11111111111111111111111111111111\",\"lease_id\":\"22222222222222222222222222222222\",\"generation\":1,\"server\":\"ws://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/events\",\"room\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"persona\":\"a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1\",\"device\":\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\",\"credential\":{\"id\":\"ab5820292a96224bef9c6048ff6f60fb12991d8ae848b12171a4f66d59809740\",\"pubkey\":\"a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1\",\"created_at\":1800000000,\"kind\":20460,\"tags\":[[\"d\",\"4242424242424242424242424242424242424242424242424242424242424242\"],[\"device\",\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\"],[\"expiration\",\"1800014400\"]],\"content\":\"\",\"sig\":\"504dcdd966753c768b02314286dc738d961f9cde995a8f8452a5e639a888811b059024059061173d65cc4e37b9df4d457a7969d998138b568c883b6b79fcbd88\"},\"grant_id\":\"33333333333333333333333333333333\",\"device_slot\":0,\"room_generation\":1,\"epoch_seconds\":3600,\"slot_seconds\":300,\"bucket_bytes\":4096,\"allowed_inner_kinds\":[1460],\"device_slots\":2,\"counter_lo\":0,\"counter_hi\":8,\"start_epoch\":500002,\"end_epoch\":500004,\"real_send_until_epoch\":500004,\"cover_until_epoch\":500004,\"drop_keys\":[{\"epoch\":500002,\"counter\":0,\"pubkey\":\"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\"},{\"epoch\":500002,\"counter\":1,\"pubkey\":\"c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5\"},{\"epoch\":500002,\"counter\":2,\"pubkey\":\"f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\"},{\"epoch\":500002,\"counter\":3,\"pubkey\":\"e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13\"},{\"epoch\":500002,\"counter\":4,\"pubkey\":\"2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4\"},{\"epoch\":500002,\"counter\":5,\"pubkey\":\"fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556\"},{\"epoch\":500002,\"counter\":6,\"pubkey\":\"5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc\"},{\"epoch\":500002,\"counter\":7,\"pubkey\":\"2f01e5e15cca351daff3843fb70f3c2f0a1bdd05e5af888a67784ef3e10a2a01\"},{\"epoch\":500003,\"counter\":0,\"pubkey\":\"acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe\"},{\"epoch\":500003,\"counter\":1,\"pubkey\":\"a0434d9e47f3c86235477c7b1ae6ae5d3442d49b1943c2b752a68e2a47e247c7\"},{\"epoch\":500003,\"counter\":2,\"pubkey\":\"774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cb\"},{\"epoch\":500003,\"counter\":3,\"pubkey\":\"d01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a\"},{\"epoch\":500003,\"counter\":4,\"pubkey\":\"f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8\"},{\"epoch\":500003,\"counter\":5,\"pubkey\":\"499fdf9e895e719cfd64e67f07d38e3226aa7b63678949e6e49b241a60e823e4\"},{\"epoch\":500003,\"counter\":6,\"pubkey\":\"d7924d4f7d43ea965a465ae3095ff41131e5946f3c85f79e44adbcf8e27e080e\"},{\"epoch\":500003,\"counter\":7,\"pubkey\":\"e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a\"}],\"public_relays\":[\"wss://relay-a.example\",\"wss://relay-b.example\"],\"circle_boxes\":[\"local\"]}",
+    "body": "{\"v\":1,\"request_id\":\"22222222222222222222222222222222\",\"lease_id\":\"11111111111111111111111111111111\",\"generation\":1,\"server\":\"ws://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/events\",\"room\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"traffic_room\":\"4343434343434343434343434343434343434343434343434343434343434343\",\"persona\":\"c52e40ca50d9076e83d51725bdb07f637d42bc35df2a32839d235176e24e2384\",\"device\":\"fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13\",\"credential\":{\"kind\":20460,\"created_at\":1800000000,\"tags\":[[\"d\",\"4242424242424242424242424242424242424242424242424242424242424242\"],[\"device\",\"fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13\"],[\"expiration\",\"1800014400\"]],\"content\":\"\",\"pubkey\":\"c52e40ca50d9076e83d51725bdb07f637d42bc35df2a32839d235176e24e2384\",\"id\":\"2c4231b106022f20c15579c6a5cce76497fad04f221e5df9ae9bc884c8638732\",\"sig\":\"9ad081f9ad5362a8bed9af99b58af88f6b47bf91dbfee340de93da7faa57862e4ea2c3f83121da9b8f27cfbf160697a453882a040fd7012509e49c75cdaeeac5\"},\"grant_id\":\"33333333333333333333333333333333\",\"device_slot\":0,\"room_generation\":2,\"epoch_seconds\":3600,\"slot_seconds\":300,\"bucket_bytes\":4096,\"allowed_inner_kinds\":[1460],\"device_slots\":2,\"counter_lo\":0,\"counter_hi\":8,\"start_epoch\":500002,\"end_epoch\":500004,\"real_send_until_epoch\":500004,\"cover_until_epoch\":500004,\"drop_keys\":[{\"epoch\":500002,\"counter\":0,\"pubkey\":\"d367024b4213ad4889c2238c63634b3bddf546f62d5ac4b99864b1128a582f38\"},{\"epoch\":500002,\"counter\":1,\"pubkey\":\"40b6cc4dca00c0ae2779d04c61cd6e1eaab51c0cc988cc209c77d442ab533cf7\"},{\"epoch\":500002,\"counter\":2,\"pubkey\":\"d8337af0ebb75a77a57b6e44ce72cb19641cccbf4970ab74fae7de634da03c00\"},{\"epoch\":500002,\"counter\":3,\"pubkey\":\"56bb0b8780c28ed086c15a929c288ab0392d4f14f2892fe5e4d56304b3dee681\"},{\"epoch\":500002,\"counter\":4,\"pubkey\":\"f583dd8b39ce8f6d2fdab254dca4babc6eb7dc0300c74738278e8b706eb8ea8b\"},{\"epoch\":500002,\"counter\":5,\"pubkey\":\"25c014ce26dcc9d3aab825e999629870ffd12ccbe91df5dfe8fa563ba621e3ee\"},{\"epoch\":500002,\"counter\":6,\"pubkey\":\"93a5b1b0924660d698a7c02608036231a2b41844d51a068cab594dd7fa259943\"},{\"epoch\":500002,\"counter\":7,\"pubkey\":\"863551e2de811238d98799d04c3fc8dbf7ab0431b38c26ec031c5da2b5cf7321\"},{\"epoch\":500003,\"counter\":0,\"pubkey\":\"bd10f8bd1ecc33417f4e0bc18f3b48b45d8dce8467b87f26981483bf596e6a20\"},{\"epoch\":500003,\"counter\":1,\"pubkey\":\"7932de81edff2a39a96f7d7be0b4a69ff065b7094b17d0edd2b5dbe2f4df632c\"},{\"epoch\":500003,\"counter\":2,\"pubkey\":\"937b7faecb3177f8faf50ef3f62ea3aac09115e52334091b7a6607651652db79\"},{\"epoch\":500003,\"counter\":3,\"pubkey\":\"dbf0d7f50c1c572e87cea18410b7637fc01202e882bfdaa86ce01d7cde3263e2\"},{\"epoch\":500003,\"counter\":4,\"pubkey\":\"c337089af1d330affd5f31219014b0927cbdafe5712cae5cfb15d1d0155abe17\"},{\"epoch\":500003,\"counter\":5,\"pubkey\":\"9b5074b09aebb5caf1b0f17cafd18ce68ffa44acec7e30167c5dc0aba9c16aea\"},{\"epoch\":500003,\"counter\":6,\"pubkey\":\"3d0ce834950becfdcdc7b2ea784e84d5ee7ab60f4e4f98529312ba65b1f9bb38\"},{\"epoch\":500003,\"counter\":7,\"pubkey\":\"3e4f97b75111a0f55d71780066d2417218b1a41523be685eef133104ce7507ea\"}],\"public_relays\":[\"wss://relay-a.example\",\"wss://relay-b.example\"],\"circle_boxes\":[\"local\"]}",
     "content_type": "application/json",
     "method": "PUT",
-    "path": "/cadence/v1/leases/22222222222222222222222222222222",
-    "payload_sha256": "576175aba32090233fe579169b8786eae94f9216f00fbe6077db7728b12539fe"
+    "path": "/cadence/v1/leases/11111111111111111111111111111111",
+    "payload_sha256": "f9f82cf23e7db6a5ca6939d98e9388ee37eb7e7bfb5aa91adad98ae84de24c19"
   },
   "node_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "now": 1800000000,
   "queue": {
-    "authorization": "Nostr eyJpZCI6IjQ2M2E1ZmU0YmFhZjQ5YThmNWJlNzg4NjJlYWNkNTM5ZTEzOTIyNjgwNGZmYWE4ZDNhNjEzMmIyNzhmN2FkOGMiLCJwdWJrZXkiOiJlZDgzNzA0Yzk1ZDgyOTA0NmYxYWMyNzgwNjIxMTEzMjEwMmMzNGU5YWM3ZmZhMWI3MTExMDY1OGU1YjlkMWJkIiwiY3JlYXRlZF9hdCI6MTgwMDAwMDAwMCwia2luZCI6MjcyMzUsInRhZ3MiOltbInUiLCJodHRwOi8vYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYS9jYWRlbmNlL3YxL2xlYXNlcy8yMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMi9xdWV1ZSJdLFsibWV0aG9kIiwiUE9TVCJdLFsicGF5bG9hZCIsImYzM2NkZTYwOWY5Y2I3N2M4ZGJiY2QzODUwZmZiM2ViMWU4ZjVkYmEwMDJiNGNlMzk1MDEwZDY5YzVhZjU2YjEiXV0sImNvbnRlbnQiOiIiLCJzaWciOiJlMjdhZmZmNTg0MjYzNmU5MzJmZWMwMTdhZDlmNzIzNTcwYjU5Zjk5ZmViMDNmYTg2NWQwNTk0NzBjODc5YjkzMDU5YTMzMjUwM2YwMzllZjE4OGE0ZDM2MzQ0ZmJlMTliZGY5MDU5ZTY3YzA2NWNmMjE0ODIwOGJkNGI5YWVjYyJ9",
+    "authorization": "Nostr eyJpZCI6IjAzZGI2YWYyOGViOWMyODEzOGJhZmU1ZGYyNzM0MjZmMDY2MDc0MGZkZjkxNmZjNDkwYWI5MDRhZjA2ZTM2YjYiLCJwdWJrZXkiOiJmZTdlMThiM2ZmMGRiYzQyN2FjNzFmNjE4YjcxMzkxODU5NGQ1M2I0NDgxNTFkNWU2OTJiMjgyODNmMzE1YzEzIiwiY3JlYXRlZF9hdCI6MTgwMDAwMDAwMCwia2luZCI6MjcyMzUsInRhZ3MiOltbInUiLCJodHRwOi8vYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYS9jYWRlbmNlL3YxL2xlYXNlcy8xMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMS9xdWV1ZSJdLFsibWV0aG9kIiwiUE9TVCJdLFsicGF5bG9hZCIsIjY3ODU3MmJhMTg4ZDc5MDM3ZGUzOTY0YjUwNDIyZmEyOGQ0NTlkMWY2YTJiNDYzNTM2MTEwYmY0NTk1YjdiZmQiXV0sImNvbnRlbnQiOiIiLCJzaWciOiI0YzA5NzAzNTUwNTJiNGI0YTA1MDE4Y2FiOTBhN2E0YWMzNGUxYmVlNWMxZmZjMDg1M2E0NjI3NTJlMmZjM2VhZTc0MzAwOGJlZTQwYTE3N2M4NTM2MzY4ZmJmZTFhOWY5MTlhNWM0N2M1ZTQyYmM1YWNjYzkyMjdmZmVmZDU5NCJ9",
     "authorization_event": {
-      "content": "",
+      "id": "03db6af28eb9c28138bafe5df273426f0660740fdf916fc490ab904af06e36b6",
+      "pubkey": "fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13",
       "created_at": 1800000000,
-      "id": "463a5fe4baaf49a8f5be78862eacd539e139226804ffaa8d3a6132b278f7ad8c",
       "kind": 27235,
-      "pubkey": "ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd",
-      "sig": "e27afff5842636e932fec017ad9f723570b59f99feb03fa865d059470c879b93059a332503f039ef188a4d36344fbe19bdf9059e67c065cf2148208bd4b9aecc",
       "tags": [
         [
           "u",
-          "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cadence/v1/leases/22222222222222222222222222222222/queue"
+          "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cadence/v1/leases/11111111111111111111111111111111/queue"
         ],
         [
           "method",
@@ -153,15 +163,47 @@
         ],
         [
           "payload",
-          "f33cde609f9cb77c8dbbcd3850ffb3eb1e8f5dba002b4ce395010d69c5af56b1"
+          "678572ba188d79037de3964b50422fa28d459d1f6a2b463536110bf4595b7bfd"
         ]
-      ]
+      ],
+      "content": "",
+      "sig": "4c0970355052b4b4a05018cab90a7a4ac34e1bee5c1ffc0853a462752e2fc3eae743008bee40a177c8536368fbfe1a9f919a5c47c5e42bc5accc9227ffefd594"
     },
-    "body": "{\"v\":1,\"request_id\":\"44444444444444444444444444444444\",\"lease_id\":\"22222222222222222222222222222222\",\"generation\":1,\"server\":\"ws://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/events\",\"room\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"persona\":\"a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1\",\"device\":\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\",\"credential\":{\"id\":\"ab5820292a96224bef9c6048ff6f60fb12991d8ae848b12171a4f66d59809740\",\"pubkey\":\"a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1\",\"created_at\":1800000000,\"kind\":20460,\"tags\":[[\"d\",\"4242424242424242424242424242424242424242424242424242424242424242\"],[\"device\",\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\"],[\"expiration\",\"1800014400\"]],\"content\":\"\",\"sig\":\"504dcdd966753c768b02314286dc738d961f9cde995a8f8452a5e639a888811b059024059061173d65cc4e37b9df4d457a7969d998138b568c883b6b79fcbd88\"},\"grant_id\":\"33333333333333333333333333333333\",\"event\":{\"id\":\"4c68d5ac31f0549e86d9f4051bccbc3804f68a3c9ad35409d1d2c273ddd765fc\",\"pubkey\":\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\",\"created_at\":1800000000,\"kind\":1460,\"tags\":[[\"d\",\"4242424242424242424242424242424242424242424242424242424242424242\"]],\"content\":\"nip44-v2-opaque-vector-ciphertext\",\"sig\":\"1c9cd683efd92c9afc47e32a2aa4c28e7415123588e3c40cb5fdee7f0b279498222f22af5649d56768d045c2f23af2796aa1091fdf8df47da37541b90d0ae92e\"}}",
+    "body": "{\"v\":1,\"request_id\":\"44444444444444444444444444444444\",\"lease_id\":\"11111111111111111111111111111111\",\"generation\":1,\"server\":\"ws://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/events\",\"room\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"traffic_room\":\"4343434343434343434343434343434343434343434343434343434343434343\",\"room_generation\":2,\"persona\":\"c52e40ca50d9076e83d51725bdb07f637d42bc35df2a32839d235176e24e2384\",\"device\":\"fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13\",\"credential\":{\"kind\":20460,\"created_at\":1800000000,\"tags\":[[\"d\",\"4242424242424242424242424242424242424242424242424242424242424242\"],[\"device\",\"fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13\"],[\"expiration\",\"1800014400\"]],\"content\":\"\",\"pubkey\":\"c52e40ca50d9076e83d51725bdb07f637d42bc35df2a32839d235176e24e2384\",\"id\":\"2c4231b106022f20c15579c6a5cce76497fad04f221e5df9ae9bc884c8638732\",\"sig\":\"9ad081f9ad5362a8bed9af99b58af88f6b47bf91dbfee340de93da7faa57862e4ea2c3f83121da9b8f27cfbf160697a453882a040fd7012509e49c75cdaeeac5\"},\"grant_id\":\"33333333333333333333333333333333\",\"event\":{\"kind\":1460,\"created_at\":1800000000,\"tags\":[[\"d\",\"4343434343434343434343434343434343434343434343434343434343434343\"]],\"content\":\"encrypted-test-event\",\"pubkey\":\"fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13\",\"id\":\"6cf4ea7359771ff6b339edd742475b21a2d7903f8ad6f6130306a48a645df528\",\"sig\":\"575b79c8cd3634ebc3708d5fc488060420be3d34f6c3c82d06bb2960aea2362882aa52436c20d2a756cf4713cf830055632208a070caebe15e69aaf1c03a5198\"}}",
     "content_type": "application/json",
     "method": "POST",
-    "path": "/cadence/v1/leases/22222222222222222222222222222222/queue",
-    "payload_sha256": "f33cde609f9cb77c8dbbcd3850ffb3eb1e8f5dba002b4ce395010d69c5af56b1"
+    "path": "/cadence/v1/leases/11111111111111111111111111111111/queue",
+    "payload_sha256": "678572ba188d79037de3964b50422fa28d459d1f6a2b463536110bf4595b7bfd"
+  },
+  "rekey": {
+    "authorization": "Nostr eyJpZCI6ImUzZGJmMGNiMGRhMjQ2ZTE2NGZiZTRmZDQwODM4OGMwYWFlYmRiNTVkMjYzZTRjNTQwOTQ2OGI4ZjJiM2EwNzgiLCJwdWJrZXkiOiJmZTdlMThiM2ZmMGRiYzQyN2FjNzFmNjE4YjcxMzkxODU5NGQ1M2I0NDgxNTFkNWU2OTJiMjgyODNmMzE1YzEzIiwiY3JlYXRlZF9hdCI6MTgwMDAwMDAwMCwia2luZCI6MjcyMzUsInRhZ3MiOltbInUiLCJodHRwOi8vYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYS9jYWRlbmNlL3YxL2xlYXNlcy8xMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMS9yZWtleSJdLFsibWV0aG9kIiwiUFVUIl0sWyJwYXlsb2FkIiwiYzA3MGUzNmE1M2M5MGZlZmJmMWJiMGRkNmE0NTJjMTFjMjQ0NTlkZGQ2ZTNlNDFlOTNjNGM5MGU5ZjUxMjJhOCJdXSwiY29udGVudCI6IiIsInNpZyI6IjcwYWYxZjkyNzczNjM4MzUyOTI5ZjRmNzE4MDNlMjVkOGMwMjYzNjE1NDM2N2EwZWMyZWJkM2I2ZDdhYWM0MmRlZjRjY2RkZjg0YTFkMDYwZWUxNzBkZWE2OTFjMzFhYTI5NGEzMzIyNjFiMGI2Y2Y5OTI4NDRhYzNlNWY4YWFlIn0=",
+    "authorization_event": {
+      "id": "e3dbf0cb0da246e164fbe4fd408388c0aaebdb55d263e4c5409468b8f2b3a078",
+      "pubkey": "fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13",
+      "created_at": 1800000000,
+      "kind": 27235,
+      "tags": [
+        [
+          "u",
+          "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cadence/v1/leases/11111111111111111111111111111111/rekey"
+        ],
+        [
+          "method",
+          "PUT"
+        ],
+        [
+          "payload",
+          "c070e36a53c90fefbf1bb0dd6a452c11c24459ddd6e3e41e93c4c90e9f5122a8"
+        ]
+      ],
+      "content": "",
+      "sig": "70af1f92773638352929f4f71803e25d8c02636154367a0ec2ebd3b6d7aac42def4ccddf84a1d060ee170dea691c31aa294a332261b0b6cf992844ac3e5f8aae"
+    },
+    "body": "{\"v\":1,\"request_id\":\"55555555555555555555555555555555\",\"lease_id\":\"11111111111111111111111111111111\",\"generation\":1,\"server\":\"ws://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/events\",\"room\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"traffic_room\":\"4343434343434343434343434343434343434343434343434343434343434343\",\"room_generation\":2,\"persona\":\"c52e40ca50d9076e83d51725bdb07f637d42bc35df2a32839d235176e24e2384\",\"device\":\"fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13\",\"credential\":{\"kind\":20460,\"created_at\":1800000000,\"tags\":[[\"d\",\"4242424242424242424242424242424242424242424242424242424242424242\"],[\"device\",\"fe7e18b3ff0dbc427ac71f618b713918594d53b448151d5e692b28283f315c13\"],[\"expiration\",\"1800014400\"]],\"content\":\"\",\"pubkey\":\"c52e40ca50d9076e83d51725bdb07f637d42bc35df2a32839d235176e24e2384\",\"id\":\"2c4231b106022f20c15579c6a5cce76497fad04f221e5df9ae9bc884c8638732\",\"sig\":\"9ad081f9ad5362a8bed9af99b58af88f6b47bf91dbfee340de93da7faa57862e4ea2c3f83121da9b8f27cfbf160697a453882a040fd7012509e49c75cdaeeac5\"},\"grant_id\":\"33333333333333333333333333333333\",\"boundary_epoch\":null,\"next_room_generation\":3}",
+    "content_type": "application/json",
+    "method": "PUT",
+    "path": "/cadence/v1/leases/11111111111111111111111111111111/rekey",
+    "payload_sha256": "c070e36a53c90fefbf1bb0dd6a452c11c24459ddd6e3e41e93c4c90e9f5122a8"
   },
   "version": 1
 }
