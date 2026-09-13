@@ -16,8 +16,9 @@ set -euo pipefail
 #                    box by forgetting to set it.
 #   DEPLOY_KEY       ~/.ssh/id_ed25519
 #   DEPLOY_ROOT      /var/www/kithmoot
-#   ANDROID_REPO     ../kithmoot-android
-#   ANDROID_VARIANT  debug (or release for an explicitly built signed release)
+#   ANDROID_APK      optional explicit APK path. It must match the checked-in
+#                    site/android-release.json and passes signature, lineage,
+#                    package, SDK, version and hash checks before upload.
 #
 # The published layout:
 #
@@ -32,9 +33,9 @@ set -euo pipefail
 #   2. assemble a staging tree, local: site/ at the root, app/dist under j/
 #   3. rsync it into a brand-new remote release directory. --delete only ever
 #      applies to that just-created directory, never to an existing one
-#   4. atomically flip current -> releases/<ts>: symlink a temp name, then
-#      rename over the real one, so there is never a moment where it dangles
-#   5. ship the Android APK if one has been built, skip cleanly if not
+#   4. stage and re-hash an explicitly selected Android APK, if supplied
+#   5. activate the stable APK link and current -> releases/<ts> together,
+#      restoring the previous APK link if the site switch fails
 #
 # Idempotent: running it again with nothing changed builds and ships a new,
 # identical release and re-flips the symlink at it. Nothing here overwrites a
@@ -74,7 +75,7 @@ Usage: deploy/deploy.sh [--install-caddy] [--reload-caddy] [--prune N] [--dry-ru
                    touch nothing on the box.
   -h, --help       Show this help.
 
-Env overrides: DEPLOY_HOST, DEPLOY_KEY, DEPLOY_ROOT, ANDROID_REPO, ANDROID_VARIANT.
+Env overrides: DEPLOY_HOST, DEPLOY_KEY, DEPLOY_ROOT, ANDROID_APK, ANDROID_BUILD_TOOLS.
 EOF
 }
 
@@ -94,8 +95,6 @@ done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
-
-ANDROID_REPO="${ANDROID_REPO:-$repo_root/../kithmoot-android}"
 
 remote() { ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" "$@"; }
 
@@ -141,27 +140,19 @@ find "$staging" -type f -exec chmod 644 {} +
 
 echo "    $(find "$staging" -type f | wc -l | tr -d ' ') files, $(du -sh "$staging" | cut -f1)"
 
-# --- the APK, if one has been built -----------------------------------------
+# --- the explicitly selected APK, if any ------------------------------------
 
-apk_src=""
+apk_src="${ANDROID_APK:-}"
 apk_name=""
-variant="${ANDROID_VARIANT:-debug}"
-case "$variant" in
-  debug|release) ;;
-  *) echo "deploy.sh: ANDROID_VARIANT must be debug or release" >&2; exit 2 ;;
-esac
-# Instrumentation builds live beside the app and are often newer. Select the
-# app artefact explicitly; never publish a test APK or an unsigned release.
-apk_candidate="$ANDROID_REPO/app/build/outputs/apk/$variant/app-$variant.apk"
-if [[ -f "$apk_candidate" ]]; then apk_src="$apk_candidate"; fi
-
-if [[ -n "$apk_src" && -f "$apk_src" ]]; then
-  version="$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' "$ANDROID_REPO/app/build.gradle.kts" | head -1)"
-  version="${version:-unknown}"
-  apk_name="kithmoot-${version}-${variant}.apk"
+apk_sha=""
+node deploy/verify-android-publication.mjs
+if [[ -n "$apk_src" ]]; then
+  node deploy/verify-android-publication.mjs --apk "$apk_src"
+  apk_name="$(node -e "const p=require('./site/android-release.json'); process.stdout.write(p.downloadFilename)")"
+  apk_sha="$(node -e "const p=require('./site/android-release.json'); process.stdout.write(p.apkSha256.replaceAll(':', '').toLowerCase())")"
   echo "==> android: $apk_src -> $apk_name ($(du -h "$apk_src" | cut -f1))"
 else
-  echo "==> android: no APK under $ANDROID_REPO/app/build/outputs/apk, skipping"
+  echo "==> android: ANDROID_APK is not set, leaving the public APK unchanged"
 fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -190,20 +181,51 @@ REMOTE
 echo "==> rsyncing the release"
 rsync -az --delete -e "ssh ${SSH_OPTS[*]}" "$staging"/ "$DEPLOY_HOST:$remote_release/"
 
-echo "==> flipping current -> releases/$release"
+if [[ -n "$apk_name" ]]; then
+  incoming="$DEPLOY_ROOT/apk/.incoming-$release-$apk_name"
+  echo "==> staging $apk_name"
+  rsync -az -e "ssh ${SSH_OPTS[*]}" "$apk_src" "$DEPLOY_HOST:$incoming"
+  remote bash -s <<REMOTE
+set -euo pipefail
+actual="\$(sha256sum "$incoming" | awk '{print \$1}')"
+[[ "\$actual" == "$apk_sha" ]] || { echo "remote APK checksum mismatch" >&2; exit 1; }
+if [[ -L "$DEPLOY_ROOT/apk/$apk_name" ]]; then
+  echo "refusing a symlink at the versioned APK path" >&2
+  exit 1
+elif [[ -e "$DEPLOY_ROOT/apk/$apk_name" ]]; then
+  existing="\$(sha256sum "$DEPLOY_ROOT/apk/$apk_name" | awk '{print \$1}')"
+  [[ "\$existing" == "$apk_sha" ]] || { echo "refusing to replace a different $apk_name" >&2; exit 1; }
+  rm "$incoming"
+else
+  mv "$incoming" "$DEPLOY_ROOT/apk/$apk_name"
+fi
+REMOTE
+fi
+
+echo "==> activating releases/$release${apk_name:+ and $apk_name}"
 remote bash -s <<REMOTE
 set -euo pipefail
-ln -sfn "$remote_release" "$DEPLOY_ROOT/current.tmp"
-mv -Tf "$DEPLOY_ROOT/current.tmp" "$DEPLOY_ROOT/current"
-REMOTE
-
+current_tmp="$DEPLOY_ROOT/current.$release.tmp"
+ln -sfn "$remote_release" "\$current_tmp"
 if [[ -n "$apk_name" ]]; then
-  echo "==> shipping $apk_name"
-  rsync -az -e "ssh ${SSH_OPTS[*]}" "$apk_src" "$DEPLOY_HOST:$DEPLOY_ROOT/apk/$apk_name"
-  # kithmoot-latest.apk is what the page links to, so the page never has to be
-  # edited when a build lands.
-  remote "ln -sfn '$apk_name' '$DEPLOY_ROOT/apk/kithmoot-latest.apk.tmp' && mv -Tf '$DEPLOY_ROOT/apk/kithmoot-latest.apk.tmp' '$DEPLOY_ROOT/apk/kithmoot-latest.apk'"
+  latest="$DEPLOY_ROOT/apk/kithmoot-latest.apk"
+  latest_tmp="$DEPLOY_ROOT/apk/kithmoot-latest.$release.tmp"
+  previous="\$(readlink "\$latest" 2>/dev/null || true)"
+  ln -sfn "$apk_name" "\$latest_tmp"
+  mv -Tf "\$latest_tmp" "\$latest"
+  if ! mv -Tf "\$current_tmp" "$DEPLOY_ROOT/current"; then
+    if [[ -n "\$previous" ]]; then
+      ln -sfn "\$previous" "\$latest_tmp"
+      mv -Tf "\$latest_tmp" "\$latest"
+    else
+      rm -f "\$latest"
+    fi
+    exit 1
+  fi
+else
+  mv -Tf "\$current_tmp" "$DEPLOY_ROOT/current"
 fi
+REMOTE
 
 # --- caddy ------------------------------------------------------------------
 

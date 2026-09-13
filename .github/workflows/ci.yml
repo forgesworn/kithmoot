@@ -40,6 +40,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check Android publication metadata and website copy
+        run: npm run verify:android-publication
+
       - name: Build app
         run: npm run build
 

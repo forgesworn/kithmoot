@@ -813,9 +813,14 @@ DNS is a plain `A` record for `kithmoot` in `forgesworn.dev`, grey cloud rather
 than proxied, so Caddy issues and renews the Let's Encrypt certificate itself.
 
 The APKs are served from `/apk/`, with `kithmoot-latest.apk` symlinked at the
-newest so the page never needs editing when a build lands. `deploy.sh` picks up
-whatever is under `kithmoot-android/app/build/outputs/apk/` and skips cleanly
-when there is nothing there. No APK is committed to this repository.
+reviewed public artifact. An APK is published only when its exact path is passed
+as `ANDROID_APK`; the deploy refuses anything that does not match
+`site/android-release.json`, the website copy, its file hash, package, version,
+SDK range, signature schemes, certificate and, for production, the embedded
+preview-to-production lineage. With no `ANDROID_APK`, the public download is
+left alone. No APK is committed to this repository. See
+[`docs/android-production-publication.md`](docs/android-production-publication.md)
+for the first production release.
 
 ## Licence
 
