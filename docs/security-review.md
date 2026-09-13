@@ -20,6 +20,18 @@ key is per room, so two rooms cannot be joined by it, and the participant
 identity signs only what the participant is doing, never a request to a
 third party that a device key could sign instead.
 
+Known gaps against this yardstick, stated rather than fixed by the
+statement above: a service in the media or signalling path also learns a
+device's IP address - relays, TURN, Blossom and a forwarder all see it, and
+so does every other member in a mesh call, because `iceTransportPolicy` is
+never set to relay-only. The default STUN server is Google's
+(`DEFAULT_ICE_URLS` in `app/src/main.ts`), so a room that never names its
+own STUN tells Google that IP too. And context uploads to Blossom are
+authorised with the participant key, not the device key
+(`packages/context/src/index.ts`, `upload`, signs with `this.#identity`),
+unlike chat attachments, which use the device key - so a context store
+learns more than "a device key and an opaque room id" promises.
+
 **2. Decentralisation: nobody operates it.** No mandated operator. Relays,
 TURN, forwarders, keepers and stores are plural, swappable and optional,
 and nothing that carries media holds the key. Nobody registers and nobody

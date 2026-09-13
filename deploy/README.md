@@ -426,7 +426,8 @@ NAT, on a home connection, on a Raspberry Pi.
 
 Every other conferencing system answers the same arithmetic by putting a
 server in the media path that can see the media. Jitsi's videobridge does, by
-default. This one cannot, and not as a promise:
+default. This one's roster is structurally unreadable to it, not as a
+promise. Its media is a separate claim, stated honestly below:
 
 - **It is configured with the room id, never the room key.** The room id is
   public - relays see it on every event. The room key is what decrypts
@@ -438,16 +439,19 @@ default. This one cannot, and not as a promise:
 - **It cannot read the roster**, which is encrypted to the room key, so it
   never learns who is in the room, what they are publishing, or which devices
   belong to one person. It does not subscribe to the roster kind at all.
-- **It cannot read the media.** Once a forwarder is in the path, frames are
-  encrypted end to end under a key derived from the room key
-  (`src/media-crypto.ts`) - inside the DTLS-SRTP the hop already has. The
-  forwarder moves RTP packets from one connection to another and never
-  depacketises, decodes or inspects a payload.
+- **It can read the media it relays, today.** The forwarder terminates
+  DTLS-SRTP itself on each connection, so once a frame reaches it, it has
+  plain RTP. End-to-end media encryption under a key derived from the room
+  key is built (`src/media-crypto.ts`) but is not yet switched on in the app
+  or in this process, so it does not yet stop a forwarder in the path
+  reading the media it carries. A room uses a forwarder only if its
+  descriptor names one.
 - **It cannot forge attribution**, because it cannot produce a frame that
   opens under any member's media key.
 
-`test/forwarder-blindness.test.ts` is where that is proven rather than
-asserted.
+`test/forwarder-blindness.test.ts` is where the roster and configuration
+claims above are proven rather than asserted, and where the media-crypto
+scheme is proven to work when applied - not that the app applies it yet.
 
 ### How a client reaches it, given it can't read the room
 

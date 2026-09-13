@@ -780,6 +780,14 @@ it made is at epoch 0 for good; only a keeper rekeys, which is the case the
 weekly town hall needed.
 ## A joined room is kept on this device only when asked
 
+**Correction, 2026-09-13:** this described the opt-in as it stood when
+written, for the room shape that existed then. Since persistent groups
+shipped, a new group remembers membership on this device by default; only a
+temporary meeting keeps the opt-in described below, with its twelve-hour
+storage lifetime. See `docs/persistent-groups.md` and `keep` in
+`app/src/rooms-store.ts`. The rest of this entry records the original
+design, which still describes a temporary meeting.
+
 The rooms list could count what was new in a room this device created,
 and not in a room it had only been admitted to: the creator's record
 lives in localStorage for twelve hours, a joiner's admission lived in
@@ -1268,10 +1276,14 @@ derived from the epoch key, the member and a counter, one wrap a slot, a
 filler when there is nothing to say, read back from the whole gift-wrap
 stream. The roster, the signalling, pairing and epochs stay in the open,
 because a slot of delay ends a call and because a rekey has to be found
-from the room id by a member who missed it. So a quiet room says, on its
-own sheet: the relay cannot tell whether anything was said, by whom, or
-when; it can still tell that you are here while you are here, and calls
-are not quiet. That sentence is the deliverable as much as the code is.
+from the room id by a member who missed it. A dropped file's announcement
+stays in the open too: it is a kind 1063 event, not chat, so it is
+published bare and signed by the device key like any other file share,
+never a drop. So a quiet room says, on its own sheet: the relay cannot tell
+whether anything was said, by whom, or when; it can still tell that you are
+here while you are here, that a file was shared and by which device, and
+calls are not quiet. That sentence is the deliverable as much as the code
+is.
 
 **Two devices, disjoint halves.** A member has sixteen keys an hour, and a
 key used twice is the one thing the design cannot allow. Two devices of

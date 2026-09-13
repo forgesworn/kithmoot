@@ -81,6 +81,13 @@ device keys. They do not see room contents, participant identities or names
 from those events. KithMoot reduces metadata; it does not pretend metadata
 does not exist.
 
+That is true of the room's own events. A signed-in person's own records are
+a separate channel: kind-30078 room bookmarks and read positions are signed
+by their participant key and published to the same relays, so a relay
+serving them, by IP and timing, can tie that npub to a room even though it
+cannot read what the record says. Public-profile lookups do the same thing
+in the clear, not encrypted at all - see "What a name is worth" below.
+
 If you explicitly choose **Use signed-in account** in relay settings, that
 relay also learns your account's public identity through NIP-42 authentication.
 The permission is limited to the selected connection scope and this tab;
@@ -278,8 +285,11 @@ the [workspace delivery](docs/workspace-delivery.md).
   local-only bookmarks. Failed saves remain local with an explicit retry;
   an accepted save means at least one relay acknowledged it, not guaranteed
   permanent storage. Names and links are encrypted; relays still see the
-  account's public key, KithMoot use and update timing. Device credentials,
-  read positions and the choice to keep an admission are not synced.
+  account's public key, KithMoot use and update timing. Device credentials
+  and the choice to keep an admission are not synced. Read positions do
+  sync, the same way bookmarks do: they follow a signed-in identity with
+  NIP-44, not a visitor, so a visitor's positions stay on the one browser
+  that made them.
   Signing out hides that account's list, but does not erase the browser's
   local cache; do not treat sign-out as a shared-device data wipe.
 
@@ -405,9 +415,12 @@ the [workspace delivery](docs/workspace-delivery.md).
   it names its TURN servers: a plural, swappable list. Promotion happens on
   *measured capacity*, never on headcount: two people sharing legible 1080p
   screens can need a forwarder while twenty on audio-only do not.
-- **Media a forwarder cannot read.** A forwarder is given the room *id* and
-  never the room *key*. Media is encrypted under a separately derived key, so
-  it routes ciphertext it cannot decrypt and cannot forge attribution for.
+- **A forwarder in the media path can read what it carries, today.** A
+  forwarder is given the room *id* and never the room *key*, so it cannot
+  decrypt the roster or forge attribution for a track it relays. End-to-end
+  media encryption through a forwarder is built (`src/media-crypto.ts`) but
+  not yet switched on, so that protection does not yet cover the media
+  itself. A room uses a forwarder only if its descriptor names one.
 - **Peer assist**, so a room's spare uplink comes from the people in it. A
   member that measures itself publicly reachable can offer to carry the pairs
   that cannot connect directly, and the room tries that before any server. It
@@ -474,12 +487,15 @@ signature per join.
   Nostr key from one this browser generated a moment ago, and nothing
   could.
 - **Public-profile lookup is on by default.** Room details offers a
-  switch remembered on this device. Looking profiles up gives the room's relays the
-  participant keys in plaintext queries, and loading pictures contacts
-  their hosts. NIP-05 addresses are checked with their domains and shown only
-  when the address maps to the profile key. Turning it off stops further lookups and removes the loaded
-  profiles; it cannot retract requests already sent. Other members can
-  independently enable lookups, so this is not a room-wide privacy guarantee.
+  switch remembered on this device. Looking profiles up gives the room's
+  relays, and a fixed set of public aggregator relays (purplepag.es,
+  relay.damus.io, nos.lol and relay.primal.net), the participant keys in
+  plaintext queries, and loading pictures contacts their hosts. NIP-05
+  addresses are checked with their domains and shown only when the address
+  maps to the profile key. Turning it off stops further lookups and removes
+  the loaded profiles; it cannot retract requests already sent. Other
+  members can independently enable lookups, so this is not a room-wide
+  privacy guarantee.
 - **A kind-0 name is also self-asserted.** It says "the holder of this key
   calls themselves Robin", which is the same kind of claim as a typed
   name; the difference is that the key is persistent and has a history.
@@ -602,12 +618,13 @@ because a team is what this is now judged against:
   covers only what the tab has loaded. A workspace ninety days old cannot
   show its first message.
 - **Quiet rooms hide what was said, not that you are there.** Presence,
-  signalling and epochs stay in the open, calls are not quiet, a message
-  waits up to five minutes, a device has eight an hour, relays hand back
-  two days of history, and the rooms list does not read a quiet room's
-  chat. Two devices per person can post; a third reads. Android reads
-  and writes plain rooms only: a quiet room opened there shows nothing
-  until the derivation lands in the native client.
+  signalling and epochs stay in the open, calls are not quiet, a dropped
+  file's announcement stays in the open too, a message waits up to five
+  minutes, a device has eight an hour, relays hand back two days of
+  history, and the rooms list does not read a quiet room's chat. Two
+  devices per person can post; a third reads. Android reads and writes
+  plain rooms only: a quiet room opened there shows nothing until the
+  derivation lands in the native client.
 - **A contact card is trusted on first use, and the box is not refreshed
   yet.** The badge says "card", not "verified". Fetching a fresh address
   card from a box waits on the box saying what shape it publishes in; the
