@@ -165,6 +165,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
+import { CallWakeLock } from './wake-lock.js'
 
 const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
@@ -2572,6 +2573,26 @@ function onCall(): boolean {
 }
 
 /**
+ * Holds this device's screen on for as long as it is on the call: requested
+ * in `joinCall`, released in `leaveCall`, on leaving the room, and on the
+ * page itself going away. See app/src/wake-lock.ts for why it also has to
+ * re-request itself on `visibilitychange` - the browser drops the lock the
+ * moment the tab is hidden, with no event of its own to say so until it is
+ * looked at again.
+ */
+const callWakeLock = new CallWakeLock({ onStateChange: () => renderWakeLockNote() })
+
+/** The quiet line under the call controls saying the screen might sleep
+ *  here. Worth saying only when it might actually happen - no Wake Lock API,
+ *  or a request refused - and only while on the call; off it, or with the
+ *  lock actually held, it would be a line answering a question nobody
+ *  asked. */
+function renderWakeLockNote(): void {
+  const note = $('wakeLockNote')
+  note.hidden = !onCall() || (callWakeLock.state !== 'unsupported' && callWakeLock.state !== 'error')
+}
+
+/**
  * Pressed Leave, and not Join since.
  *
  * Not the same as "not on the call". Somebody who has just walked into a
@@ -2596,6 +2617,7 @@ async function joinCall(): Promise<void> {
   leftCall = false
   await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
   setCallOpen(true)
+  void callWakeLock.acquire()
   updateUi()
 }
 
@@ -2625,6 +2647,7 @@ async function leaveCall(): Promise<void> {
   leftCall = true
   if (s) await s.setCall(null)
   setCallOpen(false)
+  void callWakeLock.release()
   updateUi()
   if (session) render(session.participants(), meParticipant)
 }
@@ -3468,6 +3491,7 @@ function updateUi(): void {
   setToggle('toggleScreen', !!screenTrack)
   setToggle('toggleCompanion', besideAnotherDevice)
   $('companionNote').hidden = !besideAnotherDevice
+  renderWakeLockNote()
   // A background control with no camera running is a control for nothing.
   // Both open themselves the first time they appear rather than hiding
   // behind a disclosure: blur is on by default, so the control that turns it
@@ -6504,6 +6528,7 @@ async function collectDiagnostics(): Promise<string> {
       publishing: currentAdverts().map((a) => a.role),
       agentsMayHear,
       effect: $('effectMode').textContent,
+      wakeLock: callWakeLock.state,
     },
     participants: s?.participants().map((v) => ({
       name: v.name,
@@ -7550,6 +7575,7 @@ async function closeRoomSession(): Promise<void> {
   if (approvalTimer !== undefined) clearTimeout(approvalTimer)
   iceRefreshTimer = assistTimer = approvalTimer = undefined
   stopLocalMedia()
+  void callWakeLock.release()
   speakingMonitor.retain([])
   for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
     entry.track.stop()
@@ -8480,6 +8506,7 @@ window.addEventListener('pagehide', () => {
   session?.leave()
   stopInvitationHost()
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
+  void callWakeLock.release()
 })
 
 setToggle('toggleAgentsHear', agentsMayHear)
