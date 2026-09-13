@@ -33,6 +33,7 @@
     "agent": "npm run build:lib && node bin/kithmoot-agent.mjs",
     "build:context": "npm run build --workspace @forgesworn/context && npm run build --workspace @forgesworn/context-tools",
     "test:context-packages": "node test/context-package-smoke.mjs",
+    "verify:android-publication": "node deploy/verify-android-publication.mjs",
     "predemo": "npm run build:context"
   },
   "dependencies": {

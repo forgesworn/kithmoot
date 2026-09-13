@@ -183,6 +183,25 @@ directory under `/var/www/kithmoot/releases/` on the box, and atomically flips
 `deploy.sh` for the full sequence, the `--prune` flag, and why it's safe
 to re-run.
 
+The Android download is independent unless an exact artifact is selected. The
+old `ANDROID_VARIANT` auto-discovery has been removed because a nearby Gradle
+build can be an instrumentation APK, an unsigned release or simply the wrong
+candidate. To publish an APK, first commit matching public metadata and copy,
+then pass its path explicitly:
+
+```bash
+ANDROID_APK=/absolute/path/to/the-reviewed.apk \
+DEPLOY_HOST=deploy@YOUR_BOX \
+  deploy/deploy.sh --dry-run
+```
+
+`deploy/verify-android-publication.mjs` checks the exact artifact against
+`site/android-release.json` and the Android article before anything is sent.
+The real deploy verifies its checksum again on the box and activates the stable
+APK link with the website release. The production-lineage procedure and final
+live checks are in
+[`docs/android-production-publication.md`](../docs/android-production-publication.md).
+
 Before the first deploy, install the vhost (see the comment block at the
 top of `Caddyfile.kithmoot` for the exact steps - it needs a real hostname
 substituted in, and to be wired into whatever this box's Caddy already
