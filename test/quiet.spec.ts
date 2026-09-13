@@ -206,3 +206,90 @@ test('a quiet room shares a file with no kind-1063 announcement, and the other p
     for (const context of contexts) await context.close()
   }
 })
+
+/**
+ * A quiet room's file announcement is skipped by a decision made once, with
+ * the transport that would carry it, before the upload that decision waits
+ * on. This proves that holds even when the room this upload was for stops
+ * being the current room while the Blossom upload is still in flight: the
+ * device leaves (a keeper closing the room or removing a member reaches the
+ * same code, `leaveWithNotice`, without this tab choosing anything). The
+ * Blossom response is held open with a gate so the leave happens first,
+ * deterministically, rather than by chance before the network round trip
+ * finishes.
+ */
+test('a quiet room does not leak a file announcement if this device leaves while the upload is still pending', async ({ browser, baseURL }) => {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const blobOrigin = new URL(baseURL!).origin
+  let uploads = 0
+  let release!: () => void
+  const released = new Promise<void>(resolve => { release = resolve })
+  const contexts: BrowserContext[] = []
+  const open = async () => {
+    const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
+    await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
+    await device(context)
+    await context.route(url => url.origin === blobOrigin && (url.pathname === '/upload' || url.pathname.startsWith('/blossom/')), async route => {
+      const req = route.request()
+      if (req.method() !== 'PUT') { await route.fulfill({ status: 404, body: '' }).catch(() => {}); return }
+      uploads++
+      // Held open until the room has changed underneath it.
+      await released
+      const bytes = req.postDataBuffer()!
+      const hash = sha256Hex(bytes)
+      // The request this held may already be a lost cause by the time it is
+      // released - the room it was for reloaded its page - so a fulfil that
+      // no longer has anywhere to land is not this test's problem.
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ sha256: hash, size: bytes.length, url: blobOrigin + '/blossom/' + hash }) }).catch(() => {})
+    })
+    contexts.push(context)
+    return context.newPage()
+  }
+  const seen: Event[] = []
+  const watcher = await Relay.connect('ws://127.0.0.1:7777')
+  const since = Math.floor(Date.now() / 1000) - 5
+  watcher.subscribe([{ kinds: [KINDS.CHAT, 1063], since }, { kinds: [1059] }], { onevent: (e) => seen.push(e) })
+  try {
+    const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
+    const ada = await open(); await ada.goto(link)
+    await ada.locator('#displayName').fill('Ada'); await ada.locator('#join').click()
+    const rowan = await open(); await rowan.goto(link)
+    await rowan.locator('#displayName').fill('Rowan'); await rowan.locator('#join').click()
+    await expect(rowan.locator('#roomArea')).toBeVisible()
+
+    await openRoomDetails(rowan)
+    await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
+    await expect(rowan.locator('#status')).toContainText(/Quiet conversation with Ada/, { timeout: 30_000 })
+    await expect(ada.locator('#chatLog')).toContainText('started a quiet conversation with you', { timeout: 30_000 })
+    await rowan.locator('#roomSheetClose').click()
+    await openRoomDetails(rowan)
+    await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
+    await expect(rowan.locator('#roomTitle')).toHaveText('Quiet: Ada', { timeout: 30_000 })
+
+    await rowan.locator('#attachToggle').click()
+    await rowan.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await rowan.locator('#attachFile').setInputFiles({ name: 'blueprint.txt', mimeType: 'text/plain', buffer: Buffer.from('Room B, second floor') })
+    // The upload has reached the server and is held there; the room this
+    // device is in is still the quiet one.
+    await expect.poll(() => uploads).toBe(1)
+
+    // Leave now, with the upload still pending. Rowan's own device does
+    // this here, but the code path is the same one a keeper closing the
+    // room or removing this member reaches on its own.
+    await openRoomDetails(rowan)
+    await rowan.locator('#leave').click()
+    await rowan.locator('#actionConfirm').click()
+    // Only now let the held response through, so the room change is not a
+    // race against the network but has already happened.
+    release()
+    await rowan.waitForTimeout(3_000)
+
+    // Whatever became of that upload - it may never have finished, given
+    // to a room that no longer exists in this tab - no kind-1063 reached
+    // the relay for it.
+    expect(seen.filter((e) => e.kind === 1063)).toEqual([])
+  } finally {
+    watcher.close()
+    for (const context of contexts) await context.close()
+  }
+})

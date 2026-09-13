@@ -9136,12 +9136,32 @@ function dropProgress(draft: ConversationDraft, stage: string, file: File): void
  * say, in the open, that a device in this room shared a file and when -
  * exactly what a quiet room promises never to show. See `src/quiet.ts`.
  *
+ * Whether this room is quiet, and which transport actually carries the
+ * announcement, are both fixed at the top of this function, before any
+ * `await` - not re-read afterwards. This upload spans several awaited
+ * steps, during which the room can close, rekey or be left (another
+ * device's action, not just this one's), which flips `quietTransport` to
+ * something else entirely; reading it again after that would ask "is the
+ * CURRENT room quiet" instead of "was the room this upload was for quiet".
+ * The room-generation check below catches the same staleness from the
+ * other side: if the room changed at all while this ran, nothing is
+ * announced or staged, whether or not it was quiet. And the announcement,
+ * when one is sent, still goes out through the room's own transport as it
+ * stood at the start - a `QuietRoomTransport`, if that room was quiet - so
+ * even if this file is ever wrong, that transport's own refusal of a bare
+ * kind-1063 (`QUIET_BLOCKED_KINDS` in `src/quiet.ts`) is what actually
+ * stops it, not this file's bookkeeping.
+ *
  * The key goes into the staged attachment and nowhere else.
  */
 async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string): Promise<void> {
   signal.throwIfAborted()
-  const transport = sessionTransport
-  if (!session || !transport) throw new Error('Join the room first.')
+  const startGeneration = roomGeneration
+  const pool = sessionTransport
+  if (!session || !pool) throw new Error('Join the room first.')
+  // Fixed now, alongside the transport: see the function comment above.
+  const quiet = quietTransport !== undefined
+  const transport: RelayTransport = quietTransport ?? pool
   if (file.size > MAX_UPLOAD_SOURCE_BYTES) {
     throw new Error(`${file.name} is ${formatBytes(file.size)}; a room sends up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)}.`)
   }
@@ -9169,10 +9189,20 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   const descriptor = await uploadEnvelope(origin, sealed.envelope, { sign: (t) => finalizeEvent(t, deviceSk), signal })
 
   signal.throwIfAborted()
+  // The room this upload was for is gone, replaced or rekeyed: another
+  // device's action, a keeper closing the room, a dropped connection, not
+  // necessarily anything this tab did. Whatever it was, this file is not
+  // announced or staged into a draft that is no longer this room's - the
+  // draft object itself may belong to a room nobody is looking at any
+  // more. The blob is already on the Blossom server if it is still wanted.
+  if (roomGeneration !== startGeneration) {
+    throw new Error('This room changed while the file was uploading, so nothing was shared. The file is stored on the server; drop it again in the current room if you still want to send it.')
+  }
   // In a quiet room, no announcement leaves this device: see the function
-  // comment above. `quietTransport` is set exactly when this room is one.
+  // comment above. `quiet` and `transport` were fixed at the top of this
+  // function, before the room could change out from under this decision.
   let eventId: string | undefined
-  if (!quietTransport) {
+  if (!quiet) {
     dropProgress(draft, 'Announcing', file)
     const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
     await transport.publish(event)
