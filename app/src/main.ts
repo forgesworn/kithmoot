@@ -12,6 +12,9 @@ import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
+import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
+import { DrawingNoticeGate } from './drawing-notice.js'
+import type { ScreenAnnotation } from '../../src/signal.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
   browserDeviceStore,
@@ -201,8 +204,18 @@ function positionReactionDetails(details: HTMLElement): void {
 const shareViewer = new ShareViewer({
   onAnnotation: annotation => session?.publishAnnotation(annotation),
 })
+// Letting the person doing the sharing see marks drawn on their own screen -
+// see `notifyDrawingOnMyShare` and `floating-share-preview.ts`. Reuses
+// `shareViewer.overlay` on a video of its own rather than reaching into
+// `ShareViewer`'s state, so it stays clear of PR work on that class.
+const floatingSharePreview = new FloatingSharePreview({
+  track: () => screenTrack,
+  overlay: (video, shareId) => shareViewer.overlay(video, shareId),
+  source: () => screenTrack ? screenSource(meParticipant, myDeviceId) : undefined,
+})
+const drawingNoticeGate = new DrawingNoticeGate()
 const emojiPicker = new EmojiPicker()
-window.addEventListener('pagehide', () => shareViewer.close())
+window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close() })
 let drafts = new ConversationDrafts()
 // Only this tab holds draft text and file keys. Switching rooms retains the
 // originating collection; closing the tab still discards it.
@@ -3294,6 +3307,10 @@ async function toggleScreen(): Promise<void> {
     screenTrack = undefined
     localPreviewEls.get('screen')?.remove()
     localPreviewEls.delete('screen')
+    // Nothing left to show a mark on: close the floating window and drop
+    // any notice about drawing on a share that no longer exists.
+    floatingSharePreview.close()
+    hideDrawingNotice()
     // Same as the camera, and worse if it is missed: a screen share nobody
     // was told had stopped stays frozen on everybody else's display.
     publishActiveTracks()
@@ -3317,6 +3334,8 @@ async function toggleScreen(): Promise<void> {
         screenTrack = undefined
         localPreviewEls.get('screen')?.remove()
         localPreviewEls.delete('screen')
+        floatingSharePreview.close()
+        hideDrawingNotice()
         publishActiveTracks()
         updateUi()
       })
@@ -3344,6 +3363,65 @@ function previewKindOf(role: TrackAdvert['role']): 'camera' | 'screen' | undefin
   if (role === 'screen') return 'screen'
   return undefined
 }
+
+/**
+ * Letting the person doing the sharing see marks drawn on their own screen.
+ *
+ * A preview tile is not where somebody presenting is looking - they are
+ * looking at the window or screen they are sharing, not at this page's own
+ * small picture of it. Two ways to close that gap: a floating window that
+ * sits above whatever they are looking at (Chromium desktop only, opened by
+ * `floatingSharePreview` above), and, everywhere else and whenever that
+ * window is not open, a brief notice naming who is drawing and offering to
+ * bring the ordinary preview into view - or, where the floating window is
+ * available, to open it, which needs a gesture and so cannot happen on its
+ * own the moment a mark arrives.
+ */
+const DRAWING_NOTICE_MS = 8000
+let drawingNoticeTimer: ReturnType<typeof setTimeout> | undefined
+
+function showDrawingNotice(drawer: string): void {
+  $('sharerMarksNoticeText').textContent = `${personLabel(drawer)} is drawing on your screen`
+  $('sharerMarksNoticeFloat').hidden = !floatingPreviewSupported()
+  $('sharerMarksNotice').hidden = false
+  clearTimeout(drawingNoticeTimer)
+  drawingNoticeTimer = setTimeout(hideDrawingNotice, DRAWING_NOTICE_MS)
+}
+
+function hideDrawingNotice(): void {
+  clearTimeout(drawingNoticeTimer)
+  drawingNoticeTimer = undefined
+  $('sharerMarksNotice').hidden = true
+}
+
+function revealMySharePreview(): void {
+  localPreviewEls.get('screen')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+/** Called for every mark this device receives: worth a notice only when it
+ *  lands on this device's own current share, was drawn by somebody else,
+ *  the floating window is not already open to show it directly, and this
+ *  drawer has not already been announced within the rate limit. */
+function notifyDrawingOnMyShare(drawer: string, annotation: ScreenAnnotation): void {
+  if (annotation.op !== 'stroke') return
+  if (!screenTrack || annotation.shareId !== screenTrack.id) return
+  if (drawer === meParticipant) return
+  if (floatingSharePreview.isOpen) return
+  if (!drawingNoticeGate.shouldShow(drawer)) return
+  showDrawingNotice(drawer)
+}
+
+$('sharerMarksNoticeShow').addEventListener('click', () => { hideDrawingNotice(); revealMySharePreview() })
+$('sharerMarksNoticeFloat').addEventListener('click', () => {
+  hideDrawingNotice()
+  floatingSharePreview.open().then(updateUi).catch(() => {})
+})
+$('toggleFloatingMarks').addEventListener('click', () => {
+  // Closing is immediate; opening is async (the request itself awaits the
+  // platform), so the toggle's own state only catches up once it settles.
+  if (floatingSharePreview.isOpen) { floatingSharePreview.close(); updateUi() }
+  else floatingSharePreview.open().then(updateUi).catch(() => {})
+})
 
 /** Publish this device's whole current set of active tracks. Always the full
  *  set, never just what changed: `Mesh`/`Peer` keep their own per-peer record
@@ -3466,6 +3544,10 @@ function updateUi(): void {
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  // Only worth offering while there is something to float: this device's
+  // own share, on a browser that can open the window at all.
+  $('toggleFloatingMarks').hidden = !screenTrack || !floatingPreviewSupported()
+  setToggle('toggleFloatingMarks', floatingSharePreview.isOpen)
   setToggle('toggleCompanion', besideAnotherDevice)
   $('companionNote').hidden = !besideAnotherDevice
   // A background control with no camera running is a control for nothing.
@@ -6747,7 +6829,11 @@ async function startSession(asVisitor = false): Promise<void> {
       renderApprovals()
     })
     s.onRemoteTrack(({ device, track }) => { if (session === s) attachRemoteTrack(device, track); else track.stop() })
-    s.onAnnotation(({ annotation }) => { if (session === s) shareViewer.receive(annotation) })
+    s.onAnnotation(({ participant, annotation }) => {
+      if (session !== s) return
+      shareViewer.receive(annotation)
+      notifyDrawingOnMyShare(participant, annotation)
+    })
 
     await s.join(currentAdverts(), currentClaims())
     if (session !== s) return
@@ -7538,6 +7624,8 @@ async function closeRoomSession(): Promise<void> {
   conversationSearch.reset()
   emojiPicker.close()
   shareViewer.close()
+  floatingSharePreview.close()
+  hideDrawingNotice()
   closeMentionPicker()
   closeRoomSheet()
   for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]')) dialog.close()
