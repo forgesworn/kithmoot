@@ -89,17 +89,16 @@ import {
   type ChatAttachment,
   MAX_CHAT_ATTACHMENTS,
   MAX_UPLOAD_SOURCE_BYTES,
-  fetchAttachment,
+  fetchAttachmentBlob,
   parseRecoveryKey,
-  encryptEnvelope,
-  uploadEnvelope,
+  encryptEnvelopeBlob,
+  uploadEnvelopeBlob,
   buildFileEvent,
   normaliseBlossomServer,
   parseRoomLink,
   encodeRoomLink,
   type RoomLink,
   type RelayConfig,
-  type EncryptedEnvelope,
   DonationLedger,
   ringTier,
   resolveConversation,
@@ -5064,10 +5063,9 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       button.disabled = true
       button.textContent = 'Fetching\u2026'
       try {
-        const file = await fetchAttachment(a)
+        const file = await fetchAttachmentBlob(a)
         if (generation !== roomGeneration) return
-        const blob = new Blob([file.source.slice().buffer as ArrayBuffer], { type: file.type })
-        openedAttachments.set(key, { url: URL.createObjectURL(blob), name: file.name, type: file.type, size: file.size })
+        openedAttachments.set(key, { url: URL.createObjectURL(file.source), name: file.name, type: file.type, size: file.size })
       } catch (err) {
         // The reason and nothing else: an error here never carries the key.
         if (generation !== roomGeneration) return
@@ -9673,18 +9671,17 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   dropProgress(draft, 'Encrypting', file)
   // Let the line above paint before the main thread is busy sealing.
   await new Promise((resolve) => setTimeout(resolve, 0))
-  const source = new Uint8Array(await file.arrayBuffer())
-  let sealed: EncryptedEnvelope
+  signal.throwIfAborted()
+  const sealed = await encryptEnvelopeBlob(file, { name: file.name, type: file.type })
+
+  let descriptor: Awaited<ReturnType<typeof uploadEnvelopeBlob>>
   try {
     signal.throwIfAborted()
-    sealed = encryptEnvelope(source, { name: file.name, type: file.type })
+    dropProgress(draft, `Uploading to ${new URL(origin).hostname}:`, file)
+    descriptor = await uploadEnvelopeBlob(origin, sealed.envelope, sealed.sha256, { sign: (t) => finalizeEvent(t, deviceSk), signal })
   } finally {
-    source.fill(0)
+    await sealed.dispose?.()
   }
-
-  signal.throwIfAborted()
-  dropProgress(draft, `Uploading to ${new URL(origin).hostname}:`, file)
-  const descriptor = await uploadEnvelope(origin, sealed.envelope, { sign: (t) => finalizeEvent(t, deviceSk), signal })
 
   signal.throwIfAborted()
   // The room this upload was for is gone, replaced or rekeyed: another
@@ -9706,7 +9703,6 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     await transport.publish(event)
     eventId = event.id
   }
-
   signal.throwIfAborted()
   draft.attachments.push({
     ...(eventId !== undefined ? { event: eventId } : {}),
@@ -9715,7 +9711,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     key: sealed.key,
     name: sealed.name,
     type: sealed.type,
-    size: sealed.envelope.length,
+    size: sealed.envelope.size,
   })
   draft.status = ''
   draftChanged(draft)

@@ -255,17 +255,24 @@ export type {
 } from './chat.js'
 export {
   decryptEnvelope,
+  decryptEnvelopeBlob,
   fetchAttachment,
+  fetchAttachmentBlob,
   verifyEnvelopeHash,
   sha256Hex,
+  sha256BlobHex,
   parseRecoveryKey,
   formatRecoveryKey,
   deriveEnvelopeKey,
   canonicalEnvelopeName,
   paddedPlaintextLength,
   DEFAULT_MAX_ATTACHMENT_BYTES,
+  DEFAULT_MAX_BLOB_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_ENVELOPE_BYTES,
   encryptEnvelope,
+  encryptEnvelopeBlob,
   uploadEnvelope,
+  uploadEnvelopeBlob,
   buildFileEvent,
   buildUploadAuthorisation,
   encodeBlossomAuthorisation,
@@ -280,10 +287,12 @@ export {
 } from './attachment.js'
 export type {
   DecryptedEnvelope,
+  DecryptedEnvelopeBlob,
   FetchAttachmentOptions,
   EnvelopeSource,
   EncryptEnvelopeOptions,
   EncryptedEnvelope,
+  EncryptedEnvelopeBlob,
   BlossomDescriptor,
   UploadEnvelopeOptions,
 } from './attachment.js'

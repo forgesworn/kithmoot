@@ -56,10 +56,15 @@ const RECOVERY_KEY_PREFIX = 'wbk1_'
 const CONTROLS = /[\u0000-\u001f\u007f]/
 const CONTROLS_ALL = /[\u0000-\u001f\u007f]/g
 
-/** How much a reader will pull from a Blossom server for one attachment
- *  unless told otherwise. A room is for pictures and documents, not for the
- *  256 MiB the envelope format itself allows. */
+/** The largest sealed blob the format can produce for a 256 MiB source.
+ * Leave a little room above the calculated maximum for a future canonical
+ * metadata addition while keeping the reader's bound explicit. */
+export const MAX_ATTACHMENT_ENVELOPE_BYTES = 260 * 1024 * 1024
+/** The legacy Uint8Array reader deliberately remains picture/document sized. */
 export const DEFAULT_MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
+/** Blob readers open one 1 MiB record at a time, so their bound is a transfer
+ * limit rather than a complete source and envelope heap allocation. */
+export const DEFAULT_MAX_BLOB_ATTACHMENT_BYTES = MAX_ATTACHMENT_ENVELOPE_BYTES
 
 export interface DecryptedEnvelope {
   /** The source file name, exactly as the uploader's client recorded it. */
@@ -187,7 +192,7 @@ interface Header {
   salt: Uint8Array | null
 }
 
-function readHeader(envelope: Uint8Array): Header {
+function readHeaderWithLength(envelope: Uint8Array, envelopeLength: number): Header {
   const magic = new TextDecoder().decode(envelope.subarray(0, 8))
   const v2 = magic === MAGIC_V2
   if (envelope.length < 8 || (!v2 && magic !== MAGIC_V1 && magic !== MAGIC_LEGACY)) {
@@ -204,7 +209,7 @@ function readHeader(envelope: Uint8Array): Header {
   }
   const minimum = headerBytes + (recordCount - 1) * (chunkSize + TAG_BYTES) + 1 + TAG_BYTES
   const maximum = headerBytes + recordCount * (chunkSize + TAG_BYTES)
-  if (envelope.length < minimum || envelope.length > maximum) {
+  if (envelopeLength < minimum || envelopeLength > maximum) {
     throw new Error('The Wildbloom envelope length is invalid.')
   }
   return {
@@ -213,6 +218,10 @@ function readHeader(envelope: Uint8Array): Header {
     noncePrefix: bytes.slice(16, 24),
     salt: v2 ? bytes.slice(24, 24 + SALT_BYTES) : null,
   }
+}
+
+function readHeader(envelope: Uint8Array): Header {
+  return readHeaderWithLength(envelope, envelope.length)
 }
 
 interface Metadata {
@@ -334,6 +343,79 @@ export interface FetchAttachmentOptions {
   signal?: AbortSignal
 }
 
+export interface DecryptedEnvelopeBlob extends Omit<DecryptedEnvelope, 'source'> {
+  source: Blob
+}
+
+/** Fetch an attachment into browser-managed Blob storage, verify its complete
+ * hash, then decrypt one authenticated record at a time. */
+export async function fetchAttachmentBlob(
+  att: EncryptedAttachment,
+  opts: FetchAttachmentOptions = {},
+): Promise<DecryptedEnvelopeBlob> {
+  const doFetch = opts.fetch ?? globalThis.fetch
+  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BLOB_ATTACHMENT_BYTES
+  if (!/^https:\/\//i.test(att.url)) throw new Error('An attachment can only be fetched over https.')
+  const response = await doFetch(att.url, { signal: opts.signal, redirect: 'follow', credentials: 'omit' })
+  if (!response.ok) throw new Error(`The server answered ${response.status}.`)
+  const declared = Number(response.headers.get('content-length') ?? '')
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error('The attachment is larger than this room will fetch.')
+  const envelope = await readBoundedBlob(response, maxBytes)
+  if (await sha256BlobHex(envelope) !== att.sha256.toLowerCase()) {
+    throw new Error('The download is not the file the message named.')
+  }
+  return decryptEnvelopeBlob(envelope, att.key)
+}
+
+/** Open a verified FSWNENC2 Blob without rebuilding a full source Uint8Array. */
+export async function decryptEnvelopeBlob(envelope: Blob, keyHex: string): Promise<DecryptedEnvelopeBlob> {
+  if (!/^[0-9a-f]{64}$/.test(keyHex)) throw new Error('The recovery key is not a Wildbloom key.')
+  const first = new Uint8Array(await envelope.slice(0, HEADER_BYTES_V2).arrayBuffer())
+  const header = readHeaderWithLength(first, envelope.size)
+  const inputKey = hexToBytes(keyHex)
+  const key = header.salt ? deriveEnvelopeKey(inputKey, header.salt) : inputKey
+  const headerBytes = header.bytes.length
+  const plaintextLength = envelope.size - headerBytes - header.recordCount * TAG_BYTES
+  let metadata: Metadata | null = null
+  let prefixLength = 0
+  let copied = 0
+  const parts: BlobPart[] = []
+  try {
+    for (let counter = 0; counter < header.recordCount; counter += 1) {
+      const start = headerBytes + counter * (CHUNK_BYTES + TAG_BYTES)
+      const end = counter === header.recordCount - 1 ? envelope.size : start + CHUNK_BYTES + TAG_BYTES
+      const sealed = new Uint8Array(await envelope.slice(start, end).arrayBuffer())
+      let plaintext: Uint8Array
+      try {
+        plaintext = gcm(key, nonceFor(header.noncePrefix, counter), aadFor(header.bytes, counter)).decrypt(sealed)
+      } catch {
+        throw new Error('The recovery key is wrong or the encrypted envelope was modified.')
+      }
+      if (!metadata) {
+        const read = readMetadata(plaintext)
+        metadata = read.metadata
+        prefixLength = read.prefixLength
+        if (paddedPlaintextLength(prefixLength + metadata.size) !== plaintextLength) {
+          throw new Error('The encrypted envelope padding is invalid.')
+        }
+      }
+      const globalStart = counter * CHUNK_BYTES
+      const wantedEnd = prefixLength + metadata.size
+      const overlapStart = Math.max(globalStart, prefixLength)
+      const overlapEnd = Math.min(globalStart + plaintext.length, wantedEnd)
+      if (overlapEnd > overlapStart) {
+        parts.push(plaintext.slice(overlapStart - globalStart, overlapEnd - globalStart).buffer as ArrayBuffer)
+        copied += overlapEnd - overlapStart
+      }
+      plaintext.fill(0)
+    }
+  } finally {
+    key.fill(0)
+  }
+  if (!metadata || copied !== metadata.size) throw new Error('The encrypted envelope did not contain the declared file.')
+  return { name: metadata.name, type: metadata.type, size: metadata.size, source: new Blob(parts, { type: metadata.type }) }
+}
+
 /**
  * Fetch an attachment's envelope, refuse it if it is too big or is not the
  * bytes the event named, and only then open it with the key. The order is
@@ -388,6 +470,23 @@ async function readBounded(response: Response, maxBytes: number): Promise<Uint8A
   return out
 }
 
+async function readBoundedBlob(response: Response, maxBytes: number): Promise<Blob> {
+  if (!response.body) {
+    const blob = await response.blob()
+    if (blob.size > maxBytes) throw new Error('The attachment is larger than this room will fetch.')
+    return blob
+  }
+  let total = 0
+  const limited = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      total += chunk.length
+      if (total > maxBytes) throw new Error('The attachment is larger than this room will fetch.')
+      controller.enqueue(chunk)
+    },
+  }))
+  return new Response(limited).blob()
+}
+
 // ---------------------------------------------------------------------------
 // Writing an envelope
 // ---------------------------------------------------------------------------
@@ -400,10 +499,10 @@ export const ENVELOPE_MEDIA_TYPE = 'application/vnd.forgesworn.encrypted'
 export const ENVELOPE_FILE_NAME = 'wildbloom.wbenc'
 /** The scheme name the kind-1063 event carries in its `encryption` tag. */
 export const ENVELOPE_SCHEME = 'forgesworn-aes-256-gcm-chunked-v2'
-/** The biggest file a room will seal and upload. Well under the format's
- *  own 256 MiB: a room is for pictures and documents, and everything here
- *  is held in memory while it is sealed. */
-export const MAX_UPLOAD_SOURCE_BYTES = 64 * 1024 * 1024
+/** The biggest file a room will seal and upload: the format's own 256 MiB
+ * ceiling. Blob callers process it as 1 MiB records; `encryptEnvelope` is
+ * retained for small in-memory callers and test vectors. */
+export const MAX_UPLOAD_SOURCE_BYTES = MAX_SOURCE_BYTES
 
 export interface EnvelopeSource {
   /** The file name as the person's device knows it. Normalised the way
@@ -446,6 +545,59 @@ export interface EncryptedEnvelope {
   type: string
   /** The source byte count. */
   size: number
+}
+
+/** A sealed envelope held by the browser as a Blob. Its contents are exactly
+ * the same FSWNENC2 bytes as `EncryptedEnvelope`, without a second complete
+ * ArrayBuffer of either the source or the envelope. */
+export interface EncryptedEnvelopeBlob extends Omit<EncryptedEnvelope, 'envelope'> {
+  envelope: Blob
+  /** Delete private temporary backing storage after the blob has been sent. */
+  dispose?: () => Promise<void>
+}
+
+interface TemporaryEnvelopeStore {
+  write(bytes: Uint8Array): Promise<void>
+  finish(): Promise<{ blob: Blob; dispose: () => Promise<void> }>
+  discard(): Promise<void>
+}
+
+/** Chromium's origin-private file system keeps a large envelope out of the
+ * JavaScript heap while it is being constructed. The structural types keep
+ * this package usable in runtimes whose DOM declarations predate OPFS. */
+async function temporaryEnvelopeStore(): Promise<TemporaryEnvelopeStore | null> {
+  type Writable = { write(data: Uint8Array): Promise<void>; close(): Promise<void>; abort(): Promise<void> }
+  type FileHandle = { createWritable(): Promise<Writable>; getFile(): Promise<File> }
+  type Directory = { getFileHandle(name: string, options: { create: true }): Promise<FileHandle>; removeEntry(name: string): Promise<void> }
+  const storage = (globalThis as unknown as { navigator?: { storage?: { getDirectory?: () => Promise<Directory> } } }).navigator?.storage
+  if (!storage?.getDirectory) return null
+  try {
+    const directory = await storage.getDirectory()
+    const name = `.kithmoot-upload-${bytesToHex(randomBytes(16))}.wbenc`
+    const handle = await directory.getFileHandle(name, { create: true })
+    const writable = await handle.createWritable()
+    let closed = false
+    const remove = async (): Promise<void> => {
+      try { await directory.removeEntry(name) } catch { /* already gone or browser cleaned it */ }
+    }
+    return {
+      write: (bytes) => writable.write(bytes),
+      finish: async () => {
+        await writable.close()
+        closed = true
+        return { blob: await handle.getFile(), dispose: remove }
+      },
+      discard: async () => {
+        if (!closed) {
+          try { await writable.abort() } catch { /* close may already have won */ }
+          closed = true
+        }
+        await remove()
+      },
+    }
+  } catch {
+    return null
+  }
 }
 
 /** `crypto.getRandomValues` refuses more than 64 KiB at a time. */
@@ -539,6 +691,106 @@ export function encryptEnvelope(
   }
   key.fill(0)
   return { envelope, sha256: sha256Hex(envelope), key: bytesToHex(inputKey), name, type, size: source.length }
+}
+
+/** Incrementally hash a Blob without first turning it into one ArrayBuffer. */
+export async function sha256BlobHex(blob: Blob): Promise<string> {
+  const hash = sha256.create()
+  const reader = blob.stream().getReader()
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) hash.update(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return bytesToHex(hash.digest())
+}
+
+/**
+ * Blob version of `encryptEnvelope`. The format is deliberately identical;
+ * only the source is read a record at a time. This permits an APK-sized file
+ * to be sealed on a phone without keeping source, plaintext and envelope in
+ * memory together.
+ */
+export async function encryptEnvelopeBlob(
+  source: Blob,
+  meta: EnvelopeSource,
+  opts: EncryptEnvelopeOptions = {},
+): Promise<EncryptedEnvelopeBlob> {
+  const maxSource = Math.min(opts.maxSourceBytes ?? MAX_UPLOAD_SOURCE_BYTES, MAX_SOURCE_BYTES)
+  if (!Number.isSafeInteger(source.size) || source.size === 0) throw new Error('The file is empty.')
+  if (source.size > maxSource) {
+    throw new Error(`The file is larger than ${Math.floor(maxSource / (1024 * 1024))} MiB, which is as much as a room will send.`)
+  }
+  const name = canonicalEnvelopeName(meta.name)
+  const type = canonicalEnvelopeType(meta.type)
+  const metadata = new TextEncoder().encode(JSON.stringify({ name, size: source.size, type }))
+  if (metadata.length > MAX_METADATA_BYTES) throw new Error('The file name is too long to store.')
+  const prefix = new Uint8Array(4 + metadata.length)
+  new DataView(prefix.buffer).setUint32(0, metadata.length, false)
+  prefix.set(metadata, 4)
+  const plaintextLength = paddedPlaintextLength(prefix.length + source.size)
+  const recordCount = Math.ceil(plaintextLength / CHUNK_BYTES)
+  const inputKey = fixedBytes(opts.key, 32, 'key')
+  const salt = fixedBytes(opts.salt, SALT_BYTES, 'salt')
+  const noncePrefix = fixedBytes(opts.noncePrefix, 8, 'nonce prefix')
+  const header = new Uint8Array(HEADER_BYTES_V2)
+  header.set(new TextEncoder().encode(MAGIC_V2))
+  const view = new DataView(header.buffer)
+  view.setUint32(8, CHUNK_BYTES, false)
+  view.setUint32(12, recordCount, false)
+  header.set(noncePrefix, 16)
+  header.set(salt, 24)
+  const key = deriveEnvelopeKey(inputKey, salt)
+  const hash = sha256.create()
+  hash.update(header)
+  const store = await temporaryEnvelopeStore()
+  const parts: BlobPart[] = store ? [] : [header.slice().buffer as ArrayBuffer]
+  if (store) await store.write(header)
+  const paddingStart = prefix.length + source.size
+  try {
+    for (let counter = 0; counter < recordCount; counter += 1) {
+      const offset = counter * CHUNK_BYTES
+      const length = Math.min(CHUNK_BYTES, plaintextLength - offset)
+      const plaintext = new Uint8Array(length)
+      const prefixEnd = Math.min(offset + length, prefix.length)
+      if (prefixEnd > offset) plaintext.set(prefix.subarray(offset, prefixEnd), 0)
+      const sourceStart = Math.max(offset, prefix.length)
+      const sourceEnd = Math.min(offset + length, paddingStart)
+      if (sourceEnd > sourceStart) {
+        const bytes = new Uint8Array(await source.slice(sourceStart - prefix.length, sourceEnd - prefix.length).arrayBuffer())
+        plaintext.set(bytes, sourceStart - offset)
+        bytes.fill(0)
+      }
+      const padStart = Math.max(offset, paddingStart)
+      if (offset + length > padStart) {
+        const pad = plaintext.subarray(padStart - offset)
+        if (opts.padding) {
+          for (let i = 0; i < pad.length; i += 1) pad[i] = opts.padding(padStart + i) & 0xff
+        } else fillRandom(pad)
+      }
+      const sealed = gcm(key, nonceFor(noncePrefix, counter), aadFor(header, counter)).encrypt(plaintext)
+      plaintext.fill(0)
+      hash.update(sealed)
+      if (store) await store.write(sealed)
+      else parts.push(sealed.slice().buffer as ArrayBuffer)
+    }
+    const stored = store
+      ? await store.finish()
+      : { blob: new Blob(parts, { type: ENVELOPE_MEDIA_TYPE }), dispose: undefined }
+    return {
+      envelope: stored.blob,
+      sha256: bytesToHex(hash.digest()), key: bytesToHex(inputKey), name, type, size: source.size, dispose: stored.dispose,
+    }
+  } catch (err) {
+    if (store) await store.discard()
+    throw err
+  } finally {
+    key.fill(0)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -663,10 +915,32 @@ export async function uploadEnvelope(
   envelope: Uint8Array,
   opts: UploadEnvelopeOptions,
 ): Promise<BlossomDescriptor> {
+  return uploadEnvelopeBody(server, envelope.slice().buffer as ArrayBuffer, sha256Hex(envelope), envelope.length, opts)
+}
+
+/** Upload a previously sealed Blob. `encryptEnvelopeBlob` supplies the hash
+ * while sealing, which is necessary because BUD-01 signs that hash before
+ * any upload bytes may leave the device. */
+export async function uploadEnvelopeBlob(
+  server: string,
+  envelope: Blob,
+  sha256: string,
+  opts: UploadEnvelopeOptions,
+): Promise<BlossomDescriptor> {
+  if (!/^[0-9a-f]{64}$/i.test(sha256)) throw new Error('The blob hash must be 64 hex characters.')
+  return uploadEnvelopeBody(server, envelope, sha256.toLowerCase(), envelope.size, opts)
+}
+
+async function uploadEnvelopeBody(
+  server: string,
+  envelope: BodyInit,
+  hash: string,
+  size: number,
+  opts: UploadEnvelopeOptions,
+): Promise<BlossomDescriptor> {
   const origin = normaliseBlossomServer(server)
   const doFetch = opts.fetch ?? globalThis.fetch
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
-  const hash = sha256Hex(envelope)
   const template = buildUploadAuthorisation(hash, origin, now())
   const signed = await opts.sign(template)
   if (!sameTemplate(template, signed) || !verifyEventUncached(signed)) {
@@ -681,7 +955,7 @@ export async function uploadEnvelope(
         'Content-Type': ENVELOPE_MEDIA_TYPE,
         'X-SHA-256': hash,
       },
-      body: envelope.slice().buffer as ArrayBuffer,
+      body: envelope,
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
       cache: 'no-store',
@@ -708,7 +982,7 @@ export async function uploadEnvelope(
   } catch {
     throw new Error('The server did not answer with a blob descriptor.')
   }
-  return checkDescriptor(parsed, origin, hash, envelope.length)
+  return checkDescriptor(parsed, origin, hash, size)
 }
 
 function checkDescriptor(value: unknown, origin: string, hash: string, size: number): BlossomDescriptor {
