@@ -68,6 +68,11 @@ export interface AgentOwnership {
   label?: string
   /** Schnorr by the principal. */
   sig: string
+  /** How `sig` was made. Absent: over KithMoot's own ownership message.
+   *  `nostr-event`: over the id of an ordinary Nostr event built from these
+   *  same fields (`ownershipEvent`), so a signer that only signs events, such
+   *  as a NIP-46 bunker or a hardware signer, can make a proof. */
+  scheme?: 'nostr-event'
 }
 
 /**

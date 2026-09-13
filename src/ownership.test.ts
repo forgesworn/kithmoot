@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { issueAgentOwnership, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { agentOwnershipFromEvent, issueAgentOwnership, normaliseAgentOwnership, ownershipEvent, verifyAgentOwnership } from './ownership.js'
 import { createDeviceCredential } from './credential.js'
 import { localIdentity } from './identity.js'
 import { deriveRoom, parseRoomPolicy } from './room.js'
@@ -131,5 +131,44 @@ describe('whose agent, on the wire', () => {
     // People are not agents, and a room with no rule asks nothing.
     expect(evaluateAgentAccess(policy, { participant: principal }, () => false).admitted).toBe(true)
     expect(evaluateAgentAccess({ tier: 'open' }, { participant: agent, agent: true }, () => false).admitted).toBe(true)
+  })
+})
+
+describe('event-signed agent ownership', () => {
+  // A signer that only signs Nostr events, as a NIP-46 bunker or a hardware
+  // signer does, signs the ownership event; the proof carries only the fields.
+  const sign = (fields: { issuedAt: number; expiresAt?: number; label?: string }) =>
+    finalizeEvent(ownershipEvent({ agent, principal, ...fields }), principalSk)
+
+  it('a proof from a signed ownership event verifies like any other', () => {
+    const event = sign({ issuedAt: NOW, expiresAt: NOW + 86_400, label: 'Chip' })
+    expect(event.kind).toBe(30078)
+    expect(event.content).toContain('Chip')
+    expect(event.content).toContain('is my agent')
+    const proof = agentOwnershipFromEvent(event)
+    expect(proof).toMatchObject({ agent, principal, issuedAt: NOW, expiresAt: NOW + 86_400, label: 'Chip', scheme: 'nostr-event' })
+    expect(verifyAgentOwnership(proof, { agent, now: NOW + 10 })).toEqual({ ok: true, principal, label: 'Chip' })
+    // It survives the wire, scheme and all.
+    expect(normaliseAgentOwnership(JSON.parse(JSON.stringify(proof)))).toEqual(proof)
+  })
+
+  it('the event and raw forms cannot stand in for each other', () => {
+    const event = agentOwnershipFromEvent(sign({ issuedAt: NOW, label: 'Chip' }))
+    const { scheme: _dropped, ...asRaw } = event
+    expect(verifyAgentOwnership(asRaw, { agent, now: NOW })).toEqual({ ok: false, reason: 'bad signature' })
+    const raw = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, label: 'Chip' })
+    expect(verifyAgentOwnership({ ...raw, scheme: 'nostr-event' }, { agent, now: NOW })).toEqual({ ok: false, reason: 'bad signature' })
+  })
+
+  it('refuses a tampered or altered event proof', () => {
+    const proof = agentOwnershipFromEvent(sign({ issuedAt: NOW, expiresAt: NOW + 3600, label: 'Chip' }))
+    for (const changed of [{ label: 'Tally' }, { expiresAt: NOW + 7200 }, { issuedAt: NOW - 1 }]) {
+      expect(verifyAgentOwnership({ ...proof, ...changed }, { agent, now: NOW })).toMatchObject({ ok: false })
+    }
+    expect(normaliseAgentOwnership({ ...proof, scheme: 'something-else' })).toBeNull()
+    const event = sign({ issuedAt: NOW, label: 'Chip' })
+    expect(() => agentOwnershipFromEvent({ ...event, content: 'something else' })).toThrow()
+    expect(() => agentOwnershipFromEvent({ ...event, tags: [...event.tags, ['extra', 'x']] })).toThrow()
+    expect(() => agentOwnershipFromEvent({ ...event, kind: 1 })).toThrow()
   })
 })

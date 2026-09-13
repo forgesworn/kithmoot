@@ -10,7 +10,9 @@ import type { KeeperState } from '../agent.js'
 import { parseKeeperState, serialiseKeeperState } from '../keeper-state.js'
 import { parseForwarderRef } from '../descriptor.js'
 import type { ForwarderRef } from '../types.js'
-import { issueAgentOwnership, normaliseAgentOwnership, verifyAgentOwnership } from '../ownership.js'
+import { agentOwnershipFromEvent, issueAgentOwnership, normaliseAgentOwnership, ownershipEvent, verifyAgentOwnership } from '../ownership.js'
+import { sanitiseDisplayName } from '../display-name.js'
+import { BunkerSigner, parseBunkerInput } from 'nostr-tools/nip46'
 import type { AgentOwnership } from '../types.js'
 import { localIdentity } from '../identity.js'
 import { localPeerCrypt, openInvite } from '../dm.js'
@@ -71,10 +73,14 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
       none, the default here, writes the transcript grouped by speaker instead,
       so it works with no model at all.
 
-  kithmoot-agent attest --agent <pubkey|npub> (--nsec <key> | --identity <file>) [--label <text>] [--expires <30d|12h|unix>]
+  kithmoot-agent attest --agent <pubkey|npub> (--nsec <key> | --identity <file> | --bunker <bunker://…>) [--label <text>] [--expires <30d|12h|unix>]
       As a principal, say that an agent is yours: prints an ownership proof
       (JSON) signed by your key, to give the agent as --owner-proof. Room
       independent, attested once; set --expires if you may change your mind.
+      With --bunker, or KITHMOOT_BUNKER, a NIP-46 signer holds the key and
+      signs an ordinary Nostr event saying so, which you approve there; the
+      key never reaches this machine. Prefer the environment variable: a
+      bunker link carries a connection secret.
 
 Options
   --context <file>         Encrypted room context cache; private collections excluded
@@ -234,6 +240,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       agent: { type: 'string' },
       label: { type: 'string' },
       expires: { type: 'string' },
+      bunker: { type: 'string' },
       quiet: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
@@ -245,7 +252,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     return
   }
   if (command === 'attest') {
-    await attest({ agent: values.agent, nsec: values.nsec, identity: values.identity ?? env('IDENTITY'), label: values.label, expires: values.expires })
+    await attest({ agent: values.agent, nsec: values.nsec, identity: values.identity ?? env('IDENTITY'), bunker: values.bunker ?? env('BUNKER'), label: values.label, expires: values.expires })
     return
   }
   const name = values.name ?? env('NAME') ?? (command === 'host' ? 'Agent host' : undefined)
@@ -712,10 +719,11 @@ async function loadOwnerProof(path: string, agent: string): Promise<AgentOwnersh
 
 /** `attest`: a principal signs that an agent is theirs. Stdout, so it can
  *  go straight to a file; nothing else is printed there. */
-async function attest(opts: { agent?: string; nsec?: string; identity?: string; label?: string; expires?: string }): Promise<void> {
+async function attest(opts: { agent?: string; nsec?: string; identity?: string; bunker?: string; label?: string; expires?: string }): Promise<void> {
   if (!opts.agent) fail('attest needs --agent <pubkey|npub>: the agent this proof is about')
-  if (!opts.nsec && !opts.identity) fail('attest needs the principal key: --nsec or --identity (an existing file)')
+  if (!opts.nsec && !opts.identity && !opts.bunker) fail('attest needs the principal key: --nsec, --identity (an existing file) or --bunker')
   const agent = pubkeyArg(opts.agent, '--agent')
+  if (opts.bunker) return attestWithBunker(opts.bunker, agent, opts.label, opts.expires)
   let principalSk: Uint8Array
   if (opts.nsec) {
     principalSk = await participantKey({ nsec: opts.nsec } as Common, (line) =>
@@ -732,6 +740,34 @@ async function attest(opts: { agent?: string; nsec?: string; identity?: string; 
   const expiresAt = opts.expires === undefined ? undefined : expiryArg(opts.expires, issuedAt)
   const proof = issueAgentOwnership({ principalSk, agent, issuedAt, expiresAt, label: opts.label })
   process.stdout.write(JSON.stringify(proof, null, 2) + '\n')
+}
+
+/** `attest` through a NIP-46 signer: the proof is a signature over the
+ *  ownership event, which the signer shows and its user approves. */
+async function attestWithBunker(link: string, agent: string, rawLabel: string | undefined, expires: string | undefined): Promise<void> {
+  const say = (line: string) => process.stderr.write(`[kithmoot-agent] ${line}\n`)
+  const pointer = await parseBunkerInput(link)
+  if (!pointer) return fail('--bunker is not a bunker:// link or a NIP-05 bunker address')
+  const signer = BunkerSigner.fromBunker(generateSecretKey(), pointer, { onauth: (url) => say(`the signer asks you to approve at ${url}`) })
+  try {
+    say('connecting to the signer')
+    await signer.connect()
+    const principal = await signer.getPublicKey()
+    if (principal === agent) return fail('an agent cannot be its own principal')
+    const issuedAt = Math.floor(Date.now() / 1000)
+    const expiresAt = expires === undefined ? undefined : expiryArg(expires, issuedAt)
+    const label = sanitiseDisplayName(rawLabel)
+    const { pubkey: _principal, ...template } = ownershipEvent({ agent, principal, issuedAt, expiresAt, label })
+    say(`asking ${nip19.npubEncode(principal)} to sign; approve it on the signer`)
+    const event = await signer.signEvent(template)
+    const proof = agentOwnershipFromEvent(event)
+    if (proof.principal !== principal) return fail('the signer signed with a different key than it named')
+    const verdict = verifyAgentOwnership(proof, { agent, now: Math.floor(Date.now() / 1000) })
+    if (!verdict.ok) return fail(`the signed proof does not verify: ${verdict.reason}`)
+    process.stdout.write(JSON.stringify(proof, null, 2) + '\n')
+  } finally {
+    await signer.close().catch(() => undefined)
+  }
 }
 
 /** `30d`, `12h`, `90m`, or unix seconds. */

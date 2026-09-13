@@ -1,7 +1,8 @@
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
-import { getPublicKey } from 'nostr-tools/pure'
+import { getEventHash, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
+import { npubEncode } from 'nostr-tools/nip19'
 import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
 import type { AgentOwnership } from './types.js'
@@ -39,6 +40,68 @@ function message(agent: string, principal: string, issuedAt: number, expiresAt: 
   return sha256(
     new TextEncoder().encode(`kithmoot/v1/agent-owner:${agent}:${principal}:${issuedAt}:${expiresAt ?? ''}:${label ?? ''}`),
   )
+}
+
+/** The event kind an event-signed proof uses: NIP-78 application data. The
+ *  event is signed, never published. */
+export const OWNERSHIP_EVENT_KIND = 30078
+
+/** The fields an ownership proof signs, whichever way it is signed. */
+export interface OwnershipFields {
+  agent: string
+  principal: string
+  issuedAt: number
+  expiresAt?: number
+  label?: string
+}
+
+/**
+ * The Nostr event an event-signed proof is a signature over. Every part of it
+ * comes from the proof's own fields, so a verifier rebuilds it exactly and no
+ * event needs to travel with the proof. The content says in words what the
+ * principal is agreeing to, because a signer shows its user the content.
+ */
+export function ownershipEvent(fields: OwnershipFields): EventTemplate & { pubkey: string } {
+  const agent = normaliseHex(fields.agent)
+  const tags: string[][] = [['d', `kithmoot/v1/agent-owner:${agent}`], ['p', agent]]
+  if (fields.label !== undefined) tags.push(['label', fields.label])
+  if (fields.expiresAt !== undefined) tags.push(['expiration', String(fields.expiresAt)])
+  const until = fields.expiresAt === undefined ? '' : ` until ${new Date(fields.expiresAt * 1000).toISOString()}`
+  return {
+    kind: OWNERSHIP_EVENT_KIND,
+    pubkey: normaliseHex(fields.principal),
+    created_at: fields.issuedAt,
+    tags,
+    content: `KithMoot: ${fields.label ?? 'this key'} (${npubEncode(agent)}) is my agent and acts for me${until}.`,
+  }
+}
+
+/**
+ * A proof from an event a signer has signed. Refused unless the event is
+ * exactly the one `ownershipEvent` builds for the same fields: a signer that
+ * changed anything has signed something else.
+ */
+export function agentOwnershipFromEvent(event: { kind: number; pubkey: string; created_at: number; tags: string[][]; content: string; id?: string; sig: string }): AgentOwnership {
+  const tag = (name: string) => event.tags.find((t) => t[0] === name)?.[1]
+  const agent = tag('p')
+  if (!agent || !HEX64.test(agent)) throw new Error('the event does not name an agent')
+  const expiration = tag('expiration')
+  const proof: AgentOwnership = {
+    agent: normaliseHex(agent),
+    principal: normaliseHex(event.pubkey),
+    issuedAt: event.created_at,
+    ...(expiration !== undefined ? { expiresAt: Number(expiration) } : {}),
+    ...(tag('label') !== undefined ? { label: tag('label') } : {}),
+    sig: normaliseHex(event.sig),
+    scheme: 'nostr-event',
+  }
+  const expected = ownershipEvent(proof)
+  if (event.kind !== expected.kind || event.content !== expected.content
+      || JSON.stringify(event.tags) !== JSON.stringify(expected.tags)
+      || (event.id !== undefined && event.id !== getEventHash(expected))) {
+    throw new Error('the signed event is not the ownership event for these fields')
+  }
+  return proof
 }
 
 function requireHex32(value: string, what: string): string {
@@ -111,6 +174,10 @@ export function normaliseAgentOwnership(raw: unknown): AgentOwnership | null {
     if (typeof o.label !== 'string') return null
     out.label = o.label
   }
+  if (o.scheme !== undefined) {
+    if (o.scheme !== 'nostr-event') return null
+    out.scheme = 'nostr-event'
+  }
   return out
 }
 
@@ -144,11 +211,10 @@ export function verifyAgentOwnership(raw: AgentOwnership, opts: VerifyAgentOwner
   }
   if (proof.label !== undefined && sanitiseDisplayName(proof.label) !== proof.label) return { ok: false, reason: 'label is not as signed' }
   try {
-    const ok = schnorr.verify(
-      hexToBytes(proof.sig),
-      message(proof.agent, proof.principal, proof.issuedAt, proof.expiresAt, proof.label),
-      hexToBytes(proof.principal),
-    )
+    const signed = proof.scheme === 'nostr-event'
+      ? hexToBytes(getEventHash(ownershipEvent(proof)))
+      : message(proof.agent, proof.principal, proof.issuedAt, proof.expiresAt, proof.label)
+    const ok = schnorr.verify(hexToBytes(proof.sig), signed, hexToBytes(proof.principal))
     if (!ok) return { ok: false, reason: 'bad signature' }
   } catch {
     return { ok: false, reason: 'bad signature' }

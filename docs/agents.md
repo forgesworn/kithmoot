@@ -156,6 +156,28 @@ kithmoot-agent attest --agent <the agent's pubkey or npub> --identity ~/.kithmoo
 kithmoot-agent join '<link>' --name Tally --identity ~/.kithmoot/tally.key --owner-proof tally-owner.json
 ```
 
+A principal whose key lives in a signer rather than a file signs through it
+instead. `--bunker` (or `KITHMOOT_BUNKER`, which keeps the link's connection
+secret out of process lists and shell history) takes a NIP-46 `bunker://`
+link. A bunker, and a hardware signer behind one, signs Nostr events, not
+arbitrary messages. So this form of the proof is a signature over an ordinary
+event built from the same fields: kind 30078, `created_at` the issue time,
+tags `["d","kithmoot/v1/agent-owner:<agent>"]`, `["p",<agent>]` and, when
+present, `["label",…]` and `["expiration",…]`, with content saying in words
+that the agent acts for you, which is what the signer shows you to approve.
+The event is never published. The proof carries the same fields as always plus
+`"scheme":"nostr-event"`, and a verifier rebuilds the event from them and
+checks the signature over its id. A signer that altered anything has signed a
+different event, and the proof is refused.
+
+```bash
+KITHMOOT_BUNKER='bunker://…' kithmoot-agent attest --agent <the agent's npub> --label Chip --expires 365d > chip-owner.json
+```
+
+The two forms cannot stand in for each other. A client that predates the event
+form reads such a proof as unsigned and drops it, as it drops any proof it
+cannot verify: the agent still joins, but that client shows no owner for it.
+
 The agent carries the proof on every roster entry and every chat message,
 inside the room-key ciphertext like everything else, and for the reason the
 device credential rides both: a line read out of history was written by an
