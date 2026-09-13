@@ -1435,3 +1435,71 @@ Health reports the actual socket state and the last accepted write with its
 acknowledgement time. A rejected write can coexist with a connected socket.
 Reconnect retries the saved endpoints, including one unavailable at join time.
 No synthetic room messages are published merely to test connectivity.
+
+## No default STUN server outside this origin, 13 September 2026
+
+The web client's ICE default, `stun:stun.l.google.com:19302`, had been
+hardcoded since before this file starts: `DEFAULT_ICE_URLS` in
+`app/src/main.ts`, repeated in the `#iceServers` input's value in
+`app/index.html`, `DEFAULT_STUN` in `src/node/webrtc.ts` for a Node agent
+or keeper started with `--listen`, and a bare `RTCPeerConnection` in
+`server/forwarder.mjs`. A room's join URL always could name its own
+STUN/TURN, the same as it names its own relays, but a person who never
+touched the advanced settings box - which is everyone, on every call, by
+default - had every connection attempt announce itself to Google: the IP
+address making the attempt, and when. That sits badly beside this app's own
+claim that the background-blur model is fetched from this origin rather
+than Google's CDN "so enabling blur does not announce you to a third
+party" (README.md) - the STUN default announced far more, on every call,
+whether or not blur was ever touched.
+
+The replacement is origin-relative, not a different hardcoded host. A room
+still on the ICE defaults gets, in order: this origin's own STUN, derived
+from wherever the minted TURN credential at `/turn` actually points
+(`turn:host:port` becomes `stun:host:port`, since coturn answers a STUN
+Binding request on the exact listener it answers a TURN Allocate on -
+`deploy/coturn/turnserver.conf` carries no `no-stun`); failing that, a
+same-host guess on the standard port 3478, but only for a non-loopback
+`https:` origin; and nothing at all on `localhost` or a plain `http:`
+origin, where two processes on one machine already connect on host
+candidates alone. See `app/src/ice-defaults.ts` for the derivation and its
+tests, and `resolveIceServers` in `app/src/main.ts` for where the TURN
+credential fetch actually happens. A room that names its own ICE servers
+is untouched by any of this, exactly as before.
+
+**Existing links keep working, and are upgraded rather than left on
+Google.** Every join URL made before this change that never named its own
+ICE servers carries exactly one hint in its fragment:
+`stun:stun.l.google.com:19302` - that literal string and nothing else,
+because `encodeRoomUrl` never wrote anything else for a room on the
+default. `isDefaultIceUrls` treats a link carrying exactly that one URL the
+same as a link carrying none: the default, resolved to this origin's own
+STUN/TURN at connect time rather than kept as Google's server. The
+necessary and accepted consequence is that a room which had deliberately
+and *only ever* named Google's public STUN server, with nothing else in
+its list, is indistinguishable from a link made under the old default, and
+is upgraded the same way. A room that named Google's server *alongside*
+anything else keeps its whole list untouched - only the single-entry case
+is ambiguous with the old default, and it is resolved in favour of leaving
+this origin, not Google, in every call made from here on. New links stop
+emitting any ICE hint at all when a room has not named its own servers -
+see `DEFAULT_ICE_URLS` in `app/src/ice-defaults.ts`, now empty.
+
+**Node agents, keepers and the forwarder get no default at all, and say
+so.** `src/node/webrtc.ts`'s `createWeriftFactory` and
+`server/forwarder.mjs`'s `createWeriftStack` used the same Google STUN
+server as their fallback when nothing was configured. Both now default to
+no STUN and no TURN, and log one plain line at start-up saying so: STUN is
+already configurable there (`--ice`/`KITHMOOT_ICE` for the CLI,
+`KITHMOOT_STUN_URL` for the forwarder, added alongside this change), a
+process with a public address needs neither, and a process that does sit
+behind NAT was never actually served by a default pointed at Google rather
+than its own working infrastructure - see "Why no default STUN server" in
+`deploy/README.md`. `kithmoot-keeper@.service`'s standard invocation
+(`create --brain none`, no `--listen`) never opened a WebRTC connection at
+all and is unaffected.
+
+Android is a separate client and a separate repository
+(`kithmoot-android`); this change does not touch it. Its `RoomViewModel.kt`
+carries its own literal `stun:stun.l.google.com:19302` default as of this
+writing, tracked as follow-up work there rather than here.
