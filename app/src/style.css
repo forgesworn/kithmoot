@@ -1315,6 +1315,16 @@ button.primary:hover:not(:disabled) {
   color: var(--on-agent);
 }
 
+/* A person turned down to 0% for this device only - the one state a volume
+   slider must never let slip past unnoticed. Bordered rather than filled,
+   like `.badge.card`: this is a fact this browser is showing, not a claim
+   the person made about themselves. */
+.badge.muted {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--muted);
+}
+
 /* Identity
  *
  * A name is a claim and a pubkey is not, so they never look the same: the
@@ -2469,6 +2479,35 @@ label.note {
 .rosterRow .donorRing {
   width: 1.2rem;
   height: 1.2rem;
+}
+
+/* The volume control drops to its own full-width line under a row's badges
+   and buttons, the same way `.contactBoxes` does under a contact row -
+   `.rosterRow` already wraps, so this only needs the width to force it. */
+.volumeRow {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.volumeRow .volumeLabel {
+  flex: 0 0 auto;
+  font-family: system-ui, sans-serif;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.volumeRow .volumeSlider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.volumeRow .volumeValue {
+  flex: 0 0 auto;
+  min-width: 3.4rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* A sheet on a phone: the full screen, so the thumb has everything and the

@@ -35,6 +35,8 @@ import { RoomWatch } from './room-watch.js'
 import { RoomBookmarks } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
+import { RemoteVolume } from './remote-volume.js'
+import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
 import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
@@ -2592,6 +2594,10 @@ function newCallId(): string {
 async function joinCall(): Promise<void> {
   const s = session
   if (!s || s.call) return
+  // The user gesture the gain path needs to open an AudioContext that is
+  // not born suspended - see remote-volume.ts. Harmless to call whether or
+  // not this call ever needs it.
+  remoteVolume.resume()
   const existing = s.calls()[0]
   leftCall = false
   await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
@@ -2621,6 +2627,7 @@ async function leaveCall(): Promise<void> {
   const s = session
   stopLocalMedia()
   speakingMonitor.retain([...remoteAudios.keys()])
+  remoteVolume.retain([...remoteAudios.keys()])
   publishActiveTracks()
   leftCall = true
   if (s) await s.setCall(null)
@@ -3526,9 +3533,19 @@ function render(views: ParticipantView[], me: string): void {
   // tracks still arrive, because the room's mesh outlives the call, but
   // Leave has to mean quiet. See `leftCall`.
   const ownDevices = new Set(mine?.devices ?? [])
+  cachedMonitorHere = monitorHere
+  cachedOwnDevices = ownDevices
+  // Which participant each device belongs to, so the loop below can look up
+  // a person's own volume level - see `previewVolumeLevel` for the same
+  // lookup while a slider is mid-drag, between renders.
+  const deviceOwner = new Map<string, string>()
+  for (const view of views) for (const device of view.devices) deviceOwner.set(device, view.participant)
   for (const [key, audio] of remoteAudios) {
     const device = key.slice(0, key.indexOf('|'))
-    audio.el.muted = !monitorHere || leftCall || ownDevices.has(device)
+    const muted = !monitorHere || leftCall || ownDevices.has(device)
+    const owner = deviceOwner.get(device)
+    const level = owner !== undefined ? volumeLevel(owner) : 1
+    remoteVolume.apply(key, audio.el, audio.track, level, muted)
   }
 
   {
@@ -3644,7 +3661,10 @@ function render(views: ParticipantView[], me: string): void {
       heading.append(badge)
       if (view.owner) heading.append(ownerRun(view.owner))
     }
-    if (view.participant !== me) heading.append(verifyChip(view, shown.name ?? ''))
+    if (view.participant !== me) {
+      heading.append(verifyChip(view, shown.name ?? ''))
+      if (volumeLevel(view.participant) === 0) heading.append(volumeMuteBadge())
+    }
     box.prepend(heading)
     const place = (mediaEl: HTMLDivElement | undefined): void => {
       if (!mediaEl || mediaEl.childElementCount === 0) { if (mediaEl?.parentElement === box) mediaEl.remove(); return }
@@ -3924,6 +3944,53 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       invite.setAttribute('aria-label', `Invite ${shown.name ?? shown.short} to a room`)
       invite.addEventListener('click', () => openInviteToRoom(view.participant, shown.name))
       row.append(invite)
+    }
+    // How loud this person is, on this device only - one slider for the
+    // person, whatever it takes to merge their devices into this one tile.
+    // See the "Per-person volume" section above.
+    if (view.participant !== me) {
+      const volumeRow = document.createElement('div')
+      volumeRow.className = 'volumeRow'
+      const label = document.createElement('span')
+      label.className = 'volumeLabel'
+      label.textContent = 'Volume'
+      const slider = document.createElement('input')
+      slider.type = 'range'
+      slider.className = 'volumeSlider'
+      slider.min = '0'
+      // A level above 100% needs the gain path; where that has actually
+      // failed the slider is capped rather than offering a promise the
+      // element cannot keep. See RemoteVolume.gainAvailable.
+      slider.max = remoteVolume.gainAvailable ? '200' : '100'
+      slider.step = '5'
+      slider.setAttribute('list', 'volumeNotch')
+      slider.dataset.participant = view.participant
+      slider.setAttribute('aria-label', `Volume for ${shown.name ?? shown.short}`)
+      const out = document.createElement('output')
+      out.className = 'volumeValue'
+      const describe = (percent: number) => (percent === 0 ? 'Silenced for you' : `${percent}%`)
+      const startPercent = Math.round(volumeLevel(view.participant) * 100)
+      slider.value = String(startPercent)
+      out.textContent = describe(startPercent)
+      slider.setAttribute('aria-valuetext', describe(startPercent))
+      slider.addEventListener('input', () => {
+        let percent = Number(slider.value)
+        // A little magnetism at 100%, the untouched level, so landing back
+        // on it does not need a pixel-perfect drag.
+        if (percent !== 100 && Math.abs(percent - 100) <= 7) { percent = 100; slider.value = '100' }
+        out.textContent = describe(percent)
+        slider.setAttribute('aria-valuetext', describe(percent))
+        previewVolumeLevel(view, percent / 100)
+      })
+      slider.addEventListener('change', () => commitVolumeLevel(view.participant))
+      volumeRow.append(label, slider, out)
+      row.append(volumeRow)
+      if (!remoteVolume.gainAvailable) {
+        const note = document.createElement('p')
+        note.className = 'note'
+        note.textContent = 'Above 100% needs Web Audio, which is not available here, so this stays capped at 100%.'
+        row.append(note)
+      }
     }
     list.append(row)
   }
@@ -6098,6 +6165,84 @@ function paintSpeaking(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Per-person volume
+//
+// One slider per PERSON, not per device - in this app the person is the
+// member, and a phone and a laptop of the same person are one tile already
+// (see `ParticipantView.devices`). It sets how loud that person is on this
+// device only: nothing is published, and it never survives to another
+// device of yours or to anybody else's screen. See remote-volume.ts for the
+// gain path this routes through, and volume-store.ts for what is
+// remembered between visits.
+// ---------------------------------------------------------------------------
+
+const remoteVolume = new RemoteVolume()
+
+/** This device's own opinion of how loud each other participant is, from 0
+ *  (silenced for this device) to 2 (200%). 1 is the untouched default and
+ *  is never written to storage - see volume-store.ts. */
+const volumeLevels = new Map<string, number>()
+
+/** This browser's level for `participant`: the one a slider was left at
+ *  this visit, else the one remembered from before, else 100%. */
+function volumeLevel(participant: string): number {
+  let level = volumeLevels.get(participant)
+  if (level === undefined) {
+    level = loadVolumeLevel(deviceStore, participant) ?? 1
+    volumeLevels.set(participant, level)
+  }
+  return level
+}
+
+/** The one-speaker rule and Leave, as last computed by `render()` - read by
+ *  the slider between renders so dragging it does not have to walk the
+ *  roster again on every tick. */
+let cachedMonitorHere = true
+let cachedOwnDevices = new Set<string>()
+
+/**
+ * Routes `level` to every device of `view`'s that currently has live remote
+ * audio, without rebuilding any UI. The slider's `input` listener calls
+ * this on every tick so dragging stays smooth - replacing the element mid
+ * drag would end the gesture - and `commitVolumeLevel` remembers the level
+ * once it settles.
+ */
+function previewVolumeLevel(view: ParticipantView, level: number): void {
+  volumeLevels.set(view.participant, level)
+  for (const device of view.devices) {
+    for (const [key, audio] of remoteAudios) {
+      if (!key.startsWith(`${device}|`)) continue
+      const muted = !cachedMonitorHere || leftCall || cachedOwnDevices.has(device)
+      remoteVolume.apply(key, audio.el, audio.track, level, muted)
+    }
+  }
+  paintVolumeMute(view.participant, level === 0)
+}
+
+/** Remembers the level a slider was left at - see volume-store.ts. */
+function commitVolumeLevel(participant: string): void {
+  storeVolumeLevel(deviceStore, participant, volumeLevels.get(participant) ?? 1)
+}
+
+function volumeMuteBadge(): HTMLElement {
+  const badge = document.createElement('span')
+  badge.className = 'badge muted'
+  badge.textContent = '\u{1F507} silenced for you'
+  badge.title = 'Silenced for you'
+  return badge
+}
+
+/** Keeps a tile's "silenced for you" tag in step with the slider while it
+ *  is being dragged, without waiting for the next full render. */
+function paintVolumeMute(participant: string, silenced: boolean): void {
+  const heading = tileBoxes.get(participant)?.querySelector('h3')
+  if (!heading) return
+  const existing = heading.querySelector<HTMLElement>('.badge.muted')
+  if (silenced && !existing) heading.append(volumeMuteBadge())
+  else if (!silenced && existing) existing.remove()
+}
+
 /** How many checks a picture may go without a new frame before it comes off
  *  screen. Two at a one-second interval: long enough not to flicker on a
  *  dropped frame or a slow moment, short enough that "off" looks off. */
@@ -6242,6 +6387,7 @@ function syncRemoteVideos(): void {
     if (entry.track.readyState !== 'ended' && !orphanedFor(key)) continue
     entry.el.remove()
     remoteAudios.delete(key)
+    remoteVolume.detach(key)
     const device = key.slice(0, key.indexOf('|'))
     const remaining = [...remoteAudios].find(([other]) => other.startsWith(`${device}|`))
     if (remaining) speakingMonitor.watch(device, remaining[1].track)
@@ -6301,7 +6447,10 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
   }
   if (track.kind === 'audio' && !remoteAudios.has(key)) {
     const alias = [...remoteAudios].find(([, entry]) => entry.track === track)
-    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]) }
+    // Any route the old key held is torn down rather than left dangling
+    // under a name `remoteAudios` no longer has; `render()` opens a fresh
+    // one under the new key on its next pass.
+    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]); remoteVolume.detach(alias[0]) }
   }
 
   // One element PER TRACK, not per kind. A device sharing its screen while
@@ -6393,6 +6542,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       if (remoteAudios.get(key)?.track !== track) return
       el.remove()
       remoteAudios.delete(key)
+      remoteVolume.detach(key)
       speakingMonitor.unwatch(device)
       paintSpeaking()
       if (session) render(session.participants(), meParticipant)
@@ -6532,6 +6682,9 @@ async function collectDiagnostics(): Promise<string> {
       currentTime: Number(a.el.currentTime.toFixed(2)),
       track: `${a.track.readyState}${a.track.muted ? ':muted' : ''}`,
     })),
+    // A count, never the keys or the levels themselves - which people have
+    // been turned up or down is nobody's business but this browser's.
+    volume: { customLevels: volumeLevelCount(deviceStore), gainAvailable: remoteVolume.gainAvailable },
   }
   return JSON.stringify(out, null, 1)
 }
@@ -7551,6 +7704,7 @@ async function closeRoomSession(): Promise<void> {
   iceRefreshTimer = assistTimer = approvalTimer = undefined
   stopLocalMedia()
   speakingMonitor.retain([])
+  remoteVolume.retain([])
   for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
     entry.track.stop()
     entry.el.pause()
