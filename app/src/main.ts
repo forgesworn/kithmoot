@@ -1776,6 +1776,11 @@ function renderIdentity(): void {
 let micTrack: MediaStreamTrack | undefined
 let cameraTrack: MediaStreamTrack | undefined
 let screenTrack: MediaStreamTrack | undefined
+/** The shared tab or window's own sound, captured alongside `screenTrack`
+ *  when the browser offers it. Absent on Firefox, Safari, a window share, or
+ *  when the person unticked the box - a share still works with no audio, it
+ *  is simply silent, which is what the note near the toggle says. */
+let screenAudioTrack: MediaStreamTrack | undefined
 
 let camera: CameraPipeline | undefined
 let mic: MicPipeline | undefined
@@ -1831,7 +1836,7 @@ function joinLinkBase(): string {
 }
 
 function activeTracks(): MediaStreamTrack[] {
-  return [micTrack, cameraTrack, screenTrack].filter((t): t is MediaStreamTrack => t !== undefined)
+  return [micTrack, cameraTrack, screenTrack, screenAudioTrack].filter((t): t is MediaStreamTrack => t !== undefined)
 }
 
 function fragmentPayload(url: string): Partial<RoomUrlPayload> {
@@ -2609,7 +2614,7 @@ function stopLocalMedia(): void {
   for (const pipeline of pendingMedia) pipeline.stop()
   pendingMedia.clear()
   mic = camera = undefined
-  micTrack = cameraTrack = screenTrack = undefined
+  micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
   for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
@@ -3286,12 +3291,25 @@ function publishEffectStats(): void {
 
 setInterval(publishEffectStats, 500)
 
+/**
+ * Screen Capture API fields TypeScript's bundled DOM lib does not know yet.
+ * Chromium honours them; a browser that does not simply ignores what it
+ * does not recognise, so asking for them is harmless everywhere.
+ */
+interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
+  systemAudio?: 'include' | 'exclude'
+  selfBrowserSurface?: 'include' | 'exclude'
+  surfaceSwitching?: 'include' | 'exclude'
+}
+
 async function toggleScreen(): Promise<void> {
   const generation = roomGeneration
   if (switchingRoom) return
   if (screenTrack) {
     screenTrack.stop()
     screenTrack = undefined
+    screenAudioTrack?.stop()
+    screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
     localPreviewEls.delete('screen')
     // Same as the camera, and worse if it is missed: a screen share nobody
@@ -3306,22 +3324,51 @@ async function toggleScreen(): Promise<void> {
           'use a desktop browser, or the Android app.',
       )
     }
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true })
+    // Processing left off: shared sound is usually a video or music playing
+    // in a tab, not somebody's voice, and echo cancellation tuned for speech
+    // mangles it. Firefox and Safari offer no display audio at all, and a
+    // window share or an unticked "share tab audio" box leaves it out too -
+    // the share still goes ahead, silently; see `updateScreenAudioNote`.
+    const options: ScreenCaptureOptions = {
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      systemAudio: 'include',
+      selfBrowserSurface: 'exclude',
+      surfaceSwitching: 'include',
+    }
+    const stream = await navigator.mediaDevices.getDisplayMedia(options)
     if (generation !== roomGeneration) { for (const track of stream.getTracks()) track.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
+    screenAudioTrack = stream.getAudioTracks()[0]
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
         if (generation !== roomGeneration) return
         screenTrack = undefined
+        screenAudioTrack?.stop()
+        screenAudioTrack = undefined
         localPreviewEls.get('screen')?.remove()
         localPreviewEls.delete('screen')
         publishActiveTracks()
         updateUi()
       })
+      // The picture can keep sharing after its sound stops on its own - a
+      // tab switch, on a browser that ties system audio to a shared tab
+      // having focus. Unadvertise the sound and leave the picture alone.
+      screenAudioTrack?.addEventListener('ended', () => {
+        if (generation !== roomGeneration) return
+        screenAudioTrack = undefined
+        publishActiveTracks()
+        updateUi()
+      })
       addLocalPreview('screen', screenTrack)
       publishActiveTracks()
+    } else {
+      // No picture came back at all: nothing to show, so stop whatever the
+      // browser did hand over rather than leak a live capture nobody sees.
+      for (const track of stream.getTracks()) track.stop()
+      screenAudioTrack = undefined
     }
   }
   updateUi()
@@ -3412,6 +3459,7 @@ function currentAdverts(): TrackAdvert[] {
   if (cameraTrack) adverts.push({ trackId: cameraTrack.id, role: 'camera' })
   if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic' })
   if (screenTrack) adverts.push({ trackId: screenTrack.id, role: 'screen' })
+  if (screenAudioTrack) adverts.push({ trackId: screenAudioTrack.id, role: 'screen-audio' })
   return adverts
 }
 
@@ -3461,11 +3509,21 @@ function setToggle(id: string, on: boolean): void {
   $(id).setAttribute('aria-pressed', String(on))
 }
 
+/** "No sound is shared", next to the share toggle - only while a share is
+ *  live and the browser handed over no audio track: Firefox, Safari, a
+ *  window share, or the box left unticked. The share still goes ahead, so
+ *  this says why nobody can hear it rather than stopping it. Hidden the
+ *  moment the share ends, so it never outlives the share it is about. */
+function updateScreenAudioNote(): void {
+  $('screenAudioNote').hidden = !screenTrack || !!screenAudioTrack
+}
+
 function updateUi(): void {
   if (callIsLive() || onCall()) setCallOpen(true)
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  updateScreenAudioNote()
   setToggle('toggleCompanion', besideAnotherDevice)
   $('companionNote').hidden = !besideAnotherDevice
   // A background control with no camera running is a control for nothing.
@@ -4273,6 +4331,8 @@ function muteRequested(by: string): void {
   if (screenTrack) {
     screenTrack.stop()
     screenTrack = undefined
+    screenAudioTrack?.stop()
+    screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
     localPreviewEls.delete('screen')
     stopped.push('screen share')
@@ -6504,6 +6564,9 @@ async function collectDiagnostics(): Promise<string> {
       publishing: currentAdverts().map((a) => a.role),
       agentsMayHear,
       effect: $('effectMode').textContent,
+      screenAudio: screenAudioTrack
+        ? { present: true, muted: screenAudioTrack.muted, readyState: screenAudioTrack.readyState }
+        : { present: false },
     },
     participants: s?.participants().map((v) => ({
       name: v.name,

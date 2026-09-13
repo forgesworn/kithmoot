@@ -101,6 +101,10 @@
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false">Screen share</button>
             </div>
             <p id="micIndicator" class="indicator"></p>
+            <!-- Shown only while a screen share is live and the browser gave
+                 no audio track: Firefox, Safari, a window share, or the box
+                 left unticked. The share still works; it is simply quiet. -->
+            <p id="screenAudioNote" class="indicator" hidden>No sound is shared. To share sound, share a browser tab and tick Share tab audio.</p>
             <!-- Two of your devices on one call: sound comes out of one of
                  them, and the newest microphone does not take it. -->
             <p id="monitorIndicator" class="indicator" hidden></p>
