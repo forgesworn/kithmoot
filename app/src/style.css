@@ -815,6 +815,21 @@ video {
   overflow-wrap: anywhere;
 }
 
+/* A URL in a message, tappable rather than just words. Underlined rather
+   than accent colour alone, so it reads as a link without relying on
+   colour; `anywhere` keeps a very long one wrapping inside the bubble
+   instead of stretching it, without ever shortening the address itself. */
+.bubble .text a {
+  color: var(--accent);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.bubble .text a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
 /* Consecutive messages share a sender heading; every timestamp stays visible. */
 .messageHeader { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; max-width: 100%; margin-bottom: 0.3rem; }
 .msg.continuation .sender { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -823,6 +838,21 @@ video {
 .reactableBubble { -webkit-touch-callout: none; }
 @media (any-pointer: coarse) {
   .reactableBubble { -webkit-user-select: none; user-select: none; }
+}
+/* A link inside a held bubble keeps its own platform behaviour: the
+   long-press callout that offers "Copy Link" and "Open in New Tab", and
+   normal text selection. `-webkit-touch-callout` and `user-select` are both
+   inherited, so without this a link would silently pick up the bubble's
+   "none" from its parent along with everything else the hold gesture turns
+   off there. This is also why the reaction-hold gesture never has to check
+   for a link explicitly on the touch side - `reaction-hold.ts` already
+   excludes any press that starts on an `a`, and there is nothing left for
+   the hold to have taken away here. */
+.reactableBubble a {
+  -webkit-touch-callout: default;
+}
+@media (any-pointer: coarse) {
+  .reactableBubble a { -webkit-user-select: text; user-select: text; }
 }
 .msg.mine .messageBody { flex-direction: row-reverse; }
 .messageControls { display: flex; flex: 0 0 88px; }
