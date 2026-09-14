@@ -520,6 +520,10 @@ signature per join.
 
 ## Which platforms
 
+The [client roadmap](docs/client-roadmap.md) keeps the PWA as the immediate
+release gate, then sequences desktop, Android and a universal iPhone/iPad
+client behind it.
+
 | | Video | Voice | Chat | Screen share |
 |---|---|---|---|---|
 | **Desktop browser** (Chrome, Firefox, Safari) | yes | yes | yes | yes |

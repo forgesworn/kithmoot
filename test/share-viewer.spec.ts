@@ -27,6 +27,13 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
       await viewer.mouse.move(drawRect.x + drawRect.width * .3, drawRect.y + drawRect.height * .35)
       await viewer.mouse.down()
       await viewer.mouse.move(drawRect.x + drawRect.width * .7, drawRect.y + drawRect.height * .65, { steps: 12 })
+      // Model iOS WebKit losing element-level pointer capture: the stroke
+      // ends elsewhere in the window. The completed line must still publish
+      // to the sharer rather than remaining only under the viewer's finger.
+      await dialog.locator('.shareViewport').evaluate((viewport) => {
+        if (viewport.hasPointerCapture(1)) viewport.releasePointerCapture(1)
+      })
+      await viewer.mouse.move(4, 4)
       await viewer.mouse.up()
     }
     await drawStroke()

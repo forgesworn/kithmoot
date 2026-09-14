@@ -311,8 +311,8 @@ export class ShareViewer {
       if (!dragging || event.pointerId !== dragging.id) return
       x = event.clientX - dragging.x; y = event.clientY - dragging.y; paint()
     })
-    const stopDragging = (event: PointerEvent) => {
-      if (drawing && stroke && dragging?.id === event.pointerId) {
+    const finishStroke = () => {
+      if (drawing && stroke) {
         const points = stroke; stroke = undefined
         const shareId = this.#source?.()?.id
         if (shareId && points.length > 1) {
@@ -321,9 +321,21 @@ export class ShareViewer {
         }
         renderAnnotations()
       }
-      fingers.delete(event.pointerId); dragging = undefined; pinchDistance = 0
+      fingers.clear(); dragging = undefined; pinchDistance = 0
+    }
+    const stopDragging = (event: PointerEvent) => {
+      if (dragging?.id !== event.pointerId && !fingers.has(event.pointerId)) return
+      finishStroke()
     }
     viewport.addEventListener('pointerup', stopDragging); viewport.addEventListener('pointercancel', stopDragging)
+    // iOS WebKit has shipped pointer-capture cases where the final event is
+    // retargeted outside the capturing element. Listening at the window as
+    // well means lifting a finger still publishes the completed line; the
+    // viewport listener runs first in ordinary browsers and makes this a
+    // harmless no-op there.
+    win.addEventListener('pointerup', stopDragging); win.addEventListener('pointercancel', stopDragging)
+    const stopTouch = (event: TouchEvent) => { if (event.touches.length === 0 && stroke) finishStroke() }
+    win.addEventListener('touchend', stopTouch); win.addEventListener('touchcancel', stopTouch)
     viewport.addEventListener('wheel', event => { event.preventDefault(); setZoom(zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1)) }, { passive: false })
     viewport.addEventListener('keydown', event => {
       if (event.key === '+' || event.key === '=') setZoom(zoom * 1.25)
@@ -359,6 +371,11 @@ export class ShareViewer {
     const timer = window.setInterval(refresh, 250)
     const unsubscribe = this.#marks.subscribe(renderAnnotations)
     refresh()
-    return () => { unsubscribe(); win.removeEventListener('pagehide', pageGone); window.clearInterval(timer); size.disconnect(); doc.removeEventListener('fullscreenchange', paint); video.pause(); video.srcObject = null }
+    return () => {
+      unsubscribe(); win.removeEventListener('pagehide', pageGone)
+      win.removeEventListener('pointerup', stopDragging); win.removeEventListener('pointercancel', stopDragging)
+      win.removeEventListener('touchend', stopTouch); win.removeEventListener('touchcancel', stopTouch)
+      window.clearInterval(timer); size.disconnect(); doc.removeEventListener('fullscreenchange', paint); video.pause(); video.srcObject = null
+    }
   }
 }
