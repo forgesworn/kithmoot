@@ -406,7 +406,7 @@
             commas. The room hands these to everybody who joins, so nobody
             has to take our word for which ones to use.
           </label>
-          <input id="iceServers" value="stun:stun.l.google.com:19302" />
+          <input id="iceServers" placeholder="Leave blank to use this site's own STUN/TURN" />
         </details>
       </section>
 
@@ -734,6 +734,10 @@
              it, and it lives here permanently for anybody who comes looking.
              Filled in by `render` in app/src/main.ts. -->
         <p id="agentsExplain" class="agentsExplain" hidden></p>
+        <!-- One tick, at the untouched 100% level, for every volume slider
+             in the roster below - see app/src/main.ts's "Per-person volume"
+             section. -->
+        <datalist id="volumeNotch"><option value="100"></option></datalist>
         <div id="sheetRoster" class="sheetRoster"></div>
         <!-- You: how this device is in the room, and the way to change it.
              Moved here from the message box, where it was the first control
