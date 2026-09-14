@@ -7,6 +7,7 @@ import { Outbox } from './outbox.js'
 import { confirmAction, type ConfirmActionOptions } from './confirm-action.js'
 import { ChatScroll } from './chat-scroll.js'
 import { installReactionHold } from './reaction-hold.js'
+import { splitLinks } from './linkify.js'
 import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
@@ -5526,7 +5527,8 @@ function mentionPattern(names: string[]): RegExp | undefined {
 }
 
 /**
- * A message's words, with the names in it marked.
+ * A message's words: an http(s) URL as a real link, and the names in the
+ * rest of it marked.
  *
  * A mention is set apart from ordinary words, and a mention of the reader
  * is set apart again - that is the one thing a person scans a busy room
@@ -5534,6 +5536,30 @@ function mentionPattern(names: string[]): RegExp | undefined {
  * markup out of somebody else's text.
  */
 function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | undefined, mine: Set<string>): void {
+  for (const token of splitLinks(text)) {
+    if (token.kind === 'link') into.append(linkElement(token.url))
+    else appendMentions(into, token.value, pattern, mine)
+  }
+}
+
+/** A tappable, copyable link for a URL pasted into a message. Its visible
+ *  text is the URL itself, so nothing is hidden behind different wording,
+ *  and it opens in a new tab without handing the destination a reference
+ *  back to this one. On a phone, an `a` is already exactly what steps aside
+ *  from the bubble's hold-to-react gesture and its disabled callout menu -
+ *  see the `a` exclusions in `reaction-hold.ts` and the `.reactableBubble a`
+ *  rules in style.css - so a long press here gives the platform's own link
+ *  menu instead of opening the reaction picker. */
+function linkElement(url: string): HTMLAnchorElement {
+  const a = document.createElement('a')
+  a.href = url
+  a.textContent = url
+  a.target = '_blank'
+  a.rel = 'noopener noreferrer'
+  return a
+}
+
+function appendMentions(into: HTMLElement, text: string, pattern: RegExp | undefined, mine: Set<string>): void {
   if (!pattern) {
     into.append(text)
     return
@@ -5551,6 +5577,32 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
     at = start + token.length
   }
   if (at < text.length) into.append(text.slice(at))
+}
+
+/** Copy a message's exact text to the clipboard, for a phone where a
+ *  bubble's own long-press is spoken for by the reaction picker and native
+ *  text selection is off outside a link (see `.reactableBubble` in
+ *  style.css). Falls back to a hidden textarea's `execCommand('copy')` the
+ *  way `copyInput` above does for the invite link, for a browser that has
+ *  no async clipboard API or refuses it here. */
+async function copyMessageText(text: string): Promise<void> {
+  let copied = false
+  try {
+    if (navigator.clipboard) { await navigator.clipboard.writeText(text); copied = true }
+  } catch { /* Try the browser's selection-based copy below. */ }
+  if (!copied) {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    area.setAttribute('aria-hidden', 'true')
+    document.body.append(area)
+    area.focus()
+    area.select()
+    try { copied = document.execCommand('copy') } catch { /* Manual copying remains available. */ }
+    area.remove()
+  }
+  setStatus(copied ? 'Message text copied.' : 'Could not copy automatically. Select the text and copy it with your keyboard or touch menu.', copied ? 'done' : 'problem')
 }
 
 /**
@@ -5777,7 +5829,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       more.setAttribute('aria-controls', 'messageActionPanel')
       more.setAttribute('aria-expanded', 'false')
       const openActions = (anchor: HTMLElement, reactionsOnly = false): void => {
-        const actions: MessageAction[] = [{ label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) }]
+        const actions: MessageAction[] = [
+          { label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) },
+          { label: 'Copy text', text: 'Copy text', run: () => { void copyMessageText(m.text) } },
+        ]
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
