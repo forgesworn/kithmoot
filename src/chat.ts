@@ -188,6 +188,9 @@ export interface ChatMessage {
  * every member can read and nobody else can. That is not a weakening of
  * Wildbloom's model but the case it was designed for: the key travels by a
  * channel the people concerned already trust, and the room is that channel.
+ * A quiet room never publishes the kind-1063 event at all, because this
+ * message already carries the url, hash and key a reader needs; see
+ * `src/quiet.ts`.
  *
  * The hints are what the sender chose to say about the file before anyone
  * has fetched it, so a reader can decide whether to. They are claims like a
@@ -195,9 +198,11 @@ export interface ChatMessage {
  * to be.
  */
 export interface ChatAttachment {
-  /** The kind-1063 event id: where this came from, for anyone who wants to
-   *  check the public record. */
-  event: string
+  /** The kind-1063 event id, when one was published: where this came from,
+   *  for anyone who wants to check the public record. Absent in a quiet
+   *  room, which never publishes that announcement - see `src/quiet.ts` -
+   *  because this message already carries everything a reader needs. */
+  event?: string
   /** Where the envelope is served. https only. */
   url: string
   /** SHA-256 of the served envelope bytes, the event's `x` tag. Checked
@@ -228,7 +233,7 @@ const HEX_64 = /^[0-9a-fA-F]{64}$/
 export function normaliseAttachment(raw: unknown): ChatAttachment | null {
   if (!raw || typeof raw !== 'object') return null
   const a = raw as Record<string, unknown>
-  if (typeof a.event !== 'string' || !HEX_64.test(a.event)) return null
+  if (a.event !== undefined && (typeof a.event !== 'string' || !HEX_64.test(a.event))) return null
   if (typeof a.sha256 !== 'string' || !HEX_64.test(a.sha256)) return null
   if (typeof a.key !== 'string' || !HEX_64.test(a.key)) return null
   if (typeof a.url !== 'string' || a.url.length === 0 || a.url.length > MAX_ATTACHMENT_URL_LENGTH) return null
@@ -240,11 +245,11 @@ export function normaliseAttachment(raw: unknown): ChatAttachment | null {
   }
   if (url.protocol !== 'https:') return null
   const out: ChatAttachment = {
-    event: normaliseHex(a.event),
     url: a.url,
     sha256: normaliseHex(a.sha256),
     key: normaliseHex(a.key),
   }
+  if (typeof a.event === 'string') out.event = normaliseHex(a.event)
   const name = sanitiseAttachmentName(a.name)
   if (name !== undefined) out.name = name
   if (typeof a.type === 'string' && a.type.length <= MAX_ATTACHMENT_TYPE_LENGTH && MEDIA_TYPE.test(a.type)) {

@@ -47,9 +47,13 @@
 # template, and a start. By hand, the same steps are in that script.
 #
 # VERIFY: `journalctl -u kithmoot-forwarder@<name> -n 30` prints the startup
-# banner, including the room id, this forwarder's pubkey, and the one-line
-# JSON to paste into the room descriptor's forwarder list. Everything is on
-# stderr, so `journalctl -f` is the log.
+# banner - an 8-character prefix of the room id and of this forwarder's
+# pubkey, enough to confirm which room this is without putting the full
+# values in a log this box may keep for a long time - and the one-line JSON
+# to paste into the room descriptor's forwarder list, which does carry the
+# full pubkey because that line is meant to be copied, not merely read.
+# Everything is on stderr, so `journalctl -f` is the log. See
+# deploy/README.md's "Logs" section for retention.
 #
 # READ deploy/README.md's "Running a forwarder" section before enabling
 # this. A forwarder relays every byte it carries, in both directions, and

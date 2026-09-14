@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { ContextVault } from './index.js'
 import { createNostrIdentity } from './nostr.js'
 import { sha256Hex } from './blossom.js'
@@ -97,5 +98,51 @@ describe('portable context without a KithMoot runtime', () => {
     const noVerifier = new ContextVault({ identity: owner, now: () => now })
     await expect(noVerifier.restore(await vault.save())).rejects.toThrow('ownership proof')
     expect(noVerifier.list()).toEqual([])
+  })
+})
+
+/** The pubkey a Blossom upload was authorised under, read off the signed
+ *  kind-24242 event in the `Authorization` header, the way a server would. */
+function authorisingFetch(inner: typeof fetch, seen: { pubkey?: string }[]): typeof fetch {
+  return async (input, init) => {
+    if (init?.method === 'PUT') {
+      const header = (init.headers as Record<string, string>).Authorization
+      seen.push(JSON.parse(atob(header.slice('Nostr '.length))))
+    }
+    return inner(input, init)
+  }
+}
+
+describe('the Blossom upload authorisation', () => {
+  it('never signs with the participant identity, and uses a different key each upload', async () => {
+    const store = storage()
+    const seen: { pubkey?: string }[] = []
+    const vault = new ContextVault({ identity: owner, fetch: authorisingFetch(store.fetch, seen), servers: [origin], now: () => now })
+    let view = await vault.create({ title: 'Signer check', scope: 'personal' })
+    await vault.upload(view.id, origin)
+    view = await vault.append(view.id, view.head, { kind: 'fact', text: 'A second revision.', source: 'fixture://signer', observedAt: now })
+    await vault.upload(view.id, origin)
+    expect(seen).toHaveLength(2)
+    for (const auth of seen) {
+      expect(auth.pubkey).toBeDefined()
+      expect(auth.pubkey).not.toBe(owner.pubkey)
+    }
+    // A fresh, discarded key per upload: unlinkable from one upload to the next.
+    expect(seen[0]!.pubkey).not.toBe(seen[1]!.pubkey)
+  })
+
+  it('accepts an injected signer for a caller that needs a stable uploader key', async () => {
+    const store = storage()
+    const seen: { pubkey?: string }[] = []
+    const uploaderSk = generateSecretKey()
+    const vault = new ContextVault({
+      identity: owner, fetch: authorisingFetch(store.fetch, seen), servers: [origin], now: () => now,
+      uploadSign: template => finalizeEvent(template, uploaderSk),
+    })
+    const view = await vault.create({ title: 'Injected signer', scope: 'personal' })
+    await vault.upload(view.id, origin)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.pubkey).toBe(getPublicKey(uploaderSk))
+    expect(seen[0]!.pubkey).not.toBe(owner.pubkey)
   })
 })

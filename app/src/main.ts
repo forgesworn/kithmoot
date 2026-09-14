@@ -12,6 +12,7 @@ import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
+import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
   browserDeviceStore,
@@ -165,6 +166,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
+import { CallWakeLock } from './wake-lock.js'
 
 const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
@@ -200,6 +202,7 @@ function positionReactionDetails(details: HTMLElement): void {
 
 const shareViewer = new ShareViewer({
   onAnnotation: annotation => session?.publishAnnotation(annotation),
+  author: () => markAuthor(meParticipant),
 })
 const emojiPicker = new EmojiPicker()
 window.addEventListener('pagehide', () => shareViewer.close())
@@ -2579,6 +2582,26 @@ function onCall(): boolean {
 }
 
 /**
+ * Holds this device's screen on for as long as it is on the call: requested
+ * in `joinCall`, released in `leaveCall`, on leaving the room, and on the
+ * page itself going away. See app/src/wake-lock.ts for why it also has to
+ * re-request itself on `visibilitychange` - the browser drops the lock the
+ * moment the tab is hidden, with no event of its own to say so until it is
+ * looked at again.
+ */
+const callWakeLock = new CallWakeLock({ onStateChange: () => renderWakeLockNote() })
+
+/** The quiet line under the call controls saying the screen might sleep
+ *  here. Worth saying only when it might actually happen - no Wake Lock API,
+ *  or a request refused - and only while on the call; off it, or with the
+ *  lock actually held, it would be a line answering a question nobody
+ *  asked. */
+function renderWakeLockNote(): void {
+  const note = $('wakeLockNote')
+  note.hidden = !onCall() || (callWakeLock.state !== 'unsupported' && callWakeLock.state !== 'error')
+}
+
+/**
  * Pressed Leave, and not Join since.
  *
  * Not the same as "not on the call". Somebody who has just walked into a
@@ -2603,6 +2626,7 @@ async function joinCall(): Promise<void> {
   leftCall = false
   await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
   setCallOpen(true)
+  void callWakeLock.acquire()
   updateUi()
 }
 
@@ -2632,6 +2656,7 @@ async function leaveCall(): Promise<void> {
   leftCall = true
   if (s) await s.setCall(null)
   setCallOpen(false)
+  void callWakeLock.release()
   updateUi()
   if (session) render(session.participants(), meParticipant)
 }
@@ -3475,6 +3500,7 @@ function updateUi(): void {
   setToggle('toggleScreen', !!screenTrack)
   setToggle('toggleCompanion', besideAnotherDevice)
   $('companionNote').hidden = !besideAnotherDevice
+  renderWakeLockNote()
   // A background control with no camera running is a control for nothing.
   // Both open themselves the first time they appear rather than hiding
   // behind a disclosure: blur is on by default, so the control that turns it
@@ -4151,6 +4177,22 @@ let keeperParticipant: string | undefined
 function personLabel(pubkey: string): string {
   const shown = shownAs(pubkey, session?.participants().find((v) => v.participant === pubkey)?.name)
   return shown.name !== undefined ? `${shown.name} (${shown.short})` : shown.short
+}
+
+/**
+ * Who to credit a screen-share mark to: the same name and short key
+ * `personLabel` puts on a status line. Colour is not decided here - see
+ * `colourForParticipant` and `coloursForShare` in share-marks.ts - because
+ * "the blue arrow" has to mean the same arrow to everybody, including
+ * whoever drew it, so it cannot depend on whether this participant happens
+ * to be this device's own.
+ */
+function markAuthor(participant: string): MarkAuthor {
+  const mine = participant === meParticipant
+  return {
+    key: participant,
+    label: mine ? `${personLabel(participant)} (you)` : personLabel(participant),
+  }
 }
 
 /** Lines the room shows in the chat that nobody sent: an epoch change, a
@@ -6511,6 +6553,7 @@ async function collectDiagnostics(): Promise<string> {
       publishing: currentAdverts().map((a) => a.role),
       agentsMayHear,
       effect: $('effectMode').textContent,
+      wakeLock: callWakeLock.state,
     },
     participants: s?.participants().map((v) => ({
       name: v.name,
@@ -6661,7 +6704,9 @@ async function startSession(asVisitor = false): Promise<void> {
     const name = joiningName()
     // Held here as well as inside the session, because a file dropped into
     // the chat announces itself with a kind-1063 event on the room's own
-    // relays, through the sockets the room already has open.
+    // relays, through the sockets the room already has open - in an
+    // ordinary room only; a quiet room sends no such announcement. See
+    // `shareDroppedFile`.
     const pool = configuredPool(relays)
     sessionTransport = pool
     // A quiet room's chat rides in drops: wrap the pool, and the session
@@ -6754,7 +6799,7 @@ async function startSession(asVisitor = false): Promise<void> {
       renderApprovals()
     })
     s.onRemoteTrack(({ device, track }) => { if (session === s) attachRemoteTrack(device, track); else track.stop() })
-    s.onAnnotation(({ annotation }) => { if (session === s) shareViewer.receive(annotation) })
+    s.onAnnotation(({ participant, annotation }) => { if (session === s) shareViewer.receive(annotation, markAuthor(participant)) })
 
     await s.join(currentAdverts(), currentClaims())
     if (session !== s) return
@@ -7557,6 +7602,7 @@ async function closeRoomSession(): Promise<void> {
   if (approvalTimer !== undefined) clearTimeout(approvalTimer)
   iceRefreshTimer = assistTimer = approvalTimer = undefined
   stopLocalMedia()
+  void callWakeLock.release()
   speakingMonitor.retain([])
   for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
     entry.track.stop()
@@ -8487,6 +8533,7 @@ window.addEventListener('pagehide', () => {
   session?.leave()
   stopInvitationHost()
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
+  void callWakeLock.release()
 })
 
 setToggle('toggleAgentsHear', agentsMayHear)
@@ -9132,14 +9179,41 @@ function dropProgress(draft: ConversationDraft, stage: string, file: File): void
  * sealed here under a fresh key, put on the Blossom server as an opaque
  * blob, announced with a kind-1063 event on the room's relays, and then
  * staged exactly as a pasted Wildbloom share is. The device key signs the
- * upload and the announcement, so a hardware signer is never asked and a
- * relay learns only that this device shared some encrypted bytes. The key
- * goes into the staged attachment and nowhere else.
+ * upload and any announcement, so a hardware signer is never asked and a
+ * relay learns only that this device shared some encrypted bytes.
+ *
+ * A quiet room never gets that announcement: the chat message a moment
+ * later already carries the url, hash, key, name, type and size inside its
+ * ciphertext (or gift wrap), and a kind-1063 event bare on the relay would
+ * say, in the open, that a device in this room shared a file and when -
+ * exactly what a quiet room promises never to show. See `src/quiet.ts`.
+ *
+ * Whether this room is quiet, and which transport actually carries the
+ * announcement, are both fixed at the top of this function, before any
+ * `await` - not re-read afterwards. This upload spans several awaited
+ * steps, during which the room can close, rekey or be left (another
+ * device's action, not just this one's), which flips `quietTransport` to
+ * something else entirely; reading it again after that would ask "is the
+ * CURRENT room quiet" instead of "was the room this upload was for quiet".
+ * The room-generation check below catches the same staleness from the
+ * other side: if the room changed at all while this ran, nothing is
+ * announced or staged, whether or not it was quiet. And the announcement,
+ * when one is sent, still goes out through the room's own transport as it
+ * stood at the start - a `QuietRoomTransport`, if that room was quiet - so
+ * even if this file is ever wrong, that transport's own refusal of a bare
+ * kind-1063 (`QUIET_BLOCKED_KINDS` in `src/quiet.ts`) is what actually
+ * stops it, not this file's bookkeeping.
+ *
+ * The key goes into the staged attachment and nowhere else.
  */
 async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string): Promise<void> {
   signal.throwIfAborted()
-  const transport = sessionTransport
-  if (!session || !transport) throw new Error('Join the room first.')
+  const startGeneration = roomGeneration
+  const pool = sessionTransport
+  if (!session || !pool) throw new Error('Join the room first.')
+  // Fixed now, alongside the transport: see the function comment above.
+  const quiet = quietTransport !== undefined
+  const transport: RelayTransport = quietTransport ?? pool
   if (file.size > MAX_UPLOAD_SOURCE_BYTES) {
     throw new Error(`${file.name} is ${formatBytes(file.size)}; a room sends up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)}.`)
   }
@@ -9167,13 +9241,29 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   const descriptor = await uploadEnvelope(origin, sealed.envelope, { sign: (t) => finalizeEvent(t, deviceSk), signal })
 
   signal.throwIfAborted()
-  dropProgress(draft, 'Announcing', file)
-  const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
-  await transport.publish(event)
+  // The room this upload was for is gone, replaced or rekeyed: another
+  // device's action, a keeper closing the room, a dropped connection, not
+  // necessarily anything this tab did. Whatever it was, this file is not
+  // announced or staged into a draft that is no longer this room's - the
+  // draft object itself may belong to a room nobody is looking at any
+  // more. The blob is already on the Blossom server if it is still wanted.
+  if (roomGeneration !== startGeneration) {
+    throw new Error('This room changed while the file was uploading, so nothing was shared. The file is stored on the server; drop it again in the current room if you still want to send it.')
+  }
+  // In a quiet room, no announcement leaves this device: see the function
+  // comment above. `quiet` and `transport` were fixed at the top of this
+  // function, before the room could change out from under this decision.
+  let eventId: string | undefined
+  if (!quiet) {
+    dropProgress(draft, 'Announcing', file)
+    const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
+    await transport.publish(event)
+    eventId = event.id
+  }
 
   signal.throwIfAborted()
   draft.attachments.push({
-    event: event.id,
+    ...(eventId !== undefined ? { event: eventId } : {}),
     url: descriptor.url,
     sha256: descriptor.sha256,
     key: sealed.key,
