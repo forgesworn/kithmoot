@@ -734,6 +734,69 @@ async function signOutOfNostr(): Promise<void> {
   }
 }
 
+/**
+ * The nuclear option: every trace of this app on this browser, gone.
+ *
+ * Everything a normal sign-out or per-room Forget leaves behind - the
+ * visitor identity, every room kept here and its keys, contacts, verified
+ * people, preferences, and the signer connection signet-login keeps across
+ * logout - lives in localStorage or sessionStorage under one of two
+ * prefixes: `kithmoot.` for this app, `signet:login.` for the signer
+ * connection. This is an explicit, person-initiated deletion, which is
+ * exactly the case that justifies removing it all at once.
+ *
+ * It cannot reach anything already on a relay or another person's device,
+ * and it does not touch signed-in room bookmarks kept there either - those
+ * are removed one room at a time with Forget room, same as today.
+ */
+async function forgetThisBrowser(): Promise<void> {
+  if (callIsLive() || onCall()) { setStatus('Leave the call before forgetting this browser.'); return }
+  if (!await confirmRoomAction({
+    title: 'Forget this browser?',
+    message: 'This removes, from this browser only:\n'
+      + '- your visitor identity\n'
+      + '- every room kept here, and its keys\n'
+      + '- contacts and verified people\n'
+      + '- text size and volume choices\n'
+      + '- the saved connection to a Nostr signer\n\n'
+      + "It does not remove anything from relays or from other people's devices. "
+      + 'Signed-in room bookmarks on your Nostr account stay unless you Forget each room first.',
+    confirmLabel: 'Forget this browser',
+    danger: true,
+  })) return
+
+  contextPanel.close()
+  identityGeneration++
+  const s = session
+  session = undefined
+  sessionTransport = undefined
+  s?.leave()
+
+  const account = nostrSession
+  relayConnections.clearAuthentication()
+  void sharedProjects.detach()
+  bookmarks?.close()
+  bookmarks = undefined
+  readSync?.close()
+  readSync = undefined
+  nostrSession = undefined
+  // clearPersistentClientKey: true, same as sign-out - a browser that is
+  // being forgotten entirely must not keep the one thing plain sign-out
+  // by itself leaves behind (see signOutOfNostr and clearPersistentClientKey
+  // in signet-login's LogoutOptions). Safe to call with no account: logout()
+  // only clears storage in that case.
+  await logout(account, { clearPersistentClientKey: true })
+
+  for (const storage of [localStorage, sessionStorage]) {
+    for (const key of Object.keys(storage)) {
+      if (key.startsWith('kithmoot.')) storage.removeItem(key)
+    }
+  }
+
+  history.replaceState(null, '', joinLinkBase())
+  approvedReload()
+}
+
 let bookmarks: RoomBookmarks | undefined
 function roomStore() { return bookmarks?.rooms ?? deviceStore }
 
@@ -8619,6 +8682,11 @@ $('retryRoomSync').addEventListener('click', () => { void bookmarks?.retry() })
 $('importBrowserRooms').addEventListener('click', () => {
   try { importBrowserRooms() } catch (error) { setStatus(describeError(error)) }
 })
+for (const id of ['forgetBrowser', 'forgetBrowserRoom']) {
+  $(id).addEventListener('click', () => {
+    forgetThisBrowser().catch((err) => setStatus(describeError(err)))
+  })
+}
 
 $('createRoomForm').addEventListener('submit', async event => {
   event.preventDefault()
