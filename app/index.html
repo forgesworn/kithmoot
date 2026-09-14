@@ -85,6 +85,15 @@
           <button id="watchAgents" type="button">Watch agents</button>
           <button id="manageAgents" type="button" hidden>Invite an agent</button>
         </div>
+        <!-- Somebody has drawn on this device's own screen share and the
+             floating preview, if this browser has one, is not open to show
+             it directly. Filled in by `showDrawingNotice` in
+             app/src/main.ts; never steals focus. -->
+        <div id="sharerMarksNotice" class="sharerMarksNotice" role="status" hidden>
+          <span id="sharerMarksNoticeText"></span>
+          <button id="sharerMarksNoticeShow" type="button">Show</button>
+          <button id="sharerMarksNoticeFloat" type="button" hidden>Open floating window</button>
+        </div>
 
         <!-- The call. Absent until there is one, the way a phone shows call
              controls only during a call. Revealed by the Call button above,
@@ -99,6 +108,7 @@
               <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false">Microphone</button>
               <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false">Camera</button>
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false">Screen share</button>
+              <button id="toggleFloatingMarks" class="toggle" data-on="false" aria-pressed="false" hidden>Show drawings in a floating window</button>
             </div>
             <p id="micIndicator" class="indicator"></p>
             <!-- Shown only while a screen share is live and the browser gave
