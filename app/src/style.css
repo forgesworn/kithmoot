@@ -3255,26 +3255,95 @@ input[type="search"] { font-family: inherit; }
   body:has(#roomArea:not([hidden])) { height: 100vh; height: 100svh; }
 }
 
-/* The call on a phone: bounded, so the conversation keeps the screen.
+/* The call on a phone: two short strips, and the conversation keeps the rest.
 
-   The controls and the pictures each scroll inside their own area, the
-   pictures sit two to a row, and the conversation takes what is left.
-   Nothing is hidden: scroll either area for the rest of it. */
-@media (max-width: 700px) {
-  #callStage { display: flex; flex-direction: column; gap: .4rem; flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+   The first version of this pass bounded the call controls and the pictures
+   in areas that scrolled vertically, and at rest they cut text through the
+   middle of a line: "On the call with..." and Leave call lost their top
+   halves and Screen share sat out of sight. Nothing here scrolls vertically
+   now. The controls are one line of status and one row of five buttons:
+   Mic, Camera, Share, More and Leave. Blur, voice and the two-device
+   switches wait behind More (see app/src/call-folds.ts). The pictures are
+   one row of whole tiles, pictures first, exactly two to a screen width,
+   that scrolls sideways. Not snapped: the tiles are rebuilt as tracks
+   arrive, and a snapped row followed its tile off to the side, so the row
+   met the reader already scrolled. The agents notice steps aside during a call; the agents are in
+   the row of tiles and on the Agents tab. */
+.callShort { display: none; }
+.callExtras { margin: 0; }
+.callExtras > summary { display: none; }
+@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  .callFull { display: none; }
+  .callShort { display: inline; }
+  #roomArea:has(#callBay:not([hidden]), #callBanner:not([hidden])) > #agentActivity { display: none; }
+  #callStage { display: flex; flex-direction: column; gap: .4rem; flex: 0 0 auto; min-height: 0; }
   #callStage:has(> #callBay:not([hidden]), > #whoIsHere:not([hidden])) { margin-bottom: .5rem; }
+  /* Opened on purpose, More may be taller than the screen can spare: then,
+     and only then, the call area scrolls, so the box to reply in stays. */
+  #callStage:has(#callExtras[open]) { flex-shrink: 1; overflow-y: auto; }
   #callStage > #callBay,
-  #callStage > #whoIsHere { flex: 0 1 auto; min-height: min(5.5rem, 12svh); margin: 0; overflow-y: auto; }
-  #callStage > #callBay { max-height: 24svh; min-height: min(3.5rem, 8svh); }
-  #callStage > #whoIsHere { max-height: 30svh; }
-  /* A bounded area that scrolls should look like one, not like tiles cut
-     off by the rows under them. */
-  #callStage > #whoIsHere:not([hidden]) { padding: .35rem; border: 1px solid var(--border); border-radius: 8px; }
-  #room .participant .media video { max-height: 20svh; }
-  #room:has(video), #room[data-tiles]:has(video) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
-  #room[data-tiles="1"]:has(video) { grid-template-columns: minmax(0, 1fr); }
-  #room .participant:has(video) { padding: .4rem; }
-  #room .participant:has(video) h3 { margin-bottom: .25rem; font-size: .9rem; }
+  #callStage > #whoIsHere { margin: 0; }
+
+  #callStage > #callBay { padding: .4rem .45rem; }
+  #deviceControls { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .3rem; align-items: center; }
+  #deviceControls > .callHead,
+  #deviceControls > .toggles { display: contents; }
+  #callWho,
+  #deviceControls > #micIndicator { min-width: 0; min-height: 0; margin: 0; font-size: .875rem; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #callWho { grid-area: 1 / 1 / 2 / 4; }
+  #deviceControls > #micIndicator { grid-area: 1 / 4 / 2 / 6; text-align: right; }
+  #toggleMic { grid-area: 2 / 1; }
+  #toggleCamera { grid-area: 2 / 2; }
+  #toggleScreen { grid-area: 2 / 3; }
+  #callExtras { grid-area: 2 / 4; min-width: 0; }
+  #leaveCall { grid-area: 2 / 5; }
+  #deviceControls > .toggles > .toggle,
+  #leaveCall,
+  #callExtras > summary {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; min-width: 0; min-height: 44px; margin: 0; padding: .3rem .15rem;
+    font-size: .875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #callExtras > summary { list-style: none; cursor: pointer; color: var(--text); background: var(--control); border: 1px solid var(--control-border); border-radius: 6px; }
+  #callExtras > summary::-webkit-details-marker { display: none; }
+  #callExtras[open] > summary { border-color: var(--accent); background: var(--accent-dim); }
+  #callExtras > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Open, More takes a row of its own under the controls. */
+  #callExtras[open] { grid-area: 3 / 1 / 4 / 6; }
+  #callExtras[open] > summary { width: auto; display: inline-flex; padding-inline: .8rem; }
+  #deviceControls > #monitorIndicator,
+  #deviceControls > #listenHere { grid-column: 1 / -1; margin: 0; }
+  #deviceControls > #local:empty { display: none; }
+
+  /* Whole tiles, in one row. */
+  #callStage > #whoIsHere:not([hidden]) {
+    display: flex; gap: .4rem; align-items: flex-start;
+    overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; padding: .2rem;
+  }
+  #callStage #agentsRow,
+  #callStage #room,
+  #callStage #room:has(video),
+  #callStage #room[data-tiles]:has(video) { display: contents; }
+  #callStage #whoIsHere .participant,
+  #callStage #whoIsHere .agentChip {
+    flex: 0 0 calc((100% - .4rem) / 2); min-width: 0; max-width: none; margin: 0;
+    border-radius: 8px; overflow-wrap: anywhere;
+  }
+  #callStage #whoIsHere .participant { display: block; padding: .3rem .4rem; }
+  #callStage #whoIsHere .participant h3 { flex-wrap: wrap; }
+  #callStage #whoIsHere .participant .verifyChip { white-space: nowrap; overflow-wrap: normal; }
+  #callStage #whoIsHere .participant > .tracks { margin-top: .2rem; }
+  #callStage #whoIsHere .participant:has(video) { order: -1; position: relative; display: block; padding: .3rem; }
+  #callStage #whoIsHere .participant h3 { margin: 0 0 .2rem; font-size: .875rem; }
+  #callStage #whoIsHere .participant h3 .devices { display: none; }
+  #callStage #whoIsHere .participant:has(video) > .tracks { display: none; }
+  #callStage #whoIsHere .participant .media { margin-top: 0; }
+  #callStage #whoIsHere .participant .media video,
+  #callStage #whoIsHere .participant .media video.screenPreview { width: 100%; height: 5rem; max-height: none; aspect-ratio: auto; }
+  #callStage #whoIsHere .participant > .shareExpand { position: absolute; right: .5rem; bottom: .5rem; margin: 0; padding: .2rem .5rem; font-size: 0; min-height: 44px; }
+  #callStage #whoIsHere .participant > .shareExpand::after { content: 'Expand'; font-size: .875rem; }
+  #callStage #whoIsHere .participant > .shareExpand:disabled::after { content: 'Arriving'; }
+
   main:has(#roomArea:not([hidden])) #chatViewport { min-height: min(14rem, 30svh); }
 }
 @media (max-width: 700px) and (max-height: 600px) {
@@ -3300,7 +3369,6 @@ input[type="search"] { font-family: inherit; }
     position: fixed;
     inset: 0 auto 0 0;
     z-index: 2;
-    display: block;
     width: 42vw;
     margin: 0;
     padding: max(.75rem, env(safe-area-inset-top)) .5rem max(.75rem, env(safe-area-inset-bottom)) max(.75rem, env(safe-area-inset-left));
@@ -3308,11 +3376,8 @@ input[type="search"] { font-family: inherit; }
     background: var(--bg);
     border-right: 1px solid var(--border);
   }
-  #roomArea #callStage > #callBay,
-  #roomArea #callStage > #whoIsHere { max-height: none; min-height: 0; overflow: visible; margin: 0 0 .5rem; }
-  #callStage #room:has(video),
-  #callStage #room[data-tiles]:has(video) { grid-template-columns: minmax(0, 1fr); }
-  #callStage #room .participant .media video { max-height: 60svh; }
+  #callStage #whoIsHere .participant .media video,
+  #callStage #whoIsHere .participant .media video.screenPreview { height: 7rem; }
   main:has(#roomArea:not([hidden])) #chatViewport { min-height: max(6rem, calc(100svh - 10rem)); }
 }
 

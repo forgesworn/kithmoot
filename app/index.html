@@ -12,6 +12,7 @@
     <title>KithMoot</title>
     <link rel="stylesheet" href="/src/style.css" />
     <script type="module" src="/src/text-size.ts"></script>
+    <script type="module" src="/src/call-folds.ts"></script>
   </head>
   <body>
     <aside id="updateNotice" hidden role="status" aria-atomic="true">
@@ -98,18 +99,26 @@
           <section id="deviceControls" hidden>
             <div class="callHead">
               <p id="callWho" class="callWho">On the call.</p>
-              <button id="leaveCall" type="button" class="danger">Leave call</button>
+              <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
             </div>
             <div class="toggles">
-              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false">Microphone</button>
-              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false">Camera</button>
-              <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false">Screen share</button>
+              <!-- Short words on a phone, where the four share one row; the
+                   accessible name is the full one everywhere. -->
+              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone"><span class="callFull">Microphone</span><span class="callShort">Mic</span></button>
+              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera">Camera</button>
+              <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share"><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
             </div>
             <p id="micIndicator" class="indicator"></p>
             <!-- Two of your devices on one call: sound comes out of one of
                  them, and the newest microphone does not take it. -->
             <p id="monitorIndicator" class="indicator" hidden></p>
             <button id="listenHere" type="button" class="quiet" hidden>Play sound on this device instead</button>
+            <!-- Everything past the four controls. Open, with no summary
+                 shown, on a wide screen; one "More" fold on a phone, where
+                 it would otherwise push the conversation off the screen.
+                 See app/src/call-folds.ts. -->
+            <details id="callExtras" class="callExtras" open>
+            <summary aria-label="More call settings">More</summary>
             <details id="callMore" class="callMore">
               <summary>Two devices, agents</summary>
               <button id="toggleCompanion" class="toggle" data-on="false" aria-pressed="false" title="Silence this device's microphone and speaker; its camera and screen share still work">Use beside another device</button>
@@ -174,6 +183,7 @@
                 </p>
               </details>
             </div>
+            </details>
 
             <div id="local"></div>
           </section>

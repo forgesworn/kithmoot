@@ -41,6 +41,42 @@ function contrast(page: Page, selector: string): Promise<number> {
   })
 }
 
+/** Text in the call strips that its own box or any scrolling box around it
+ *  cuts off: the text's laid-out rectangle, not the element's, so a label
+ *  cut by an ellipsis counts too. A tile wholly outside a sideways strip is
+ *  off screen rather than cut, and is skipped. */
+function clippedCallText(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const stage = document.getElementById('callStage')!
+    const found: string[] = []
+    const walker = document.createTreeWalker(stage, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node.textContent?.trim()
+      const owner = node.parentElement
+      if (!text || !owner || !owner.checkVisibility({ visibilityProperty: true, opacityProperty: false })) continue
+      const range = document.createRange(); range.selectNodeContents(node)
+      const rects = Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0)
+      if (!rects.length) continue
+      let offscreen = false
+      for (let box: Element | null = owner; box && !offscreen; box = box === stage ? null : box.parentElement) {
+        const style = getComputedStyle(box)
+        if (style.clipPath !== 'none') { offscreen = true; break }
+        if (style.overflowX === 'visible' && style.overflowY === 'visible') continue
+        const edge = box.getBoundingClientRect()
+        for (const r of rects) {
+          if (r.right <= edge.left || r.left >= edge.right) { offscreen = true; break }
+          if (r.top < edge.top - 1 || r.bottom > edge.bottom + 1 || r.left < edge.left - 1 || r.right > edge.right + 1) {
+            found.push(`"${text}" cut by ${box.id || box.className || box.tagName}`)
+            offscreen = true
+            break
+          }
+        }
+      }
+    }
+    return found
+  })
+}
+
 const px = (page: Page, selector: string) => page.locator(selector).first().evaluate(el => parseFloat(getComputedStyle(el).fontSize))
 
 test('a phone reads the conversation: size, width, contrast and no sideways scroll', async ({ browser, baseURL }) => {
@@ -128,6 +164,9 @@ test('a call on a phone leaves the conversation on the screen, upright and on it
     await page.locator('#toggleCamera').click()
     await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
     await expect(page.locator('#room video').first()).toBeVisible()
+    // What the conversation and its box had before the call controls were
+    // folded into one row: they must not lose any of it.
+    const before: Record<string, number> = { '360x800': 321, '390x844': 321, '844x390': 329 }
     for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
       await page.setViewportSize(viewport)
       // Upright, the whole room fits the screen. On its side a 390px-tall
@@ -143,10 +182,35 @@ test('a call on a phone leaves the conversation on the screen, upright and on it
       expect(log.y + log.height, `conversation ends on screen at ${label}`).toBeLessThanOrEqual(viewport.height)
       expect(log.height, `conversation height at ${label}`).toBeGreaterThanOrEqual(viewport.height * (landscape ? 0.5 : 0.25))
       expect(form.y + form.height, `the box to reply in at ${label}`).toBeLessThanOrEqual(viewport.height)
-      await expect(page.locator('#toggleCamera')).toBeInViewport()
+      expect(log.height + form.height, `conversation and box at ${label}`).toBeGreaterThanOrEqual(before[label]!)
+      // The four controls a call needs, whole and on screen without scrolling.
+      for (const name of ['Microphone', 'Camera', 'Screen share', 'Leave call']) {
+        const control = page.getByRole('button', { name, exact: true })
+        await expect(control, `${name} at ${label}`).toBeInViewport({ ratio: 1 })
+        const box = (await control.boundingBox())!
+        expect(box.height, `${name} height at ${label}`).toBeGreaterThanOrEqual(43.5)
+      }
+      expect(await page.locator('#callStage').evaluate(el => el.scrollTop)).toBe(0)
+      expect(await page.locator('#whoIsHere').evaluate(el => el.scrollLeft)).toBe(0)
+      expect(await clippedCallText(page), `text cut in the call strips at ${label}`).toEqual([])
+      // At least one whole picture.
+      const tile = (await page.locator('#room .participant:has(video)').first().boundingBox())!
+      const strip = (await page.locator('#whoIsHere').boundingBox())!
+      expect(tile.x).toBeGreaterThanOrEqual(strip.x - 1); expect(tile.x + tile.width).toBeLessThanOrEqual(strip.x + strip.width + 1)
+      expect(tile.y).toBeGreaterThanOrEqual(0); expect(tile.y + tile.height).toBeLessThanOrEqual(viewport.height)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       if (!landscape) expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1), `no page scroll at ${label}`).toBe(true)
     }
+    // Blur, voice and the two-device switches are one tap away, and opening
+    // them does not push the box to reply in off the screen.
+    await page.setViewportSize({ width: 360, height: 800 })
+    await expect(page.locator('#callMore')).toBeHidden()
+    await expect(page.locator('#cameraEffects')).toBeHidden()
+    await page.locator('#callExtras > summary').click()
+    await expect(page.locator('#callMore > summary')).toBeVisible()
+    await expect(page.locator('#chatForm button[type=submit]')).toBeInViewport({ ratio: 1 })
+    await page.locator('#callExtras > summary').click()
+    await expect(page.locator('#callMore')).toBeHidden()
     await page.locator('#leaveCall').click()
   } finally { writer.leave(); await context.close() }
 })
