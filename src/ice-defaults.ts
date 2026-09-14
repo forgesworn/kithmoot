@@ -99,6 +99,21 @@ export function stunFromTurnUrl(turnUrl: string): string | undefined {
 }
 
 /**
+ * Removes a redundant plain TURN/TCP alternative from the operator's
+ * browser default. WebKit rejects the otherwise standard
+ * `turn:host:port?transport=tcp` spelling with SyntaxError. The deployment
+ * also supplies `turns:` on its TLS listener, which is TURN over TCP with
+ * transport security, so omitting the rejected plain-TCP alternative still
+ * leaves both UDP TURN and firewall-friendly TCP TURN available.
+ *
+ * This applies only to URLs returned by this origin's `/turn` endpoint.
+ * Room-authored ICE hints remain the room author's explicit choice.
+ */
+export function browserDefaultTurnUrls(urls: string[]): string[] {
+  return urls.filter(url => !/^turn:[^?]+\?transport=tcp$/i.test(url.trim()))
+}
+
+/**
  * This origin's own best guess at a STUN server: used only when a room is
  * on the ICE defaults (see isDefaultIceUrls) and no TURN credential could
  * be minted to derive one from with stunFromTurnUrl - the credential

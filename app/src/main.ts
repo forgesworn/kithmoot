@@ -129,7 +129,7 @@ import {
   type RelayTransport,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
-import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
+import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
@@ -2170,14 +2170,25 @@ async function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
     return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
   }
 
-  const turnServer = await fetchTurnCredential(TURN_CREDENTIAL_ENDPOINT)
-  turnRelayConfigured = turnServer !== undefined
-  if (!turnServer) return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
+  const fetchedTurnServer = await fetchTurnCredential(TURN_CREDENTIAL_ENDPOINT)
+  if (!fetchedTurnServer) {
+    turnRelayConfigured = false
+    return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
+  }
+  const compatibleTurnUrls = browserDefaultTurnUrls(toUrlList(fetchedTurnServer.urls))
+  if (compatibleTurnUrls.length === 0) {
+    turnRelayConfigured = false
+    return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
+  }
+  const turnServer: RTCIceServer = { ...fetchedTurnServer, urls: compatibleTurnUrls }
+  turnRelayConfigured = true
 
   // The same host and port the minted credential just proved answers plain
   // TURN on, not a second guess at this origin's hostname. A TURN/TLS URL
   // remains available for relaying but is not duplicated as STUN/TLS: that
-  // optional ICE protocol makes Safari reject the whole configuration.
+  // optional ICE protocol makes Safari reject the whole configuration. The
+  // redundant plain TURN/TCP query form has also been removed above because
+  // WebKit rejects that URL; TURN/TLS still supplies the TCP route.
   const stunUrls = [...new Set(toUrlList(turnServer.urls).map(stunFromTurnUrl).filter((u): u is string => u !== undefined))]
   return [...stunUrls.map((iceUrl) => ({ urls: iceUrl })), turnServer]
 }

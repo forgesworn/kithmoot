@@ -1545,9 +1545,13 @@ Safari does not implement that optional ICE protocol and rejects the whole
 `RTCPeerConnection` configuration before candidate gathering. A default
 room therefore appeared briefly on the relays, then left with “ICE server
 protocol not supported.” `stunFromTurnUrl` now derives STUN only from plain
-`turn:` URLs. The original credentialled `turns:` URL remains available as
-a relay, so encrypted TURN is preserved; only the unnecessary synthetic
-STUN/TLS entry is omitted.
+`turn:` URLs. A focused WebKit constructor gate then exposed a second
+incompatibility in the same live response: WebKit rejects
+`turn:host:port?transport=tcp` as an invalid TURN query. Browser defaults
+omit that redundant URL as well. The original credentialled `turns:` URL
+remains available as encrypted TURN over TCP/TLS, alongside plain TURN over
+UDP, so both useful transport routes are preserved; only the two rejected
+alternatives are omitted.
 
 Android is a separate client and a separate repository
 (`kithmoot-android`); this change does not touch it. Its `RoomViewModel.kt`

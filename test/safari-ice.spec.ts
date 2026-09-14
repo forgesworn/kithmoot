@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { stunFromTurnUrl } from '../src/ice-defaults.js'
+import { browserDefaultTurnUrls, stunFromTurnUrl } from '../src/ice-defaults.js'
 
 test('the browser accepts the production ICE protocols after default resolution', async ({ page }) => {
   const turnServer: RTCIceServer = {
@@ -11,12 +11,13 @@ test('the browser accepts the production ICE protocols after default resolution'
     username: 'test-user',
     credential: 'test-password',
   }
-  const stunUrls = (turnServer.urls as string[])
+  const compatibleTurnUrls = browserDefaultTurnUrls(turnServer.urls as string[])
+  const stunUrls = compatibleTurnUrls
     .map(stunFromTurnUrl)
     .filter((url): url is string => url !== undefined)
   const iceServers: RTCIceServer[] = [
     ...stunUrls.map(url => ({ urls: url })),
-    turnServer,
+    { ...turnServer, urls: compatibleTurnUrls },
   ]
 
   const configuredUrls = await page.evaluate((servers) => {
@@ -30,5 +31,6 @@ test('the browser accepts the production ICE protocols after default resolution'
 
   expect(configuredUrls).toContain('stun:kithmoot.example:3478')
   expect(configuredUrls).toContain('turns:kithmoot.example:5349')
+  expect(configuredUrls).not.toContain('turn:kithmoot.example:3478?transport=tcp')
   expect(configuredUrls.filter(url => url.toLowerCase().startsWith('stuns:'))).toEqual([])
 })
