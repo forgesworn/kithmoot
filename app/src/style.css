@@ -2933,6 +2933,13 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 @media (max-width: 700px) and (max-height: 600px) {
   /* Wrapped room actions must leave the composer reachable on short phones. */
   main:has(#roomArea:not([hidden])) #chatViewport { min-height: 3rem; }
+  /* Keep every control at its 44px touch target, but remove the desktop-weight
+     gaps between the two navigation rows. Linux Firefox and WebKit use
+     slightly taller system-font metrics here; paying for those metrics out
+     of the conversation pushed the composer below a 540px viewport after a
+     channel switch. */
+  .roomBar { margin-bottom: .1rem; padding-bottom: .1rem; }
+  .conversationNav { padding-block: 0; margin-bottom: 0; }
   /* Picture preferences remain in Room details. Give catch-up and search
      one row here so the conversation and composer can both be used. */
   .conversationTools { flex-wrap: nowrap; }
