@@ -7,6 +7,7 @@ import { Outbox } from './outbox.js'
 import { confirmAction, type ConfirmActionOptions } from './confirm-action.js'
 import { ChatScroll } from './chat-scroll.js'
 import { installReactionHold } from './reaction-hold.js'
+import { splitLinks } from './linkify.js'
 import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
@@ -731,6 +732,69 @@ async function signOutOfNostr(): Promise<void> {
     await logout(account, { clearPersistentClientKey: true })
     setStatus("Signed out. This forgets this browser's connection to your signer, including any bunker pairing.", 'done')
   }
+}
+
+/**
+ * The nuclear option: every trace of this app on this browser, gone.
+ *
+ * Everything a normal sign-out or per-room Forget leaves behind - the
+ * visitor identity, every room kept here and its keys, contacts, verified
+ * people, preferences, and the signer connection signet-login keeps across
+ * logout - lives in localStorage or sessionStorage under one of two
+ * prefixes: `kithmoot.` for this app, `signet:login.` for the signer
+ * connection. This is an explicit, person-initiated deletion, which is
+ * exactly the case that justifies removing it all at once.
+ *
+ * It cannot reach anything already on a relay or another person's device,
+ * and it does not touch signed-in room bookmarks kept there either - those
+ * are removed one room at a time with Forget room, same as today.
+ */
+async function forgetThisBrowser(): Promise<void> {
+  if (callIsLive() || onCall()) { setStatus('Leave the call before forgetting this browser.'); return }
+  if (!await confirmRoomAction({
+    title: 'Forget this browser?',
+    message: 'This removes, from this browser only:\n'
+      + '- your visitor identity\n'
+      + '- every room kept here, and its keys\n'
+      + '- contacts and verified people\n'
+      + '- text size and volume choices\n'
+      + '- the saved connection to a Nostr signer\n\n'
+      + "It does not remove anything from relays or from other people's devices. "
+      + 'Signed-in room bookmarks on your Nostr account stay unless you Forget each room first.',
+    confirmLabel: 'Forget this browser',
+    danger: true,
+  })) return
+
+  contextPanel.close()
+  identityGeneration++
+  const s = session
+  session = undefined
+  sessionTransport = undefined
+  s?.leave()
+
+  const account = nostrSession
+  relayConnections.clearAuthentication()
+  void sharedProjects.detach()
+  bookmarks?.close()
+  bookmarks = undefined
+  readSync?.close()
+  readSync = undefined
+  nostrSession = undefined
+  // clearPersistentClientKey: true, same as sign-out - a browser that is
+  // being forgotten entirely must not keep the one thing plain sign-out
+  // by itself leaves behind (see signOutOfNostr and clearPersistentClientKey
+  // in signet-login's LogoutOptions). Safe to call with no account: logout()
+  // only clears storage in that case.
+  await logout(account, { clearPersistentClientKey: true })
+
+  for (const storage of [localStorage, sessionStorage]) {
+    for (const key of Object.keys(storage)) {
+      if (key.startsWith('kithmoot.')) storage.removeItem(key)
+    }
+  }
+
+  history.replaceState(null, '', joinLinkBase())
+  approvedReload()
 }
 
 let bookmarks: RoomBookmarks | undefined
@@ -1807,6 +1871,11 @@ function renderIdentity(): void {
 let micTrack: MediaStreamTrack | undefined
 let cameraTrack: MediaStreamTrack | undefined
 let screenTrack: MediaStreamTrack | undefined
+/** The shared tab or window's own sound, captured alongside `screenTrack`
+ *  when the browser offers it. Absent on Firefox, Safari, a window share, or
+ *  when the person unticked the box - a share still works with no audio, it
+ *  is simply silent, which is what the note near the toggle says. */
+let screenAudioTrack: MediaStreamTrack | undefined
 
 let camera: CameraPipeline | undefined
 let mic: MicPipeline | undefined
@@ -1862,7 +1931,7 @@ function joinLinkBase(): string {
 }
 
 function activeTracks(): MediaStreamTrack[] {
-  return [micTrack, cameraTrack, screenTrack].filter((t): t is MediaStreamTrack => t !== undefined)
+  return [micTrack, cameraTrack, screenTrack, screenAudioTrack].filter((t): t is MediaStreamTrack => t !== undefined)
 }
 
 function fragmentPayload(url: string): Partial<RoomUrlPayload> {
@@ -2677,7 +2746,7 @@ function stopLocalMedia(): void {
   for (const pipeline of pendingMedia) pipeline.stop()
   pendingMedia.clear()
   mic = camera = undefined
-  micTrack = cameraTrack = screenTrack = undefined
+  micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
   for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
@@ -3356,12 +3425,25 @@ function publishEffectStats(): void {
 
 setInterval(publishEffectStats, 500)
 
+/**
+ * Screen Capture API fields TypeScript's bundled DOM lib does not know yet.
+ * Chromium honours them; a browser that does not simply ignores what it
+ * does not recognise, so asking for them is harmless everywhere.
+ */
+interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
+  systemAudio?: 'include' | 'exclude'
+  selfBrowserSurface?: 'include' | 'exclude'
+  surfaceSwitching?: 'include' | 'exclude'
+}
+
 async function toggleScreen(): Promise<void> {
   const generation = roomGeneration
   if (switchingRoom) return
   if (screenTrack) {
     screenTrack.stop()
     screenTrack = undefined
+    screenAudioTrack?.stop()
+    screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
     localPreviewEls.delete('screen')
     // Nothing left to show a mark on: close the floating window and drop
@@ -3380,15 +3462,30 @@ async function toggleScreen(): Promise<void> {
           'use a desktop browser, or the Android app.',
       )
     }
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true })
+    // Processing left off: shared sound is usually a video or music playing
+    // in a tab, not somebody's voice, and echo cancellation tuned for speech
+    // mangles it. Firefox and Safari offer no display audio at all, and a
+    // window share or an unticked "share tab audio" box leaves it out too -
+    // the share still goes ahead, silently; see `updateScreenAudioNote`.
+    const options: ScreenCaptureOptions = {
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      systemAudio: 'include',
+      selfBrowserSurface: 'exclude',
+      surfaceSwitching: 'include',
+    }
+    const stream = await navigator.mediaDevices.getDisplayMedia(options)
     if (generation !== roomGeneration) { for (const track of stream.getTracks()) track.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
+    screenAudioTrack = stream.getAudioTracks()[0]
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
         if (generation !== roomGeneration) return
         screenTrack = undefined
+        screenAudioTrack?.stop()
+        screenAudioTrack = undefined
         localPreviewEls.get('screen')?.remove()
         localPreviewEls.delete('screen')
         floatingSharePreview.close()
@@ -3396,8 +3493,22 @@ async function toggleScreen(): Promise<void> {
         publishActiveTracks()
         updateUi()
       })
+      // The picture can keep sharing after its sound stops on its own - a
+      // tab switch, on a browser that ties system audio to a shared tab
+      // having focus. Unadvertise the sound and leave the picture alone.
+      screenAudioTrack?.addEventListener('ended', () => {
+        if (generation !== roomGeneration) return
+        screenAudioTrack = undefined
+        publishActiveTracks()
+        updateUi()
+      })
       addLocalPreview('screen', screenTrack)
       publishActiveTracks()
+    } else {
+      // No picture came back at all: nothing to show, so stop whatever the
+      // browser did hand over rather than leak a live capture nobody sees.
+      for (const track of stream.getTracks()) track.stop()
+      screenAudioTrack = undefined
     }
   }
   updateUi()
@@ -3547,6 +3658,7 @@ function currentAdverts(): TrackAdvert[] {
   if (cameraTrack) adverts.push({ trackId: cameraTrack.id, role: 'camera' })
   if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic' })
   if (screenTrack) adverts.push({ trackId: screenTrack.id, role: 'screen' })
+  if (screenAudioTrack) adverts.push({ trackId: screenAudioTrack.id, role: 'screen-audio' })
   return adverts
 }
 
@@ -3596,11 +3708,21 @@ function setToggle(id: string, on: boolean): void {
   $(id).setAttribute('aria-pressed', String(on))
 }
 
+/** "No sound is shared", next to the share toggle - only while a share is
+ *  live and the browser handed over no audio track: Firefox, Safari, a
+ *  window share, or the box left unticked. The share still goes ahead, so
+ *  this says why nobody can hear it rather than stopping it. Hidden the
+ *  moment the share ends, so it never outlives the share it is about. */
+function updateScreenAudioNote(): void {
+  $('screenAudioNote').hidden = !screenTrack || !!screenAudioTrack
+}
+
 function updateUi(): void {
   if (callIsLive() || onCall()) setCallOpen(true)
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  updateScreenAudioNote()
   // Only worth offering while there is something to float: this device's
   // own share, on a browser that can open the window at all.
   $('toggleFloatingMarks').hidden = !screenTrack || !floatingPreviewSupported()
@@ -4489,6 +4611,8 @@ function muteRequested(by: string): void {
   if (screenTrack) {
     screenTrack.stop()
     screenTrack = undefined
+    screenAudioTrack?.stop()
+    screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
     localPreviewEls.delete('screen')
     stopped.push('screen share')
@@ -5742,7 +5866,8 @@ function mentionPattern(names: string[]): RegExp | undefined {
 }
 
 /**
- * A message's words, with the names in it marked.
+ * A message's words: an http(s) URL as a real link, and the names in the
+ * rest of it marked.
  *
  * A mention is set apart from ordinary words, and a mention of the reader
  * is set apart again - that is the one thing a person scans a busy room
@@ -5750,6 +5875,30 @@ function mentionPattern(names: string[]): RegExp | undefined {
  * markup out of somebody else's text.
  */
 function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | undefined, mine: Set<string>): void {
+  for (const token of splitLinks(text)) {
+    if (token.kind === 'link') into.append(linkElement(token.url))
+    else appendMentions(into, token.value, pattern, mine)
+  }
+}
+
+/** A tappable, copyable link for a URL pasted into a message. Its visible
+ *  text is the URL itself, so nothing is hidden behind different wording,
+ *  and it opens in a new tab without handing the destination a reference
+ *  back to this one. On a phone, an `a` is already exactly what steps aside
+ *  from the bubble's hold-to-react gesture and its disabled callout menu -
+ *  see the `a` exclusions in `reaction-hold.ts` and the `.reactableBubble a`
+ *  rules in style.css - so a long press here gives the platform's own link
+ *  menu instead of opening the reaction picker. */
+function linkElement(url: string): HTMLAnchorElement {
+  const a = document.createElement('a')
+  a.href = url
+  a.textContent = url
+  a.target = '_blank'
+  a.rel = 'noopener noreferrer'
+  return a
+}
+
+function appendMentions(into: HTMLElement, text: string, pattern: RegExp | undefined, mine: Set<string>): void {
   if (!pattern) {
     into.append(text)
     return
@@ -5767,6 +5916,32 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
     at = start + token.length
   }
   if (at < text.length) into.append(text.slice(at))
+}
+
+/** Copy a message's exact text to the clipboard, for a phone where a
+ *  bubble's own long-press is spoken for by the reaction picker and native
+ *  text selection is off outside a link (see `.reactableBubble` in
+ *  style.css). Falls back to a hidden textarea's `execCommand('copy')` the
+ *  way `copyInput` above does for the invite link, for a browser that has
+ *  no async clipboard API or refuses it here. */
+async function copyMessageText(text: string): Promise<void> {
+  let copied = false
+  try {
+    if (navigator.clipboard) { await navigator.clipboard.writeText(text); copied = true }
+  } catch { /* Try the browser's selection-based copy below. */ }
+  if (!copied) {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    area.setAttribute('aria-hidden', 'true')
+    document.body.append(area)
+    area.focus()
+    area.select()
+    try { copied = document.execCommand('copy') } catch { /* Manual copying remains available. */ }
+    area.remove()
+  }
+  setStatus(copied ? 'Message text copied.' : 'Could not copy automatically. Select the text and copy it with your keyboard or touch menu.', copied ? 'done' : 'problem')
 }
 
 /**
@@ -5993,7 +6168,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       more.setAttribute('aria-controls', 'messageActionPanel')
       more.setAttribute('aria-expanded', 'false')
       const openActions = (anchor: HTMLElement, reactionsOnly = false): void => {
-        const actions: MessageAction[] = [{ label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) }]
+        const actions: MessageAction[] = [
+          { label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) },
+          { label: 'Copy text', text: 'Copy text', run: () => { void copyMessageText(m.text) } },
+        ]
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
@@ -6803,6 +6981,9 @@ async function collectDiagnostics(): Promise<string> {
       publishing: currentAdverts().map((a) => a.role),
       agentsMayHear,
       effect: $('effectMode').textContent,
+      screenAudio: screenAudioTrack
+        ? { present: true, muted: screenAudioTrack.muted, readyState: screenAudioTrack.readyState }
+        : { present: false },
       wakeLock: callWakeLock.state,
     },
     participants: s?.participants().map((v) => ({
@@ -8501,6 +8682,11 @@ $('retryRoomSync').addEventListener('click', () => { void bookmarks?.retry() })
 $('importBrowserRooms').addEventListener('click', () => {
   try { importBrowserRooms() } catch (error) { setStatus(describeError(error)) }
 })
+for (const id of ['forgetBrowser', 'forgetBrowserRoom']) {
+  $(id).addEventListener('click', () => {
+    forgetThisBrowser().catch((err) => setStatus(describeError(err)))
+  })
+}
 
 $('createRoomForm').addEventListener('submit', async event => {
   event.preventDefault()
