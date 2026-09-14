@@ -275,7 +275,11 @@ export function loadConfigFromEnv(env = process.env) {
 
   const label = (env.KITHMOOT_LABEL ?? '').trim() || undefined
 
-  return { rooms, relays, url, label, maxPeers, maxTracksPerPeer }
+  // No default: see createWeriftStack, which logs plainly when this is
+  // unset rather than silently reaching for a third party's server.
+  const stunUrl = (env.KITHMOOT_STUN_URL ?? '').trim() || undefined
+
+  return { rooms, relays, url, label, maxPeers, maxTracksPerPeer, stunUrl }
 }
 
 /**
@@ -329,13 +333,28 @@ export function forwarderRef(config) {
  * seam because both are the only werift-shaped things here - and because a
  * double that cannot decode a payload is a fair test of a process whose whole
  * claim is that it never decodes one.
+ *
+ * `stunUrl` (from `KITHMOOT_STUN_URL`) defaults to unset: no STUN server at
+ * all, not a fallback to Google's public one as this used to do - see
+ * docs/decisions.md, 2026-09-13. A forwarder is normally a small box with a
+ * public address (deploy/README.md), where host candidates already connect;
+ * set `KITHMOOT_STUN_URL` only if this particular forwarder itself sits
+ * behind NAT.
  */
-export async function createWeriftStack() {
+export async function createWeriftStack(stunUrl) {
   const { RTCPeerConnection, MediaStreamTrack, MediaStream } = await import('werift')
+  if (!stunUrl) {
+    console.error(
+      'forwarder: KITHMOOT_STUN_URL is not set - this process will gather host candidates only for its ' +
+        'own connections. That is fine on a box with a public address (see deploy/README.md); set ' +
+        'KITHMOOT_STUN_URL if this forwarder itself sits behind NAT.',
+    )
+  }
+  const iceServers = stunUrl ? [{ urls: stunUrl }] : []
 
   return {
     createConnection() {
-      const connection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
+      const connection = new RTCPeerConnection({ iceServers })
       return {
         connection,
         /**
@@ -607,7 +626,7 @@ async function main() {
   // multiplexes subscriptions over the same sockets, so serving four rooms
   // costs four subscriptions rather than four connections per relay.
   const transport = new NostrRelayPool(config.relays)
-  const stack = await createWeriftStack()
+  const stack = await createWeriftStack(config.stunUrl)
 
   const forwarders = roomConfigs(config).map((roomConfig) =>
     createForwarder({ config: roomConfig, transport, stack }),

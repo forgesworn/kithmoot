@@ -118,6 +118,10 @@
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share"><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
             </div>
             <p id="micIndicator" class="indicator"></p>
+            <!-- Shown only while a screen share is live and the browser gave
+                 no audio track: Firefox, Safari, a window share, or the box
+                 left unticked. The share still works; it is simply quiet. -->
+            <p id="screenAudioNote" class="indicator" hidden>No sound is shared. To share sound, share a browser tab and tick Share tab audio.</p>
             <!-- Two of your devices on one call: sound comes out of one of
                  them, and the newest microphone does not take it. -->
             <p id="monitorIndicator" class="indicator" hidden></p>
@@ -419,7 +423,7 @@
             commas. The room hands these to everybody who joins, so nobody
             has to take our word for which ones to use.
           </label>
-          <input id="iceServers" value="stun:stun.l.google.com:19302" />
+          <input id="iceServers" placeholder="Leave blank to use this site's own STUN/TURN" />
         </details>
       </section>
 
@@ -747,6 +751,10 @@
              it, and it lives here permanently for anybody who comes looking.
              Filled in by `render` in app/src/main.ts. -->
         <p id="agentsExplain" class="agentsExplain" hidden></p>
+        <!-- One tick, at the untouched 100% level, for every volume slider
+             in the roster below - see app/src/main.ts's "Per-person volume"
+             section. -->
+        <datalist id="volumeNotch"><option value="100"></option></datalist>
         <div id="sheetRoster" class="sheetRoster"></div>
         <!-- You: how this device is in the room, and the way to change it.
              Moved here from the message box, where it was the first control

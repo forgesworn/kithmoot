@@ -63,6 +63,51 @@ export const SYNTHETIC_SCREEN = () => {
   }
 }
 
+/**
+ * The same synthetic presentation, with sound: a canvas capture combined
+ * with a WebAudio oscillator tapped through a `MediaStreamDestination`, the
+ * same trick `SYNTHETIC_MIC` uses for the microphone.
+ *
+ * Chromium's fake desktop capture - `--auto-select-desktop-capture-source` -
+ * picks a video source only, so a spec proving a shared tab's sound actually
+ * reaches the far end has to bring its own audio track rather than rely on
+ * the fake picker to produce one. Register this AFTER `SYNTHETIC_SCREEN` (or
+ * instead of it) on a context: `addInitScript` runs registered scripts in
+ * order, so the later assignment to `getDisplayMedia` wins.
+ */
+export const SYNTHETIC_SCREEN_WITH_AUDIO = () => {
+  navigator.mediaDevices.getDisplayMedia = async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 1600; canvas.height = 900
+    const ctx = canvas.getContext('2d')!
+    let frame = 0
+    const draw = () => {
+      ctx.fillStyle = '#123047'; ctx.fillRect(0, 0, 1600, 900)
+      ctx.fillStyle = '#fff'; ctx.font = '70px sans-serif'; ctx.fillText('Synthetic workshop presentation', 65, 150)
+      ctx.fillStyle = '#efb64c'; ctx.fillRect((frame++ * 7) % 1300, 300, 250, 350)
+      ctx.fillStyle = '#65dfba'; ctx.fillRect(1500, 0, 100, 900)
+    }
+    draw(); const timer = setInterval(draw, 80)
+    const videoTrack = canvas.captureStream(12).getVideoTracks()[0]!
+    const stopVideo = videoTrack.stop.bind(videoTrack)
+    videoTrack.stop = () => { clearInterval(timer); stopVideo() }
+
+    const audioCtx = new AudioContext()
+    await audioCtx.resume().catch(() => {})
+    const osc = audioCtx.createOscillator()
+    osc.frequency.value = 660
+    const gain = audioCtx.createGain()
+    gain.gain.value = 0.3
+    const dest = audioCtx.createMediaStreamDestination()
+    osc.connect(gain).connect(dest)
+    osc.start()
+    const audioTrack = dest.stream.getAudioTracks()[0]!
+    const stopAudio = audioTrack.stop.bind(audioTrack)
+    audioTrack.stop = () => { osc.stop(); audioCtx.close().catch(() => {}); stopAudio() }
+
+    return new MediaStream([videoTrack, audioTrack])
+  }
+}
+
 /** Reaches every RTCPeerConnection the app builds without the app having to
  *  expose one. Installed before any page script runs. */
 export const INSTRUMENT = () => {
