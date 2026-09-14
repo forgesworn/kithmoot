@@ -11,6 +11,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>KithMoot</title>
     <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/text-size.ts"></script>
   </head>
   <body>
     <aside id="updateNotice" hidden role="status" aria-atomic="true">
@@ -86,6 +87,10 @@
           <button id="manageAgents" type="button" hidden>Invite an agent</button>
         </div>
 
+        <!-- The call controls and the pictures, together, so that on a phone
+             they can share one bounded area and never push the conversation
+             off the screen. See "Phone reading pass" in style.css. -->
+        <div id="callStage">
         <!-- The call. Absent until there is one, the way a phone shows call
              controls only during a call. Revealed by the Call button above,
              and kept open for as long as anything of yours is live. -->
@@ -181,6 +186,7 @@
         <div id="whoIsHere">
           <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
           <div id="room"></div>
+        </div>
         </div>
 
         <h3 id="conversationHeading" class="sr-only">Chat</h3>
@@ -874,6 +880,14 @@
              you reach for on a bad day. Still here, still one click, and
              now it says what it is for before you press it. -->
         <h3 class="sheetHead">Settings</h3>
+        <!-- The same three sizes as the Android app, remembered on this
+             device. Applied by app/src/text-size.ts. -->
+        <fieldset class="textSizeChoice" data-text-size>
+          <legend>Text size</legend>
+          <label><input type="radio" name="textSize" value="standard" checked /> Standard</label>
+          <label><input type="radio" name="textSize" value="large" /> Large</label>
+          <label><input type="radio" name="textSize" value="huge" /> Huge</label>
+        </fieldset>
         <div class="toolRow">
           <button id="roomProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
           <button id="roomRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>

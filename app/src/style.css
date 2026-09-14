@@ -44,6 +44,9 @@
   --agent: #7a6fd0;
   --agent-bubble: #221f33;
   --on-agent: #fff;
+  /* The agent tag's fill: --agent itself is 4.2:1 under white text. */
+  --agent-fill: #6a5fc4;
+  --on-live: #08210a;
   --bubble: #23252b;
   --bubble-mine-border: #3d7f9e;
   --system-ink: #b9b3a6;
@@ -92,6 +95,8 @@
     --agent: #5b4fbe;
     --agent-bubble: #f0eefb;
     --on-agent: #ffffff;
+    --agent-fill: #5b4fbe;
+    --on-live: #ffffff;
     --bubble: #ffffff;
     --bubble-mine-border: #7fb6cf;
     --system-ink: #6a655b;
@@ -831,14 +836,14 @@ video {
 .messageMore { flex: 0 0 44px; width: 44px; min-height: 44px; margin: 0; padding: 0; font-size: 1.35rem; color: var(--muted); background: transparent; border-color: transparent; }
 .messageMore:hover, .messageMore[aria-expanded=true] { color: var(--text); border-color: var(--border); background: var(--control-hover); }
 .messageActionPanel { position: fixed; inset: auto; margin: 0; width: min(19rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); overflow: auto; padding: .6rem; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: var(--text); box-shadow: 0 .75rem 2.5rem var(--drop-shadow); }
-.messageActionPreview { margin: .3rem .4rem .55rem; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.messageActionPreview { margin: .3rem .4rem .55rem; color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .messageActionPanel > button { display: block; width: 100%; min-height: 44px; margin: 0; text-align: left; background: transparent; border-color: transparent; }
 .messageActionPanel button.danger { color: var(--danger); }
 .messageReactionChoices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .25rem; margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--border); }
 .messageReactionChoices button { min-width: 44px; min-height: 44px; margin: 0; padding: .2rem; font-size: 1.25rem; background: transparent; }
 .messageReactionChoices button[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }
 .messageHeader .sender { margin: 0; }
-.messageHeader .when { margin: 0; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.messageHeader .when { margin: 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 .msg.mine .messageHeader { justify-content: flex-end; }
 .conversationTools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; flex: 0 0 auto; }
 .conversationTools button { min-height: 44px; padding: 0.4rem 0.65rem; margin: 0; font-size: 0.85rem; background: transparent; }
@@ -886,7 +891,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
 .when {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   margin-right: 0.45rem;
   white-space: nowrap;
 }
@@ -1311,7 +1316,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .badge.agent {
-  background: var(--agent);
+  background: var(--agent-fill);
   color: var(--on-agent);
 }
 
@@ -2823,10 +2828,10 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   .callLabelWide { display: none; }
   .callLabelNarrow { display: inline; }
   .conversationNav { gap: 0; padding-bottom: .25rem; margin-bottom: .2rem; }
-  .conversationNav button { padding-inline: .6rem; font-size: .8rem; }
+  .conversationNav button { padding-inline: .6rem; font-size: .875rem; }
   .agentActivity { padding: .15rem .5rem; margin-bottom: .25rem; }
   .agentActivity > div { flex-basis: 10rem; }
-  .agentActivity span { font-size: .75rem; }
+  .agentActivity span { font-size: .875rem; }
 }
 @media (max-width: 700px) {
   .roomBar { flex-wrap: wrap; }
@@ -2853,7 +2858,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 #chatInput { min-height: calc(1.45em + 1.1rem + 2px); }
 @media (max-width: 540px) {
   .agentActivity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; }
-  .agentActivity button { padding: .4rem .5rem; font-size: .75rem; }
+  .agentActivity button { padding: .4rem .5rem; font-size: .875rem; }
 }
 
 /* The message layer: threads, edits, retractions, mentions on the wire.
@@ -2869,7 +2874,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 }
 .thread .msg { max-width: min(96%, 44rem); }
 .msg .chip {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   color: var(--muted);
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -2899,7 +2904,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .contactCardForm input { flex: 1; min-width: 0; }
 #myCardOut { width: 100%; margin-top: 0.5rem; }
 #myCardQr { display: block; margin-top: 0.5rem; max-width: 100%; }
-.laneNote { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0.25rem 0.35rem; font-size: 0.8rem; color: var(--muted); }
+.laneNote { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0.25rem 0.35rem; font-size: 0.875rem; color: var(--muted); }
 .laneNote .laneWords { overflow-wrap: anywhere; }
 /* On a phone the reading space is the budget that matters and every message
    already carries its lane chip, so the composer's note steps aside there.
@@ -2915,13 +2920,13 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   padding: 0.3rem 0.6rem;
   border: 1px solid var(--border);
   border-radius: 10px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   color: var(--muted);
   min-width: 0;
 }
 .composerContext .contextLabel { font-weight: 600; overflow-wrap: anywhere; }
 .composerContext .contextExcerpt { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composerContext button { grid-column: 2; grid-row: 1 / span 2; min-height: 44px; padding: 0.1rem 0.6rem; margin: 0; font-size: 0.8rem; }
+.composerContext button { grid-column: 2; grid-row: 1 / span 2; min-height: 44px; padding: 0.1rem 0.6rem; margin: 0; font-size: 0.875rem; }
 @media (max-width: 420px) {
   .composerContext .contextLabel { grid-column: 1 / -1; }
   .composerContext button { grid-row: 2; }
@@ -3004,14 +3009,14 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 @media (max-width: 700px) { #sendingIdentity .sendingName { display: none; } }
 
 .reactionChip { display: inline-flex; }
-.reactionDetails { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(20rem, calc(100vw - 1rem)); max-height: calc(100dvh - 1rem); overflow: auto; padding: .5rem .65rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel); color: var(--text); box-shadow: 0 .25rem 1rem var(--drop-shadow); font-size: .8rem; overflow-wrap: anywhere; pointer-events: auto; }
+.reactionDetails { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(20rem, calc(100vw - 1rem)); max-height: calc(100dvh - 1rem); overflow: auto; padding: .5rem .65rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--panel); color: var(--text); box-shadow: 0 .25rem 1rem var(--drop-shadow); font-size: .875rem; overflow-wrap: anywhere; pointer-events: auto; }
 
 .reactionPerson { display: flex; align-items: flex-start; gap: .55rem; padding: .65rem 0; }
 .reactionPerson + .reactionPerson { border-top: 1px solid var(--border); }
 .reactionPerson > .avatar, .reactionPerson > .donorRing { flex-shrink: 0; }
 .reactionPersonInfo { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
-.reactionNpub { font-family: monospace; overflow-wrap: anywhere; font-size: .75rem; }
-.reactionPerson time, .reactionReceipt { color: var(--muted); font-size: .75rem; }
+.reactionNpub { font-family: monospace; overflow-wrap: anywhere; font-size: .875rem; }
+.reactionPerson time, .reactionReceipt { color: var(--muted); font-size: .875rem; }
 
 .reactionPerson > .avatar { width: 2rem; height: 2rem; }
 
@@ -3095,7 +3100,7 @@ button.primary:hover:not(:disabled) {
 #callToggle[data-live="true"] {
   background: var(--live);
   border-color: var(--live);
-  color: #fff;
+  color: var(--on-live);
 }
 .callHead { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .4rem; }
 .callHead p { margin: 0; }
@@ -3173,3 +3178,157 @@ input[type="search"] { font-family: inherit; }
 
 .contactBox { padding-block: 0.35rem; }
 .contactBox p { margin: 0 0 0.35rem; }
+
+/* ---------------------------------------------------------------------------
+   Phone reading pass, September 2026.
+
+   Somebody on a phone during a live call could not read the chat. Measured
+   at 360 by 800: with one camera on in the room the conversation was 96px
+   tall, about two lines, and once you were on the call yourself the call
+   controls and your own tile put the top of the conversation at 1239px, a
+   whole screen below the bottom of the phone. Without a call a long message
+   used 180px of a 326px log, because every bubble kept an 88px column beside
+   it for two buttons, and at 150% text that was two words a line.
+   --------------------------------------------------------------------------- */
+
+/* A full line of text in the box, and the 44px a thumb needs. */
+#chatInput { min-height: max(44px, calc(1.45em + 1.1rem + 2px)); }
+
+/* The log contains what it scrolls. A continuation's sender name is kept
+   for screen readers with `position: absolute`, and with nothing positioned
+   between it and the page those names were laid out against the page, not
+   the log: eight messages from one person made a 360 by 800 room 2308px
+   tall and the whole page scrolled away from the box to reply in. */
+#chatLog { position: relative; }
+
+/* The room menu was the one button in the bar narrower than a thumb. */
+#roomMenu { min-width: 44px; }
+
+/* The reaction button's two glyphs stay on one line at larger text sizes
+   rather than stacking inside a 44px square. */
+.messageReact { width: auto; min-width: 44px; padding-inline: .25rem; white-space: nowrap; }
+
+@media (max-width: 540px) {
+  /* The bubble gets the width; the two buttons move up beside the time.
+
+     The line above every bubble already has room to spare, and it is there
+     for every message, continuations included. `display: contents` lets the
+     name, the time, the buttons, the chips and the bubble join one wrapping
+     row without changing the markup or the order a screen reader and the
+     tab key walk. The buttons follow the time and the chips follow the
+     buttons, so a chip that does not fit wraps as a short line of its own
+     rather than leaving the buttons alone on a 44px line. The empty
+     `::before` is a line break: it keeps the bubble on a line of its own. */
+  #chatLog .msg:has(> .messageBody) {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .15rem .5rem;
+    max-width: min(92%, 44rem);
+  }
+  #chatLog .msg.mine:has(> .messageBody) { justify-content: flex-end; }
+  #chatLog .msg:has(> .messageBody)::before { content: ''; order: 3; flex-basis: 100%; height: 0; }
+  #chatLog .msg > .messageHeader,
+  #chatLog .msg > .messageBody { display: contents; }
+  #chatLog .msg > .messageBody > .messageControls { order: 1; flex: none; }
+  #chatLog .msg > .messageHeader > .chip { order: 2; }
+  #chatLog .msg.mine > .messageBody > .messageControls { order: -1; }
+  #chatLog .msg > .messageBody > .bubble { order: 4; flex: 0 1 auto; max-width: 100%; }
+  #chatLog .msg > .messageReactions { order: 5; flex-basis: 100%; }
+  #chatLog .msg.mine > .messageReactions { justify-content: flex-end; }
+  #chatLog .thread .msg:has(> .messageBody) { max-width: 100%; }
+  #chatLog { padding-inline: .5rem; }
+
+  /* One row for the room bar at 360px: the name gives way before a button
+     drops to a line of its own, which cost the conversation 50px. */
+  .roomIdentity { flex: 1 1 4.5rem; }
+  .roomBar .barBtn { padding-inline: .4rem; min-width: 44px; }
+}
+
+/* A room on a phone is exactly the height of the screen. The body used to
+   grow with whatever was above the conversation, so the conversation's own
+   floor was met by scrolling the page, and on a call the page scrolled a
+   whole screen before the chat began. Held to the screen, the call area and
+   the conversation are the two parts that give way, and neither gives way
+   below its floor. */
+@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  body:has(#roomArea:not([hidden])) { height: 100vh; height: 100svh; }
+}
+
+/* The call on a phone: bounded, so the conversation keeps the screen.
+
+   The controls and the pictures each scroll inside their own area, the
+   pictures sit two to a row, and the conversation takes what is left.
+   Nothing is hidden: scroll either area for the rest of it. */
+@media (max-width: 700px) {
+  #callStage { display: flex; flex-direction: column; gap: .4rem; flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+  #callStage:has(> #callBay:not([hidden]), > #whoIsHere:not([hidden])) { margin-bottom: .5rem; }
+  #callStage > #callBay,
+  #callStage > #whoIsHere { flex: 0 1 auto; min-height: min(5.5rem, 12svh); margin: 0; overflow-y: auto; }
+  #callStage > #callBay { max-height: 24svh; min-height: min(3.5rem, 8svh); }
+  #callStage > #whoIsHere { max-height: 30svh; }
+  /* A bounded area that scrolls should look like one, not like tiles cut
+     off by the rows under them. */
+  #callStage > #whoIsHere:not([hidden]) { padding: .35rem; border: 1px solid var(--border); border-radius: 8px; }
+  #room .participant .media video { max-height: 20svh; }
+  #room:has(video), #room[data-tiles]:has(video) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
+  #room[data-tiles="1"]:has(video) { grid-template-columns: minmax(0, 1fr); }
+  #room .participant:has(video) { padding: .4rem; }
+  #room .participant:has(video) h3 { margin-bottom: .25rem; font-size: .9rem; }
+  main:has(#roomArea:not([hidden])) #chatViewport { min-height: min(14rem, 30svh); }
+}
+@media (max-width: 700px) and (max-height: 600px) {
+  /* A short phone, or one with the keyboard up, keeps the box to reply in
+     reachable first: the conversation's floor is lower here. */
+  main:has(#roomArea:not([hidden])) #chatViewport { min-height: min(8rem, 22svh); }
+}
+
+/* A phone on its side: the masthead goes, as it already does upright, and a
+   call sits in a column of its own at the left, held to the screen, so the
+   conversation beside it can use the full height. There is not room for the
+   bar, the tools, a readable conversation and the box to reply in on a
+   390px-tall screen at once, so the conversation keeps a screenful and the
+   bar scrolls away above it, the way a browser's own bar does. Phones only:
+   a short desktop window keeps its sidebar layout. */
+@media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  body:has(#roomArea:not([hidden])) > header { display: none; }
+  #roomArea:has(#callBay:not([hidden])),
+  #roomArea:has(#whoIsHere:not([hidden])) {
+    padding-left: calc(42vw + .75rem - max(clamp(1rem, 3vw, 2.5rem), env(safe-area-inset-left)));
+  }
+  #roomArea #callStage:has(> #callBay:not([hidden]), > #whoIsHere:not([hidden])) {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 2;
+    display: block;
+    width: 42vw;
+    margin: 0;
+    padding: max(.75rem, env(safe-area-inset-top)) .5rem max(.75rem, env(safe-area-inset-bottom)) max(.75rem, env(safe-area-inset-left));
+    overflow-y: auto;
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+  }
+  #roomArea #callStage > #callBay,
+  #roomArea #callStage > #whoIsHere { max-height: none; min-height: 0; overflow: visible; margin: 0 0 .5rem; }
+  #callStage #room:has(video),
+  #callStage #room[data-tiles]:has(video) { grid-template-columns: minmax(0, 1fr); }
+  #callStage #room .participant .media video { max-height: 60svh; }
+  main:has(#roomArea:not([hidden])) #chatViewport { min-height: max(6rem, calc(100svh - 10rem)); }
+}
+
+/* Text size, in Room details. */
+.textSizeChoice { display: flex; flex-wrap: wrap; gap: .5rem; margin: .25rem 0 .75rem; padding: 0; border: 0; min-width: 0; }
+.textSizeChoice legend { width: 100%; margin-bottom: .4rem; padding: 0; font-weight: 600; }
+.textSizeChoice label { flex: 1 1 6rem; display: flex; align-items: center; justify-content: center; gap: .4rem; min-height: 44px; margin: 0; padding: .4rem .75rem; border: 1px solid var(--control-border); border-radius: 8px; background: var(--control); cursor: pointer; }
+.textSizeChoice label:has(input:checked) { border-color: var(--accent); background: var(--accent-dim); color: var(--text); font-weight: 600; }
+.textSizeChoice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--focus-glow); }
+.textSizeChoice input { width: 1.1rem; height: 1.1rem; margin: 0; accent-color: var(--accent); }
+
+/* Hints inside a field at AA. The browser's own placeholder grey measured
+   3.9:1 on the dark field. */
+input::placeholder,
+textarea::placeholder { color: var(--muted); opacity: 1; }
+
+/* The description under the selected conversation sat at 3.96:1 on its
+   tinted row in the dark theme. */
+.channelBar button[aria-pressed='true'] .channelDesc { color: var(--text); }
