@@ -21,6 +21,12 @@ export default defineConfig({
   // for the only question a person in a room actually asks - can I see you,
   // can I hear you - measured off the decoded pixels and the audio energy,
   // and it lives beside e2e.spec.ts because it needs the same real relays.
+  // no-google-ice.spec.ts is the regression test for the ICE default fix in
+  // docs/decisions.md, 13 September 2026: it reads back the real
+  // RTCConfiguration every RTCPeerConnection in the page was built with and
+  // checks none of them ever names a Google host. Deliberately run against
+  // this local build, not the live deployment - test/turn-relay.spec.ts
+  // covers the real /turn endpoint separately.
   // rooms.spec.ts is the front page: the rooms this device has been in,
   // with what is new and who is here read off the relays without joining.
   // verification.spec.ts is the one question the unit tests cannot answer:
@@ -30,7 +36,7 @@ export default defineConfig({
   // importantly, goes dark again on mute - an analyser that is never pulled
   // reports silence for ever with nothing in the console, so this feature
   // can fail by simply never happening.
-  testMatch: ['knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'workspace.spec.ts', 'share-viewer.spec.ts', 'chat-comfort.spec.ts', 'messages.spec.ts', 'phone-message-links.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'e2e.spec.ts', 'media.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts', 'rooms.spec.ts', 'speaking.spec.ts', 'verification.spec.ts', 'channels.spec.ts', 'chat-reliability.spec.ts', 'updates.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'site.spec.ts', 'wake-lock.spec.ts'],
+  testMatch: ['knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'workspace.spec.ts', 'share-viewer.spec.ts', 'chat-comfort.spec.ts', 'messages.spec.ts', 'phone-message-links.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'e2e.spec.ts', 'media.spec.ts', 'no-google-ice.spec.ts', 'volume.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts', 'rooms.spec.ts', 'speaking.spec.ts', 'verification.spec.ts', 'channels.spec.ts', 'chat-reliability.spec.ts', 'updates.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'site.spec.ts', 'sign-out-clears-bunker-key.spec.ts', 'wake-lock.spec.ts'],
   // Public relays take a few seconds to round-trip a roster event, and the
   // join-last case waits on three of those in sequence: A's entry, B's, and
   // then A and B answering C's arrival. The stage-1 live test used similar
