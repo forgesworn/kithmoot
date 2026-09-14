@@ -4,8 +4,8 @@ import type { Event } from 'nostr-tools/pure'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { KINDS } from '../src/kinds.js'
-import { sha256Hex } from '../src/attachment.js'
 import { openRoomDetails } from './browser.js'
+import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 /**
  * A quiet conversation, as two people meet it: started from a person's
@@ -120,27 +120,15 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
 test('a quiet room shares a file with no kind-1063 announcement, and the other person still opens it', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const blobOrigin = new URL(baseURL!).origin
-  const blobs = new Map<string, Buffer>()
   const contexts: BrowserContext[] = []
   const open = async () => {
     const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
     await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
     await device(context)
-    // The default Blossom server is this app's own origin (see
-    // `blossomServer` in app/src/main.ts); serve it in-process rather than
-    // reaching a real one.
-    await context.route(url => url.origin === blobOrigin && (url.pathname === '/upload' || url.pathname.startsWith('/blossom/')), async route => {
-      const req = route.request()
-      if (req.method() === 'PUT') {
-        const bytes = req.postDataBuffer()!
-        const hash = sha256Hex(bytes)
-        blobs.set('/blossom/' + hash, bytes)
-        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ sha256: hash, size: bytes.length, url: blobOrigin + '/blossom/' + hash }) })
-      } else {
-        const blob = blobs.get(new URL(req.url()).pathname)
-        await route.fulfill({ status: blob ? 200 : 404, body: blob ?? '' })
-      }
-    })
+    // The default Blossom server is this app's own origin. Vite proxies it
+    // to the acceptance companion, which receives and serves real streamed
+    // bytes so WebKit's upload path is exercised end to end.
+    await routeTestBlossom(context, blobOrigin)
     contexts.push(context)
     return context.newPage()
   }
@@ -179,6 +167,7 @@ test('a quiet room shares a file with no kind-1063 announcement, and the other p
 
     await expect.poll(() => seen.length).toBeGreaterThan(0)
     const wrapsBefore = seen.filter((e) => e.kind === 1059).length
+    const fileAnnouncementsBefore = seen.filter((e) => e.kind === 1063).length
 
     await rowan.locator('#attachToggle').click()
     await rowan.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
@@ -198,9 +187,10 @@ test('a quiet room shares a file with no kind-1063 announcement, and the other p
     await ada.locator('#chatLog .attachment').getByRole('button', { name: 'Show' }).click()
     await expect(ada.locator('#chatLog .attachment')).toContainText('Save floorplan.txt', { timeout: 30_000 })
 
-    // On the wire, start to finish: no file announcement, from either
-    // device, at any point in this test.
-    expect(seen.filter((e) => e.kind === 1063)).toEqual([])
+    // On the wire, start to finish: this share added no file announcement.
+    // The relay may still return another test's recent stored event before
+    // this baseline; those are not traffic from either device in this room.
+    expect(seen.filter((e) => e.kind === 1063)).toHaveLength(fileAnnouncementsBefore)
   } finally {
     watcher.close()
     for (const context of contexts) await context.close()
@@ -229,18 +219,15 @@ test('a quiet room does not leak a file announcement if this device leaves while
     const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
     await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
     await device(context)
-    await context.route(url => url.origin === blobOrigin && (url.pathname === '/upload' || url.pathname.startsWith('/blossom/')), async route => {
-      const req = route.request()
-      if (req.method() !== 'PUT') { await route.fulfill({ status: 404, body: '' }).catch(() => {}); return }
+    await context.route(`${blobOrigin}/upload`, async route => {
       uploads++
+      const response = await fetchFromTestBlossom(route, blobOrigin)
       // Held open until the room has changed underneath it.
       await released
-      const bytes = req.postDataBuffer()!
-      const hash = sha256Hex(bytes)
       // The request this held may already be a lost cause by the time it is
       // released - the room it was for reloaded its page - so a fulfil that
       // no longer has anywhere to land is not this test's problem.
-      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ sha256: hash, size: bytes.length, url: blobOrigin + '/blossom/' + hash }) }).catch(() => {})
+      await route.fulfill({ response }).catch(() => {})
     })
     contexts.push(context)
     return context.newPage()
@@ -265,6 +252,8 @@ test('a quiet room does not leak a file announcement if this device leaves while
     await openRoomDetails(rowan)
     await rowan.getByRole('button', { name: /^Message Ada quietly/ }).click()
     await expect(rowan.locator('#roomTitle')).toHaveText('Quiet: Ada', { timeout: 30_000 })
+    await expect.poll(() => seen.length).toBeGreaterThan(0)
+    const fileAnnouncementsBefore = seen.filter((e) => e.kind === 1063).length
 
     await rowan.locator('#attachToggle').click()
     await rowan.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
@@ -287,7 +276,7 @@ test('a quiet room does not leak a file announcement if this device leaves while
     // Whatever became of that upload - it may never have finished, given
     // to a room that no longer exists in this tab - no kind-1063 reached
     // the relay for it.
-    expect(seen.filter((e) => e.kind === 1063)).toEqual([])
+    expect(seen.filter((e) => e.kind === 1063)).toHaveLength(fileAnnouncementsBefore)
   } finally {
     watcher.close()
     for (const context of contexts) await context.close()
