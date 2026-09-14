@@ -5,7 +5,13 @@ import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
 import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
+import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
+
+/** Extra policy chosen by a caller that owns the complete network route. */
+export interface NostrRelayPoolOptions extends RelayPoolOptions {
+  profile?: NetworkProfile
+}
 
 /** The transport seam shared by real relays and the in-process simulator. */
 export interface RelayTransport {
@@ -39,17 +45,21 @@ export interface RelayHealth extends RelayConfig {
 }
 
 
-export function normaliseRelayConfig(entries: readonly (string | RelayConfig)[]): RelayConfig[] {
+export function normaliseRelayConfig(entries: readonly (string | RelayConfig)[], profile: NetworkProfile = 'direct'): RelayConfig[] {
   if (entries.length === 0) throw new Error('at least one relay is required')
   if (entries.length > MAX_RELAY_HINTS) throw new Error(`use at most ${MAX_RELAY_HINTS} relays`)
   const seen = new Set<string>()
   return entries.map(entry => {
     const value = typeof entry === 'string' ? { url: entry, read: true, write: true } : entry
-    if (!value || typeof value.url !== 'string' || !isSafeRelayUrl(value.url.trim())) throw new Error('use a wss:// relay URL (ws:// is allowed only on localhost)')
-    const parsed = new URL(value.url.trim())
+    if (!value || typeof value.url !== 'string') throw new Error('use a wss:// relay URL (ws:// is allowed only on localhost)')
+    const candidate = value.url.trim()
+    if (profile === 'direct' && !isSafeRelayUrl(candidate)) throw new Error('use a wss:// relay URL (ws:// is allowed only on localhost)')
+    // Check the supplied direct URL before `normalizeURL` removes a password
+    // or fragment. The Tor normaliser performs the same check itself.
+    const parsed = profile === 'tor' ? new URL(normaliseTorRelayUrl(candidate)) : new URL(candidate)
     if (parsed.username || parsed.password || parsed.hash) throw new Error('relay URLs cannot contain credentials or fragments')
     if (typeof value.read !== 'boolean' || typeof value.write !== 'boolean' || (!value.read && !value.write)) throw new Error('each relay must allow reading or writing')
-    const url = normalizeURL(value.url.trim())
+    const url = profile === 'tor' ? parsed.toString() : normalizeURL(candidate)
     if (seen.has(url)) throw new Error('that relay is already in the list')
     seen.add(url)
     return { url, read: value.read, write: value.write, ...(value.circle === true ? { circle: true } : {}) }
@@ -80,8 +90,11 @@ export class NostrRelayPool implements RelayTransport {
   #authFailures = new Map<string, string>()
   readonly #authTimeout: number
 
-  constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean, private readonly options: RelayPoolOptions = {}) {
-    this.#relays = normaliseRelayConfig(relays)
+  constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean, private readonly options: NostrRelayPoolOptions = {}) {
+    this.#relays = normaliseRelayConfig(relays, this.options.profile)
+    if (this.options.profile === 'tor' && (this.options.authentication?.length ?? 0) !== 0) {
+      throw new Error('Tor-only mode does not use relay authentication; start with a fresh local persona')
+    }
     this.#authTimeout = options.authenticationTimeoutMs ?? AUTH_TIMEOUT_MS
     if (!Number.isSafeInteger(this.#authTimeout) || this.#authTimeout < 100 || this.#authTimeout > 120_000) throw new Error('Invalid relay authentication deadline')
     this.#authentication = this.#grants(options.authentication ?? [])
@@ -126,9 +139,10 @@ export class NostrRelayPool implements RelayTransport {
   }
 
   #grants(entries: readonly RelayAuthentication[]): Map<string, AuthenticationGrant | null> {
+    if (this.options.profile === 'tor' && entries.length !== 0) throw new Error('Tor-only mode does not use relay authentication')
     const grants = new Map<string, AuthenticationGrant | null>()
     for (const entry of entries) {
-      const url = normaliseRelayConfig([entry.url])[0]!.url
+      const url = normaliseRelayConfig([entry.url], this.options.profile)[0]!.url
       if (!this.#relays.some(relay => relay.url === url) || grants.has(url)) {
         throw new Error('Authentication must name one configured relay')
       }
@@ -181,7 +195,7 @@ export class NostrRelayPool implements RelayTransport {
   /** Rebind existing consumers without leaving the room or replaying history. */
   setRelays(entries: readonly (string | RelayConfig)[]): void {
     if (this.#closed) throw new Error('pool is closed')
-    const next = normaliseRelayConfig(entries)
+    const next = normaliseRelayConfig(entries, this.options.profile)
     this.#generation++
     this.#abort.abort()
     for (const sub of this.#subscriptions) this.#stop(sub)
