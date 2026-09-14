@@ -3457,6 +3457,10 @@ input[type="search"] { font-family: inherit; }
    a short desktop window keeps its sidebar layout. */
 @media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   body:has(#roomArea:not([hidden])) > header { display: none; }
+  /* The call has its own fixed column here. Keep the room divider, but use
+     phone-weight spacing so system-font differences cannot take the last
+     readable line from the conversation beside it. */
+  .roomBar { margin-bottom: .1rem; padding-bottom: .1rem; }
   #roomArea:has(#callBay:not([hidden])),
   #roomArea:has(#whoIsHere:not([hidden])) {
     padding-left: calc(42vw + .75rem - max(clamp(1rem, 3vw, 2.5rem), env(safe-area-inset-left)));
