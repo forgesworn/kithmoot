@@ -76,6 +76,7 @@
           <span id="workAttentionText"></span>
           <button id="reviewWork" type="button">Review decisions</button>
         </div>
+        <div id="presenceNotice" class="presenceNotice" role="status" aria-live="polite" aria-atomic="true" hidden></div>
         <!-- A call is on and you are not on it. Filled in by
              `renderCallState` in app/src/main.ts. -->
         <div id="callBanner" class="callBanner" role="status" hidden>
@@ -130,7 +131,7 @@
                  shown, on a wide screen; one "More" fold on a phone, where
                  it would otherwise push the conversation off the screen.
                  See app/src/call-folds.ts. -->
-            <details id="callExtras" class="callExtras" open>
+            <details id="callExtras" class="callExtras">
             <summary aria-label="More call settings">More</summary>
             <button id="toggleFloatingMarks" class="toggle" data-on="false" aria-pressed="false" hidden>Show drawings in a floating window</button>
             <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. On a
@@ -221,9 +222,9 @@
         <h3 id="conversationHeading" class="sr-only">Chat</h3>
         <div class="conversationTools" aria-label="Conversation tools">
           <button id="nextUnread" type="button" hidden></button>
-          <button id="chatSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch">Search messages</button>
+          <button id="chatSearch" type="button" aria-label="Search messages" aria-haspopup="dialog" aria-controls="conversationSearch">Search</button>
           <button id="backToSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch" hidden>Back to results</button>
-          <button id="invitePeople" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Invite people</button>
+          <button id="invitePeople" type="button" aria-label="Invite people" aria-haspopup="dialog" aria-controls="inviteDialog">Invite</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
         <div id="chatViewport">
@@ -351,12 +352,17 @@
             autocomplete="nickname"
             enterkeyhint="go"
           />
+          <fieldset id="joinMediaChoice" class="joinMediaChoice">
+            <legend>Turn on as you join</legend>
+            <label><input id="joinMic" type="checkbox" /> Microphone</label>
+            <label><input id="joinCamera" type="checkbox" /> Camera</label>
+          </fieldset>
           <button id="join" type="submit" class="primary" hidden>Join</button>
           <p id="whoami" class="whoami"></p>
           <p id="joinIdentityHelp" class="note" hidden></p>
           <button id="joinNostr" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
           <button id="joinVisitor" type="button" class="quiet" hidden>Go in with just a name instead</button>
-          <p id="joinPrivacy" class="note">Your camera and microphone stay off until you turn them on.</p>
+          <p id="joinPrivacy" class="note">Nothing turns on unless you choose it here or switch it on inside the room.</p>
         </form>
       </section>
 

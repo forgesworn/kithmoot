@@ -211,6 +211,7 @@ test('a floating preview window carries the same marks overlay, exercised with a
     await openCall(presenter); await openCall(viewer)
     await presenter.locator('#toggleScreen').click()
 
+    await presenter.locator('#callExtras').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
     const floatingToggle = presenter.locator('#toggleFloatingMarks')
     await expect(floatingToggle).toBeVisible({ timeout: 10_000 })
     await floatingToggle.click()

@@ -3305,8 +3305,8 @@ async function toggleCamera(): Promise<void> {
 
 function revealEffects(id: string, show: boolean): void {
   const details = $(id) as HTMLDetailsElement
-  if (show && details.hidden) details.open = true
   details.hidden = !show
+  if (!show) details.open = false
 }
 
 function markSegmented(containerId: string, attribute: string, value: string): void {
@@ -3734,6 +3734,14 @@ function updateUi(): void {
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  const share = $('toggleScreen')
+  const sharing = !!screenTrack
+  share.setAttribute('aria-label', sharing ? 'Stop screen sharing' : 'Screen share')
+  share.title = sharing ? 'Stop sharing your screen' : 'Share your screen'
+  const full = share.querySelector('.callFull')
+  const short = share.querySelector('.callShort')
+  if (full) full.textContent = sharing ? 'Stop sharing' : 'Screen share'
+  if (short) short.textContent = sharing ? 'Stop' : 'Share'
   updateScreenAudioNote()
   // Only worth offering while there is something to float: this device's
   // own share, on a browser that can open the window at all.
@@ -4521,6 +4529,22 @@ const systemLines: SystemLine[] = []
 const ROSTER_SETTLE_MS = 25_000
 let rosterSeen: Map<string, string | undefined> | undefined
 let rosterJoinedAt = 0
+let presenceNoticeTimer: ReturnType<typeof setTimeout> | undefined
+
+function showPresenceNotice(text: string): void {
+  const notice = $('presenceNotice')
+  const generation = roomGeneration
+  notice.textContent = text
+  notice.hidden = false
+  if (presenceNoticeTimer !== undefined) clearTimeout(presenceNoticeTimer)
+  presenceNoticeTimer = setTimeout(() => {
+    if (generation !== roomGeneration) return
+    notice.hidden = true
+    notice.textContent = ''
+    presenceNoticeTimer = undefined
+  }, 8_000)
+}
+
 function announceComings(views: ParticipantView[], me: string): void {
   const now = Date.now()
   const present = new Map(views.filter(view => view.participant !== me).map(view => [view.participant, view.name] as const))
@@ -4529,12 +4553,20 @@ function announceComings(views: ParticipantView[], me: string): void {
     rosterJoinedAt = now
     return
   }
-  const settled = now - rosterJoinedAt > ROSTER_SETTLE_MS
+  // A room created in this tab has no replay population to suppress: every
+  // other participant is genuinely a new arrival and should be announced at
+  // once. A tab joining an established room still gets the replay settle
+  // window, so people already present are not introduced as newcomers.
+  const settled = startedHere || now - rosterJoinedAt > ROSTER_SETTLE_MS
   const label = (participant: string, name: string | undefined, agent: boolean) =>
     `${shownAs(participant, name).name ?? shortKey(participant)}${agent ? ' (agent)' : ''}`
   for (const [participant, name] of present) {
     if (rosterSeen.has(participant)) continue
-    if (settled) addSystemLine(`${label(participant, name, views.find(v => v.participant === participant)?.agent === true)} came in.`)
+    if (settled) {
+      const text = `${label(participant, name, views.find(v => v.participant === participant)?.agent === true)} came in.`
+      addSystemLine(text)
+      showPresenceNotice(text)
+    }
   }
   for (const [participant, name] of rosterSeen) {
     if (present.has(participant)) continue
@@ -6830,6 +6862,10 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       restoreRemoteElement(el, container)
       existing.stalled = 0
     }
+    // `autoplay` is a request, not proof of playback. WebKit can leave this
+    // connected element paused after replacing its MediaStream, so explicitly
+    // resume it while this device is still on the call.
+    if (!leftCall && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
     if (replaced) {
       // A new track has never played, whatever the old one did, and the
       // clock it is judged by starts again.
@@ -6871,6 +6907,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.srcObject = new MediaStream([track])
       if (existing) existing.track = track
     }
+    if (!leftCall && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
     // Tap it for the speaking indicator. Keyed by device rather than by
     // track, so a device sending both a microphone and its screen's audio
     // lights its tile from whichever is making noise - which is what a
@@ -6914,7 +6951,10 @@ function recoverRemoteTracks(): void {
       // seconds would be the black box again, on a timer.
       if (advertised(stableKey) === false) continue
       const entry = track.kind === 'video' ? remoteVideos.get(stableKey) : remoteAudios.get(stableKey)
-      if (entry?.track !== track || !entry.el.isConnected) attachRemoteTrack(device, track)
+      // Safari can keep the sink connected but pause it when a rebuilt peer
+      // swaps in a new MediaStream. A connected element is not necessarily a
+      // playing one; make the recovery path repair both states.
+      if (entry?.track !== track || !entry.el.isConnected || entry.el.paused) attachRemoteTrack(device, track)
     }
   }
 }
@@ -7052,9 +7092,52 @@ $('diagnostics').addEventListener('click', () => {
 // Joining
 // ---------------------------------------------------------------------------
 
+interface EntryMediaChoice {
+  mic: boolean
+  camera: boolean
+}
+
+function entryMediaChoice(): EntryMediaChoice {
+  return {
+    mic: ($('joinMic') as HTMLInputElement).checked,
+    camera: ($('joinCamera') as HTMLInputElement).checked,
+  }
+}
+
+/** Honour the two explicit choices made at the invitation door. Failure to
+ *  open one device never throws the person back out of a room they joined;
+ *  it leaves that device off and says which permission or device failed. */
+async function enableEntryMedia(choice: EntryMediaChoice): Promise<void> {
+  if (!choice.mic && !choice.camera) return
+  const failures: string[] = []
+  try {
+    await joinCall()
+  } catch (error) {
+    setStatus(`You are in, but the call could not start: ${describeError(error)}.`)
+    return
+  }
+
+  if (choice.mic && !micTrack?.enabled) {
+    try { await toggleMic() } catch (error) { failures.push(`microphone: ${describeError(error)}`) }
+  }
+  if (choice.camera && !cameraTrack) {
+    try { await toggleCamera() } catch (error) { failures.push(`camera: ${describeError(error)}`) }
+  }
+  ;($('joinMic') as HTMLInputElement).checked = false
+  ;($('joinCamera') as HTMLInputElement).checked = false
+
+  if (failures.length) {
+    setStatus(`You are in, but ${failures.join('; ')}.`)
+    return
+  }
+  const enabled = [choice.mic ? 'microphone' : '', choice.camera ? 'camera' : ''].filter(Boolean).join(' and ')
+  setStatus(`You joined with your ${enabled} on.`, 'done')
+}
+
 async function startSession(asVisitor = false): Promise<void> {
   const generation = roomGeneration
   if (joining || session || loginBusy) return
+  const requestedMedia = entryMediaChoice()
   joining = true
   setStatus('Joining the room…', 'progress')
   const joinBtn = $('join') as HTMLButtonElement
@@ -7347,6 +7430,7 @@ async function startSession(asVisitor = false): Promise<void> {
     chatScroll.resume(draftRoomKey())
     restoreConversation()
     repaintActiveChat()
+    await enableEntryMedia(requestedMedia)
   } catch (err) {
     const failed = session
     if (generation !== roomGeneration) return
@@ -8070,6 +8154,10 @@ async function closeRoomSession(): Promise<void> {
   tileBoxes.clear()
   leftCall = false
   rosterSeen = undefined
+  if (presenceNoticeTimer !== undefined) clearTimeout(presenceNoticeTimer)
+  presenceNoticeTimer = undefined
+  $('presenceNotice').hidden = true
+  $('presenceNotice').textContent = ''
   forgetKnocks()
   orphanChecks.clear()
   $('agentsRow').replaceChildren()

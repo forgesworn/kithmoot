@@ -129,6 +129,8 @@ async function openCamera(page: Page): Promise<void> {
   await goIn(page)
   await page.getByRole('button', { name: 'Camera' }).click()
   await expect(page.locator(LOCAL_VIDEO)).toBeVisible()
+  await page.locator('#callExtras > summary').click()
+  await page.locator('#cameraEffects > summary').click()
   await page.waitForFunction((selector) => {
     const video = document.querySelector<HTMLVideoElement>(selector)
     return !!video && video.videoWidth > 0
@@ -316,6 +318,8 @@ test('a segmenter that will not load falls back to passthrough and says so', asy
 test('voice masking states what it is, and offers the four presets', async ({ page }) => {
   await goIn(page)
   await page.getByRole('button', { name: 'Microphone' }).click()
+  await page.locator('#callExtras > summary').click()
+  await page.locator('#voiceEffects > summary').click()
   await expect(page.locator('#voiceEffects')).toBeVisible()
 
   // The claim has to be disclaimed in words, and the words changed with the
