@@ -15,6 +15,7 @@ import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
+import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
   browserDeviceStore,
@@ -168,6 +169,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
+import { CallWakeLock } from './wake-lock.js'
 
 const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
@@ -203,6 +205,7 @@ function positionReactionDetails(details: HTMLElement): void {
 
 const shareViewer = new ShareViewer({
   onAnnotation: annotation => session?.publishAnnotation(annotation),
+  author: () => markAuthor(meParticipant),
 })
 // Letting the person doing the sharing see marks drawn on their own screen -
 // see `notifyDrawingOnMyShare` and `floating-share-preview.ts`. Reuses
@@ -2585,6 +2588,26 @@ function onCall(): boolean {
 }
 
 /**
+ * Holds this device's screen on for as long as it is on the call: requested
+ * in `joinCall`, released in `leaveCall`, on leaving the room, and on the
+ * page itself going away. See app/src/wake-lock.ts for why it also has to
+ * re-request itself on `visibilitychange` - the browser drops the lock the
+ * moment the tab is hidden, with no event of its own to say so until it is
+ * looked at again.
+ */
+const callWakeLock = new CallWakeLock({ onStateChange: () => renderWakeLockNote() })
+
+/** The quiet line under the call controls saying the screen might sleep
+ *  here. Worth saying only when it might actually happen - no Wake Lock API,
+ *  or a request refused - and only while on the call; off it, or with the
+ *  lock actually held, it would be a line answering a question nobody
+ *  asked. */
+function renderWakeLockNote(): void {
+  const note = $('wakeLockNote')
+  note.hidden = !onCall() || (callWakeLock.state !== 'unsupported' && callWakeLock.state !== 'error')
+}
+
+/**
  * Pressed Leave, and not Join since.
  *
  * Not the same as "not on the call". Somebody who has just walked into a
@@ -2609,6 +2632,7 @@ async function joinCall(): Promise<void> {
   leftCall = false
   await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
   setCallOpen(true)
+  void callWakeLock.acquire()
   updateUi()
 }
 
@@ -2638,6 +2662,7 @@ async function leaveCall(): Promise<void> {
   leftCall = true
   if (s) await s.setCall(null)
   setCallOpen(false)
+  void callWakeLock.release()
   updateUi()
   if (session) render(session.participants(), meParticipant)
 }
@@ -3550,6 +3575,7 @@ function updateUi(): void {
   setToggle('toggleFloatingMarks', floatingSharePreview.isOpen)
   setToggle('toggleCompanion', besideAnotherDevice)
   $('companionNote').hidden = !besideAnotherDevice
+  renderWakeLockNote()
   // A background control with no camera running is a control for nothing.
   // Both open themselves the first time they appear rather than hiding
   // behind a disclosure: blur is on by default, so the control that turns it
@@ -4226,6 +4252,22 @@ let keeperParticipant: string | undefined
 function personLabel(pubkey: string): string {
   const shown = shownAs(pubkey, session?.participants().find((v) => v.participant === pubkey)?.name)
   return shown.name !== undefined ? `${shown.name} (${shown.short})` : shown.short
+}
+
+/**
+ * Who to credit a screen-share mark to: the same name and short key
+ * `personLabel` puts on a status line. Colour is not decided here - see
+ * `colourForParticipant` and `coloursForShare` in share-marks.ts - because
+ * "the blue arrow" has to mean the same arrow to everybody, including
+ * whoever drew it, so it cannot depend on whether this participant happens
+ * to be this device's own.
+ */
+function markAuthor(participant: string): MarkAuthor {
+  const mine = participant === meParticipant
+  return {
+    key: participant,
+    label: mine ? `${personLabel(participant)} (you)` : personLabel(participant),
+  }
 }
 
 /** Lines the room shows in the chat that nobody sent: an epoch change, a
@@ -6586,6 +6628,7 @@ async function collectDiagnostics(): Promise<string> {
       publishing: currentAdverts().map((a) => a.role),
       agentsMayHear,
       effect: $('effectMode').textContent,
+      wakeLock: callWakeLock.state,
     },
     participants: s?.participants().map((v) => ({
       name: v.name,
@@ -6831,7 +6874,7 @@ async function startSession(asVisitor = false): Promise<void> {
     s.onRemoteTrack(({ device, track }) => { if (session === s) attachRemoteTrack(device, track); else track.stop() })
     s.onAnnotation(({ participant, annotation }) => {
       if (session !== s) return
-      shareViewer.receive(annotation)
+      shareViewer.receive(annotation, markAuthor(participant))
       notifyDrawingOnMyShare(participant, annotation)
     })
 
@@ -7638,6 +7681,7 @@ async function closeRoomSession(): Promise<void> {
   if (approvalTimer !== undefined) clearTimeout(approvalTimer)
   iceRefreshTimer = assistTimer = approvalTimer = undefined
   stopLocalMedia()
+  void callWakeLock.release()
   speakingMonitor.retain([])
   for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
     entry.track.stop()
@@ -8568,6 +8612,7 @@ window.addEventListener('pagehide', () => {
   session?.leave()
   stopInvitationHost()
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
+  void callWakeLock.release()
 })
 
 setToggle('toggleAgentsHear', agentsMayHear)
