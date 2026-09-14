@@ -18,6 +18,7 @@ import { encodeRosterEvent, decodeRosterEvent } from '../dist/src/roster.js'
 import { createDeviceCredential } from '../dist/src/credential.js'
 import { localIdentity } from '../dist/src/identity.js'
 import { KINDS } from '../dist/src/kinds.js'
+import { shortId } from '../dist/src/log-redact.js'
 import { SimRelay, SimTransport } from '../dist/test/sim-relay.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -391,10 +392,14 @@ describe('joining a room as a forwarder', () => {
     expect(logs.join('\n')).toMatch(/ciphertext it cannot read/i)
   })
 
-  it('announces the room id it serves, and never a key', async () => {
+  it('announces an 8-character prefix of the room id it serves - never the full id, and never a key', async () => {
     const { logs, config } = standUpForwarder()
     const joined = logs.join('\n')
-    expect(joined).toContain(ROOM_ID)
+    // Enough for an operator watching several instances to tell them apart;
+    // not enough to reconstruct the full id from a log this box may keep for
+    // a long time. See deploy/README.md's "Logs" section.
+    expect(joined).toContain(shortId(ROOM_ID))
+    expect(joined).not.toContain(ROOM_ID)
     expect(joined).not.toContain(bytesToHex(config.secretKey))
   })
 
