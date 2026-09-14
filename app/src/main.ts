@@ -2795,7 +2795,7 @@ function renderCallState(views: ParticipantView[]): void {
   if (mineOn && current) {
     const names = views.filter(view => view.call?.id === current.id && view.participant !== meParticipant)
       .map(view => shownAs(view.participant, view.name).name ?? 'somebody')
-    $('callWho').textContent = names.length === 0 ? 'On the call. Nobody else yet.' : `On the call with ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`
+    $('callWho').textContent = names.length === 0 ? 'On the call. Just you.' : `On the call with ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`
   }
 }
 
