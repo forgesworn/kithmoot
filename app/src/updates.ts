@@ -29,39 +29,68 @@ function activateUpdate(registration: ServiceWorkerRegistration): Promise<void> 
   })
 }
 
+export interface UpdateBlock {
+  reason: string
+  action?: {
+    label: string
+    pendingLabel?: string
+    run: () => void | Promise<void>
+  }
+}
+
 /** Other tabs can activate a worker too. None may reload this page without
- * this user's consent, even when migrating from an auto-update worker. */
-export function installUpdates(blockedReason: () => string | undefined, reload: () => void = () => location.reload()): void {
+ * this user's consent, even when migrating from an auto-update worker.
+ *
+ * A recoverable blocker carries the exact action the button will take. That
+ * lets a phone leave a live call and update without sending somebody off to
+ * find controls which may be below a large update notice. */
+export function installUpdates(blockedReason: () => string | UpdateBlock | undefined, reload: () => void = () => location.reload()): void {
   const notice = document.getElementById('updateNotice')!
   const button = document.getElementById('updateApp') as HTMLButtonElement
+  const defaultMessage = notice.querySelector('span')!.textContent ?? 'Update when you are ready. Your room will reopen.'
   let activated = false
   let approved = false
+  let preparing = false
   let reloading = false
   let registration: ServiceWorkerRegistration | undefined
-  const defer = (reason: string) => {
+  const block = (): UpdateBlock | undefined => {
+    const current = blockedReason()
+    return typeof current === 'string' ? { reason: current } : current
+  }
+  const defer = (current: UpdateBlock) => {
     approved = false
     button.disabled = false
-    button.textContent = 'Update now'
-    notice.querySelector('span')!.textContent = reason
+    button.textContent = current.action?.label ?? 'Update now'
+    notice.querySelector('span')!.textContent = current.reason
     notice.hidden = false
+  }
+  const show = () => {
+    const current = block()
+    if (current) defer(current)
+    else {
+      button.disabled = false
+      button.textContent = 'Update now'
+      notice.querySelector('span')!.textContent = defaultMessage
+      notice.hidden = false
+    }
   }
   const reloadOnce = () => {
     if (reloading) return
     // Activation is asynchronous: consent cannot discard work started while
     // the worker was installing, or end a call that has since started.
-    const reason = blockedReason()
-    if (reason) { defer(reason); return }
+    const current = block()
+    if (current) { defer(current); return }
     reloading = true
     approved = false
     reload()
   }
   registerSW({
     immediate: true,
-    onNeedRefresh: () => { notice.hidden = false },
+    onNeedRefresh: show,
     onNeedReload: () => {
       activated = true
       if (approved) reloadOnce()
-      else notice.hidden = false
+      else if (!preparing) show()
     },
     onRegisteredSW: (_url, registered) => {
       if (!registered) return
@@ -92,15 +121,40 @@ export function installUpdates(blockedReason: () => string | undefined, reload: 
     },
   })
   button.addEventListener('click', async () => {
-    if (approved || reloading) return
-    const reason = blockedReason()
-    if (reason) { defer(reason); return }
+    if (approved || preparing || reloading) return
+    const current = block()
+    if (current) {
+      if (!current.action) { defer(current); return }
+      // If the blocker changed since the notice was painted, reveal the
+      // action first. A button must not leave a call while still labelled
+      // merely "Update now".
+      if (button.textContent !== current.action.label) { defer(current); return }
+      preparing = true
+      button.disabled = true
+      button.textContent = current.action.pendingLabel ?? 'Getting ready…'
+      try {
+        await current.action.run()
+      } catch {
+        preparing = false
+        defer({ ...current, reason: 'Could not leave the call. Try again.' })
+        return
+      }
+      const remaining = block()
+      if (remaining) {
+        preparing = false
+        defer(remaining)
+        return
+      }
+    }
     approved = true
+    preparing = false
     button.disabled = true
     button.textContent = 'Updating…'
     try {
-      if (registration) await activateUpdate(registration)
-      else if (!activated) throw new Error('Registration is not ready')
+      if (!activated) {
+        if (registration) await activateUpdate(registration)
+        else throw new Error('Registration is not ready')
+      }
       if (approved) reloadOnce()
     } catch {
       if (reloading) return

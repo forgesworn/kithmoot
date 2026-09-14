@@ -146,6 +146,10 @@ test('work started during activation cancels the reload until a fresh click', as
 test('an update waits for drafts and calls, then returns to the room without a popup', async ({ browser }, testInfo) => {
   const release = await releaseServer()
   const context = await browser.newContext({ serviceWorkers: 'allow' })
+  // Chromium is launched with a synthetic microphone in this suite. CI's
+  // WebKit has no capture device, but joining the call exercises the same
+  // update blocker and leave-call path without pretending hardware exists.
+  const canUseSyntheticMic = testInfo.project.name === 'chromium'
   await context.routeWebSocket(/wss:\/\/.*/, ws => ws.close())
   try {
     const page = await context.newPage()
@@ -159,8 +163,11 @@ test('an update waits for drafts and calls, then returns to the room without a p
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#callToggle').click()
-    await page.locator('#toggleMic').click()
-    await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    if (canUseSyntheticMic) {
+      await page.locator('#toggleMic').click()
+      await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    }
+    await expect(page.locator('#callToggle')).toHaveAttribute('data-live', 'true')
     await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true)
     await page.locator('#chatInput').fill('Keep this unfinished message')
     release.publish()
@@ -168,7 +175,7 @@ test('an update waits for drafts and calls, then returns to the room without a p
     await expect(page.locator('#updateNotice')).toBeVisible()
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished message')
     await expect(page.locator('#roomArea')).toBeVisible()
-    await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    if (canUseSyntheticMic) await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     for (const width of [320, 1440]) {
       await page.setViewportSize({ width, height: 740 })
       await expect(page.locator('#updateApp')).toBeInViewport()
@@ -189,13 +196,31 @@ test('an update waits for drafts and calls, then returns to the room without a p
     await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#chatInput').fill('')
     await page.locator('#updateApp').click()
-    await expect(page.locator('#updateNotice')).toContainText('Turn off your microphone')
-    await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
-    await page.locator('#toggleMic').click()
+    await expect(page.locator('#updateNotice')).toContainText('Updating will turn off this device\'s microphone')
+    await expect(page.locator('#updateApp')).toHaveText('Leave call and update')
+    if (canUseSyntheticMic) await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#updateNotice')).toBeHidden()
     await expect(page.locator('#toggleMic')).not.toHaveAttribute('data-on', 'true')
+    // A later update discovered while already on a call must paint the
+    // truthful one-step action immediately, including on a narrow phone
+    // using enlarged text. This is the physical iPhone trap which prompted
+    // the recoverable call blocker: the media controls can be far below the
+    // notice and must not be a prerequisite for updating.
+    await page.locator('#callToggle').click()
+    if (canUseSyntheticMic) await page.locator('#toggleMic').click()
+    release.publish()
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('#updateApp')).toHaveText('Leave call and update')
+    await page.setViewportSize({ width: 320, height: 740 })
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+    await expect(page.locator('#updateApp')).toBeInViewport()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath('update-active-call-large-text.png') })
+    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#updateNotice')).toBeHidden()
     // An idle room also updates directly and resumes without the join form.
     release.publish()
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
