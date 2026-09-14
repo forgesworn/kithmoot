@@ -7,6 +7,7 @@ import { Outbox } from './outbox.js'
 import { confirmAction, type ConfirmActionOptions } from './confirm-action.js'
 import { ChatScroll } from './chat-scroll.js'
 import { installReactionHold } from './reaction-hold.js'
+import { splitLinks } from './linkify.js'
 import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
@@ -39,6 +40,8 @@ import { RoomWatch } from './room-watch.js'
 import { RoomBookmarks } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
+import { RemoteVolume } from './remote-volume.js'
+import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
 import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
@@ -127,6 +130,7 @@ import {
   type RelayTransport,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
+import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
@@ -311,9 +315,14 @@ function configuredPool(urls: string[]): NostrRelayPool {
 
 // The room names its own STUN/TURN, carried in the join URL like the relay
 // hints already are - hardcoding an operator's server here is exactly the
-// kind of central dependency this project exists to avoid. This is only a
-// sensible default for a room that never set its own.
-const DEFAULT_ICE_URLS = ['stun:stun.l.google.com:19302']
+// kind of central dependency this project exists to avoid. DEFAULT_ICE_URLS
+// (imported from ice-defaults.ts, along with isDefaultIceUrls,
+// originStunGuess and stunFromTurnUrl) is only a sensible stand-in for a
+// room that never set its own, and it names no host at all - what this
+// origin can offer instead is derived at connect time, in
+// resolveIceServers below. See ice-defaults.ts for the full design and
+// docs/decisions.md, 2026-09-13, for why this changed from a hardcoded
+// Google STUN server.
 
 /**
  * Whether the last ICE resolution produced a relay (a `turn:` server with a
@@ -336,9 +345,9 @@ const ICE_REFRESH_MS = 40 * 60 * 1000
 // a stream falling back to its origin does - it just fails.
 //
 // The default TURN server's URLs are deliberately NOT listed in
-// DEFAULT_ICE_URLS above. They arrive from the minting endpoint below,
-// already carrying the credential they need, and resolveIceServers appends
-// them. This is not a stylistic choice: a turn: entry with no username and
+// DEFAULT_ICE_URLS. They arrive from the minting endpoint below, already
+// carrying the credential they need, and resolveIceServers appends them.
+// This is not a stylistic choice: a turn: entry with no username and
 // credential makes the RTCPeerConnection constructor throw
 // InvalidAccessError outright, so a bare turn: URL in that list would not
 // degrade to STUN, it would stop the app dead before a single candidate
@@ -1862,6 +1871,11 @@ function renderIdentity(): void {
 let micTrack: MediaStreamTrack | undefined
 let cameraTrack: MediaStreamTrack | undefined
 let screenTrack: MediaStreamTrack | undefined
+/** The shared tab or window's own sound, captured alongside `screenTrack`
+ *  when the browser offers it. Absent on Firefox, Safari, a window share, or
+ *  when the person unticked the box - a share still works with no audio, it
+ *  is simply silent, which is what the note near the toggle says. */
+let screenAudioTrack: MediaStreamTrack | undefined
 
 let camera: CameraPipeline | undefined
 let mic: MicPipeline | undefined
@@ -1917,7 +1931,7 @@ function joinLinkBase(): string {
 }
 
 function activeTracks(): MediaStreamTrack[] {
-  return [micTrack, cameraTrack, screenTrack].filter((t): t is MediaStreamTrack => t !== undefined)
+  return [micTrack, cameraTrack, screenTrack, screenAudioTrack].filter((t): t is MediaStreamTrack => t !== undefined)
 }
 
 function fragmentPayload(url: string): Partial<RoomUrlPayload> {
@@ -2087,19 +2101,15 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
   }
 }
 
-/** True when `urls` is exactly the built-in default ICE list, rather than
- *  one a room's URL or the room-settings field supplied. Compared by
- *  content, not by reference, so this stays correct even if a future
- *  change stops returning the DEFAULT_ICE_URLS array itself in the
- *  "nothing custom was set" case. This is the gate for whether it is this
- *  app's own default TURN server (and so this app's own credential
- *  endpoint) that is in play, versus a room naming its own ICE servers -
- *  see the design principle at the top of deploy/README.md: the room
- *  names its own STUN/TURN, and an operator's minted credential must
- *  never be attached to a server the room never asked for. */
-function isDefaultIceUrls(urls: string[]): boolean {
-  return urls.length === DEFAULT_ICE_URLS.length && urls.every((u, i) => u === DEFAULT_ICE_URLS[i])
-}
+// isDefaultIceUrls (imported from ice-defaults.ts) is the gate for whether
+// it is this app's own default TURN server (and so this app's own
+// credential endpoint) that is in play, versus a room naming its own ICE
+// servers - see the design principle at the top of deploy/README.md: the
+// room names its own STUN/TURN, and an operator's minted credential must
+// never be attached to a server the room never asked for. It also
+// recognises the old literal Google default an existing link may still
+// carry as the default, so those rooms are upgraded to this origin's own
+// STUN/TURN rather than kept on Google's server - see ice-defaults.ts.
 
 /** Fetches one TURN credential from the configured minting endpoint. A
  *  malformed or slow response is treated the same as no endpoint at all -
@@ -2136,6 +2146,13 @@ async function fetchTurnCredential(endpoint: string): Promise<RTCIceServer | und
  * the operator's own default TURN server when one is configured and this
  * room is actually using that default (see isDefaultIceUrls).
  *
+ * A room naming its own ICE servers gets exactly those, unchanged. A room
+ * on the defaults gets nothing named by this bundle: this origin's own
+ * STUN, derived from wherever the minted TURN credential actually points
+ * (stunFromTurnUrl) when the credential endpoint answers, or a same-host
+ * guess on the standard port when it doesn't (originStunGuess) - see
+ * ice-defaults.ts for why, and docs/decisions.md, 2026-09-13.
+ *
  * A failed or unreachable credential endpoint must never block joining: a
  * room that only has STUN still works for roughly 80% of real connections
  * (see deploy/README.md), and a call that refuses to start because an
@@ -2144,15 +2161,24 @@ async function fetchTurnCredential(endpoint: string): Promise<RTCIceServer | und
  * endpoint existed.
  */
 async function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
-  const base: RTCIceServer[] = urls.map((iceUrl) => ({ urls: iceUrl }))
-  if (!TURN_CREDENTIAL_ENDPOINT || !isDefaultIceUrls(urls)) {
+  if (!isDefaultIceUrls(urls)) {
     turnRelayConfigured = urls.some((iceUrl) => iceUrl.toLowerCase().startsWith('turn'))
-    return base
+    return urls.map((iceUrl) => ({ urls: iceUrl }))
+  }
+
+  if (!TURN_CREDENTIAL_ENDPOINT) {
+    turnRelayConfigured = false
+    return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
   }
 
   const turnServer = await fetchTurnCredential(TURN_CREDENTIAL_ENDPOINT)
   turnRelayConfigured = turnServer !== undefined
-  return turnServer ? [...base, turnServer] : base
+  if (!turnServer) return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
+
+  // The same host and port the minted credential just proved answers TURN
+  // on, not a second guess at this origin's hostname.
+  const stunUrls = [...new Set(toUrlList(turnServer.urls).map(stunFromTurnUrl).filter((u): u is string => u !== undefined))]
+  return [...stunUrls.map((iceUrl) => ({ urls: iceUrl })), turnServer]
 }
 
 /** An RTCIceServer's `urls` is a string or a list of them. */
@@ -2698,6 +2724,10 @@ function newCallId(): string {
 async function joinCall(): Promise<void> {
   const s = session
   if (!s || s.call) return
+  // The user gesture the gain path needs to open an AudioContext that is
+  // not born suspended - see remote-volume.ts. Harmless to call whether or
+  // not this call ever needs it.
+  remoteVolume.resume()
   const existing = s.calls()[0]
   leftCall = false
   await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
@@ -2716,7 +2746,7 @@ function stopLocalMedia(): void {
   for (const pipeline of pendingMedia) pipeline.stop()
   pendingMedia.clear()
   mic = camera = undefined
-  micTrack = cameraTrack = screenTrack = undefined
+  micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
   for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
@@ -2728,6 +2758,7 @@ async function leaveCall(): Promise<void> {
   const s = session
   stopLocalMedia()
   speakingMonitor.retain([...remoteAudios.keys()])
+  remoteVolume.retain([...remoteAudios.keys()])
   publishActiveTracks()
   leftCall = true
   if (s) await s.setCall(null)
@@ -3394,12 +3425,25 @@ function publishEffectStats(): void {
 
 setInterval(publishEffectStats, 500)
 
+/**
+ * Screen Capture API fields TypeScript's bundled DOM lib does not know yet.
+ * Chromium honours them; a browser that does not simply ignores what it
+ * does not recognise, so asking for them is harmless everywhere.
+ */
+interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
+  systemAudio?: 'include' | 'exclude'
+  selfBrowserSurface?: 'include' | 'exclude'
+  surfaceSwitching?: 'include' | 'exclude'
+}
+
 async function toggleScreen(): Promise<void> {
   const generation = roomGeneration
   if (switchingRoom) return
   if (screenTrack) {
     screenTrack.stop()
     screenTrack = undefined
+    screenAudioTrack?.stop()
+    screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
     localPreviewEls.delete('screen')
     // Nothing left to show a mark on: close the floating window and drop
@@ -3418,15 +3462,30 @@ async function toggleScreen(): Promise<void> {
           'use a desktop browser, or the Android app.',
       )
     }
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true })
+    // Processing left off: shared sound is usually a video or music playing
+    // in a tab, not somebody's voice, and echo cancellation tuned for speech
+    // mangles it. Firefox and Safari offer no display audio at all, and a
+    // window share or an unticked "share tab audio" box leaves it out too -
+    // the share still goes ahead, silently; see `updateScreenAudioNote`.
+    const options: ScreenCaptureOptions = {
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      systemAudio: 'include',
+      selfBrowserSurface: 'exclude',
+      surfaceSwitching: 'include',
+    }
+    const stream = await navigator.mediaDevices.getDisplayMedia(options)
     if (generation !== roomGeneration) { for (const track of stream.getTracks()) track.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
+    screenAudioTrack = stream.getAudioTracks()[0]
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
         if (generation !== roomGeneration) return
         screenTrack = undefined
+        screenAudioTrack?.stop()
+        screenAudioTrack = undefined
         localPreviewEls.get('screen')?.remove()
         localPreviewEls.delete('screen')
         floatingSharePreview.close()
@@ -3434,8 +3493,22 @@ async function toggleScreen(): Promise<void> {
         publishActiveTracks()
         updateUi()
       })
+      // The picture can keep sharing after its sound stops on its own - a
+      // tab switch, on a browser that ties system audio to a shared tab
+      // having focus. Unadvertise the sound and leave the picture alone.
+      screenAudioTrack?.addEventListener('ended', () => {
+        if (generation !== roomGeneration) return
+        screenAudioTrack = undefined
+        publishActiveTracks()
+        updateUi()
+      })
       addLocalPreview('screen', screenTrack)
       publishActiveTracks()
+    } else {
+      // No picture came back at all: nothing to show, so stop whatever the
+      // browser did hand over rather than leak a live capture nobody sees.
+      for (const track of stream.getTracks()) track.stop()
+      screenAudioTrack = undefined
     }
   }
   updateUi()
@@ -3585,6 +3658,7 @@ function currentAdverts(): TrackAdvert[] {
   if (cameraTrack) adverts.push({ trackId: cameraTrack.id, role: 'camera' })
   if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic' })
   if (screenTrack) adverts.push({ trackId: screenTrack.id, role: 'screen' })
+  if (screenAudioTrack) adverts.push({ trackId: screenAudioTrack.id, role: 'screen-audio' })
   return adverts
 }
 
@@ -3634,11 +3708,21 @@ function setToggle(id: string, on: boolean): void {
   $(id).setAttribute('aria-pressed', String(on))
 }
 
+/** "No sound is shared", next to the share toggle - only while a share is
+ *  live and the browser handed over no audio track: Firefox, Safari, a
+ *  window share, or the box left unticked. The share still goes ahead, so
+ *  this says why nobody can hear it rather than stopping it. Hidden the
+ *  moment the share ends, so it never outlives the share it is about. */
+function updateScreenAudioNote(): void {
+  $('screenAudioNote').hidden = !screenTrack || !!screenAudioTrack
+}
+
 function updateUi(): void {
   if (callIsLive() || onCall()) setCallOpen(true)
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  updateScreenAudioNote()
   // Only worth offering while there is something to float: this device's
   // own share, on a browser that can open the window at all.
   $('toggleFloatingMarks').hidden = !screenTrack || !floatingPreviewSupported()
@@ -3704,9 +3788,19 @@ function render(views: ParticipantView[], me: string): void {
   // tracks still arrive, because the room's mesh outlives the call, but
   // Leave has to mean quiet. See `leftCall`.
   const ownDevices = new Set(mine?.devices ?? [])
+  cachedMonitorHere = monitorHere
+  cachedOwnDevices = ownDevices
+  // Which participant each device belongs to, so the loop below can look up
+  // a person's own volume level - see `previewVolumeLevel` for the same
+  // lookup while a slider is mid-drag, between renders.
+  const deviceOwner = new Map<string, string>()
+  for (const view of views) for (const device of view.devices) deviceOwner.set(device, view.participant)
   for (const [key, audio] of remoteAudios) {
     const device = key.slice(0, key.indexOf('|'))
-    audio.el.muted = !monitorHere || leftCall || ownDevices.has(device)
+    const muted = !monitorHere || leftCall || ownDevices.has(device)
+    const owner = deviceOwner.get(device)
+    const level = owner !== undefined ? volumeLevel(owner) : 1
+    remoteVolume.apply(key, audio.el, audio.track, level, muted)
   }
 
   {
@@ -3822,7 +3916,10 @@ function render(views: ParticipantView[], me: string): void {
       heading.append(badge)
       if (view.owner) heading.append(ownerRun(view.owner))
     }
-    if (view.participant !== me) heading.append(verifyChip(view, shown.name ?? ''))
+    if (view.participant !== me) {
+      heading.append(verifyChip(view, shown.name ?? ''))
+      if (volumeLevel(view.participant) === 0) heading.append(volumeMuteBadge())
+    }
     box.prepend(heading)
     const place = (mediaEl: HTMLDivElement | undefined): void => {
       if (!mediaEl || mediaEl.childElementCount === 0) { if (mediaEl?.parentElement === box) mediaEl.remove(); return }
@@ -4102,6 +4199,53 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       invite.setAttribute('aria-label', `Invite ${shown.name ?? shown.short} to a room`)
       invite.addEventListener('click', () => openInviteToRoom(view.participant, shown.name))
       row.append(invite)
+    }
+    // How loud this person is, on this device only - one slider for the
+    // person, whatever it takes to merge their devices into this one tile.
+    // See the "Per-person volume" section above.
+    if (view.participant !== me) {
+      const volumeRow = document.createElement('div')
+      volumeRow.className = 'volumeRow'
+      const label = document.createElement('span')
+      label.className = 'volumeLabel'
+      label.textContent = 'Volume'
+      const slider = document.createElement('input')
+      slider.type = 'range'
+      slider.className = 'volumeSlider'
+      slider.min = '0'
+      // A level above 100% needs the gain path; where that has actually
+      // failed the slider is capped rather than offering a promise the
+      // element cannot keep. See RemoteVolume.gainAvailable.
+      slider.max = remoteVolume.gainAvailable ? '200' : '100'
+      slider.step = '5'
+      slider.setAttribute('list', 'volumeNotch')
+      slider.dataset.participant = view.participant
+      slider.setAttribute('aria-label', `Volume for ${shown.name ?? shown.short}`)
+      const out = document.createElement('output')
+      out.className = 'volumeValue'
+      const describe = (percent: number) => (percent === 0 ? 'Silenced for you' : `${percent}%`)
+      const startPercent = Math.round(volumeLevel(view.participant) * 100)
+      slider.value = String(startPercent)
+      out.textContent = describe(startPercent)
+      slider.setAttribute('aria-valuetext', describe(startPercent))
+      slider.addEventListener('input', () => {
+        let percent = Number(slider.value)
+        // A little magnetism at 100%, the untouched level, so landing back
+        // on it does not need a pixel-perfect drag.
+        if (percent !== 100 && Math.abs(percent - 100) <= 7) { percent = 100; slider.value = '100' }
+        out.textContent = describe(percent)
+        slider.setAttribute('aria-valuetext', describe(percent))
+        previewVolumeLevel(view, percent / 100)
+      })
+      slider.addEventListener('change', () => commitVolumeLevel(view.participant))
+      volumeRow.append(label, slider, out)
+      row.append(volumeRow)
+      if (!remoteVolume.gainAvailable) {
+        const note = document.createElement('p')
+        note.className = 'note'
+        note.textContent = 'Above 100% needs Web Audio, which is not available here, so this stays capped at 100%.'
+        row.append(note)
+      }
     }
     list.append(row)
   }
@@ -4467,6 +4611,8 @@ function muteRequested(by: string): void {
   if (screenTrack) {
     screenTrack.stop()
     screenTrack = undefined
+    screenAudioTrack?.stop()
+    screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
     localPreviewEls.delete('screen')
     stopped.push('screen share')
@@ -5720,7 +5866,8 @@ function mentionPattern(names: string[]): RegExp | undefined {
 }
 
 /**
- * A message's words, with the names in it marked.
+ * A message's words: an http(s) URL as a real link, and the names in the
+ * rest of it marked.
  *
  * A mention is set apart from ordinary words, and a mention of the reader
  * is set apart again - that is the one thing a person scans a busy room
@@ -5728,6 +5875,30 @@ function mentionPattern(names: string[]): RegExp | undefined {
  * markup out of somebody else's text.
  */
 function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | undefined, mine: Set<string>): void {
+  for (const token of splitLinks(text)) {
+    if (token.kind === 'link') into.append(linkElement(token.url))
+    else appendMentions(into, token.value, pattern, mine)
+  }
+}
+
+/** A tappable, copyable link for a URL pasted into a message. Its visible
+ *  text is the URL itself, so nothing is hidden behind different wording,
+ *  and it opens in a new tab without handing the destination a reference
+ *  back to this one. On a phone, an `a` is already exactly what steps aside
+ *  from the bubble's hold-to-react gesture and its disabled callout menu -
+ *  see the `a` exclusions in `reaction-hold.ts` and the `.reactableBubble a`
+ *  rules in style.css - so a long press here gives the platform's own link
+ *  menu instead of opening the reaction picker. */
+function linkElement(url: string): HTMLAnchorElement {
+  const a = document.createElement('a')
+  a.href = url
+  a.textContent = url
+  a.target = '_blank'
+  a.rel = 'noopener noreferrer'
+  return a
+}
+
+function appendMentions(into: HTMLElement, text: string, pattern: RegExp | undefined, mine: Set<string>): void {
   if (!pattern) {
     into.append(text)
     return
@@ -5745,6 +5916,32 @@ function appendWithMentions(into: HTMLElement, text: string, pattern: RegExp | u
     at = start + token.length
   }
   if (at < text.length) into.append(text.slice(at))
+}
+
+/** Copy a message's exact text to the clipboard, for a phone where a
+ *  bubble's own long-press is spoken for by the reaction picker and native
+ *  text selection is off outside a link (see `.reactableBubble` in
+ *  style.css). Falls back to a hidden textarea's `execCommand('copy')` the
+ *  way `copyInput` above does for the invite link, for a browser that has
+ *  no async clipboard API or refuses it here. */
+async function copyMessageText(text: string): Promise<void> {
+  let copied = false
+  try {
+    if (navigator.clipboard) { await navigator.clipboard.writeText(text); copied = true }
+  } catch { /* Try the browser's selection-based copy below. */ }
+  if (!copied) {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    area.setAttribute('aria-hidden', 'true')
+    document.body.append(area)
+    area.focus()
+    area.select()
+    try { copied = document.execCommand('copy') } catch { /* Manual copying remains available. */ }
+    area.remove()
+  }
+  setStatus(copied ? 'Message text copied.' : 'Could not copy automatically. Select the text and copy it with your keyboard or touch menu.', copied ? 'done' : 'problem')
 }
 
 /**
@@ -5971,7 +6168,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       more.setAttribute('aria-controls', 'messageActionPanel')
       more.setAttribute('aria-expanded', 'false')
       const openActions = (anchor: HTMLElement, reactionsOnly = false): void => {
-        const actions: MessageAction[] = [{ label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) }]
+        const actions: MessageAction[] = [
+          { label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) },
+          { label: 'Copy text', text: 'Copy text', run: () => { void copyMessageText(m.text) } },
+        ]
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
@@ -6292,6 +6492,84 @@ function paintSpeaking(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Per-person volume
+//
+// One slider per PERSON, not per device - in this app the person is the
+// member, and a phone and a laptop of the same person are one tile already
+// (see `ParticipantView.devices`). It sets how loud that person is on this
+// device only: nothing is published, and it never survives to another
+// device of yours or to anybody else's screen. See remote-volume.ts for the
+// gain path this routes through, and volume-store.ts for what is
+// remembered between visits.
+// ---------------------------------------------------------------------------
+
+const remoteVolume = new RemoteVolume()
+
+/** This device's own opinion of how loud each other participant is, from 0
+ *  (silenced for this device) to 2 (200%). 1 is the untouched default and
+ *  is never written to storage - see volume-store.ts. */
+const volumeLevels = new Map<string, number>()
+
+/** This browser's level for `participant`: the one a slider was left at
+ *  this visit, else the one remembered from before, else 100%. */
+function volumeLevel(participant: string): number {
+  let level = volumeLevels.get(participant)
+  if (level === undefined) {
+    level = loadVolumeLevel(deviceStore, participant) ?? 1
+    volumeLevels.set(participant, level)
+  }
+  return level
+}
+
+/** The one-speaker rule and Leave, as last computed by `render()` - read by
+ *  the slider between renders so dragging it does not have to walk the
+ *  roster again on every tick. */
+let cachedMonitorHere = true
+let cachedOwnDevices = new Set<string>()
+
+/**
+ * Routes `level` to every device of `view`'s that currently has live remote
+ * audio, without rebuilding any UI. The slider's `input` listener calls
+ * this on every tick so dragging stays smooth - replacing the element mid
+ * drag would end the gesture - and `commitVolumeLevel` remembers the level
+ * once it settles.
+ */
+function previewVolumeLevel(view: ParticipantView, level: number): void {
+  volumeLevels.set(view.participant, level)
+  for (const device of view.devices) {
+    for (const [key, audio] of remoteAudios) {
+      if (!key.startsWith(`${device}|`)) continue
+      const muted = !cachedMonitorHere || leftCall || cachedOwnDevices.has(device)
+      remoteVolume.apply(key, audio.el, audio.track, level, muted)
+    }
+  }
+  paintVolumeMute(view.participant, level === 0)
+}
+
+/** Remembers the level a slider was left at - see volume-store.ts. */
+function commitVolumeLevel(participant: string): void {
+  storeVolumeLevel(deviceStore, participant, volumeLevels.get(participant) ?? 1)
+}
+
+function volumeMuteBadge(): HTMLElement {
+  const badge = document.createElement('span')
+  badge.className = 'badge muted'
+  badge.textContent = '\u{1F507} silenced for you'
+  badge.title = 'Silenced for you'
+  return badge
+}
+
+/** Keeps a tile's "silenced for you" tag in step with the slider while it
+ *  is being dragged, without waiting for the next full render. */
+function paintVolumeMute(participant: string, silenced: boolean): void {
+  const heading = tileBoxes.get(participant)?.querySelector('h3')
+  if (!heading) return
+  const existing = heading.querySelector<HTMLElement>('.badge.muted')
+  if (silenced && !existing) heading.append(volumeMuteBadge())
+  else if (!silenced && existing) existing.remove()
+}
+
 /** How many checks a picture may go without a new frame before it comes off
  *  screen. Two at a one-second interval: long enough not to flicker on a
  *  dropped frame or a slow moment, short enough that "off" looks off. */
@@ -6436,6 +6714,7 @@ function syncRemoteVideos(): void {
     if (entry.track.readyState !== 'ended' && !orphanedFor(key)) continue
     entry.el.remove()
     remoteAudios.delete(key)
+    remoteVolume.detach(key)
     const device = key.slice(0, key.indexOf('|'))
     const remaining = [...remoteAudios].find(([other]) => other.startsWith(`${device}|`))
     if (remaining) speakingMonitor.watch(device, remaining[1].track)
@@ -6495,7 +6774,10 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
   }
   if (track.kind === 'audio' && !remoteAudios.has(key)) {
     const alias = [...remoteAudios].find(([, entry]) => entry.track === track)
-    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]) }
+    // Any route the old key held is torn down rather than left dangling
+    // under a name `remoteAudios` no longer has; `render()` opens a fresh
+    // one under the new key on its next pass.
+    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]); remoteVolume.detach(alias[0]) }
   }
 
   // One element PER TRACK, not per kind. A device sharing its screen while
@@ -6587,6 +6869,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       if (remoteAudios.get(key)?.track !== track) return
       el.remove()
       remoteAudios.delete(key)
+      remoteVolume.detach(key)
       speakingMonitor.unwatch(device)
       paintSpeaking()
       if (session) render(session.participants(), meParticipant)
@@ -6698,6 +6981,9 @@ async function collectDiagnostics(): Promise<string> {
       publishing: currentAdverts().map((a) => a.role),
       agentsMayHear,
       effect: $('effectMode').textContent,
+      screenAudio: screenAudioTrack
+        ? { present: true, muted: screenAudioTrack.muted, readyState: screenAudioTrack.readyState }
+        : { present: false },
       wakeLock: callWakeLock.state,
     },
     participants: s?.participants().map((v) => ({
@@ -6727,6 +7013,9 @@ async function collectDiagnostics(): Promise<string> {
       currentTime: Number(a.el.currentTime.toFixed(2)),
       track: `${a.track.readyState}${a.track.muted ? ':muted' : ''}`,
     })),
+    // A count, never the keys or the levels themselves - which people have
+    // been turned up or down is nobody's business but this browser's.
+    volume: { customLevels: volumeLevelCount(deviceStore), gainAvailable: remoteVolume.gainAvailable },
   }
   return JSON.stringify(out, null, 1)
 }
@@ -7755,6 +8044,7 @@ async function closeRoomSession(): Promise<void> {
   stopLocalMedia()
   void callWakeLock.release()
   speakingMonitor.retain([])
+  remoteVolume.retain([])
   for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
     entry.track.stop()
     entry.el.pause()
