@@ -715,7 +715,14 @@ async function signOutOfNostr(): Promise<void> {
   $('roomSyncStatus').textContent = ''
   refreshAccountRooms()
   renderIdentity()
-  if (account) await logout(account)
+  if (account) {
+    // clearPersistentClientKey: true also forgets the NIP-46 client key a
+    // bunker approved for this browser. Without it, logout only clears the
+    // session - the approved client key survives and anyone with this
+    // browser profile could still sign as it.
+    await logout(account, { clearPersistentClientKey: true })
+    setStatus("Signed out. This forgets this browser's connection to your signer, including any bunker pairing.", 'done')
+  }
 }
 
 let bookmarks: RoomBookmarks | undefined
