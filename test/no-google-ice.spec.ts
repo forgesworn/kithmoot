@@ -65,3 +65,55 @@ test('a default room hands its RTCPeerConnections no Google host', async ({ brow
     await contextB.close()
   }
 })
+
+test('a production-style TURN response does not invent optional STUN/TLS', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+
+  const contextA = await newDeviceContext(browser, baseURL!)
+  const contextB = await newDeviceContext(browser, baseURL!)
+  const turnCredential = {
+    urls: [
+      'turn:kithmoot.example:3478',
+      'turn:kithmoot.example:3478?transport=tcp',
+      'turns:kithmoot.example:5349',
+    ],
+    username: 'test-user',
+    credential: 'test-password',
+    ttl: 3600,
+  }
+  const answerTurn = (context: typeof contextA) => context.route('**/turn', route =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify(turnCredential) }),
+  )
+
+  try {
+    await Promise.all([answerTurn(contextA), answerTurn(contextB)])
+    const pageA = await contextA.newPage()
+    const pageB = await contextB.newPage()
+
+    const url = await createRoom(pageA, baseURL!)
+    await joinWithMedia(pageA, url, 'Ada')
+    await joinWithMedia(pageB, url, 'Bob')
+
+    for (const page of [pageA, pageB]) {
+      await expect
+        .poll(() => page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length), {
+          message: 'no RTCPeerConnection was ever constructed - nothing to assert',
+          timeout: 60_000,
+        })
+        .toBeGreaterThan(0)
+    }
+
+    const iceServerUrls = await pageB.evaluate(() =>
+      (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.flatMap((pc) =>
+        (pc.getConfiguration().iceServers ?? []).flatMap((server) =>
+          (Array.isArray(server.urls) ? server.urls : [server.urls]) as string[],
+        ),
+      ),
+    )
+    expect(iceServerUrls).toContain('stun:kithmoot.example:3478')
+    expect(iceServerUrls.filter(url => url.toLowerCase().startsWith('stuns:'))).toEqual([])
+  } finally {
+    await contextA.close()
+    await contextB.close()
+  }
+})

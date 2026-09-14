@@ -1538,6 +1538,21 @@ place, so it is granted exactly the access a `curl` from the box always
 had, and setting one explicitly would only risk a 403 on a box whose
 `ALLOWED_ORIGINS` doesn't happen to list it. No server change was needed.
 
+**Do not derive `stuns:` from a `turns:` URL - corrected 14 September
+2026.** The first deployed version derived a STUN companion from every
+TURN URL returned by `/turn`, including `stuns:` from the TURN/TLS URL.
+Safari does not implement that optional ICE protocol and rejects the whole
+`RTCPeerConnection` configuration before candidate gathering. A default
+room therefore appeared briefly on the relays, then left with “ICE server
+protocol not supported.” `stunFromTurnUrl` now derives STUN only from plain
+`turn:` URLs. A focused WebKit constructor gate then exposed a second
+incompatibility in the same live response: WebKit rejects
+`turn:host:port?transport=tcp` as an invalid TURN query. Browser defaults
+omit that redundant URL as well. The original credentialled `turns:` URL
+remains available as encrypted TURN over TCP/TLS, alongside plain TURN over
+UDP, so both useful transport routes are preserved; only the two rejected
+alternatives are omitted.
+
 Android is a separate client and a separate repository
 (`kithmoot-android`); this change does not touch it. Its `RoomViewModel.kt`
 carries its own literal `stun:stun.l.google.com:19302` default as of this

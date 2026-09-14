@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_ICE_URLS, LEGACY_DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from './ice-defaults.js'
+import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, LEGACY_DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from './ice-defaults.js'
 
 describe('stunFromTurnUrl', () => {
   it('derives a stun: URL from a turn: URL with host and port', () => {
     expect(stunFromTurnUrl('turn:turn.kithmoot.example:3478')).toBe('stun:turn.kithmoot.example:3478')
   })
 
-  it('derives a stuns: URL from a turns: URL, keeping the TLS scheme', () => {
-    expect(stunFromTurnUrl('turns:turn.kithmoot.example:5349')).toBe('stuns:turn.kithmoot.example:5349')
+  it('does not invent optional stuns: from a turns: URL', () => {
+    expect(stunFromTurnUrl('turns:turn.kithmoot.example:5349')).toBeUndefined()
   })
 
   it('drops a ?transport=... suffix, which is TURN-only', () => {
@@ -25,6 +25,23 @@ describe('stunFromTurnUrl', () => {
   it('returns undefined for a turn: URL with nothing after the scheme', () => {
     expect(stunFromTurnUrl('turn:')).toBeUndefined()
     expect(stunFromTurnUrl('turn:?transport=tcp')).toBeUndefined()
+  })
+})
+
+describe('browserDefaultTurnUrls', () => {
+  it('omits WebKit-incompatible plain TURN/TCP while retaining UDP and TURN/TLS', () => {
+    expect(browserDefaultTurnUrls([
+      'turn:turn.kithmoot.example:3478',
+      'turn:turn.kithmoot.example:3478?transport=tcp',
+      'turns:turn.kithmoot.example:5349',
+    ])).toEqual([
+      'turn:turn.kithmoot.example:3478',
+      'turns:turn.kithmoot.example:5349',
+    ])
+  })
+
+  it('matches the rejected query case-insensitively', () => {
+    expect(browserDefaultTurnUrls(['TURN:turn.kithmoot.example:3478?TRANSPORT=TCP'])).toEqual([])
   })
 })
 

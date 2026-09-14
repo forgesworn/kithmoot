@@ -74,23 +74,43 @@ export function isLoopbackHostname(hostname: string): boolean {
 }
 
 /**
- * Derives the `stun:`/`stuns:` URL for the same host, port and transport
- * scheme as a `turn:`/`turns:` URL, e.g. `turn:example.com:3478` becomes
- * `stun:example.com:3478` and `turns:example.com:5349` becomes
- * `stuns:example.com:5349`. coturn answers a STUN Binding request on
+ * Derives the `stun:` URL for the same host and port as a plain `turn:`
+ * URL, e.g. `turn:example.com:3478` becomes
+ * `stun:example.com:3478`. coturn answers a STUN Binding request on
  * exactly the listener it answers a TURN Allocate on, so a URL already
  * known to work for this room's minted TURN credential is a safer guess
  * for STUN than a bare hostname guess would be (see originStunGuess,
  * below, for that guess). Any `?transport=...` suffix is TURN-only and is
- * dropped. Returns undefined for anything that isn't a turn(s): URL.
+ * dropped.
+ *
+ * A `turns:` URL is deliberately not converted into `stuns:`. STUN over
+ * TLS is an optional browser protocol and Safari rejects an
+ * RTCPeerConnection configuration containing it with NotSupportedError.
+ * The original `turns:` URL remains in the returned TURN server, with its
+ * credential, so this only avoids inventing an unnecessary and less
+ * interoperable extra URL. Returns undefined for anything except `turn:`.
  */
 export function stunFromTurnUrl(turnUrl: string): string | undefined {
-  const match = /^(turns?):(.+)$/i.exec(turnUrl.trim())
+  const match = /^turn:(.+)$/i.exec(turnUrl.trim())
   if (!match) return undefined
-  const hostAndPort = match[2].split('?')[0].trim()
+  const hostAndPort = match[1].split('?')[0].trim()
   if (!hostAndPort) return undefined
-  const scheme = match[1].toLowerCase() === 'turns' ? 'stuns' : 'stun'
-  return `${scheme}:${hostAndPort}`
+  return `stun:${hostAndPort}`
+}
+
+/**
+ * Removes a redundant plain TURN/TCP alternative from the operator's
+ * browser default. WebKit rejects the otherwise standard
+ * `turn:host:port?transport=tcp` spelling with SyntaxError. The deployment
+ * also supplies `turns:` on its TLS listener, which is TURN over TCP with
+ * transport security, so omitting the rejected plain-TCP alternative still
+ * leaves both UDP TURN and firewall-friendly TCP TURN available.
+ *
+ * This applies only to URLs returned by this origin's `/turn` endpoint.
+ * Room-authored ICE hints remain the room author's explicit choice.
+ */
+export function browserDefaultTurnUrls(urls: string[]): string[] {
+  return urls.filter(url => !/^turn:[^?]+\?transport=tcp$/i.test(url.trim()))
 }
 
 /**
