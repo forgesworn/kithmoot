@@ -6,8 +6,8 @@ describe('stunFromTurnUrl', () => {
     expect(stunFromTurnUrl('turn:turn.kithmoot.example:3478')).toBe('stun:turn.kithmoot.example:3478')
   })
 
-  it('derives a stuns: URL from a turns: URL, keeping the TLS scheme', () => {
-    expect(stunFromTurnUrl('turns:turn.kithmoot.example:5349')).toBe('stuns:turn.kithmoot.example:5349')
+  it('does not invent optional stuns: from a turns: URL', () => {
+    expect(stunFromTurnUrl('turns:turn.kithmoot.example:5349')).toBeUndefined()
   })
 
   it('drops a ?transport=... suffix, which is TURN-only', () => {

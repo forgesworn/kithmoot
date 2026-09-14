@@ -2174,8 +2174,10 @@ async function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
   turnRelayConfigured = turnServer !== undefined
   if (!turnServer) return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
 
-  // The same host and port the minted credential just proved answers TURN
-  // on, not a second guess at this origin's hostname.
+  // The same host and port the minted credential just proved answers plain
+  // TURN on, not a second guess at this origin's hostname. A TURN/TLS URL
+  // remains available for relaying but is not duplicated as STUN/TLS: that
+  // optional ICE protocol makes Safari reject the whole configuration.
   const stunUrls = [...new Set(toUrlList(turnServer.urls).map(stunFromTurnUrl).filter((u): u is string => u !== undefined))]
   return [...stunUrls.map((iceUrl) => ({ urls: iceUrl })), turnServer]
 }

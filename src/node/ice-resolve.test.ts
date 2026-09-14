@@ -31,7 +31,6 @@ describe('resolveNodeIceServers', () => {
     expect(result.turn).toEqual({ username: 'km-abc123', credential: 'sekrit' })
     expect(result.iceUrls).toEqual([
       'stun:turn.kithmoot.example:3478',
-      'stuns:turn.kithmoot.example:5349',
       'turn:turn.kithmoot.example:3478',
       'turns:turn.kithmoot.example:5349',
     ])
