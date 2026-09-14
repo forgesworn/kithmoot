@@ -87,6 +87,15 @@
           <button id="watchAgents" type="button">Watch agents</button>
           <button id="manageAgents" type="button" hidden>Invite an agent</button>
         </div>
+        <!-- Somebody has drawn on this device's own screen share and the
+             floating preview, if this browser has one, is not open to show
+             it directly. Filled in by `showDrawingNotice` in
+             app/src/main.ts; never steals focus. -->
+        <div id="sharerMarksNotice" class="sharerMarksNotice" role="status" hidden>
+          <span id="sharerMarksNoticeText"></span>
+          <button id="sharerMarksNoticeShow" type="button">Show</button>
+          <button id="sharerMarksNoticeFloat" type="button" hidden>Open floating window</button>
+        </div>
 
         <!-- The call controls and the pictures, together, so that on a phone
              they can share one bounded area and never push the conversation
@@ -119,6 +128,7 @@
                  See app/src/call-folds.ts. -->
             <details id="callExtras" class="callExtras" open>
             <summary aria-label="More call settings">More</summary>
+            <button id="toggleFloatingMarks" class="toggle" data-on="false" aria-pressed="false" hidden>Show drawings in a floating window</button>
             <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. On a
                  phone it belongs behind More so the warning cannot push the
                  conversation and composer off screen; desktop keeps this
