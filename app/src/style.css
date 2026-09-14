@@ -3460,6 +3460,7 @@ input[type="search"] { font-family: inherit; }
   /* The call has its own fixed column here. Keep the room divider, but use
      phone-weight spacing so system-font differences cannot take the last
      readable line from the conversation beside it. */
+  #roomArea { margin-bottom: 0; }
   .roomBar { margin-bottom: .1rem; padding-bottom: .1rem; }
   #roomArea:has(#callBay:not([hidden])),
   #roomArea:has(#whoIsHere:not([hidden])) {
@@ -3478,7 +3479,9 @@ input[type="search"] { font-family: inherit; }
   }
   #callStage #whoIsHere .participant .media video,
   #callStage #whoIsHere .participant .media video.screenPreview { height: 7rem; }
-  main:has(#roomArea:not([hidden])) #chatViewport { min-height: max(6rem, calc(100svh - 10rem)); }
+  /* Keep the established 329px conversation-and-composer budget on a
+     390px-tall phone even with Linux's taller form-control metrics. */
+  main:has(#roomArea:not([hidden])) #chatViewport { min-height: max(6rem, calc(100svh - 9.5rem)); }
 }
 
 /* Text size, in Room details. */
