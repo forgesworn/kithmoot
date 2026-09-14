@@ -509,6 +509,42 @@ details#roomSettings label {
   margin: 0 0 0.75rem;
 }
 
+/* The invitation is the decision point for media. Two explicit, unchecked
+   choices are easier to understand than arriving in a room and discovering
+   that Call is also where the camera and microphone live. */
+.joinMediaChoice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1rem;
+  margin: 0.8rem 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-dim);
+}
+
+.joinMediaChoice legend {
+  width: 100%;
+  padding: 0;
+  font-weight: 700;
+}
+
+.joinMediaChoice label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.joinMediaChoice input {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 #leave {
   border-color: var(--danger-border);
   color: var(--danger);
@@ -518,6 +554,16 @@ details#roomSettings label {
   background: var(--accent-dim);
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* Sharing is not merely another selected preference: it is a live capture
+   whose stop control must say what pressing it will do. The text changes in
+   updateUi; the danger treatment keeps that stop action visible at a glance. */
+#toggleScreen[data-on='true'] {
+  background: var(--danger);
+  border-color: var(--danger-border);
+  color: var(--on-danger);
+  font-weight: 700;
 }
 
 .indicator {
@@ -875,8 +921,21 @@ video {
 .messageHeader .sender { margin: 0; }
 .messageHeader .when { margin: 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 .msg.mine .messageHeader { justify-content: flex-end; }
-.conversationTools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; flex: 0 0 auto; }
+.conversationTools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.4rem; flex: 0 0 auto; }
 .conversationTools button { min-height: 44px; padding: 0.4rem 0.65rem; margin: 0; font-size: 0.85rem; background: transparent; }
+
+/* An arrival is visible even when the conversation is scrolled away from
+   the locally-rendered system line. It takes its own row and never overlays
+   the chat or its tools. */
+.presenceNotice {
+  margin: 0 0 .5rem;
+  padding: .55rem .75rem;
+  border: 1px solid var(--live);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 650;
+}
 .profileSettings { width: min(30rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); color: var(--text); }
 .profileSettings::backdrop { background: rgb(0 0 0 / 55%); }
 .profileSettingsHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
@@ -3239,6 +3298,40 @@ button.primary:hover:not(:disabled) {
 #room .participant:has(.media ~ .media) > h3,
 #room .participant:has(.media ~ .media) > .tracks,
 #room .participant:has(.media ~ .media) > .shareExpand { grid-column: 1 / -1; }
+
+/* Desktop calls keep faces as a compact, scannable strip. A shared screen is
+   still the work surface and takes the row; participant cameras do not take
+   half the conversation each merely because there are only two of them. */
+@media (min-width: 701px) and (min-height: 541px) {
+  .conversationTools { margin-bottom: .35rem; }
+
+  #room:has(video),
+  #room[data-tiles="1"]:has(video),
+  #room[data-tiles="2"]:has(video) {
+    grid-template-columns: repeat(auto-fill, minmax(10rem, 13rem));
+    justify-content: start;
+    align-items: start;
+  }
+
+  #room .participant:has(video) {
+    padding: .4rem;
+  }
+
+  #room .participant:has(video) h3 {
+    margin: 0 0 .25rem;
+    font-size: .875rem;
+  }
+
+  #room .participant .media video:not(.screenPreview) {
+    height: 7.5rem;
+    aspect-ratio: auto;
+  }
+
+  #room.sharing .participant:has(video.screenPreview) {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
 @media (max-width: 700px) and (orientation: portrait) {
   #room[data-tiles="2"]:has(video) { grid-template-columns: minmax(0, 1fr); }
   #room .participant .media video { max-height: 38dvh; }
@@ -3367,7 +3460,38 @@ input[type="search"] { font-family: inherit; }
    the row of tiles and on the Agents tab. */
 .callShort { display: none; }
 .callExtras { margin: 0; }
-.callExtras > summary { display: none; }
+.callExtras > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: .4rem .75rem;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--control);
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+.callExtras > summary::-webkit-details-marker { display: none; }
+.callExtras[open] > summary { border-color: var(--accent); background: var(--accent-dim); }
+
+@media (min-width: 701px) and (min-height: 541px) {
+  #deviceControls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .4rem .6rem;
+    align-items: start;
+  }
+  #deviceControls > .callHead,
+  #deviceControls > .indicator,
+  #deviceControls > #monitorIndicator,
+  #deviceControls > #listenHere,
+  #deviceControls > #local { grid-column: 1 / -1; }
+  #deviceControls > .toggles { grid-column: 1; }
+  #deviceControls > .callExtras { grid-column: 2; grid-row: 2; }
+  #deviceControls > .callExtras[open] { grid-column: 1 / -1; grid-row: auto; }
+}
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   .callFull { display: none; }
   .callShort { display: inline; }

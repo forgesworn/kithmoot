@@ -25,7 +25,7 @@ async function device(browser: Browser, baseURL: string) {
   return { context, relay: relay.href }
 }
 
-test('the home page leads with room actions, fits both themes and starts a named room from the keyboard', async ({ browser, baseURL }) => {
+test('the home page leads with room actions, fits both themes and starts a named room from the keyboard', async ({ browser, baseURL }, testInfo) => {
   const { context } = await device(browser, baseURL!)
   try {
     const page = await context.newPage()
@@ -55,12 +55,37 @@ test('the home page leads with room actions, fits both themes and starts a named
     await expect(page.locator('#arrivalTitle')).toHaveText('Saturday workshop')
     await expect(page.locator('#home')).toBeHidden()
     await expect(page.locator('#displayName')).toBeFocused()
+    await expect(page.locator('#joinMediaChoice')).toBeVisible()
+    await expect(page.locator('#joinMic')).not.toBeChecked()
+    await expect(page.locator('#joinCamera')).not.toBeChecked()
+    await expect(page.locator('#joinPrivacy')).toContainText('Nothing turns on unless you choose it')
+    await page.setViewportSize({ width: 320, height: 540 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    const joinAtDoor = (await page.locator('#join').boundingBox())!
+    expect(joinAtDoor.y + joinAtDoor.height).toBeLessThanOrEqual(540)
+    await page.screenshot({ path: testInfo.outputPath('invite-media-choice-320x540.png') })
+    await page.setViewportSize({ width: 390, height: 740 })
     await page.locator('#displayName').fill('Ada')
     await page.locator('#displayName').press('Enter')
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#roomTitle')).toHaveText('Saturday workshop')
     await expect(page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'false')
     await expect(page.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'false')
+    // Exercise the desktop CSS in every engine, including WebKit, without
+    // requiring that engine's test runner to expose a synthetic camera.
+    await page.setViewportSize({ width: 1440, height: 740 })
+    await page.locator('#room .participant').evaluate(participant => {
+      const media = document.createElement('div')
+      media.className = 'media'
+      media.append(document.createElement('video'))
+      participant.append(media)
+      document.getElementById('whoIsHere')!.hidden = false
+    })
+    const compactTile = (await page.locator('#room .participant').boundingBox())!
+    expect(compactTile.width).toBeLessThanOrEqual(210)
+    const tools = (await page.locator('.conversationTools').boundingBox())!
+    const chat = (await page.locator('#chatViewport').boundingBox())!
+    expect(tools.y + tools.height).toBeLessThanOrEqual(chat.y + 1)
   } finally { await context.close() }
 })
 
@@ -264,6 +289,9 @@ test('a new room exposes invitations directly, confirms copying honestly and adm
     await other.locator('#join').click()
     await expect(other.locator('#roomTitle')).toHaveText('The workshop')
     await expect(other.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#presenceNotice')).toHaveText('Rowan came in.')
+    await expect(page.locator('#presenceNotice')).not.toHaveAttribute('hidden', '')
+    await expect(page.locator('#chatLog')).toContainText('Rowan came in.')
     await other.locator('#chatInput').fill('I followed your invitation.')
     await other.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('I followed your invitation.')

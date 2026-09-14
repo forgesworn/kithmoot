@@ -37,7 +37,7 @@ import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContex
  * `npm test` for the same reason: it inherits real relay weather.
  */
 
-test('two people in a room can see and hear each other', async ({ browser, baseURL }) => {
+test('two people in a room can see and hear each other', async ({ browser, baseURL }, testInfo) => {
   test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
 
   const contextA = await newDeviceContext(browser, baseURL!)
@@ -48,12 +48,41 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
 
     const url = await createRoom(pageA, baseURL!)
     await joinWithMedia(pageA, url, 'Ada')
-    await joinWithMedia(pageB, url, 'Bob')
+    await open(pageB, url, 'Bob')
+    await expect(pageB.locator('#joinMic')).not.toBeChecked()
+    await expect(pageB.locator('#joinCamera')).not.toBeChecked()
+    await pageB.locator('#joinMic').check()
+    await pageB.locator('#joinCamera').check()
+    await pageB.locator('#join').click()
+    await expect(pageB.locator('#roomArea')).toBeVisible()
+    await expect(pageB.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await expect(pageB.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    await expect(pageB.locator('#status')).toHaveText('You joined with your microphone and camera on.')
 
     // Both directions. A one-way call is a bug that has shipped before in
     // other projects precisely because only one side was ever asserted.
     await expectToSeeAndHear(pageA, 'Ada')
     await expectToSeeAndHear(pageB, 'Bob')
+
+    // Desktop faces are thumbnails, and the conversation tools have their
+    // own row above the chat instead of colliding with it.
+    for (const tile of await pageA.locator('#room .participant:has(video)').all()) {
+      const bounds = (await tile.boundingBox())!
+      expect(bounds.width, 'a participant video expanded across the desktop').toBeLessThanOrEqual(210)
+    }
+    const tools = (await pageA.locator('.conversationTools').boundingBox())!
+    const chat = (await pageA.locator('#chatViewport').boundingBox())!
+    expect(tools.y + tools.height, 'conversation tools overlap the chat').toBeLessThanOrEqual(chat.y + 1)
+    await pageA.screenshot({ path: testInfo.outputPath('desktop-compact-call.png') })
+
+    // WebKit can retain a connected receiver element but pause it during a
+    // peer rebuild. The reconciliation loop must resume that state too.
+    const remoteVideo = pageA.locator('#room .participant:not(:has-text("(you)")) video').first()
+    await remoteVideo.evaluate(video => (video as HTMLVideoElement).pause())
+    await expect(remoteVideo).toHaveJSProperty('paused', true)
+    await expect.poll(() => remoteVideo.evaluate(video => !(video as HTMLVideoElement).paused), {
+      message: 'a connected but paused receiver was not resumed', timeout: 10_000,
+    }).toBe(true)
 
     // A rapid route rebuild can leave Chromium decoding a receiver after its
     // media element was lost. Remove the sink to model that browser edge;
@@ -104,6 +133,7 @@ test('a nearby device can silence feedback without losing its camera', async ({ 
     await expectToSeeAndHear(pagePhone, 'Phone')
 
     // The switch is folded under "Two devices, agents" in the call controls.
+    await pagePhone.locator('#callExtras').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
     await pagePhone.locator('#callMore').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
     await pagePhone.locator('#toggleCompanion').click()
     await expect(pagePhone.locator('#toggleCompanion')).toHaveAttribute('aria-pressed', 'true')
@@ -161,6 +191,8 @@ test('a screen share arrives alongside the camera, not instead of it', async ({ 
 
     await pageA.locator('#toggleScreen').click()
     await expect(pageA.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await expect(pageA.locator('#toggleScreen')).toHaveAttribute('aria-label', 'Stop screen sharing')
+    await expect(pageA.locator('#toggleScreen .callFull')).toHaveText('Stop sharing')
 
     // Two inbound video streams, and - the part that regressed - two
     // pictures on screen rather than one that got overwritten.
@@ -182,6 +214,10 @@ test('a screen share arrives alongside the camera, not instead of it', async ({ 
     for (const picture of pictures) {
       expect(picture.spread, 'one of the two pictures is a flat colour').toBeGreaterThan(3)
     }
+
+    await pageA.locator('#toggleScreen').click()
+    await expect(pageA.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    await expect(pageA.locator('#toggleScreen')).toHaveAttribute('aria-label', 'Screen share')
   } finally {
     await contextA.close()
     await contextB.close()
@@ -250,14 +286,20 @@ test('one person on two devices delivers two live pictures to everybody else', a
     await expect(grouped).toHaveCount(1, { timeout: 90_000 })
     await expect(grouped.locator('h3')).toContainText('2 devices')
 
-    // The phone joined the call after the laptop and therefore owns Ada's
-    // one monitor. Both devices receive Cara's audio, but only the phone may
-    // play it: two nearby speakers feeding one live mic is the feedback loop
-    // this paired-device role exists to break.
+    // Both devices receive Cara's audio, but exactly one may play it: two
+    // nearby speakers feeding one live mic is the feedback loop this paired-
+    // device role exists to break. Claims use Nostr's whole-second clock, so
+    // devices opened inside one second may tie; which one wins that tie is
+    // immaterial as long as only one monitor is live.
     await expect.poll(() => pageLaptop.locator('#room audio').count(), { timeout: 60_000 }).toBeGreaterThan(0)
     await expect.poll(() => pagePhone.locator('#room audio').count(), { timeout: 60_000 }).toBeGreaterThan(0)
-    await expect.poll(() => pageLaptop.locator('#room audio').evaluateAll(audio => audio.every(el => (el as HTMLAudioElement).muted))).toBe(true)
-    await expect.poll(() => pagePhone.locator('#room audio').evaluateAll(audio => audio.some(el => !(el as HTMLAudioElement).muted))).toBe(true)
+    await expect.poll(async () => {
+      const [laptopLive, phoneLive] = await Promise.all([
+        pageLaptop.locator('#room audio').evaluateAll(audio => audio.some(el => !(el as HTMLAudioElement).muted)),
+        pagePhone.locator('#room audio').evaluateAll(audio => audio.some(el => !(el as HTMLAudioElement).muted)),
+      ])
+      return Number(laptopLive) + Number(phoneLive)
+    }).toBe(1)
 
     // And the part nothing checked before: TWO live pictures, in that one
     // tile, from that one person.
