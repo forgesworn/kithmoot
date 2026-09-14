@@ -874,6 +874,26 @@ dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100
 body.sharePopup { margin: 0; padding: 0; max-width: none; width: 100vw; height: 100dvh; overflow: hidden; }
 body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding: 0; max-width: none; }
 
+/* A brief notice that somebody is drawing on this device's own screen
+   share - see `notifyDrawingOnMyShare` in app/src/main.ts. Styled like
+   `.agentActivity`: an accent-edged strip rather than a dialog, because the
+   person reading it is mid-presentation and needs to keep talking. */
+.sharerMarksNotice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem .8rem;
+  padding: .6rem .85rem;
+  margin-bottom: .6rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--live);
+  border-radius: 8px;
+  background: var(--accent-dim);
+  font-size: .85rem;
+}
+.sharerMarksNotice span { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+.sharerMarksNotice button { margin: 0; min-height: 44px; padding: .4rem .6rem; font-size: .85rem; background: var(--panel); }
+
 /* When a line was said.
 
    There was no time on anything at all, so a room somebody had just been
