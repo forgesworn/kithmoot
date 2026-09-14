@@ -119,6 +119,11 @@
                  See app/src/call-folds.ts. -->
             <details id="callExtras" class="callExtras" open>
             <summary aria-label="More call settings">More</summary>
+            <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. On a
+                 phone it belongs behind More so the warning cannot push the
+                 conversation and composer off screen; desktop keeps this
+                 details section open. -->
+            <p id="wakeLockNote" class="indicator" hidden>This device may let its screen sleep during the call.</p>
             <details id="callMore" class="callMore">
               <summary>Two devices, agents</summary>
               <button id="toggleCompanion" class="toggle" data-on="false" aria-pressed="false" title="Silence this device's microphone and speaker; its camera and screen share still work">Use beside another device</button>
