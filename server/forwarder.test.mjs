@@ -386,9 +386,13 @@ describe('the process, run directly', () => {
 })
 
 describe('joining a room as a forwarder', () => {
-  it('says plainly at startup that it relays ciphertext it cannot read', async () => {
+  it('says plainly at startup what it can and cannot read', async () => {
     const { logs } = standUpForwarder()
-    expect(logs.join('\n')).toMatch(/ciphertext it cannot read/i)
+    const said = logs.join('\n')
+    expect(said).toMatch(/cannot decrypt the roster/i)
+    // True until media encryption through a forwarder is switched on; this
+    // line changes back with that work, not before.
+    expect(said).toMatch(/can read the media it relays today/i)
   })
 
   it('announces the room id it serves, and never a key', async () => {
