@@ -12,6 +12,7 @@ import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
+import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
   browserDeviceStore,
@@ -201,6 +202,7 @@ function positionReactionDetails(details: HTMLElement): void {
 
 const shareViewer = new ShareViewer({
   onAnnotation: annotation => session?.publishAnnotation(annotation),
+  author: () => markAuthor(meParticipant),
 })
 const emojiPicker = new EmojiPicker()
 window.addEventListener('pagehide', () => shareViewer.close())
@@ -4170,6 +4172,22 @@ function personLabel(pubkey: string): string {
   return shown.name !== undefined ? `${shown.name} (${shown.short})` : shown.short
 }
 
+/**
+ * Who to credit a screen-share mark to: the same name and short key
+ * `personLabel` puts on a status line. Colour is not decided here - see
+ * `colourForParticipant` and `coloursForShare` in share-marks.ts - because
+ * "the blue arrow" has to mean the same arrow to everybody, including
+ * whoever drew it, so it cannot depend on whether this participant happens
+ * to be this device's own.
+ */
+function markAuthor(participant: string): MarkAuthor {
+  const mine = participant === meParticipant
+  return {
+    key: participant,
+    label: mine ? `${personLabel(participant)} (you)` : personLabel(participant),
+  }
+}
+
 /** Lines the room shows in the chat that nobody sent: an epoch change, a
  *  removal. Rendered locally, never published, and never mistaken for a
  *  message because they carry no sender. */
@@ -6772,7 +6790,7 @@ async function startSession(asVisitor = false): Promise<void> {
       renderApprovals()
     })
     s.onRemoteTrack(({ device, track }) => { if (session === s) attachRemoteTrack(device, track); else track.stop() })
-    s.onAnnotation(({ annotation }) => { if (session === s) shareViewer.receive(annotation) })
+    s.onAnnotation(({ participant, annotation }) => { if (session === s) shareViewer.receive(annotation, markAuthor(participant)) })
 
     await s.join(currentAdverts(), currentClaims())
     if (session !== s) return
