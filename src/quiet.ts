@@ -32,6 +32,7 @@
 import { QuietTransport, RumorTooLarge, MAX_PER_EPOCH_ROOM, DEFAULT_LOOKBACK_SECONDS, type UsedCounters } from 'nostr-deaddrop'
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
+import { FILE_EVENT_KIND } from './attachment.js'
 import { KINDS } from './kinds.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import type { RelayConfig, RelayTransport } from './relay-pool.js'
@@ -44,6 +45,16 @@ export const QUIET_SLOT_SECONDS = 300
 /** The kinds that ride in drops. Chat, and everything that rides chat: named
  *  channels, assignments, reactions, read positions carried as messages. */
 export const QUIET_KINDS: readonly number[] = [KINDS.CHAT]
+/** Kinds a quiet room must never publish bare, because a caller passing one
+ *  through would say, in the open, that a device in this room did something
+ *  and when: the kind-1063 file announcement Wildbloom writes for a dropped
+ *  file. It does not ride in drops either - a quiet room does not send it at
+ *  all, because the chat message already carries the url, hash and key a
+ *  reader needs (see `shareDroppedFile` in `app/src/main.ts`). This is the
+ *  backstop for a future caller that forgets that and publishes one anyway. */
+export const QUIET_BLOCKED_KINDS: readonly number[] = [FILE_EVENT_KIND]
+/** The reason a blocked kind is refused. */
+export const QUIET_NO_FILE_ANNOUNCE = 'A quiet room does not publish file announcements to relays. The chat already carries what a file needs.'
 /** How many of one participant's devices may post: the identity's device and
  *  the one it paired. Each takes half the member's keys per epoch. */
 export const QUIET_DEVICE_SLOTS = 2
@@ -198,7 +209,10 @@ export function quietRoomTransport(inner: RelayTransport, opts: QuietRoomOptions
       }
     },
     async publish(event) {
-      if (!QUIET_KINDS.includes(event.kind)) return inner.publish(event)
+      if (!QUIET_KINDS.includes(event.kind)) {
+        if (QUIET_BLOCKED_KINDS.includes(event.kind)) throw new Error(QUIET_NO_FILE_ANNOUNCE)
+        return inner.publish(event)
+      }
       if (closed) throw new Error('this conversation has closed')
       if (!canSend) throw new Error(QUIET_CANNOT_SEND)
       if (!keyed) throw new Error('quiet transport has no key yet')

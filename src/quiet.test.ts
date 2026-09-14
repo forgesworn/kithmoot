@@ -6,7 +6,8 @@ import { RoomAgent } from './agent.js'
 import { localIdentity } from './identity.js'
 import { KINDS } from './kinds.js'
 import { parseRoomPolicy } from './room.js'
-import { QUIET_CANNOT_SEND, QUIET_DEVICE_SLOTS, isQuietPolicy, quietCounterRange, quietRoomTransport, type QuietRoomTransport, type QuietUsedState } from './quiet.js'
+import { buildFileEvent } from './attachment.js'
+import { QUIET_CANNOT_SEND, QUIET_DEVICE_SLOTS, QUIET_NO_FILE_ANNOUNCE, isQuietPolicy, quietCounterRange, quietRoomTransport, type QuietRoomTransport, type QuietUsedState } from './quiet.js'
 import type { RoomPolicy } from './types.js'
 import type { RelayTransport } from './relay-pool.js'
 
@@ -257,6 +258,20 @@ describe('a quiet room', () => {
     expect(relay.published.filter((e) => e.kind === 1059).length).toBe(1)
     expect(alice.transport.queued()).toEqual([])
     alice.session.leave()
+  })
+
+  it('refuses to publish a kind-1063 file announcement bare, rather than pass it to the relay', async () => {
+    const relay = new SimRelay({ replay: true })
+    const sk = generateSecretKey(), participant = getPublicKey(sk)
+    const policy: RoomPolicy = { tier: 'open', members: [participant], quiet: true }
+    const quiet = quietFor(relay, policy, participant, 0, () => NOW)
+    const descriptor = { url: `https://blossom.example/${'a'.repeat(64)}`, sha256: 'a'.repeat(64), size: 65608 }
+    const fileEvent = finalizeEvent(buildFileEvent(descriptor, NOW), sk)
+    await expect(quiet.publish(fileEvent)).rejects.toThrow(QUIET_NO_FILE_ANNOUNCE)
+    // Refused before it ever reaches the inner transport - not queued, not
+    // dropped later, nothing for the relay to have seen.
+    expect(relay.published).toEqual([])
+    quiet.close()
   })
 
   it('an agent in a quiet room posts in drops', async () => {

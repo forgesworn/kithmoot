@@ -906,6 +906,48 @@ would stop that too, but a unit should not depend on it.
 `curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:8092/upload`
 prints 401 when it is up.
 
+## Logs
+
+Every unit in this kit sends `stdout`/`stderr` to the systemd journal
+(`StandardOutput=journal`, `StandardError=journal`); coturn runs under
+Docker and logs to its own `json-file` driver instead. Nothing here changes
+what a service *does* - only what ends up sitting in a log for as long as
+that log is kept.
+
+**What each one writes.** A forwarder's startup banner (`server/forwarder.mjs`)
+names its room and its own pubkey as an 8-character prefix - enough for an
+operator watching several instances to tell them apart, not enough to
+reconstruct the full id from a log line alone - except the one line
+explicitly headed "Add this to the room descriptor to be used", which does
+carry the full pubkey because that line exists to be copied elsewhere, not
+merely read. A keeper or joiner (`kithmoot-agent`, `src/node/cli.ts`) prints
+its own identity as a full npub at start, deliberately: `--expect-pubkey`
+and the "MINTED A NEW IDENTITY" warning both depend on an operator being
+able to check it. Everything else - room ids, other people's keys, private
+conversation partners - is an 8-character prefix, and no display name a
+person or an invitation chose is ever written to a log. `--nsec`, if used,
+prints a warning pointing at `--identity <file>` instead, because an argv
+value sits in that process's command line - readable by anyone on the box
+who can run `ps` - for as long as it runs. Blossom's own request logging is
+the upstream `blossom-server-ts` binary's, not this repo's.
+
+**Retention.** None of this needs keeping for long, and journald's default
+is often "until disk pressure", which on a small box can mean months.
+`deploy/journald-kithmoot.conf` is a drop-in that bounds it; install it at
+`/etc/systemd/journald.conf.d/kithmoot.conf` and `systemctl restart
+systemd-journald` (this rotates the journal - existing entries are not
+retroactively deleted, only kept subject to the new limits from then on).
+It applies to the whole system journal, which is the right scope for a box
+that runs only KithMoot services; a shared box wanting per-unit limits
+instead needs a
+[journal namespace](https://www.freedesktop.org/software/systemd/man/latest/systemd-journald.service.html#Journal%20Namespaces)
+(`LogNamespace=` in the unit, a matching `journald@<namespace>.conf`), which
+is more moving parts than this kit sets up by default. coturn's
+`deploy/coturn/docker-compose.yml` already caps its `json-file` driver at
+`max-size: 10m`, `max-file: 3` - update those two values there if a box's
+retention policy wants something else; Docker enforces them itself, no
+separate service to restart.
+
 ## Turning the donor ring on
 
 Off by default, and off means off: no rings, no endpoint lookup, no relay

@@ -95,7 +95,8 @@ Options
                            hex or npub. The keeper announces the list, signed.
   --relays <a,b>           Relay hints, comma separated (same as repeated --relay)
   --identity <file>        Participant key, hex, created if missing (kept 0600)
-  --nsec <nsec|hex>        Participant key, given directly (prefer --identity)
+  --nsec <nsec|hex>        Participant key, given directly. Visible to anyone on
+                           this machine who can run ps; prefer --identity <file>.
   --expect-pubkey <k>      Refuse to start unless the key resolves to this.
                            npub or hex. Use it for any agent whose npub is
                            written down anywhere: --identity mints a fresh
@@ -441,14 +442,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       const crypt = localPeerCrypt(participantSk)
       const privateFile = statePath ? join(statePath, 'private.json') : undefined
       const remembered: Record<string, { link: string; from: string; name?: string }> = privateFile ? await readPrivateRooms(privateFile) : {}
-      const openPrivateRoom = async (room: string, link: string, from: string, name?: string): Promise<void> => {
+      // The display name a person or an invitation chose is deliberately not
+      // a parameter here: a log is a different, longer-lived audience than
+      // the terminal a person is watching, and it needs only enough of the
+      // key to tell one conversation from another - never who it is with.
+      const openPrivateRoom = async (room: string, link: string, from: string): Promise<void> => {
         if (privateRooms.has(room)) return
         const dm = await RoomAgent.join({ link, name: common.name, identity, relays: common.relays.length ? common.relays : undefined, owner })
         const dmRuntime = new AgentRuntime(dm, { persona, memoryDir: common.memory }).start()
         privateRooms.set(room, dmRuntime)
         const brain = makeBrain({ ...common, respond: 'always' }, log)
         if (brain) await brain.start(dmRuntime)
-        log(`private conversation with ${name ?? from.slice(0, 8)} open (room ${dm.roomId.slice(0, 8)})`)
+        log(`private conversation with ${from.slice(0, 8)} open (room ${dm.roomId.slice(0, 8)})`)
         const forget = () => {
           void dmRuntime.close()
           privateRooms.delete(room)
@@ -459,7 +464,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
         dm.onClosed(forget)
       }
       for (const [room, entry] of Object.entries(remembered)) {
-        openPrivateRoom(room, entry.link, entry.from, entry.name).catch((err) => log(`private conversation ${room.slice(0, 8)} could not be reopened: ${err instanceof Error ? err.message : String(err)}`))
+        openPrivateRoom(room, entry.link, entry.from).catch((err) => log(`private conversation ${room.slice(0, 8)} could not be reopened: ${err instanceof Error ? err.message : String(err)}`))
       }
       agent.onInvite((invitation) => {
         void (async () => {
@@ -469,7 +474,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
           if (privateRooms.has(invitation.room)) return
           const link = await openInvite(invitation.invite, { self: agent.participant, sender: from, crypt })
           if (!link) { log(`private conversation from ${from.slice(0, 8)}: could not open the invitation`); return }
-          await openPrivateRoom(invitation.room, link, from, invitation.name)
+          await openPrivateRoom(invitation.room, link, from)
           remembered[invitation.room] = { link, from, ...(invitation.name ? { name: invitation.name } : {}) }
           if (privateFile) await writePrivateRooms(privateFile, remembered)
         })().catch((err) => log(`private conversation from ${invitation.from.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`))
@@ -598,6 +603,12 @@ function makeCompleter(common: Common, log: (line: string) => void): Completer |
 
 async function participantKey(common: Common, log: (line: string) => void): Promise<Uint8Array> {
   if (common.nsec) {
+    // Still accepted, for whatever already passes it in, but a command-line
+    // argument sits in this process's argv for as long as it runs - readable
+    // by anyone on the machine who can run ps, not just root. --identity
+    // keeps the same key on disk instead (mode 0600), minting one on first
+    // use, so prefer it for anything that is not a one-off.
+    log('--nsec puts the key on the command line, where anyone on this machine who can run ps can read it. Prefer --identity <file> instead.')
     if (common.nsec.startsWith('nsec1')) {
       const decoded = nip19.decode(common.nsec)
       if (decoded.type !== 'nsec') fail('--nsec is not an nsec')
