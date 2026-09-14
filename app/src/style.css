@@ -2933,6 +2933,13 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 @media (max-width: 700px) and (max-height: 600px) {
   /* Wrapped room actions must leave the composer reachable on short phones. */
   main:has(#roomArea:not([hidden])) #chatViewport { min-height: 3rem; }
+  /* Keep every control at its 44px touch target, but remove the desktop-weight
+     gaps between the two navigation rows. Linux Firefox and WebKit use
+     slightly taller system-font metrics here; paying for those metrics out
+     of the conversation pushed the composer below a 540px viewport after a
+     channel switch. */
+  .roomBar { margin-bottom: .1rem; padding-bottom: .1rem; }
+  .conversationNav { padding-block: 0; margin-bottom: 0; }
   /* Picture preferences remain in Room details. Give catch-up and search
      one row here so the conversation and composer can both be used. */
   .conversationTools { flex-wrap: nowrap; }
@@ -3450,6 +3457,11 @@ input[type="search"] { font-family: inherit; }
    a short desktop window keeps its sidebar layout. */
 @media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   body:has(#roomArea:not([hidden])) > header { display: none; }
+  /* The call has its own fixed column here. Keep the room divider, but use
+     phone-weight spacing so system-font differences cannot take the last
+     readable line from the conversation beside it. */
+  #roomArea { margin-bottom: 0; }
+  .roomBar { margin-bottom: .1rem; padding-bottom: .1rem; }
   #roomArea:has(#callBay:not([hidden])),
   #roomArea:has(#whoIsHere:not([hidden])) {
     padding-left: calc(42vw + .75rem - max(clamp(1rem, 3vw, 2.5rem), env(safe-area-inset-left)));
@@ -3467,7 +3479,9 @@ input[type="search"] { font-family: inherit; }
   }
   #callStage #whoIsHere .participant .media video,
   #callStage #whoIsHere .participant .media video.screenPreview { height: 7rem; }
-  main:has(#roomArea:not([hidden])) #chatViewport { min-height: max(6rem, calc(100svh - 10rem)); }
+  /* Keep the established 329px conversation-and-composer budget on a
+     390px-tall phone even with Linux's taller form-control metrics. */
+  main:has(#roomArea:not([hidden])) #chatViewport { min-height: max(6rem, calc(100svh - 9.5rem)); }
 }
 
 /* Text size, in Room details. */

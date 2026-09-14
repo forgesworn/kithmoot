@@ -2795,7 +2795,7 @@ function renderCallState(views: ParticipantView[]): void {
   if (mineOn && current) {
     const names = views.filter(view => view.call?.id === current.id && view.participant !== meParticipant)
       .map(view => shownAs(view.participant, view.name).name ?? 'somebody')
-    $('callWho').textContent = names.length === 0 ? 'On the call. Nobody else yet.' : `On the call with ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`
+    $('callWho').textContent = names.length === 0 ? 'On the call. Just you.' : `On the call with ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`
   }
 }
 
@@ -4554,7 +4554,7 @@ function renderRoomLockState(): void {
   const quiet = $('quietState')
   quiet.hidden = !quietTransport
   quiet.textContent = quietTransport
-    ? `${QUIET_MEANING} Relays hand back ${Math.round(QUIET_HISTORY_SECONDS / 86400)} days of it; older messages stay on the devices that read them. Being here still shows while you are here, and calls are not quiet.${quietTransport.canSend ? '' : ` ${QUIET_READ_ONLY}`}`
+    ? `${QUIET_MEANING} Relays hand back ${Math.round(QUIET_HISTORY_SECONDS / 86400)} days of it; older messages stay on the devices that read them. Being here still shows while you are here, and calls are not quiet. Dropped-file details travel inside chat without a bare file announcement.${quietTransport.canSend ? '' : ` ${QUIET_READ_ONLY}`}`
     : ''
 }
 

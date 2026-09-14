@@ -19,13 +19,18 @@
 // - It cannot decrypt the roster, so it never learns who is in the room, what
 //   they are publishing, or which devices belong to one person. It does not
 //   even subscribe to the roster kind - see `start()`.
-// - It cannot decrypt media, which is encrypted end to end under a key
-//   derived from the room key (`src/media-crypto.ts`). It moves RTP packets
-//   from one connection to another without ever looking inside a payload.
+// - It can read the media it relays, today. Media is meant to be encrypted
+//   end to end under a key derived from the room key (`src/media-crypto.ts`),
+//   and that scheme is built, but it is not yet switched on in the app or in
+//   this process. This process terminates DTLS-SRTP on each connection like
+//   any other WebRTC endpoint, so until the transform is wired in, it has
+//   plain RTP to move. A room uses a forwarder only if its descriptor names
+//   one.
 // - It cannot forge attribution, because it cannot produce a frame that opens
 //   under any member's media key.
 //
-// Jitsi's videobridge sees your media by default. This structurally cannot.
+// Jitsi's videobridge sees your media by default. This is no different yet,
+// though the roster stays structurally unreadable to it either way.
 //
 // ## How a client finds it, given it cannot read the room's roster
 //
@@ -584,10 +589,11 @@ export function createForwarder({ config, transport, stack, log = defaultLog, no
       log(`  over ${config.relays.join(', ')}`)
       log(`  cap  ${config.maxPeers} peers, ${config.maxTracksPerPeer} tracks each`)
       log('')
-      log('  This process has the room id and NOT the room key. It relays ciphertext it cannot read:')
-      log('  it cannot decrypt the roster, so it never learns who is in this room; it cannot decrypt')
-      log('  media, which is sealed end to end under a key derived from the room key; and it cannot')
-      log('  forge attribution, because it cannot produce a frame that opens under anybody\'s key.')
+      log('  This process has the room id and NOT the room key. It cannot decrypt the roster, so it')
+      log('  never learns who is in this room, and it cannot forge attribution, because it cannot')
+      log('  produce a frame that opens under anybody\'s key. Media is a separate claim: end-to-end')
+      log('  media encryption is built (src/media-crypto.ts) but not yet switched on, so this process')
+      log('  can read the media it relays today.')
       log('')
       log('  Add this to the room descriptor to be used:')
       log(`  ${JSON.stringify(forwarderRef(config))}`)

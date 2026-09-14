@@ -19,10 +19,12 @@ import { normalizeURL } from 'nostr-tools/utils'
  * verified. The app labels it accordingly and never as "verified".
  *
  * **And be precise about what it costs, because it is not free.** The
- * lookup is a relay subscription filtered by `authors`, sent to the ROOM's
- * own relays - see `ProfileBookOptions.relays`, which chooses them
- * deliberately so a lookup follows the room. That hands those relays the
- * participant pubkeys of everybody in the room, in the clear, as a query.
+ * lookup is a relay subscription filtered by `authors`, sent to the room's
+ * own relays plus a fixed set of public aggregator relays - see
+ * `ProfileBookOptions.relays`, and `PROFILE_RELAYS` in `app/src/main.ts` for
+ * the added ones (purplepag.es and the general public relays). That hands
+ * all of those relays the participant pubkeys of everybody in the room, in
+ * the clear, as a query.
  *
  * The room's own design goes to some trouble to avoid exactly that: a
  * device credential is never published, precisely so "relays never see the
