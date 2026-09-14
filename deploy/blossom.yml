@@ -13,7 +13,7 @@
 # KithMoot and Wildbloom write: sealed bytes under a key this server never
 # sees. An image, a video or a page is refused, so this is not a general
 # file host and nothing on it can be hot-linked as media. The per-blob cap
-# is Caddy's request_body max_size on /upload (70 MiB), not a setting here,
+# is Caddy's request_body max_size on /upload (270 MiB), not a setting here,
 # because blossom-server-ts 5.2.0 has none; the quota is the fixed-size
 # filesystem the install script mounts at ${BLOSSOM_STATE}/blobs.
 

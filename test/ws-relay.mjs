@@ -19,9 +19,12 @@
 //   RELAY_PORT=7778 node test/ws-relay.mjs
 //
 // A plain HTTP GET answers 200, which is what lets Playwright's `webServer`
-// wait on it. Nothing here is a product: no persistence, no auth, no limits.
+// wait on it. The same test-only server accepts encrypted Blossom uploads in
+// memory, capped at the production endpoint's 270 MiB request limit. Nothing
+// here is a product or a persistent store.
 
 import { createServer } from 'node:http'
+import { createHash } from 'node:crypto'
 import { WebSocketServer } from 'ws'
 import { matchFilters } from 'nostr-tools/filter'
 import { verifyEvent } from 'nostr-tools/pure'
@@ -48,8 +51,59 @@ const isEphemeral = (kind) => kind >= 20000 && kind < 30000
 const stored = []
 /** socket -> Map<subId, filters> */
 const subscriptions = new Map()
+/** Encrypted envelopes accepted by the test-only Blossom endpoint. The
+ * browser reaches this through Vite's HTTPS preview proxy, so WebKit sends a
+ * real streamed request instead of a Playwright route mock trying to inspect
+ * a body WebKit deliberately does not expose to automation. */
+const blobs = new Map()
+const MAX_BLOB_BYTES = 270 * 1024 * 1024
 
 const http = createServer((req, res) => {
+  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+  if (req.method === 'PUT' && url.pathname === '/upload') {
+    const chunks = []
+    let size = 0
+    req.on('data', (chunk) => {
+      size += chunk.length
+      if (size > MAX_BLOB_BYTES) {
+        res.writeHead(413).end()
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      if (res.headersSent) return
+      const bytes = Buffer.concat(chunks)
+      const hash = createHash('sha256').update(bytes).digest('hex')
+      if (req.headers['x-sha-256'] !== hash) {
+        res.writeHead(400, { 'content-type': 'text/plain' }).end('hash mismatch')
+        return
+      }
+      blobs.set(hash, bytes)
+      const origin = typeof req.headers.origin === 'string' ? req.headers.origin : 'https://localhost:4173'
+      res.writeHead(201, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ sha256: hash, size: bytes.length, url: `${origin}/blossom/${hash}` }))
+    })
+    req.on('error', () => {
+      if (!res.headersSent) res.writeHead(400).end()
+    })
+    return
+  }
+  if (req.method === 'GET' && url.pathname.startsWith('/blossom/')) {
+    const hash = url.pathname.slice('/blossom/'.length)
+    const bytes = blobs.get(hash)
+    if (!bytes) {
+      res.writeHead(404).end()
+      return
+    }
+    res.writeHead(200, {
+      'content-type': 'application/vnd.forgesworn.encrypted',
+      'content-length': String(bytes.length),
+    })
+    res.end(bytes)
+    return
+  }
   res.writeHead(200, { 'content-type': 'text/plain' })
   res.end('kithmoot test relay\n')
 })

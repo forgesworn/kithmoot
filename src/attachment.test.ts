@@ -5,6 +5,7 @@ import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event, type EventTemplate } from 'nostr-tools/pure'
 import {
   decryptEnvelope,
+  decryptEnvelopeBlob,
   deriveEnvelopeKey,
   fetchAttachment,
   formatRecoveryKey,
@@ -12,9 +13,12 @@ import {
   paddedPlaintextLength,
   canonicalEnvelopeName,
   sha256Hex,
+  sha256BlobHex,
   verifyEnvelopeHash,
   encryptEnvelope,
+  encryptEnvelopeBlob,
   uploadEnvelope,
+  uploadEnvelopeBlob,
   buildFileEvent,
   buildUploadAuthorisation,
   encodeBlossomAuthorisation,
@@ -478,27 +482,63 @@ describe('encryptEnvelope on its own', () => {
     expect(() => encryptEnvelope(picture.subarray(0, 1), { name: 'x', type: 'a\u0000b' })).toThrow(/media type/)
   })
 
-  // The cap is 64 MiB, and proving a caller may raise it means encrypting a
-  // buffer that size for real. Same reasoning as the vectors above: seconds
-  // of genuine work, close enough to vitest's default to go red on a busy
-  // machine, so the budget is written down rather than left to luck.
+  // The cap is the format's 256 MiB ceiling. Avoid allocating that in a unit
+  // test; the separate Blob test below exercises multi-record sealing.
   it('refuses an empty file, a file over the cap, and the wrong-size secrets', () => {
     expect(() => encryptEnvelope(new Uint8Array(0), { name: 'x', type: '' })).toThrow(/empty/)
     expect(() => encryptEnvelope(picture, { name: 'x', type: '' }, { maxSourceBytes: CHUNK })).toThrow(/larger than 1 MiB/)
-    expect(MAX_UPLOAD_SOURCE_BYTES).toBe(64 * 1024 * 1024)
-    expect(() => encryptEnvelope(new Uint8Array(MAX_UPLOAD_SOURCE_BYTES + 1), { name: 'x', type: '' })).toThrow(
-      /larger than 64 MiB/,
-    )
-    // The cap can be raised by a caller, but never past the format's own.
-    expect(() =>
-      encryptEnvelope(new Uint8Array(MAX_UPLOAD_SOURCE_BYTES + 1), { name: 'x', type: '' }, { maxSourceBytes: Infinity }),
-    ).not.toThrow()
+    expect(MAX_UPLOAD_SOURCE_BYTES).toBe(256 * 1024 * 1024)
     expect(() => encryptEnvelope(picture, { name: 'x', type: '' }, { key: new Uint8Array(16) })).toThrow(/key must be 32/)
     expect(() => encryptEnvelope(picture, { name: 'x', type: '' }, { salt: new Uint8Array(16) })).toThrow(/salt must be 32/)
     expect(() => encryptEnvelope(picture, { name: 'x', type: '' }, { noncePrefix: new Uint8Array(12) })).toThrow(
       /nonce prefix must be 8/,
     )
   }, 30_000)
+
+  it('seals and opens Blob records byte-for-byte like the in-memory writer', async () => {
+    const source = new Uint8Array(CHUNK + 173)
+    for (let i = 0; i < source.length; i += 1) source[i] = i & 0xff
+    const opts = {
+      key: new Uint8Array(32).fill(1), salt: new Uint8Array(32).fill(2), noncePrefix: new Uint8Array(8).fill(3),
+      padding: (offset: number) => offset & 0xff,
+    }
+    const buffered = encryptEnvelope(source, { name: 'release.apk', type: 'application/vnd.android.package-archive' }, opts)
+    const streamed = await encryptEnvelopeBlob(new Blob([source.buffer as ArrayBuffer]), { name: 'release.apk', type: 'application/vnd.android.package-archive' }, opts)
+    expect(streamed.sha256).toBe(buffered.sha256)
+    expect(await streamed.envelope.arrayBuffer()).toEqual(buffered.envelope.buffer)
+    expect(await sha256BlobHex(streamed.envelope)).toBe(buffered.sha256)
+    const opened = await decryptEnvelopeBlob(streamed.envelope, streamed.key)
+    expect(new Uint8Array(await opened.source.arrayBuffer())).toEqual(source)
+    expect(opened.name).toBe('release.apk')
+  }, 30_000)
+
+  it('uses and removes private temporary storage when the browser provides it', async () => {
+    const chunks: Uint8Array<ArrayBuffer>[] = []
+    let removed = ''
+    vi.stubGlobal('navigator', {
+      storage: {
+        getDirectory: async () => ({
+          getFileHandle: async (name: string) => ({
+            createWritable: async () => ({
+              write: async (bytes: Uint8Array) => { chunks.push(Uint8Array.from(bytes)) },
+              close: async () => {}, abort: async () => {},
+            }),
+            getFile: async () => new File(chunks, name, { type: 'application/vnd.forgesworn.encrypted' }),
+          }),
+          removeEntry: async (name: string) => { removed = name },
+        }),
+      },
+    })
+    try {
+      const sealed = await encryptEnvelopeBlob(new Blob([new Uint8Array([1, 2, 3])]), { name: 'x.bin', type: '' })
+      expect(sealed.dispose).toBeTypeOf('function')
+      expect(await sha256BlobHex(sealed.envelope)).toBe(sealed.sha256)
+      await sealed.dispose?.()
+      expect(removed).toMatch(/^\.kithmoot-upload-[0-9a-f]{32}\.wbenc$/)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 
   it('what it writes, the reader refuses when anybody touches it', () => {
     const sealed = encryptEnvelope(picture, { name: 'p.bin', type: '' })
@@ -611,6 +651,42 @@ describe('uploadEnvelope', () => {
     const fetch = answering(201, descriptorFor({ url: `${server}/${sealed.sha256}` }))
     const got = await uploadEnvelope(server, sealed.envelope, { sign, fetch: fetch as never })
     expect(got.url).toBe(`${server}/${sealed.sha256}`)
+  })
+
+  it('materialises a Blob before WebKit uploads it, avoiding an empty OPFS-backed request body', async () => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15',
+    })
+    try {
+      const envelope = new Blob([sealed.envelope.buffer as ArrayBuffer], { type: ENVELOPE_MEDIA_TYPE })
+      const fetch = answering(200, descriptorFor())
+      const got = await uploadEnvelopeBlob(server, envelope, sealed.sha256.toUpperCase(), {
+        sign,
+        fetch: fetch as never,
+        now: () => now,
+      })
+      expect(got.sha256).toBe(sealed.sha256)
+      const [, init] = fetch.mock.calls[0] as [string, RequestInit]
+      expect(init.body).toBeInstanceOf(ArrayBuffer)
+      expect(new Uint8Array(init.body as ArrayBuffer)).toEqual(sealed.envelope)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps the direct Blob upload path outside WebKit', async () => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    })
+    try {
+      const envelope = new Blob([sealed.envelope.buffer as ArrayBuffer], { type: ENVELOPE_MEDIA_TYPE })
+      const fetch = answering(200, descriptorFor())
+      await uploadEnvelopeBlob(server, envelope, sealed.sha256, { sign, fetch: fetch as never, now: () => now })
+      const [, init] = fetch.mock.calls[0] as [string, RequestInit]
+      expect(init.body).toBe(envelope)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('says plainly when the server says no', async () => {

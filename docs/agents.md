@@ -565,10 +565,12 @@ event with every tag Wildbloom writes announces it on the room's relays
 is. A quiet room does not take that last step: no kind-1063 event leaves
 the device, because the chat message about to carry the attachment
 already says everything a member needs, and an announcement bare on the
-relay would say what a quiet room exists to hide. Files over 64 MiB are
-refused before any of that starts. The key is in the staged attachment
-and then in the message, and nowhere else: not in a log line, not in an
-error, not in storage.
+relay would say what a quiet room exists to hide. Files over 256 MiB are
+refused before any of that starts. The browser
+seals, hashes and opens the encrypted envelope a 1 MiB record at a time, so
+an APK does not require complete source and envelope copies in memory. The
+key is in the staged attachment and then in the message, and nowhere else:
+not in a log line, not in an error, not in storage.
 
 Who learns what. The Blossom server learns that some device, identified
 by the key that signed the upload, stored an encrypted blob of a certain
@@ -589,7 +591,7 @@ Which Blossom server is the person's choice, set once in the Attach panel
 and remembered on the device. Left unset, the app as served from
 kithmoot.forgesworn.dev uses its own origin: the box runs a Blossom server
 of its own behind `/upload` and `/blossom/` (`deploy/README.md`, "Running
-a Blossom server"), open to any key, one accepted media type, a 70 MiB cap
+a Blossom server"), open to any key, one accepted media type, a 270 MiB cap
 and a 20 GiB quota, and no promise to keep a blob past 90 days unfetched.
 It is a default on the same terms as the TURN server, not a dependency: no
 operator is protocol-mandated, and where your encrypted bytes go is still

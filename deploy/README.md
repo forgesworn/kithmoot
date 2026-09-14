@@ -866,13 +866,13 @@ image is a full image. To resize: stop the unit, unmount, move `blobs.img`
 aside, take its line out of `/etc/fstab`, and run the deploy again with a
 new `BLOSSOM_QUOTA_GIB`.
 
-**The cap.** 70 MiB per blob: a 64 MiB source (`MAX_UPLOAD_SOURCE_BYTES`,
+**The cap.** 270 MiB per blob: a 256 MiB source (`MAX_UPLOAD_SOURCE_BYTES`,
 what the app refuses before sealing) plus the envelope's padding and tags.
 It is Caddy's `request_body max_size` on `/upload`, because
 blossom-server-ts 5.2.0 has no cap of its own: Caddy reads the body up to
-70 MiB and no further, answers 413, and cuts the upstream, at which the
+270 MiB and no further, answers 413, and cuts the upstream, at which the
 service removes the upload it was spooling. It does not pre-check the
-`Content-Length`, so an over-cap upload costs 70 MiB of transfer before it
+`Content-Length`, so an over-cap upload costs 270 MiB of transfer before it
 is refused; the app never sends one, and nothing is stored. An upload is
 spooled to the unit's private `/tmp` before it is hashed and moved into
 place, so the cap is what bounds that too.

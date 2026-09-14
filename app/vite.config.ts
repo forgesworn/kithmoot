@@ -128,6 +128,11 @@ export default defineConfig({
   preview: {
     proxy: {
       '/__test-relay': { target: 'ws://127.0.0.1:7777', ws: true },
+      // The acceptance companion also acts as a test-only Blossom server.
+      // A real HTTP request matters here: WebKit streams Blob uploads but
+      // does not expose their body to Playwright route inspection.
+      '/upload': { target: 'http://127.0.0.1:7777' },
+      '/blossom': { target: 'http://127.0.0.1:7777' },
     },
   },
   build: {

@@ -5,6 +5,7 @@ import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { withRelays } from './relays.js'
 import { goToConversation, openRoomDetails } from './browser.js'
+import { fetchFromTestBlossom } from './blossom.js'
 
 async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: BrowserContext, relay: string) => Promise<void>) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
@@ -75,22 +76,21 @@ test('drafts stay with their conversations, including files and a visit to read-
 
 test('an upload finishes in its original draft while another conversation is used', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
+  const blobOrigin = new URL(baseURL!).origin
   let release!: () => void
   const released = new Promise<void>(resolve => { release = resolve })
   let uploads = 0
-  await context.route('https://files.example/upload', async route => {
+  await context.route(`${blobOrigin}/upload`, async route => {
     uploads++
-    const request = route.request()
-    const hash = request.headers()['x-sha-256']
-    const size = request.postDataBuffer()!.length
+    const response = await fetchFromTestBlossom(route, blobOrigin)
     await released
-    await route.fulfill({ status: 201, json: { url: `https://files.example/${hash}`, sha256: hash, size } })
+    await route.fulfill({ response })
   })
   try {
     await page.locator('#chatInput').fill('This file belongs in Chat')
     await page.locator('#attachToggle').click()
     await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await page.locator('#attachServer').fill('https://files.example')
+    await page.locator('#attachServer').fill(blobOrigin)
     await page.locator('#attachServer').press('Tab')
     await page.locator('#attachFile').setInputFiles({ name: 'workshop.txt', mimeType: 'text/plain', buffer: Buffer.from('Workshop materials') })
     await expect.poll(() => uploads).toBe(1)
@@ -166,21 +166,20 @@ test('unfinished file details stay in their draft and are never stored on disk',
 
 test('stopping an upload permits another attempt without adding the late result', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
+  const blobOrigin = new URL(baseURL!).origin
   let release!: () => void
   const released = new Promise<void>(resolve => { release = resolve })
   let uploads = 0
-  await context.route('https://files.example/upload', async route => {
+  await context.route(`${blobOrigin}/upload`, async route => {
     const number = ++uploads
-    const request = route.request()
-    const hash = request.headers()['x-sha-256']
-    const size = request.postDataBuffer()!.length
+    const response = await fetchFromTestBlossom(route, blobOrigin)
     if (number === 1) await released
-    await route.fulfill({ status: 201, json: { url: `https://files.example/${hash}`, sha256: hash, size } }).catch(() => {})
+    await route.fulfill({ response }).catch(() => {})
   })
   try {
     await page.locator('#attachToggle').click()
     await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await page.locator('#attachServer').fill('https://files.example')
+    await page.locator('#attachServer').fill(blobOrigin)
     await page.locator('#attachServer').press('Tab')
     await page.locator('#attachFile').setInputFiles({ name: 'cancelled.txt', mimeType: 'text/plain', buffer: Buffer.from('Do not attach this') })
     await expect.poll(() => uploads).toBe(1)
@@ -209,6 +208,7 @@ test('stopping an upload permits another attempt without adding the late result'
 
 test('stopping during a stalled relay announcement releases the draft and ignores the late acknowledgement', async ({ browser, baseURL }) => {
   let release: (() => void) | undefined
+  const blobOrigin = new URL(baseURL!).origin
   const { page, context } = await setup(browser, baseURL!, async (context, relay) => {
     await context.routeWebSocket(relay, ws => {
       const upstream = ws.connectToServer()
@@ -224,16 +224,14 @@ test('stopping during a stalled relay announcement releases the draft and ignore
         else ws.send(raw)
       })
     })
-    await context.route('https://files.example/upload', async route => {
-      const request = route.request()
-      const sha256 = request.headers()['x-sha-256']
-      await route.fulfill({ status: 201, json: { url: `https://files.example/${sha256}`, sha256, size: request.postDataBuffer()!.length } })
+    await context.route(`${blobOrigin}/upload`, async route => {
+      await route.fulfill({ response: await fetchFromTestBlossom(route, blobOrigin) })
     })
   })
   try {
     await page.locator('#attachToggle').click()
     await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await page.locator('#attachServer').fill('https://files.example')
+    await page.locator('#attachServer').fill(blobOrigin)
     await page.locator('#attachServer').press('Tab')
     await page.locator('#attachFile').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('Do not attach the late result') })
     await expect.poll(() => Boolean(release)).toBe(true)

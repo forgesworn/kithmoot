@@ -2,6 +2,7 @@ import { test, expect, type Browser, type BrowserContext } from '@playwright/tes
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { buildFileEvent } from '../src/attachment.js'
+import { fetchFromTestBlossom } from './blossom.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 
 async function setup(browser: Browser, base: string, beforeJoin?: (context: BrowserContext, roomId: string, relay: string) => Promise<void>) {
@@ -251,21 +252,21 @@ test('leaving a room removes its roster and messages while its peer can keep tal
 
 test('stopping an upload releases room switching and ignores its late result', async ({ browser, baseURL }) => {
   const { context, page } = await setup(browser, baseURL!)
+  const blobOrigin = new URL(baseURL!).origin
   let release!: () => void
   const held = new Promise<void>(resolve => { release = resolve })
   let uploading = false
-  await context.route('https://files.example/upload', async route => {
+  await context.route(`${blobOrigin}/upload`, async route => {
     uploading = true
-    const hash = route.request().headers()['x-sha-256']
-    const size = route.request().postDataBuffer()!.length
+    const response = await fetchFromTestBlossom(route, blobOrigin)
     await held
-    await route.fulfill({ status: 201, json: { url: `https://files.example/${hash}`, sha256: hash, size } }).catch(() => {})
+    await route.fulfill({ response }).catch(() => {})
   })
   try {
     await page.locator('#chatInput').fill('Keep this while stopping the upload')
     await page.locator('#attachToggle').click()
     await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await page.locator('#attachServer').fill('https://files.example')
+    await page.locator('#attachServer').fill(blobOrigin)
     await page.locator('#attachServer').press('Tab')
     await page.locator('#attachFile').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('Room-bound file') })
     await expect.poll(() => uploading).toBe(true)

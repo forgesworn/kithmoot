@@ -122,32 +122,31 @@ export default defineConfig({
   // above). Skipped entirely when E2E_BASE_URL points somewhere already
   // running (e.g. a developer's own `npm run demo`).
   //
-  // Unless E2E_RELAYS=live (see test/relays.ts) a NIP-01 relay is started
-  // beside it - test/ws-relay.mjs - and the specs pin every room to it. That
-  // is the CI configuration: the same acceptance tests, no public relays,
-  // no weather. Unset, the specs run against the app's real default relays.
-  webServer: process.env.E2E_BASE_URL
-    ? undefined
-    : [
-        {
-          // A quiet room's slot is five minutes in a real build; the suite's
-          // browsers cannot wait that long for a message, so the acceptance
-          // build shortens it. The variable can only shorten, see main.ts.
-          command: 'VITE_QUIET_SLOT_SECONDS=8 npm run build && npx vite preview --config app/vite.config.ts --port 4173 --strictPort',
-          url: 'https://localhost:4173/j/',
-          ignoreHTTPSErrors: true,
-          reuseExistingServer: !process.env.CI,
-          timeout: 120_000,
-        },
-        ...(process.env.E2E_RELAYS !== 'live'
-          ? [
-              {
-                command: 'node test/ws-relay.mjs',
-                url: 'http://127.0.0.1:7777/',
-                reuseExistingServer: !process.env.CI,
-                timeout: 30_000,
-              },
-            ]
-          : []),
-      ],
+  // The acceptance companion starts beside it. With local relay settings the
+  // specs use its deterministic NIP-01 side; with E2E_RELAYS=live that side
+  // is unused, but its test-only Blossom endpoint still receives real upload
+  // streams. CI uses the local relay, with no public-relay weather.
+  webServer: [
+    ...(process.env.E2E_BASE_URL ? [] : [
+      {
+        // A quiet room's slot is five minutes in a real build; the suite's
+        // browsers cannot wait that long for a message, so the acceptance
+        // build shortens it. The variable can only shorten, see main.ts.
+        command: 'VITE_QUIET_SLOT_SECONDS=8 npm run build && npx vite preview --config app/vite.config.ts --port 4173 --strictPort',
+        url: 'https://localhost:4173/j/',
+        ignoreHTTPSErrors: true,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
+    ]),
+    {
+      // Besides the deterministic relay, this companion supplies the
+      // test-only Blossom endpoint proxied by Vite. It is still needed
+      // when E2E_RELAYS=live even though its WebSocket side is not.
+      command: 'node test/ws-relay.mjs',
+      url: 'http://127.0.0.1:7777/',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+    },
+  ],
 })
