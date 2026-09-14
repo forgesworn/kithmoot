@@ -79,6 +79,7 @@ import { SignalGuard } from '../dist/src/signal-guard.js'
 import { NostrRelayPool } from '../dist/src/relay-pool.js'
 import { normaliseHex } from '../dist/src/hex.js'
 import { deriveForwarderKey } from '../dist/src/forwarder.js'
+import { shortId } from '../dist/src/log-redact.js'
 
 /**
  * How many devices one forwarder will carry for one room.
@@ -564,8 +565,8 @@ export function createForwarder({ config, transport, stack, log = defaultLog, no
       if (unsub) return
       log('')
       log('  KithMoot forwarder')
-      log(`  room ${config.roomId}`)
-      log(`  as   ${config.pubkey}`)
+      log(`  room ${shortId(config.roomId)}…`)
+      log(`  as   ${shortId(config.pubkey)}…`)
       log(`  over ${config.relays.join(', ')}`)
       log(`  cap  ${config.maxPeers} peers, ${config.maxTracksPerPeer} tracks each`)
       log('')

@@ -4,7 +4,7 @@
  */
 import { randomBytes, bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { sha256 } from '@noble/hashes/sha2'
-import type { Event } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { verifyEventUncached } from './verify.js'
 import { encryptEnvelope, decryptEnvelope, uploadEnvelope, normaliseBlossomServer } from './blossom.js'
 import { retrieveView, type ContextRetrievalOptions, type ContextRetrieval } from './retrieval.js'
@@ -182,6 +182,17 @@ export interface ContextVaultOptions {
   now?: () => number
   /** A room-bound adapter never exposes personal or other-room collections. */
   room?: string
+  /**
+   * Signs the kind-24242 Blossom upload authorisation. A Blossom server
+   * only ever needs to know a hash was authorised for one host, briefly -
+   * never who authorised it - so this defaults to a fresh secp256k1 key,
+   * generated and discarded for each upload, rather than `identity`: the
+   * participant's own key never signs a request to a third party that a
+   * throwaway key can sign instead. The default cannot delete or replace a
+   * blob later, since no key is kept to prove that upload was this
+   * identity's; inject a stable signer here if a caller needs that.
+   */
+  uploadSign?: (template: EventTemplate) => Promise<Event> | Event
 }
 
 export class ContextVault {
@@ -191,6 +202,7 @@ export class ContextVault {
   readonly #fetch: typeof fetch
   readonly #now: () => number
   readonly #room?: string
+  readonly #uploadSign: (template: EventTemplate) => Promise<Event> | Event
   readonly #collections = new Map<string, OpenCollection>()
 
   constructor(opts: ContextVaultOptions) {
@@ -202,6 +214,7 @@ export class ContextVault {
     this.#fetch = opts.fetch ?? globalThis.fetch.bind(globalThis)
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.#room = opts.room
+    this.#uploadSign = opts.uploadSign ?? (template => finalizeEvent(template, generateSecretKey()))
   }
 
   #visible(p: ContextPolicy): boolean {
@@ -303,7 +316,8 @@ export class ContextVault {
     assert(this.#servers.has(origin), 'Context storage server is not enabled on this device.')
     const entry = this.#get(collection)
     assert(this.#checks.role(this.#checks.policy(entry.policy).body, this.#identity.pubkey, this.#now()) === 'write', 'Context write permission required to upload.')
-    const descriptor = await uploadEnvelope(origin, entry.envelope, { sign: e => this.#identity.signEvent(e), fetch: this.#fetch, now: this.#now, signal: AbortSignal.timeout(15000) })
+    // The identity never signs this: see `uploadSign` on ContextVaultOptions.
+    const descriptor = await uploadEnvelope(origin, entry.envelope, { sign: this.#uploadSign, fetch: this.#fetch, now: this.#now, signal: AbortSignal.timeout(15000) })
     const out = pointer({ url: descriptor.url, sha256: descriptor.sha256, size: descriptor.size })
     assert(this.#get(collection).snapshot.id === entry.snapshot.id, 'Context changed during upload; upload the current revision before sharing.')
     entry.pointer = out

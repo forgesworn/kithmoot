@@ -1,31 +1,80 @@
 import type { AnnotationPoint, ScreenAnnotation } from '../../src/signal.js'
-import { ShareMarks, type LiveMark } from './share-marks.js'
+import { ShareMarks, type LiveMark, type MarkAuthor } from './share-marks.js'
+
+/** A stroke still being drawn on this device: not yet a `LiveMark` - it has
+ *  no stroke id and has gone nowhere - but shown exactly like one, at full
+ *  strength, while a finger or a pointer is still down. Its colour is
+ *  resolved the same clash-aware way as everybody else's, via
+ *  `ShareMarks.colourFor`. */
+interface PendingMark { points: AnnotationPoint[]; author: MarkAuthor; color: string }
 
 /** Paint strokes in normalised coordinates onto a canvas of any size, each
- *  as strongly as its age allows - see `share-marks.ts`. */
-function paintMarks(canvas: HTMLCanvasElement, marks: LiveMark[], pending?: AnnotationPoint[]): void {
+ *  as strongly as its age allows and in the colour of whoever drew it - see
+ *  `share-marks.ts`. A name chip rides the live end of each stroke, fading
+ *  with it, so a mark left on someone's screen still says whose it was once
+ *  the person who drew it has moved on to something else. */
+function paintMarks(canvas: HTMLCanvasElement, marks: LiveMark[], pending?: PendingMark): void {
   const ctx = canvas.getContext('2d')
   if (!ctx) return
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  const paintStroke = (points: AnnotationPoint[], alpha: number) => {
+  const paintStroke = (points: AnnotationPoint[], alpha: number, color: string) => {
     if (points.length < 2 || alpha <= 0) return
     ctx.globalAlpha = alpha
     ctx.beginPath(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(3, canvas.width / 260)
-    ctx.strokeStyle = '#ffd447'; ctx.shadowColor = 'rgb(0 0 0 / 75%)'; ctx.shadowBlur = ctx.lineWidth
+    ctx.strokeStyle = color; ctx.shadowColor = 'rgb(0 0 0 / 75%)'; ctx.shadowBlur = ctx.lineWidth
     ctx.moveTo(points[0]!.x * canvas.width, points[0]!.y * canvas.height)
     for (const point of points.slice(1)) ctx.lineTo(point.x * canvas.width, point.y * canvas.height)
     ctx.stroke(); ctx.shadowBlur = 0
   }
-  for (const mark of marks) paintStroke(mark.annotation.points ?? [], mark.alpha)
-  if (pending) paintStroke(pending, 1)
+  // A label drawn straight onto the canvas, never through the DOM, so there
+  // is no innerHTML anywhere near somebody else's chosen name - only
+  // `fillText`, which paints characters and cannot execute markup.
+  const paintChip = (end: AnnotationPoint, label: string, alpha: number) => {
+    if (!label || alpha <= 0) return
+    const x = end.x * canvas.width, y = end.y * canvas.height
+    const fontSize = Math.max(11, Math.round(canvas.width / 90))
+    ctx.globalAlpha = alpha
+    ctx.font = `${fontSize}px sans-serif`
+    ctx.textBaseline = 'middle'
+    const padX = 6, padY = 3, width = ctx.measureText(label).width
+    ctx.fillStyle = 'rgb(0 0 0 / 65%)'
+    ctx.fillRect(x + 8, y - fontSize / 2 - padY, width + padX * 2, fontSize + padY * 2)
+    ctx.fillStyle = '#fff'
+    ctx.fillText(label, x + 8 + padX, y + 1)
+  }
+  for (const mark of marks) {
+    const points = mark.annotation.points ?? []
+    paintStroke(points, mark.alpha, mark.color)
+    if (points.length > 0) paintChip(points[points.length - 1]!, mark.author.label, mark.alpha)
+  }
+  if (pending && pending.points.length > 0) {
+    paintStroke(pending.points, 1, pending.color)
+    paintChip(pending.points[pending.points.length - 1]!, pending.author.label, 1)
+  }
   ctx.globalAlpha = 1
+}
+
+/** Who is currently showing on a marks canvas, as a data attribute: the same
+ *  introspection `data-strokes` and `data-zoom` already give a test, for the
+ *  one thing a screenshot cannot answer reliably - whose stroke is which
+ *  colour, and what its chip says. Nothing here a person ever reads. */
+function authorsData(marks: LiveMark[]): string {
+  return JSON.stringify(marks.map(mark => ({ strokeId: mark.annotation.strokeId, label: mark.author.label, color: mark.color })))
 }
 
 /** A second, muted view of a live track. Closing it never stops the call's track. */
 export interface ShareSource { id: string; track: MediaStreamTrack; title: string }
 
+/** Credited to nobody in particular - only reached if a caller never
+ *  supplies `author`, which every real caller in main.ts does. */
+const UNKNOWN_AUTHOR: MarkAuthor = { key: '', label: '' }
+
 export interface ShareViewerOptions {
   onAnnotation?: (annotation: ScreenAnnotation) => void
+  /** Who to credit this device's own strokes to: the same identity shown
+   *  for this person everywhere else, resolved fresh for every stroke in
+   *  case a name arrives or changes mid-room. */
+  author?: () => MarkAuthor
 }
 
 export class ShareViewer {
@@ -41,9 +90,16 @@ export class ShareViewer {
 
   constructor(opts: ShareViewerOptions = {}) { this.#opts = opts }
 
-  /** Apply a stroke received from another room device. */
-  receive(annotation: ScreenAnnotation): void {
-    this.#marks.remember(annotation)
+  /** This device's own strokes and clears are credited to whoever
+   *  `ShareViewerOptions.author` says this device is. */
+  #myAuthor(): MarkAuthor {
+    return this.#opts.author?.() ?? UNKNOWN_AUTHOR
+  }
+
+  /** Apply a stroke received from another room device, crediting it to
+   *  whoever the caller says drew it. */
+  receive(annotation: ScreenAnnotation, author: MarkAuthor): void {
+    this.#marks.remember(annotation, author)
   }
 
   /**
@@ -67,6 +123,7 @@ export class ShareViewer {
       const id = shareId()
       const marks = id ? this.#marks.alive(id) : []
       canvas.dataset.strokes = String(marks.length)
+      canvas.dataset.authors = authorsData(marks)
       if (marks.length === 0) { canvas.hidden = true; return }
       if (doc.defaultView?.getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
       // The picture inside the element, under object-fit: contain.
@@ -177,7 +234,7 @@ export class ShareViewer {
       const shareId = this.#source?.()?.id
       if (!shareId) return
       const annotation: ScreenAnnotation = { op: 'clear', shareId, strokeId: '' }
-      this.#marks.remember(annotation); this.#opts.onAnnotation?.(annotation)
+      this.#marks.remember(annotation, this.#myAuthor()); this.#opts.onAnnotation?.(annotation)
     })
     const fullscreen = makeButton('Fullscreen', () => {
       const request = doc.fullscreenElement ? doc.exitFullscreen() : host.requestFullscreen?.()
@@ -197,8 +254,11 @@ export class ShareViewer {
       const pixelHeight = Math.round(pixelWidth / ratio)
       if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) { canvas.width = pixelWidth; canvas.height = pixelHeight }
       const marks = current ? this.#marks.alive(current.id) : []
-      paintMarks(canvas, marks, stroke)
+      const author = this.#myAuthor()
+      const pending = stroke && current ? { points: stroke, author, color: this.#marks.colourFor(current.id, author.key) } : undefined
+      paintMarks(canvas, marks, pending)
       canvas.dataset.strokes = String(marks.length)
+      canvas.dataset.authors = authorsData(marks)
       clear.disabled = !current
     }
     const paint = () => {
@@ -257,7 +317,7 @@ export class ShareViewer {
         const shareId = this.#source?.()?.id
         if (shareId && points.length > 1) {
           const annotation: ScreenAnnotation = { op: 'stroke', shareId, strokeId: crypto.randomUUID(), points }
-          this.#marks.remember(annotation); this.#opts.onAnnotation?.(annotation)
+          this.#marks.remember(annotation, this.#myAuthor()); this.#opts.onAnnotation?.(annotation)
         }
         renderAnnotations()
       }
