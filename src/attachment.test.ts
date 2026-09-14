@@ -18,6 +18,7 @@ import {
   encryptEnvelope,
   encryptEnvelopeBlob,
   uploadEnvelope,
+  uploadEnvelopeBlob,
   buildFileEvent,
   buildUploadAuthorisation,
   encodeBlossomAuthorisation,
@@ -650,6 +651,42 @@ describe('uploadEnvelope', () => {
     const fetch = answering(201, descriptorFor({ url: `${server}/${sealed.sha256}` }))
     const got = await uploadEnvelope(server, sealed.envelope, { sign, fetch: fetch as never })
     expect(got.url).toBe(`${server}/${sealed.sha256}`)
+  })
+
+  it('materialises a Blob before WebKit uploads it, avoiding an empty OPFS-backed request body', async () => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15',
+    })
+    try {
+      const envelope = new Blob([sealed.envelope.buffer as ArrayBuffer], { type: ENVELOPE_MEDIA_TYPE })
+      const fetch = answering(200, descriptorFor())
+      const got = await uploadEnvelopeBlob(server, envelope, sealed.sha256.toUpperCase(), {
+        sign,
+        fetch: fetch as never,
+        now: () => now,
+      })
+      expect(got.sha256).toBe(sealed.sha256)
+      const [, init] = fetch.mock.calls[0] as [string, RequestInit]
+      expect(init.body).toBeInstanceOf(ArrayBuffer)
+      expect(new Uint8Array(init.body as ArrayBuffer)).toEqual(sealed.envelope)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps the direct Blob upload path outside WebKit', async () => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    })
+    try {
+      const envelope = new Blob([sealed.envelope.buffer as ArrayBuffer], { type: ENVELOPE_MEDIA_TYPE })
+      const fetch = answering(200, descriptorFor())
+      await uploadEnvelopeBlob(server, envelope, sealed.sha256, { sign, fetch: fetch as never, now: () => now })
+      const [, init] = fetch.mock.calls[0] as [string, RequestInit]
+      expect(init.body).toBe(envelope)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('says plainly when the server says no', async () => {

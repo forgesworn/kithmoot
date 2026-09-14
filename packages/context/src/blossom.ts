@@ -928,7 +928,13 @@ export async function uploadEnvelopeBlob(
   opts: UploadEnvelopeOptions,
 ): Promise<BlossomDescriptor> {
   if (!/^[0-9a-f]{64}$/i.test(sha256)) throw new Error('The blob hash must be 64 hex characters.')
-  return uploadEnvelopeBody(server, envelope, sha256.toLowerCase(), envelope.size, opts)
+  // WebKit can read and hash an OPFS-backed File correctly, yet send it as
+  // a zero-byte fetch body. Materialise only this browser's upload body;
+  // Chromium and Firefox retain the direct Blob path for large envelopes.
+  const agent = (globalThis as unknown as { navigator?: { userAgent?: string } }).navigator?.userAgent ?? ''
+  const webKit = /\bAppleWebKit\//.test(agent) && !/\b(?:Chrome|Chromium|Edg|OPR)\//.test(agent)
+  const body: BodyInit = webKit ? await envelope.arrayBuffer() : envelope
+  return uploadEnvelopeBody(server, body, sha256.toLowerCase(), envelope.size, opts)
 }
 
 async function uploadEnvelopeBody(
