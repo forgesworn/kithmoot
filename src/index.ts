@@ -132,7 +132,7 @@ export type {
 } from './pairing.js'
 export { NostrRelayPool, normaliseRelayConfig } from './relay-pool.js'
 export { LANES, LANE_MEANING, LANE_LABEL, LANE_GLYPH, isLane, laneOfRelayUrl, laneOfRelays, weakestLane, isDowngrade } from './lane.js'
-export { QUIET_SLOT_SECONDS, QUIET_KINDS, QUIET_DEVICE_SLOTS, QUIET_HISTORY_SECONDS, QUIET_BUCKET_BYTES, QUIET_CANNOT_SEND, QUIET_TOO_LONG, isQuietPolicy, quietCounterRange, quietRoomTransport } from './quiet.js'
+export { QUIET_SLOT_SECONDS, QUIET_KINDS, QUIET_BLOCKED_KINDS, QUIET_DEVICE_SLOTS, QUIET_HISTORY_SECONDS, QUIET_BUCKET_BYTES, QUIET_CANNOT_SEND, QUIET_TOO_LONG, QUIET_NO_FILE_ANNOUNCE, isQuietPolicy, quietCounterRange, quietRoomTransport } from './quiet.js'
 export type { QuietRoomOptions, QuietRoomTransport, QuietUsedState } from './quiet.js'
 export {
   CADENCE_VERSION,
