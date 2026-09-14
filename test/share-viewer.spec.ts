@@ -98,6 +98,161 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
   } finally { await a.close(); await b.close() }
 })
 
+test('the sharer is told when somebody draws on their screen, and the notice brings the preview back into view', async ({ browser, baseURL }) => {
+  const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
+  try {
+    const presenter = await a.newPage(), viewer = await b.newPage()
+    // This browser's own Document Picture-in-Picture support, if any, is
+    // covered by the stubbed test below. Forcing it off here keeps this
+    // test about the notice - the fallback every other browser gets -
+    // regardless of which Chromium Playwright happens to bundle.
+    await presenter.addInitScript(() => { Object.defineProperty(window, 'documentPictureInPicture', { value: undefined, configurable: true }) })
+    const link = await createRoom(presenter, baseURL!)
+    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
+    await openCall(presenter); await openCall(viewer)
+    await presenter.locator('#toggleScreen').click()
+    const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })
+    await expect(expand).toBeVisible({ timeout: 60000 }); await expand.click()
+    const dialog = viewer.getByRole('dialog', { name: 'Screen-share viewer' })
+    await expect.poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+
+    // The presenter's own tile, pushed out of view the way it actually is
+    // while presenting: looking at the shared window, not at this page.
+    await presenter.evaluate(() => {
+      const spacer = document.createElement('div')
+      spacer.style.height = '3000px'
+      document.body.prepend(spacer)
+    })
+    const myPreview = presenter.locator('video.screenPreview')
+    await expect(myPreview).not.toBeInViewport()
+
+    const notice = presenter.locator('#sharerMarksNotice')
+    await expect(notice).toBeHidden()
+
+    await dialog.getByRole('button', { name: 'Draw', exact: true }).click()
+    const drawStroke = async () => {
+      const drawRect = (await dialog.locator('.shareViewport').boundingBox())!
+      await viewer.mouse.move(drawRect.x + drawRect.width * .3, drawRect.y + drawRect.height * .35)
+      await viewer.mouse.down()
+      await viewer.mouse.move(drawRect.x + drawRect.width * .7, drawRect.y + drawRect.height * .65, { steps: 12 })
+      await viewer.mouse.up()
+    }
+    await drawStroke()
+
+    await expect(notice).toBeVisible({ timeout: 10_000 })
+    await expect(notice).toHaveAttribute('role', 'status')
+    await expect(presenter.locator('#sharerMarksNoticeText')).toContainText('Rowan')
+    await expect(presenter.locator('#sharerMarksNoticeText')).toContainText('is drawing on your screen')
+    // No floating window on this browser: only the one button.
+    await expect(presenter.locator('#sharerMarksNoticeFloat')).toBeHidden()
+
+    // Its button brings the preview back into view and dismisses the notice.
+    await presenter.locator('#sharerMarksNoticeShow').click()
+    await expect(notice).toBeHidden()
+    await expect(myPreview).toBeInViewport()
+
+    // A second stroke from the same drawer, straight away, is inside the
+    // rate limit and is not announced again.
+    await drawStroke()
+    await presenter.waitForTimeout(500)
+    await expect(notice).toBeHidden()
+  } finally { await a.close(); await b.close() }
+})
+
+test('a floating preview window carries the same marks overlay, exercised with a stubbed Document Picture-in-Picture window', async ({ browser, baseURL }) => {
+  const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
+  try {
+    const presenter = await a.newPage(), viewer = await b.newPage()
+    // A stand-in for the platform's own Document Picture-in-Picture API: a
+    // fresh, detached document from `document.implementation`, exactly as
+    // real support hands back, but with no real second window behind it -
+    // which is the part headless Chromium in CI cannot be relied on for.
+    // Real support (Chromium desktop only) is not exercised by this suite.
+    await presenter.addInitScript(() => {
+      const state: { wins: { document: Document; closed: boolean }[] } = { wins: [] }
+      ;(window as unknown as { __pipStub: unknown }).__pipStub = state
+      // A plain assignment does not stick: this browser already exposes the
+      // real API as a non-writable property, so overriding it needs the same
+      // `Object.defineProperty` trick the unsupported-browser test above uses
+      // to turn it off.
+      Object.defineProperty(window, 'documentPictureInPicture', {
+        configurable: true,
+        value: {
+          window: null,
+          requestWindow: async () => {
+            const doc = document.implementation.createHTMLDocument('pip')
+            const listeners = new Map<string, ((...a: unknown[]) => void)[]>()
+            const win = {
+              document: doc,
+              closed: false,
+              addEventListener(type: string, fn: (...a: unknown[]) => void) {
+                const list = listeners.get(type) ?? []; list.push(fn); listeners.set(type, list)
+              },
+              removeEventListener(type: string, fn: (...a: unknown[]) => void) {
+                const list = listeners.get(type); if (!list) return
+                const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1)
+              },
+              close() {
+                if (win.closed) return
+                win.closed = true
+                for (const fn of listeners.get('pagehide') ?? []) fn()
+              },
+            }
+            state.wins.push(win)
+            return win
+          },
+        },
+      })
+    })
+    const link = await createRoom(presenter, baseURL!)
+    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
+    await openCall(presenter); await openCall(viewer)
+    await presenter.locator('#toggleScreen').click()
+
+    const floatingToggle = presenter.locator('#toggleFloatingMarks')
+    await expect(floatingToggle).toBeVisible({ timeout: 10_000 })
+    await floatingToggle.click()
+    await expect.poll(() => presenter.evaluate(() => (window as unknown as { __pipStub: { wins: unknown[] } }).__pipStub.wins.length)).toBe(1)
+    await expect(floatingToggle).toHaveAttribute('data-on', 'true')
+
+    // The floating document gets its own video, playing the same track.
+    await expect.poll(() => presenter.evaluate(() => {
+      const win = (window as unknown as { __pipStub: { wins: { document: Document }[] } }).__pipStub.wins.at(-1)!
+      return win.document.querySelector('video') !== null
+    })).toBe(true)
+
+    // A remote stroke paints the overlay inside the floating document too.
+    const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })
+    await expect(expand).toBeVisible({ timeout: 60000 }); await expand.click()
+    const dialog = viewer.getByRole('dialog', { name: 'Screen-share viewer' })
+    await expect.poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+    await dialog.getByRole('button', { name: 'Draw', exact: true }).click()
+    const drawRect = (await dialog.locator('.shareViewport').boundingBox())!
+    await viewer.mouse.move(drawRect.x + drawRect.width * .3, drawRect.y + drawRect.height * .35)
+    await viewer.mouse.down()
+    await viewer.mouse.move(drawRect.x + drawRect.width * .7, drawRect.y + drawRect.height * .65, { steps: 12 })
+    await viewer.mouse.up()
+    await expect.poll(() => presenter.evaluate(() => {
+      const win = (window as unknown as { __pipStub: { wins: { document: Document }[] } }).__pipStub.wins.at(-1)!
+      return win.document.querySelector('canvas.shareMarks')?.getAttribute('data-strokes')
+    })).toBe('1')
+
+    // With the floating window open, the ordinary notice does not also fire.
+    await expect(presenter.locator('#sharerMarksNotice')).toBeHidden()
+
+    // Stopping the share closes the floating window and cleans up its video.
+    await presenter.locator('#toggleScreen').click()
+    await expect.poll(() => presenter.evaluate(() =>
+      (window as unknown as { __pipStub: { wins: { closed: boolean }[] } }).__pipStub.wins.at(-1)!.closed)).toBe(true)
+    await expect.poll(() => presenter.evaluate(() => {
+      const win = (window as unknown as { __pipStub: { wins: { document: Document }[] } }).__pipStub.wins.at(-1)!
+      return (win.document.querySelector('video') as HTMLVideoElement | null)?.srcObject ?? null
+    })).toBe(null)
+  } finally { await a.close(); await b.close() }
+})
+
 interface MarkAuthorData { strokeId: string; label: string; color: string }
 
 /** `data-authors` on a marks canvas, in the same spirit as the `data-strokes`
