@@ -1276,14 +1276,12 @@ derived from the epoch key, the member and a counter, one wrap a slot, a
 filler when there is nothing to say, read back from the whole gift-wrap
 stream. The roster, the signalling, pairing and epochs stay in the open,
 because a slot of delay ends a call and because a rekey has to be found
-from the room id by a member who missed it. A dropped file's announcement
-stays in the open too: it is a kind 1063 event, not chat, so it is
-published bare and signed by the device key like any other file share,
-never a drop. So a quiet room says, on its own sheet: the relay cannot tell
-whether anything was said, by whom, or when; it can still tell that you are
-here while you are here, that a file was shared and by which device, and
-calls are not quiet. That sentence is the deliverable as much as the code
-is.
+from the room id by a member who missed it. A dropped file has no bare kind
+1063 announcement in a quiet room; its URL, hash, key and details travel
+inside encrypted chat instead. So a quiet room says, on its own sheet: the
+relay cannot tell whether anything was said, by whom, or when; it can still
+tell that you are here while you are here, and calls are not quiet. That
+sentence is the deliverable as much as the code is.
 
 **Two devices, disjoint halves.** A member has sixteen keys an hour, and a
 key used twice is the one thing the design cannot allow. Two devices of

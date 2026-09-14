@@ -13,24 +13,24 @@ that stranger trips over is a cost, and it has to buy something.
 ## Three yardsticks, in this order
 
 **1. Privacy: who learns what.** Relays learn opaque ids and timing, never
-contents and never names. A service that carries media or files, a
-forwarder, a TURN server, a Blossom store, learns a device key and at most
-an opaque room id. Nothing learns a person from what it carries. A device
-key is per room, so two rooms cannot be joined by it, and the participant
-identity signs only what the participant is doing, never a request to a
-third party that a device key could sign instead.
+contents and never names from room events. A service that carries media or
+files - a forwarder, TURN server or Blossom store - learns a connection's
+network address and an endpoint or short-lived uploader key, plus at most
+an opaque room id. A room device key is per room, so two rooms cannot be
+joined by it. Participant-signed bookmarks, read positions, relay
+authentication and public-profile lookups are separate identity-bearing
+channels and are disclosed as such in the README.
 
 Known gaps against this yardstick, stated rather than fixed by the
-statement above: a service in the media or signalling path also learns a
-device's IP address - relays, TURN, Blossom and a forwarder all see it, and
-so does every other member in a mesh call, because `iceTransportPolicy` is
-never set to relay-only. The default STUN server is Google's
-(`DEFAULT_ICE_URLS` in `app/src/main.ts`), so a room that never names its
-own STUN tells Google that IP too. And context uploads to Blossom are
-authorised with the participant key, not the device key
-(`packages/context/src/index.ts`, `upload`, signs with `this.#identity`),
-unlike chat attachments, which use the device key - so a context store
-learns more than "a device key and an opaque room id" promises.
+statement above: relays, TURN, Blossom and a forwarder see the connecting
+device's IP address, and every other member sees it in a mesh call because
+`iceTransportPolicy` is never set to relay-only. Default ICE discovery is
+derived from the app's own origin; a room that explicitly names a third-
+party STUN or TURN service discloses its IP there too. Context uploads use
+a fresh, discarded signing key by default, so the Blossom authorisation is
+not the participant identity and is not stable between uploads. The store
+still sees the IP address and blob hash; a caller injecting a stable upload
+signer deliberately makes those uploads linkable.
 
 **2. Decentralisation: nobody operates it.** No mandated operator. Relays,
 TURN, forwarders, keepers and stores are plural, swappable and optional,

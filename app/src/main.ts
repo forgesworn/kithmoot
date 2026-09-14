@@ -4258,7 +4258,7 @@ function renderRoomLockState(): void {
   const quiet = $('quietState')
   quiet.hidden = !quietTransport
   quiet.textContent = quietTransport
-    ? `${QUIET_MEANING} Relays hand back ${Math.round(QUIET_HISTORY_SECONDS / 86400)} days of it; older messages stay on the devices that read them. Being here still shows while you are here, calls are not quiet, and a dropped file's announcement is not quiet either.${quietTransport.canSend ? '' : ` ${QUIET_READ_ONLY}`}`
+    ? `${QUIET_MEANING} Relays hand back ${Math.round(QUIET_HISTORY_SECONDS / 86400)} days of it; older messages stay on the devices that read them. Being here still shows while you are here, and calls are not quiet. Dropped-file details travel inside chat without a bare file announcement.${quietTransport.canSend ? '' : ` ${QUIET_READ_ONLY}`}`
     : ''
 }
 

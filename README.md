@@ -209,7 +209,9 @@ the [workspace delivery](docs/workspace-delivery.md).
   a file on the chat and the browser does the Wildbloom part itself:
   seals it under a fresh key, puts the envelope on the Blossom server this
   device names, announces it with a kind-1063 event signed by the device
-  key, and stages it for the next message.
+  key, and stages it for the next message. In a quiet room it deliberately
+  skips that public announcement: the URL, hash, key and file details travel
+  only inside the encrypted chat message.
 - **Names, and optionally a real Nostr identity.** Type a name and join, or
   sign in with a key you already have. See below.
 - **Search a conversation.** Open Room details and choose **Search this
@@ -618,13 +620,13 @@ because a team is what this is now judged against:
   covers only what the tab has loaded. A workspace ninety days old cannot
   show its first message.
 - **Quiet rooms hide what was said, not that you are there.** Presence,
-  signalling and epochs stay in the open, calls are not quiet, a dropped
-  file's announcement stays in the open too, a message waits up to five
-  minutes, a device has eight an hour, relays hand back two days of
-  history, and the rooms list does not read a quiet room's chat. Two
-  devices per person can post; a third reads. Android reads and writes
-  plain rooms only: a quiet room opened there shows nothing until the
-  derivation lands in the native client.
+  signalling and epochs stay in the open, calls are not quiet, a message
+  waits up to five minutes, a device has eight an hour, relays hand back
+  two days of history, and the rooms list does not read a quiet room's
+  chat. A dropped file has no bare kind-1063 announcement there; its
+  details ride inside chat only. Two devices per person can post; a third
+  reads. Android reads and writes plain rooms only: a quiet room opened
+  there shows nothing until the derivation lands in the native client.
 - **A contact card is trusted on first use, and the box is not refreshed
   yet.** The badge says "card", not "verified". Fetching a fresh address
   card from a box waits on the box saying what shape it publishes in; the
