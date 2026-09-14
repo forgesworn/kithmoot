@@ -25,6 +25,9 @@ import { serveMcp } from './mcp.js'
 import { WhisperXTranscriber, FixedTranscriber } from './transcriber.js'
 import type { Transcriber } from './transcriber.js'
 import { createWeriftFactory } from './webrtc.js'
+import type { WeriftFactoryOptions } from './webrtc.js'
+import { resolveNodeIceServers } from './ice-resolve.js'
+import { isDefaultIceUrls } from '../ice-defaults.js'
 import { AgentHost, loadCatalogue } from './host.js'
 import { Scribe } from './scribe.js'
 import { Nudger, nip17Sender } from './nudge.js'
@@ -107,7 +110,11 @@ Options
                            itself and approve its own requests, because it is
                            the principal those checks look for.
   --relay <url>            Relay hint; repeatable. Overrides the link's.
-  --ice <url>              STUN/TURN url; repeatable. Overrides the link's.
+  --ice <url>              STUN/TURN url; repeatable. Overrides the link's. With
+                           neither this nor the link naming any, this process
+                           derives its own from the room's origin (the same
+                           /turn endpoint the web app uses), refreshed for a
+                           long-running room - see docs/decisions.md.
   --turn-credential <u:p>  Static credentials for every TURN url given
   --persona <file>         Markdown: the character, put in front of the model
   --memory <dir>           Append everything seen and said to <dir>/log.jsonl
@@ -318,7 +325,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (state?.closed) fail(`${statePath}: this room was closed. Delete the state file to make a new one.`)
     const admins = [...(values.admin ?? []), ...envList('ADMINS')].map(adminPubkey)
     const forwarders = await forwarderRefs([...(values.forwarder ?? []), ...(env('FORWARDER') ? [env('FORWARDER')!] : [])])
-    const factory = common.listen ? await createWeriftFactory({ iceUrls: common.ice, turn }) : undefined
+    const factory = common.listen ? await createWeriftFactory(iceFactoryOptions(common.ice, new URL(base).origin, turn)) : undefined
     agent = await RoomAgent.create({
       base,
       roomName,
@@ -360,7 +367,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (!link) fail(`${command} needs a link`)
     const parsed = parseRoomLink(link)
     const iceUrls = common.ice.length ? common.ice : parsed.iceUrls
-    const factory = common.listen ? await createWeriftFactory({ iceUrls, turn }) : undefined
+    const factory = common.listen ? await createWeriftFactory(iceFactoryOptions(iceUrls, new URL(link).origin, turn)) : undefined
     log('joining…')
     agent = await RoomAgent.join({
       link,
@@ -795,6 +802,35 @@ function splitCredential(pair: string): { username: string; credential: string }
   const at = pair.indexOf(':')
   if (at <= 0) fail('--turn-credential must be user:password')
   return { username: pair.slice(0, at), credential: pair.slice(at + 1) }
+}
+
+/**
+ * The ICE options to hand `createWeriftFactory` for one command's own
+ * connections.
+ *
+ * `iceUrls` naming its own servers - a room's own link, or an explicit
+ * `--ice`/`KITHMOOT_ICE` - is used exactly as given, with `--turn-
+ * credential` as its static pair: unchanged from before this existed.
+ *
+ * Otherwise (the ICE defaults - see `isDefaultIceUrls`) this derives an
+ * origin-relative default the same way the web app does, from `origin`
+ * (`--base` for `create`, the room link's own origin for `join`):
+ * `resolveNodeIceServers`, refreshed on the same schedule as a
+ * long-running room's minted TURN credential (`createWeriftFactory`'s
+ * `refresh` option) - so a scribe, clerk or other agent run on an ordinary
+ * home connection behind NAT still gets a working STUN/TURN by default,
+ * rather than the host-candidates-only default that suits a box with a
+ * public address but not a home one. See docs/decisions.md, 2026-09-13,
+ * for why the previous default (Google's public STUN server) was removed
+ * everywhere rather than merely narrowed.
+ */
+function iceFactoryOptions(
+  iceUrls: string[],
+  origin: string,
+  turn: { username: string; credential: string } | undefined,
+): WeriftFactoryOptions {
+  if (!isDefaultIceUrls(iceUrls)) return { iceUrls, turn }
+  return { refresh: { resolve: () => resolveNodeIceServers({ origin }) } }
 }
 
 function fail(message: string): never {

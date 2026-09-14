@@ -96,8 +96,9 @@ async function createRoom(page: Page, baseURL: string): Promise<string> {
   const relays = testRelays()
   if (relays) await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
   await page.goto(baseURL)
-  // #iceServers sits inside a collapsed <details> and already defaults to
-  // a public STUN server (app/index.html) - nothing to change here.
+  // #iceServers sits inside a collapsed <details> and is left blank, which
+  // is the app's own default (app/index.html, app/src/ice-defaults.ts) -
+  // nothing to change here.
   await page.locator('#create').click()
   // The room's own link exists as soon as the room does, but the drawer
   // holding it stays shut until somebody has gone in - the entry page shows

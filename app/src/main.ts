@@ -129,6 +129,7 @@ import {
   type RelayTransport,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
+import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
@@ -313,9 +314,14 @@ function configuredPool(urls: string[]): NostrRelayPool {
 
 // The room names its own STUN/TURN, carried in the join URL like the relay
 // hints already are - hardcoding an operator's server here is exactly the
-// kind of central dependency this project exists to avoid. This is only a
-// sensible default for a room that never set its own.
-const DEFAULT_ICE_URLS = ['stun:stun.l.google.com:19302']
+// kind of central dependency this project exists to avoid. DEFAULT_ICE_URLS
+// (imported from ice-defaults.ts, along with isDefaultIceUrls,
+// originStunGuess and stunFromTurnUrl) is only a sensible stand-in for a
+// room that never set its own, and it names no host at all - what this
+// origin can offer instead is derived at connect time, in
+// resolveIceServers below. See ice-defaults.ts for the full design and
+// docs/decisions.md, 2026-09-13, for why this changed from a hardcoded
+// Google STUN server.
 
 /**
  * Whether the last ICE resolution produced a relay (a `turn:` server with a
@@ -338,9 +344,9 @@ const ICE_REFRESH_MS = 40 * 60 * 1000
 // a stream falling back to its origin does - it just fails.
 //
 // The default TURN server's URLs are deliberately NOT listed in
-// DEFAULT_ICE_URLS above. They arrive from the minting endpoint below,
-// already carrying the credential they need, and resolveIceServers appends
-// them. This is not a stylistic choice: a turn: entry with no username and
+// DEFAULT_ICE_URLS. They arrive from the minting endpoint below, already
+// carrying the credential they need, and resolveIceServers appends them.
+// This is not a stylistic choice: a turn: entry with no username and
 // credential makes the RTCPeerConnection constructor throw
 // InvalidAccessError outright, so a bare turn: URL in that list would not
 // degrade to STUN, it would stop the app dead before a single candidate
@@ -2026,19 +2032,15 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
   }
 }
 
-/** True when `urls` is exactly the built-in default ICE list, rather than
- *  one a room's URL or the room-settings field supplied. Compared by
- *  content, not by reference, so this stays correct even if a future
- *  change stops returning the DEFAULT_ICE_URLS array itself in the
- *  "nothing custom was set" case. This is the gate for whether it is this
- *  app's own default TURN server (and so this app's own credential
- *  endpoint) that is in play, versus a room naming its own ICE servers -
- *  see the design principle at the top of deploy/README.md: the room
- *  names its own STUN/TURN, and an operator's minted credential must
- *  never be attached to a server the room never asked for. */
-function isDefaultIceUrls(urls: string[]): boolean {
-  return urls.length === DEFAULT_ICE_URLS.length && urls.every((u, i) => u === DEFAULT_ICE_URLS[i])
-}
+// isDefaultIceUrls (imported from ice-defaults.ts) is the gate for whether
+// it is this app's own default TURN server (and so this app's own
+// credential endpoint) that is in play, versus a room naming its own ICE
+// servers - see the design principle at the top of deploy/README.md: the
+// room names its own STUN/TURN, and an operator's minted credential must
+// never be attached to a server the room never asked for. It also
+// recognises the old literal Google default an existing link may still
+// carry as the default, so those rooms are upgraded to this origin's own
+// STUN/TURN rather than kept on Google's server - see ice-defaults.ts.
 
 /** Fetches one TURN credential from the configured minting endpoint. A
  *  malformed or slow response is treated the same as no endpoint at all -
@@ -2075,6 +2077,13 @@ async function fetchTurnCredential(endpoint: string): Promise<RTCIceServer | und
  * the operator's own default TURN server when one is configured and this
  * room is actually using that default (see isDefaultIceUrls).
  *
+ * A room naming its own ICE servers gets exactly those, unchanged. A room
+ * on the defaults gets nothing named by this bundle: this origin's own
+ * STUN, derived from wherever the minted TURN credential actually points
+ * (stunFromTurnUrl) when the credential endpoint answers, or a same-host
+ * guess on the standard port when it doesn't (originStunGuess) - see
+ * ice-defaults.ts for why, and docs/decisions.md, 2026-09-13.
+ *
  * A failed or unreachable credential endpoint must never block joining: a
  * room that only has STUN still works for roughly 80% of real connections
  * (see deploy/README.md), and a call that refuses to start because an
@@ -2083,15 +2092,24 @@ async function fetchTurnCredential(endpoint: string): Promise<RTCIceServer | und
  * endpoint existed.
  */
 async function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
-  const base: RTCIceServer[] = urls.map((iceUrl) => ({ urls: iceUrl }))
-  if (!TURN_CREDENTIAL_ENDPOINT || !isDefaultIceUrls(urls)) {
+  if (!isDefaultIceUrls(urls)) {
     turnRelayConfigured = urls.some((iceUrl) => iceUrl.toLowerCase().startsWith('turn'))
-    return base
+    return urls.map((iceUrl) => ({ urls: iceUrl }))
+  }
+
+  if (!TURN_CREDENTIAL_ENDPOINT) {
+    turnRelayConfigured = false
+    return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
   }
 
   const turnServer = await fetchTurnCredential(TURN_CREDENTIAL_ENDPOINT)
   turnRelayConfigured = turnServer !== undefined
-  return turnServer ? [...base, turnServer] : base
+  if (!turnServer) return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
+
+  // The same host and port the minted credential just proved answers TURN
+  // on, not a second guess at this origin's hostname.
+  const stunUrls = [...new Set(toUrlList(turnServer.urls).map(stunFromTurnUrl).filter((u): u is string => u !== undefined))]
+  return [...stunUrls.map((iceUrl) => ({ urls: iceUrl })), turnServer]
 }
 
 /** An RTCIceServer's `urls` is a string or a list of them. */
