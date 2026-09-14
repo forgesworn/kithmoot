@@ -527,6 +527,26 @@ it.
 | `KITHMOOT_MAX_PEERS` | no | Fan-out cap. Default 24. |
 | `KITHMOOT_MAX_TRACKS_PER_PEER` | no | Per-peer track cap. Default 4. |
 | `KITHMOOT_LABEL` | no | A name for people. Never used for logic. |
+| `KITHMOOT_STUN_URL` | no | A `stun:` URL for this forwarder's own connections. No default - see "Why no default STUN server" below. |
+
+#### Why no default STUN server
+
+Until 2026-09-13 `createWeriftStack` fell back to Google's public STUN
+server whenever `KITHMOOT_STUN_URL` was unset, which quietly named that
+third party to every forwarder run without one - see docs/decisions.md,
+that date, for the full finding. It now defaults to none, and logs one
+plain line at start-up saying so.
+
+That is fine for most installs: a forwarder is normally the box named in
+the deploy guide above, with its own public address, and two peers with a
+public address connect on host candidates with no STUN server at all - it
+is the mesh's own device-to-device negotiation, tried before a forwarder is
+ever offered, that needed STUN in the first place. Set `KITHMOOT_STUN_URL`
+only if this particular forwarder process itself sits behind NAT (a home
+connection, say), pointed at your own coturn - `deploy/coturn/turnserver.conf`
+already answers STUN on 3478, see "The TURN server is a default, not a
+dependency" above - or any other STUN server you trust with this
+forwarder's IP and connection timing - never back to Google's by habit.
 
 #### Several rooms, one process
 

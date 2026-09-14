@@ -117,7 +117,10 @@ anybody pays for.
 
 A room still names its own STUN and TURN servers, the way it names its relays:
 a plural, swappable list. Self-host coturn, point at somebody else's, or name
-none and accept that some pairs will not connect. Nobody is required, and no
+none. A room that names none is not left with nothing: the app it was opened
+from derives its own STUN from that origin rather than naming any third
+party, so a name in the address bar is the only name in play - never
+Google's, never any other operator's by default. Nobody is required, and no
 single party can be removed to take the system down. That is the claim, and it
 is narrower than "nothing to run".
 
