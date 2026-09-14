@@ -748,6 +748,20 @@ describe('attachments', () => {
     expect(nip44.v2.decrypt(empty.content, roomKey)).toBe(bare)
   })
 
+  it('round-trips a quiet-room attachment, which carries no event id', async () => {
+    // What `shareDroppedFile` stages in a quiet room: everything a reader
+    // needs to open the file, and no kind-1063 event id, because none was
+    // ever published. See src/quiet.ts.
+    const { roomId, roomKey, deviceSk, msg } = await fixture()
+    const { event: _unused, ...noEvent } = share(1)
+    const attachments = [noEvent]
+    const event = encodeChatEvent({ ...msg, attachments }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded?.attachments).toEqual(attachments)
+    expect(decoded?.attachments?.[0]).not.toHaveProperty('event')
+    expect(nip44.v2.decrypt(event.content, roomKey)).not.toContain('"event"')
+  })
+
   it('drops a malformed entry and keeps the rest, and drops the field when nothing valid is left', async () => {
     const { roomId, roomKey, deviceSk, msg } = await fixture()
     const forged = (attachments: unknown) => {

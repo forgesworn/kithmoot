@@ -108,6 +108,10 @@
             <!-- Two of your devices on one call: sound comes out of one of
                  them, and the newest microphone does not take it. -->
             <p id="monitorIndicator" class="indicator" hidden></p>
+            <!-- Filled in by `renderWakeLockNote` in app/src/main.ts: only
+                 shown when this device cannot actually hold the screen on
+                 for the call. -->
+            <p id="wakeLockNote" class="indicator" hidden>This device may let its screen sleep during the call.</p>
             <button id="listenHere" type="button" class="quiet" hidden>Play sound on this device instead</button>
             <details id="callMore" class="callMore">
               <summary>Two devices, agents</summary>
