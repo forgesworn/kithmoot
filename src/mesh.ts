@@ -293,6 +293,11 @@ export const MAX_HELD_SIGNAL_DEVICES = 16
 export class Mesh {
   readonly #opts: MeshOptions
   readonly #peers = new Map<string, Peer>()
+  /** Every other admitted room device, including another device belonging
+   *  to our own participant. Media deliberately excludes those sibling
+   *  devices, but room signalling such as screen annotations must still
+   *  reach every device in the room. */
+  readonly #annotationDevices = new Map<string, string>()
   readonly #deviceToParticipant = new Map<string, string>()
   /** Track id -> the device the roster says publishes it. The only
    *  attribution available for a track that arrives over a forwarder, since
@@ -458,7 +463,7 @@ export class Mesh {
    * signal wrap supplies membership checks, encryption, staleness and dedup. */
   publishAnnotation(annotation: ScreenAnnotation): void {
     if (this.#closed) return
-    for (const device of this.#deviceToParticipant.keys()) {
+    for (const device of this.#annotationDevices.keys()) {
       this.#send(device, { type: 'annotation', annotation })
     }
   }
@@ -482,6 +487,7 @@ export class Mesh {
     this.#pendingSignals.clear()
     for (const peer of this.#peers.values()) peer.close()
     this.#peers.clear()
+    this.#annotationDevices.clear()
     this.#deviceToParticipant.clear()
     this.#trackOwner.clear()
     this.#trackListeners.clear()
@@ -496,8 +502,12 @@ export class Mesh {
 
     this.#views = views
     const wantedDevices = new Map<string, string>() // device -> participant
+    const annotationDevices = new Map<string, string>() // every other admitted room device
     this.#trackOwner.clear()
     for (const view of views) {
+      for (const device of view.devices) {
+        if (device !== this.#opts.localDevice) annotationDevices.set(device, view.participant)
+      }
       // Every device of our own participant is skipped, whether or not our
       // own roster entry has come back from the relay yet.
       if (view.participant === this.#opts.localParticipant) continue
@@ -521,6 +531,8 @@ export class Mesh {
     // The roster is the whole answer to who is here, so this map tracks it
     // rather than the peer set - a forwarded track's device has to resolve to
     // a participant even though it has no direct peer.
+    this.#annotationDevices.clear()
+    for (const [device, participant] of annotationDevices) this.#annotationDevices.set(device, participant)
     this.#deviceToParticipant.clear()
     for (const [device, participant] of wantedDevices) this.#deviceToParticipant.set(device, participant)
 
@@ -1222,9 +1234,10 @@ export class Mesh {
   }
 
   /** Never throws - this runs inside a relay subscription handler where a
-   *  throw would take down the whole room. A signal for a device we do not
-   *  currently have a peer for (stale, unknown, or already removed) is
-   *  simply ignored. */
+   *  throw would take down the whole room. Assist and annotation messages
+   *  are admitted from their own roster maps before peer lookup; ordinary
+   *  SDP/ICE for a device with no current peer is bounded and held or
+   *  ignored by the negotiation path below. */
   #onSignalEvent(event: Event): void {
     const now = this.#now()
 
@@ -1259,7 +1272,7 @@ export class Mesh {
     }
 
     if (unwrapped.body.type === 'annotation') {
-      const participant = this.#deviceToParticipant.get(unwrapped.from)
+      const participant = this.#annotationDevices.get(unwrapped.from)
       const annotation = unwrapped.body.annotation
       if (!participant || !annotation) return
       for (const listener of this.#annotationListeners) {

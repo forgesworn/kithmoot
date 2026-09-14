@@ -4,6 +4,10 @@ Recorded 2026-09-09. These are accepted product goals; all remain open.
 Individual foundations already exist, but none of the complete journeys below
 is declared finished by this document.
 
+The [client roadmap](client-roadmap.md) sequences this work: finish and
+physically accept the PWA before desktop shells or further native-client
+expansion become the primary delivery lane.
+
 The [capability audit](workspace-capability-audit.md) records implemented work,
 remaining integrations and the T3 Code comparison. These goals extend the
 existing assignment, Den attention, agent-host and scoped-context models.

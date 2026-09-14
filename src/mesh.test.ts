@@ -3,7 +3,7 @@ import { nip44 } from 'nostr-tools'
 import * as signals from './signal.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
-import type { MeshSession } from './mesh.js'
+import type { MeshSession, RemoteAnnotation } from './mesh.js'
 import type { ForwarderRef } from './types.js'
 import { wrapSignal, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import { MAX_SIGNALS_PER_WINDOW } from './signal-guard.js'
@@ -104,6 +104,38 @@ describe('Mesh', () => {
 
     expect(factory.instances).toHaveLength(0)
     mesh.close()
+  })
+
+  it('sends annotations between two devices of our own participant without opening a media peer', () => {
+    const sessionA = new FakeSession()
+    const sessionB = new FakeSession()
+    const factoryA = createFakeFactory()
+    const factoryB = createFakeFactory()
+    const relay = new SimRelay()
+    const participant = device().pub
+    const a = device()
+    const b = device()
+    const meshA = new Mesh({ session: sessionA, factory: factoryA, localDevice: a.pub, localParticipant: participant, deviceSk: a.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const meshB = new Mesh({ session: sessionB, factory: factoryB, localDevice: b.pub, localParticipant: participant, deviceSk: b.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+    const received: RemoteAnnotation[] = []
+    meshA.onAnnotation((annotation) => received.push(annotation))
+
+    const roster = [view(participant, [a.pub, b.pub])]
+    sessionA.setViews(roster)
+    sessionB.setViews(roster)
+    const annotation: signals.ScreenAnnotation = {
+      op: 'stroke',
+      shareId: 'desktop-screen',
+      strokeId: 'phone-stroke',
+      points: [{ x: .2, y: .3 }, { x: .7, y: .8 }],
+    }
+    meshB.publishAnnotation(annotation)
+
+    expect(factoryA.instances, 'paired devices must still avoid sending media to themselves').toHaveLength(0)
+    expect(factoryB.instances, 'paired devices must still avoid sending media to themselves').toHaveLength(0)
+    expect(received).toEqual([{ participant, device: b.pub, annotation }])
+    meshA.close()
+    meshB.close()
   })
 
   it('creates NO peer for our own other device before our own entry arrives', () => {
