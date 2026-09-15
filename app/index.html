@@ -331,6 +331,15 @@
             <p id="roomSyncStatus" class="note" role="status"></p>
             <button id="retryRoomSync" type="button" class="quiet" hidden>Retry room sync</button>
           </details>
+          <details id="historyRecovery" hidden>
+            <summary>Bring recent Nostr history home</summary>
+            <p class="note">This explicitly reads one 30-day window from each of your configured read relays. Verified original events are sent privately to a freshly checked box you control. Only NIP-17 messages this signer can open are added to this browser’s encrypted search index.</p>
+            <label for="historyRecoveryBox">Verified box</label>
+            <select id="historyRecoveryBox"></select>
+            <button id="recoverRecentHistory" type="button" class="quiet">Bring the recent window home</button>
+            <p id="historyRecoveryStatus" class="note" role="status"></p>
+            <ul id="historyRecoveryReport" class="note"></ul>
+          </details>
           <button id="forgetBrowser" type="button" class="danger">Forget this browser</button>
         </div>
         <h2 id="arrivalTitle">Open your room</h2>
