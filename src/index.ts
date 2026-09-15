@@ -464,6 +464,18 @@ export type { ReadPosition, ReadPositions, ReadPositionRecord, SelfCrypt, Encode
 
 export { localPeerCrypt, dmPolicy, isDmPolicy, dmPeer, sealInvite, openInvite, preferredDm, peerCryptPubkey } from './dm.js'
 export type { PeerCrypt, SealInviteOptions, OpenInviteOptions } from './dm.js'
+export {
+  GIFT_WRAP_KIND,
+  MAX_PRIVATE_MIGRATION_BYTES,
+  MAX_PRIVATE_MIGRATION_EVENTS,
+  PRIVATE_MIGRATION_KIND,
+  PRIVATE_MIGRATION_REPLY_KIND,
+  SEAL_KIND,
+  createPrivateMigrationRequest,
+  readPrivateMigrationReply,
+  submitPrivateMigrationRequest,
+} from './private-migration.js'
+export type { PrivateMigrationIdentity, PrivateMigrationOperation, PrivateMigrationReply, PrivateMigrationRequest } from './private-migration.js'
 
 export { ContextVault } from './context.js'
 export * from './assignments.js'
