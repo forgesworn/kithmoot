@@ -80,6 +80,45 @@ describe('Peer', () => {
     expect(signals[0]).toMatchObject({ type: 'offer', sdp: pc.localDescription?.sdp })
   })
 
+  it('hands the created sender to a media pipeline before the offer can leave', async () => {
+    const factory = createFakeFactory()
+    const track = fakeTrack()
+    const seen: Array<{ track: MediaStreamTrack; sender: unknown }> = []
+    const order: string[] = []
+    const peer = new Peer({
+      factory,
+      localDevice: LOW,
+      remoteDevice: HIGH,
+      onSignal: () => order.push('signal'),
+      onTrack: () => {},
+      onSender: (added, sender) => { seen.push({ track: added, sender }); order.push('sender') },
+    })
+
+    await peer.start([track])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(seen).toEqual([{ track, sender: factory.instances[0]!.senders[0] }])
+    expect(order).toEqual(['sender', 'signal'])
+  })
+
+  it('hands the browser receiver through with an incoming track', () => {
+    const factory = createFakeFactory()
+    const received: Array<{ track: MediaStreamTrack; receiver: unknown }> = []
+    new Peer({
+      factory,
+      localDevice: LOW,
+      remoteDevice: HIGH,
+      onSignal: () => {},
+      onTrack: (track, receiver) => received.push({ track, receiver }),
+    })
+    const track = fakeTrack()
+    const receiver = { transform: undefined }
+
+    factory.instances[0]!.ontrack?.({ track, receiver })
+
+    expect(received).toEqual([{ track, receiver }])
+  })
+
   /**
    * Somebody who joins with their camera and microphone off - which is how
    * most people join most calls - must not send an offer with nothing in it.
