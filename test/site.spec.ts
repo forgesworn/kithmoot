@@ -39,7 +39,9 @@ for (const colour of ['light', 'dark'] as const) {
         await page.screenshot({ path: info.outputPath(`site-${colour}-${width}.png`), fullPage: width === 1440 })
       }
       await page.goto('https://site.kithmoot.test/')
-      await page.keyboard.press('Tab')
+      // macOS WebKit uses Option-Tab to include links in keyboard navigation.
+      // https://support.apple.com/guide/safari/cpsh003/mac
+      await page.keyboard.press(process.platform === 'darwin' && browser.browserType().name() === 'webkit' ? 'Alt+Tab' : 'Tab')
       await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused()
       await page.keyboard.press('Enter')
       const help = page.locator('summary', { hasText: "Why won't my invitation open?" })

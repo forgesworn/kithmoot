@@ -75,3 +75,19 @@ real-device PDF/audio/video compatibility, complete closed-app notification
 policy and assignment alerts, upside-down keyboard behaviour, agent response
 investigation, and release/deployment. No external messages or assignment
 operations were sent.
+
+## Release-check follow-up
+
+The broader release checks found a second desktop test that still required
+210px thumbnails, a macOS WebKit keyboard check that needed Option-Tab for
+links, and a reproducible chat resize failure. WebKit adjusted `scrollTop`
+during viewport resize; the previous strict position comparison mistook that
+layout adjustment for a reading gesture and stopped following the latest
+messages. Scroll tracking now distinguishes unchanged-layout scrolling from
+resize anchoring. Explicit reading gestures still stop following.
+
+The 15 focused home, website, reading-position and viewport checks passed in
+Chromium, Firefox and WebKit. An expanded regression also verifies that a
+reader of older messages stays in place through resizing; that check passed
+in all three engines. Typechecking passed. Physical phone acceptance remains
+separate from these desktop browser-engine checks.

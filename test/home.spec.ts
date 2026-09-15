@@ -81,8 +81,9 @@ test('the home page leads with room actions, fits both themes and starts a named
       participant.append(media)
       document.getElementById('whoIsHere')!.hidden = false
     })
-    const compactTile = (await page.locator('#room .participant').boundingBox())!
-    expect(compactTile.width).toBeLessThanOrEqual(210)
+    const readableTile = (await page.locator('#room .participant').boundingBox())!
+    expect(readableTile.width).toBeGreaterThanOrEqual(256)
+    expect(readableTile.width).toBeLessThanOrEqual(320)
     const tools = (await page.locator('.conversationTools').boundingBox())!
     const chat = (await page.locator('#chatViewport').boundingBox())!
     expect(tools.y + tools.height).toBeLessThanOrEqual(chat.y + 1)
