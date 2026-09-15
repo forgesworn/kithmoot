@@ -88,6 +88,10 @@ function harness(over: Partial<MeshOptions> = {}): Harness {
     roomId: ROOM_ID,
     // Long enough that no test is racing a timer it did not ask for.
     routeTimeoutMs: 60_000,
+    // This harness exercises an already verified media integration. The
+    // production default deliberately does not opt in to server forwarding.
+    forwarderMedia: () => true,
+    forwarderMediaPipeline: { rekey: () => true, protectSender: () => true, protectReceiver: () => true },
     onRoute: (d, route) => routes.push({ device: d, route }),
     ...over,
   })

@@ -13,7 +13,10 @@ export interface RTCPeerConnectionLike {
   setLocalDescription(description?: RTCSessionDescriptionInit): Promise<void>
   setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void>
   addIceCandidate(candidate: RTCIceCandidateInit): Promise<void>
-  addTrack(track: MediaStreamTrack): void
+  /** A browser returns the sender it created. Older test and Node adapters
+   * may return nothing, in which case callers can find it through
+   * `getSenders()` after the call. */
+  addTrack(track: MediaStreamTrack): { readonly track: MediaStreamTrack | null } | void
   /** What this connection is currently sending. Optional alongside
    *  `removeTrack`: a device that never turns anything off never needs
    *  either, and a test double is free to model neither. */
@@ -27,7 +30,7 @@ export interface RTCPeerConnectionLike {
   readonly signalingState: RTCSignalingState
   readonly localDescription: RTCSessionDescriptionInit | null
   readonly connectionState: RTCPeerConnectionState
-  ontrack: ((event: { track: MediaStreamTrack }) => void) | null
+  ontrack: ((event: { track: MediaStreamTrack; receiver?: unknown }) => void) | null
   onicecandidate: ((event: { candidate: RTCIceCandidateInit | null }) => void) | null
   onconnectionstatechange: (() => void) | null
   onnegotiationneeded: (() => void) | null
@@ -136,7 +139,16 @@ export interface PeerOptions {
   localDevice: string
   remoteDevice: string
   onSignal: (body: SignalBody) => void
-  onTrack: (track: MediaStreamTrack) => void
+  /** `receiver` is the browser receiver when the factory exposes it. It is
+   * deliberately optional so Node and existing test factories stay valid. */
+  onTrack: (track: MediaStreamTrack, receiver?: unknown) => void
+  /**
+   * Called immediately after a local track is added and before this peer can
+   * offer it. A browser embedding can install an encoded-frame sender
+   * transform at this point; the receiver counterpart arrives through
+   * `onTrack`.
+   */
+  onSender?: (track: MediaStreamTrack, sender: unknown) => boolean | void
   /**
    * Whether this side has to open the conversation even with nothing to
    * send.
@@ -196,7 +208,7 @@ export class Peer {
   readonly polite: boolean
   readonly #pc: RTCPeerConnectionLike
   readonly #onSignal: (body: SignalBody) => void
-  readonly #onTrack: (track: MediaStreamTrack) => void
+  readonly #onTrack: (track: MediaStreamTrack, receiver?: unknown) => void
   readonly #mustOfferFirst: boolean
   #makingOffer = false
   #hasRemoteDescription = false
@@ -237,6 +249,9 @@ export class Peer {
   #retryTimer?: ReturnType<typeof setTimeout>
   /** How many more times the offer currently outstanding may be re-sent. */
   #retriesLeft = 0
+  /** A media-security hook rejected a newly-added sender. This connection
+   * must never race ahead and offer an unprotected m-line. */
+  #senderRefused = false
 
   constructor(opts: PeerOptions) {
     this.#opts = opts
@@ -256,7 +271,7 @@ export class Peer {
     this.#mustOfferFirst = opts.mustOfferFirst ?? false
     this.#pc = opts.factory(opts.context ?? { tier: 'direct', remoteDevice: opts.remoteDevice })
 
-    this.#pc.ontrack = (event) => this.#onTrack(event.track)
+    this.#pc.ontrack = (event) => this.#onTrack(event.track, event.receiver)
 
     /**
      * The other half of perfect negotiation, and the half this class was
@@ -298,10 +313,13 @@ export class Peer {
      * had anything to send and no glare could happen, worked perfectly.
      */
     this.#pc.onnegotiationneeded = () => {
-      if (this.#closed || this.#makingOffer) return
+      if (this.#closed || this.#makingOffer || this.#senderRefused) return
       if (this.#pc.signalingState !== 'stable') return
       void this.#enqueue(async () => {
-        if (this.#closed || this.#makingOffer) return
+        // `addTrack()` can synchronously queue this event. The sender hook
+        // runs immediately afterwards, so check again once the queued task
+        // gets its turn; otherwise an encryption refusal can race an offer.
+        if (this.#closed || this.#makingOffer || this.#senderRefused) return
         if (this.#pc.signalingState !== 'stable') return
         await this.#offer()
       }).catch(() => {})
@@ -395,7 +413,12 @@ export class Peer {
     if (this.#closed) return
     for (const track of tracks) {
       if (this.#addedTracks.has(track)) continue
-      this.#pc.addTrack(track)
+      const sender = this.#pc.addTrack(track) ?? this.#pc.getSenders?.().find((candidate) => candidate.track === track)
+      if (sender !== undefined && this.#opts.onSender?.(track, sender) === false) {
+        this.#senderRefused = true
+        this.#pc.removeTrack?.(sender)
+        throw new Error('media pipeline refused sender')
+      }
       this.#addedTracks.add(track)
     }
 

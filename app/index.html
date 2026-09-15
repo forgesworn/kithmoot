@@ -342,6 +342,14 @@
             <p id="roomSyncStatus" class="note" role="status"></p>
             <button id="retryRoomSync" type="button" class="quiet" hidden>Retry room sync</button>
           </details>
+          <details id="rendezvousProvision" hidden>
+            <summary>Set up this device’s private rendezvous key</summary>
+            <p class="note">Choose a new index, then approve the exact request on Heartwood. The signer sends an encrypted child only to this browser’s NIP-46 device key; this page never receives a root key or exports the child.</p>
+            <label for="rendezvousIndex">New rendezvous index</label>
+            <input id="rendezvousIndex" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]+" maxlength="10" placeholder="For example, 1">
+            <button id="provisionRendezvous" type="button" class="quiet">Ask Heartwood to set up this device</button>
+            <p id="rendezvousStatus" class="note" role="status"></p>
+          </details>
           <details id="historyRecovery" hidden>
             <summary>Bring recent Nostr history home</summary>
             <p class="note">This explicitly reads one 30-day window from each of your configured read relays. Verified original events are sent privately to a freshly checked box you control. Only NIP-17 messages this signer can open are added to this browser’s encrypted search index.</p>
