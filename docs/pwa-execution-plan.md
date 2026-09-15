@@ -1,8 +1,8 @@
 # KithMoot PWA execution plan
 
-Recorded 14 September 2026. This is the working order for the PWA phases in
-the [client roadmap](client-roadmap.md). It is an execution checklist, not a
-claim that a phase is complete.
+Recorded 14 September 2026; delivery state refreshed 15 September 2026. This
+is the working order for the PWA phases in the [client roadmap](client-roadmap.md).
+It is an execution checklist, not a claim that a phase is complete.
 
 Desktop packaging and new native Apple work remain outside this plan. Android
 browser behaviour is included where it provides PWA compatibility evidence;
@@ -23,6 +23,21 @@ The annotation repair candidate was reviewed locally. Using Node 24.19.0 on
 These results establish the automated baseline. They do not by themselves
 establish merge, deployment or physical acceptance; those evidence classes
 must be recorded from the exact release separately.
+
+## Current P0 delivery record — 15 September 2026
+
+The two fixes found in the physical-room session are on `main` and in the
+current production PWA release:
+
+| Finding | Merged change | Delivery evidence | Still required |
+| --- | --- | --- | --- |
+| A paired iPhone's completed annotation did not reach the sharer's preview | PR #98, `bbe69d1` | Automated share-viewer checks passed; the release was included in production release `20260915T055605Z` from `26793d1` | A real iPhone must complete a stroke and the desktop sharer must see it in KithMoot's preview |
+| An update banner could block the controls needed to leave an active call | PR #99, `17ba8cc` and `3c3cedb` | Browser update checks passed; the release was included in production release `20260915T055605Z` from `26793d1` | A physical iPhone must show and use **Leave call and update** while media is active |
+
+The deployed release was checked against the exact `main` tree, its public PWA
+assets and service worker were checked, and the live Chromium share-viewer
+smoke passed. Those are deployment and browser evidence, not iPhone
+acceptance. P0 therefore remains **open**.
 
 ## How we will work
 
@@ -67,19 +82,13 @@ the default implementation model.
 
 ### P0.1 Land the annotation repair
 
-Current candidate: `fix/paired-device-annotations`, based on `origin/main` at
-`68c3b35`.
+Completed: PR #98 merged the paired-device annotation repair. It retains the
+WebKit pointer/touch completion fallback, sends annotations to every admitted
+device (including a paired device), and has focused mesh and share-viewer
+regressions. It was later included in production release `20260915T055605Z`.
 
-- Review the local WebKit pointer/touch completion fallback.
-- Review annotation delivery to all admitted devices, including another
-  device using the same participant identity.
-- Retain the focused mesh and share-viewer regressions.
-- Run typecheck, production build, the complete unit suite and the focused
-  browser annotation check on Node 24.
-- Commit, push, review, merge and deploy only on explicit shipment authority.
-- Verify the live `/j/` assets correspond to the merged candidate.
-
-Exit: the repair is reviewed, green, live and ready for a physical check.
+Exit: complete — the repair is reviewed, green and live. It is ready for its
+physical check; that check is not yet accepted.
 
 Model: **Sol High**. This is the model to select now.
 
