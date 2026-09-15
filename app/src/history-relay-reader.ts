@@ -13,6 +13,9 @@ export class NostrHistoryRelayReader {
   }
 
   readonly read: HistoryRelayReader = async (relay, filter) => {
+    const requested = filter.limit
+    if (typeof requested !== 'number' || !Number.isSafeInteger(requested) || requested < 1) throw new Error('bounded history reader needs an event limit')
+    const limit = requested
     const url = normaliseRelayConfig([{ url: relay, read: true, write: false }])[0]!.url
     const id = `history-${++this.#serial}`
     return new Promise<HistoryReadResult>(resolve => {
@@ -42,7 +45,10 @@ export class NostrHistoryRelayReader {
             if (!Array.isArray(frame) || frame[1] !== id) return
             if (frame[0] === 'EOSE' && frame.length === 2) finish({ terminal: 'complete', events })
             else if (frame[0] === 'CLOSED' && typeof frame[2] === 'string') finish({ terminal: 'closed', events, detail: frame[2].slice(0, 400) })
-            else if (frame[0] === 'EVENT' && frame.length === 3 && matchFilters([filter], frame[2] as Event)) events.push(frame[2] as Event)
+            // A relay is allowed to ignore a NIP-01 limit. Keep the socket
+            // open for its EOSE receipt, but never let it turn this bounded
+            // import into an unbounded browser allocation.
+            else if (frame[0] === 'EVENT' && frame.length === 3 && events.length < limit && matchFilters([filter], frame[2] as Event)) events.push(frame[2] as Event)
           } catch { /* Bad frames neither complete a request nor gain custody. */ }
         }
       } catch { finish({ terminal: 'unavailable', events, detail: 'relay connection could not be opened' }) }

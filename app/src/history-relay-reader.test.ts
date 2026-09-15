@@ -50,4 +50,16 @@ describe('NostrHistoryRelayReader', () => {
     await expect(timeoutRead).resolves.toMatchObject({ terminal: 'timeout' })
     vi.useRealTimers()
   })
+
+  it('keeps only the requested event cap while still waiting for EOSE', async () => {
+    const socket = new Socket()
+    const reader = new NostrHistoryRelayReader(() => socket as unknown as WebSocket)
+    const pending = reader.read('wss://relay.test', { kinds: [4], since: 0, until: 2, limit: 1 })
+    socket.open(); const id = JSON.parse(socket.sent[0]!)[1]
+    const first = event(), extra = event()
+    socket.frame(['EVENT', id, first])
+    socket.frame(['EVENT', id, extra])
+    socket.frame(['EOSE', id])
+    await expect(pending).resolves.toMatchObject({ terminal: 'complete', events: [expect.objectContaining({ id: first.id })] })
+  })
 })
