@@ -73,6 +73,8 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
     const page = await context.newPage()
     await page.goto(link)
     await expect(page.locator('#joinNostr')).toBeVisible()
+    await expect(page.locator('#join')).toHaveText('Join with saved device identity')
+    await expect(page.locator('#whoami')).toContainText('saved device identity')
     await page.locator('#joinNostr').click()
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#whoami')).toContainText('Account Alice')
