@@ -144,6 +144,17 @@ describe('box discovery lifecycle', () => {
     f.book.setEnabled(f.master, f.p, false)
     expect(pool.closed).toBe(true); expect(f.book.circleRelays().size).toBe(0); f.book.close()
   })
+  it('offers private migration only to a freshly verified master or stash box', () => {
+    const f = setup(), pool = f.start()
+    f.verify(pool)
+    expect(f.book.migrationBoxes(f.master)).toEqual([{ node: f.p, contact: f.master, authority: 'master', validUntil: f.now + BOX_STATUS_MAX_AGE }])
+    const stash = f.claim.tags.find(tag => tag[0] === 'p' && tag[3] === 'stash')![1]!
+    expect(f.book.migrationBoxes(stash)).toEqual([{ node: f.p, contact: f.master, authority: 'stash', validUntil: f.now + BOX_STATUS_MAX_AGE }])
+    expect(f.book.migrationBoxes('a'.repeat(64))).toEqual([])
+    f.book.setEnabled(f.master, f.p, false)
+    expect(f.book.migrationBoxes(f.master)).toEqual([])
+    f.book.close()
+  })
   it('stops network reads even when the preference cannot be saved', () => {
     const f = setup(), pool = f.start(); f.verify(pool)
     const save = f.store.set

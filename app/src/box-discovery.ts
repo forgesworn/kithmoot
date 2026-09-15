@@ -16,6 +16,16 @@ type Watch = {
   claimReady: boolean; statusReady: boolean; proof?: VerifiedBoxStatus; message: string
   statusConflictAt?: number; claimConflictAt?: number
 }
+/** A currently verified box which the selected account may use for the
+ * private migration protocol. It is derived from fresh signed discovery
+ * data; a contact card, a stale status or a pasted node key alone is never
+ * sufficient authority to send recovered history. */
+export interface MigrationBox {
+  node: string
+  contact: string
+  authority: 'master' | 'stash'
+  validUntil: number
+}
 const keyOf = (contact: string, box: string) => PREFIX + contact + '.' + box
 export const boxDiscoveryRevision = (c: Contact, b: ContactBox) => JSON.stringify([c.issued, c.expires, c.readAt, b.claim, b.nodeId, c.rz, c.eph])
 const revision = boxDiscoveryRevision
@@ -207,6 +217,23 @@ export class BoxDiscovery {
       out.set(url, { url, contact: w.contact, box: w.box, ...(current.contact.name ? { name: current.contact.name } : {}), source: 'refreshed' })
     }
     return out
+  }
+  /** Active, freshly checked boxes for which `account` is a migration
+   * authority. The server independently repeats this check, but doing it
+   * here prevents the recovery screen offering a dangerous arbitrary-key
+   * destination. */
+  migrationBoxes(account: string): MigrationBox[] {
+    if (!/^[0-9a-f]{64}$/.test(account)) return []
+    const now = this.#now()
+    const out: MigrationBox[] = []
+    for (const w of this.#watches.values()) {
+      const current = this.#current(w), proof = w.proof, claim = w.latest && readBoxClaim(w.latest, now)
+      if (!current || !proof || proof.validUntil <= now || !claim?.ok || claim.claim.state !== 'active' ||
+          claim.claim.id !== current.box.claim || claim.claim.node !== current.box.p) continue
+      const authority = claim.claim.master === account ? 'master' : w.latest!.tags.some(tag => tag.length === 4 && tag[0] === 'p' && tag[1] === account && tag[3] === 'stash') ? 'stash' : undefined
+      if (authority) out.push({ node: current.box.p, contact: current.contact.p, authority, validUntil: proof.validUntil })
+    }
+    return out.sort((a, b) => a.node.localeCompare(b.node))
   }
   tick(): void {
     const count = this.#watches.size
