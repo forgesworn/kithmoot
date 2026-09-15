@@ -216,6 +216,18 @@ describe('RemoteVolume', () => {
     v.apply('k1', audioEl(), track('a'), 2, false)
   })
 
+  it('resumes the iOS interrupted state without bypassing mute', () => {
+    const fake = fakeContext()
+    fake.context.state = 'interrupted' as AudioContextState
+    const v = volumeWith(fake, true)
+    const el = audioEl()
+    v.apply('k1', el, track(), 0.5, true)
+    v.resume()
+    expect(fake.context.resume).toHaveBeenCalled()
+    expect(fake.gainNode.gain.value).toBe(0)
+    expect(el.muted).toBe(true)
+  })
+
   it('resumes a context that was created suspended', () => {
     const fake = fakeContext()
     fake.context.state = 'suspended'

@@ -11,6 +11,14 @@ This document answers a different question: in what order should the client
 work land, and what evidence is required before the team moves to the next
 platform?
 
+## New physical-test feedback
+
+The [15 September feedback register](2026-09-15-testing-feedback.md) tracks
+notification interruption recovery, readable laptop video, clipboard files,
+attachment viewing, project/room notification preferences, upside-down iPhone
+use while charging, and unanswered agent requests. P0 remains open; local
+implementation, browser checks and physical acceptance are recorded separately.
+
 ## Direction
 
 KithMoot should become one product and one protocol available through several

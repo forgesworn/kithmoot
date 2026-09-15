@@ -75,7 +75,7 @@ export class RemoteVolume {
     if (this.#gainFailed) return
     try {
       const ctx = this.#ensureContext()
-      if (ctx.state === 'suspended') void ctx.resume().catch(() => {})
+      if (ctx.state !== 'running' && ctx.state !== 'closed') void ctx.resume().catch(() => {})
     } catch {
       this.#gainFailed = true
     }
@@ -159,7 +159,7 @@ export class RemoteVolume {
       const gain = ctx.createGain()
       source.connect(gain)
       gain.connect(ctx.destination)
-      if (ctx.state === 'suspended') void ctx.resume().catch(() => {})
+      if (ctx.state !== 'running' && ctx.state !== 'closed') void ctx.resume().catch(() => {})
       return { el, track, usingGain: true, source, gain }
     } catch {
       // Never the thing that breaks a call: a level this browser cannot

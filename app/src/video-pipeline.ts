@@ -100,6 +100,7 @@ export class CameraPipeline {
 
   #stream: MediaStream | null = null
   #outputStream: MediaStream | null = null
+  #recovery?: Promise<void>
   #running = false
   #stopped = false
   #rafHandle = 0
@@ -239,6 +240,27 @@ export class CameraPipeline {
       // looking at nothing.
       if (previous && previous !== this.#stream) for (const t of previous.getTracks()) t.stop()
     }
+  }
+
+  /** Restart capture/playback after the operating system interrupted it,
+   * retaining the canvas track and all background-effect settings. */
+  resume(): Promise<void> {
+    if (this.#stopped || !this.#running) return Promise.resolve()
+    if (this.#recovery) return this.#recovery
+    this.#recovery = this.#resume().finally(() => { this.#recovery = undefined })
+    return this.#recovery
+  }
+
+  async #resume(): Promise<void> {
+    if (this.track?.readyState === 'ended') throw new Error('The camera output ended. Switch the camera off and on to reopen it.')
+    const source = this.sourceTrack
+    if (!source || source.readyState === 'ended' || source.muted) {
+      await this.useCamera({ deviceId: this.#deviceId, facingMode: this.#facingMode })
+    }
+    if (this.#stopped) return
+    await this.#video.play()
+    this.#cancelSchedule()
+    this.#schedule()
   }
 
   /** Flip between the front and back camera on a phone. */

@@ -215,6 +215,11 @@ the [workspace delivery](docs/workspace-delivery.md).
   key, and stages it for the next message. In a quiet room it deliberately
   skips that public announcement: the URL, hash, key and file details travel
   only inside the encrypted chat message.
+  New uploads are off by default. **Add a file → Use shared storage instead**
+  requires explicit consent for the displayed server: encrypted bytes may be
+  publicly downloadable, although reading them needs the key. Old saved URLs
+  do not count as consent. Private Bothy storage is the intended default but
+  its authenticated upload/download adapter is not connected yet.
 - **Names, and optionally a real Nostr identity.** Type a name and join, or
   sign in with a key you already have. See below.
 - **Search a conversation.** Open Room details and choose **Search this

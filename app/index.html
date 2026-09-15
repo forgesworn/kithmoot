@@ -119,6 +119,7 @@
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share"><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
             </div>
             <p id="micIndicator" class="indicator"></p>
+            <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
                  no audio track: Firefox, Safari, a window share, or the box
                  left unticked. The share still works; it is simply quiet. -->
@@ -133,6 +134,7 @@
                  See app/src/call-folds.ts. -->
             <details id="callExtras" class="callExtras">
             <summary aria-label="More call settings">More</summary>
+            <button id="resumeCallMedia" type="button">Resume call media</button>
             <button id="toggleFloatingMarks" class="toggle" data-on="false" aria-pressed="false" hidden>Show drawings in a floating window</button>
             <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. On a
                  phone it belongs behind More so the warning cannot push the
@@ -280,14 +282,23 @@
         </form>
         <div id="attachStaged"></div>
         <div id="attachPanel" class="attachPanel" hidden>
+          <p id="fileStorageStatus" class="note" role="status">File uploads are off. Private Bothy storage is not connected in this app yet.</p>
+          <details id="fileStorageOptions">
+            <summary>Use shared storage instead</summary>
+            <p class="note">This is not verified private Bothy storage. Anyone with a file’s storage URL may download its encrypted bytes; the key is needed to read it. The host can observe upload and download metadata.</p>
+            <label for="attachServer" class="note">Shared storage destination</label>
+            <input id="attachServer" type="url" placeholder="https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
+            <label><input id="allowSharedFiles" type="checkbox" /> I accept that encrypted files may be publicly downloadable from this server.</label>
+            <button type="button" id="saveFileStorage">Allow shared storage on this device</button>
+          </details>
+          <button type="button" id="stopFileUploads" hidden>Turn off file uploads</button>
+          <p class="note">Changing this setting does not move or delete existing files. Selecting or dropping a file uploads it immediately when shared storage is allowed, before you press Send.</p>
           <div class="attachRow">
             <input id="attachFile" type="file" multiple aria-label="Choose a file to share" />
             <span class="note inline">Files are encrypted on this device before they leave it.</span>
           </div>
           <details id="attachOptions" class="attachOptions">
             <summary>File options</summary>
-            <label for="attachServer" class="note">Where encrypted files are stored</label>
-            <input id="attachServer" type="url" placeholder="https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
             <p class="note">
               A file already shared through Wildbloom: paste what Wildbloom
               gave you, and the key that opens it.
@@ -496,6 +507,19 @@
           <button id="toggleNotifyText" class="toggle" data-on="false" aria-pressed="false" hidden>Include what they said</button>
           <span id="notifyNote" class="note inline"></span>
         </div>
+        <details id="notificationPreferences">
+          <summary>Notifications by project and room</summary>
+          <label for="notificationScope">Apply to</label>
+          <select id="notificationScope"></select>
+          <label for="notificationMode">Activity alerts</label>
+          <select id="notificationMode">
+            <option value="inherit">Use parent setting</option>
+            <option value="all">On</option>
+            <option value="off">Off</option>
+          </select>
+          <p class="note">Room settings override project settings, which override your default. If a room belongs to several projects, any project set to Off mutes it unless you override the room. Saved for this account on this device. The main notification switch pauses all alerts from the open app.</p>
+          <p class="note">These settings currently apply while KithMoot is open. Closed-app push uses the keeper’s separate room settings.</p>
+        </details>
       </section>
 
       <!-- Where a picture waits while it is off screen. Off the room's

@@ -3220,6 +3220,12 @@ button.primary:hover:not(:disabled) {
 .attachOptions summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 .attachOptions > * + * { margin-top: .4rem; }
 .attachOptions input { width: 100%; box-sizing: border-box; }
+#fileStorageOptions { min-width: 0; }
+#fileStorageOptions summary { cursor: pointer; }
+#fileStorageOptions > * + * { margin-top: .5rem; }
+#fileStorageOptions label { display: block; }
+#attachServer { width: 100%; box-sizing: border-box; }
+#fileStorageStatus { overflow-wrap: anywhere; }
 
 /* "You" in Room details, where the identity chip now lives. */
 #roomSheet #sendingIdentity { max-width: none; font-size: .95rem; margin: .25rem 0; }
@@ -3299,16 +3305,14 @@ button.primary:hover:not(:disabled) {
 #room .participant:has(.media ~ .media) > .tracks,
 #room .participant:has(.media ~ .media) > .shareExpand { grid-column: 1 / -1; }
 
-/* Desktop calls keep faces as a compact, scannable strip. A shared screen is
-   still the work surface and takes the row; participant cameras do not take
-   half the conversation each merely because there are only two of them. */
+/* Desktop cameras have room for expressions; screen shares keep a full row. */
 @media (min-width: 701px) and (min-height: 541px) {
   .conversationTools { margin-bottom: .35rem; }
 
   #room:has(video),
   #room[data-tiles="1"]:has(video),
   #room[data-tiles="2"]:has(video) {
-    grid-template-columns: repeat(auto-fill, minmax(10rem, 13rem));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 20rem));
     justify-content: start;
     align-items: start;
   }
@@ -3323,8 +3327,8 @@ button.primary:hover:not(:disabled) {
   }
 
   #room .participant .media video:not(.screenPreview) {
-    height: 7.5rem;
-    aspect-ratio: auto;
+    height: auto;
+    aspect-ratio: 4 / 3;
   }
 
   #room.sharing .participant:has(video.screenPreview) {
@@ -3624,3 +3628,7 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 /* The description under the selected conversation sat at 3.96:1 on its
    tinted row in the dark theme. */
 .channelBar button[aria-pressed='true'] .channelDesc { color: var(--text); }
+
+.attachment video { width: 100%; max-width: 32rem; max-height: 22rem; }
+.attachment audio { width: 100%; max-width: 24rem; }
+.attachmentText { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9rem; }

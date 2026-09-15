@@ -1,5 +1,6 @@
 import { ContextVault, type ContextIdentity, type ContextView, type ContextGrant, type ContextScope, type ContextRecord } from '../../src/context.js'
 import type { AgentOwnership } from '../../src/types.js'
+import { FILE_STORAGE_REQUIRED } from './file-storage.js'
 
 interface Member { pubkey: string; name: string; agent: boolean; proof?: AgentOwnership }
 interface Options {
@@ -50,7 +51,9 @@ export class ContextPanel {
     }, true, 'Grant saved and key rotated. Upload and send new access files to the remaining recipients.') }
     this.#el('contextShare').onclick = () => { void this.#run(async v => {
       const view = this.#selected(), recipient = this.#value('contextShareRecipient')
-      await v.upload(view.id, this.options.server())
+      const server = this.options.server()
+      if (!server) throw new Error(FILE_STORAGE_REQUIRED)
+      await v.upload(view.id, server)
       this.#download(JSON.stringify(await v.access(view.id, recipient)), `context-access-${recipient.slice(0, 12)}.json`)
     }, true, 'Encrypted revision uploaded. Send the downloaded access file to its named recipient; only their identity can open it.') }
     this.#el('contextPreview').onclick = () => { void this.#run(async v => {
@@ -99,11 +102,23 @@ export class ContextPanel {
       if (!identity) throw new Error('Context needs a signing identity with NIP-44 encryption. Connect a compatible signer on this device.')
       this.#identity = identity; this.#room = this.options.room(); this.#members = this.options.members()
       this.#baseline = localStorage.getItem(prefix + identity.pubkey)
-      const vault = new ContextVault({ identity, servers: [this.options.server()] })
+      const server = this.options.server()
+      const vault = new ContextVault({ identity, servers: server ? [server] : [], fetch: (input, init) => {
+        // Signing is asynchronous: recheck upload consent at the network
+        // boundary, including revocation from another tab while signing.
+        const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
+        if (method !== 'GET' && method !== 'HEAD') {
+          const origin = new URL(input instanceof Request ? input.url : String(input)).origin
+          if (this.options.server() !== origin) throw new Error(FILE_STORAGE_REQUIRED)
+        }
+        return fetch(input, init)
+      } })
       if (this.#baseline) await vault.restore(this.#baseline)
       if (generation !== this.#generation) return
       this.#vault = vault
-      this.#el('contextStorage').textContent = `Encrypted uploads and downloads use ${this.options.server()}. Change it in the room’s file storage settings.`
+      this.#el('contextStorage').textContent = server
+        ? `Uploads use ${server} (shared storage; encrypted bytes may be publicly downloadable). Downloads use the server shown when you preview an access file. Change upload consent under Add a file.`
+        : 'New uploads are off. Private Bothy storage is not connected yet. Local collections and backups still work. Remote imports also require their displayed server to be enabled under Add a file.'
       for (const m of this.#members) { const option = this.root.createElement('option'); option.value = m.pubkey; option.label = `${m.name}${m.agent ? ' (agent)' : ''}`; this.#el('contextMembers').append(option) }
       this.#render(); this.#input('contextTitle').focus()
       this.#status('Cached context on this device. Opening this panel does not fetch or share anything.')

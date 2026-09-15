@@ -153,7 +153,7 @@ export interface FollowOptions {
 }
 
 export interface NotifierOptions {
-  settings: () => NotifySettings
+  settings: (roomId: string) => NotifySettings
   hidden: () => boolean
   shownRoomId: () => string | undefined
   self: () => string | undefined
@@ -215,7 +215,7 @@ export class Notifier {
         // about another message, not a message: nothing to ring about.
         if (!isConversation(message)) continue
         const arrival: Arrival = { roomId: follow.roomId, message }
-        const settings = this.#opts.settings()
+        const settings = this.#opts.settings(follow.roomId)
         if (!settings.enabled) continue
         const hidden = this.#opts.hidden()
         if (!shouldNotify(arrival, { hidden, shownRoomId: this.#opts.shownRoomId(), self: this.#opts.self(), followedSince })) continue

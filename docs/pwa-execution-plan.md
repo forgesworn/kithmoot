@@ -10,6 +10,14 @@ Desktop packaging and new native Apple work remain outside this plan. Android
 browser behaviour is included where it provides PWA compatibility evidence;
 native Android product work keeps its own release gate.
 
+## New physical-test feedback
+
+The [15 September feedback register](2026-09-15-testing-feedback.md) tracks
+notification interruption recovery, readable laptop video, clipboard files,
+attachment viewing, project/room notification preferences, upside-down iPhone
+use while charging, and unanswered agent requests. P0 remains open; local
+implementation, browser checks and physical acceptance are recorded separately.
+
 ## P0.1 automated baseline
 
 The annotation repair candidate was reviewed locally. Using Node 24.19.0 on

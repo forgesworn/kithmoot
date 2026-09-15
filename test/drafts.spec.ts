@@ -4,7 +4,7 @@ import { buildFileEvent } from '../src/attachment.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { withRelays } from './relays.js'
-import { goToConversation, openRoomDetails } from './browser.js'
+import { goToConversation, openRoomDetails, allowTestFileStorage } from './browser.js'
 import { fetchFromTestBlossom } from './blossom.js'
 
 async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: BrowserContext, relay: string) => Promise<void>) {
@@ -21,17 +21,97 @@ async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: B
   return { page, context }
 }
 
-test('file storage defaults to this app origin and remembers a chosen server', async ({ browser, baseURL }) => {
+test('file storage defaults off and only remembers explicit shared-host consent', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
   try {
     await page.locator('#attachToggle').click()
-    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await expect(page.locator('#attachServer')).toHaveValue(new URL(baseURL!).origin)
+    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    await page.locator('#saveFileStorage').click()
+    await expect(page.locator('#attachStatus')).toContainText('Confirm')
     await page.locator('#attachServer').fill('https://files.example')
-    await page.locator('#attachServer').press('Tab')
+    await page.locator('#allowSharedFiles').check()
+    await page.locator('#saveFileStorage').click()
+    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://files.example')
     await page.reload()
     // The start page initialises the remembered setting before a room is joined.
     await expect(page.locator('#attachServer')).toHaveValue('https://files.example')
+    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://files.example')
+  } finally { await context.close() }
+})
+
+test('legacy settings, picker and drop cannot upload without consent; editing revokes it', async ({ browser, baseURL }, testInfo) => {
+  const { page, context } = await setup(browser, baseURL!, async c => {
+    await c.addInitScript(origin => localStorage.setItem('kithmoot.blossom-server', origin), new URL(baseURL!).origin)
+  })
+  let uploads = 0
+  await context.route('**/upload', route => { uploads++; return route.abort() })
+  try {
+    await page.locator('#attachToggle').click()
+    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    await page.locator('#attachFile').setInputFiles({ name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
+    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    expect(uploads).toBe(0)
+    await page.locator('#chatForm').evaluate(form => {
+      const data = new DataTransfer(); data.items.add(new File(['Stay here'], 'drop.txt', { type: 'text/plain' }))
+      form.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data }))
+    })
+    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    await expect(page.locator('#attachFile')).toBeEnabled()
+    expect(uploads).toBe(0)
+    await allowTestFileStorage(page, new URL(baseURL!).origin)
+    await page.locator('#attachServer').fill('not a URL')
+    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    await expect(page.locator('#allowSharedFiles')).not.toBeChecked()
+    await page.locator('#attachFile').setInputFiles({ name: 'still-private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
+    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    expect(uploads).toBe(0)
+    await page.locator('#attachPanel').screenshot({ path: testInfo.outputPath('file-storage-off.png') })
+  } finally { await context.close() }
+})
+
+test('turning uploads off in another tab blocks subsequent files without deleting old preferences', async ({ browser, baseURL }) => {
+  const { page, context } = await setup(browser, baseURL!)
+  let uploads = 0
+  await context.route('**/upload', route => { uploads++; return route.abort() })
+  try {
+    await allowTestFileStorage(page, new URL(baseURL!).origin)
+    const other = await context.newPage()
+    await other.goto(new URL('/j/', baseURL!).href)
+    await other.evaluate(() => localStorage.removeItem('kithmoot.file-storage.v1'))
+    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    await page.locator('#attachFile').setInputFiles({ name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
+    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    expect(uploads).toBe(0)
+    await allowTestFileStorage(page, new URL(baseURL!).origin)
+    await page.locator('#stopFileUploads').click()
+    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    await page.reload()
+    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+  } finally { await context.close() }
+})
+
+test('revoking consent during a batch stops the next upload and preserves the already uploaded attachment', async ({ browser, baseURL }) => {
+  const { page, context } = await setup(browser, baseURL!)
+  const origin = new URL(baseURL!).origin
+  let uploads = 0
+  await context.route(`${origin}/upload`, async route => {
+    uploads++
+    const response = await fetchFromTestBlossom(route, origin)
+    await page.evaluate(() => localStorage.removeItem('kithmoot.file-storage.v1'))
+    await route.fulfill({ response })
+  })
+  try {
+    await allowTestFileStorage(page, origin)
+    await page.locator('#attachFile').setInputFiles([
+      { name: 'first.txt', mimeType: 'text/plain', buffer: Buffer.from('First synthetic file') },
+      { name: 'second.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this local') },
+    ])
+    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    expect(uploads).toBe(1)
+    await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
+    await expect(page.locator('#attachStaged')).toContainText('first.txt')
   } finally { await context.close() }
 })
 
@@ -90,8 +170,7 @@ test('an upload finishes in its original draft while another conversation is use
     await page.locator('#chatInput').fill('This file belongs in Chat')
     await page.locator('#attachToggle').click()
     await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await page.locator('#attachServer').fill(blobOrigin)
-    await page.locator('#attachServer').press('Tab')
+    await allowTestFileStorage(page, blobOrigin)
     await page.locator('#attachFile').setInputFiles({ name: 'workshop.txt', mimeType: 'text/plain', buffer: Buffer.from('Workshop materials') })
     await expect.poll(() => uploads).toBe(1)
     await expect(page.locator('#chatForm button[type="submit"]')).toBeDisabled()
@@ -179,8 +258,7 @@ test('stopping an upload permits another attempt without adding the late result'
   try {
     await page.locator('#attachToggle').click()
     await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await page.locator('#attachServer').fill(blobOrigin)
-    await page.locator('#attachServer').press('Tab')
+    await allowTestFileStorage(page, blobOrigin)
     await page.locator('#attachFile').setInputFiles({ name: 'cancelled.txt', mimeType: 'text/plain', buffer: Buffer.from('Do not attach this') })
     await expect.poll(() => uploads).toBe(1)
     // A second drop while this conversation is busy must not start another
@@ -231,8 +309,7 @@ test('stopping during a stalled relay announcement releases the draft and ignore
   try {
     await page.locator('#attachToggle').click()
     await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await page.locator('#attachServer').fill(blobOrigin)
-    await page.locator('#attachServer').press('Tab')
+    await allowTestFileStorage(page, blobOrigin)
     await page.locator('#attachFile').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('Do not attach the late result') })
     await expect.poll(() => Boolean(release)).toBe(true)
     await expect(page.locator('#attachStatus')).toContainText('Announcing')
@@ -300,5 +377,67 @@ test('cancelling a browser reload keeps a draft from another conversation', asyn
     await expect(page.locator('#chatInput')).toHaveValue('')
     await goToConversation(page, 'Chat')
     await expect(page.locator('#chatInput')).toHaveValue('Keep this through a cancelled reload')
+  } finally { await context.close() }
+})
+
+
+test('pasted files stay staged until Send and text attachments display as inert text', async ({ browser, baseURL }) => {
+  const { page, context } = await setup(browser, baseURL!)
+  const origin = new URL(baseURL!).origin
+  await context.route(`${origin}/upload`, async route => {
+    await route.fulfill({ response: await fetchFromTestBlossom(route, origin) })
+  })
+  await context.route(url => url.origin === origin && url.pathname.startsWith('/blossom/'), async route => {
+    await route.fulfill({ response: await fetchFromTestBlossom(route, origin) })
+  })
+  try {
+    await allowTestFileStorage(page, origin)
+    await page.locator('#chatInput').fill('Attached notes')
+    await page.locator('#chatInput').evaluate(input => {
+      const clipboard = new DataTransfer()
+      clipboard.items.add(new File(['<script>window.previewExecuted = true</script>'], 'notes.html', { type: 'text/html' }))
+      const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true })
+      // Firefox ignores the constructor's synthetic clipboardData; provide
+      // the same data a trusted paste supplies without depending on the OS clipboard.
+      Object.defineProperty(event, 'clipboardData', { value: clipboard })
+      input.dispatchEvent(event)
+    })
+    await expect(page.locator('#attachCount')).toContainText('(1)')
+    await expect(page.locator('#chatInput')).toHaveValue('Attached notes')
+    await expect(page.locator('#chatLog .attachment')).toHaveCount(0)
+    await page.locator('#chatForm button[type="submit"]').click()
+    const attachment = page.locator('#chatLog .attachment').first()
+    await attachment.getByRole('button', { name: 'Show', exact: true }).click()
+    await expect(attachment.locator('pre')).toContainText('<script>window.previewExecuted = true</script>')
+    expect(await page.evaluate(() => (window as unknown as { previewExecuted?: boolean }).previewExecuted)).toBeUndefined()
+    await expect(attachment.getByRole('link', { name: /Save notes.html/ })).toBeVisible()
+  } finally { await context.close() }
+})
+
+
+test('notification defaults and room overrides remain separate after reload', async ({ browser, baseURL }) => {
+  const { page, context } = await setup(browser, baseURL!)
+  try {
+    await openRoomDetails(page)
+    await page.locator('#notificationPreferences').evaluate(el => { (el as HTMLDetailsElement).open = true })
+    const scope = page.locator('#notificationScope')
+    await scope.focus()
+    const roomScope = await scope.locator('option').evaluateAll(options =>
+      options.map(option => (option as HTMLOptionElement).value).find(value => JSON.parse(value).kind === 'room')!,
+    )
+    await page.locator('#notificationMode').selectOption('off')
+    await scope.selectOption(roomScope)
+    await expect(page.locator('#notificationMode')).toHaveValue('inherit')
+    await page.locator('#notificationMode').selectOption('all')
+    await scope.selectOption(JSON.stringify({ kind: 'default' }))
+    await expect(page.locator('#notificationMode')).toHaveValue('off')
+    await page.reload()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openRoomDetails(page)
+    await expect(page.locator('#notificationMode')).toHaveValue('off')
+    await page.locator('#notificationPreferences').evaluate(el => { (el as HTMLDetailsElement).open = true })
+    await scope.selectOption(roomScope)
+    await expect(page.locator('#notificationMode')).toHaveValue('all')
   } finally { await context.close() }
 })
