@@ -517,7 +517,7 @@ details#roomSettings label {
   flex-wrap: wrap;
   gap: 0.45rem 1rem;
   margin: 0.8rem 0;
-  padding: 0.7rem 0.8rem;
+  padding: 0.55rem 0.8rem;
   border: 1px solid var(--accent);
   border-radius: 8px;
   background: var(--accent-dim);
