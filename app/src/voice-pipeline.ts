@@ -26,6 +26,7 @@ const PREVIEW_SECONDS = 3
 
 export interface MicPipelineOptions {
   onStateChange?: (state: MicState) => void
+  onSourceEnded?: () => void
 }
 
 export interface MicState {
@@ -66,6 +67,8 @@ function withinMs<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
 
 export class MicPipeline {
   readonly #onStateChange?: (state: MicState) => void
+  readonly #onSourceEnded?: () => void
+  #recovery?: Promise<void>
   #context: AudioContext | null = null
   #source: MediaStreamAudioSourceNode | null = null
   #node: AudioWorkletNode | null = null
@@ -81,6 +84,7 @@ export class MicPipeline {
 
   constructor(opts: MicPipelineOptions = {}) {
     this.#onStateChange = opts.onStateChange
+    this.#onSourceEnded = opts.onSourceEnded
   }
 
   get preset(): VoicePreset {
@@ -131,6 +135,7 @@ export class MicPipeline {
     this.#stream = stream
     const raw = this.#stream.getAudioTracks()[0]
     if (!raw) throw new Error('the browser opened the microphone and gave back no audio track')
+    this.#watchSource(raw)
 
     try {
       this.#setStatus('loading')
@@ -140,7 +145,7 @@ export class MicPipeline {
       // resolves - and a microphone that never comes on is worse than one
       // that comes on unmasked. See `#watch` for the same device stalling
       // after the graph is up.
-      if (context.state === 'suspended') await withinMs(context.resume(), START_BOUND_MS, 'the audio device did not start')
+      if (context.state !== 'running' && context.state !== 'closed') await withinMs(context.resume(), START_BOUND_MS, 'the audio device did not start')
       if (this.#stopped) throw new Error('Microphone was stopped.')
       await withinMs(context.audioWorklet.addModule(`${import.meta.env.BASE_URL}voice-worklet.js`), START_BOUND_MS, 'the audio worklet did not load')
       if (this.#stopped) throw new Error('Microphone was stopped.')
@@ -183,6 +188,13 @@ export class MicPipeline {
     let stalls = 0
     this.#watchdog = setInterval(() => {
       if (this.#context !== context) return
+      // An OS interruption is temporary. Do not discard voice masking while
+      // the page is hidden or the audio session belongs to another app.
+      if (document.hidden || context.state !== 'running' || this.#recovery) {
+        last = context.currentTime
+        stalls = 0
+        return
+      }
       const now = context.currentTime
       const advanced = now - last
       last = now
@@ -196,10 +208,58 @@ export class MicPipeline {
       this.#error = 'the audio device this browser plays through is not running, so the voice goes out unmasked'
       this.#node?.disconnect()
       this.#source?.disconnect()
-      this.#fallback = raw
+      this.#fallback = this.#stream?.getAudioTracks()[0] ?? raw
       this.#preset = 'off'
       this.#setStatus('degraded')
     }, CLOCK_CHECK_MS)
+  }
+
+  #watchSource(raw: MediaStreamTrack): void {
+    raw.addEventListener('ended', () => {
+      if (!this.#stopped && this.#stream?.getAudioTracks()[0] === raw) this.#onSourceEnded?.()
+    })
+  }
+
+  /** Resume the existing graph and replace only an interrupted device source.
+   * The published mute state and selected effect survive the replacement. */
+  resume(): Promise<void> {
+    if (this.#stopped) return Promise.resolve()
+    if (this.#recovery) return this.#recovery
+    this.#recovery = this.#resume().finally(() => { this.#recovery = undefined })
+    return this.#recovery
+  }
+
+  async #resume(): Promise<void> {
+    const context = this.#context
+    if (context?.state === 'closed' || (!this.#fallback && this.#destination?.stream.getAudioTracks()[0]?.readyState === 'ended')) {
+      throw new Error('The microphone output ended. Switch the microphone off and on to reopen it.')
+    }
+    if (context && context.state !== 'running') {
+      await withinMs(context.resume(), START_BOUND_MS, 'Tap Resume call media to restore audio.')
+    }
+    if (this.#stopped) return
+    const raw = this.#stream?.getAudioTracks()[0]
+    if (raw?.readyState === 'live' && !raw.muted) return
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    })
+    if (this.#stopped) { stream.getTracks().forEach(t => t.stop()); return }
+    const next = stream.getAudioTracks()[0]
+    if (!next) { stream.getTracks().forEach(t => t.stop()); throw new Error('No microphone track returned.') }
+    const previous = this.#stream
+    const enabled = this.track?.enabled ?? false
+    this.#stream = stream
+    this.#watchSource(next)
+    if (this.#node && this.#context && !this.#fallback && this.#status !== 'degraded') {
+      this.#source?.disconnect()
+      this.#source = this.#context.createMediaStreamSource(stream)
+      this.#source.connect(this.#node)
+    } else {
+      next.enabled = enabled
+      this.#fallback = next
+    }
+    previous?.getTracks().forEach(t => t.stop())
+    this.#emit()
   }
 
   setPreset(preset: VoicePreset): void {

@@ -4,7 +4,7 @@ import { bytesToHex } from '@noble/hashes/utils'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { openRoomDetails } from './browser.js'
+import { openRoomDetails, allowTestFileStorage } from './browser.js'
 import { sha256Hex } from '../src/attachment.js'
 
 async function openContext(page: Page) {
@@ -62,10 +62,19 @@ test('two people share encrypted context, keep personal notes private, and recov
     await alice.getByRole('button', { name: 'Grant access and rotate key', exact: true }).click()
     await expect(alice.locator('#contextStatus')).toContainText('Grant saved')
     await alice.locator('#contextShareRecipient').selectOption(getPublicKey(bobSk))
+    await alice.getByRole('button', { name: 'Upload and download access file', exact: true }).click()
+    await expect(alice.locator('#contextStatus')).toContainText('File uploads are off')
+    expect(fetches).toBe(0)
+    await alice.locator('#contextClose').click()
+    await allowTestFileStorage(alice, blobOrigin)
+    await openContext(alice)
+    await alice.locator('#contextCollection').selectOption({ label: 'Shared workshop · kith' })
+    await alice.locator('#contextShareRecipient').selectOption(getPublicKey(bobSk))
     const downloaded = alice.waitForEvent('download')
     await alice.getByRole('button', { name: 'Upload and download access file', exact: true }).click()
     const accessFile = await (await downloaded).path()
     await expect(alice.locator('#contextStatus')).toContainText('Encrypted revision uploaded')
+    await allowTestFileStorage(bob, blobOrigin)
     await openContext(bob)
     await bob.getByText('Import or back up context', { exact: true }).click()
     await bob.locator('#contextFile').setInputFiles(accessFile!)

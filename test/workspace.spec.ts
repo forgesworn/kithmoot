@@ -352,6 +352,12 @@ test('switching rooms restores independent reading places after delayed history 
     await log.evaluate(el => { el.scrollTop = 180 })
     const firstPlace = await place()
     expect(firstPlace.id).toBeTruthy()
+    // Resizing while reading older messages must not opt back into following
+    // the latest messages (including a native scrollbar/programmatic scroll).
+    await page.setViewportSize({ width: 390, height: 600 })
+    await expect.poll(async () => (await place()).id).toBe(firstPlace.id)
+    await page.setViewportSize({ width: 390, height: 740 })
+    await expect.poll(async () => (await place()).id).toBe(firstPlace.id)
     await switchTo('Planning room')
     await expect(log.locator('.msg')).toHaveCount(12)
     await log.evaluate(el => { el.scrollTop = 340 })

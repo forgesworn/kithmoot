@@ -4,6 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { buildFileEvent } from '../src/attachment.js'
 import { fetchFromTestBlossom } from './blossom.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
+import { allowTestFileStorage } from './browser.js'
 
 async function setup(browser: Browser, base: string, beforeJoin?: (context: BrowserContext, roomId: string, relay: string) => Promise<void>) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
@@ -266,8 +267,7 @@ test('stopping an upload releases room switching and ignores its late result', a
     await page.locator('#chatInput').fill('Keep this while stopping the upload')
     await page.locator('#attachToggle').click()
     await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await page.locator('#attachServer').fill(blobOrigin)
-    await page.locator('#attachServer').press('Tab')
+    await allowTestFileStorage(page, blobOrigin)
     await page.locator('#attachFile').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('Room-bound file') })
     await expect.poll(() => uploading).toBe(true)
     await page.locator('#backToRooms').click()

@@ -84,9 +84,10 @@ test('the home page leads with room actions, fits both themes and starts a named
     // Firefox and WebKit apply the new desktop media-query layout on their
     // next render after a viewport resize. Poll the visible geometry instead
     // of assuming the synchronous DOM mutation has already painted it.
-    await expect.poll(async () =>
-      (await page.locator('#room .participant').boundingBox())!.width,
-    ).toBeLessThanOrEqual(210)
+    const readableTileWidth = async () =>
+      (await page.locator('#room .participant').boundingBox())!.width
+    await expect.poll(readableTileWidth).toBeGreaterThanOrEqual(256)
+    await expect.poll(readableTileWidth).toBeLessThanOrEqual(320)
     const tools = (await page.locator('.conversationTools').boundingBox())!
     const chat = (await page.locator('#chatViewport').boundingBox())!
     expect(tools.y + tools.height).toBeLessThanOrEqual(chat.y + 1)

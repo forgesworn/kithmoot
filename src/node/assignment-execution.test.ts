@@ -15,8 +15,11 @@ describe('assignment execution durability', () => {
   it('reopens a crashed writer cache without clearing its uncertain execution reservation', async () => {
     const dir = await directory(); const path = join(dir, 'cache.json')
     const source = new URL('./assignment-storage.ts', import.meta.url).href
-    const child = spawn(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e',
-      `import { openAssignmentStorage } from ${JSON.stringify(source)}; const store = await openAssignmentStorage(process.argv[1]); await store.save('encrypted retained state'); console.log('ready'); setInterval(() => {}, 1000);`, path], { stdio: ['ignore', 'pipe', 'pipe'] })
+    // Keep the writer in use: an empty timer lets GC reclaim the SQLite
+    // guard while the fixture process is still alive. Collect before readiness
+    // so this test verifies a live owner's lock, not collection timing.
+    const child = spawn(process.execPath, ['--expose-gc', '--experimental-strip-types', '--input-type=module', '-e',
+      `import { openAssignmentStorage } from ${JSON.stringify(source)}; const store = await openAssignmentStorage(process.argv[1]); await store.save('encrypted retained state'); setInterval(() => void store.load(), 1000); setImmediate(() => { global.gc(); console.log('ready'); });`, path], { stdio: ['ignore', 'pipe', 'pipe'] })
     try {
       await once(child.stdout!, 'data')
       await expect(openAssignmentStorage(path)).rejects.toThrow('locked')

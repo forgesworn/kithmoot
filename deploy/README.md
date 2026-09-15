@@ -829,10 +829,14 @@ Drop a file on a room's chat and the browser seals it into a Wildbloom
 envelope under a fresh key, puts the sealed bytes on a Blossom server
 (BUD-01: `PUT /upload`, authorised by a signed kind-24242 event), and hands
 the key to the room inside the message; `docs/agents.md`, "Dropping a file
-in", has the whole of it. The server is a default on the same terms as
-TURN, not a dependency: `BLOSSOM_ENDPOINT` in `app/src/main.ts` takes the
-app's actual origin at runtime, the Attach panel lets anyone name another, and a fork
-that runs none sets the constant back to `''` and the panel asks.
+in", has the whole of it. New browser uploads are off by default. The app
+origin is only a suggestion under **Add a file → Use shared storage instead**;
+the person must explicitly accept public retrieval of encrypted bytes before
+uploads are enabled. A legacy server URL is not migrated into consent.
+This shared Blossom deployment is not private Bothy storage. Bothy's paired,
+authenticated storage integration remains a separate gate (see
+`docs/private-file-storage.md`). No existing blobs are moved or deleted by
+the browser policy change.
 
 The kit runs [blossom-server-ts](https://github.com/hzrd149/blossom-server),
 the most used open-source Blossom server, pinned to 5.2.0, on the box's

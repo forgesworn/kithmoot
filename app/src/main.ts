@@ -1,4 +1,6 @@
+import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { EmojiPicker } from './emoji-picker.js'
+import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
 import './style.css'
@@ -389,17 +391,9 @@ const ICE_REFRESH_MS = 40 * 60 * 1000
 // resolveIceServers, which falls back to plain STUN rather than failing.
 const TURN_CREDENTIAL_ENDPOINT: string | undefined = '/turn'
 
-// Where a file dropped into the chat is put, unless this device has been
-// told otherwise in the Attach panel. The app's own origin: the box that
-// serves it runs a Blossom server of its own behind /upload and /blossom/
-// (deploy/README.md, "Running a Blossom server"), on the same terms as its
-// TURN server, a default and not a dependency. A Blossom server sees an
-// encrypted blob and the device key that signed the upload, nothing else,
-// but which server sees that is still the person's choice, made once in
-// the Attach panel and remembered on this device. An operator hosting this
-// app for a community gets their own origin automatically. A person can
-// choose a different server in the Attach panel.
-const BLOSSOM_ENDPOINT = window.location.origin
+// Shared hosting is suggested in the opt-in form, never used by default.
+// A private Bothy adapter must verify access-controlled reads and writes;
+// an arbitrary Blossom URL is not a private-storage capability.
 
 // The donor ring: a coloured ring on a profile picture showing what somebody
 // has put into the project, summed in this browser from public zap receipts.
@@ -3135,6 +3129,7 @@ function stopLocalMedia(): void {
   for (const pipeline of pendingMedia) pipeline.stop()
   pendingMedia.clear()
   mic = camera = undefined
+  $('mediaRecoveryNote').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
@@ -3524,14 +3519,32 @@ async function makeRoomPersistent(): Promise<void> {
 // screen-share, rather than merely lying about it locally.
 // ---------------------------------------------------------------------------
 
+/** The OS can interrupt capture without ending the canvas/Web Audio output.
+ * Keep the existing pipelines so mute, effects and paired-device claims survive. */
+async function recoverCallMedia(): Promise<void> {
+  if (document.hidden || switchingRoom || leftCall || !session) return
+  const generation = roomGeneration
+  const currentMic = mic
+  const currentCamera = camera
+  remoteVolume.resume()
+  recoverRemoteTracks()
+  const results = await Promise.allSettled([currentMic?.resume(), currentCamera?.resume()])
+  if (generation !== roomGeneration || leftCall || mic !== currentMic || camera !== currentCamera) return
+  adoptMicTrack()
+  const failed = results.some(result => result.status === 'rejected')
+  $('mediaRecoveryNote').hidden = !failed
+  if (failed) $('mediaRecoveryNote').textContent = 'Call media was interrupted. Tap Resume call media in More settings. If it still fails, switch the affected microphone or camera off and on.'
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void recoverCallMedia() })
+window.addEventListener('pageshow', () => { void recoverCallMedia() })
+window.addEventListener('focus', () => { void recoverCallMedia() })
+$('resumeCallMedia').addEventListener('click', () => { void recoverCallMedia() })
+
 function onMicEnded(): void {
-  mic?.stop()
-  mic = undefined
-  micTrack = undefined
-  speakingMonitor.unwatch(LOCAL_SPEAKING_KEY)
-  paintSpeaking()
-  publishActiveTracks()
-  updateUi()
+  // A fallback raw track may end while the OS owns the microphone. Keep
+  // the user's enabled state and pipeline available for foreground recovery.
+  void recoverCallMedia()
 }
 
 /**
@@ -3546,6 +3559,7 @@ function adoptMicTrack(): void {
   const next = mic?.track
   if (!next || !micTrack || next === micTrack) return
   micTrack.removeEventListener('ended', onMicEnded)
+  next.enabled = micTrack.enabled
   micTrack = next
   micTrack.addEventListener('ended', onMicEnded)
   // The tap follows the published track, not the raw microphone: what the
@@ -3560,8 +3574,16 @@ async function toggleMic(): Promise<void> {
   const generation = roomGeneration
   if (switchingRoom) return
   if ([...pendingMedia].some(pipeline => pipeline instanceof MicPipeline)) return
+  // An ended output cannot be unmuted. A deliberate press reopens capture.
+  if (micTrack?.readyState === 'ended') {
+    micTrack.removeEventListener('ended', onMicEnded)
+    mic?.stop()
+    mic = undefined
+    micTrack = undefined
+  }
   if (!micTrack) {
     const pipeline = new MicPipeline({
+      onSourceEnded: () => { if (generation === roomGeneration) void recoverCallMedia() },
       onStateChange: (state) => {
         if (generation !== roomGeneration) return
         renderVoiceState(state)
@@ -3633,13 +3655,7 @@ async function toggleCamera(): Promise<void> {
       onStateChange: state => { if (generation === roomGeneration) renderEffectState(state) },
       onSourceEnded: () => {
         if (generation !== roomGeneration) return
-        camera?.stop()
-        camera = undefined
-        cameraTrack = undefined
-        localPreviewEls.get('camera')?.remove()
-        localPreviewEls.delete('camera')
-        publishActiveTracks()
-        updateUi()
+        void recoverCallMedia()
       },
     })
     pendingMedia.add(pipeline)
@@ -5413,7 +5429,7 @@ function renderInvites(): void {
 // Attachments: files shared through Wildbloom
 // ---------------------------------------------------------------------------
 
-type OpenedAttachment = { url: string; name: string; type: string; size: number } | { error: string }
+type OpenedAttachment = { url: string; name: string; type: string; size: number; text?: string } | { error: string }
 
 /** What has been fetched and opened, per log, per message, per attachment.
  *  An object URL is revoked when its message leaves the log and never
@@ -5467,6 +5483,30 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
         img.src = opened.url
         img.alt = opened.name
         card.append(img)
+      } else if (opened.type.startsWith('audio/') || opened.type.startsWith('video/')) {
+        const player = document.createElement(opened.type.startsWith('audio/') ? 'audio' : 'video')
+        player.controls = true
+        player.preload = 'metadata'
+        if (player instanceof HTMLVideoElement) player.playsInline = true
+        player.src = opened.url
+        player.setAttribute('aria-label', opened.name)
+        card.append(player)
+      } else if (opened.type === 'application/pdf') {
+        const view = document.createElement('a')
+        view.href = opened.url
+        view.target = '_blank'
+        view.rel = 'noopener noreferrer'
+        view.textContent = `View ${opened.name}`
+        card.append(view)
+      } else if (opened.text !== undefined) {
+        const preview = document.createElement('pre')
+        preview.className = 'attachmentText'
+        preview.textContent = opened.text
+        card.append(preview)
+      } else {
+        const note = document.createElement('span')
+        note.textContent = 'Preview unavailable for this file type. Save it to open in a compatible app.'
+        card.append(note)
       }
       const save = document.createElement('a')
       save.dataset.focusKey = `attachment-${index}`
@@ -5487,7 +5527,16 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       try {
         const file = await fetchAttachmentBlob(a)
         if (generation !== roomGeneration) return
-        openedAttachments.set(key, { url: URL.createObjectURL(file.source), name: file.name, type: file.type, size: file.size })
+        const type = file.type.split(';')[0]!.trim().toLowerCase()
+        const isText = type.startsWith('text/') || ['application/json', 'application/xml'].includes(type)
+        // Never execute HTML/SVG/scripts as a document. Text is bounded and
+        // assigned through textContent, including untrusted markup.
+        const text = isText ? await file.source.slice(0, 64 * 1024).text() : undefined
+        if (generation !== roomGeneration) return
+        openedAttachments.set(key, {
+          url: URL.createObjectURL(file.source), name: file.name, type, size: file.size,
+          ...(text !== undefined ? { text: text + (file.size > 64 * 1024 ? '\n… Preview truncated. Save to read the full file.' : '') } : {}),
+        })
       } catch (err) {
         // The reason and nothing else: an error here never carries the key.
         if (generation !== roomGeneration) return
@@ -8735,7 +8784,10 @@ function senderLabel(m: ChatMessage): string {
 }
 
 const notifier = new Notifier({
-  settings: () => notifySettings(deviceStore),
+  settings: roomId => {
+    const settings = notifySettings(deviceStore)
+    return { ...settings, enabled: settings.enabled && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId)) }
+  },
   hidden: () => document.hidden,
   shownRoomId: () => (session ? currentRoomId() : undefined),
   self: () => meParticipant || currentParticipant(),
@@ -8809,7 +8861,35 @@ navigator.serviceWorker?.addEventListener('message', (event) => {
   if (data && data.type === 'kithmoot:open' && typeof data.url === 'string') openLink(data.url)
 })
 
+function notificationProjectsForRoom(roomId: string): string[] {
+  const shared = sharedProjects.forRoom(roomId)
+  if (shared.length) return shared.map(project => `shared:${project.key}`)
+  const personal = roomProject(deviceStore, nostrSession?.pubkey, roomId)
+  return personal ? [`project:${personal}`] : []
+}
+
+function selectedNotificationScope(): NotificationScope {
+  const select = $('notificationScope') as HTMLSelectElement
+  try { return JSON.parse(select.value) as NotificationScope } catch { return { kind: 'default' } }
+}
+
+function renderNotificationScopes(): void {
+  const select = $('notificationScope') as HTMLSelectElement
+  const previous = select.value
+  const rooms = navigationRooms()
+  const choices: { scope: NotificationScope; label: string }[] = [{ scope: { kind: 'default' }, label: 'All projects and rooms' }]
+  for (const project of projectChoices(rooms)) choices.push({ scope: { kind: 'project', id: project.key }, label: `Project: ${project.name}` })
+  for (const room of rooms) choices.push({ scope: { kind: 'room', id: room.roomId }, label: `Room: ${roomLabel(room)}` })
+  select.replaceChildren(...choices.map(({ scope, label }) => new Option(label, JSON.stringify(scope))))
+  if ([...select.options].some(option => option.value === previous)) select.value = previous
+  const scope = selectedNotificationScope()
+  const mode = $('notificationMode') as HTMLSelectElement
+  mode.options[0]!.disabled = scope.kind === 'default'
+  mode.value = notificationMode(deviceStore, nostrSession?.pubkey, scope)
+}
+
 function renderNotifyChoice(): void {
+  renderNotificationScopes()
   const settings = notifySettings(deviceStore)
   const supported = typeof Notification !== 'undefined'
   const granted = supported && Notification.permission === 'granted'
@@ -9134,10 +9214,17 @@ renderNotifyChoice()
 $('toggleNotify').addEventListener('click', () => {
   setNotify($('toggleNotify').dataset.on !== 'true').catch((err) => setStatus(describeError(err)))
 })
+$('notificationScope').addEventListener('change', renderNotificationScopes)
+$('notificationScope').addEventListener('focus', renderNotificationScopes)
+$('notificationMode').addEventListener('change', () => {
+  setNotificationMode(deviceStore, nostrSession?.pubkey, selectedNotificationScope(), ($('notificationMode') as HTMLSelectElement).value as NotificationMode)
+  renderNotificationScopes()
+})
 $('toggleNotifyText').addEventListener('click', () => {
   setNotifySettings(deviceStore, { showText: $('toggleNotifyText').dataset.on !== 'true' })
   renderNotifyChoice()
 })
+
 $('toggleKeep').addEventListener('click', () => setKeepRoomChoice($('toggleKeep').dataset.on !== 'true'))
 $('toggleKnock').addEventListener('click', () => {
   const roomId = currentRoomId()
@@ -10093,23 +10180,21 @@ function shareFromEvent(event: NostrEvent, keyHex: string): ChatAttachment {
 // Dropping a file straight into the chat
 // ---------------------------------------------------------------------------
 
-const BLOSSOM_SERVER_STORAGE_KEY = 'kithmoot.blossom-server'
-
-/** The Blossom server this device sends dropped files to: what the person
- *  set in the Attach panel, else the app's default, else nothing. */
+/** No implicit host fallback, including for Context uploads. */
 function blossomServer(): string {
-  return localStorage.getItem(BLOSSOM_SERVER_STORAGE_KEY) ?? BLOSSOM_ENDPOINT
+  return sharedFileServer(localStorage)
 }
 
-function storeBlossomServer(value: string): void {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    localStorage.removeItem(BLOSSOM_SERVER_STORAGE_KEY)
-    return
-  }
-  // Refused here, before a byte is sealed: a mistyped server is found out
-  // when it is typed, not when a file has been encrypted for nothing.
-  localStorage.setItem(BLOSSOM_SERVER_STORAGE_KEY, normaliseBlossomServer(trimmed))
+function renderFileStorage(): void {
+  const server = blossomServer()
+  $('fileStorageStatus').textContent = server
+    ? `Uploads go to ${server} (shared storage, explicitly allowed on this device; not verified private Bothy storage).`
+    : 'File uploads are off. Private Bothy storage is not connected in this app yet.'
+  $('stopFileUploads').hidden = !server
+}
+
+function requireFileStorage(server: string): void {
+  if (!server || requireSharedFileServer(localStorage) !== server) throw new Error(FILE_STORAGE_REQUIRED)
 }
 
 /** Something to look at while a file is sealed and sent. Stage by stage
@@ -10164,9 +10249,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     throw new Error(`${file.name} is ${formatBytes(file.size)}; a room sends up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)}.`)
   }
   if (file.size === 0) throw new Error(`${file.name} is empty.`)
-  if (!server) {
-    throw new Error('Name a Blossom server to put files on, then drop the file again.')
-  }
+  requireFileStorage(server)
   const origin = normaliseBlossomServer(server)
   const deviceSk = deviceKey()
 
@@ -10179,8 +10262,13 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   let descriptor: Awaited<ReturnType<typeof uploadEnvelopeBlob>>
   try {
     signal.throwIfAborted()
+    // Consent may have been removed or the destination edited while sealing.
+    requireFileStorage(server)
     dropProgress(draft, `Uploading to ${new URL(origin).hostname}:`, file)
-    descriptor = await uploadEnvelopeBlob(origin, sealed.envelope, sealed.sha256, { sign: (t) => finalizeEvent(t, deviceSk), signal })
+    descriptor = await uploadEnvelopeBlob(origin, sealed.envelope, sealed.sha256, {
+      sign: (t) => finalizeEvent(t, deviceSk), signal,
+      fetch: (input, init) => { requireFileStorage(server); return fetch(input, init) },
+    })
   } finally {
     await sealed.dispose?.()
   }
@@ -10271,18 +10359,42 @@ async function shareDroppedFiles(files: FileList | File[] | null): Promise<void>
   })
 }
 
-;($('attachServer') as HTMLInputElement).value = blossomServer()
-$('attachServer').addEventListener('change', () => {
+;($('attachServer') as HTMLInputElement).value = suggestedFileServer(localStorage, window.location.origin)
+;($('allowSharedFiles') as HTMLInputElement).checked = !!blossomServer()
+renderFileStorage()
+$('attachServer').addEventListener('input', () => {
+  // Editing never retains approval for the old destination, even if the new
+  // text is invalid. Typing a URL is not consent to public ciphertext storage.
+  stopFileUploads(localStorage)
+  ;($('allowSharedFiles') as HTMLInputElement).checked = false
+  renderFileStorage()
+})
+$('saveFileStorage').addEventListener('click', () => {
   const input = $('attachServer') as HTMLInputElement
   const draft = captureDraft()
   try {
-    storeBlossomServer(input.value)
-    input.value = blossomServer()
+    input.value = allowSharedFileServer(localStorage, input.value, ($('allowSharedFiles') as HTMLInputElement).checked)
     draft.status = ''
   } catch (err) {
     draft.status = describeError(err)
   }
+  renderFileStorage()
   draftChanged(draft)
+})
+$('stopFileUploads').addEventListener('click', () => {
+  stopFileUploads(localStorage)
+  ;($('allowSharedFiles') as HTMLInputElement).checked = false
+  renderFileStorage()
+})
+$('allowSharedFiles').addEventListener('change', () => {
+  if (($('allowSharedFiles') as HTMLInputElement).checked) return
+  stopFileUploads(localStorage)
+  renderFileStorage()
+})
+window.addEventListener('storage', event => {
+  if (event.key !== FILE_STORAGE_KEY && event.key !== null) return
+  ;($('allowSharedFiles') as HTMLInputElement).checked = false
+  renderFileStorage()
 })
 $('attachFile').addEventListener('change', () => {
   const input = $('attachFile') as HTMLInputElement
@@ -10294,6 +10406,23 @@ $('attachFile').addEventListener('change', () => {
 // Drag a file onto the chat form and it goes the same way. The class is
 // only a visual cue that the drop will be taken.
 const chatForm = $('chatForm')
+// Clipboard files use the same consent, encryption, limits and draft ownership
+// as the picker. Plain text keeps the browser's normal paste behaviour.
+$('chatInput').addEventListener('paste', event => {
+  const data = event.clipboardData
+  const files = Array.from(data?.files ?? [])
+  // Some browser clipboard implementations expose items without filling
+  // FileList. Do not take both lists: that would stage every file twice.
+  if (!files.length) for (const item of Array.from(data?.items ?? [])) {
+    if (item.kind !== 'file') continue
+    const file = item.getAsFile()
+    if (file) files.push(file)
+  }
+  if (!files.length) return
+  event.preventDefault()
+  void shareDroppedFiles(files)
+})
+
 for (const type of ['dragenter', 'dragover'] as const) {
   chatForm.addEventListener(type, (event) => {
     if (!event.dataTransfer?.types.includes('Files')) return

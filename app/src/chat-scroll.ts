@@ -11,7 +11,7 @@ export class ChatScroll {
   #scope = ''
   #paused = true
   #pending?: ReadingPlace
-  #painted?: { top: number; place: ReadingPlace }
+  #painted?: { top: number; height: number; total: number; place: ReadingPlace }
   #channel: string | undefined
   #ids = new Set<string>()
   #places = new Map<string, ReadingPlace>()
@@ -28,6 +28,11 @@ export class ChatScroll {
     })
     log.addEventListener('scroll', () => {
       if (!this.#pending && this.#atBottom()) button.hidden = true
+      // Scrollbars and accessibility tools can move the reader without a
+      // pointer event. A scroll in an unchanged layout abandons follow mode;
+      // WebKit's automatic anchoring during a resize does not.
+      const painted = this.#painted
+      if (painted && log.scrollTop !== painted.top && log.clientHeight === painted.height && log.scrollHeight === painted.total) this.#painted = undefined
     })
     // An explicit reading gesture takes precedence over history arriving late.
     const readingGesture = () => { this.#pending = undefined; this.#painted = undefined }
@@ -42,9 +47,8 @@ export class ChatScroll {
       // Navigation and roster updates can resize the log after its last
       // redraw. Keep a reader who chose the latest messages at the bottom.
       if (this.#paused || this.#pending || !this.#painted?.place.follow) return
-      if (log.scrollTop !== this.#painted.top && log.scrollTop < log.scrollHeight - log.clientHeight) return
       log.scrollTop = log.scrollHeight
-      this.#painted = { top: log.scrollTop, place: this.#place() }
+      this.#paint()
     }).observe(log)
   }
 
@@ -72,7 +76,11 @@ export class ChatScroll {
     this.#pending = undefined
     this.#button.hidden = true
     this.#log.scrollTop = this.#log.scrollHeight
-    this.#painted = { top: this.#log.scrollTop, place: this.#place() }
+    this.#paint()
+  }
+
+  #paint(place = this.#place()): void {
+    this.#painted = { top: this.#log.scrollTop, height: this.#log.clientHeight, total: this.#log.scrollHeight, place }
   }
 
   #place(): ReadingPlace {
@@ -162,7 +170,7 @@ export class ChatScroll {
       // The old message may be delayed or no longer retained. Always leave a
       // visible way to choose the latest messages and abandon restoration.
       if (this.#pending) this.#button.hidden = false
-      this.#painted = { top: log.scrollTop, place: saved && !saved.follow && replacement ? { ...saved, top: log.scrollTop } : this.#place() }
+      this.#paint(saved && !saved.follow && replacement ? { ...saved, top: log.scrollTop } : this.#place())
       if (focusedId) {
         const message = messages.find(el => el.dataset.messageId === focusedId)
         const control = focusKey && message

@@ -4,7 +4,7 @@ import type { Event } from 'nostr-tools/pure'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { KINDS } from '../src/kinds.js'
-import { openRoomDetails } from './browser.js'
+import { openRoomDetails, allowTestFileStorage } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 /**
@@ -171,6 +171,7 @@ test('a quiet room shares a file with no kind-1063 announcement, and the other p
 
     await rowan.locator('#attachToggle').click()
     await rowan.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await allowTestFileStorage(rowan, new URL(baseURL!).origin)
     await rowan.locator('#attachFile').setInputFiles({ name: 'floorplan.txt', mimeType: 'text/plain', buffer: Buffer.from('Room B, second floor') })
     await expect(rowan.locator('#attachStaged .attachChip')).toHaveCount(1, { timeout: 15_000 })
     await rowan.locator('#chatInput').fill('the floorplan')
@@ -257,6 +258,7 @@ test('a quiet room does not leak a file announcement if this device leaves while
 
     await rowan.locator('#attachToggle').click()
     await rowan.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await allowTestFileStorage(rowan, new URL(baseURL!).origin)
     await rowan.locator('#attachFile').setInputFiles({ name: 'blueprint.txt', mimeType: 'text/plain', buffer: Buffer.from('Room B, second floor') })
     // The upload has reached the server and is held there; the room this
     // device is in is still the quiet one.

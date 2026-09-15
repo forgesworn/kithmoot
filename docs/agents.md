@@ -587,17 +587,17 @@ both is the device key, never the participant's identity: a person signed
 in with a hardware signer is not asked to press a button per file, and a
 relay that watches kind-1063 events sees a key it cannot tie to a person.
 
-Which Blossom server is the person's choice, set once in the Attach panel
-and remembered on the device. Left unset, the app as served from
-kithmoot.forgesworn.dev uses its own origin: the box runs a Blossom server
-of its own behind `/upload` and `/blossom/` (`deploy/README.md`, "Running
-a Blossom server"), open to any key, one accepted media type, a 270 MiB cap
-and a 20 GiB quota, and no promise to keep a blob past 90 days unfetched.
-It is a default on the same terms as the TURN server, not a dependency: no
-operator is protocol-mandated, and where your encrypted bytes go is still
-yours to change. An operator hosting the app for a community names their
-own in `BLOSSOM_ENDPOINT` beside the TURN endpoint constant, or sets it
-back to empty and the panel asks, which is what Wildbloom itself does.
+New browser uploads are off by default. **Add a file → Use shared storage
+instead** shows the destination and asks for explicit acknowledgement that
+encrypted bytes may be publicly downloadable. The app origin is suggested,
+never selected automatically. Legacy URL preferences do not imply consent.
+Editing the destination or turning uploads off removes approval; existing
+files are not moved or deleted. Private Bothy storage is the intended
+default, but the browser's paired, authenticated storage adapter is not
+connected yet. See `docs/private-file-storage.md` for its acceptance gates.
+The optional shared host still runs `/upload` and `/blossom/`
+(`deploy/README.md`, "Running a Blossom server"). This browser policy does
+not change explicitly configured CLI/MCP upload destinations.
 
 ## What is not done
 

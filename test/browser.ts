@@ -3,6 +3,17 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { openRoomUrl, withRelays, testRelays } from './relays.js'
 
+/** Explicit opt-in for synthetic uploads to local fixtures only. */
+export async function allowTestFileStorage(page: Page, origin: string): Promise<void> {
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname)) throw new Error('File fixture must stay local')
+  if (!await page.locator('#attachPanel').isVisible()) await page.locator('#attachToggle').click()
+  await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+  await page.locator('#attachServer').fill(origin)
+  await page.locator('#allowSharedFiles').check()
+  await page.locator('#saveFileStorage').click()
+  await expect(page.locator('#fileStorageStatus')).toContainText(`Uploads go to ${origin}`)
+}
+
 /**
  * What the browser acceptance specs share: how to reach every peer
  * connection the app builds, how to read a remote picture off its pixels,

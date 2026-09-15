@@ -43,6 +43,16 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
   const contextA = await newDeviceContext(browser, baseURL!)
   const contextB = await newDeviceContext(browser, baseURL!)
   try {
+    await contextA.addInitScript(() => {
+      const captures: MediaStream[] = []
+      Object.assign(window, { __testCaptures: captures })
+      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        const stream = await original(constraints)
+        captures.push(stream)
+        return stream
+      }
+    })
     const pageA = await contextA.newPage()
     const pageB = await contextB.newPage()
 
@@ -64,16 +74,34 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     await expectToSeeAndHear(pageA, 'Ada')
     await expectToSeeAndHear(pageB, 'Bob')
 
-    // Desktop faces are thumbnails, and the conversation tools have their
-    // own row above the chat instead of colliding with it.
+    // Laptop faces must be readable and the chat tools must remain separate.
     for (const tile of await pageA.locator('#room .participant:has(video)').all()) {
       const bounds = (await tile.boundingBox())!
-      expect(bounds.width, 'a participant video expanded across the desktop').toBeLessThanOrEqual(210)
+      expect(bounds.width, 'a participant video is still a tiny thumbnail').toBeGreaterThanOrEqual(256)
+      const video = (await tile.locator('video').first().boundingBox())!
+      expect(video.height).toBeGreaterThanOrEqual(160)
     }
     const tools = (await pageA.locator('.conversationTools').boundingBox())!
     const chat = (await pageA.locator('#chatViewport').boundingBox())!
     expect(tools.y + tools.height, 'conversation tools overlap the chat').toBeLessThanOrEqual(chat.y + 1)
-    await pageA.screenshot({ path: testInfo.outputPath('desktop-compact-call.png') })
+    await pageA.screenshot({ path: testInfo.outputPath('desktop-readable-call.png') })
+
+    // Model capture being ended by the OS, independently of the still-live
+    // canvas and Web Audio outputs. Foreground recovery must restore actual
+    // moving pictures and audio at the other participant.
+    await pageA.evaluate(() => {
+      const streams = (window as unknown as { __testCaptures: MediaStream[] }).__testCaptures
+      streams.forEach(stream => stream.getTracks().forEach(track => track.stop()))
+      window.dispatchEvent(new Event('focus'))
+    })
+    await expect.poll(() => pageA.evaluate(() =>
+      (window as unknown as { __testCaptures: MediaStream[] }).__testCaptures.length,
+    )).toBeGreaterThanOrEqual(4)
+    await expectToSeeAndHear(pageB, 'Bob')
+    const recoveredEnergy = (await pageB.evaluate(inbound)).audioEnergy
+    await expect.poll(async () => (await pageB.evaluate(inbound)).audioEnergy).toBeGreaterThan(recoveredEnergy)
+    await expect(pageA.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await expect(pageA.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
 
     // WebKit can retain a connected receiver element but pause it during a
     // peer rebuild. The reconciliation loop must resume that state too.
