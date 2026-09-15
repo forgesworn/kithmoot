@@ -50,6 +50,7 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
     assist: sanitiseAssistOffer(entry.assist),
     left: entry.left === true ? true : undefined,
     agent: entry.agent === true ? true : undefined,
+    requestReceipts: entry.agent === true && entry.requestReceipts === true ? true : undefined,
     owner,
   })
   const root = opts.epoch ?? { id: opts.roomId, key: opts.roomKey }
@@ -148,6 +149,7 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     // Same rule for the agent flag, for the same reason: it decides what a
     // member sends this device, so only an honest `true` is one.
     if (entry.agent !== true) delete entry.agent
+    if (entry.agent !== true || entry.requestReceipts !== true) delete entry.requestReceipts
     // Whose agent this is, verified here or not carried at all. A reader
     // that sees `owner` on a decoded entry is looking at a proof this
     // function checked against the participant the entry names, at this

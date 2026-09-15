@@ -54,10 +54,10 @@ test('a brief agent reconnect leaves the live roster but does not add a leave an
     await expect(page.locator('#chatInput')).toBeVisible()
     await page.clock.install()
     await page.clock.fastForward(26_000)
-    chip = await RoomAgent.join({ link: keeper.url, name: 'Chip', identity })
+    chip = await RoomAgent.join({ link: keeper.url, name: 'Chip', identity, requestReceipts: true })
     await expect(page.locator('#agentsRow')).toContainText('Chip')
     await expect(page.locator('#chatLog .system').filter({ hasText: 'Chip (agent) came in.' })).toHaveCount(1)
-    // No runtime is attached: this is a live room connection with no receipt driver.
+    // A broken driver advertises receipts but never acknowledges the request.
     await page.locator('#chatInput').fill('@Chip please look at this')
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('.agentRequestStatus').filter({ hasText: 'Waiting for Chip' })).toBeVisible()
@@ -65,7 +65,7 @@ test('a brief agent reconnect leaves the live roster but does not add a leave an
     await expect(page.locator('#agentsRow')).not.toContainText('Chip')
     await expect(page.locator('.agentRequestStatus').filter({ hasText: 'Chip is not currently connected' })).toBeVisible()
     await page.screenshot({ path: testInfo.outputPath('agent-request-disconnected.png') })
-    chip = await RoomAgent.join({ link: keeper.url, name: 'Chip', identity })
+    chip = await RoomAgent.join({ link: keeper.url, name: 'Chip', identity, requestReceipts: true })
     await expect(page.locator('#agentsRow')).toContainText('Chip')
     await page.clock.fastForward(31_000)
     await expect(page.locator('#chatLog .system').filter({ hasText: 'Chip (agent) left.' })).toHaveCount(0)
@@ -76,6 +76,40 @@ test('a brief agent reconnect leaves the live roster but does not add a leave an
     await page.clock.fastForward(31_000)
     await expect(page.locator('#chatLog .system').filter({ hasText: 'Chip (agent) left.' })).toHaveCount(1)
   } finally { await chip?.leave(); await context.close(); await keeper.leave() }
+})
+
+test('ordinary replies from an external agent do not produce unsupported receipt warnings', async ({ browser, baseURL }, testInfo) => {
+  test.setTimeout(60_000)
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const chip = await RoomAgent.create({ base: baseURL!, name: 'Chip', relays: ['ws://127.0.0.1:7777'] })
+  const browserLink = encodeRoomLink(baseURL!, { ...parseRoomLink(chip.url), relays: [relay.href] })
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+  try {
+    await chip.setChannel('workshop', true)
+    const page = await context.newPage()
+    await open(page, browserLink, 'Ada'); await page.locator('#join').click()
+    await goToConversation(page, 'workshop')
+    await expect(page.locator('#agentsRow')).toContainText('Chip')
+    await page.clock.install()
+    await page.locator('#chatInput').fill('@Chip reply with reliability check passed')
+    await page.locator('#chatInput').press('Enter')
+    const request = page.locator('#chatLog .msg').filter({ hasText: '@Chip reply with reliability check passed' })
+    await expect(request).toBeVisible()
+    await expect(request.locator('.agentRequestStatus')).toHaveText('')
+    // Oathrun's bridge sends ordinary text, without receipt or replyTo metadata.
+    await chip.channel('workshop').send('reliability check passed')
+    await expect(page.locator('#chatLog').getByText('reliability check passed', { exact: true })).toBeVisible()
+    await expect(request.locator('.agentRequestStatus')).toHaveText('')
+    await page.clock.fastForward(31_000)
+    await expect(request.locator('.agentRequestStatus')).toHaveText('')
+    await page.screenshot({ path: testInfo.outputPath('external-agent-reply.png') })
+
+    // A real claim enables tracking; withdrawing it clears the pending warning.
+    await chip.session.setRequestReceipts(true)
+    await expect(request.locator('.agentRequestStatus')).toContainText('No receipt from Chip yet')
+    await chip.session.setRequestReceipts(false)
+    await expect(request.locator('.agentRequestStatus')).toHaveText('')
+  } finally { await context.close(); await chip.leave() }
 })
 
 

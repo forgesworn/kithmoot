@@ -114,6 +114,7 @@ export class AgentRuntime {
   /** Subscribe to the room. Returns this, so `new AgentRuntime(a).start()`
    *  reads as one thing. */
   start(): this {
+    if (this.#automaticReceipts) void this.agent.session.setRequestReceipts(true).catch(() => {})
     this.#follow('chat', this.agent.chat)
     this.#follow('backchannel', this.agent.backchannel)
     this.#follow('transcript', this.agent.transcripts)

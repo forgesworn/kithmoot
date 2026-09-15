@@ -58,9 +58,18 @@ Standalone runtimes may opt into connection receipts using
 `RuntimeOptions.automaticReceipts`. A receipt proves the request reached the room
 connection; it does not approve work or prove that a model completed it.
 
-The sender's chat shows receipt and connection status beside addressed requests.
-A directly linked reply clears the waiting status. Older drivers may send
-unthreaded answers, so check the conversation before retrying. Brief roster
+An agent whose current driver supports request receipts advertises
+`requestReceipts: true` in its signed roster entry. Model brains advertise this
+while attached; automatic-receipt runtimes advertise it when they start. External
+drivers can opt in through `RoomAgent` options or `session.setRequestReceipts()`
+and should withdraw the claim when their receipt driver stops.
+
+The sender's chat shows waiting, missing-receipt and connection status only for
+agents that advertise this support. A received marker is displayed even without
+an advertisement, and a directly linked reply clears the waiting status. Older
+drivers can send ordinary unthreaded answers without receipt markers; their
+missing markers do not trigger delivery warnings. This does not infer receipt
+or completion from an unrelated later message. Brief roster
 gaps do not produce leave/rejoin chat notices; a departure is announced after
 thirty seconds. The live roster and access rules still update immediately.
 

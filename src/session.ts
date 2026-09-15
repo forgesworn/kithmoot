@@ -74,6 +74,8 @@ export interface ParticipantView {
   /** True when any of this participant's devices declares itself an
    *  automated participant - see `RosterEntry.agent`. */
   agent?: boolean
+  /** At least one current agent device supports request-received markers. */
+  requestReceipts?: boolean
   /** Whose agent this is, from a proof this session verified on one of its
    *  devices' entries. Absent for a person, and for an agent nobody has
    *  claimed. See `AgentOwnership`. */
@@ -128,6 +130,8 @@ export interface RoomSessionBaseOptions {
   /** Declare this device an automated participant on every entry it
    *  publishes. See `RosterEntry.agent`. */
   agent?: boolean
+  /** Advertise only while a driver that issues request receipts is attached. */
+  requestReceipts?: boolean
   /** This agent's ownership proof, carried on every roster entry and chat
    *  message. Checked here against the participant; a proof that names
    *  somebody else is a setup mistake and is refused at construction. */
@@ -1219,6 +1223,7 @@ export class RoomSession {
       updatedAt: this.#now(),
       ...(this.#name !== undefined ? { name: this.#name } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
+      ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(assist ? { assist } : {}),
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
@@ -1329,6 +1334,15 @@ export class RoomSession {
     if (!this.#self || this.#left) return
     this.#self = { ...this.#self, tracks, claims }
     await this.#publishEntry(true)
+  }
+
+  get requestReceipts(): boolean { return this.#opts.agent === true && this.#opts.requestReceipts === true }
+
+  /** Restate receipt support when an agent's driver starts or stops. */
+  async setRequestReceipts(enabled: boolean): Promise<void> {
+    if (this.#opts.requestReceipts === enabled) return
+    this.#opts.requestReceipts = enabled
+    if (this.#self && !this.#left) await this.#publishEntry(true)
   }
 
   /**
@@ -1607,6 +1621,7 @@ export class RoomSession {
       }
       view.devices.push(entry.device)
       if (entry.agent === true) view.agent = true
+      if (entry.agent === true && entry.requestReceipts === true) view.requestReceipts = true
       // Verified at decode, or not here at all. One proof per person is
       // enough: every device of one agent names the same principal.
       if (entry.owner && !view.owner) {
