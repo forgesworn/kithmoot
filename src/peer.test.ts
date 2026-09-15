@@ -119,6 +119,25 @@ describe('Peer', () => {
     expect(received).toEqual([{ track, receiver }])
   })
 
+  it('does not offer a track a media-security hook refuses', async () => {
+    const factory = createFakeFactory()
+    const track = fakeTrack()
+    const peer = new Peer({
+      factory,
+      localDevice: LOW,
+      remoteDevice: HIGH,
+      onSignal: () => { throw new Error('an unprotected offer escaped') },
+      onTrack: () => {},
+      onSender: () => false,
+    })
+
+    await expect(peer.start([track])).rejects.toThrow('media pipeline refused sender')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(factory.instances[0]!.tracks).toEqual([])
+    expect(factory.instances[0]!.calls.map((call) => call.method)).toEqual(['addTrack', 'removeTrack'])
+  })
+
   /**
    * Somebody who joins with their camera and microphone off - which is how
    * most people join most calls - must not send an offer with nothing in it.

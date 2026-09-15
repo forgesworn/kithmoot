@@ -182,6 +182,7 @@ import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 import { CallWakeLock } from './wake-lock.js'
+import { BrowserForwarderMediaPipeline } from './forwarder-media.js'
 
 const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
@@ -7631,6 +7632,14 @@ async function startSession(asVisitor = false): Promise<void> {
         })
       : undefined
     const transport: RelayTransport = quietTransport ?? pool
+    // A server forwarder terminates ordinary WebRTC DTLS-SRTP. Only pass one
+    // to the session when this browser has a live encoded-frame worker; the
+    // mesh then refuses promotion until that worker has received the epoch
+    // key and can attach a transform to every forwarded endpoint.
+    const forwarderMedia = new BrowserForwarderMediaPipeline()
+    const forwarderMediaOptions = forwarderMedia.available
+      ? { forwarderMedia: () => forwarderMedia.ready, forwarderMediaPipeline: forwarderMedia }
+      : {}
     const s = credential
       ? new RoomSession({
           transport,
@@ -7642,6 +7651,7 @@ async function startSession(asVisitor = false): Promise<void> {
           name,
           assist: currentAssistOffer,
           relay: peerRelay,
+          ...forwarderMediaOptions,
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.
@@ -7671,6 +7681,7 @@ async function startSession(asVisitor = false): Promise<void> {
           name,
           assist: currentAssistOffer,
           relay: peerRelay,
+          ...forwarderMediaOptions,
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.

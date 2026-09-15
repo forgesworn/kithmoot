@@ -148,7 +148,7 @@ export interface PeerOptions {
    * transform at this point; the receiver counterpart arrives through
    * `onTrack`.
    */
-  onSender?: (track: MediaStreamTrack, sender: unknown) => void
+  onSender?: (track: MediaStreamTrack, sender: unknown) => boolean | void
   /**
    * Whether this side has to open the conversation even with nothing to
    * send.
@@ -249,6 +249,9 @@ export class Peer {
   #retryTimer?: ReturnType<typeof setTimeout>
   /** How many more times the offer currently outstanding may be re-sent. */
   #retriesLeft = 0
+  /** A media-security hook rejected a newly-added sender. This connection
+   * must never race ahead and offer an unprotected m-line. */
+  #senderRefused = false
 
   constructor(opts: PeerOptions) {
     this.#opts = opts
@@ -310,10 +313,13 @@ export class Peer {
      * had anything to send and no glare could happen, worked perfectly.
      */
     this.#pc.onnegotiationneeded = () => {
-      if (this.#closed || this.#makingOffer) return
+      if (this.#closed || this.#makingOffer || this.#senderRefused) return
       if (this.#pc.signalingState !== 'stable') return
       void this.#enqueue(async () => {
-        if (this.#closed || this.#makingOffer) return
+        // `addTrack()` can synchronously queue this event. The sender hook
+        // runs immediately afterwards, so check again once the queued task
+        // gets its turn; otherwise an encryption refusal can race an offer.
+        if (this.#closed || this.#makingOffer || this.#senderRefused) return
         if (this.#pc.signalingState !== 'stable') return
         await this.#offer()
       }).catch(() => {})
@@ -408,7 +414,11 @@ export class Peer {
     for (const track of tracks) {
       if (this.#addedTracks.has(track)) continue
       const sender = this.#pc.addTrack(track) ?? this.#pc.getSenders?.().find((candidate) => candidate.track === track)
-      if (sender !== undefined) this.#opts.onSender?.(track, sender)
+      if (sender !== undefined && this.#opts.onSender?.(track, sender) === false) {
+        this.#senderRefused = true
+        this.#pc.removeTrack?.(sender)
+        throw new Error('media pipeline refused sender')
+      }
       this.#addedTracks.add(track)
     }
 

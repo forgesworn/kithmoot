@@ -91,6 +91,7 @@ function harness(over: Partial<MeshOptions> = {}): Harness {
     // This harness exercises an already verified media integration. The
     // production default deliberately does not opt in to server forwarding.
     forwarderMedia: () => true,
+    forwarderMediaPipeline: { rekey: () => true, protectSender: () => true, protectReceiver: () => true },
     onRoute: (d, route) => routes.push({ device: d, route }),
     ...over,
   })

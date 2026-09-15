@@ -15,6 +15,7 @@ import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
 import type { ForwardingState, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
+import type { ForwarderMediaPipeline } from './mesh.js'
 import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
@@ -160,6 +161,8 @@ export interface RoomSessionBaseOptions {
    * encryption and can read the media it relays.
    */
   forwarderMedia?: () => boolean
+  /** The concrete encoded-frame implementation that backs the capability. */
+  forwarderMediaPipeline?: ForwarderMediaPipeline
   /** A forwarder pubkey or url to prefer over the deterministic ordering. */
   preferForwarder?: string
   /** How long a forwarder has to connect before the room falls back to a
@@ -444,6 +447,9 @@ export class RoomSession {
     this.#opts = opts
     this.#epochSecret = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : { epoch: 0, secret: opts.secret }
     this.#epoch = deriveEpoch(this.#epochSecret)
+    if (opts.forwarderMediaPipeline && !opts.forwarderMediaPipeline.rekey(this.#epoch.key.slice())) {
+      throw new Error('forwarder media pipeline could not install the room epoch key')
+    }
     // A transport that derives from the epoch key is told it before
     // anything is subscribed or published through it. See `quiet.ts`.
     opts.transport.rekey?.(this.#epoch.key.slice())
@@ -584,6 +590,7 @@ export class RoomSession {
         uplink: this.#opts.uplink,
         forwarders: this.#opts.forwarders,
         forwarderMedia: this.#opts.forwarderMedia,
+        forwarderMediaPipeline: this.#opts.forwarderMediaPipeline,
         preferForwarder: this.#opts.preferForwarder,
         forwarderTimeoutMs: this.#opts.forwarderTimeoutMs,
         routeTimeoutMs: this.#opts.routeTimeoutMs,
@@ -921,6 +928,13 @@ export class RoomSession {
   #moveToEpoch(next: RoomEpoch, notice: RekeyNotice): void {
     this.#epochSecret = next
     this.#epoch = deriveEpoch(next)
+    // A forwarder has no room key. Its media transform does, so it changes
+    // with the epoch before this session publishes or accepts any new work.
+    // If the browser pipeline cannot rotate, tear the mesh down rather than
+    // leave the old key carrying media for someone just removed.
+    if (this.#opts.forwarderMediaPipeline && !this.#opts.forwarderMediaPipeline.rekey(this.#epoch.key.slice())) {
+      this.#mesh?.close()
+    }
     // Before the logs resubscribe, so a quiet transport matches the new
     // key's drops from the first one.
     this.#opts.transport.rekey?.(this.#epoch.key.slice())
