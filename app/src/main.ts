@@ -134,8 +134,9 @@ import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
 import { BrowserHistoryIndexStorage, LocalHistoryIndex } from './history-index.js'
 import { NostrHistoryRelayReader } from './history-relay-reader.js'
+import { advanceRecoveryWindows, loadHistoryRecoveryProgress, recoveryWindows as recoveryProgressWindows, saveHistoryRecoveryProgress } from './history-recovery-progress.js'
 import { indexAccessibleNip17GiftWraps } from './private-history-index.js'
-import { recoverRecentHistory, retainRecoveredHistory } from './private-history-recovery.js'
+import { recoverHistoryWindows, retainRecoveredHistory } from './private-history-recovery.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
 import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
@@ -1905,9 +1906,10 @@ function renderHistoryRecovery(): void {
   const held = select.value
   for (const box of boxes) select.add(new Option(`${box.authority === 'master' ? 'Master' : 'Stash'} box ${shortKey(box.node)} (checked until ${new Date(box.validUntil * 1000).toLocaleTimeString()})`, box.node))
   if (boxes.some(box => box.node === held)) select.value = held
-  status.textContent = historyRecoveryView.status || 'Choose a freshly checked box. Recovery is one explicit, bounded operation; it is never a background sync.'
+  const windows = recoveryProgressWindows(loadHistoryRecoveryProgress(deviceStore, account.pubkey, select.value || boxes[0]!.node), relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url), nowSeconds())
+  status.textContent = historyRecoveryView.status || `Choose a freshly checked box. The next action has ${windows.length} independent relay/class window${windows.length === 1 ? '' : 's'}; a completed one moves older, while a partial one stays put. Recovery is never a background sync.`
   action.disabled = historyRecoveryBusy
-  action.textContent = historyRecoveryBusy ? 'Bringing the recent window home…' : 'Bring the recent window home'
+  action.textContent = historyRecoveryBusy ? 'Bringing the selected windows home…' : 'Bring the next windows home'
 }
 
 function migrationNonce(): string {
@@ -1924,17 +1926,19 @@ async function recoverRecentHistoryToBox(): Promise<void> {
   if (!account || !crypt || !box) { renderHistoryRecovery(); return }
   const relays = relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url)
   if (!relays.length) throw new Error('Choose at least one readable default relay before recovering history.')
+  const progress = loadHistoryRecoveryProgress(deviceStore, account.pubkey, node)
+  const windows = recoveryProgressWindows(progress, relays, nowSeconds())
   if (!await confirmAction({
     title: 'Bring this recent history home?',
-    message: `KithMoot will ask ${relays.length} configured relay${relays.length === 1 ? '' : 's'} for one bounded 30-day window of your supported public history. Verified original events go in encrypted NIP-59 requests to ${shortKey(box.node)}. Relays will see the bounded requests; the box receives no plaintext search query.`,
+    message: `KithMoot will make ${windows.length} bounded relay/class requests across ${relays.length} configured read relay${relays.length === 1 ? '' : 's'}. Completed requests move to their next older 30-day window; limited, closed and timed-out requests do not advance. Verified original events go in encrypted NIP-59 requests to ${shortKey(box.node)}. Relays will see the bounded requests; the box receives no plaintext search query.`,
     confirmLabel: 'Bring it home',
     isCurrent: () => nostrSession === account && identityGeneration === generation && !!boxDiscovery?.migrationBoxes(account.pubkey).some(candidate => candidate.node === node),
   })) return
   historyRecoveryBusy = true
-  historyRecoveryView = { status: 'Reading the selected relay window…', rows: [] }
+    historyRecoveryView = { status: 'Reading the selected relay windows…', rows: [] }
   renderHistoryRecovery()
   try {
-    const imported = await recoverRecentHistory({ person: account.pubkey, relays, until: nowSeconds(), read: new NostrHistoryRelayReader().read })
+    const imported = await recoverHistoryWindows({ person: account.pubkey, windows, read: new NostrHistoryRelayReader().read })
     if (nostrSession !== account || identityGeneration !== generation) throw new Error('Account changed while recovery was running.')
     const transport = relayConnections.pool('default')
     let retained
@@ -1955,8 +1959,11 @@ async function recoverRecentHistoryToBox(): Promise<void> {
     const index = new LocalHistoryIndex(new BrowserHistoryIndexStorage())
     const local = await indexAccessibleNip17GiftWraps({ events: imported.events.filter(event => retainedIds.has(event.id)), identity: { pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event), encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text) }, index })
     const custody = retained.batches.flatMap(batch => batch.reply.ok ? batch.reply.result?.outcomes ?? [] : [`box error: ${batch.reply.error?.code ?? 'unknown'}`])
+    const nextWindows = advanceRecoveryWindows(windows, imported.receipts)
+    saveHistoryRecoveryProgress(deviceStore, { version: 1, person: account.pubkey, node, windows: nextWindows })
+    const advanced = imported.receipts.filter(receipt => receipt.terminal === 'complete').length
     historyRecoveryView = {
-      status: `Verified ${imported.events.length} distinct relay event${imported.events.length === 1 ? '' : 's'}; box outcomes: ${custody.length ? custody.join(', ') : 'no events to retain'}. This device indexed ${local.stored} decryptable NIP-17 message${local.stored === 1 ? '' : 's'} (${local.duplicate} already present; ${local.inaccessible} remained raw only).`,
+      status: `Verified ${imported.events.length} distinct relay event${imported.events.length === 1 ? '' : 's'}; box outcomes: ${custody.length ? custody.join(', ') : 'no events to retain'}. This device indexed ${local.stored} decryptable NIP-17 message${local.stored === 1 ? '' : 's'} (${local.duplicate} already present; ${local.inaccessible} remained raw only). ${advanced} completed relay/class request${advanced === 1 ? '' : 's'} will move to an older window next time; partial requests remain on this window.`,
       rows: imported.receipts.map(receipt => `${receipt.relay} · ${receipt.request.class} · ${receipt.terminal}: accepted ${receipt.accepted}, duplicate ${receipt.duplicate}, invalid ${receipt.invalid}, rejected ${receipt.rejected}.`),
     }
   } catch (error) {

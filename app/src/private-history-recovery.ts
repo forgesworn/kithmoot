@@ -6,6 +6,7 @@ import {
   importBoundedHistory,
   submitPrivateMigrationRequest,
   type HistoryImportResult,
+  type HistoryRequestClass,
   type HistoryRelayReader,
   type PrivateMigrationIdentity,
   type PrivateMigrationReply,
@@ -29,6 +30,28 @@ export function recentHistoryRecoveryRequests(person: string, until: number): Re
   ]
 }
 
+export interface HistoryRecoveryReadWindow {
+  relay: string
+  class: HistoryRequestClass
+  until: number
+}
+
+/** One narrow filter for one persisted relay/class cursor. Keeping the relay
+ * outside the filter is deliberate: callers must not let a complete relay
+ * advance a different relay that timed out or applied a smaller limit. */
+export function historyRecoveryRequest(person: string, window: HistoryRecoveryReadWindow): ReturnType<typeof historyImportRequest> {
+  if (window.class !== 'authored' && window.class !== 'addressed' || !Number.isSafeInteger(window.until) || window.until < 0 || !window.relay) throw new Error('Invalid history recovery window.')
+  const since = Math.max(0, window.until - HISTORY_RECOVERY_WINDOW_SECONDS)
+  return historyImportRequest({
+    class: window.class,
+    person,
+    kinds: window.class === 'authored' ? RECOVERABLE_AUTHORED_KINDS : RECOVERABLE_ADDRESSED_KINDS,
+    since,
+    until: window.until,
+    limit: HISTORY_IMPORT_MAX_EVENTS,
+  })
+}
+
 export async function recoverRecentHistory(input: {
   person: string
   relays: readonly string[]
@@ -36,6 +59,26 @@ export async function recoverRecentHistory(input: {
   read: HistoryRelayReader
 }): Promise<HistoryImportResult> {
   return await importBoundedHistory({ relays: input.relays, requests: recentHistoryRecoveryRequests(input.person, input.until), read: input.read })
+}
+
+/** Runs independently per persisted relay/class cursor and re-applies global
+ * deduplication across the combined result. `importBoundedHistory` owns the
+ * hostile-relay validation for each request; this layer owns only the cursor
+ * isolation that makes a later recovery action truthful. */
+export async function recoverHistoryWindows(input: {
+  person: string
+  windows: readonly HistoryRecoveryReadWindow[]
+  read: HistoryRelayReader
+}): Promise<HistoryImportResult> {
+  if (input.windows.length === 0 || input.windows.length > 64) throw new Error('Use 1-64 recovery windows.')
+  const responses = await Promise.all(input.windows.map(async window => await importBoundedHistory({
+    relays: [window.relay], requests: [historyRecoveryRequest(input.person, window)], read: input.read,
+  })))
+  const ids = new Set<string>(), events: Event[] = []
+  for (const response of responses) for (const event of response.events) if (!ids.has(event.id)) {
+    ids.add(event.id); events.push(event)
+  }
+  return { events, receipts: responses.flatMap(response => response.receipts) }
 }
 
 /** Retain a bounded import in the selected verified box. Every batch receives
