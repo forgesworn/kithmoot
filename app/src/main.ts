@@ -1796,7 +1796,18 @@ function renderIdentity(): void {
   $('joinNostr').classList.toggle('primary', extensionHere)
   $('joinNostr').classList.toggle('linkish', !extensionHere)
   $('joinVisitor').hidden = !needsAccountReconnect()
-  if (!joining) $('join').textContent = needsAccountReconnect() ? 'Reconnect to join' : extensionHere ? 'Join with just a name' : 'Join'
+  // An old device key can have a public profile, so this is often a very
+  // recognisable-looking identity.  It is still not the Nostr account in
+  // the extension. Calling that route "just a name" made the two choices
+  // look contradictory at the door.
+  const savedDeviceIdentity = loadCredential()?.pubkey ?? currentParticipant()
+  if (!joining) {
+    $('join').textContent = needsAccountReconnect()
+      ? 'Reconnect to join'
+      : extensionHere
+        ? savedDeviceIdentity ? 'Join with saved device identity' : 'Join with a name only'
+        : 'Join'
+  }
   $('join').classList.toggle('primary', !extensionHere)
   $('join').classList.toggle('quiet', extensionHere)
   // The filled button comes first. With the extension the order is: the
@@ -1867,7 +1878,7 @@ function renderIdentity(): void {
     if (!session && !nostrSession && extensionSignerPresent() && !needsAccountReconnect()) {
       const aside = document.createElement('span')
       aside.className = 'whoamiAside'
-      aside.textContent = ' with just a name. Your Nostr extension is here and not in use yet.'
+      aside.textContent = ' with a saved device identity. Your Nostr extension is here and not in use yet.'
       line.append(aside)
     }
   } else if (name !== undefined) {
