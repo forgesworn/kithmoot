@@ -36,7 +36,7 @@ the installed clients are judged.
 
 | Client | State on 14 September 2026 | Current boundary |
 | --- | --- | --- |
-| PWA | Implemented and deployed under `/j/` | The iPhone annotation repair has automated evidence; P0 remains open until its exact deployed release and physical acceptance are recorded |
+| PWA | Implemented and deployed under `/j/` (release `20260915T055605Z`, `main` `26793d1`) | The iPhone annotation and active-call-update repairs have automated and exact-release deployment evidence; P0 remains open until physical acceptance is recorded |
 | Android | Native Kotlin client exists | Its repository has its own incomplete parity, signing, publication and physical-accessibility gates |
 | iPhone and iPad | PWA only | There is no native Apple client; mobile browser screen sharing remains platform-limited |
 | macOS, Windows and Linux | Browser/PWA only | There is no packaged desktop client or privileged desktop overlay |
