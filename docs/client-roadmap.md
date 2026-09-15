@@ -1,6 +1,6 @@
 # KithMoot client roadmap
 
-Recorded 14 September 2026. This roadmap sequences the clients; it does not
+Recorded 14 September 2026; delivery state refreshed 15 September 2026. This roadmap sequences the clients; it does not
 declare any milestone complete. The immediate product is the PWA. Desktop and
 native clients follow only after the PWA has met the exit gate below.
 
@@ -265,9 +265,9 @@ release gate.
 
 ## Immediate next work
 
-1. Finish, review and ship P0's current PWA annotation repair.
-2. Repeat the physical desktop/iPhone room check and record the result.
-3. Convert every failure from that check into a P1 regression or an explicit
+1. Repeat the physical desktop/iPhone room check against production release
+   `20260915T055605Z` and record the result.
+2. Convert every failure from that check into a P1 regression or an explicit
    platform limitation.
-4. Run the P1 matrix before starting an Electron, SwiftUI or additional
+3. Run the P1 matrix before starting an Electron, SwiftUI or additional
    Android feature lane.

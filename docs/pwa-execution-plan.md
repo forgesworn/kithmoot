@@ -2,7 +2,9 @@
 
 Recorded 14 September 2026; delivery state refreshed 15 September 2026. This
 is the working order for the PWA phases in the [client roadmap](client-roadmap.md).
-It is an execution checklist, not a claim that a phase is complete.
+It is an execution checklist, not a claim that a phase is complete. The
+[day-end handover](2026-09-15-pwa-day-end.md) records the exact release and
+the remaining named physical checks.
 
 Desktop packaging and new native Apple work remain outside this plan. Android
 browser behaviour is included where it provides PWA compatibility evidence;
@@ -275,9 +277,10 @@ release notes.
 Exit: the PWA release gate in the client roadmap is accepted. Only then does a
 desktop shell or new native Apple client become the primary product lane.
 
-## First session
+## Next session
 
-Start on **Sol High** with P0.1. The next concrete action is to review the
-existing annotation candidate, rerun its checks, and prepare it for the
-authorised commit/push/merge/deploy path. The first manual activity is P0.2's
-desktop/iPhone room check against that deployed candidate.
+P0.1 is already merged and deployed. Start on **Sol High** with P0.2's
+desktop/iPhone room check against production release `20260915T055605Z`.
+Record each result as a physical pass, an actionable defect, or an explicit
+platform limitation. There is no new product candidate to deploy until that
+check identifies one.
