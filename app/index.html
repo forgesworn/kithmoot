@@ -340,6 +340,15 @@
             <p id="historyRecoveryStatus" class="note" role="status"></p>
             <ul id="historyRecoveryReport" class="note"></ul>
           </details>
+          <details id="importedHistorySearch" hidden>
+            <summary>Search imported history on this device</summary>
+            <p class="note">This searches only the encrypted index in this browser. Search words and results never leave this device.</p>
+            <label for="importedHistoryQuery">Find in imported messages</label>
+            <input id="importedHistoryQuery" type="search" autocomplete="off" maxlength="512" placeholder="Words, person or file name">
+            <button id="searchImportedHistory" type="button" class="quiet">Search this device</button>
+            <p id="importedHistoryStatus" class="note" role="status"></p>
+            <ul id="importedHistoryResults" class="note"></ul>
+          </details>
           <button id="forgetBrowser" type="button" class="danger">Forget this browser</button>
         </div>
         <h2 id="arrivalTitle">Open your room</h2>

@@ -132,9 +132,10 @@ import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store
 import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
-import { BrowserHistoryIndexStorage, LocalHistoryIndex } from './history-index.js'
+import { BrowserHistoryIndexStorage, LocalHistoryIndex, importedHistoryCoverage } from './history-index.js'
 import { NostrHistoryRelayReader } from './history-relay-reader.js'
 import { advanceRecoveryWindows, loadHistoryRecoveryProgress, recoveryWindows as recoveryProgressWindows, saveHistoryRecoveryProgress } from './history-recovery-progress.js'
+import { deleteImportedHistory, recordPrivateHistoryTombstone } from './private-history-deletion.js'
 import { indexAccessibleNip17GiftWraps } from './private-history-index.js'
 import { recoverHistoryWindows, retainRecoveredHistory } from './private-history-recovery.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
@@ -620,6 +621,9 @@ let nostrSession: SignetSession | undefined
 let historyRecoveryBusy = false
 type HistoryRecoveryView = { status: string; rows: string[] }
 let historyRecoveryView: HistoryRecoveryView = { status: '', rows: [] }
+let importedHistorySearchBusy = false
+type ImportedHistorySearchView = { query: string; status: string; results: Awaited<ReturnType<LocalHistoryIndex['search']>> }
+let importedHistorySearchView: ImportedHistorySearchView = { query: '', status: '', results: [] }
 
 /** What this participant types for themselves. Sanitised on the way in and
  *  again by every reader - see src/display-name.ts. */
@@ -681,6 +685,7 @@ async function signInWithNostr(): Promise<void> {
   if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
   loginBusy = true
   identityGeneration++
+  clearImportedHistorySearch()
   let account: SignetSession | null
   try {
     account = await login({ appName: 'KithMoot', relayUrls: RELAYS,
@@ -726,6 +731,7 @@ async function signOutOfNostr(): Promise<void> {
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
   identityGeneration++
+  clearImportedHistorySearch()
   relayConnections.clearAuthentication()
   const account = nostrSession
   void sharedProjects.detach()
@@ -781,6 +787,7 @@ async function forgetThisBrowser(): Promise<void> {
 
   contextPanel.close()
   identityGeneration++
+  clearImportedHistorySearch()
   const s = session
   session = undefined
   sessionTransport = undefined
@@ -1773,6 +1780,7 @@ function renderIdentity(): void {
     accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true, true))
   }
   renderHistoryRecovery()
+  renderImportedHistorySearch()
   $('joinNostr').hidden = !!nostrSession || !!loadCredential()
   // A signer extension in this browser, and no account signed in here: the
   // door used to show a visitor with the typed name and a small link, and
@@ -1910,6 +1918,129 @@ function renderHistoryRecovery(): void {
   status.textContent = historyRecoveryView.status || `Choose a freshly checked box. The next action has ${windows.length} independent relay/class window${windows.length === 1 ? '' : 's'}; a completed one moves older, while a partial one stays put. Recovery is never a background sync.`
   action.disabled = historyRecoveryBusy
   action.textContent = historyRecoveryBusy ? 'Bringing the selected windows home…' : 'Bring the next windows home'
+}
+
+function renderImportedHistorySearch(): void {
+  const details = $('importedHistorySearch') as HTMLDetailsElement
+  const input = $('importedHistoryQuery') as HTMLInputElement
+  const action = $('searchImportedHistory') as HTMLButtonElement
+  const status = $('importedHistoryStatus')
+  const results = $('importedHistoryResults')
+  const account = nostrSession
+  details.hidden = !account
+  results.replaceChildren()
+  if (!account) return
+  input.value = importedHistorySearchView.query
+  status.textContent = importedHistorySearchView.status || 'Search is explicit and local. It has no relay, box or signer request.'
+  action.disabled = importedHistorySearchBusy
+  action.textContent = importedHistorySearchBusy ? 'Searching this device…' : 'Search this device'
+  for (const result of importedHistorySearchView.results) {
+    const row = document.createElement('li')
+    const when = new Date(result.document.sentAt * 1000).toLocaleString()
+    const text = result.document.text.length > 280 ? `${result.document.text.slice(0, 280)}…` : result.document.text
+    row.append(`${when} · ${shortKey(result.document.participant ?? 'unknown')} · ${text}`)
+    const remove = document.createElement('button')
+    remove.type = 'button'; remove.className = 'danger'; remove.textContent = 'Delete from this device and box'
+    remove.disabled = importedHistorySearchBusy
+    remove.addEventListener('click', () => { void deleteImportedHistoryResult(result.document.id) })
+    row.append(' ', remove)
+    results.append(row)
+  }
+}
+
+function clearImportedHistorySearch(): void {
+  importedHistorySearchBusy = false
+  importedHistorySearchView = { query: '', status: '', results: [] }
+  // Clear rendered plaintext synchronously too: an asynchronous sign-in or
+  // sign-out must not leave a former account's search result on screen.
+  document.getElementById('importedHistoryResults')?.replaceChildren()
+  const input = document.getElementById('importedHistoryQuery') as HTMLInputElement | null
+  if (input) input.value = ''
+  const status = document.getElementById('importedHistoryStatus')
+  if (status) status.textContent = ''
+}
+
+async function searchImportedHistory(): Promise<void> {
+  if (importedHistorySearchBusy) return
+  const account = nostrSession, generation = identityGeneration
+  if (!account) return
+  const query = ($('importedHistoryQuery') as HTMLInputElement).value
+  importedHistorySearchBusy = true
+  importedHistorySearchView = { query, status: 'Opening this device’s encrypted imported-history index…', results: [] }
+  renderImportedHistorySearch()
+  try {
+    const index = new LocalHistoryIndex(new BrowserHistoryIndexStorage())
+    const count = await index.count()
+    const results = await index.search(query)
+    if (nostrSession !== account || identityGeneration !== generation) return
+    importedHistorySearchView = {
+      query,
+      results,
+      status: `${importedHistoryCoverage(count)} ${results.length} matching item${results.length === 1 ? '' : 's'} shown.`,
+    }
+  } catch (error) {
+    if (nostrSession !== account || identityGeneration !== generation) return
+    importedHistorySearchView = { query, status: describeError(error), results: [] }
+  } finally {
+    if (nostrSession !== account || identityGeneration !== generation) return
+    importedHistorySearchBusy = false
+    renderImportedHistorySearch()
+  }
+}
+
+async function deleteImportedHistoryResult(eventId: string): Promise<void> {
+  if (importedHistorySearchBusy) return
+  const account = nostrSession, generation = identityGeneration
+  const crypt = account?.signer.nip44
+  const node = ($('historyRecoveryBox') as HTMLSelectElement).value
+  const box = account && boxDiscovery?.migrationBoxes(account.pubkey).find(candidate => candidate.node === node)
+  if (!account || !crypt || !box) {
+    importedHistorySearchView = { ...importedHistorySearchView, status: 'Choose a freshly checked master or stash box in “Bring recent Nostr history home” before deleting an imported item.' }
+    renderImportedHistorySearch()
+    return
+  }
+  if (!await confirmAction({
+    title: 'Delete this imported message?',
+    message: 'KithMoot will first ask the selected box to record a private deletion barrier for this exact stored outer event. Only after its authenticated receipt will this browser remove its encrypted search material. A received NIP-17 outer wrapper is ephemeral-signed, not authored by this account, so no invalid public kind-5 deletion request will be sent. Public copies held by other people or relays may remain.',
+    confirmLabel: 'Delete locally and from box',
+    isCurrent: () => nostrSession === account && identityGeneration === generation && !!boxDiscovery?.migrationBoxes(account.pubkey).some(candidate => candidate.node === node),
+  })) return
+  importedHistorySearchBusy = true
+  importedHistorySearchView = { ...importedHistorySearchView, status: 'Waiting for the selected box’s private deletion receipt…' }
+  renderImportedHistorySearch()
+  try {
+    const index = new LocalHistoryIndex(new BrowserHistoryIndexStorage())
+    const transport = relayConnections.pool('default')
+    let outcome
+    try {
+      outcome = await deleteImportedHistory({
+        eventId,
+        index,
+        recordPrivateTombstone: async id => {
+          const recorded = await recordPrivateHistoryTombstone({
+            eventId: id,
+            identity: { pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event), encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text) },
+            node,
+            nonce: migrationNonce(),
+            transport,
+          })
+          if (nostrSession !== account || identityGeneration !== generation) throw new Error('Account changed while the box deletion was running.')
+          return recorded
+        },
+      })
+    } finally { transport.close() }
+    const remaining = await index.count()
+    importedHistorySearchView = {
+      ...importedHistorySearchView,
+      results: importedHistorySearchView.results.filter(result => result.document.id !== eventId),
+      status: `${importedHistoryCoverage(remaining)} Box deletion barrier: ${outcome.box}; this device: ${outcome.device}. Public relays: no request sent, because this received NIP-17 outer wrapper is not signed by this account.`,
+    }
+  } catch (error) {
+    importedHistorySearchView = { ...importedHistorySearchView, status: describeError(error) }
+  } finally {
+    importedHistorySearchBusy = false
+    renderImportedHistorySearch()
+  }
 }
 
 function migrationNonce(): string {
@@ -8891,6 +9022,7 @@ $('signOut').addEventListener('click', () => {
 })
 $('retryRoomSync').addEventListener('click', () => { void bookmarks?.retry() })
 $('recoverRecentHistory').addEventListener('click', () => { void recoverRecentHistoryToBox() })
+$('searchImportedHistory').addEventListener('click', () => { void searchImportedHistory() })
 $('importBrowserRooms').addEventListener('click', () => {
   try { importBrowserRooms() } catch (error) { setStatus(describeError(error)) }
 })
