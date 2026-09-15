@@ -81,11 +81,31 @@ test('the home page leads with room actions, fits both themes and starts a named
       participant.append(media)
       document.getElementById('whoIsHere')!.hidden = false
     })
-    const compactTile = (await page.locator('#room .participant').boundingBox())!
-    expect(compactTile.width).toBeLessThanOrEqual(210)
+    // Firefox and WebKit apply the new desktop media-query layout on their
+    // next render after a viewport resize. Poll the visible geometry instead
+    // of assuming the synchronous DOM mutation has already painted it.
+    await expect.poll(async () =>
+      (await page.locator('#room .participant').boundingBox())!.width,
+    ).toBeLessThanOrEqual(210)
     const tools = (await page.locator('.conversationTools').boundingBox())!
     const chat = (await page.locator('#chatViewport').boundingBox())!
     expect(tools.y + tools.height).toBeLessThanOrEqual(chat.y + 1)
+  } finally { await context.close() }
+})
+
+test('relay-only network privacy refuses to join without a TURN allocation', async ({ browser, baseURL }) => {
+  const { context } = await device(browser, baseURL!)
+  try {
+    const page = await context.newPage()
+    await page.goto(baseURL!)
+    await page.locator('#create').click()
+    await page.locator('#displayName').fill('Ada')
+    await page.locator('#joinNetworkPrivacy > summary').click()
+    await page.locator('#joinRelayOnly').check()
+    await page.locator('#join').click()
+
+    await expect(page.locator('#status')).toContainText('no usable TURN relay')
+    await expect(page.locator('#roomArea')).toBeHidden()
   } finally { await context.close() }
 })
 

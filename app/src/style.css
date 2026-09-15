@@ -2224,6 +2224,13 @@ label.note {
     padding-block: 0.65rem;
   }
 
+  /* This is deliberately a compact, optional fold at the door. The full
+     explanation appears only after somebody asks for relay-only calling;
+     otherwise it must not push the Join action below a short phone screen. */
+  #identity #joinNetworkPrivacy > summary {
+    padding-block: 0.45rem;
+  }
+
   #chatViewport {
     /* The conversation takes the shortfall, and the names do not.
 
