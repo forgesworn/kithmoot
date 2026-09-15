@@ -132,6 +132,10 @@ import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store
 import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
+import { BrowserHistoryIndexStorage, LocalHistoryIndex } from './history-index.js'
+import { NostrHistoryRelayReader } from './history-relay-reader.js'
+import { indexAccessibleNip17GiftWraps } from './private-history-index.js'
+import { recoverRecentHistory, retainRecoveredHistory } from './private-history-recovery.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
 import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
@@ -612,6 +616,9 @@ function participantKey(): Uint8Array {
  *  signet-login persists whatever it needs to reconnect (a bunker URI, a
  *  client key), and deliberately never an nsec. */
 let nostrSession: SignetSession | undefined
+let historyRecoveryBusy = false
+type HistoryRecoveryView = { status: string; rows: string[] }
+let historyRecoveryView: HistoryRecoveryView = { status: '', rows: [] }
 
 /** What this participant types for themselves. Sanitised on the way in and
  *  again by every reader - see src/display-name.ts. */
@@ -1764,6 +1771,7 @@ function renderIdentity(): void {
     profiles.want([nostrSession.pubkey])
     accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true, true))
   }
+  renderHistoryRecovery()
   $('joinNostr').hidden = !!nostrSession || !!loadCredential()
   // A signer extension in this browser, and no account signed in here: the
   // door used to show a visitor with the typed name and a small link, and
@@ -1867,6 +1875,96 @@ function renderIdentity(): void {
 
   renderHowIn()
   renderNudgeChoice()
+}
+
+function renderHistoryRecovery(): void {
+  const details = $('historyRecovery') as HTMLDetailsElement
+  const select = $('historyRecoveryBox') as HTMLSelectElement
+  const action = $('recoverRecentHistory') as HTMLButtonElement
+  const status = $('historyRecoveryStatus')
+  const report = $('historyRecoveryReport')
+  report.replaceChildren(...historyRecoveryView.rows.map(row => {
+    const item = document.createElement('li'); item.textContent = row; return item
+  }))
+  const account = nostrSession
+  details.hidden = !account
+  select.replaceChildren()
+  if (!account) return
+  const crypt = account.signer.nip44
+  if (!crypt) {
+    status.textContent = 'This signer cannot make the private NIP-44 handoff required for recovery.'
+    action.disabled = true
+    return
+  }
+  const boxes = boxDiscovery?.migrationBoxes(account.pubkey) ?? []
+  if (!boxes.length) {
+    status.textContent = 'Add your own current contact card, then choose Check box. Recovery is offered only after its signed claim and current status verify this account as master or stash.'
+    action.disabled = true
+    return
+  }
+  const held = select.value
+  for (const box of boxes) select.add(new Option(`${box.authority === 'master' ? 'Master' : 'Stash'} box ${shortKey(box.node)} (checked until ${new Date(box.validUntil * 1000).toLocaleTimeString()})`, box.node))
+  if (boxes.some(box => box.node === held)) select.value = held
+  status.textContent = historyRecoveryView.status || 'Choose a freshly checked box. Recovery is one explicit, bounded operation; it is never a background sync.'
+  action.disabled = historyRecoveryBusy
+  action.textContent = historyRecoveryBusy ? 'Bringing the recent window home…' : 'Bring the recent window home'
+}
+
+function migrationNonce(): string {
+  const bytes = new Uint8Array(8); crypto.getRandomValues(bytes)
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+async function recoverRecentHistoryToBox(): Promise<void> {
+  if (historyRecoveryBusy) return
+  const account = nostrSession, generation = identityGeneration
+  const crypt = account?.signer.nip44
+  const node = ($('historyRecoveryBox') as HTMLSelectElement).value
+  const box = account && boxDiscovery?.migrationBoxes(account.pubkey).find(candidate => candidate.node === node)
+  if (!account || !crypt || !box) { renderHistoryRecovery(); return }
+  const relays = relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url)
+  if (!relays.length) throw new Error('Choose at least one readable default relay before recovering history.')
+  if (!await confirmAction({
+    title: 'Bring this recent history home?',
+    message: `KithMoot will ask ${relays.length} configured relay${relays.length === 1 ? '' : 's'} for one bounded 30-day window of your supported public history. Verified original events go in encrypted NIP-59 requests to ${shortKey(box.node)}. Relays will see the bounded requests; the box receives no plaintext search query.`,
+    confirmLabel: 'Bring it home',
+    isCurrent: () => nostrSession === account && identityGeneration === generation && !!boxDiscovery?.migrationBoxes(account.pubkey).some(candidate => candidate.node === node),
+  })) return
+  historyRecoveryBusy = true
+  historyRecoveryView = { status: 'Reading the selected relay window…', rows: [] }
+  renderHistoryRecovery()
+  try {
+    const imported = await recoverRecentHistory({ person: account.pubkey, relays, until: nowSeconds(), read: new NostrHistoryRelayReader().read })
+    if (nostrSession !== account || identityGeneration !== generation) throw new Error('Account changed while recovery was running.')
+    const transport = relayConnections.pool('default')
+    let retained
+    try {
+      retained = await retainRecoveredHistory({
+        events: imported.events,
+        identity: { pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event), encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text) },
+        node,
+        transport,
+        nonce: migrationNonce,
+      })
+    } finally { transport.close() }
+    const retainedIds = new Set<string>()
+    for (const batch of retained.batches) {
+      const outcomes = batch.reply.ok ? batch.reply.result?.outcomes : undefined
+      outcomes?.forEach((outcome, index) => { if (outcome === 'stored' || outcome === 'duplicate') retainedIds.add(batch.ids[index]!) })
+    }
+    const index = new LocalHistoryIndex(new BrowserHistoryIndexStorage())
+    const local = await indexAccessibleNip17GiftWraps({ events: imported.events.filter(event => retainedIds.has(event.id)), identity: { pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event), encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text) }, index })
+    const custody = retained.batches.flatMap(batch => batch.reply.ok ? batch.reply.result?.outcomes ?? [] : [`box error: ${batch.reply.error?.code ?? 'unknown'}`])
+    historyRecoveryView = {
+      status: `Verified ${imported.events.length} distinct relay event${imported.events.length === 1 ? '' : 's'}; box outcomes: ${custody.length ? custody.join(', ') : 'no events to retain'}. This device indexed ${local.stored} decryptable NIP-17 message${local.stored === 1 ? '' : 's'} (${local.duplicate} already present; ${local.inaccessible} remained raw only).`,
+      rows: imported.receipts.map(receipt => `${receipt.relay} · ${receipt.request.class} · ${receipt.terminal}: accepted ${receipt.accepted}, duplicate ${receipt.duplicate}, invalid ${receipt.invalid}, rejected ${receipt.rejected}.`),
+    }
+  } catch (error) {
+    historyRecoveryView = { ...historyRecoveryView, status: describeError(error) }
+  } finally {
+    historyRecoveryBusy = false
+    renderHistoryRecovery()
+  }
 }
 
 // The published tracks. Neither the microphone nor the camera track is the
@@ -8785,6 +8883,7 @@ $('signOut').addEventListener('click', () => {
   signOutOfNostr().catch((err) => setStatus(describeError(err)))
 })
 $('retryRoomSync').addEventListener('click', () => { void bookmarks?.retry() })
+$('recoverRecentHistory').addEventListener('click', () => { void recoverRecentHistoryToBox() })
 $('importBrowserRooms').addEventListener('click', () => {
   try { importBrowserRooms() } catch (error) { setStatus(describeError(error)) }
 })
@@ -10153,7 +10252,7 @@ if (known) profiles.want([known])
 boxDiscovery = new BoxDiscovery({
   store: deviceStore,
   transport: unavailable => new BoxRelayReader(relayConnections.configuration('default'), unavailable),
-  changed: () => { renderContacts(); renderLaneNote() },
+  changed: () => { renderContacts(); renderLaneNote(); renderHistoryRecovery() },
 })
 boxDiscovery.reconcile()
 document.addEventListener('visibilitychange', () => { if (!document.hidden) boxDiscovery?.tick() })
