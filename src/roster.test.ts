@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey, getPublicKey, verifiedSymbol, type Event } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey, verifiedSymbol, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { deriveRoom } from './room.js'
 import { createDeviceCredential } from './credential.js'
@@ -284,6 +284,24 @@ describe('the agent flag', () => {
     expect(decoded?.agent).toBe(true)
     const person = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
     expect(JSON.parse(nip44.v2.decrypt(person.content, roomKey))).not.toHaveProperty('agent')
+  })
+
+  it('accepts request receipt support only as true on an agent entry', async () => {
+    const { entry, roomId, roomKey, deviceSk } = await fixture()
+    for (const agent of [true, false, undefined]) {
+      for (const requestReceipts of [true, false, 'true', 1, {}]) {
+        const event = encodeRosterEvent({ ...entry, agent, requestReceipts } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+        const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+        expect(decoded).not.toBeNull()
+        expect(decoded?.requestReceipts).toBe(agent === true && requestReceipts === true ? true : undefined)
+        // Check the receive boundary independently of our encoder's sanitisation.
+        const raw = finalizeEvent({ kind: event.kind, created_at: NOW, tags: event.tags,
+          content: nip44.v2.encrypt(JSON.stringify({ ...entry, agent, requestReceipts }), roomKey) }, deviceSk)
+        const fromExternal = decodeRosterEvent(raw, { roomId, roomKey, now: NOW })
+        expect(fromExternal).not.toBeNull()
+        expect(fromExternal?.requestReceipts).toBe(agent === true && requestReceipts === true ? true : undefined)
+      }
+    }
   })
 
   it('accepts only an honest `true`; anything else is a person', async () => {

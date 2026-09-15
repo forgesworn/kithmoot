@@ -179,6 +179,12 @@ malformed `call` is dropped and the entry kept. Presence expires; replayed
 presence is not a permanent guest list. New arrivals announce and existing
 members answer because relays need not retain presence.
 
+An automated device declares `agent:true`. It may additionally advertise
+`requestReceipts:true` while its driver sends signed request-received markers
+(see [agent receipts](agents.md#request-receipts-and-failures)). Only boolean
+`true` on an agent entry enables this capability; other values are ignored.
+Absence of this field does not imply that an ordinary agent reply failed.
+
 A descriptor (20465) contains forwarder references and ICE configuration under
 the room key. It does not replace the invitation admission policy. A forwarder
 reference names its signalling relay and public key; unrecognised properties do

@@ -228,6 +228,9 @@ export interface RosterEntry {
    * for a client that has never heard of agents.
    */
   agent?: boolean
+  /** This agent's current driver supports signed request-received markers.
+   * Absent on drivers that send ordinary replies without those markers. */
+  requestReceipts?: boolean
   /**
    * Whose agent this is, said by the principal rather than by the agent.
    * Carried only on an entry that says `agent: true`, and only ever seen

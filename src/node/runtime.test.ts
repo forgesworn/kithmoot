@@ -268,6 +268,26 @@ class ScriptedBrain extends ModelBrain {
 }
 
 describe('ModelBrain', () => {
+  it.each([false, true])('advertises receipt support while attached and restores automatic receipts = %s on stop', async automaticReceipts => {
+    const { keeper, ada } = await room()
+    const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: '' }, automaticReceipts }).start()
+    const support = () => keeper.roster().find(v => v.participant === ada.participant)?.requestReceipts === true
+    await vi.waitFor(() => expect(support()).toBe(automaticReceipts))
+    const stop = await new ScriptedBrain([]).start(runtime)
+    try {
+      await vi.waitFor(() => expect(support()).toBe(true))
+      await stop()
+      await vi.waitFor(() => expect(support()).toBe(automaticReceipts))
+      const stopNext = await new ScriptedBrain([]).start(runtime)
+      try {
+        await vi.waitFor(() => expect(support()).toBe(true))
+        await stop() // An old stop handle must not withdraw the new driver's claim.
+        await settle()
+        expect(support()).toBe(true)
+      } finally { await stopNext() }
+    } finally { await stop(); await runtime.close(); keeper.leave() }
+  })
+
   it('answers a request received before its brain attaches exactly once', async () => {
     const { keeper, ada } = await room()
     const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: '' } }).start()
@@ -293,6 +313,7 @@ describe('ModelBrain', () => {
     const { keeper, ada } = await room()
     const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: '' }, automaticReceipts: true }).start()
     try {
+      await vi.waitFor(() => expect(keeper.roster().find(v => v.participant === ada.participant)?.requestReceipts).toBe(true))
       await keeper.chat.send('@Ada are you there?')
       await vi.waitFor(() => expect(keeper.chat.messages().filter(m => m.reaction?.receipt === 'received')).toHaveLength(1), { timeout: 4000 })
       const request = keeper.chat.messages().find(m => m.text === '@Ada are you there?')!

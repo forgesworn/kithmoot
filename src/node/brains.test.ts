@@ -97,7 +97,7 @@ describe('model request outcomes', () => {
     const send = vi.fn(async (_text: string, _options?: unknown) => {})
     let listener: (event: import('./runtime.js').RuntimeEvent) => void = () => {}
     const runtime = {
-      agent: { participant: 'agent' }, persona: { name: 'Tally', system: '' },
+      agent: { participant: 'agent', session: { requestReceipts: false, setRequestReceipts: vi.fn(async () => {}) } }, persona: { name: 'Tally', system: '' },
       roster: () => [{ participant: 'person', agent: false }],
       on: (fn: typeof listener) => { listener = fn; return () => { listener = () => {} } },
       brief: async () => 'context', line: (m: { text: string }) => m.text,

@@ -2,7 +2,7 @@ import type { ChatMessage } from '../../src/chat.js'
 import { mentionedBy, refKey, resolveConversation } from '../../src/messages.js'
 import { reactionsFor } from '../../src/reactions.js'
 
-export interface RequestAgent { participant: string; name?: string; present: boolean }
+export interface RequestAgent { participant: string; name?: string; present: boolean; requestReceipts?: boolean }
 
 /** Per-conversation evidence only: a thumbs-up without a receipt marker and
  * an unrelated later message do not prove this request was received/answered. */
@@ -35,6 +35,9 @@ export function readAgentRequestStatuses(messages: ChatMessage[]) {
       const name = agent.name || agent.participant.slice(0, 8)
       const received = receipts.get(key)!.has(agent.participant)
       if (received) return [`${name} received this. ${now - request.sentAt * 1000 < 120_000 ? 'A reply may still be pending.' : 'Check the conversation for a reply before retrying.'}`]
+      // Older and external drivers can answer without sending receipt markers
+      // or linked replies. Their silence on this protocol is not a delivery fault.
+      if (agent.requestReceipts !== true) return []
       if (!agent.present) return [`${name} is not currently connected. Retry when they return.`]
       return [now - request.sentAt * 1000 < 30_000 ? `Waiting for ${name} to receive this…` : `No receipt from ${name} yet. Check their connection or retry.`]
     })

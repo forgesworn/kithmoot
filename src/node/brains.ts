@@ -405,15 +405,21 @@ export abstract class ModelBrain implements Brain {
 
   async start(runtime: AgentRuntime): Promise<() => Promise<void>> {
     if (this.#runtime) throw new Error('This brain is already running')
+    const priorReceipts = runtime.agent.session.requestReceipts
+    void runtime.agent.session.setRequestReceipts(true).catch(() => this.#opts.log('receipt support could not be advertised'))
     this.#runtime = runtime
     const off = runtime.on((event) => this.#onEvent(runtime, event), { replay: true })
+    let stopped = false
     return async () => {
+      if (stopped) return
+      stopped = true
       off()
       if (this.#timer) clearTimeout(this.#timer)
       this.#timer = undefined
       this.#runtime = undefined
       this.#pending = []
       this.#turnAbort?.abort()
+      await runtime.agent.session.setRequestReceipts(priorReceipts).catch(() => {})
     }
   }
 

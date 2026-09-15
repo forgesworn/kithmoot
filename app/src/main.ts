@@ -4175,6 +4175,7 @@ function updateUi(): void {
  */
 const agentParticipants = new Set<string>()
 const agentDisplayNames = new Map<string, string>()
+const receiptAgents = new Set<string>()
 const requestStatusUpdates = new Map<HTMLElement, () => void>()
 setInterval(() => {
   for (const [element, update] of requestStatusUpdates) {
@@ -4198,6 +4199,8 @@ function render(views: ParticipantView[], me: string): void {
   for (const view of views) if (view.agent) {
     agentParticipants.add(view.participant)
     if (view.name) agentDisplayNames.set(view.participant, view.name)
+    if (view.requestReceipts) receiptAgents.add(view.participant)
+    else receiptAgents.delete(view.participant)
   }
   const mine = views.find((v) => v.participant === me)
 
@@ -6635,6 +6638,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
           name: current.find(v => v.participant === participant)?.name ??
             agentDisplayNames.get(participant) ?? agentNames.get(participant),
           present: current.some(v => v.participant === participant),
+          requestReceipts: receiptAgents.has(participant),
         }))
         const text = requestStatuses(original, agents, Date.now()).join(' ')
         if (status.textContent !== text) status.textContent = text
@@ -8679,6 +8683,7 @@ function resetRoomState(): void {
   keeperParticipant = undefined
   agentParticipants.clear()
   agentDisplayNames.clear()
+  receiptAgents.clear()
   requestStatusUpdates.clear()
   handledInvites.clear()
   approvals.clear()

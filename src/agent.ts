@@ -131,6 +131,8 @@ interface CommonAgentOptions {
    *  it off is lying to the room about what this is - see
    *  `RosterEntry.agent`. */
   agent?: boolean
+  /** Opt in when this driver sends signed request-received markers. */
+  requestReceipts?: boolean
   /** What this agent publishes at join. Nothing, by default. */
   tracks?: TrackAdvert[]
   claims?: Partial<Record<SingularRole, number>>
@@ -488,6 +490,7 @@ export class RoomAgent {
       proof: opts.proof,
       name: opts.name,
       agent: opts.agent ?? true,
+      requestReceipts: opts.requestReceipts,
       owner: opts.owner,
       now: opts.now,
       timing: opts.timing,
