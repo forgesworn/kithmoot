@@ -25,6 +25,10 @@ export interface ImportedHistoryDocument {
   sentAt: number
   text: string
   files?: string[]
+  /** Present only when this encrypted local record is a verified public event
+   * signed by the currently selected account. It is the exact kind a later
+   * NIP-09 deletion request may name; received gift wraps never set it. */
+  accountAuthoredKind?: number
 }
 
 export interface EncryptedHistoryRecord {
@@ -227,7 +231,8 @@ function assertDocument(value: unknown): asserts value is ImportedHistoryDocumen
       (document.room !== undefined && typeof document.room !== 'string') ||
       (document.conversation !== undefined && typeof document.conversation !== 'string') ||
       (document.participant !== undefined && typeof document.participant !== 'string') ||
-      (document.files !== undefined && (!Array.isArray(document.files) || document.files.some(file => typeof file !== 'string')))) throw new Error('Imported history document is invalid.')
+      (document.files !== undefined && (!Array.isArray(document.files) || document.files.some(file => typeof file !== 'string'))) ||
+      (document.accountAuthoredKind !== undefined && (!Number.isSafeInteger(document.accountAuthoredKind) || document.accountAuthoredKind < 0 || document.accountAuthoredKind > 65_535))) throw new Error('Imported history document is invalid.')
 }
 
 function assertDeletionReceipt(value: unknown): asserts value is HistoryDeletionReceipt {

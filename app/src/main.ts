@@ -136,8 +136,9 @@ import { BrowserHistoryIndexStorage, LocalHistoryIndex, importedHistoryCoverage 
 import { NostrHistoryRelayReader } from './history-relay-reader.js'
 import { advanceRecoveryWindows, loadHistoryRecoveryProgress, recoveryWindows as recoveryProgressWindows, saveHistoryRecoveryProgress } from './history-recovery-progress.js'
 import { deleteImportedHistory, recordPrivateHistoryTombstone } from './private-history-deletion.js'
-import { indexAccessibleNip17GiftWraps } from './private-history-index.js'
+import { indexAccessibleNip17GiftWraps, indexAccountAuthoredTextNotes } from './private-history-index.js'
 import { recoverHistoryWindows, retainRecoveredHistory } from './private-history-recovery.js'
+import { NostrPublicDeletionRelayWriter } from './public-deletion-relay-writer.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
 import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
@@ -1994,6 +1995,8 @@ async function deleteImportedHistoryResult(eventId: string): Promise<void> {
   const crypt = account?.signer.nip44
   const node = ($('historyRecoveryBox') as HTMLSelectElement).value
   const box = account && boxDiscovery?.migrationBoxes(account.pubkey).find(candidate => candidate.node === node)
+  const document = importedHistorySearchView.results.find(result => result.document.id === eventId)?.document
+  const publicKind = document?.accountAuthoredKind
   if (!account || !crypt || !box) {
     importedHistorySearchView = { ...importedHistorySearchView, status: 'Choose a freshly checked master or stash box in “Bring recent Nostr history home” before deleting an imported item.' }
     renderImportedHistorySearch()
@@ -2001,7 +2004,9 @@ async function deleteImportedHistoryResult(eventId: string): Promise<void> {
   }
   if (!await confirmAction({
     title: 'Delete this imported message?',
-    message: 'KithMoot will first ask the selected box to record a private deletion barrier for this exact stored outer event. Only after its authenticated receipt will this browser remove its encrypted search material. A received NIP-17 outer wrapper is ephemeral-signed, not authored by this account, so no invalid public kind-5 deletion request will be sent. Public copies held by other people or relays may remain.',
+    message: publicKind === undefined
+      ? 'KithMoot will first ask the selected box to record a private deletion barrier for this exact stored outer event. Only after its authenticated receipt will this browser remove its encrypted search material. A received NIP-17 outer wrapper is ephemeral-signed, not authored by this account, so no invalid public kind-5 deletion request will be sent. Public copies held by other people or relays may remain.'
+      : 'KithMoot will first ask the selected box to record a private deletion barrier for this exact account-authored event. Only after its authenticated receipt will this browser remove its encrypted search material, then it will make a signed kind-5 deletion request to each configured public relay and show each acknowledgement. An acknowledgement is not proof that a relay erased bytes or that another client discarded a copy.',
     confirmLabel: 'Delete locally and from box',
     isCurrent: () => nostrSession === account && identityGeneration === generation && !!boxDiscovery?.migrationBoxes(account.pubkey).some(candidate => candidate.node === node),
   })) return
@@ -2030,10 +2035,27 @@ async function deleteImportedHistoryResult(eventId: string): Promise<void> {
       })
     } finally { transport.close() }
     const remaining = await index.count()
+    let publicStatus: string
+    if (publicKind === undefined) {
+      publicStatus = 'Public relays: no request sent, because this received NIP-17 outer wrapper is not signed by this account.'
+    } else {
+      try {
+        if (nostrSession !== account || identityGeneration !== generation) throw new Error('Account changed before the public deletion request could be signed.')
+        const relays = relayConnections.configuration('default').filter(relay => relay.write && !relay.circle).map(relay => relay.url)
+        if (!relays.length) publicStatus = 'Public relays: no configured writable public relay; no deletion request was sent.'
+        else {
+          const request = await signedPublicDeletionRequest(account, eventId, publicKind)
+          const outcomes = await new NostrPublicDeletionRelayWriter().publish(relays, request)
+          publicStatus = `Public relays: ${outcomes.map(outcome => `${outcome.relay} ${outcome.status}${outcome.detail ? ` (${outcome.detail})` : ''}`).join('; ')}.`
+        }
+      } catch (error) {
+        publicStatus = `Public relays: deletion request was not sent (${describeError(error)}).`
+      }
+    }
     importedHistorySearchView = {
       ...importedHistorySearchView,
       results: importedHistorySearchView.results.filter(result => result.document.id !== eventId),
-      status: `${importedHistoryCoverage(remaining)} Box deletion barrier: ${outcome.box}; this device: ${outcome.device}. Public relays: no request sent, because this received NIP-17 outer wrapper is not signed by this account.`,
+      status: `${importedHistoryCoverage(remaining)} Box deletion barrier: ${outcome.box}; this device: ${outcome.device}. ${publicStatus}`,
     }
   } catch (error) {
     importedHistorySearchView = { ...importedHistorySearchView, status: describeError(error) }
@@ -2041,6 +2063,15 @@ async function deleteImportedHistoryResult(eventId: string): Promise<void> {
     importedHistorySearchBusy = false
     renderImportedHistorySearch()
   }
+}
+
+async function signedPublicDeletionRequest(account: SignetSession, eventId: string, targetKind: number): Promise<NostrEvent> {
+  const created_at = nowSeconds(), tags = [['e', eventId], ['k', String(targetKind)]]
+  const signed = await account.signer.signEvent({ kind: 5, created_at, tags, content: '' })
+  if (signed.pubkey !== account.pubkey || signed.kind !== 5 || signed.created_at !== created_at || signed.content !== '' || JSON.stringify(signed.tags) !== JSON.stringify(tags) || !verifyEventUncached(signed)) {
+    throw new Error('The signer changed or refused the public deletion request.')
+  }
+  return signed
 }
 
 function migrationNonce(): string {
@@ -2088,13 +2119,15 @@ async function recoverRecentHistoryToBox(): Promise<void> {
       outcomes?.forEach((outcome, index) => { if (outcome === 'stored' || outcome === 'duplicate') retainedIds.add(batch.ids[index]!) })
     }
     const index = new LocalHistoryIndex(new BrowserHistoryIndexStorage())
-    const local = await indexAccessibleNip17GiftWraps({ events: imported.events.filter(event => retainedIds.has(event.id)), identity: { pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event), encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text) }, index })
+    const retainedEvents = imported.events.filter(event => retainedIds.has(event.id))
+    const local = await indexAccessibleNip17GiftWraps({ events: retainedEvents, identity: { pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event), encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text) }, index })
+    const authored = await indexAccountAuthoredTextNotes({ events: retainedEvents, account: account.pubkey, index })
     const custody = retained.batches.flatMap(batch => batch.reply.ok ? batch.reply.result?.outcomes ?? [] : [`box error: ${batch.reply.error?.code ?? 'unknown'}`])
     const nextWindows = advanceRecoveryWindows(windows, imported.receipts)
     saveHistoryRecoveryProgress(deviceStore, { version: 1, person: account.pubkey, node, windows: nextWindows })
     const advanced = imported.receipts.filter(receipt => receipt.terminal === 'complete').length
     historyRecoveryView = {
-      status: `Verified ${imported.events.length} distinct relay event${imported.events.length === 1 ? '' : 's'}; box outcomes: ${custody.length ? custody.join(', ') : 'no events to retain'}. This device indexed ${local.stored} decryptable NIP-17 message${local.stored === 1 ? '' : 's'} (${local.duplicate} already present; ${local.inaccessible} remained raw only). ${advanced} completed relay/class request${advanced === 1 ? '' : 's'} will move to an older window next time; partial requests remain on this window.`,
+      status: `Verified ${imported.events.length} distinct relay event${imported.events.length === 1 ? '' : 's'}; box outcomes: ${custody.length ? custody.join(', ') : 'no events to retain'}. This device indexed ${local.stored} decryptable NIP-17 message${local.stored === 1 ? '' : 's'} (${local.duplicate} already present; ${local.inaccessible} remained raw only) and ${authored.stored} account-authored public note${authored.stored === 1 ? '' : 's'} (${authored.duplicate} already present). ${advanced} completed relay/class request${advanced === 1 ? '' : 's'} will move to an older window next time; partial requests remain on this window.`,
       rows: imported.receipts.map(receipt => `${receipt.relay} · ${receipt.request.class} · ${receipt.terminal}: accepted ${receipt.accepted}, duplicate ${receipt.duplicate}, invalid ${receipt.invalid}, rejected ${receipt.rejected}.`),
     }
   } catch (error) {

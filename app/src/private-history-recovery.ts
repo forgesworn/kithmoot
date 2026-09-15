@@ -17,7 +17,8 @@ import {
  * selected/resumed by the person; this is not a background crawler. */
 export const HISTORY_RECOVERY_WINDOW_SECONDS = 30 * 24 * 60 * 60
 /** Public kinds whose original signed records this version can retain. The
- * local index is stricter and currently admits only decryptable NIP-17 DMs. */
+ * local index is stricter and currently admits only decryptable NIP-17 DMs
+ * plus verified account-authored kind-1 notes. */
 export const RECOVERABLE_AUTHORED_KINDS = [0, 1, 3, 4, 5, 6, 7, 10002, 30023] as const
 export const RECOVERABLE_ADDRESSED_KINDS = [4, 1059] as const
 

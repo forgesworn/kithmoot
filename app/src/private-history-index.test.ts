@@ -4,7 +4,7 @@ import { finalizeEvent, generateSecretKey, getEventHash, getPublicKey, type Even
 import { nip44 } from 'nostr-tools'
 import { localPeerCrypt } from '../../src/dm.js'
 import { LocalHistoryIndex, type EncryptedHistoryDeletionReceipt, type EncryptedHistoryRecord, type HistoryIndexStorage } from './history-index.js'
-import { indexAccessibleNip17GiftWraps, openIndexableNip17GiftWrap } from './private-history-index.js'
+import { indexAccessibleNip17GiftWraps, indexAccountAuthoredTextNotes, openIndexableNip17GiftWrap } from './private-history-index.js'
 
 class MemoryStorage implements HistoryIndexStorage {
   saved?: CryptoKey
@@ -48,6 +48,19 @@ describe('private recovered history indexing', () => {
     const storage = new MemoryStorage(), index = new LocalHistoryIndex(storage, webcrypto as unknown as Crypto)
     await expect(indexAccessibleNip17GiftWraps({ events: [event, event], identity: recipient, index })).resolves.toEqual({ stored: 1, duplicate: 1, retired: 0, inaccessible: 0 })
     expect(JSON.stringify(await storage.records())).not.toContain('Private message')
+  })
+
+  it('indexes only a verified account-authored public text note as eligible for a later deletion request', async () => {
+    const ownerKey = generateSecretKey(), otherKey = generateSecretKey()
+    const owner = identity(ownerKey), other = identity(otherKey)
+    const note = finalizeEvent({ kind: 1, created_at: 1_700_000_000, tags: [], content: 'A public note I can disown' }, ownerKey)
+    const wrong = finalizeEvent({ kind: 1, created_at: 1_700_000_000, tags: [], content: 'Somebody else’s note' }, otherKey)
+    const storage = new MemoryStorage(), index = new LocalHistoryIndex(storage, webcrypto as unknown as Crypto)
+    await expect(indexAccountAuthoredTextNotes({ events: [note, wrong], account: owner.pubkey, index }))
+      .resolves.toEqual({ stored: 1, duplicate: 0, retired: 0, ignored: 1 })
+    await expect(index.search('disown')).resolves.toEqual([expect.objectContaining({
+      document: expect.objectContaining({ id: note.id, accountAuthoredKind: 1, conversation: 'public' }),
+    })])
   })
 
   it('does not index a wrapper whose unsigned rumour ID was altered', async () => {
