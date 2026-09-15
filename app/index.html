@@ -394,6 +394,11 @@
             <label><input id="joinMic" type="checkbox" /> Microphone</label>
             <label><input id="joinCamera" type="checkbox" /> Camera</label>
           </fieldset>
+          <details id="joinNetworkPrivacy">
+            <summary>Call network privacy</summary>
+            <label><input id="joinRelayOnly" type="checkbox" /> Hide my IP address from other people in this call</label>
+            <p class="note">Uses a TURN relay, costs more data and will not join without a working relay. The selected TURN provider can still see this device’s IP address.</p>
+          </details>
           <button id="join" type="submit" class="primary" hidden>Join</button>
           <p id="whoami" class="whoami"></p>
           <p id="joinIdentityHelp" class="note" hidden></p>
