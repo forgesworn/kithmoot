@@ -14,6 +14,7 @@ const HEX = /^[0-9a-f]{64}$/
 const GIFT_WRAP_KIND = 1059
 const SEAL_KIND = 13
 const NIP17_DIRECT_MESSAGE_KIND = 14
+const TEXT_NOTE_KIND = 1
 const MAX_TEXT_BYTES = 64 * 1024
 
 /** Opens one NIP-17 outer wrapper, or returns no document when it is not an
@@ -57,6 +58,35 @@ export async function indexAccessibleNip17GiftWraps(input: {
     const document = await openIndexableNip17GiftWrap({ event, identity: input.identity })
     if (!document) { result.inaccessible++; continue }
     const outcome = await input.index.add(document)
+    result[outcome]++
+  }
+  return result
+}
+
+/** Adds only a verified kind-1 note signed by the current account. Unlike a
+ * received gift wrap, this exact signed event may later receive a valid
+ * account-signed NIP-09 deletion request. The event's public text still lives
+ * only in the device-encrypted index here; this function makes no network
+ * request. */
+export async function indexAccountAuthoredTextNotes(input: {
+  events: readonly Event[]
+  account: string
+  index: LocalHistoryIndex
+}): Promise<{ stored: number; duplicate: number; retired: number; ignored: number }> {
+  const result = { stored: 0, duplicate: 0, retired: 0, ignored: 0 }
+  for (const event of input.events) {
+    if (!HEX.test(input.account) || !validEvent(event) || !verifyEventUncached(event) || event.pubkey !== input.account || event.kind !== TEXT_NOTE_KIND || new TextEncoder().encode(event.content).byteLength > MAX_TEXT_BYTES) {
+      result.ignored++
+      continue
+    }
+    const outcome = await input.index.add({
+      id: event.id,
+      participant: event.pubkey,
+      conversation: 'public',
+      sentAt: event.created_at,
+      text: event.content,
+      accountAuthoredKind: TEXT_NOTE_KIND,
+    })
     result[outcome]++
   }
   return result
