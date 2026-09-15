@@ -27,6 +27,29 @@ export interface MeshSession {
   onChange(cb: (views: ParticipantView[]) => void): () => void
 }
 
+/**
+ * The browser-specific half of server-forwarder media protection.
+ *
+ * `Mesh` owns the routing and roster attribution, while the embedding app
+ * owns WebRTC's browser-only encoded-transform objects. Both hooks are called
+ * at the first point the browser exposes the relevant RTP endpoint: directly
+ * after `addTrack()` for a sender, and in the `track` event for a receiver.
+ * Returning false refuses that forwarding path rather than letting ordinary
+ * hop-by-hop DTLS-SRTP terminate at the server.
+ */
+export interface ForwarderMediaPipeline {
+  /**
+   * Replace every endpoint's room epoch key. A rekey changes the secret
+   * which protects forwarded media just as it changes roster and chat
+   * traffic; keeping the old media key would let a removed member continue
+   * opening frames through a forwarder.
+   */
+  rekey(roomKey: Uint8Array): boolean
+  protectSender(sender: unknown, senderDevice: string, track: MediaStreamTrack): boolean
+  protectReceiver(receiver: unknown, expectedDevice: string, track: MediaStreamTrack): boolean
+  close?(): void
+}
+
 export interface RemoteAnnotation {
   participant: string
   device: string
@@ -87,6 +110,10 @@ export interface MeshOptions {
    * pipeline is torn down. A thrown check is treated as unavailable.
    */
   forwarderMedia?: () => boolean
+  /** The actual encoded-frame pipeline backing `forwarderMedia`. Capability
+   * without this is not sufficient to promote: it would only be a promise
+   * that a readable forwarder was safe. */
+  forwarderMediaPipeline?: ForwarderMediaPipeline
   /** A forwarder pubkey or url to prefer over the deterministic ordering. */
   preferForwarder?: string
   /** How long a forwarder has to connect before the room gives up on it and
@@ -444,7 +471,7 @@ export class Mesh {
     }
     // Never narrowed: a forwarder cannot skip anybody, which is why a device
     // that narrows never promotes at all - see `#audienceNarrows`.
-    this.#forwarderPeer?.start(tracks).catch(() => {})
+    this.#forwarderPeer?.start(tracks).catch(() => this.#forwarderFailed())
   }
 
   /**
@@ -507,6 +534,12 @@ export class Mesh {
     this.#trackOwner.clear()
     this.#trackListeners.clear()
     this.#annotationListeners.clear()
+    try {
+      this.#opts.forwarderMediaPipeline?.close?.()
+    } catch {
+      // A browser worker that is already gone is not a reason to leave the
+      // room's relay subscriptions or peer connections alive.
+    }
   }
 
   /** Reconcile the peer set against a roster snapshot: close peers for
@@ -1080,7 +1113,7 @@ export class Mesh {
     // terminates DTLS-SRTP and can read the media it moves. Do not let an
     // authenticated descriptor turn that into an accidental privacy downgrade.
     try {
-      if (this.#opts.forwarderMedia?.() !== true) return null
+      if (this.#opts.forwarderMedia?.() !== true || !this.#opts.forwarderMediaPipeline) return null
     } catch {
       return null
     }
@@ -1105,7 +1138,11 @@ export class Mesh {
     this.#forwarderDevice = device
     const peer = this.#createPeer(device, true)
     this.#forwarderPeer = peer
-    peer.start(this.#tracks).catch(() => {})
+    // A transform may refuse a sender after `addTrack()`. That peer has made
+    // no SDP offer (Peer enforces that), so fail this forwarder immediately
+    // and retain the working mesh instead of leaving the UI at “trying” for
+    // its whole timeout.
+    peer.start(this.#tracks).catch(() => this.#forwarderFailed())
     this.#drainSignals(device, peer)
 
     const timeout = this.#opts.forwarderTimeoutMs ?? DEFAULT_FORWARDER_TIMEOUT_MS
@@ -1181,10 +1218,13 @@ export class Mesh {
         )
         this.#opts.transport.publish(wrap).catch(() => {})
       },
-      onTrack: (track) => {
-        if (forwarder) this.#onForwardedTrack(track)
+      onTrack: (track, receiver) => {
+        if (forwarder) this.#onForwardedTrack(track, receiver)
         else this.#onEndpointTrack(remoteDevice, track)
       },
+      onSender: forwarder
+        ? (track, sender) => this.#protectForwarderSender(sender, track)
+        : undefined,
       // A forwarder never offers, so this side has to - even with nothing to
       // send, which is how a device with its camera and microphone off is
       // admitted at all.
@@ -1245,10 +1285,25 @@ export class Mesh {
    * so this is a hint. `deriveMediaKey`'s per-sender binding is what settles
    * it: a relabelled stream does not decrypt.
    */
-  #onForwardedTrack(track: MediaStreamTrack): void {
+  #onForwardedTrack(track: MediaStreamTrack, receiver: unknown): void {
     const device = this.#trackOwner.get(track.id)
     if (!device) return
+    try {
+      if (this.#opts.forwarderMediaPipeline?.protectReceiver(receiver, device, track) !== true) return
+    } catch {
+      return
+    }
     this.#emitTrack(device, track, 'forwarder')
+  }
+
+  /** Attach protection before an offer can carry a local sender to the
+   * forwarder. An exception is a refusal: media security is fail-closed. */
+  #protectForwarderSender(sender: unknown, track: MediaStreamTrack): boolean {
+    try {
+      return this.#opts.forwarderMediaPipeline?.protectSender(sender, this.#opts.localDevice, track) === true
+    } catch {
+      return false
+    }
   }
 
   #emitTrack(device: string, track: MediaStreamTrack, via: 'direct' | 'assist' | 'forwarder'): void {

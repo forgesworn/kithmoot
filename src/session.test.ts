@@ -1091,10 +1091,40 @@ describe('RoomSession and forwarders', () => {
       // These are route tests. The browser integration itself is separately
       // required to opt in only after it has installed frame transforms.
       forwarderMedia: () => true,
+      forwarderMediaPipeline: { rekey: () => true, protectSender: () => true, protectReceiver: () => true },
       ...opts,
     })
     return { relay, factory, session }
   }
+
+  it('installs the initial and rotated epoch keys in the forwarder pipeline', async () => {
+    const relay = new SimRelay()
+    const authoritySk = generateSecretKey()
+    const keys: Uint8Array[] = []
+    const session = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(authoritySk),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+      forwarderMediaPipeline: {
+        rekey: key => { keys.push(key); return true },
+        protectSender: () => true,
+        protectReceiver: () => true,
+      },
+    })
+
+    expect(keys).toHaveLength(1)
+    const initial = keys[0]!
+    await session.join([], {})
+    await session.rekey({ authoritySk })
+
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).not.toBe(keys[1])
+    expect(keys[1]).not.toEqual(initial)
+    session.leave()
+  })
 
   /**
    * Put `count` other people in the room, each on their own device.

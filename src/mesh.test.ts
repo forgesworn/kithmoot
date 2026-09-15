@@ -3,7 +3,7 @@ import { nip44 } from 'nostr-tools'
 import * as signals from './signal.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
-import type { MeshSession, RemoteAnnotation } from './mesh.js'
+import type { ForwarderMediaPipeline, MeshSession, RemoteAnnotation } from './mesh.js'
 import type { ForwarderRef } from './types.js'
 import { wrapSignal, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import { MAX_SIGNALS_PER_WINDOW } from './signal-guard.js'
@@ -535,6 +535,7 @@ describe('Mesh promotion to a forwarder', () => {
   const FORWARDER = device().pub
   const SPARE_FORWARDER = device().pub
   const FORWARDERS = [{ url: 'wss://forward.example', pubkey: FORWARDER }]
+  const MEDIA_PIPELINE = { rekey: () => true, protectSender: () => true, protectReceiver: () => true }
 
   /**
    * The connection opened for the forwarder.
@@ -556,6 +557,7 @@ describe('Mesh promotion to a forwarder', () => {
     uplink?: () => { uplinkBps: number; perPeerBps: number } | null
     forwarders?: ForwarderRef[]
     forwarderTimeoutMs?: number
+    forwarderMediaPipeline?: ForwarderMediaPipeline
   }) {
     const session = new FakeSession()
     const factory = createFakeFactory()
@@ -574,6 +576,7 @@ describe('Mesh promotion to a forwarder', () => {
       // These route tests model a client whose media integration has already
       // been verified. Production must opt in explicitly.
       forwarderMedia: () => true,
+      forwarderMediaPipeline: opts.forwarderMediaPipeline ?? MEDIA_PIPELINE,
       forwarderTimeoutMs: opts.forwarderTimeoutMs,
     })
     return { session, factory, mesh, local, relay }
@@ -635,6 +638,29 @@ describe('Mesh promotion to a forwarder', () => {
     mesh.close()
   })
 
+  it('does not promote when a claimed capability has no concrete pipeline', async () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const local = device()
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: device().pub,
+      deviceSk: local.sk,
+      transport: new SimTransport(new SimRelay()),
+      roomId: ROOM_ID,
+      uplink: TIGHT,
+      forwarders: FORWARDERS,
+      forwarderMedia: () => true,
+    })
+    fill(session, 12)
+    await settle()
+    expect(mesh.forwarding).toBe('off')
+    expect(factory.instances).toHaveLength(12)
+    mesh.close()
+  })
+
   it('opens a connection to the forwarder when capacity runs out', async () => {
     const { session, factory, mesh } = build({ uplink: TIGHT, forwarders: FORWARDERS })
     fill(session, 12)
@@ -644,6 +670,25 @@ describe('Mesh promotion to a forwarder', () => {
     // Thirteen: the twelve direct peers are still up. Nothing is dismantled
     // on the strength of a connection that has not happened yet.
     expect(factory.instances).toHaveLength(13)
+    mesh.close()
+  })
+
+  it('returns to the mesh immediately when a forwarder sender cannot be protected', async () => {
+    const { session, factory, mesh } = build({
+      uplink: TIGHT,
+      forwarders: FORWARDERS,
+      forwarderMediaPipeline: { rekey: () => true, protectSender: () => false, protectReceiver: () => true },
+    })
+    fill(session, 12)
+    await settle()
+    expect(mesh.forwarding).toBe('trying')
+
+    mesh.publish([{ id: 'camera', kind: 'video' } as unknown as MediaStreamTrack])
+    await settle()
+
+    expect(mesh.forwarding).toBe('failed')
+    const forwarder = factory.instances[forwarderPcIndex()]!
+    expect(forwarder.calls.map(call => call.method)).toEqual(['createOffer', 'setLocalDescription', 'addTrack', 'removeTrack', 'close'])
     mesh.close()
   })
 
@@ -888,6 +933,7 @@ describe('Mesh promotion to a forwarder', () => {
       uplink: TIGHT,
       forwarders: [{ url: 'wss://forward.example', pubkey: forwarder.pub }],
       forwarderMedia: () => true,
+      forwarderMediaPipeline: MEDIA_PIPELINE,
     })
     fill(session, 12)
     await settle()

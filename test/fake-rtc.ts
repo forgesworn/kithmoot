@@ -35,7 +35,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
    *  makes an interleaving observable at all. */
   #gated: Promise<void> | null = null
 
-  ontrack: ((event: { track: MediaStreamTrack }) => void) | null = null
+  ontrack: ((event: { track: MediaStreamTrack; receiver?: unknown }) => void) | null = null
   onicecandidate: ((event: { candidate: RTCIceCandidateInit | null }) => void) | null = null
   onconnectionstatechange: (() => void) | null = null
   /** A real connection fires this whenever what it is carrying stops
@@ -109,7 +109,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
     this.onnegotiationneeded?.()
   }
 
-  addTrack(track: MediaStreamTrack): void {
+  addTrack(track: MediaStreamTrack): { track: MediaStreamTrack | null } {
     this.calls.push({ method: 'addTrack', args: [track] })
     // A real RTCPeerConnection throws InvalidAccessError if a track already
     // has a sender on this connection - this fake must too, or a caller
@@ -117,12 +117,14 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
     // in tests and then throw the first time it runs in a real browser.
     if (this.tracks.includes(track)) throw new Error('track already added to this connection')
     this.tracks.push(track)
-    this.senders.push({ track })
+    const sender = { track }
+    this.senders.push(sender)
     // What this connection is carrying no longer matches what it should be,
     // and a real connection says so. `Peer` has exactly one place that turns
     // that into an offer, so the fake has to raise it or the tests would be
     // exercising a trigger the browser does not use.
     this.onnegotiationneeded?.()
+    return sender
   }
 
   /** A real connection gathers fresh candidates and raises
