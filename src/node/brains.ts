@@ -149,7 +149,7 @@ export class StdioBrain implements Brain {
       url: runtime.agent.url,
       hosting: runtime.agent.hosting,
     })
-    const off = runtime.on((event) => write(toStdioEvent(event)))
+    const off = runtime.on((event) => write(toStdioEvent(event)), { replay: true })
 
     const lines = createInterface({ input: this.#input, crlfDelay: Infinity })
     lines.on('line', (line) => {
@@ -353,6 +353,8 @@ export interface ModelBrainOptions {
    *  to say something. What stops two agents agreeing with each other for
    *  ever. */
   maxAgentTurns?: number
+  /** Bound context lookup and inference so a stuck provider cannot block the queue. */
+  turnTimeoutMs?: number
   log?: (line: string) => void
 }
 
@@ -378,6 +380,7 @@ export abstract class ModelBrain implements Brain {
   #agentTurns = 0
   #busy = false
   #runtime?: AgentRuntime
+  #turnAbort?: AbortController
 
   constructor(opts: ModelBrainOptions = {}) {
     this.#opts = {
@@ -385,13 +388,15 @@ export abstract class ModelBrain implements Brain {
       debounceMs: opts.debounceMs ?? 1_500,
       minGapMs: opts.minGapMs ?? 4_000,
       maxAgentTurns: opts.maxAgentTurns ?? 6,
+      turnTimeoutMs: opts.turnTimeoutMs ?? 120_000,
       log: opts.log ?? (() => {}),
     }
+    if (!Number.isFinite(this.#opts.turnTimeoutMs) || this.#opts.turnTimeoutMs <= 0) throw new Error('turnTimeoutMs must be positive')
   }
 
   /** Ask the model. `system` is the character and the protocol; `user` is
    *  the room and what is new. Returns the model's reply as text. */
-  protected abstract complete(system: string, user: string): Promise<string>
+  protected abstract complete(system: string, user: string, signal?: AbortSignal): Promise<string>
 
   /** This brain's model with the turn-taking left off. See `Completer`. */
   completer(): Completer {
@@ -399,13 +404,16 @@ export abstract class ModelBrain implements Brain {
   }
 
   async start(runtime: AgentRuntime): Promise<() => Promise<void>> {
+    if (this.#runtime) throw new Error('This brain is already running')
     this.#runtime = runtime
-    const off = runtime.on((event) => this.#onEvent(runtime, event))
+    const off = runtime.on((event) => this.#onEvent(runtime, event), { replay: true })
     return async () => {
       off()
       if (this.#timer) clearTimeout(this.#timer)
       this.#timer = undefined
       this.#runtime = undefined
+      this.#pending = []
+      this.#turnAbort?.abort()
     }
   }
 
@@ -419,6 +427,10 @@ export abstract class ModelBrain implements Brain {
     if (!fromAgent && event.type !== 'backchannel') this.#agentTurns = 0
 
     if (!this.#wants(runtime, event, fromAgent)) return
+    if (event.addressed && event.type !== 'transcript') {
+      void runtime.acknowledge(event.type === 'channel' ? event.channel : event.type, m.id)
+        .catch(() => this.#opts.log('connection receipt could not be delivered'))
+    }
     this.#pending.push(event)
     if (this.#timer) clearTimeout(this.#timer)
     this.#timer = setTimeout(() => {
@@ -432,8 +444,7 @@ export abstract class ModelBrain implements Brain {
     // The wire field when the sender wrote one, the name in the text when
     // not: `mentionedBy` is the one function the room's readers use too,
     // so what shows as a mention is exactly what this agent answers to.
-    // `everyone` does not count: a call for everybody is not an
-    // instruction to a machine.
+    // The room-wide sentinel includes agents, just as the composer says.
     const named = event.addressed || mentionedBy(event.message, runtime.agent.participant,
       [{ participant: runtime.agent.participant, name: runtime.persona.name }], { agent: true })
     if (event.type === 'backchannel') {
@@ -461,6 +472,25 @@ export abstract class ModelBrain implements Brain {
     this.#pending = this.#pending.filter(event => conversation(event) !== origin)
     if (news.length === 0) return
     this.#busy = true
+    const controller = new AbortController()
+    this.#turnAbort = controller
+    const timeout = setTimeout(() => controller.abort(), this.#opts.turnTimeoutMs)
+    const cancelled = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener('abort', () => reject(new Error('Agent turn timed out or stopped')), { once: true })
+    })
+    const active = () => this.#runtime === runtime && !controller.signal.aborted
+    const direct = news.filter(e => 'message' in e && e.addressed &&
+      runtime.roster().find(v => v.participant === e.message.participant)?.agent !== true)
+    const notice = async (text: string) => {
+      if (this.#runtime !== runtime || this.#turnAbort !== controller) return
+      // One outcome per addressed request, linked to the exact message. Never
+      // echo provider errors, credentials, or private context into the room.
+      for (const event of direct) {
+        if (!('message' in event)) continue
+        const channel = origin === 'transcript' ? 'chat' : origin!
+        await runtime.conversation(channel).send(text, origin === 'transcript' ? {} : { replyTo: event.message })
+      }
+    }
     try {
       const onlyAgents = news.every((e) => e.type === 'backchannel')
       if (onlyAgents) this.#agentTurns++
@@ -468,36 +498,51 @@ export abstract class ModelBrain implements Brain {
       // The full new messages still follow this briefing. Only the retrieval
       // query is bounded; never turn a context snippet into execution authority.
       const contextQuery = news.flatMap(e => 'message' in e ? [e.message.text] : []).join('\n').trim().slice(0, 500)
-      const user = [
-        await runtime.brief(contextQuery || undefined),
-        '',
-        'New since your last turn:',
-        ...news.map((e) =>
-          e.type === 'roster' || e.type === 'approval' || e.type === 'presence' ? '' : `[${conversation(e)}] ${runtime.line(e.message)}`,
-        ),
-      ].join('\n')
       this.#opts.log(`turn: ${news.length} new`)
-      const reply = await this.complete(system, user)
-      this.#lastTurn = Date.now()
-      await this.#deliver(runtime, reply, origin)
+      const inference = async () => {
+        const brief = await runtime.brief(contextQuery || undefined)
+        if (!active()) throw new Error('Agent turn stopped')
+        const user = [brief, '', 'New since your last turn:', ...news.map(e =>
+          'message' in e ? `[${conversation(e)}] ${runtime.line(e.message)}` : '',
+        )].join('\n')
+        return this.complete(system, user, controller.signal)
+      }
+      const reply = await Promise.race([inference(), cancelled])
+      if (!active()) return
+      const parsed = parseReply(reply)
+      if (parsed.whisper) await runtime.whisper(parsed.whisper)
+      if (!active()) return
+      if (parsed.say) {
+        const target = news[news.length - 1]
+        await runtime.conversation(origin === 'transcript' ? 'chat' : origin!).send(parsed.say,
+          target && 'message' in target && origin !== 'transcript' ? { replyTo: target.message } : {})
+      } else {
+        await notice('I received your request, but did not produce an answer. Please retry or rephrase it.')
+      }
     } catch (err) {
       this.#opts.log(`turn failed: ${err instanceof Error ? err.message : String(err)}`)
+      try {
+        await notice(controller.signal.aborted
+          ? 'I received your request, but could not finish answering in time. Please retry.'
+          : 'I received your request, but could not complete the reply. Please retry.')
+      } catch (deliveryError) {
+        this.#opts.log(`failure notice could not be delivered: ${deliveryError instanceof Error ? deliveryError.message : String(deliveryError)}`)
+      }
     } finally {
+      clearTimeout(timeout)
+      this.#lastTurn = Date.now()
+      if (this.#turnAbort === controller) this.#turnAbort = undefined
       this.#busy = false
-      if (this.#pending.length > 0 && !this.#timer) {
+      if (this.#runtime && this.#pending.length > 0 && !this.#timer) {
+        const current = this.#runtime
         this.#timer = setTimeout(() => {
           this.#timer = undefined
-          void this.#turn(runtime)
+          void this.#turn(current)
         }, this.#opts.debounceMs)
       }
     }
   }
 
-  async #deliver(runtime: AgentRuntime, reply: string, origin = 'chat'): Promise<void> {
-    const { say, whisper } = parseReply(reply)
-    if (whisper) await runtime.whisper(whisper)
-    if (say) await runtime.sayIn(origin === 'transcript' ? 'chat' : origin, say)
-  }
 }
 
 /** Split a model's reply into what is said aloud and what is whispered. */
@@ -550,9 +595,10 @@ export class OllamaBrain extends ModelBrain {
     this.#fetch = opts.fetch ?? fetch
   }
 
-  protected async complete(system: string, user: string): Promise<string> {
+  protected async complete(system: string, user: string, signal?: AbortSignal): Promise<string> {
     const res = await this.#fetch(`${this.#url}/api/chat`, {
       method: 'POST',
+      signal,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         model: this.#model,
@@ -594,7 +640,7 @@ export class AnthropicBrain extends ModelBrain {
     this.#maxTokens = opts.maxTokens ?? 2_000
   }
 
-  protected async complete(system: string, user: string): Promise<string> {
+  protected async complete(system: string, user: string, signal?: AbortSignal): Promise<string> {
     if (!this.#client) {
       const { default: Anthropic } = await import('@anthropic-ai/sdk')
       this.#client = new Anthropic()
@@ -606,7 +652,7 @@ export class AnthropicBrain extends ModelBrain {
       // are the cacheable prefix; the room is what moves.
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: user }],
-    })
+    }, { signal })
     return response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
       .map((block) => block.text)

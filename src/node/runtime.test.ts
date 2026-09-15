@@ -268,6 +268,39 @@ class ScriptedBrain extends ModelBrain {
 }
 
 describe('ModelBrain', () => {
+  it('answers a request received before its brain attaches exactly once', async () => {
+    const { keeper, ada } = await room()
+    const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: '' } }).start()
+    const observed: RuntimeEvent[] = []
+    const off = runtime.on(event => observed.push(event))
+    await keeper.chat.send('@Ada please add this feature')
+    await vi.waitFor(() => expect(observed.some(e => 'message' in e && e.message.text === '@Ada please add this feature')).toBe(true))
+    const brain = new ScriptedBrain(['Request handled'])
+    const stop = await brain.start(runtime)
+    try {
+      await vi.waitFor(() => expect(keeper.chat.messages().some(m => m.text === 'Request handled')).toBe(true))
+      expect(brain.prompts).toHaveLength(1)
+      await stop()
+      const next = new ScriptedBrain(['Must not replay'])
+      const stopNext = await next.start(runtime)
+      await settle()
+      expect(next.prompts).toHaveLength(0)
+      await stopNext()
+    } finally { off(); await stop(); await runtime.close(); keeper.leave() }
+  })
+
+  it('sends one automatic connection receipt without a model or external acknowledgement command', async () => {
+    const { keeper, ada } = await room()
+    const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: '' }, automaticReceipts: true }).start()
+    try {
+      await keeper.chat.send('@Ada are you there?')
+      await vi.waitFor(() => expect(keeper.chat.messages().filter(m => m.reaction?.receipt === 'received')).toHaveLength(1), { timeout: 4000 })
+      const request = keeper.chat.messages().find(m => m.text === '@Ada are you there?')!
+      await runtime.acknowledge('chat', request.id)
+      expect(keeper.chat.messages().filter(m => m.reaction?.receipt === 'received')).toHaveLength(1)
+    } finally { await runtime.close(); keeper.leave() }
+  })
+
   it('uses incoming text for bounded context lookup while keeping the full request in the model turn', async () => {
     const { keeper, ada } = await room()
     const runtime = new AgentRuntime(ada, { persona: { name: 'Ada', system: '' } }).start()

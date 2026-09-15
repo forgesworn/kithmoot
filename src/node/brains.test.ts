@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
 
-import { StdioBrain, toStdioEvent } from './brains.js'
+import { ModelBrain, StdioBrain, toStdioEvent } from './brains.js'
 import type { AgentRuntime } from './runtime.js'
 
 it('carries a model catalogue and refusals from the actual stdio brain to the room', async () => {
@@ -89,4 +89,93 @@ it('returns room history as a correlated snapshot without replaying messages as 
     await vi.waitFor(() => expect(events).toContainEqual({ type: 'error', message: 'History limit must be from 1 to 200' }))
     expect(conversation).toHaveBeenCalledTimes(1)
   } finally { await stop(); input.destroy(); output.destroy() }
+})
+
+
+describe('model request outcomes', () => {
+  async function fixture(complete: (signal?: AbortSignal) => Promise<string>, opts = {}) {
+    const send = vi.fn(async (_text: string, _options?: unknown) => {})
+    let listener: (event: import('./runtime.js').RuntimeEvent) => void = () => {}
+    const runtime = {
+      agent: { participant: 'agent' }, persona: { name: 'Tally', system: '' },
+      roster: () => [{ participant: 'person', agent: false }],
+      on: (fn: typeof listener) => { listener = fn; return () => { listener = () => {} } },
+      brief: async () => 'context', line: (m: { text: string }) => m.text,
+      acknowledge: vi.fn(async () => {}),
+      conversation: vi.fn(() => ({ send })), whisper: vi.fn(async () => {}),
+    } as unknown as AgentRuntime
+    class TestBrain extends ModelBrain {
+      protected complete(_system: string, _user: string, signal?: AbortSignal) { return complete(signal) }
+    }
+    const stop = await new TestBrain({ debounceMs: 1, minGapMs: 0, turnTimeoutMs: 100, ...opts }).start(runtime)
+    const emit = (id: string, channel = 'chat') => {
+      const message = { id, participant: 'person', text: '@Tally help', sentAt: Date.now() / 1000 } as import('../chat.js').ChatMessage
+      listener(channel === 'chat' ? { type: 'chat', message, at: Date.now(), addressed: true }
+        : { type: 'channel', channel, message, at: Date.now(), addressed: true })
+      return message
+    }
+    return { runtime, send, stop, emit }
+  }
+
+  it('reports a failed provider in the request conversation without exposing its error', async () => {
+    vi.useFakeTimers()
+    const f = await fixture(async () => { throw new Error('private-provider-key') })
+    try {
+      const request = f.emit('request', 'workshop')
+      await vi.advanceTimersByTimeAsync(2)
+      expect(f.runtime.conversation).toHaveBeenCalledWith('workshop')
+      expect(f.send).toHaveBeenCalledWith('I received your request, but could not complete the reply. Please retry.', { replyTo: request })
+      expect(JSON.stringify(f.send.mock.calls)).not.toContain('private-provider-key')
+    } finally { await f.stop(); vi.useRealTimers() }
+  })
+
+  it('makes an empty or quiet answer visible for a direct human request', async () => {
+    vi.useFakeTimers()
+    const f = await fixture(async () => '/quiet')
+    try {
+      f.emit('request')
+      await vi.advanceTimersByTimeAsync(2)
+      expect(f.send.mock.calls[0]?.[0]).toContain('did not produce an answer')
+    } finally { await f.stop(); vi.useRealTimers() }
+  })
+
+  it('aborts a hung turn, serves queued requests, and discards a late provider answer', async () => {
+    vi.useFakeTimers()
+    let finish!: (reply: string) => void
+    let firstSignal: AbortSignal | undefined
+    let calls = 0
+    const f = await fixture(signal => {
+      calls++
+      if (calls > 1) return Promise.resolve('Second request answered')
+      firstSignal = signal
+      return new Promise(resolve => { finish = resolve })
+    })
+    try {
+      f.emit('first')
+      await vi.advanceTimersByTimeAsync(2)
+      const second = f.emit('second')
+      await vi.advanceTimersByTimeAsync(110)
+      expect(firstSignal?.aborted).toBe(true)
+      expect(f.send).toHaveBeenCalledWith(expect.stringContaining('in time'), expect.anything())
+      expect(f.send).toHaveBeenCalledWith('Second request answered', { replyTo: second })
+      finish('Too late')
+      await vi.advanceTimersByTimeAsync(1)
+      expect(f.send).toHaveBeenCalledTimes(2)
+    } finally { await f.stop(); vi.useRealTimers() }
+  })
+
+  it('does not publish a response or failure notice after being stopped', async () => {
+    vi.useFakeTimers()
+    let finish!: (reply: string) => void
+    const f = await fixture(() => new Promise(resolve => { finish = resolve }))
+    try {
+      f.emit('first')
+      await vi.advanceTimersByTimeAsync(2)
+      f.emit('queued')
+      await f.stop()
+      finish('Must not be sent')
+      await vi.advanceTimersByTimeAsync(200)
+      expect(f.send).not.toHaveBeenCalled()
+    } finally { await f.stop(); vi.useRealTimers() }
+  })
 })

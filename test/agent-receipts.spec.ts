@@ -1,24 +1,20 @@
 import { test, expect } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { AgentRuntime } from '../src/node/runtime.js'
+import { generateSecretKey } from 'nostr-tools/pure'
+import { localIdentity } from '../src/identity.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
 import { goToConversation, open, openRoomDetails } from './browser.js'
 
-test('an agent acknowledges a mention in a named conversation with a visible received time', async ({ browser, baseURL }) => {
+test('an agent acknowledges a mention in a named conversation with a visible received time', async ({ browser, baseURL }, testInfo) => {
   test.setTimeout(45000)
   // WebKit refuses a cleartext WebSocket from this HTTPS page. Both sides
   // use the same local relay through the browser's existing secure proxy.
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const tally = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: ['ws://127.0.0.1:7777'] })
   const browserLink = encodeRoomLink(baseURL!, { ...parseRoomLink(tally.url), relays: [relay.href] })
-  const runtime = new AgentRuntime(tally, { persona: { name: 'Tally', system: '' } }).start()
+  const runtime = new AgentRuntime(tally, { persona: { name: 'Tally', system: '' }, automaticReceipts: true }).start()
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
-  const failures: string[] = []
-  const off = runtime.on(event => {
-    if (event.type !== 'channel' || !event.addressed || event.message.participant === tally.participant) return
-    // The receipt path works without starting a model or finishing another job.
-    void runtime.acknowledge(event.channel, event.message.id).catch(err => failures.push(String(err)))
-  })
   try {
     await tally.setChannel('security', true)
     const page = await context.newPage()
@@ -29,14 +25,57 @@ test('an agent acknowledges a mention in a named conversation with a visible rec
     await page.locator('#chatForm button[type=submit]').click()
     const receipt = page.locator('#chatLog .msg').filter({ hasText: 'can you look at this?' }).getByRole('button', { name: 'Add 👍 reaction, 1', exact: true })
     await expect(receipt).toBeVisible()
+    await expect(page.locator('.agentRequestStatus').filter({ hasText: 'Tally received this.' })).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('agent-request-received.png') })
     await receipt.hover()
     const details = page.locator('.reactionDetails:popover-open')
     await expect(details).toContainText('Tally')
     await expect(details).toContainText(/Received.*reply may still be pending/)
-    expect(failures).toEqual([])
+    const request = tally.channel('security').messages().find(m => m.text === '@Tally can you look at this?')!
+    await tally.channel('security').send('Here is the answer.', { replyTo: request })
+    await expect(page.locator('#chatLog')).toContainText('Here is the answer.')
+    await expect(page.locator('.agentRequestStatus').filter({ hasText: 'Tally received this.' })).toHaveCount(0)
     await goToConversation(page, 'Chat')
     await expect(page.locator('#chatLog .msg')).toHaveCount(0)
-  } finally { off(); await context.close(); await runtime.close() }
+  } finally { await context.close(); await runtime.close() }
+})
+
+test('a brief agent reconnect leaves the live roster but does not add a leave and arrival pair to chat', async ({ browser, baseURL }, testInfo) => {
+  test.setTimeout(60_000)
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', relays: ['ws://127.0.0.1:7777'] })
+  const browserLink = encodeRoomLink(baseURL!, { ...parseRoomLink(keeper.url), relays: [relay.href] })
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+  const identity = localIdentity(generateSecretKey())
+  let chip: RoomAgent | undefined
+  try {
+    const page = await context.newPage()
+    await open(page, browserLink, 'Ada'); await page.locator('#join').click()
+    await expect(page.locator('#chatInput')).toBeVisible()
+    await page.clock.install()
+    await page.clock.fastForward(26_000)
+    chip = await RoomAgent.join({ link: keeper.url, name: 'Chip', identity })
+    await expect(page.locator('#agentsRow')).toContainText('Chip')
+    await expect(page.locator('#chatLog .system').filter({ hasText: 'Chip (agent) came in.' })).toHaveCount(1)
+    // No runtime is attached: this is a live room connection with no receipt driver.
+    await page.locator('#chatInput').fill('@Chip please look at this')
+    await page.locator('#chatInput').press('Enter')
+    await expect(page.locator('.agentRequestStatus').filter({ hasText: 'Waiting for Chip' })).toBeVisible()
+    await chip.leave(); chip = undefined
+    await expect(page.locator('#agentsRow')).not.toContainText('Chip')
+    await expect(page.locator('.agentRequestStatus').filter({ hasText: 'Chip is not currently connected' })).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('agent-request-disconnected.png') })
+    chip = await RoomAgent.join({ link: keeper.url, name: 'Chip', identity })
+    await expect(page.locator('#agentsRow')).toContainText('Chip')
+    await page.clock.fastForward(31_000)
+    await expect(page.locator('#chatLog .system').filter({ hasText: 'Chip (agent) left.' })).toHaveCount(0)
+    await expect(page.locator('#chatLog .system').filter({ hasText: 'Chip (agent) came in.' })).toHaveCount(1)
+    await expect(page.locator('.agentRequestStatus').filter({ hasText: 'No receipt from Chip yet' })).toBeVisible()
+    await chip.leave(); chip = undefined
+    await expect(page.locator('#agentsRow')).not.toContainText('Chip')
+    await page.clock.fastForward(31_000)
+    await expect(page.locator('#chatLog .system').filter({ hasText: 'Chip (agent) left.' })).toHaveCount(1)
+  } finally { await chip?.leave(); await context.close(); await keeper.leave() }
 })
 
 

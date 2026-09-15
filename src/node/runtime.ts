@@ -52,6 +52,9 @@ export interface RuntimeOptions {
   /** Messages older than this many seconds at join are history rather than
    *  news: reported through `history()`, never as an event. */
   historyGraceSeconds?: number
+  /** Opt in only when room membership is sufficient to acknowledge requests.
+   * External hosts with caller gates should keep using acknowledge() after acceptance. */
+  automaticReceipts?: boolean
 }
 
 /**
@@ -82,12 +85,15 @@ export class AgentRuntime {
   readonly persona: Persona
   readonly #now: () => number
   readonly #listeners = new Set<(event: RuntimeEvent) => void>()
+  readonly #news: RuntimeEvent[] = []
+  #bufferNews = true
   readonly #seen = new Set<string>()
   readonly #recent: Record<Channel, ChatMessage[]> = { chat: [], backchannel: [], transcript: [] }
   readonly #named = new Map<string, { log: ChatLog; off: () => void }>()
   readonly #memoryDir?: string
   readonly #joinedAt: number
   readonly #graceSeconds: number
+  readonly #automaticReceipts: boolean
   #unsubs: (() => void)[] = []
   #stopListening?: () => Promise<void>
   #closed = false
@@ -102,6 +108,7 @@ export class AgentRuntime {
     this.#memoryDir = opts.memoryDir
     this.#joinedAt = Math.floor(this.#now() / 1000)
     this.#graceSeconds = opts.historyGraceSeconds ?? 10
+    this.#automaticReceipts = opts.automaticReceipts ?? false
   }
 
   /** Subscribe to the room. Returns this, so `new AgentRuntime(a).start()`
@@ -151,6 +158,12 @@ export class AgentRuntime {
         // question on arrival is a brain nobody wants in the room.
         if (message.sentAt < this.#joinedAt - this.#graceSeconds) continue
         const addressed = !message.reaction && !message.retracts && (message.reply?.participant === this.agent.participant || mentionedBy(message, this.agent.participant, [{ participant: this.agent.participant, name: this.persona.name }], { agent: true }))
+        // A receipt means this room connection heard the request. It must not
+        // depend on an external brain being idle, connected, or successful.
+        if (this.#automaticReceipts && addressed && channel !== 'transcript' && message.participant !== this.agent.participant) {
+          // Named conversations finish registering after their initial ingest.
+          queueMicrotask(() => { void this.acknowledge(name ?? channel, message.id).catch(() => {}) })
+        }
         this.#emit(channel === 'channel' ? { type: 'channel', channel: name!, message, at: this.#now(), addressed } : { type: channel, message, at: this.#now(), addressed })
       }
     }
@@ -162,6 +175,10 @@ export class AgentRuntime {
 
   #emit(event: RuntimeEvent): void {
     if (this.#closed) return
+    if (this.#bufferNews && 'message' in event) {
+      this.#news.push(event)
+      if (this.#news.length > RUNTIME_HISTORY) this.#news.shift()
+    }
     void this.#remember(event)
     for (const listener of [...this.#listeners]) {
       try {
@@ -190,8 +207,15 @@ export class AgentRuntime {
     }
   }
 
-  on(listener: (event: RuntimeEvent) => void): () => void {
+  on(listener: (event: RuntimeEvent) => void, opts: { replay?: boolean } = {}): () => void {
     this.#listeners.add(listener)
+    // A brain attaches after start() has subscribed and ingested. Preserve
+    // that startup gap without treating older relay history as new requests.
+    if (opts.replay) {
+      this.#bufferNews = false
+      const pending = this.#news.splice(0)
+      for (const event of pending) listener(event)
+    }
     return () => this.#listeners.delete(listener)
   }
 
@@ -432,6 +456,7 @@ export class AgentRuntime {
     for (const unsub of this.#unsubs) unsub()
     this.#unsubs = []
     this.#listeners.clear()
+    this.#news.length = 0
     await this.assignments?.close()
     await this.agent.leave()
   }

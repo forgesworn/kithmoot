@@ -3172,6 +3172,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .reactionPersonInfo { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
 .reactionNpub { font-family: monospace; overflow-wrap: anywhere; font-size: .875rem; }
 .reactionPerson time, .reactionReceipt { color: var(--muted); font-size: .875rem; }
+.agentRequestStatus { color: var(--muted); font-size: .875rem; margin: .25rem 0; }
 
 .reactionPerson > .avatar { width: 2rem; height: 2rem; }
 
@@ -3428,6 +3429,7 @@ input[type="search"] { font-family: inherit; }
   #chatLog .msg.mine > .messageBody > .messageControls { order: -1; }
   #chatLog .msg > .messageBody > .bubble { order: 4; flex: 0 1 auto; max-width: 100%; }
   #chatLog .msg > .messageReactions { order: 5; flex-basis: 100%; }
+  #chatLog .msg > .agentRequestStatus { order: 6; flex-basis: 100%; }
   #chatLog .msg.mine > .messageReactions { justify-content: flex-end; }
   #chatLog .thread .msg:has(> .messageBody) { max-width: 100%; }
   #chatLog { padding-inline: .5rem; }

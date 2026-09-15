@@ -39,6 +39,8 @@ import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, s
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
 import { RoomWatch } from './room-watch.js'
+import { PresenceAnnouncements } from './presence-announcements.js'
+import { readAgentRequestStatuses, type RequestAgent } from './agent-request-status.js'
 import { RoomBookmarks } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
@@ -4171,6 +4173,14 @@ function updateUi(): void {
  * claim comes from the roster and from nowhere else.
  */
 const agentParticipants = new Set<string>()
+const agentDisplayNames = new Map<string, string>()
+const requestStatusUpdates = new Map<HTMLElement, () => void>()
+setInterval(() => {
+  for (const [element, update] of requestStatusUpdates) {
+    if (!element.isConnected) requestStatusUpdates.delete(element)
+    else update()
+  }
+}, 5_000)
 
 function participantIsAgent(participant: string): boolean {
   return agentParticipants.has(participant)
@@ -4184,7 +4194,10 @@ function render(views: ParticipantView[], me: string): void {
   // an open completion when presence catches up, or the ^ menu stays empty
   // until the person types again.
   if (document.activeElement === $('chatInput')) renderMentionPicker()
-  for (const view of views) if (view.agent) agentParticipants.add(view.participant)
+  for (const view of views) if (view.agent) {
+    agentParticipants.add(view.participant)
+    if (view.name) agentDisplayNames.set(view.participant, view.name)
+  }
   const mine = views.find((v) => v.participant === me)
 
   // A paired phone and laptop are one participant. Whichever device most
@@ -4919,7 +4932,8 @@ const systemLines: SystemLine[] = []
  * comings a heartbeat apart, and that is fine.
  */
 const ROSTER_SETTLE_MS = 25_000
-let rosterSeen: Map<string, string | undefined> | undefined
+let presenceAnnouncements: PresenceAnnouncements | undefined
+let departureNoticeTimer: ReturnType<typeof setTimeout> | undefined
 let rosterJoinedAt = 0
 let presenceNoticeTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -4939,11 +4953,9 @@ function showPresenceNotice(text: string): void {
 
 function announceComings(views: ParticipantView[], me: string): void {
   const now = Date.now()
-  const present = new Map(views.filter(view => view.participant !== me).map(view => [view.participant, view.name] as const))
-  if (!rosterSeen) {
-    rosterSeen = new Map(present)
+  if (!presenceAnnouncements) {
+    presenceAnnouncements = new PresenceAnnouncements()
     rosterJoinedAt = now
-    return
   }
   // A room created in this tab has no replay population to suppress: every
   // other participant is genuinely a new arrival and should be announced at
@@ -4952,19 +4964,21 @@ function announceComings(views: ParticipantView[], me: string): void {
   const settled = startedHere || now - rosterJoinedAt > ROSTER_SETTLE_MS
   const label = (participant: string, name: string | undefined, agent: boolean) =>
     `${shownAs(participant, name).name ?? shortKey(participant)}${agent ? ' (agent)' : ''}`
-  for (const [participant, name] of present) {
-    if (rosterSeen.has(participant)) continue
-    if (settled) {
-      const text = `${label(participant, name, views.find(v => v.participant === participant)?.agent === true)} came in.`
-      addSystemLine(text)
-      showPresenceNotice(text)
-    }
+  for (const { person, arrived } of presenceAnnouncements.update(views.filter(v => v.participant !== me), now, settled)) {
+    const text = `${label(person.participant, person.name, person.agent === true)} ${arrived ? 'came in.' : 'left.'}`
+    addSystemLine(text)
+    if (arrived) showPresenceNotice(text)
   }
-  for (const [participant, name] of rosterSeen) {
-    if (present.has(participant)) continue
-    if (settled) addSystemLine(`${label(participant, name, agentParticipants.has(participant))} left.`)
+  if (departureNoticeTimer !== undefined) clearTimeout(departureNoticeTimer)
+  departureNoticeTimer = undefined
+  const next = presenceAnnouncements.nextCheck
+  if (next !== undefined) {
+    const generation = roomGeneration
+    departureNoticeTimer = setTimeout(() => {
+      departureNoticeTimer = undefined
+      if (session && generation === roomGeneration) announceComings(session.participants(), meParticipant)
+    }, Math.max(1, next - now))
   }
-  rosterSeen = new Map(present)
 }
 
 function addSystemLine(text: string, at = nowSeconds(), room?: KnownRoom): void {
@@ -6444,6 +6458,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   // replies under the message they answer. See `resolveConversation` and
   // docs/messages.md.
   const conversation = resolveConversation(messages)
+  const requestStatuses = readAgentRequestStatuses(messages)
+  const agentNames = new Map<string, string>()
+  for (const message of messages) if (message.name) agentNames.set(message.participant, message.name)
+  for (const view of roster) if (view.name) agentNames.set(view.participant, view.name)
   const writable = channelAvailable(currentChannel) && !(currentChannel && WRITTEN_BY_AGENTS.includes(currentChannel))
 
   // System lines sit in the log where they happened, and look like nothing
@@ -6606,6 +6624,25 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
     body.append(bubble)
     row.append(body)
+    if (mine && !m.reaction && !m.retracts) {
+      const status = document.createElement('p')
+      status.className = 'agentRequestStatus'
+      const update = () => {
+        const current = session?.participants() ?? []
+        const agents: RequestAgent[] = [...agentParticipants].map(participant => ({
+          participant,
+          name: current.find(v => v.participant === participant)?.name ??
+            agentDisplayNames.get(participant) ?? agentNames.get(participant),
+          present: current.some(v => v.participant === participant),
+        }))
+        const text = requestStatuses(original, agents, Date.now()).join(' ')
+        if (status.textContent !== text) status.textContent = text
+        status.hidden = !text
+      }
+      update()
+      row.append(status)
+      requestStatusUpdates.set(status, update)
+    }
     const reactions = reactionsFor(messages, original)
     const react = (emoji: string): boolean => {
       const chat = activeChat() ?? session?.chat
@@ -8588,7 +8625,9 @@ async function closeRoomSession(): Promise<void> {
   for (const box of tileBoxes.values()) box.remove()
   tileBoxes.clear()
   leftCall = false
-  rosterSeen = undefined
+  presenceAnnouncements = undefined
+  if (departureNoticeTimer !== undefined) clearTimeout(departureNoticeTimer)
+  departureNoticeTimer = undefined
   if (presenceNoticeTimer !== undefined) clearTimeout(presenceNoticeTimer)
   presenceNoticeTimer = undefined
   $('presenceNotice').hidden = true
@@ -8626,6 +8665,8 @@ function resetRoomState(): void {
   currentChannel = undefined
   keeperParticipant = undefined
   agentParticipants.clear()
+  agentDisplayNames.clear()
+  requestStatusUpdates.clear()
   handledInvites.clear()
   approvals.clear()
   systemLines.length = 0
