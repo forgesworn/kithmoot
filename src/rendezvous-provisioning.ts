@@ -6,6 +6,7 @@ import { getPublicKey } from 'nostr-tools/pure'
 export const RENDEZVOUS_PURPOSE = 'rendezvous'
 export const RENDEZVOUS_PROVISION_MAX_SECONDS = 10 * 60
 const FIELDS = ['v', 'p', 'd', 'rz', 'u', 'i', 'n', 'e', 'k']
+const ENVELOPE_FIELDS = new Set(['v', 'p', 'd', 'rz', 'u', 'i', 'n', 'e', 'c'])
 const HEX64 = /^[0-9a-f]{64}$/
 const BASE64URL = /^[A-Za-z0-9_-]+$/
 
@@ -26,6 +27,18 @@ export interface RendezvousProvision {
 
 export type RendezvousProvisionResult =
   | { ok: true; provision: RendezvousProvision }
+  | { ok: false; reason: string }
+
+/** The public NIP-46 wrapper emitted by the dedicated Heartwood operation.
+ * The child scalar is inside `ciphertext`; this is deliberately only enough
+ * information to choose the device-key NIP-44 peer after binding the reply. */
+export interface RendezvousProvisionEnvelope {
+  rendezvousPubkey: string
+  ciphertext: string
+}
+
+export type RendezvousProvisionEnvelopeResult =
+  | { ok: true; envelope: RendezvousProvisionEnvelope }
   | { ok: false; reason: string }
 
 /**
@@ -59,6 +72,32 @@ export function readRendezvousProvision(text: string, expect: RendezvousProvisio
     return { ok: false, reason: 'scalar' }
   }
   return { ok: true, provision: { index: value.i, expiresAt, scalar, wipe: () => scalar.fill(0) } }
+}
+
+/**
+ * Check Heartwood's public response wrapper before a device attempts NIP-44
+ * decryption. Unlike the canonical inner record, member order is not a
+ * transport invariant, but the shape is exact and every public binding must
+ * agree with the request this browser created.
+ */
+export function readRendezvousProvisionEnvelope(text: string, expect: RendezvousProvisionExpect): RendezvousProvisionEnvelopeResult {
+  if (text.length > 8192) return { ok: false, reason: 'size' }
+  let value: unknown
+  try { value = JSON.parse(text) } catch { return { ok: false, reason: 'json' } }
+  if (!isRecord(value) || Object.keys(value).length !== ENVELOPE_FIELDS.size || Object.keys(value).some(key => !ENVELOPE_FIELDS.has(key))) return { ok: false, reason: 'fields' }
+  if (value.v !== 1) return { ok: false, reason: 'version' }
+  if (!hex(value.p) || !hex(value.d) || !hex(value.rz)) return { ok: false, reason: 'pubkey' }
+  if (value.u !== RENDEZVOUS_PURPOSE) return { ok: false, reason: 'purpose' }
+  if (!index(value.i)) return { ok: false, reason: 'index' }
+  const expiresAt = value.e
+  if (typeof expiresAt !== 'number' || !Number.isInteger(expiresAt) || expiresAt <= expect.now) return { ok: false, reason: 'expired' }
+  if (expiresAt - expect.now > RENDEZVOUS_PROVISION_MAX_SECONDS) return { ok: false, reason: 'expiry window' }
+  const nonce = decodeBase64Url(value.n)
+  if (!nonce || nonce.length !== 16 || bytesToHex(nonce) !== bytesToHex(expect.nonce)) return { ok: false, reason: 'nonce' }
+  if (value.p !== expect.identity) return { ok: false, reason: 'identity' }
+  if (value.d !== expect.device) return { ok: false, reason: 'device' }
+  if (typeof value.c !== 'string' || value.c.length === 0) return { ok: false, reason: 'ciphertext' }
+  return { ok: true, envelope: { rendezvousPubkey: value.rz, ciphertext: value.c } }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
