@@ -1,11 +1,12 @@
 import { hexToBytes } from '@noble/hashes/utils'
 import { describe, expect, it } from 'vitest'
-import { readRendezvousProvision } from './rendezvous-provisioning.js'
+import { readRendezvousProvision, readRendezvousProvisionEnvelope } from './rendezvous-provisioning.js'
 
 const NOW = 1_793_577_600
 const IDENTITY = '3e0b147852ddd35607a06b4bb56ffc102e4d7b3ece162042c3f32f96a49c4613'
 const DEVICE = 'd6bd3b313d2cbc4f0b2355179911bd45747e6bd1024b9fead9a72e914a28e827'
 const RECORD = `{"v":1,"p":"${IDENTITY}","d":"${DEVICE}","rz":"5f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486","u":"rendezvous","i":7,"n":"AAECAwQFBgcICQoLDA0ODw","e":1793577900,"k":"Hx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA"}`
+const ENVELOPE = `{"v":1,"p":"${IDENTITY}","d":"${DEVICE}","rz":"5f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486","u":"rendezvous","i":7,"n":"AAECAwQFBgcICQoLDA0ODw","e":1793577900,"c":"Atest-ciphertext"}`
 const expectRecord = { identity: IDENTITY, device: DEVICE, nonce: hexToBytes('000102030405060708090a0b0c0d0e0f'), now: NOW }
 
 describe('rendezvous provisioning', () => {
@@ -33,5 +34,18 @@ describe('rendezvous provisioning', () => {
     expect(reason(RECORD.replace('5f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486', IDENTITY))).toBe('rendezvous key')
     expect(reason(RECORD.replace(`{"v":1,"p":"${IDENTITY}","d":`, `{"p":"${IDENTITY}","v":1,"d":`))).toBe('fields')
     expect(reason(RECORD.replace('"k":"Hx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA"', '"k":"Hx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA="'))).toBe('scalar')
+  })
+
+  it('checks every public response binding before the device tries to decrypt', () => {
+    expect(readRendezvousProvisionEnvelope(ENVELOPE, expectRecord)).toMatchObject({ ok: true, envelope: { ciphertext: 'Atest-ciphertext' } })
+    const reason = (response: string) => {
+      const result = readRendezvousProvisionEnvelope(response, expectRecord)
+      return result.ok ? 'accepted' : result.reason
+    }
+    expect(reason(ENVELOPE.replace(IDENTITY, 'aa'.repeat(32)))).toBe('identity')
+    expect(reason(ENVELOPE.replace(DEVICE, 'bb'.repeat(32)))).toBe('device')
+    expect(reason(ENVELOPE.replace('AAECAwQFBgcICQoLDA0ODw', 'AQEBAQEBAQEBAQEBAQEBAQ'))).toBe('nonce')
+    expect(reason(ENVELOPE.replace('"c":"Atest-ciphertext"', '"k":"wrong"'))).toBe('fields')
+    expect(reason(ENVELOPE.replace('"c":"Atest-ciphertext"', '"c":""'))).toBe('ciphertext')
   })
 })
