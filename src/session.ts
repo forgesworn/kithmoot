@@ -153,6 +153,13 @@ export interface RoomSessionBaseOptions {
    * that has gone quiet has no forwarder list until somebody restates one.
    */
   forwarders?: ForwarderRef[]
+  /**
+   * Permit a server-forwarder route only after the embedding app has installed
+   * and verified its sender-attributed encoded-frame media pipeline. Omitted
+   * is deliberately false: a forwarder otherwise terminates hop-by-hop WebRTC
+   * encryption and can read the media it relays.
+   */
+  forwarderMedia?: () => boolean
   /** A forwarder pubkey or url to prefer over the deterministic ordering. */
   preferForwarder?: string
   /** How long a forwarder has to connect before the room falls back to a
@@ -576,6 +583,7 @@ export class RoomSession {
         now: this.#now,
         uplink: this.#opts.uplink,
         forwarders: this.#opts.forwarders,
+        forwarderMedia: this.#opts.forwarderMedia,
         preferForwarder: this.#opts.preferForwarder,
         forwarderTimeoutMs: this.#opts.forwarderTimeoutMs,
         routeTimeoutMs: this.#opts.routeTimeoutMs,
