@@ -812,7 +812,10 @@ async function signOutOfNostr(): Promise<void> {
   // A signed-out account must not leave its device-specific rendezvous child
   // behind. Do this before changing the visible account state: a storage
   // failure keeps the account connected rather than pretending the clear won.
-  if (nostrSession) await rendezvousVault().clear(nostrSession.pubkey)
+  // Only a live bunker can create a rendezvous child. Do not initialise the
+  // encrypted IndexedDB vault for ordinary extension/remote sign-ins merely
+  // because they are signing out.
+  if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
   identityGeneration++
   clearImportedHistorySearch()
   relayConnections.clearAuthentication()
@@ -869,7 +872,8 @@ async function forgetThisBrowser(): Promise<void> {
   })) return
 
   contextPanel.close()
-  if (nostrSession) await rendezvousVault().clear(nostrSession.pubkey)
+  // As above, avoid creating a vault on a browser that never held one.
+  if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
   identityGeneration++
   clearImportedHistorySearch()
   const s = session
