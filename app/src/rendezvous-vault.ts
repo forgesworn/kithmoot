@@ -5,9 +5,9 @@
  * It accepts only Heartwood's bounded encrypted provision reply, opens it
  * through the browser's retained NIP-46 *device* key, and keeps the verified
  * child under a non-extractable WebCrypto key in IndexedDB.  It deliberately
- * does not invent a browser device key or a generic signer decrypt API:
- * signet-login must expose the retained NIP-46 client-key operation before a
- * web ceremony can wire this vault to a real signer.
+ * does not invent a browser device key or a generic signer decrypt API. The
+ * account ceremony supplies the retained NIP-46 client-key operation only for
+ * Heartwood's purpose-specific rendezvous provision response.
  */
 import { base64urlnopad } from '@scure/base'
 import { getPublicKey } from 'nostr-tools/pure'

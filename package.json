@@ -51,7 +51,7 @@
     "nostr-tools": "^2.25.0",
     "opus-decoder": "^0.7.12",
     "qrcode": "^1.5.4",
-    "signet-login": "https://codeload.github.com/forgesworn/signet-login/tar.gz/b2e569bbea06bf803d6f010268f21f0709cc7b48",
+    "signet-login": "https://codeload.github.com/forgesworn/signet-login/tar.gz/ab6fc9006d59325d34d7a49dea5e4726e893f0ad",
     "spoken-token": "^2.1.0",
     "werift": "^0.24.4",
     "zod": "^4.5.4"

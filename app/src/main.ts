@@ -173,6 +173,8 @@ import { ProfileBook, type Profile } from './profiles.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay-settings.js'
 import { renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
+import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
+import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -619,6 +621,7 @@ function participantKey(): Uint8Array {
  *  signet-login persists whatever it needs to reconnect (a bunker URI, a
  *  client key), and deliberately never an nsec. */
 let nostrSession: SignetSession | undefined
+let browserRendezvousVault: RendezvousVault | undefined
 let historyRecoveryBusy = false
 type HistoryRecoveryView = { status: string; rows: string[] }
 let historyRecoveryView: HistoryRecoveryView = { status: '', rows: [] }
@@ -680,6 +683,81 @@ function currentParticipant(): string | undefined {
   return undefined
 }
 
+/** The browser ceremony is available only to a bunker that retains the
+ * NIP-46 client key and implements the one scoped Heartwood operation. This
+ * is deliberately structural: it admits a reconnecting deferred bunker once
+ * it is live, without exposing a generic NIP-46 transport to the app. */
+interface RendezvousBunker {
+  method: 'bunker'
+  clientSecretKey: Uint8Array
+  nip46: { provisionRendezvous(index: number, nonce: Uint8Array, expiresAt: number): Promise<string> }
+}
+
+function rendezvousBunker(account: SignetSession | undefined): RendezvousBunker | undefined {
+  const signer = account?.signer as unknown as Partial<RendezvousBunker> | undefined
+  if (signer?.method !== 'bunker' || !(signer.clientSecretKey instanceof Uint8Array) || signer.clientSecretKey.length !== 32 ||
+      typeof signer.nip46?.provisionRendezvous !== 'function') return undefined
+  return signer as RendezvousBunker
+}
+
+function rendezvousVault(): RendezvousVault {
+  return browserRendezvousVault ??= new RendezvousVault(new BrowserRendezvousVaultStorage())
+}
+
+function setRendezvousStatus(text: string): void { $('rendezvousStatus').textContent = text }
+
+async function provisionRendezvousForThisBrowser(): Promise<void> {
+  const account = nostrSession, generation = identityGeneration, bunker = rendezvousBunker(account)
+  const input = $('rendezvousIndex') as HTMLInputElement
+  const button = $('provisionRendezvous') as HTMLButtonElement
+  if (!account || !bunker) { setRendezvousStatus('Sign in with a live Heartwood bunker to set up this browser.'); return }
+  if (!/^(0|[1-9][0-9]{0,9})$/.test(input.value)) {
+    setRendezvousStatus('Enter one whole rendezvous index from 0 to 4,294,967,295.'); return
+  }
+  const index = Number(input.value)
+  if (!Number.isSafeInteger(index) || index > 0xffffffff) {
+    setRendezvousStatus('Enter one whole rendezvous index from 0 to 4,294,967,295.'); return
+  }
+  let device: string
+  try { device = getPublicKey(bunker.clientSecretKey) }
+  catch { setRendezvousStatus('This browser’s saved bunker device key is invalid. Sign out and pair it again.'); return }
+
+  button.disabled = true
+  try {
+    const prior = await rendezvousVault().active(account.pubkey, device)
+    try {
+      if (prior && index <= prior.receipt.index) {
+        setRendezvousStatus(`Choose an index newer than ${prior.receipt.index}; this browser will not replace a child with an equal or older one.`)
+        return
+      }
+    } finally { prior?.wipe() }
+    if (nostrSession !== account || identityGeneration !== generation) return
+
+    const nonce = randomBytes(16)
+    const expiresAt = nowSeconds() + 480
+    setRendezvousStatus('Waiting for Heartwood’s physical approval…')
+    try {
+      const response = await bunker.nip46.provisionRendezvous(index, nonce, expiresAt)
+      if (nostrSession !== account || identityGeneration !== generation) return
+      const result = await rendezvousVault().accept(response, { identity: account.pubkey, device, nonce, now: nowSeconds() }, {
+        decrypt: async (peerPubkey, ciphertext) => {
+          const conversation = getConversationKey(bunker.clientSecretKey, peerPubkey)
+          try { return nip44Decrypt(ciphertext, conversation) }
+          finally { conversation.fill(0) }
+        },
+      })
+      if (nostrSession !== account || identityGeneration !== generation) return
+      setRendezvousStatus(result.ok
+        ? `This browser now holds rendezvous child ${result.receipt.index}. It is encrypted in this browser’s device vault.`
+        : `Heartwood’s response was refused (${result.reason}); no rendezvous child was stored.`)
+    } finally { nonce.fill(0) }
+  } catch (error) {
+    if (nostrSession === account && identityGeneration === generation) setRendezvousStatus(describeError(error))
+  } finally { button.disabled = false }
+}
+
+$('provisionRendezvous').addEventListener('click', () => { void provisionRendezvousForThisBrowser() })
+
 async function signInWithNostr(): Promise<void> {
   contextPanel.close()
   if (loginBusy) return
@@ -731,6 +809,10 @@ async function signInWithNostr(): Promise<void> {
 async function signOutOfNostr(): Promise<void> {
   contextPanel.close()
   if (session || joining) throw new Error('Leave the room before signing out.')
+  // A signed-out account must not leave its device-specific rendezvous child
+  // behind. Do this before changing the visible account state: a storage
+  // failure keeps the account connected rather than pretending the clear won.
+  if (nostrSession) await rendezvousVault().clear(nostrSession.pubkey)
   identityGeneration++
   clearImportedHistorySearch()
   relayConnections.clearAuthentication()
@@ -787,6 +869,7 @@ async function forgetThisBrowser(): Promise<void> {
   })) return
 
   contextPanel.close()
+  if (nostrSession) await rendezvousVault().clear(nostrSession.pubkey)
   identityGeneration++
   clearImportedHistorySearch()
   const s = session
@@ -1765,6 +1848,7 @@ function renderIdentity(): void {
 
   ;($('signIn') as HTMLButtonElement).hidden = nostrSession !== undefined
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
+  $('rendezvousProvision').hidden = !rendezvousBunker(nostrSession)
   $('retryRoomSync').hidden = nostrSession === undefined
   $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Keep your rooms with you'
   $('accountLead').textContent = nostrSession
