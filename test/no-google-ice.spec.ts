@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, open } from './browser.js'
 
 /**
  * Regression test for the fix in docs/decisions.md, 13 September 2026:
@@ -112,6 +112,66 @@ test('a production-style TURN response does not invent optional STUN/TLS', async
     )
     expect(iceServerUrls).toContain('stun:kithmoot.example:3478')
     expect(iceServerUrls.filter(url => url.toLowerCase().startsWith('stuns:'))).toEqual([])
+  } finally {
+    await contextA.close()
+    await contextB.close()
+  }
+})
+
+test('a member can require credentialed relay-only ICE without querying STUN', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+
+  const contextA = await newDeviceContext(browser, baseURL!)
+  const contextB = await newDeviceContext(browser, baseURL!)
+  const turnCredential = {
+    urls: ['turn:kithmoot.example:3478', 'turns:kithmoot.example:5349'],
+    username: 'time-bound-user',
+    credential: 'time-bound-password',
+    ttl: 3600,
+  }
+  const answerTurn = (context: typeof contextA) => context.route('**/turn', route =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify(turnCredential) }),
+  )
+
+  try {
+    await Promise.all([answerTurn(contextA), answerTurn(contextB)])
+    const pageA = await contextA.newPage()
+    const pageB = await contextB.newPage()
+    const url = await createRoom(pageA, baseURL!)
+    await joinWithMedia(pageA, url, 'Ada')
+
+    await open(pageB, url, 'Bob')
+    await pageB.locator('#joinNetworkPrivacy > summary').click()
+    await pageB.locator('#joinRelayOnly').check()
+    await expect(pageB.locator('#joinNetworkPrivacy')).toContainText('TURN provider can still see')
+    await pageB.locator('#join').click()
+    await expect(pageB.locator('#roomArea')).toBeVisible()
+
+    await expect.poll(() => pageB.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length), {
+      message: 'the relay-only member made no peer connection', timeout: 60_000,
+    }).toBeGreaterThan(0)
+
+    const configurations = await pageB.evaluate(() =>
+      (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.map(pc => {
+        const config = pc.getConfiguration()
+        return {
+          policy: config.iceTransportPolicy,
+          servers: (config.iceServers ?? []).map(server => ({
+            urls: Array.isArray(server.urls) ? server.urls : [server.urls],
+            username: server.username,
+            credential: server.credential,
+          })),
+        }
+      }),
+    )
+    for (const configuration of configurations) {
+      expect(configuration.policy).toBe('relay')
+      expect(configuration.servers).not.toHaveLength(0)
+      expect(configuration.servers.every(server =>
+        server.urls.every(url => url.toLowerCase().startsWith('turn')) &&
+        server.username === turnCredential.username && server.credential === turnCredential.credential,
+      )).toBe(true)
+    }
   } finally {
     await contextA.close()
     await contextB.close()

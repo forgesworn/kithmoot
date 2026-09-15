@@ -517,7 +517,7 @@ details#roomSettings label {
   flex-wrap: wrap;
   gap: 0.45rem 1rem;
   margin: 0.8rem 0;
-  padding: 0.7rem 0.8rem;
+  padding: 0.55rem 0.8rem;
   border: 1px solid var(--accent);
   border-radius: 8px;
   background: var(--accent-dim);
@@ -2222,6 +2222,13 @@ label.note {
   #effects summary,
   #assist summary {
     padding-block: 0.65rem;
+  }
+
+  /* This is deliberately a compact, optional fold at the door. The full
+     explanation appears only after somebody asks for relay-only calling;
+     otherwise it must not push the Join action below a short phone screen. */
+  #identity #joinNetworkPrivacy > summary {
+    padding-block: 0.45rem;
   }
 
   #chatViewport {

@@ -187,6 +187,7 @@ import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 import { CallWakeLock } from './wake-lock.js'
 import { BrowserForwarderMediaPipeline } from './forwarder-media.js'
+import { relayOnlyIceConfiguration } from './relay-only.js'
 
 const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
@@ -7635,6 +7636,11 @@ async function startSession(asVisitor = false): Promise<void> {
     // joining if the credential endpoint is absent or unreachable.
     let resolvedIceServers = await resolveIceServers(iceUrls)
     if (generation !== roomGeneration) return
+    // This is deliberately a per-join, device-local choice rather than a
+    // room-link flag. A room owner can name TURN infrastructure but cannot
+    // decide whether another person's browser exposes its network address.
+    const relayOnly = ($('joinRelayOnly') as HTMLInputElement).checked
+    if (relayOnly) relayOnlyIceConfiguration(resolvedIceServers)
 
     // A real RTCPeerConnection genuinely has everything RTCPeerConnectionLike
     // needs - its on* handlers just carry the full, specific DOM event type
@@ -7661,14 +7667,21 @@ async function startSession(asVisitor = false): Promise<void> {
     const refreshIce = (): void => {
       resolveIceServers(iceUrls)
         .then((fresh) => {
+          // Do not replace a working relay-only allocation list with a STUN
+          // fallback after a credential refresh failure. Keeping the last
+          // good credential is safe until it expires; replacing it would
+          // silently defeat the person's explicit IP-privacy choice.
+          if (relayOnly) relayOnlyIceConfiguration(fresh)
           resolvedIceServers = fresh
           stunOnly = withoutTurn(fresh)
         })
         .catch(() => {})
     }
     const factory: PeerFactory = (context?: PeerContext) => {
-      const iceServers = context?.tier === 'turn' ? resolvedIceServers : stunOnly
-      const pc = new RTCPeerConnection({ iceServers })
+      const configuration = relayOnly
+        ? relayOnlyIceConfiguration(resolvedIceServers)
+        : { iceServers: context?.tier === 'turn' ? resolvedIceServers : stunOnly }
+      const pc = new RTCPeerConnection(configuration)
       // Every connection contributes to the reachability measurement. It
       // costs nothing - these candidates were gathered anyway - and it is the
       // only honest source for whether this device could carry anybody.
