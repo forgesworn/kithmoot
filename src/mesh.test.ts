@@ -571,6 +571,9 @@ describe('Mesh promotion to a forwarder', () => {
       roomId: ROOM_ID,
       uplink: opts.uplink,
       forwarders: opts.forwarders,
+      // These route tests model a client whose media integration has already
+      // been verified. Production must opt in explicitly.
+      forwarderMedia: () => true,
       forwarderTimeoutMs: opts.forwarderTimeoutMs,
     })
     return { session, factory, mesh, local, relay }
@@ -605,6 +608,28 @@ describe('Mesh promotion to a forwarder', () => {
   it('stays a mesh when the room names no forwarder, however tight the uplink', () => {
     const { session, factory, mesh } = build({ uplink: TIGHT })
     fill(session, 12)
+    expect(mesh.forwarding).toBe('off')
+    expect(factory.instances).toHaveLength(12)
+    mesh.close()
+  })
+
+  it('does not promote onto a named forwarder without a verified media pipeline', async () => {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const local = device()
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: device().pub,
+      deviceSk: local.sk,
+      transport: new SimTransport(new SimRelay()),
+      roomId: ROOM_ID,
+      uplink: TIGHT,
+      forwarders: FORWARDERS,
+    })
+    fill(session, 12)
+    await settle()
     expect(mesh.forwarding).toBe('off')
     expect(factory.instances).toHaveLength(12)
     mesh.close()
@@ -862,6 +887,7 @@ describe('Mesh promotion to a forwarder', () => {
       roomId: ROOM_ID,
       uplink: TIGHT,
       forwarders: [{ url: 'wss://forward.example', pubkey: forwarder.pub }],
+      forwarderMedia: () => true,
     })
     fill(session, 12)
     await settle()

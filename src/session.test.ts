@@ -1088,6 +1088,9 @@ describe('RoomSession and forwarders', () => {
       announceJitterMs: 0,
       // Two peers at 600 kbps against a 1 Mbps uplink is already past it.
       uplink: () => ({ uplinkBps: 1_000_000, perPeerBps: 600_000 }),
+      // These are route tests. The browser integration itself is separately
+      // required to opt in only after it has installed frame transforms.
+      forwarderMedia: () => true,
       ...opts,
     })
     return { relay, factory, session }

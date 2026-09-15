@@ -72,6 +72,21 @@ export interface MeshOptions {
   /** Forwarders the room descriptor names. Swappable at runtime; see
    *  `setForwarders`. */
   forwarders?: ForwarderRef[]
+  /**
+   * Whether this client has installed a sender-attributed encoded-frame
+   * pipeline for a server forwarder.
+   *
+   * A forwarder terminates WebRTC's hop-by-hop DTLS-SRTP. It must therefore
+   * never be promoted merely because a descriptor names it: without the
+   * additional media transform it receives plaintext media. Omit this (the
+   * safe default) until the embedding application has proved that every
+   * forwarded sender is encrypted under its own device-bound media key and
+   * every received track is checked against that sender.
+   *
+   * This is a function because support can disappear at runtime when a media
+   * pipeline is torn down. A thrown check is treated as unavailable.
+   */
+  forwarderMedia?: () => boolean
   /** A forwarder pubkey or url to prefer over the deterministic ordering. */
   preferForwarder?: string
   /** How long a forwarder has to connect before the room gives up on it and
@@ -1060,6 +1075,15 @@ export class Mesh {
    *  address a signal to, and letting one win the ordering would stall the
    *  room on a forwarder it can never reach. */
   #selectUsableForwarder(): ForwarderRef | null {
+    // The reference Node forwarder deliberately has no room key. Without an
+    // encoded-frame transform at both browser endpoints, though, it still
+    // terminates DTLS-SRTP and can read the media it moves. Do not let an
+    // authenticated descriptor turn that into an accidental privacy downgrade.
+    try {
+      if (this.#opts.forwarderMedia?.() !== true) return null
+    } catch {
+      return null
+    }
     const usable = this.#forwarders.filter(
       (ref) => ref.pubkey !== undefined && !this.#failedForwarders.has(normaliseHex(ref.pubkey)),
     )
