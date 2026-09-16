@@ -41,6 +41,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check desktop notification and security boundaries
+        run: node --test desktop/test/*.test.mjs
+
       - name: Check Android publication metadata and website copy
         run: npm run verify:android-publication
 

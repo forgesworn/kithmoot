@@ -111,14 +111,19 @@ export class MessageActions {
   #position(): void {
     if (!this.#anchor || !this.#panel.matches(':popover-open')) return
     const anchor = this.#anchor.getBoundingClientRect()
-    const panel = this.#panel.getBoundingClientRect()
     const viewport = window.visualViewport
     const left = viewport?.offsetLeft ?? 0
     const top = viewport?.offsetTop ?? 0
     const width = viewport?.width ?? innerWidth
     const height = viewport?.height ?? innerHeight
+    // Keep the composer reachable while a long action menu is open.
+    const composer = document.getElementById('chatForm')
+    const composerTop = composer?.getClientRects().length ? composer.getBoundingClientRect().top : top + height
+    const bottom = Math.min(top + height, Math.max(top + 60, composerTop))
+    this.#panel.style.maxHeight = `${Math.max(44, bottom - top - 16)}px`
+    const panel = this.#panel.getBoundingClientRect()
     this.#panel.style.left = `${Math.max(left + 8, Math.min(anchor.right - panel.width, left + width - panel.width - 8))}px`
     const below = anchor.bottom + 6
-    this.#panel.style.top = `${Math.max(top + 8, Math.min(below + panel.height <= top + height - 8 ? below : anchor.top - panel.height - 6, top + height - panel.height - 8))}px`
+    this.#panel.style.top = `${Math.max(top + 8, Math.min(below + panel.height <= bottom - 8 ? below : anchor.top - panel.height - 6, bottom - panel.height - 8))}px`
   }
 }

@@ -125,7 +125,7 @@ test('browsing rooms keeps a live call; cancelling a switch leaves the microphon
   test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone')
   const { context, page } = await setup(browser, baseURL!)
   try {
-    await page.locator('#callToggle').click()
+    await page.locator('#callToggle:visible, #mobileCall:visible').click()
     await page.locator('#toggleMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     await page.locator('#backToRooms').click()
@@ -185,7 +185,7 @@ test('a late media permission result cannot start a call after a room switch', a
           return start(constraints)
         }
       }, kind)
-      await page.locator('#callToggle').click()
+      await page.locator('#callToggle:visible, #mobileCall:visible').click()
       await page.locator(kind === 'audio' ? '#toggleMic' : kind === 'video' ? '#toggleCamera' : '#toggleScreen').click()
       await expect.poll(() => page.evaluate(() => typeof (window as any).releaseMedia)).toBe('function')
       await page.locator('#backToRooms').click()

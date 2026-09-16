@@ -47,6 +47,14 @@ export class ChatScroll {
       // Navigation and roster updates can resize the log after its last
       // redraw. Keep a reader who chose the latest messages at the bottom.
       if (this.#paused || this.#pending || !this.#painted?.place.follow) return
+      // WebKit can deliver resize before a queued scrollbar/programmatic
+      // scroll event. A move beyond the resize's anchoring allowance means
+      // the reader already left the bottom; do not reinstate follow mode.
+      const resizedBy = Math.abs(log.clientHeight - this.#painted.height)
+      if (Math.abs(log.scrollTop - this.#painted.top) > resizedBy + 48) {
+        this.#paint()
+        return
+      }
       log.scrollTop = log.scrollHeight
       this.#paint()
     }).observe(log)
@@ -107,7 +115,7 @@ export class ChatScroll {
     if (!this.#paused && this.#channel !== undefined) this.#places.set(this.#channel, this.#pending ?? this.#readingPlace())
   }
 
-  before(channel: string, unread: ReadonlySet<string> = new Set()): () => void {
+  before(channel: string, unread: ReadonlySet<string> = new Set(), keepReading = false): () => void {
     if (this.#paused) return () => {}
     channel = JSON.stringify([this.#scope, channel])
     const log = this.#log
@@ -117,7 +125,9 @@ export class ChatScroll {
     const focusedMessage = !changed && active && log.contains(active) ? active.closest<HTMLElement>('[data-message-id]') : null
     const focusedId = focusedMessage?.dataset.messageId
     const focusKey = active?.dataset.focusKey
-    const saved = changed ? this.#places.get(channel) : this.#pending ?? this.#readingPlace()
+    let saved = changed ? this.#places.get(channel) : this.#pending ?? this.#readingPlace()
+    // An open receipt is being read even when its message was at the bottom.
+    if (keepReading && saved) saved = { ...saved, follow: false }
     if (changed) {
       this.#boundary = undefined
       this.#pending = saved?.id && !saved.follow ? saved : undefined

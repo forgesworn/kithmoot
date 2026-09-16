@@ -131,3 +131,12 @@ footer nav { gap: 1.2rem; }
   .hero .lead { order: 4; margin: 0; }
   .hero .under { order: 5; margin: 0; }
 }
+
+/* Desktop preview downloads reuse the site palette and platform cards. */
+.download-intro { max-width: 760px; padding-bottom: 3rem; }
+.platform details { margin-top: 1.5rem; }
+.platform summary { cursor: pointer; font-weight: 650; padding-block: .6rem; }
+.platform ol { padding-left: 1.3rem; }
+.platform li + li { margin-top: .65rem; }
+#linux > .button { margin-top: .8rem; }
+code { font-size: .88em; overflow-wrap: anywhere; }

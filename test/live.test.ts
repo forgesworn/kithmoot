@@ -60,9 +60,8 @@ describe('live relays', () => {
     expect(view!.tracks.map((t) => t.role).sort()).toEqual(['camera', 'screen'])
     expect(view!.mic).toBe(getPublicKey(phoneSk))
 
-    // And the phone opened a peer to the observer only - never to the
-    // laptop, which is its own participant's other device.
-    expect(phoneFactory.instances, 'the phone opened a peer to its own other device').toHaveLength(1)
+    // The phone connects both the observer and its own laptop camera.
+    expect(phoneFactory.instances).toHaveLength(2)
   })
 
   it('does not leak the participant pubkey to relays', async () => {

@@ -26,7 +26,7 @@
       <nav aria-label="Main navigation">
         <a href="#what">Features</a>
         <a href="#privacy">Privacy</a>
-        <a href="#platforms">Get the app</a>
+        <a href="downloads/">Downloads</a>
         <a class="nav-open" href="j/">Open KithMoot <span aria-hidden="true">↗</span></a>
       </nav>
     </header>
@@ -38,6 +38,7 @@
           <p class="lead">Rooms, threads, files and calls for your team. AI agents that join as members and hear only what you switch on. Encrypted end to end, with no company in the middle and nothing to pay per seat.</p>
           <div class="actions">
             <a class="button primary" href="j/">Start a room <span aria-hidden="true">↗</span></a>
+            <a class="button" href="downloads/">Download KithMoot</a>
           </div>
           <p class="under">Free and open source. No account, nothing to install: an invitation is all anyone needs.<br />Already on Nostr? <a href="j/?signin=nostr">Sign in with Nostr</a> and your rooms follow you.</p>
         </div>
@@ -98,10 +99,11 @@
       </section>
 
       <section id="platforms" class="section wrap" aria-labelledby="platforms-title">
-        <div class="section-intro"><p class="eyebrow">Use the screen you've got</p><h2 id="platforms-title">In your browser. On your home screen.</h2><p>The web app is the quickest way into a room. The native Android client is an earlier implementation with fewer features.</p></div>
+        <div class="section-intro"><p class="eyebrow">Use the screen you've got</p><h2 id="platforms-title">On your desktop. On your phone.</h2><p>Open a room in your browser, or give it a place on your desktop. macOS and Linux previews now join the Android client; feature coverage varies by platform.</p></div>
         <div class="platform-grid">
+          <article class="platform"><p class="platform-label">macOS &amp; Linux · desktop preview 0.1.2</p><h3>A little more room for your people.</h3><p>Chat alongside your call, move between rooms, and keep track of unread messages. Optional desktop notifications and a gentle Zen bell let you know when someone writes.</p><a class="button primary" href="downloads/">Choose your download</a><p class="under">Apple Silicon Macs, Linux Intel/AMD and Linux ARM64. Preview builds: Mac notarisation and wider Linux testing are still ahead. Notifications need an open or minimised app window; Linux icon badges depend on your desktop.</p></article>
           <article class="platform web-platform"><p class="platform-label">Web app</p><h3>Open a room and go in.</h3><p>Rooms, files and calls in your browser, with desktop screen sharing where supported. Install KithMoot from your browser's menu to keep it on your home screen or dock.</p><a class="button primary" href="j/">Open the web app</a><p class="under">An internet connection is needed to reach the room. Installation caches the app's shell, not an offline copy of your conversations.</p></article>
-          <article id="android" class="platform" data-android-channel="preview" data-android-version="0.5.12" data-android-version-code="20"><p class="platform-label">Android · preview</p><h3>A native client for your phone.</h3><p>Android 8.0 or later. Version 0.5.12 adds paired private conversations through your Bothy. A signed-in participant can create a sealed two-person conversation, pair its own route and switch only after Bothy confirms custody. Disconnecting retires that authority before local pairing material is removed, including recovery after an interrupted response. Shared projects and agent work remain available for standard rooms on your signing device.</p><p class="release-note"><strong>Debug-signed preview.</strong> This is a development build with incomplete feature coverage. It updates version 0.5.11 without clearing saved app data.</p><a class="button" href="apk/kithmoot-latest.apk?download=1">Download Android preview</a><a class="source-link" href="https://github.com/forgesworn/kithmoot-android/releases">Release notes and source <span aria-hidden="true">↗</span></a></article>
+          <article id="android" class="platform" data-android-channel="production" data-android-version="0.6.4" data-android-version-code="27"><p class="platform-label">Android · 0.6.4</p><h3>Your chats and rooms on your phone.</h3><p>Android 13 or later. Version 0.6.4 restores synced chats and rooms alongside projects, adds account and relay controls, and makes leaving a call explicit without leaving the conversation. Joined-room notifications include an optional Zen bell while connected. Sign in with the same Nostr account; room access and available message history still depend on the room and its relays.</p><p class="release-note"><strong>Production release.</strong> Signed with the KithMoot production key. The signing lineage supports updating the old website preview while keeping app data. Feature coverage still differs from the web app; this is a direct APK download, not a Play Store listing.</p><a class="button" href="apk/kithmoot-latest.apk?download=1">Download Android</a><a class="source-link" href="downloads/#android">Installation and release details <span aria-hidden="true">↗</span></a></article>
         </div>
       </section>
 

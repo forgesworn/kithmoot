@@ -30,7 +30,7 @@ for (const colour of ['light', 'dark'] as const) {
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('A workspace nobody owns.')
       await expect(page.locator('.hero .primary')).toHaveAttribute('href', 'j/')
       await expect(page.getByRole('link', { name: 'Sign in with Nostr' })).toHaveAttribute('href', 'j/?signin=nostr')
-      await expect(page.locator('#android')).toContainText('Debug-signed preview')
+      await expect(page.locator('#android')).toContainText('Production release')
       for (const width of [320, 390, 768, 1440]) {
         await page.setViewportSize({ width, height: 900 })
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `page overflow at ${width}px`).toBe(true)

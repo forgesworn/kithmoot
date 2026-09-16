@@ -143,8 +143,14 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
     await expect(reply).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(copyText).toBeFocused()
-    await page.keyboard.press('Tab')
-    await expect(panel.getByRole('button', { name: 'Add 👍 reaction', exact: true })).toBeFocused()
+    for (const name of ['Send as task', 'Summarise this', 'Add 👍 reaction']) {
+      await page.keyboard.press('Tab')
+      await expect(panel.getByRole('button', { name, exact: true })).toBeFocused()
+    }
+    await page.keyboard.press('Shift+Tab')
+    await expect(panel.getByRole('button', { name: 'Summarise this', exact: true })).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(panel.getByRole('button', { name: 'Send as task', exact: true })).toBeFocused()
     await page.keyboard.press('Shift+Tab')
     await expect(copyText).toBeFocused()
     await page.keyboard.press('Shift+Tab')

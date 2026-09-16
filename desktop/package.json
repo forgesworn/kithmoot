@@ -1,0 +1,27 @@
+{
+  "name": "kithmoot-desktop",
+  "productName": "KithMoot",
+  "version": "0.1.4",
+  "private": true,
+  "description": "KithMoot desktop preview",
+  "author": "ForgeSworn",
+  "license": "MIT",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "build": "node scripts/build.mjs",
+    "package:mac": "node scripts/package.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:smoke": "node test/smoke.mjs",
+    "setup": "install-electron",
+    "prepackage:mac": "npm run build",
+    "package:linux": "node scripts/package-linux.mjs",
+    "prepackage:linux": "npm run build"
+  },
+  "devDependencies": {
+    "electron": "44.4.1",
+    "@electron/packager": "20.3.0"
+  },
+  "desktopName": "dev.forgesworn.kithmoot.desktop"
+}

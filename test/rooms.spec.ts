@@ -117,12 +117,10 @@ test('the front page lists every room this device has been in, with what is new 
     await expect(townHallRow.locator('.hereChip .badge.agent')).toHaveCount(0)
     await expect(benchRow.locator('.unread')).toHaveText('nothing new')
 
-    // Opening a room from the list is opening its link. Joining and seeing
-    // the message is reading it, and the list says so on the way back.
+    // Opening a saved room now joins it directly. Seeing the message is
+    // reading it, and the list says so on the way back.
     await townHallRow.locator('button.open').click()
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
-    await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
-    await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#chatLog')).toContainText('hello town hall', { timeout: 60_000 })
     await page.locator('#backToRooms').click()

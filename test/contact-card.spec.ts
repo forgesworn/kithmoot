@@ -173,14 +173,14 @@ test('explicit box discovery verifies endpoints, removes stale trust and closes 
     await expect(page.locator('#contactList')).toContainText('Verified message endpoint:')
     expect(queries.some(q => q.some(f => f['#d']?.includes(fixture.p)))).toBe(true)
     await page.locator('#roomSheetClose').click()
-    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/sheltered/)
+    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/Encrypted · circle relay/)
 
     latest = fixture.status(fixture.withTag('drops', ['off']), fixture.now + 1)
     for (const reader of readers) reader.send(latest)
     await expect(page.locator('#laneNote .chip.lane')).toHaveText(/public/)
     latest = fixture.status(fixture.withTag('drops', ['on', relay.href]), fixture.now + 2)
     for (const reader of readers) reader.send(latest)
-    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/sheltered/)
+    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/Encrypted · circle relay/)
 
     const retired = finalizeEvent({ ...fixture.claim, created_at: fixture.now + 3, tags: fixture.claim.tags.filter(t => !(t[0] === 'p' && t[3] === 'stash')).map(t => t[0] === 'status' ? ['status', 'retired'] : t) }, fixture.masterKey)
     for (const reader of readers) reader.send(retired)

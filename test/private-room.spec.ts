@@ -60,20 +60,17 @@ test('somebody invited from a shared room is let straight into a room that asks 
     await ada.locator('#roomSwitcherHome').click()
     await ada.getByRole('button', { name: 'Open Private build', exact: true }).click()
     await expect(ada.locator('#roomTitle')).toHaveText('Private build', { timeout: 60_000 })
-    await expect(ada.locator('#join')).toBeVisible({ timeout: 60_000 })
-    await ada.locator('#join').click()
     await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
 
     // Rowan opens it from their rooms and is let straight in: no card.
     await rowan.locator('#backToRooms').click()
     await rowan.locator('#roomSwitcherHome').click()
     await rowan.getByRole('button', { name: 'Open Private build', exact: true }).click()
-    // A pre-approved invitation may complete before the next browser poll.
-    // The admission and its acknowledgement are the durable result to verify.
-    await expect(rowan.locator('#status')).toContainText('You are on the list', { timeout: 90_000 })
+    // Saved rooms now join automatically. Verify admitted membership and
+    // the host acknowledgement rather than the transient door status.
+    await expect(rowan.locator('#roomArea')).toBeVisible({ timeout: 90_000 })
     await expect(ada.locator('#approvals .approvalCard.knock')).toHaveCount(0)
     await expect(ada.locator('#chatLog')).toContainText('Rowan came in on your invite.')
-    await rowan.locator('#join').click()
     await expect(rowan.locator('#roomArea')).toBeVisible()
     await expect(rowan.locator('#roomTitle')).toHaveText('Private build')
   } finally { await a.close(); await b.close() }

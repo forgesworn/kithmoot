@@ -1,3 +1,7 @@
+import { updateAppBadge } from './app-badge.js'
+import { playZenChime, unlockZenChime } from './zen-chime.js'
+import './desktop-layout.js'
+import { showMobileRoomView } from './mobile-room-view.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { EmojiPicker } from './emoji-picker.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
@@ -161,7 +165,7 @@ import {
 } from '../../src/peer-assist.js'
 import type { AssistBlock, AssistEnvironment } from '../../src/peer-assist.js'
 import { UplinkProbe } from '../../src/uplink.js'
-import { LANE_GLYPH, LANE_LABEL, LANE_MEANING, type Lane } from '../../src/lane.js'
+import { LANE_GLYPH, LANE_MEANING, type Lane } from '../../src/lane.js'
 import type { StatLike } from '../../src/uplink.js'
 import type { AssistOffer } from '../../src/types.js'
 import {
@@ -922,6 +926,7 @@ function followReadPositions(roomId: string, roomKey: Uint8Array): void {
 function refreshAccountRooms(): void {
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
   if (roomsListShown) showRoomsList()
+  else if (window.kithmootDesktop) for (const room of knownRooms(roomStore())) watchKnownRoom(room)
 }
 
 function startRoomBookmarks(account: SignetSession): void {
@@ -932,7 +937,7 @@ function startRoomBookmarks(account: SignetSession): void {
   else void sharedProjects.unavailable('Your signer does not support encrypted shared projects. Connect a Nostr signer with NIP-44 support to use them.')
   bookmarks?.close()
   bookmarks = new RoomBookmarks(deviceStore, account.signer, relayConnections.pool('default'), () => {
-    if (roomsListShown) {
+    if (roomsListShown || window.kithmootDesktop) {
       const rooms = knownRooms(roomStore())
       const ids = new Set(rooms.map(room => room.roomId))
       for (const roomId of roomWatches.keys()) if (!ids.has(roomId)) stopWatching(roomId)
@@ -958,7 +963,7 @@ function startRoomBookmarks(account: SignetSession): void {
         const at = positions['']?.at
         if (at === undefined) return
         markRead(roomStore(), roomId, at)
-        if (roomsListShown) renderRooms()
+        if (roomsListShown || window.kithmootDesktop) renderRooms()
       })
     : undefined
   // The room this page is in, and every room the list is watching, from
@@ -2534,27 +2539,22 @@ async function fetchTurnCredential(endpoint: string): Promise<RTCIceServer | und
  */
 async function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
   if (!isDefaultIceUrls(urls)) {
-    turnRelayConfigured = urls.some((iceUrl) => iceUrl.toLowerCase().startsWith('turn'))
     return urls.map((iceUrl) => ({ urls: iceUrl }))
   }
 
   if (!TURN_CREDENTIAL_ENDPOINT) {
-    turnRelayConfigured = false
     return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
   }
 
   const fetchedTurnServer = await fetchTurnCredential(TURN_CREDENTIAL_ENDPOINT)
   if (!fetchedTurnServer) {
-    turnRelayConfigured = false
     return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
   }
   const compatibleTurnUrls = browserDefaultTurnUrls(toUrlList(fetchedTurnServer.urls))
   if (compatibleTurnUrls.length === 0) {
-    turnRelayConfigured = false
     return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
   }
   const turnServer: RTCIceServer = { ...fetchedTurnServer, urls: compatibleTurnUrls }
-  turnRelayConfigured = true
 
   // The same host and port the minted credential just proved answers plain
   // TURN on, not a second guess at this origin's hostname. A TURN/TLS URL
@@ -2964,6 +2964,7 @@ async function startNewRoom(): Promise<void> {
  * anything to be about. What is left is a name and a way in.
  */
 function showRoomUi(): void {
+  $('homeNotifications').hidden = true
   $('home').hidden = true
   $('identity').hidden = false
   $('identityMore').hidden = false
@@ -3041,6 +3042,8 @@ function showRoomTools(): void {
  */
 function setCallOpen(open: boolean): void {
   const bay = $('callBay')
+  if (open && bay.hidden) showMobileRoomView('call')
+  if (!open) showMobileRoomView('chat')
   bay.hidden = !open
   // The controls themselves start hidden in the markup, because until the
   // room is on screen there is nothing for them to be about.
@@ -3162,10 +3165,12 @@ async function leaveCall(): Promise<void> {
 function renderCallState(views: ParticipantView[]): void {
   const calls = session?.calls() ?? []
   const mineOn = onCall()
+  window.kithmootDesktop?.setCallActive(mineOn)
   const button = $('callToggle')
   const current = calls[0]
   button.textContent = mineOn ? 'On call' : current ? 'Join call' : 'Call'
   button.dataset.live = String(mineOn)
+  $('mobileCall').textContent = mineOn ? 'Call · live' : current ? 'Call · join' : 'Call'
   button.title = mineOn ? 'Your call controls' : current ? 'A call is on in this room' : 'Start a call in this room'
 
   const banner = $('callBanner')
@@ -4350,8 +4355,9 @@ function render(views: ParticipantView[], me: string): void {
       if (volumeLevel(view.participant) === 0) heading.append(volumeMuteBadge())
     }
     box.prepend(heading)
-    const place = (mediaEl: HTMLDivElement | undefined): void => {
+    const place = (mediaEl: HTMLDivElement | undefined, label = ''): void => {
       if (!mediaEl || mediaEl.childElementCount === 0) { if (mediaEl?.parentElement === box) mediaEl.remove(); return }
+      mediaEl.dataset.cameraLabel = label
       if (mediaEl.parentElement !== box) box.append(mediaEl)
     }
 
@@ -4360,14 +4366,14 @@ function render(views: ParticipantView[], me: string): void {
       // preview before joining, moved here rather than duplicated (see
       // localMediaEl). A chip only for what has no picture - the mic - and
       // for a track advertised but not currently previewed.
-      place(localMediaEl)
+      place(localMediaEl, 'This device')
       // My other devices' pictures, in the same tile. A phone's camera is
       // a picture of me, and the laptop I am also on is the natural place
       // to check what it is showing; leaving it out meant a person on two
       // devices never saw their own phone's camera on their desktop and
       // concluded the desktop was broken. Their sound stays muted, see the
       // rule at the top of `render`.
-      for (const device of view.devices) if (device !== myDeviceId) place(deviceMediaEls.get(device))
+      for (const [index, device] of view.devices.filter(device => device !== myDeviceId).entries()) place(deviceMediaEls.get(device), `Your other device${view.devices.length > 2 ? ` ${index + 1}` : ''}`)
       box.append(
         trackChips(view, (track) => {
           const kind = previewKindOf(track.role)
@@ -4382,7 +4388,7 @@ function render(views: ParticipantView[], me: string): void {
     } else {
       // Remote media: real video/audio wherever we have it, a waiting chip
       // wherever we do not (still negotiating, or never advertised).
-      for (const device of view.devices) place(deviceMediaEls.get(device))
+      for (const [index, device] of view.devices.entries()) place(deviceMediaEls.get(device), view.devices.length > 1 ? `Device ${index + 1}` : '')
       box.append(
         trackChips(view, (track) => {
           const mediaEl = deviceMediaEls.get(track.device)
@@ -5446,7 +5452,7 @@ function renderInvites(): void {
 // Attachments: files shared through Wildbloom
 // ---------------------------------------------------------------------------
 
-type OpenedAttachment = { url: string; name: string; type: string; size: number; text?: string } | { error: string }
+type OpenedAttachment = { url: string; name: string; type: string; size: number; text?: string; expanded?: boolean } | { error: string }
 
 /** What has been fetched and opened, per log, per message, per attachment.
  *  An object URL is revoked when its message leaves the log and never
@@ -5518,8 +5524,21 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       } else if (opened.text !== undefined) {
         const preview = document.createElement('pre')
         preview.className = 'attachmentText'
-        preview.textContent = opened.text
+        preview.textContent = opened.expanded ? opened.text : opened.text.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + (opened.text.length > 600 ? '…' : '')
         card.append(preview)
+        if (opened.text.length > 600) {
+          const expand = document.createElement('button')
+          expand.type = 'button'
+          expand.textContent = opened.expanded ? 'Collapse' : 'Read more'
+          expand.setAttribute('aria-expanded', String(!!opened.expanded))
+          expand.onclick = () => { opened.expanded = !opened.expanded; render() }
+          card.append(expand)
+        }
+        const copy = document.createElement('button')
+        copy.type = 'button'
+        copy.textContent = 'Copy full text'
+        copy.onclick = async () => { copy.textContent = await copyMessageText(opened.text!) ? 'Copied' : 'Copy failed' }
+        card.append(copy)
       } else {
         const note = document.createElement('span')
         note.textContent = 'Preview unavailable for this file type. Save it to open in a compatible app.'
@@ -5546,13 +5565,13 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
         if (generation !== roomGeneration) return
         const type = file.type.split(';')[0]!.trim().toLowerCase()
         const isText = type.startsWith('text/') || ['application/json', 'application/xml'].includes(type)
-        // Never execute HTML/SVG/scripts as a document. Text is bounded and
+        // Never execute HTML/SVG/scripts as a document. Text is collapsed and
         // assigned through textContent, including untrusted markup.
-        const text = isText ? await file.source.slice(0, 64 * 1024).text() : undefined
+        const text = isText ? await file.source.text() : undefined
         if (generation !== roomGeneration) return
         openedAttachments.set(key, {
           url: URL.createObjectURL(file.source), name: file.name, type, size: file.size,
-          ...(text !== undefined ? { text: text + (file.size > 64 * 1024 ? '\n… Preview truncated. Save to read the full file.' : '') } : {}),
+          ...(text !== undefined ? { text } : {}),
         })
       } catch (err) {
         // The reason and nothing else: an error here never carries the key.
@@ -5577,9 +5596,11 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
 function laneChip(lane: Lane): HTMLSpanElement {
   const span = document.createElement('span')
   span.className = `chip lane ${lane}`
-  span.textContent = `${LANE_GLYPH[lane]} ${LANE_LABEL[lane]}`
-  span.title = LANE_MEANING[lane]
-  span.setAttribute('aria-label', `${LANE_LABEL[lane]} lane. ${LANE_MEANING[lane]}`)
+  const label = lane === 'public' ? 'Encrypted · public relay' : lane === 'sheltered' ? 'Encrypted · circle relay' : 'Encrypted · direct'
+  const meaning = 'Message content is encrypted for this conversation. ' + LANE_MEANING[lane]
+  span.textContent = `${LANE_GLYPH[lane]} ${label}`
+  span.title = meaning
+  span.setAttribute('aria-label', `${label}. ${meaning}`)
   return span
 }
 
@@ -5813,6 +5834,7 @@ function restoreDraft(): void {
   const input = $('chatInput') as HTMLTextAreaElement
   closeMentionPicker()
   input.value = draft.text
+  showPasteSize()
   input.setSelectionRange(draft.selectionStart, draft.selectionEnd, draft.selectionDirection)
   growComposer(input)
   ;($('attachEvent') as HTMLInputElement).value = draft.event
@@ -5963,7 +5985,7 @@ function nextUnreadConversation(): [string | undefined, string] | undefined {
 }
 
 function markConversationRead(): boolean {
-  if (chatScroll.restoring) return false
+  if (chatScroll.restoring || (window.kithmootDesktop && !document.hasFocus())) return false
   const log = $('chatLog')
   if ($('roomArea').hidden || document.visibilityState !== 'visible' || document.querySelector('dialog[open], #messageActionPanel:popover-open') || log.scrollHeight - log.scrollTop - log.clientHeight > 48) return false
   const key = currentChannel ?? ''
@@ -5995,6 +6017,7 @@ function navTabs(): Array<[string | undefined, string]> {
 
 let renderedTabKey = ''
 function renderConversationNav(): void {
+  updateDesktopUnread()
   renderedTabKey = navTabs().map(([name]) => name ?? '').join('\n')
   const next = nextUnreadConversation()
   $('nextUnread').hidden = !next
@@ -6185,9 +6208,16 @@ function renderComposer(): void {
   ;($('emojiToggle') as HTMLButtonElement).disabled = readOnly || closed
   if (readOnly || closed) emojiPicker.close()
   ;($('attachToggle') as HTMLButtonElement).disabled = closed
-  ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job)
+  ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job) || Boolean(draft.pendingFiles?.length)
   $('attachStaged').hidden = readOnly
   $('attachPanel').hidden = readOnly || !draft.panelOpen
+  const waiting = draft.pendingFiles ?? []
+  $('pendingFileNames').hidden = !waiting.length
+  $('pendingFileNames').textContent = waiting.length ? `On this device, not uploaded: ${waiting.map(file => file.name).join(', ')}` : ''
+  $('pendingFileActions').hidden = !waiting.length
+  ;($('uploadPendingFiles') as HTMLButtonElement).disabled = Boolean(draft.job) || closed || !blossomServer()
+  ;($('clearPendingFiles') as HTMLButtonElement).disabled = Boolean(draft.job)
+
   for (const id of ['attachFile', 'attachAdd', 'attachEvent', 'attachKey']) {
     ;($(id) as HTMLInputElement | HTMLButtonElement).disabled = closed || Boolean(draft.job)
   }
@@ -6410,7 +6440,7 @@ function appendMentions(into: HTMLElement, text: string, pattern: RegExp | undef
  *  style.css). Falls back to a hidden textarea's `execCommand('copy')` the
  *  way `copyInput` above does for the invite link, for a browser that has
  *  no async clipboard API or refuses it here. */
-async function copyMessageText(text: string): Promise<void> {
+async function copyMessageText(text: string): Promise<boolean> {
   let copied = false
   try {
     if (navigator.clipboard) { await navigator.clipboard.writeText(text); copied = true }
@@ -6427,7 +6457,8 @@ async function copyMessageText(text: string): Promise<void> {
     try { copied = document.execCommand('copy') } catch { /* Manual copying remains available. */ }
     area.remove()
   }
-  setStatus(copied ? 'Message text copied.' : 'Could not copy automatically. Select the text and copy it with your keyboard or touch menu.', copied ? 'done' : 'problem')
+  setStatus(copied ? 'Message text copied.' : 'Could not copy automatically. Expand the message, then select and copy its text.', copied ? 'done' : 'problem')
+  return copied
 }
 
 /**
@@ -6435,6 +6466,8 @@ async function copyMessageText(text: string): Promise<void> {
  * transcript. A transcript line names the speaker the transcriber claims,
  * beside a key exactly as a name is, and says who wrote it down.
  */
+const expandedMessages = new Set<string>()
+
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
   // A receipt or roster update replaces the rows while someone may be
@@ -6443,7 +6476,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   const openReaction = log.querySelector<HTMLElement>('.reactionDetails:popover-open')?.id
   let restoreReaction: (() => void) | undefined
   const unread = unreadMessageIds(currentChannel)
-  const restoreScroll = chatScroll.before(currentChannel ?? '', unread)
+  const restoreScroll = chatScroll.before(currentChannel ?? '', unread, !!openReaction)
   log.innerHTML = ''
   // What this conversation is, at the top of it, the way a messaging app
   // puts the thing you should know once at the head of the thread.
@@ -6623,8 +6656,34 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     // breaks in it are kept - the box people type into makes them now - and
     // the names in it are marked. Yours too, except in your own message:
     // saying your own name is not being addressed.
-    appendWithMentions(text, m.text, mentions, mine ? new Set<string>() : namesOfMine)
+    const expansionKey = `${currentRoomId()}:${logId}:${m.participant}:${m.id}`
+    const long = m.text.length > 700 || m.text.split('\n').length > 12
+    const paintText = () => {
+      text.replaceChildren()
+      const shown = long && !expandedMessages.has(expansionKey) ? m.text.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + '…' : m.text
+      appendWithMentions(text, shown, mentions, mine ? new Set<string>() : namesOfMine)
+    }
+    paintText()
     bubble.append(text)
+    if (long) {
+      bubble.classList.add('longMessage')
+      const tools = document.createElement('div'); tools.className = 'longMessageTools'
+      const expand = document.createElement('button'); expand.type = 'button'
+      const paintExpand = () => {
+        expand.textContent = expandedMessages.has(expansionKey) ? 'Collapse' : 'Read more'
+        expand.setAttribute('aria-expanded', String(expandedMessages.has(expansionKey)))
+      }
+      paintExpand()
+      expand.onclick = event => {
+        event.stopPropagation()
+        if (expandedMessages.has(expansionKey)) expandedMessages.delete(expansionKey)
+        else expandedMessages.add(expansionKey)
+        paintText(); paintExpand()
+      }
+      const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy'
+      copy.onclick = event => { event.stopPropagation(); void copyMessageText(m.text).then(ok => { copy.textContent = ok ? 'Copied' : 'Copy failed' }) }
+      tools.append(expand, copy); bubble.append(tools)
+    }
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
     body.append(bubble)
     row.append(body)
@@ -6681,6 +6740,8 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         const actions: MessageAction[] = [
           { label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) },
           { label: 'Copy text', text: 'Copy text', run: () => { void copyMessageText(m.text) } },
+          { label: 'Send as task', text: 'Send as task', run: () => assignmentPanel.offerMessage({ id: m.id, participant: m.participant, channel: currentChannel ?? 'chat' }, false) },
+          { label: 'Summarise this', text: 'Summarise this', run: () => assignmentPanel.offerMessage({ id: m.id, participant: m.participant, channel: currentChannel ?? 'chat' }, true) },
         ]
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
@@ -7207,6 +7268,9 @@ function syncRemoteVideos(): void {
       }
       continue
     }
+    // Safari can pause off-screen video during Chat. That is not evidence
+    // that the sender stopped; the Call gesture resumes the existing player.
+    if (!$('callStage').checkVisibility()) { entry.stalled = 0; continue }
     // Not moving yet is not the same as no longer moving. A picture that has
     // never had a frame is still arriving, and it is given as long as it
     // needs: the tile says so meanwhile, and nothing about it is a lie. Only
@@ -7638,13 +7702,17 @@ async function startSession(asVisitor = false): Promise<void> {
     // (a minted credential for this app's own default TURN, if configured
     // and actually in play - see isDefaultIceUrls) and never blocks
     // joining if the credential endpoint is absent or unreachable.
-    let resolvedIceServers = await resolveIceServers(iceUrls)
-    if (generation !== roomGeneration) return
-    // This is deliberately a per-join, device-local choice rather than a
-    // room-link flag. A room owner can name TURN infrastructure but cannot
-    // decide whether another person's browser exposes its network address.
+    // Chat does not need TURN credentials. Prepare them in the background,
+    // unless this device explicitly requires a relay before any media can
+    // connect. Capture this room's URLs: a late fetch must not affect another.
+    const roomIceUrls = [...iceUrls]
     const relayOnly = ($('joinRelayOnly') as HTMLInputElement).checked
+    let resolvedIceServers = relayOnly
+      ? await resolveIceServers(roomIceUrls)
+      : (isDefaultIceUrls(roomIceUrls) ? originStunGuess(location) : roomIceUrls).map(urls => ({ urls }))
+    if (generation !== roomGeneration) return
     if (relayOnly) relayOnlyIceConfiguration(resolvedIceServers)
+    turnRelayConfigured = resolvedIceServers.some(server => toUrlList(server.urls).some(url => url.startsWith('turn')))
 
     // A real RTCPeerConnection genuinely has everything RTCPeerConnectionLike
     // needs - its on* handlers just carry the full, specific DOM event type
@@ -7669,8 +7737,9 @@ async function startSession(asVisitor = false): Promise<void> {
     // Refreshed well inside the credential's life, and never blocking: a
     // refresh that fails leaves the last good list in place.
     const refreshIce = (): void => {
-      resolveIceServers(iceUrls)
+      resolveIceServers(roomIceUrls)
         .then((fresh) => {
+          if (generation !== roomGeneration) return
           // Do not replace a working relay-only allocation list with a STUN
           // fallback after a credential refresh failure. Keeping the last
           // good credential is safe until it expires; replacing it would
@@ -7678,9 +7747,11 @@ async function startSession(asVisitor = false): Promise<void> {
           if (relayOnly) relayOnlyIceConfiguration(fresh)
           resolvedIceServers = fresh
           stunOnly = withoutTurn(fresh)
+          turnRelayConfigured = fresh.some(server => toUrlList(server.urls).some(url => url.startsWith('turn')))
         })
         .catch(() => {})
     }
+    if (!relayOnly && isDefaultIceUrls(roomIceUrls)) refreshIce()
     const factory: PeerFactory = (context?: PeerContext) => {
       const configuration = relayOnly
         ? relayOnlyIceConfiguration(resolvedIceServers)
@@ -7835,6 +7906,7 @@ async function startSession(asVisitor = false): Promise<void> {
     // What lands while this tab is in the background is worth a
     // notification, if the person asked for them. Followed from now, so
     // the history the log replays on open is never news.
+    if (window.kithmootDesktop) for (const room of knownRooms(roomStore())) watchKnownRoom(room)
     const joinedRoomId = currentRoomId() ?? s.roomId
     const roomLabelNow = () => currentRoomLabel()
     followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey)
@@ -7952,7 +8024,7 @@ async function startSession(asVisitor = false): Promise<void> {
  * count on the rooms list is measured against.
  */
 function noteChatRead(messages: ChatMessage[]): void {
-  if (document.visibilityState !== 'visible' || currentChannel !== undefined || $('roomArea').hidden) return
+  if ((window.kithmootDesktop && !document.hasFocus()) || document.visibilityState !== 'visible' || currentChannel !== undefined || $('roomArea').hidden) return
   const log = $('chatLog')
   if (log.scrollHeight - log.clientHeight - log.scrollTop >= 48) return
   const roomId = currentRoomId()
@@ -7967,6 +8039,7 @@ function noteChatRead(messages: ChatMessage[]): void {
   }
   if (newest > 0) {
     markRead(roomStore(), roomId, newest)
+    updateDesktopUnread()
     readSync?.note(roomId, { '': newestId ? { at: newest, id: newestId } : { at: newest } })
   }
 }
@@ -7981,7 +8054,11 @@ document.addEventListener('visibilitychange', () => {
     // Not joined yet: there is no chat to have read.
   }
 })
-window.addEventListener('focus', () => notifier.seen())
+window.addEventListener('focus', () => {
+  notifier.seen()
+  if (markConversationRead()) renderConversationNav()
+  if (session) noteChatRead(session.chat.messages())
+})
 $('chatLog').addEventListener('scroll', () => {
   if (session && currentChannel === undefined) noteChatRead(session.chat.messages())
 })
@@ -8095,7 +8172,7 @@ function hideRoomsList(): void {
     clearInterval(roomsTimer)
     roomsTimer = undefined
   }
-  for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
+  if (!window.kithmootDesktop) for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
 }
 
 function renderRooms(): void {
@@ -8112,6 +8189,7 @@ function renderRooms(): void {
   const filtered = rooms.filter(room => matchesRoom(room, query, project))
   $('homeProjectFilter').hidden = !rooms.some(room => projectOf(room))
   $('rooms').hidden = rooms.length === 0 && !nostrSession
+  $('homeNotifications').hidden = false
   $('notify').hidden = rooms.length === 0
   $('homeHeading').textContent = rooms.length ? 'Pick up the conversation.' : 'Make room for a conversation.'
   $('roomsHeading').textContent = 'Your rooms'
@@ -8313,13 +8391,7 @@ function currentRoomLabel(): string {
 }
 
 function openKnownRoom(room: KnownRoom): void {
-  if (sharedProjects.forRoom(room.roomId).length) { void switchRoom(room); return }
-  // A fragment-only change is a same-document navigation, which never
-  // re-runs this module; the reload is what reads the link.
-  // A synced bookmark is data, not a redirect to a different website.
-  const parsed = new URL(room.link, location.href)
-  history.replaceState(null, '', joinLinkBase() + parsed.hash)
-  location.reload()
+  void switchRoom(room)
 }
 
 function projectOf(room: Pick<KnownRoom, 'roomId'>): string | undefined {
@@ -8406,6 +8478,7 @@ function openProjectEditor(room: KnownRoom, opener: HTMLElement): void {
 }
 
 function renderWorkspace(): void {
+  updateDesktopUnread()
   if ($('workspaceNav').hidden) return
   const list = $('workspaceRooms')
   const focused = document.activeElement as HTMLElement | null
@@ -8549,11 +8622,17 @@ async function switchRoom(room: KnownRoom): Promise<void> {
   switchDestination = room
   captureDraft()
   switchingRoom = true
+  if (import.meta.env.VITE_DESKTOP === 'true' && !$('roomArea').hidden) {
+    document.documentElement.dataset.roomSwitching = 'true'
+    $('roomSwitchProgress').textContent = `Opening ${knownRoomLabel(room)}…`
+    $('roomSwitchProgress').hidden = false
+    $('roomArea').setAttribute('aria-busy', 'true')
+  }
   $('roomArea').inert = $('workspaceNav').inert = true
   $('joinRoomForm').inert = $('accountHome').inert = true
   ;($('workspaceQuery') as HTMLInputElement).disabled = true
   try {
-    await closeRoomSession()
+    await closeRoomSession({ backgroundFarewell: true })
     resetRoomState()
     const hash = new URL(room.link, location.href).hash
     // Bookmarks provide an invitation fragment, never an external redirect.
@@ -8583,6 +8662,10 @@ async function switchRoom(room: KnownRoom): Promise<void> {
     $('workspaceNav').hidden = false
   } finally {
     switchingRoom = false
+    delete document.documentElement.dataset.roomSwitching
+    if (import.meta.env.VITE_DESKTOP === 'true') $('roomSwitchProgress').hidden = true
+    $('roomArea').removeAttribute('aria-busy')
+    if (!session) $('roomArea').hidden = true
     $('roomArea').inert = $('workspaceNav').inert = false
     $('joinRoomForm').inert = $('accountHome').inert = false
     ;($('workspaceQuery') as HTMLInputElement).disabled = false
@@ -8597,7 +8680,7 @@ async function switchRoom(room: KnownRoom): Promise<void> {
 }
 
 /** Stop the room completely before any other room can own the controls. */
-async function closeRoomSession(): Promise<void> {
+async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}): Promise<void> {
   chatScroll.suspend()
   ++roomGeneration
   const old = session
@@ -8660,12 +8743,17 @@ async function closeRoomSession(): Promise<void> {
   peerRelay.close()
   setCallOpen(false)
   updateUi()
-  $('roomArea').hidden = true
-  try { await old?.leave() } finally {
-    transport?.close()
-    for (const [key, pc] of openConnections) { pc.close(); uplink.forget(key) }
-    openConnections.clear()
-  }
+  if (document.documentElement.dataset.roomSwitching !== 'true') $('roomArea').hidden = true
+  // leave() stops the old session synchronously; its promise waits only for
+  // relay acknowledgement. Keep that transport alive for the bounded farewell,
+  // but free the controls immediately. Never clean up global connections later:
+  // by then they may belong to the newly opened room.
+  const farewell = old?.leave() ?? Promise.resolve()
+  for (const [key, pc] of openConnections) { pc.close(); uplink.forget(key) }
+  openConnections.clear()
+  const finished = farewell.finally(() => transport?.close())
+  if (options.backgroundFarewell) void finished.catch(() => {})
+  else await finished
 }
 
 function resetRoomState(): void {
@@ -8820,7 +8908,32 @@ async function backToRooms(): Promise<void> {
 // what a click on one does.
 // ---------------------------------------------------------------------------
 
+function zenBellEnabled(): boolean { return (deviceStore.get('kithmoot.zen-bell') ?? deviceStore.get('kithmoot.desktop-bell')) !== 'false' }
 const APP_TITLE = document.title
+document.addEventListener('pointerdown', () => {
+  if (notifySettings(deviceStore).enabled && zenBellEnabled()) void unlockZenChime()
+}, { once: true })
+window.kithmootDesktop?.onOpenRoom(roomId => {
+  const room = knownRoom(roomStore(), roomId)
+  if (room && roomId !== currentRoomId()) openKnownRoom(room)
+})
+
+/** Use the same resolved messages/read positions as chat, not the number of banners. */
+function updateDesktopUnread(): void {
+  const self = meParticipant || currentParticipant()
+  let count = 0
+  for (const room of knownRooms(roomStore())) {
+    if (session && room.roomId === currentRoomId()) continue
+    const messages = roomWatches.get(room.roomId)?.watch.messages() ?? []
+    count += [...resolveConversation(messages).byKey.values()].filter(message =>
+      !message.retracted && message.original.participant !== self && message.original.sentAt > (room.readAt ?? 0)).length
+  }
+  if (session) for (const [name] of conversationTabs()) count += conversationUnread(name)
+  window.kithmootDesktop?.setUnread(count)
+  if (!window.kithmootDesktop) updateAppBadge(count)
+  document.title = titleWithCount('KithMoot', count)
+}
+
 
 /** How a sender is named in a notification: as everywhere else, the name
  *  they claim beside a short key, or the key alone. */
@@ -8834,12 +8947,12 @@ const notifier = new Notifier({
     const settings = notifySettings(deviceStore)
     return { ...settings, enabled: settings.enabled && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId)) }
   },
-  hidden: () => document.hidden,
+  hidden: () => document.hidden || Boolean(window.kithmootDesktop && !document.hasFocus()),
   shownRoomId: () => (session ? currentRoomId() : undefined),
   self: () => meParticipant || currentParticipant(),
   deliver: (content, arrival) => deliverNotification(content, arrival),
   onPending: (count) => {
-    document.title = titleWithCount(APP_TITLE, count)
+    updateDesktopUnread()
   },
 })
 
@@ -8851,9 +8964,16 @@ const notifier = new Notifier({
  * already keeps for the room, held by the same browser.
  */
 async function deliverNotification(content: NotificationContent, arrival: Arrival): Promise<void> {
+  if (window.kithmootDesktop) {
+    const bell = zenBellEnabled()
+    window.kithmootDesktop.notify({ ...content, roomId: arrival.roomId, silent: true })
+    if (bell && !callIsLive() && !onCall()) void playZenChime()
+    return
+  }
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  if (!document.hidden && zenBellEnabled() && !callIsLive() && !onCall()) void playZenChime()
   const url = knownRoom(roomStore(), arrival.roomId)?.link
-  const options: NotificationOptions = { body: content.body, tag: content.tag, data: { url } }
+  const options: NotificationOptions = { body: content.body, tag: content.tag, data: { url }, silent: !zenBellEnabled() || callIsLive() || onCall() || !document.hidden }
   let registration: ServiceWorkerRegistration | undefined
   try {
     registration = await navigator.serviceWorker?.getRegistration()
@@ -8937,12 +9057,16 @@ function renderNotificationScopes(): void {
 function renderNotifyChoice(): void {
   renderNotificationScopes()
   const settings = notifySettings(deviceStore)
-  const supported = typeof Notification !== 'undefined'
-  const granted = supported && Notification.permission === 'granted'
+  const supported = Boolean(window.kithmootDesktop) || typeof Notification !== 'undefined'
+  const granted = Boolean(window.kithmootDesktop) || (supported && Notification.permission === 'granted')
   const on = settings.enabled && granted
   setToggle('toggleNotify', on)
   $('toggleNotify').setAttribute('aria-pressed', String(on))
   ;($('toggleNotify') as HTMLButtonElement).disabled = !supported
+  $('desktopNotifySound').hidden = false
+  const bell = zenBellEnabled()
+  setToggle('toggleNotifyBell', bell)
+  $('toggleNotifyBell').setAttribute('aria-pressed', String(bell))
   const textToggle = $('toggleNotifyText') as HTMLButtonElement
   textToggle.hidden = !on
   setToggle('toggleNotifyText', settings.showText)
@@ -8950,20 +9074,25 @@ function renderNotifyChoice(): void {
   const note = $('notifyNote')
   if (!supported) {
     note.textContent = 'This browser cannot show notifications.'
-  } else if (Notification.permission === 'denied') {
+  } else if (!window.kithmootDesktop && Notification.permission === 'denied') {
     note.textContent = 'Your browser is blocking notifications for this site. You will have to allow them in the browser\u2019s own settings first.'
+  } else if (on && window.kithmootDesktop) {
+    note.textContent = 'On while KithMoot is open or minimised. For the Dock count on macOS, allow KithMoot notifications and Badge application icon in System Settings → Notifications. The bell is quiet during calls. Message text stays private unless you enable previews. Quiet rooms are checked while open.'
   } else if (on) {
     note.textContent = settings.showText
       ? 'On: when somebody writes in a room you are not looking at, your device shows you the room, who wrote, and what they said.'
       : 'On: when somebody writes in a room you are not looking at, your device shows you the room and who wrote. What they actually said stays in here unless you ask for it.'
+  } else if (window.kithmootDesktop) {
+    note.textContent = 'Off. Enable notifications for saved rooms while KithMoot is open or minimised. Quitting stops delivery.'
   } else {
     note.textContent =
-      'Off. Switched on, this page tells you when somebody writes in a room you are not looking at, whether that is a tab behind this one or a room on your list. It is this page that tells you and nothing else, so if you close it you hear nothing.'
+      'Off. Enable alerts for messages in rooms you are not reading. Message previews are off by default.'
   }
 }
 
 async function setNotify(on: boolean): Promise<void> {
-  if (on && typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+  if (on) void unlockZenChime()
+  if (!window.kithmootDesktop && on && typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
     // Asked from the click, which is the only place a browser will grant it.
     const permission = await Notification.requestPermission()
     if (permission !== 'granted') {
@@ -8974,6 +9103,7 @@ async function setNotify(on: boolean): Promise<void> {
   }
   setNotifySettings(deviceStore, { enabled: on })
   renderNotifyChoice()
+  updateDesktopUnread()
 }
 
 // ---------------------------------------------------------------------------
@@ -9227,6 +9357,7 @@ $('callToggle').addEventListener('click', () => {
   // camera hid the mic and camera; now it brings them back into view if
   // the page has scrolled past them, and that is all.
   setCallOpen(true)
+  showMobileRoomView('call')
   $('deviceControls').scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 })
 $('joinCall').addEventListener('click', () => {
@@ -9257,6 +9388,33 @@ $('backToRoom').addEventListener('click', () => {
 })
 
 renderNotifyChoice()
+$('toggleNotifyBell').addEventListener('click', () => {
+  void unlockZenChime()
+  deviceStore.set('kithmoot.zen-bell', String(!zenBellEnabled()))
+  renderNotifyChoice()
+})
+$('previewNotifyBell').addEventListener('click', () => { void playZenChime(true) })
+
+let notificationHome: { parent: Node; next: Node | null; hidden: boolean } | undefined
+function openNotificationSettings(): void {
+  closeRoomSheet()
+  renderNotifyChoice()
+  const controls = $('notify')
+  notificationHome = { parent: controls.parentNode!, next: controls.nextSibling, hidden: controls.hidden }
+  controls.hidden = false
+  $('notificationSettingsBody').append(controls)
+  ;($('notificationSettings') as HTMLDialogElement).showModal()
+}
+$('homeNotifications').addEventListener('click', openNotificationSettings)
+$('roomNotifications').addEventListener('click', openNotificationSettings)
+$('notificationSettingsClose').addEventListener('click', () => ($('notificationSettings') as HTMLDialogElement).close())
+$('notificationSettings').addEventListener('close', () => {
+  if (!notificationHome) return
+  notificationHome.parent.insertBefore($('notify'), notificationHome.next)
+  $('notify').hidden = notificationHome.hidden
+  notificationHome = undefined
+})
+
 $('toggleNotify').addEventListener('click', () => {
   setNotify($('toggleNotify').dataset.on !== 'true').catch((err) => setStatus(describeError(err)))
 })
@@ -9982,8 +10140,9 @@ async function retractMessage(original: ChatMessage): Promise<void> {
 $('chatForm').addEventListener('submit', (event) => {
   event.preventDefault()
   const draft = captureDraft()
-  if (draft.job || !channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
+  if (draft.job || draft.pendingFiles?.length || !channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const input = $('chatInput') as HTMLTextAreaElement
+  if (input.value.length > MAX_CHAT_TEXT_LENGTH) { void sendLongText(draft, input.value); return }
   let typed = input.value.trim()
   try {
     typed = prepareModelMessage(typed, availableComposerModels(), modelClerkNames())
@@ -10014,6 +10173,7 @@ $('chatForm').addEventListener('submit', (event) => {
     return
   }
   input.value = ''
+  showPasteSize()
   draft.text = ''
   draft.selectionStart = draft.selectionEnd = 0
   growComposer(input)
@@ -10387,13 +10547,54 @@ async function fileWork(draft: ConversationDraft, work: (signal: AbortSignal) =>
   }
 }
 
+/** Keep the exact paste in the encrypted document. An upload never sends a
+ * different draft if its owner switches conversations or edits while waiting. */
+async function sendLongText(draft: ConversationDraft, fullText: string): Promise<void> {
+  const generation = roomGeneration
+  let uploaded = false
+  await fileWork(draft, async signal => {
+    if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
+    const file = new File([fullText], `message-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`, { type: 'text/plain;charset=utf-8' })
+    await shareDroppedFile(file, draft, signal, blossomServer())
+    uploaded = true
+  })
+  if (!uploaded || generation !== roomGeneration) return
+  if (draft.text !== fullText) {
+    draft.status = 'Full text attached. Your newer edits are kept; review the draft before sending.'
+    draft.panelOpen = true
+    draftChanged(draft)
+    return
+  }
+  draft.text = `Shared full text (${fullText.length.toLocaleString()} characters). Open the encrypted document to read or copy everything.\n\n${fullText.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '')}…`
+  draft.selectionStart = draft.selectionEnd = draft.text.length
+  if (draft !== drafts.get(currentChannel)) { draftChanged(draft); return }
+  restoreDraft()
+  ;($('chatForm') as HTMLFormElement).requestSubmit()
+}
+
 /** Files from a drop or the file input, one after another, stopping at the
  *  first that fails so the reason is the last thing on the line. */
 async function shareDroppedFiles(files: FileList | File[] | null): Promise<void> {
   const draft = captureDraft()
+  if (!channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const list = Array.from(files ?? [])
   if (!list.length) return
   const server = blossomServer()
+  if (!server) {
+    draft.panelOpen = true
+    const pending = draft.pendingFiles ?? []
+    if (draft.attachments.length + pending.length + list.length > MAX_CHAT_ATTACHMENTS) {
+      draft.status = `A message carries at most ${MAX_CHAT_ATTACHMENTS} files. Remove a selected file before adding more.`
+    } else if (list.some(file => file.size === 0 || file.size > MAX_UPLOAD_SOURCE_BYTES)) {
+      draft.status = `Choose non-empty files up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)} each.`
+    } else {
+      draft.pendingFiles = [...pending, ...list]
+      draft.status = 'File uploads are off. Your files are held on this device. Choose and allow a storage destination below, then press Upload selected files.'
+    }
+    ;($('fileStorageOptions') as HTMLDetailsElement).open = true
+    draftChanged(draft)
+    return
+  }
   await fileWork(draft, async signal => {
     for (const file of list) {
       signal.throwIfAborted()
@@ -10401,6 +10602,7 @@ async function shareDroppedFiles(files: FileList | File[] | null): Promise<void>
         throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
       }
       await shareDroppedFile(file, draft, signal, server)
+      draft.pendingFiles = draft.pendingFiles?.filter(pending => pending !== file)
     }
   })
 }
@@ -10454,7 +10656,10 @@ $('attachFile').addEventListener('change', () => {
 const chatForm = $('chatForm')
 // Clipboard files use the same consent, encryption, limits and draft ownership
 // as the picker. Plain text keeps the browser's normal paste behaviour.
-$('chatInput').addEventListener('paste', event => {
+document.addEventListener('paste', event => {
+  if (!session || $('roomArea').hidden || document.querySelector('dialog[open]')) return
+  const target = event.target instanceof Element ? event.target : null
+  if (target?.closest('input, textarea, [contenteditable="true"]') && target.id !== 'chatInput') return
   const data = event.clipboardData
   const files = Array.from(data?.files ?? [])
   // Some browser clipboard implementations expose items without filling
@@ -10485,6 +10690,14 @@ chatForm.addEventListener('drop', (event) => {
   if (!event.dataTransfer?.files.length) return
   event.preventDefault()
   void shareDroppedFiles(event.dataTransfer.files)
+})
+
+$('uploadPendingFiles').addEventListener('click', () => { void shareDroppedFiles(drafts.get(currentChannel).pendingFiles ?? []) })
+$('clearPendingFiles').addEventListener('click', () => {
+  const draft = drafts.get(currentChannel)
+  draft.pendingFiles = []
+  draft.status = ''
+  draftChanged(draft)
 })
 
 $('attachToggle').addEventListener('click', () => {
@@ -10538,7 +10751,17 @@ $('discardDraft').addEventListener('click', async () => {
   else renderChannels()
 })
 
-;($('chatInput') as HTMLTextAreaElement).maxLength = MAX_CHAT_TEXT_LENGTH
+// Never let maxlength silently discard the tail of a paste.
+;($('chatInput') as HTMLTextAreaElement).removeAttribute('maxlength')
+function showPasteSize(): void {
+  const input = $('chatInput') as HTMLTextAreaElement
+  const note = $('pasteSizeNote')
+  const over = input.value.length > MAX_CHAT_TEXT_LENGTH
+  note.hidden = !over
+  note.textContent = over ? `${input.value.length.toLocaleString()} characters pasted. Send will share a short preview and the complete encrypted text document.` : ''
+  input.removeAttribute('aria-invalid')
+}
+$('chatInput').addEventListener('input', showPasteSize)
 
 // The effect controls start where the constants say they start, rather than
 // where index.html happens to say they do: BLUR_ON_BY_DEFAULT is a product

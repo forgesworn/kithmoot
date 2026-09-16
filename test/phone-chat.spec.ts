@@ -148,69 +148,53 @@ test('a phone reads the conversation: size, width, contrast and no sideways scro
   } finally { rowan.leave(); clerk.leave(); await context.close() }
 })
 
-test('a call on a phone leaves the conversation on the screen, upright and on its side', async ({ browser, baseURL }) => {
+test('phone Call and Chat each use the screen, with settings in a sheet', async ({ browser, baseURL }, info) => {
   test.skip(browser.browserType().name() !== 'chromium', 'Chromium provides the synthetic camera')
   const { context, link } = await phone(browser, baseURL!)
-  const writer = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Rowan', agent: false })
+  const { context: other } = await phone(browser, baseURL!)
   try {
-    const page = await context.newPage()
-    await page.goto(link)
-    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
-    for (let i = 0; i < 8; i++) await writer.chat.send(`Message ${i}: ${LONG}`)
-    await expect(page.locator('#chatLog .msg')).toHaveCount(8)
-    await page.locator('#callToggle').click()
-    await expect(page.locator('#deviceControls')).toBeVisible()
-    await page.locator('#toggleCamera').click()
-    await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
-    await expect(page.locator('#room video').first()).toBeVisible()
-    // What the conversation and its box had before the call controls were
-    // folded into one row: they must not lose any of it.
-    const before: Record<string, number> = { '360x800': 321, '390x844': 321, '844x390': 329 }
+    const page = await context.newPage(); const remote = await other.newPage()
+    for (const [p, name] of [[page, 'Ada'], [remote, 'Rowan']] as const) {
+      await p.goto(link); await p.locator('#displayName').fill(name); await p.locator('#join').click()
+      await p.locator('#mobileCall').click(); await p.locator('#toggleCamera').click()
+    }
+    await expect(page.locator('#room video')).toHaveCount(2)
+    await expect.poll(() => remote.locator('#room video').evaluateAll(v => v.every(e => (e as HTMLVideoElement).videoWidth > 0))).toBe(true)
     for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
       await page.setViewportSize(viewport)
-      // Upright, the whole room fits the screen. On its side a 390px-tall
-      // screen cannot hold the bar, the tools and a readable conversation at
-      // once: the bar scrolls away and the conversation keeps a screenful,
-      // with the call held in its own column beside it.
-      const landscape = viewport.width > viewport.height
-      await page.evaluate(end => window.scrollTo(0, end ? document.documentElement.scrollHeight : 0), landscape)
-      const log = (await page.locator('#chatLog').boundingBox())!
-      const form = (await page.locator('#chatForm').boundingBox())!
-      const label = `${viewport.width}x${viewport.height}`
-      expect(log.y, `conversation starts on screen at ${label}`).toBeGreaterThanOrEqual(0)
-      expect(log.y + log.height, `conversation ends on screen at ${label}`).toBeLessThanOrEqual(viewport.height)
-      expect(log.height, `conversation height at ${label}`).toBeGreaterThanOrEqual(viewport.height * (landscape ? 0.5 : 0.25))
-      expect(form.y + form.height, `the box to reply in at ${label}`).toBeLessThanOrEqual(viewport.height)
-      expect(log.height + form.height, `conversation and box at ${label}`).toBeGreaterThanOrEqual(before[label]!)
-      // The four controls a call needs, whole and on screen without scrolling.
+      await page.locator('#mobileCall').click()
+      await expect(page.locator('#room video')).toHaveCount(2)
+      await expect.poll(() => page.locator('#room video').evaluateAll(videos => videos.every(video => !(video as HTMLVideoElement).paused && (video as HTMLVideoElement).videoWidth > 0))).toBe(true)
+      await expect(page.locator('#chatForm')).toBeHidden()
+      const stage = (await page.locator('#whoIsHere').boundingBox())!
+      expect(stage.height).toBeGreaterThan(viewport.height * .45)
       for (const name of ['Microphone', 'Camera', 'Screen share', 'Leave call']) {
-        const control = page.getByRole('button', { name, exact: true })
-        await expect(control, `${name} at ${label}`).toBeInViewport({ ratio: 1 })
-        const box = (await control.boundingBox())!
-        expect(box.height, `${name} height at ${label}`).toBeGreaterThanOrEqual(43.5)
+        await expect(page.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
       }
-      expect(await page.locator('#callStage').evaluate(el => el.scrollTop)).toBe(0)
-      expect(await page.locator('#whoIsHere').evaluate(el => el.scrollLeft)).toBe(0)
-      expect(await clippedCallText(page), `text cut in the call strips at ${label}`).toEqual([])
-      // At least one whole picture.
-      const tile = (await page.locator('#room .participant:has(video)').first().boundingBox())!
-      const strip = (await page.locator('#whoIsHere').boundingBox())!
-      expect(tile.x).toBeGreaterThanOrEqual(strip.x - 1); expect(tile.x + tile.width).toBeLessThanOrEqual(strip.x + strip.width + 1)
-      expect(tile.y).toBeGreaterThanOrEqual(0); expect(tile.y + tile.height).toBeLessThanOrEqual(viewport.height)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-      if (!landscape) expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1), `no page scroll at ${label}`).toBe(true)
+      await page.screenshot({ path: info.outputPath(`call-${viewport.width}.png`) })
+      await page.locator('#mobileChat').click()
+      await expect(page.locator('#callStage')).toBeHidden()
+      await expect(page.locator('#chatForm')).toBeVisible()
+      await page.screenshot({ path: info.outputPath(`chat-${viewport.width}.png`) })
+      const log = (await page.locator('#chatLog').boundingBox())!
+      expect(log.height).toBeGreaterThan(viewport.height * .45)
+      await page.locator('#chatInput').fill('The call stays on while I write this.')
+      await page.locator('#chatForm button[type=submit]').click()
+      await remote.locator('#mobileChat').click()
+      await expect(remote.locator('#chatLog')).toContainText('The call stays on while I write this.')
+      await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+      await page.screenshot({ path: info.outputPath(`chat-${viewport.width}.png`) })
     }
-    // Blur, voice and the two-device switches are one tap away, and opening
-    // them does not push the box to reply in off the screen.
-    await page.setViewportSize({ width: 360, height: 800 })
-    await expect(page.locator('#callMore')).toBeHidden()
-    await expect(page.locator('#cameraEffects')).toBeHidden()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator('#mobileCall').click()
+    const before = await page.locator('#whoIsHere').boundingBox()
     await page.locator('#callExtras > summary').click()
+    await expect(page.locator('#mobileCallSettings')).toBeVisible()
     await expect(page.locator('#callMore > summary')).toBeVisible()
-    await expect(page.locator('#chatForm button[type=submit]')).toBeInViewport({ ratio: 1 })
-    await page.locator('#callExtras > summary').click()
-    await expect(page.locator('#callMore')).toBeHidden()
+    await page.locator('#mobileCallSettingsClose').click()
+    expect(await page.locator('#whoIsHere').boundingBox()).toEqual(before)
     await page.locator('#leaveCall').click()
-  } finally { writer.leave(); await context.close() }
+    await expect(page.locator('#chatForm')).toBeVisible()
+  } finally { await context.close(); await other.close() }
 })

@@ -5,7 +5,7 @@ import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { withRelays } from './relays.js'
 import { goToConversation, openRoomDetails, allowTestFileStorage } from './browser.js'
-import { fetchFromTestBlossom } from './blossom.js'
+import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: BrowserContext, relay: string) => Promise<void>) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
@@ -439,5 +439,105 @@ test('notification defaults and room overrides remain separate after reload', as
     await page.locator('#notificationPreferences').evaluate(el => { (el as HTMLDetailsElement).open = true })
     await scope.selectOption(roomScope)
     await expect(page.locator('#notificationMode')).toHaveValue('all')
+  } finally { await context.close() }
+})
+
+
+test('long paste preserves its tail, encrypts a full document, expands and copies exactly', async ({ browser, baseURL }) => {
+  const { page, context } = await setup(browser, baseURL!)
+  const full = '  Leading spaces\n' + 'A detailed task 🐱 with newlines.\n'.repeat(2400) + '\nTHE EXACT END  '
+  try {
+    await page.locator('#chatInput').fill(full)
+    await expect(page.locator('#chatInput')).toHaveValue(full)
+    await expect(page.locator('#pasteSizeNote')).toContainText('complete encrypted text')
+    await page.locator('#chatForm button[type=submit]').click()
+    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    await expect(page.locator('#chatInput')).toHaveValue(full)
+    await routeTestBlossom(context, new URL(baseURL!).origin)
+    await allowTestFileStorage(page, new URL(baseURL!).origin)
+    await page.locator('#chatForm button[type=submit]').click()
+    await expect(page.locator('#chatInput')).toHaveValue('')
+    const file = page.locator('#chatLog .attachment').last()
+    await expect(file).toBeVisible()
+    await file.getByRole('button', { name: 'Show', exact: true }).click()
+    await expect(file.locator('pre')).not.toContainText('THE EXACT END')
+    await file.getByRole('button', { name: 'Read more', exact: true }).click()
+    expect(await file.locator('pre').textContent()).toBe(full)
+    // A deterministic clipboard sink also exercises Safari's click path.
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { (window as any).__copied = text } } }))
+    await file.getByRole('button', { name: 'Copy full text', exact: true }).click()
+    await expect(file.getByRole('button', { name: 'Copied', exact: true })).toBeVisible()
+    expect(await page.evaluate(() => (window as any).__copied)).toBe(full)
+    await file.getByRole('button', { name: 'Collapse', exact: true }).click()
+    await expect(file.locator('pre')).not.toContainText('THE EXACT END')
+  } finally { await context.close() }
+})
+
+test('long text upload failure keeps the whole draft; edits during upload are not sent', async ({ browser, baseURL }) => {
+  const { page, context } = await setup(browser, baseURL!)
+  const origin = new URL(baseURL!).origin
+  const full = 'Original text. '.repeat(200) + 'THE END'
+  try {
+    await allowTestFileStorage(page, origin)
+    await context.route(`${origin}/upload`, route => route.fulfill({ status: 503, body: 'Unavailable' }))
+    await page.locator('#chatInput').fill(full)
+    await page.locator('#chatForm button[type=submit]').click()
+    await expect(page.locator('#chatForm button[type=submit]')).toBeEnabled()
+    await expect(page.locator('#chatInput')).toHaveValue(full)
+    await context.unroute(`${origin}/upload`)
+    await context.route(`${origin}/upload`, async route => {
+      await page.locator('#chatInput').fill('Newer edits kept here')
+      await route.fulfill({ response: await fetchFromTestBlossom(route, origin) })
+    })
+    await page.locator('#chatForm button[type=submit]').click()
+    await expect(page.locator('#attachStatus')).toContainText('newer edits are kept')
+    await expect(page.locator('#chatInput')).toHaveValue('Newer edits kept here')
+    await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
+    await expect(page.locator('#chatLog .attachment')).toHaveCount(0)
+  } finally { await context.close() }
+})
+
+
+test('clipboard screenshot waits locally for storage consent, uploads once and stays private until Send', async ({ browser, baseURL }) => {
+  const { page, context } = await setup(browser, baseURL!)
+  const origin = new URL(baseURL!).origin
+  let uploads = 0
+  await context.route(`${origin}/upload`, async route => {
+    uploads++
+    await route.fulfill({ response: await fetchFromTestBlossom(route, origin) })
+  })
+  await context.route(url => url.origin === origin && url.pathname.startsWith('/blossom/'), async route => {
+    await route.fulfill({ response: await fetchFromTestBlossom(route, origin) })
+  })
+  try {
+    await page.evaluate(() => {
+      const canvas = document.createElement('canvas'); canvas.width = 16; canvas.height = 16
+      canvas.getContext('2d')!.fillRect(0, 0, 16, 16)
+      const bytes = Uint8Array.from(atob(canvas.toDataURL().split(',')[1]!), c => c.charCodeAt(0))
+      const clipboard = new DataTransfer()
+      clipboard.items.add(new File([bytes], 'screenshot.png', { type: 'image/png' }))
+      const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'clipboardData', { value: clipboard })
+      document.body.dispatchEvent(event)
+    })
+    await expect(page.locator('#pendingFileNames')).toContainText('screenshot.png')
+    await expect(page.locator('#pendingFileNames')).toContainText('not uploaded')
+    expect(uploads).toBe(0)
+    await expect(page.locator('#chatForm button[type="submit"]')).toBeDisabled()
+    await page.locator('#attachServer').fill(origin)
+    await page.locator('#allowSharedFiles').check()
+    await page.locator('#saveFileStorage').click()
+    expect(uploads).toBe(0)
+    await page.locator('#uploadPendingFiles').click()
+    await expect(page.locator('#attachCount')).toContainText('(1)')
+    expect(uploads).toBe(1)
+    await expect(page.locator('#chatLog .attachment')).toHaveCount(0)
+    await expect(page.locator('#pendingFileNames')).toBeHidden()
+    await page.locator('#chatForm button[type="submit"]').click()
+    const attachment = page.locator('#chatLog .attachment').first()
+    await attachment.getByRole('button', { name: 'Show', exact: true }).click()
+    await expect(attachment.locator('img')).toBeVisible()
+    await expect(page.locator('#chatLog .lane').first()).toContainText('Encrypted · public relay')
+    await page.screenshot({ path: '/tmp/kithmoot-pasted-screenshot.png' })
   } finally { await context.close() }
 })

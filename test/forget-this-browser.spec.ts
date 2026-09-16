@@ -80,7 +80,7 @@ test('Forget this browser, offered from Room details too, refuses while on a cal
     await page.locator('#displayName').fill('Ada')
     await page.locator('#displayName').press('Enter')
     await expect(page.locator('#roomArea')).toBeVisible()
-    await page.locator('#callToggle').click()
+    await page.locator('#callToggle:visible, #mobileCall:visible').click()
     await expect(page.locator('#deviceControls')).toBeVisible()
     await page.locator('#toggleMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
