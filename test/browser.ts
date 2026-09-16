@@ -377,11 +377,11 @@ export async function joinWithMedia(page: Page, url: string, name: string): Prom
  */
 export async function openCall(page: Page): Promise<void> {
   await expect(
-    page.locator('#callToggle'),
+    page.locator('#callToggle:visible, #mobileCall:visible'),
     'the call control only appears once this device is in the room',
   ).toBeVisible()
   if (await page.locator('#deviceControls').isHidden()) {
-    await page.locator('#callToggle').click()
+    await page.locator('#callToggle:visible, #mobileCall:visible').click()
   }
   await expect(page.locator('#deviceControls')).toBeVisible()
 }

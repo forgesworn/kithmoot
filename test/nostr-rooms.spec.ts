@@ -172,7 +172,7 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     await returning.getByRole('button', { name: /Browser extension/ }).click()
     await expect(returning.locator('#roomList .roomName')).toHaveText('Standing town hall')
     await returning.locator('#roomList').getByRole('button', { name: 'Open Standing town hall', exact: true }).click()
-    await expect(returning.locator('#join')).toBeVisible()
+    await expect(returning.locator('#roomArea')).toBeVisible()
     await expect(returning.locator('#roomTitle')).toHaveText('Standing town hall')
     await expect(returning.locator('#whoami')).toContainText(npubEncode(getPublicKey(secret)).slice(0, 12))
 
@@ -185,7 +185,7 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     await expect(guest.locator('#roomArea')).toBeVisible()
     await expect(guest.locator('#whoami')).toContainText('Visiting Ada')
 
-    await returning.locator('#doorToRooms').click()
+    await returning.locator('#backToRooms').click()
     await returning.locator('#roomSwitcherHome').click()
     await expect(returning.locator('#roomList .roomName')).toHaveText('Standing town hall')
     await returning.locator('#signOut').click()

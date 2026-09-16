@@ -62,7 +62,10 @@ export class AssignmentPanel {
     this.#dialog.addEventListener('close', () => {
       if (this.#dialog.open) return
       this.#button.setAttribute('aria-expanded', 'false')
-      if (this.#roomKey) this.#button.focus({ preventScroll: true })
+      if (this.#roomKey) {
+        const opener = this.#button.getClientRects().length ? this.#button : this.root.getElementById('mobileWork')
+        opener?.focus({ preventScroll: true })
+      }
     })
     this.#dialog.addEventListener('click', event => { if (event.target === this.#dialog) {
       const bounds = this.#dialog.getBoundingClientRect()

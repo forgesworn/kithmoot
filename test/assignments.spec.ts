@@ -170,7 +170,7 @@ test('two people go from creating and sharing a room to an accepted result witho
     await ada.page.locator('#actionConfirm').click()
     await expect(a.getByRole('button', { name: 'Discard unsent note' })).toHaveCount(0)
     await ada.page.keyboard.press('Escape')
-    await expect(ada.page.locator('#openAssignments')).toBeFocused()
+    await expect(ada.page.locator('#mobileWork:visible, #openAssignments:visible')).toBeFocused()
     expect(native).toEqual([])
     await ada.page.reload()
     await ada.page.locator('#join').click()

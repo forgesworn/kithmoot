@@ -107,7 +107,7 @@ export class ChatScroll {
     if (!this.#paused && this.#channel !== undefined) this.#places.set(this.#channel, this.#pending ?? this.#readingPlace())
   }
 
-  before(channel: string, unread: ReadonlySet<string> = new Set()): () => void {
+  before(channel: string, unread: ReadonlySet<string> = new Set(), keepReading = false): () => void {
     if (this.#paused) return () => {}
     channel = JSON.stringify([this.#scope, channel])
     const log = this.#log
@@ -117,7 +117,9 @@ export class ChatScroll {
     const focusedMessage = !changed && active && log.contains(active) ? active.closest<HTMLElement>('[data-message-id]') : null
     const focusedId = focusedMessage?.dataset.messageId
     const focusKey = active?.dataset.focusKey
-    const saved = changed ? this.#places.get(channel) : this.#pending ?? this.#readingPlace()
+    let saved = changed ? this.#places.get(channel) : this.#pending ?? this.#readingPlace()
+    // An open receipt is being read even when its message was at the bottom.
+    if (keepReading && saved) saved = { ...saved, follow: false }
     if (changed) {
       this.#boundary = undefined
       this.#pending = saved?.id && !saved.follow ? saved : undefined

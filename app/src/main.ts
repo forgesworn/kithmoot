@@ -6476,7 +6476,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   const openReaction = log.querySelector<HTMLElement>('.reactionDetails:popover-open')?.id
   let restoreReaction: (() => void) | undefined
   const unread = unreadMessageIds(currentChannel)
-  const restoreScroll = chatScroll.before(currentChannel ?? '', unread)
+  const restoreScroll = chatScroll.before(currentChannel ?? '', unread, !!openReaction)
   log.innerHTML = ''
   // What this conversation is, at the top of it, the way a messaging app
   // puts the thing you should know once at the head of the thread.

@@ -3662,8 +3662,8 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   #roomArea > .roomBar { position: absolute; inset: 0 auto auto 0; width: 48%; height: 44px; padding: 0; border: 0; }
   #mobileRoomViews { padding: 0 0 .2rem 50%; }
 }
-@media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  #roomArea[data-mobile-view="chat"] #chatInput { flex: 1 1 14rem; width: auto; }
+@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  #roomArea[data-mobile-view="chat"] #chatInput { flex: 1 1 0; min-width: 0; width: auto; }
   #roomArea[data-mobile-view="chat"] #chatForm { flex-wrap: nowrap; }
   #roomArea[data-mobile-view="chat"] #chatForm:has(#composerContext:not([hidden])) { flex-wrap: wrap; }
 }

@@ -91,7 +91,6 @@ test('a new member joins two days after everyone leaves, then both members retur
     await back.goto(baseURL!)
     await expect(back.locator('#roomList .roomName')).toHaveText('Our group')
     await back.locator('#roomList button.open').click()
-    await back.locator('#join').click()
     await expect(back.locator('#roomArea')).toBeVisible()
     await expect(back.locator('#chatLog')).toContainText('See you later')
     await back.locator('#chatInput').fill('Back after the weekend')

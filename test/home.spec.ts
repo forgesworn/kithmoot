@@ -168,7 +168,7 @@ test('saved rooms can be searched and refreshed without losing the selected room
     await page.locator('#homeRoomQuery').fill(rooms[0]!.roomId.slice(0, 12))
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
     await open.click()
-    await expect(page.locator('#join')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible()
     expect(new URL(page.url()).hash).toBe(new URL(rooms[0]!.link).hash)
     expect(await page.evaluate(() => Object.values(localStorage).some(value => value.includes('No such room')))).toBe(false)
   } finally { await context.close() }

@@ -183,6 +183,8 @@ test('Chip completes by name and @all receives acknowledgements from both agents
     await tally.channel('workshop').send('@all fixture received', { mentions: ['everyone'] })
     await expect(page.locator('#chatLog .msg').filter({ hasText: '@all fixture received' })).toHaveClass(/mentionsMe/)
     expect(failures).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(details).toHaveCount(0)
     await goToConversation(page, 'Chat')
     await expect(page.locator('#chatLog .msg')).toHaveCount(0)
   } finally {

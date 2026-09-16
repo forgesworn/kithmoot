@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.3.
+Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.4.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
