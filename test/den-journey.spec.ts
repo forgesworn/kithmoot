@@ -96,7 +96,7 @@ test('compiled Den shares, receives an agent artifact, and accepts the exact res
     const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
     const link = encodeRoomLink(baseURL!, { ...parseRoomLink(room.url), relays: [relay.href] })
     await open(witness, link, 'Room reviewer'); await witness.locator('#join').click()
-    await witness.locator('#openAssignments').click()
+    await witness.locator('#mobileWork:visible, #openAssignments:visible').click()
     const sharedCard = witness.locator(`.assignmentCard[data-assignment="${assignment.id}"]`)
     await expect(sharedCard).toContainText(result.result!.id)
     await expect(page.getByText('Build 54 checked', { exact: true })).toBeVisible()

@@ -7,6 +7,7 @@ export interface ConversationDraft {
   selectionEnd: number
   selectionDirection: 'forward' | 'backward' | 'none'
   attachments: ChatAttachment[]
+  pendingFiles?: File[]
   event: string
   key: string
   panelOpen: boolean
@@ -17,7 +18,7 @@ export interface ConversationDraft {
 }
 
 export function draftHasWork(draft: ConversationDraft): boolean {
-  return Boolean(draft.text || draft.event || draft.key || draft.attachments.length || draft.job)
+  return Boolean(draft.text || draft.event || draft.key || draft.attachments.length || draft.pendingFiles?.length || draft.job)
 }
 
 /** Drafts belong to one conversation in this room visit. They never enter
@@ -46,6 +47,7 @@ export class ConversationDrafts {
     draft.selectionStart = draft.selectionEnd = 0
     draft.selectionDirection = 'none'
     draft.attachments = []
+    draft.pendingFiles = []
     draft.panelOpen = false
     draft.replyTo = draft.editing = undefined
   }

@@ -9,6 +9,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const BASE = '/j/'
+const desktop = process.env.VITE_DESKTOP === 'true'
 
 /**
  * The MediaPipe WASM runtime, served from our own origin.
@@ -139,7 +140,7 @@ export default defineConfig({
     // Written outside app/ so `dist/` at the repo root is unambiguous
     // between the library build (tsc, ./dist) and this one - callers
     // deploying the app want app/dist, not the library's.
-    outDir: resolve(here, 'dist'),
+    outDir: resolve(here, desktop ? '../desktop/web' : 'dist'),
     emptyOutDir: true,
   },
   plugins: [
@@ -150,6 +151,7 @@ export default defineConfig({
     // and the phone is the device the whole app exists to prove works.
     basicSsl(),
     VitePWA({
+      disable: desktop,
       registerType: 'prompt',
       // The MediaPipe runtime is 11.7MB of WASM plus 155KB of glue, and it
       // is fetched only if somebody turns an effect on. Precaching it would

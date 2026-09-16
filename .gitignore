@@ -14,3 +14,8 @@ ASSIST-REPORT.md
 .superpowers/
 *.bundle
 *.apk
+
+# Generated desktop bundles
+desktop/out/
+desktop/web/
+desktop/artifacts/

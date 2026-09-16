@@ -338,6 +338,23 @@ test('one person on two devices delivers two live pictures to everybody else', a
       })
       .toBe(2)
 
+    // Both paired devices must also display their own other camera/share.
+    for (const page of [pageLaptop, pagePhone]) {
+      const own = page.locator('#room .participant:has-text("(you)") video')
+      await expect(own).toHaveCount(2)
+      await expect.poll(() => own.evaluateAll(elements => elements.every(element => {
+        const video = element as HTMLVideoElement
+        return video.readyState >= 2 && video.videoWidth > 0 && !video.paused
+      })), { message: 'our other device picture is missing', timeout: 60_000 }).toBe(true)
+      const firstFrames = await own.evaluateAll(elements => elements.map(element => (element as HTMLVideoElement).getVideoPlaybackQuality().totalVideoFrames))
+      await expect.poll(() => own.evaluateAll((elements, previous) => elements.every((element, index) =>
+        (element as HTMLVideoElement).getVideoPlaybackQuality().totalVideoFrames > previous[index]!), firstFrames),
+        { message: 'our other device picture is not advancing' }).toBe(true)
+      await expect.poll(() => page.locator('#room .participant:has-text("(you)") audio').evaluateAll(elements =>
+        elements.every(element => (element as HTMLAudioElement).muted)),
+        { message: 'our other microphone must stay muted here' }).toBe(true)
+    }
+
     const first = await pageCara.evaluate(remotePictures)
     for (const picture of first) {
       expect(picture.spread, 'one of the two pictures is a flat colour').toBeGreaterThan(3)

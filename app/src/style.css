@@ -3585,42 +3585,6 @@ input[type="search"] { font-family: inherit; }
   main:has(#roomArea:not([hidden])) #chatViewport { min-height: min(8rem, 22svh); }
 }
 
-/* A phone on its side: the masthead goes, as it already does upright, and a
-   call sits in a column of its own at the left, held to the screen, so the
-   conversation beside it can use the full height. There is not room for the
-   bar, the tools, a readable conversation and the box to reply in on a
-   390px-tall screen at once, so the conversation keeps a screenful and the
-   bar scrolls away above it, the way a browser's own bar does. Phones only:
-   a short desktop window keeps its sidebar layout. */
-@media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  body:has(#roomArea:not([hidden])) > header { display: none; }
-  /* The call has its own fixed column here. Keep the room divider, but use
-     phone-weight spacing so system-font differences cannot take the last
-     readable line from the conversation beside it. */
-  #roomArea { margin-bottom: 0; }
-  .roomBar { margin-bottom: .1rem; padding-bottom: .1rem; }
-  #roomArea:has(#callBay:not([hidden])),
-  #roomArea:has(#whoIsHere:not([hidden])) {
-    padding-left: calc(42vw + .75rem - max(clamp(1rem, 3vw, 2.5rem), env(safe-area-inset-left)));
-  }
-  #roomArea #callStage:has(> #callBay:not([hidden]), > #whoIsHere:not([hidden])) {
-    position: fixed;
-    inset: 0 auto 0 0;
-    z-index: 2;
-    width: 42vw;
-    margin: 0;
-    padding: max(.75rem, env(safe-area-inset-top)) .5rem max(.75rem, env(safe-area-inset-bottom)) max(.75rem, env(safe-area-inset-left));
-    overflow-y: auto;
-    background: var(--bg);
-    border-right: 1px solid var(--border);
-  }
-  #callStage #whoIsHere .participant .media video,
-  #callStage #whoIsHere .participant .media video.screenPreview { height: 7rem; }
-  /* Keep the established 329px conversation-and-composer budget on a
-     390px-tall phone even with Linux's taller form-control metrics. */
-  main:has(#roomArea:not([hidden])) #chatViewport { min-height: max(6rem, calc(100svh - 9.5rem)); }
-}
-
 /* Text size, in Room details. */
 .textSizeChoice { display: flex; flex-wrap: wrap; gap: .5rem; margin: .25rem 0 .75rem; padding: 0; border: 0; min-width: 0; }
 .textSizeChoice legend { width: 100%; margin-bottom: .4rem; padding: 0; font-weight: 600; }
@@ -3641,3 +3605,70 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 .attachment video { width: 100%; max-width: 32rem; max-height: 22rem; }
 .attachment audio { width: 100%; max-width: 24rem; }
 .attachmentText { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9rem; }
+
+/* Phone rooms have one main activity at a time, like the native app. */
+#mobileRoomViews { display: none; }
+#mobileCallSettings { width: min(34rem, calc(100vw - 1rem)); max-height: 85dvh; padding: 0; }
+#mobileCallSettings .sheetBody { padding: 1rem; overflow-y: auto; }
+@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  body:has(#roomArea:not([hidden])) { height: 100dvh; padding: max(.35rem, env(safe-area-inset-top)) .65rem max(.35rem, env(safe-area-inset-bottom)); overflow: hidden; }
+  body:has(#roomArea:not([hidden])) > header { display: none; }
+  main:has(#roomArea:not([hidden])) { min-height: 0; overflow: hidden; }
+  main:has(#roomArea:not([hidden])) > #roomArea { padding: 0; margin: 0; min-height: 0; overflow: hidden; }
+  .roomBar { flex-shrink: 0; margin: 0; padding: 0 0 .3rem; }
+  .roomBar #callToggle, .roomBar #openAssignments { display: none; }
+  #mobileRoomViews { display: flex; flex-shrink: 0; gap: .25rem; padding: .25rem 0 .45rem; }
+  #mobileRoomViews button { flex: 1; min-height: 44px; margin: 0; border: 0; background: transparent; border-radius: .6rem; color: var(--muted); }
+  #mobileRoomViews button[aria-pressed="true"] { color: var(--text); background: var(--panel); box-shadow: inset 0 -2px var(--accent); font-weight: 650; }
+  #roomArea[data-mobile-view="chat"] #callStage { display: none; }
+  #roomArea[data-mobile-view="call"] > :is(#conversationNav,.conversationTools,#approvals,#chatViewport,#outbox,#readOnlyNote,#chatForm,#attachStaged,#attachPanel,#agentActivity,#workAttention,#presenceNotice,#sharerMarksNotice,#callBanner) { display: none !important; }
+  #roomArea[data-mobile-view="call"] #callStage { display: flex; position: static; inset: auto; width: auto; padding: 0; margin: 0; border: 0; flex: 1 1 0; min-height: 0; overflow: hidden; }
+  #roomArea[data-mobile-view="call"] #callStage > #whoIsHere:not([hidden]) { order: 0; display: block; flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; }
+  #roomArea[data-mobile-view="call"] #callStage > #callBay { order: 1; flex: 0 0 auto; padding: .5rem 0 .2rem; border: 0; }
+  #roomArea[data-mobile-view="call"] #room,
+  #roomArea[data-mobile-view="call"] #room[data-tiles]:has(video) { display: grid; grid-template-columns: 1fr; gap: .65rem; }
+  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant { width: 100%; box-sizing: border-box; border-radius: 12px; padding: .6rem; }
+  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant .media video { height: auto; min-height: 9rem; max-height: 48dvh; aspect-ratio: 4 / 3; }
+  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant .media video.screenPreview { object-fit: contain; aspect-ratio: auto; }
+  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant:has(.media ~ .media) { display: grid; grid-template-columns: 1fr 1fr; }
+  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant h3 { font-size: .95rem; margin-bottom: .4rem; }
+  #roomArea[data-mobile-view="call"] #deviceControls > #micIndicator { display: none; }
+  #roomArea[data-mobile-view="call"] #callWho { grid-column: 1 / -1; }
+  #roomArea[data-mobile-view="chat"] #chatViewport { flex: 1 1 0; min-height: 0; }
+  #roomArea[data-mobile-view="chat"] .conversationTools { margin: .15rem 0; }
+  #roomArea[data-mobile-view="chat"] #chatForm { flex-shrink: 0; }
+  #mobileCallSettings { position: fixed; inset: auto 0 0; margin: 0; width: 100%; max-width: none; max-height: 85dvh; border-radius: 16px 16px 0 0; }
+}
+@media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  #roomArea[data-mobile-view="call"] #room[data-tiles]:has(video) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.longMessage .text { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+.longMessageTools { display: flex; gap: .4rem; margin-top: .5rem; }
+.longMessageTools button { min-height: 44px; margin: 0; padding: .35rem .65rem; color: var(--accent); background: transparent; border-color: transparent; }
+#pasteSizeNote { padding: .5rem .65rem; border-left: 3px solid var(--accent); font-size: .875rem; margin: .3rem 0; }
+@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  #roomArea[data-mobile-view="call"] > #pasteSizeNote { display: none; }
+}
+@media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  #roomArea[data-mobile-view="call"] #callWho { display: none; }
+  #roomArea[data-mobile-view="call"] #deviceControls { grid-template-rows: 0 44px; row-gap: 0; }
+}
+.media[data-camera-label]:not([data-camera-label=""]):has(video)::before { content: attr(data-camera-label); display: block; font-size: .8rem; color: var(--muted); padding: .2rem 0; }
+@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant:has(.media ~ .media) h3 { grid-column: 1 / -1; }
+}
+@media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  main:has(#roomArea:not([hidden])) > #roomArea { position: relative; }
+  #roomArea > .roomBar { position: absolute; inset: 0 auto auto 0; width: 48%; height: 44px; padding: 0; border: 0; }
+  #mobileRoomViews { padding: 0 0 .2rem 50%; }
+}
+@media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  #roomArea[data-mobile-view="chat"] #chatInput { flex: 1 1 14rem; width: auto; }
+  #roomArea[data-mobile-view="chat"] #chatForm { flex-wrap: nowrap; }
+  #roomArea[data-mobile-view="chat"] #chatForm:has(#composerContext:not([hidden])) { flex-wrap: wrap; }
+}
+@media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
+  body:has(#roomArea:not([hidden])) { height: var(--room-viewport-height, 100dvh); min-height: 0; padding-inline: max(.65rem, env(safe-area-inset-left)) max(.65rem, env(safe-area-inset-right)); }
+}
+
+#notificationSettings #notify > h3 { display: none; }

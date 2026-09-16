@@ -322,10 +322,9 @@ export const MAX_HELD_SIGNAL_DEVICES = 16
 /**
  * One `Peer` per remote device, kept in step with the roster.
  *
- * Devices belonging to our own participant are deliberately excluded: they
- * coordinate over the room channel, never over media - otherwise a phone
- * would open a connection to its own laptop and upload its screen share
- * straight back to itself.
+ * Other devices belonging to our participant also receive media, so each
+ * device can show our other cameras. Playback suppresses their audio to
+ * avoid feedback; only this exact device is excluded from the mesh.
  *
  * A remote track is always reported against the device's *participant*,
  * never the device itself: two devices of one remote person yield two peer
@@ -336,9 +335,8 @@ export class Mesh {
   readonly #opts: MeshOptions
   readonly #peers = new Map<string, Peer>()
   /** Every other admitted room device, including another device belonging
-   *  to our own participant. Media deliberately excludes those sibling
-   *  devices, but room signalling such as screen annotations must still
-   *  reach every device in the room. */
+   *  to our own participant. Room signalling such as screen annotations
+   *  reaches these devices even before their media connects. */
   readonly #annotationDevices = new Map<string, string>()
   readonly #deviceToParticipant = new Map<string, string>()
   /** Track id -> the device the roster says publishes it. The only
@@ -544,7 +542,7 @@ export class Mesh {
 
   /** Reconcile the peer set against a roster snapshot: close peers for
    *  devices no longer present, open peers for newly-seen remote devices,
-   *  and never touch our own participant's devices either way. */
+   *  including our other devices, but never this device itself. */
   #reconcile(views: ParticipantView[]): void {
     if (this.#closed) return
 
@@ -556,9 +554,6 @@ export class Mesh {
       for (const device of view.devices) {
         if (device !== this.#opts.localDevice) annotationDevices.set(device, view.participant)
       }
-      // Every device of our own participant is skipped, whether or not our
-      // own roster entry has come back from the relay yet.
-      if (view.participant === this.#opts.localParticipant) continue
       for (const device of view.devices) {
         // Belt and braces: a malformed roster claiming our device under
         // someone else's participant must not talk us into a peer to
@@ -570,7 +565,6 @@ export class Mesh {
       // a direct peer, because when a forwarder is carrying the room none of
       // them do and this map is the only attribution there is.
       for (const advert of view.tracks) {
-        if (view.participant === this.#opts.localParticipant) continue
         if (advert.device === this.#opts.localDevice) continue
         this.#trackOwner.set(advert.trackId, advert.device)
       }

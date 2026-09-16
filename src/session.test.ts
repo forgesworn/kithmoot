@@ -253,7 +253,7 @@ describe('RoomSession access policy', () => {
 })
 
 describe('RoomSession media', () => {
-  it('publishes tracks to every remote device but never to its own other devices', async () => {
+  it('publishes tracks to other people and our own other devices', async () => {
     const relay = new SimRelay()
     const participantSk = generateSecretKey()
 
@@ -267,7 +267,7 @@ describe('RoomSession media', () => {
       now,
       factory: factoryA,
     })
-    // A second device of the SAME participant - must never get a peer.
+    // A second device of the same participant receives our other camera.
     const b = new RoomSession({
       transport: new SimTransport(relay),
       secret: secret(),
@@ -290,8 +290,8 @@ describe('RoomSession media', () => {
     await b.join([], {})
     await stranger.join([], {})
 
-    // Exactly one peer: for the stranger's device. None for our own second device.
-    expect(factoryA.instances).toHaveLength(1)
+    // One peer for each other device, including our paired device.
+    expect(factoryA.instances).toHaveLength(2)
 
     const track = {} as MediaStreamTrack
     a.publishTracks([track])
@@ -299,7 +299,7 @@ describe('RoomSession media', () => {
     // synchronous `publishTracks` reaches the connection a turn later.
     await settle()
 
-    expect(factoryA.instances[0]!.tracks).toContain(track)
+    for (const peer of factoryA.instances) expect(peer.tracks).toContain(track)
   })
 
   it('surfaces remote tracks grouped by participant, not by device', async () => {

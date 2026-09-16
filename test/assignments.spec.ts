@@ -15,7 +15,7 @@ test('room cards carry a question and exact-result review through reload at phon
   try {
     const page = await context.newPage()
     await open(page, link, 'Ada'); await page.locator('#join').click()
-    await page.locator('#openAssignments').click()
+    await page.locator('#mobileWork:visible, #openAssignments:visible').click()
     await page.getByText('New assignment', { exact: true }).click()
     await page.locator('#assignmentOwner').selectOption(worker.participant)
     await page.locator('#assignmentCreate [name=objective]').fill('Check the release evidence')
@@ -50,7 +50,7 @@ test('room cards carry a question and exact-result review through reload at phon
     expect(await page.locator('#assignmentPanel').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await page.reload()
     if (await page.locator('#join').isVisible()) await page.locator('#join').click()
-    await page.locator('#openAssignments').click()
+    await page.locator('#mobileWork:visible, #openAssignments:visible').click()
     await expect(page.locator('.assignmentCard')).toHaveCount(1)
     await expect(card).toContainText('accepted')
     const local = await page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.startsWith('kithmoot.assignments.')).map(([, value]) => value).join(''))
@@ -115,7 +115,7 @@ test('two people go from creating and sharing a room to an accepted result witho
     await expect(ada.page.locator('#chatLog')).toContainText('Ready to check the release together.')
     await ada.page.keyboard.press('Escape')
     for (const { page } of [ada, grace]) {
-      await page.locator('#openAssignments').click()
+      await page.locator('#mobileWork:visible, #openAssignments:visible').click()
       await expect(page.locator('#assignmentRetry')).toBeHidden()
     }
     await ada.page.getByText('New assignment', { exact: true }).click()
@@ -174,7 +174,7 @@ test('two people go from creating and sharing a room to an accepted result witho
     expect(native).toEqual([])
     await ada.page.reload()
     await ada.page.locator('#join').click()
-    await ada.page.locator('#openAssignments').click()
+    await ada.page.locator('#mobileWork:visible, #openAssignments:visible').click()
     await expect(a).toContainText('accepted')
     await expect(ada.page.locator('.assignmentCard')).toHaveCount(2)
   } finally { await ada.context.close(); await grace.context.close() }
@@ -191,7 +191,7 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.evaluate(rooms => { for (const room of rooms) localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)) }, rooms)
     await page.locator('#displayName').fill('Ada')
     await page.locator('#join').click()
-    await page.locator('#openAssignments').click()
+    await page.locator('#mobileWork:visible, #openAssignments:visible').click()
     await page.getByText('New assignment', { exact: true }).click()
     await page.locator('#assignmentCreate [name=objective]').fill('An unfinished workshop assignment')
     await page.locator('#assignmentCreate [name=criteria]').fill('Keep its acceptance criteria here')
@@ -199,7 +199,7 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.keyboard.press('Escape')
     await page.locator('#backToRooms').click()
     await page.getByRole('button', { name: 'Switch to Planning', exact: true }).click()
-    await page.locator('#openAssignments').click()
+    await page.locator('#mobileWork:visible, #openAssignments:visible').click()
     await page.getByText('New assignment', { exact: true }).click()
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('')
     await expect(page.locator('#assignmentCreate [name=criteria]')).toHaveValue('')
@@ -208,7 +208,7 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.locator('#backToRooms').click()
     await expect(page.locator('#roomSwitcherHome')).toBeDisabled()
     await page.getByRole('button', { name: 'Switch to Workshop', exact: true }).click()
-    await page.locator('#openAssignments').click()
+    await page.locator('#mobileWork:visible, #openAssignments:visible').click()
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('An unfinished workshop assignment')
     await expect(page.locator('#assignmentCreate [name=criteria]')).toHaveValue('Keep its acceptance criteria here')
     const stored = await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]))
@@ -226,7 +226,7 @@ test('unfinished assignment forms stay in their room when switching and warn bef
     await page.keyboard.press('Escape')
     await page.locator('#backToRooms').click()
     await page.getByRole('button', { name: 'Switch to Planning', exact: true }).click()
-    await page.locator('#openAssignments').click()
+    await page.locator('#mobileWork:visible, #openAssignments:visible').click()
     await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('A separate planning assignment')
   } finally { await context.close() }
 })
@@ -255,7 +255,7 @@ test('assignment retries clear only the submitted form and keep a newer draft', 
     await page.goto(room.link)
     await page.locator('#displayName').fill('Ada')
     await page.locator('#join').click()
-    await page.locator('#openAssignments').click()
+    await page.locator('#mobileWork:visible, #openAssignments:visible').click()
     await page.getByText('New assignment', { exact: true }).click()
     for (const [index, changeDraft] of [false, true].entries()) {
       if (!await page.locator('#assignmentCreate [name=objective]').isVisible()) await page.getByText('New assignment', { exact: true }).click()
@@ -355,4 +355,34 @@ test('an advertised agent can be invited and assigned work without replacing an 
     worker.leave()
     await expect(page.locator('#inviteList')).toContainText('host reports it running')
   } finally { off(); worker?.leave(); host.leave(); await context.close() }
+})
+
+test('a message offers a summary with its exact source and preserves an unfinished task', async ({ browser, baseURL }) => {
+  const worker = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: ['ws://127.0.0.1:7777'] })
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { ...parseRoomLink(worker.url), relays: [relay.href] })
+  const log = await worker.session.assignments({ async load() { return undefined }, async save() {} })
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
+  try {
+    const page = await context.newPage()
+    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomWho')).toContainText('1 agent')
+    await page.locator('#chatInput').fill('Summarise this exact source, including the final sentence.')
+    await page.locator('#chatForm button[type=submit]').click()
+    await expect.poll(() => worker.session.chat.messages().some(m => m.text.startsWith('Summarise this exact'))).toBe(true)
+    const source = worker.session.chat.messages().find(m => m.text.startsWith('Summarise this exact'))!
+    await page.locator('#chatLog .messageMore').last().click()
+    await page.getByRole('button', { name: 'Summarise this', exact: true }).click()
+    await expect(page.locator('#assignmentCreate [name=criteria]')).toHaveValue(new RegExp(source.id))
+    await expect(page.locator('#assignmentOwner')).toHaveValue(worker.participant)
+    await page.locator('#assignmentClose').click()
+    await page.locator('#chatLog .messageMore').last().click()
+    await page.getByRole('button', { name: 'Send as task', exact: true }).click()
+    await expect(page.locator('#assignmentStatus')).toContainText('unfinished assignment')
+    await expect(page.locator('#assignmentCreate [name=objective]')).toHaveValue('Summarise the referenced message and its full text attachments.')
+    await page.locator('#assignmentCreate button[type=submit]').click()
+    await expect.poll(() => log.snapshot().assignments.length).toBe(1)
+    expect(log.snapshot().assignments[0]!.status).toBe('offered')
+    expect(log.snapshot().assignments[0]!.criteria).toContain(source.id)
+  } finally { await context.close(); worker.leave() }
 })

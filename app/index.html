@@ -71,6 +71,11 @@
           </button>
         </div>
 
+        <nav id="mobileRoomViews" aria-label="Room views">
+          <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
+          <button id="mobileCall" type="button" aria-pressed="false">Call</button>
+          <button id="mobileWork" type="button" aria-haspopup="dialog" aria-controls="assignmentPanel">Work</button>
+        </nav>
         <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
         <div id="workAttention" class="workAttention" hidden>
           <span id="workAttentionText"></span>
@@ -133,7 +138,8 @@
                  it would otherwise push the conversation off the screen.
                  See app/src/call-folds.ts. -->
             <details id="callExtras" class="callExtras">
-            <summary aria-label="More call settings">More</summary>
+            <summary aria-label="More call settings">Settings</summary>
+            <div id="callExtrasContent">
             <button id="resumeCallMedia" type="button">Resume call media</button>
             <button id="toggleFloatingMarks" class="toggle" data-on="false" aria-pressed="false" hidden>Show drawings in a floating window</button>
             <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. On a
@@ -205,6 +211,7 @@
                 </p>
               </details>
             </div>
+            </div>
             </details>
 
             <div id="local"></div>
@@ -239,6 +246,7 @@
              a record of what was said aloud, which is not what that tab is.
              Filled in by `renderChannels` in app/src/main.ts. -->
         <p id="readOnlyNote" class="note" hidden></p>
+        <p id="pasteSizeNote" class="note" role="status" hidden></p>
         <form id="chatForm">
           <!-- Who is in the room, offered when you type an @. Above the box
                rather than below it, because below the box on a phone is
@@ -283,6 +291,8 @@
         <div id="attachStaged"></div>
         <div id="attachPanel" class="attachPanel" hidden>
           <p id="fileStorageStatus" class="note" role="status">File uploads are off. Private Bothy storage is not connected in this app yet.</p>
+          <p id="pendingFileNames" class="note" hidden></p>
+          <div id="pendingFileActions" hidden><button type="button" id="uploadPendingFiles">Upload selected files</button> <button type="button" id="clearPendingFiles">Remove selected files</button></div>
           <details id="fileStorageOptions">
             <summary>Use shared storage instead</summary>
             <p class="note">This is not verified private Bothy storage. Anyone with a file’s storage URL may download its encrypted bytes; the key is needed to read it. The host can observe upload and download metadata.</p>
@@ -514,9 +524,12 @@
            no server to push from. Per device, off until asked for, and what
            reaches the operating system is the room and the sender unless
            the second switch says the words may go too. -->
+      <button id="homeNotifications" type="button" class="quiet" aria-haspopup="dialog" aria-controls="notificationSettings">Notifications &amp; sound</button>
       <section id="notify">
+        <h3>Notifications &amp; sound</h3>
         <div class="toggles switchRow">
           <button id="toggleNotify" class="toggle" data-on="false" aria-pressed="false">Tell me when somebody writes</button>
+          <span id="desktopNotifySound" hidden><button id="toggleNotifyBell" type="button" class="toggle" data-on="true" aria-pressed="true">Zen bell</button> <button id="previewNotifyBell" type="button" class="quiet">Preview sound</button></span>
           <button id="toggleNotifyText" class="toggle" data-on="false" aria-pressed="false" hidden>Include what they said</button>
           <span id="notifyNote" class="note inline"></span>
         </div>
@@ -762,6 +775,10 @@
       </dl>
       </div>
     </dialog>
+    <dialog id="mobileCallSettings" aria-labelledby="mobileCallSettingsTitle">
+      <div class="sheetBar"><h2 id="mobileCallSettingsTitle">Call settings</h2><button id="mobileCallSettingsClose" type="button">Done</button></div>
+      <div class="sheetBody"></div>
+    </dialog>
     <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
       <div class="sheetBar">
         <h2 id="roomSheetTitle">Room details</h2>
@@ -984,6 +1001,7 @@
           <label><input type="radio" name="textSize" value="huge" /> Huge</label>
         </fieldset>
         <div class="toolRow">
+          <button id="roomNotifications" type="button" aria-haspopup="dialog" aria-controls="notificationSettings">Notifications &amp; sound</button>
           <button id="roomProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
           <button id="roomRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
           <button id="keyboardHelp" type="button" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">Keyboard shortcuts</button>
@@ -1025,6 +1043,11 @@
       <p id="inviteToRoomLead" class="note"></p>
       <div id="inviteToRoomList" class="inviteToRoomList"></div>
       <p class="note">The invite goes to them sealed, in this conversation. A room that asks first lets people you invited straight in.</p>
+    </dialog>
+    <dialog id="notificationSettings" class="profileSettings" aria-labelledby="notificationSettingsTitle">
+      <div class="profileSettingsHeader"><h2 id="notificationSettingsTitle">Notifications &amp; sound</h2><button id="notificationSettingsClose" type="button">Done</button></div>
+      <div id="notificationSettingsBody"></div>
+      <p class="note">Alerts depend on this app staying connected. On iPhone and iPad, add KithMoot to your Home Screen to enable system notifications. The Zen bell plays while the app is running; background alerts use the system sound. Delivery after the app is suspended or closed is not connected yet.</p>
     </dialog>
     <dialog id="profileSettings" class="profileSettings" aria-labelledby="profileSettingsTitle">
       <div class="profileSettingsHeader">

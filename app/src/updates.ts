@@ -45,6 +45,7 @@ export interface UpdateBlock {
  * lets a phone leave a live call and update without sending somebody off to
  * find controls which may be below a large update notice. */
 export function installUpdates(blockedReason: () => string | UpdateBlock | undefined, reload: () => void = () => location.reload()): void {
+  if (import.meta.env.VITE_DESKTOP === 'true') return
   const notice = document.getElementById('updateNotice')!
   const button = document.getElementById('updateApp') as HTMLButtonElement
   const defaultMessage = notice.querySelector('span')!.textContent ?? 'Update when you are ready. Your room will reopen.'

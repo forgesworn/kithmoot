@@ -91,7 +91,7 @@ describe('Mesh', () => {
     mesh.close()
   })
 
-  it('creates NO peer for a second device of our own participant', () => {
+  it('connects our other device without connecting this device to itself', () => {
     const session = new FakeSession()
     const factory = createFakeFactory()
     const relay = new SimRelay()
@@ -102,11 +102,11 @@ describe('Mesh', () => {
 
     session.setViews([view(ownParticipant, [local.pub, otherOwnDevice.pub])])
 
-    expect(factory.instances).toHaveLength(0)
+    expect(factory.instances).toHaveLength(1)
     mesh.close()
   })
 
-  it('sends annotations between two devices of our own participant without opening a media peer', () => {
+  it('sends annotations between our devices alongside their media connection', () => {
     const sessionA = new FakeSession()
     const sessionB = new FakeSession()
     const factoryA = createFakeFactory()
@@ -131,20 +131,15 @@ describe('Mesh', () => {
     }
     meshB.publishAnnotation(annotation)
 
-    expect(factoryA.instances, 'paired devices must still avoid sending media to themselves').toHaveLength(0)
-    expect(factoryB.instances, 'paired devices must still avoid sending media to themselves').toHaveLength(0)
+    expect(factoryA.instances).toHaveLength(1)
+    expect(factoryB.instances).toHaveLength(1)
     expect(received).toEqual([{ participant, device: b.pub, annotation }])
     meshA.close()
     meshB.close()
   })
 
-  it('creates NO peer for our own other device before our own entry arrives', () => {
-    // The production join window: join() publishes our roster entry and
-    // constructs Mesh immediately, but the relay has not echoed our own
-    // entry back yet - so the only view of our participant on the roster is
-    // our OTHER device. Inferring "my devices" from whichever view already
-    // contains localDevice finds nothing here and opens a peer to ourselves,
-    // which is the phone uploading its screen share back to its own laptop.
+  it('connects our other device before our own roster entry arrives', () => {
+    // The other camera remains reachable while our own presence is in flight.
     const session = new FakeSession()
     const factory = createFakeFactory()
     const relay = new SimRelay()
@@ -163,7 +158,7 @@ describe('Mesh', () => {
 
     session.setViews([view(ownParticipant, [otherOwnDevice.pub])])
 
-    expect(factory.instances).toHaveLength(0)
+    expect(factory.instances).toHaveLength(1)
     mesh.close()
   })
 
