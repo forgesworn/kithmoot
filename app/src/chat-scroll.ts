@@ -47,6 +47,14 @@ export class ChatScroll {
       // Navigation and roster updates can resize the log after its last
       // redraw. Keep a reader who chose the latest messages at the bottom.
       if (this.#paused || this.#pending || !this.#painted?.place.follow) return
+      // WebKit can deliver resize before a queued scrollbar/programmatic
+      // scroll event. A move beyond the resize's anchoring allowance means
+      // the reader already left the bottom; do not reinstate follow mode.
+      const resizedBy = Math.abs(log.clientHeight - this.#painted.height)
+      if (Math.abs(log.scrollTop - this.#painted.top) > resizedBy + 48) {
+        this.#paint()
+        return
+      }
       log.scrollTop = log.scrollHeight
       this.#paint()
     }).observe(log)
