@@ -20,7 +20,7 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
   try {
     // Proxy only the synthetic relay, avoiding host local-network permission state.
     for (const isolated of [native.context(), context]) {
-      await isolated.routeWebSocket(relays[0]!, socket => { socket.connectToServer() })
+      await isolated.routeWebSocket(url => url.origin === relays[0], socket => { socket.connectToServer() })
     }
     await context.route('https://kithmoot.forgesworn.dev/**', async route => {
       const path = localAsset(route.request().url(), join(desktop, 'web'))
