@@ -40,7 +40,7 @@ import {
   memoryDeviceStore,
 } from './device-store.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
-import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { forgetRoom, knownRoom, knownRooms, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
 import { RoomWatch } from './room-watch.js'
@@ -67,6 +67,7 @@ import {
   requestPersistentRoomAdmission,
   encodePersistentInvitation,
   encodeInvitationRetirement,
+  ROOM_ENDED_MESSAGE,
   createPairingCode,
   hostPairing,
   requestPairing,
@@ -1469,7 +1470,11 @@ function serveCurrentInvitation(): void {
         invitationDelegation = []
         const rotate = document.getElementById('rotateShare') as HTMLButtonElement | null
         if (rotate) rotate.hidden = true
-        setStatus('Whoever made this link has replaced it, so it no longer lets anybody new in. The room itself carries on as it was.')
+        renderEndRoom()
+        const roomId = currentRoomId()
+        const ended = roomId !== undefined && (knownRoom(deviceStore, roomId)?.endedAt ?? knownRoom(roomStore(), roomId)?.endedAt) !== undefined
+        setStatus(ended ? 'This room has ended. Its invite link no longer works.'
+          : 'Whoever made this link has replaced it, so it no longer lets anybody new in. The room itself carries on as it was.')
       },
     })
   } catch {
@@ -3018,6 +3023,7 @@ function showRoomUi(): void {
   // Only the browser that opened the room has that button, so everybody
   // else was reading about a control that was not on their page.
   $('rotateNote').hidden = ($('rotateShare') as HTMLButtonElement).hidden
+  renderEndRoom()
   $('makePersistent').hidden = Boolean(roomInvitationCapability?.persistent) || $('rotateNote').hidden
   $('invitationAvailability').textContent = roomInvitationCapability?.persistent
     ? 'This group stays available when everyone closes the app. Anyone with this invitation can join and read its shared history.'
@@ -5212,6 +5218,7 @@ function renderApprovals(): void {
 
 /** The Host panel: shown only to a participant on the announced list. */
 function renderHost(): void {
+  renderEndRoom()
   const panel = $('hostPanel') as HTMLDetailsElement
   const isAdmin = session !== undefined && admins.has(meParticipant)
   panel.hidden = !isAdmin
@@ -7833,6 +7840,7 @@ async function startSession(asVisitor = false): Promise<void> {
     const forwarderMediaOptions = forwarderMedia.available
       ? { forwarderMedia: () => forwarderMedia.ready, forwarderMediaPipeline: forwarderMedia }
       : {}
+    sessionAuthority = roomAuthority()
     const s = credential
       ? new RoomSession({
           transport,
@@ -7852,7 +7860,7 @@ async function startSession(asVisitor = false): Promise<void> {
           expectedEpoch,
           onEpoch: notice => { if (generation === roomGeneration) onEpochChange(notice) },
           onRemoved: (notice) => { if (generation === roomGeneration) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
-          onClosed: (notice) => { if (generation === roomGeneration) leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
+          onClosed: (notice) => { if (generation === roomGeneration) roomWasClosed(notice) },
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
@@ -7882,7 +7890,7 @@ async function startSession(asVisitor = false): Promise<void> {
           expectedEpoch,
           onEpoch: notice => { if (generation === roomGeneration) onEpochChange(notice) },
           onRemoved: (notice) => { if (generation === roomGeneration) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
-          onClosed: (notice) => { if (generation === roomGeneration) leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
+          onClosed: (notice) => { if (generation === roomGeneration) roomWasClosed(notice) },
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
@@ -8115,7 +8123,7 @@ function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
 }
 
 function watchKnownRoom(room: KnownRoom): void {
-  if (roomWatches.has(room.roomId)) return
+  if (roomWatches.has(room.roomId) || room.endedAt !== undefined) return
   let link: RoomLink
   try {
     link = parseRoomLink(room.link)
@@ -8323,6 +8331,13 @@ function roomRow(room: KnownRoom): HTMLLIElement {
 function roomMeta(room: KnownRoom): HTMLDivElement {
   const meta = document.createElement('div')
   meta.className = 'roomMeta'
+  if (room.endedAt !== undefined) {
+    const note = document.createElement('span')
+    note.className = 'ended'
+    note.textContent = 'Ended. Its invite link no longer works.'
+    meta.append(note)
+    return meta
+  }
   const watched = roomWatches.get(room.roomId)
   if (!watched) {
     const note = document.createElement('span')
@@ -9693,6 +9708,96 @@ $('copyPair').addEventListener('click', () => copyInput('pairUrl'))
 $('shareRoom').addEventListener('click', () => {
   shareRoomLink().catch((err) => { $('inviteStatus').textContent = describeError(err) })
 })
+/**
+ * Ending a browser room, from the browser that holds its authority.
+ *
+ * A browser room has no keeper, so its creator's browser is the only one
+ * that can announce for it: exactly what a keeper's closeRoom does, from
+ * here. The link is retired first, saying the room ended, so a newcomer is
+ * told that rather than only that the link is stale; then the final epoch
+ * is published with nobody kept, and every member's session leaves on it.
+ * A room with a keeper keeps using the keeper, and a browser whose link
+ * was replaced no longer holds the key its members follow.
+ */
+let sessionAuthority: string | undefined
+let endingRoom = false
+
+function canEndRoom(): boolean {
+  if (!session || session.closed || keeperParticipant !== undefined) return false
+  if (!roomInvitationCapability || !invitationAuthoritySk || invitationDelegation.length !== 0 || !sessionAuthority) return false
+  return getPublicKey(invitationAuthoritySk) === sessionAuthority
+}
+
+function renderEndRoom(): void {
+  const hidden = !canEndRoom()
+  $('endRoom').hidden = hidden
+  $('endRoomNote').hidden = hidden
+}
+
+async function endRoomForEveryone(): Promise<void> {
+  if (!canEndRoom()) throw new Error('Only the browser that started this room can end it.')
+  const s = session!, invitation = roomInvitationCapability!, authoritySk = invitationAuthoritySk!
+  const retirement = configuredPool(relays)
+  try {
+    await retirement.publish(encodeInvitationRetirement({ invitation, inviterSk: authoritySk, now: nowSeconds(), ended: true }))
+  } finally {
+    retirement.close()
+  }
+  stopInvitationHost()
+  endingRoom = true
+  try { await s.rekey({ authoritySk, closed: true, by: meParticipant }) }
+  catch (err) { endingRoom = false; throw err }
+}
+
+/** A saved room whose link turned out to be retired because the room ended:
+ *  the list should say so rather than go on offering to open it. */
+function markLinkEnded(href: string): void {
+  let id: string
+  try {
+    const invitation = parseRoomLink(href).invitation
+    if (!invitation) return
+    id = deriveInvitationId(invitation)
+  } catch { return }
+  for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) {
+    for (const room of knownRooms(store)) {
+      try {
+        const saved = parseRoomLink(room.link).invitation
+        if (saved && deriveInvitationId(saved) === id) markEnded(store, room.roomId, nowSeconds())
+      } catch { /* A link that does not parse names no room. */ }
+    }
+  }
+}
+
+/** The room's authority closed it: this browser, a keeper, or the browser
+ *  that started it. Written down either way, so the list says so. */
+function roomWasClosed(notice: { by?: string }): void {
+  const s = session
+  if (s) {
+    markEnded(deviceStore, s.roomId, nowSeconds())
+    if (bookmarks) markEnded(bookmarks.rooms, s.roomId, nowSeconds())
+  }
+  if (endingRoom) {
+    endingRoom = false
+    leaveWithNotice('You ended this room for everyone. Its invite link no longer works.')
+    return
+  }
+  leaveWithNotice(keeperParticipant === undefined
+    ? 'This room was ended by the person who started it.'
+    : `This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+}
+
+$('endRoom').addEventListener('click', async () => {
+  if (!await confirmRoomAction({
+    title: 'End this room for everyone?',
+    message: 'Everyone is taken out of the room and off the call, and every invite link to it stops working. '
+      + 'People keep what they already received, and relays keep the encrypted history. This cannot be undone.',
+    confirmLabel: 'End room',
+    danger: true,
+  })) return
+  ++roomOperation
+  try { await endRoomForEveryone() } catch (err) { setStatus(describeError(err)) }
+  finally { --roomOperation; refreshRoomNavigation() }
+})
 $('rotateShare').addEventListener('click', async () => {
   if (!await confirmRoomAction({ title: 'Replace the room link?', message: 'The old link will stop admitting new people in current KithMoot clients. Existing members stay in the room.', confirmLabel: 'Replace link', danger: true })) return
   ++roomOperation
@@ -10912,10 +11017,14 @@ function showArrivalFailure(err: unknown): void {
     return
   }
   $('addCardArrival').hidden = true
-  const retired = reason.includes('retired')
+  const ended = reason === ROOM_ENDED_MESSAGE
+  const retired = ended || reason.includes('retired')
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
-  $('arrivalTitle').textContent = retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
-  $('arrivalLead').textContent = retired
+  if (ended) markLinkEnded(location.href)
+  $('arrivalTitle').textContent = ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
+  $('arrivalLead').textContent = ended
+    ? 'It was ended by the person who started it, so nobody can join it any more.'
+    : retired
     ? 'Ask somebody in the room for its current invite link.'
     : valid
       ? persistent

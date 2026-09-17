@@ -67,6 +67,8 @@ export {
   verifyInvitationDelegation,
   encodeInvitationRetirement,
   decodeInvitationRetirement,
+  decodeInvitationRetirementNotice,
+  ROOM_ENDED_MESSAGE,
   hostRoomInvitation,
   requestRoomAdmission,
   requestRoomAdmissionCapability,

@@ -6,6 +6,7 @@ import {
   forgetRoom,
   knownRoom,
   knownRooms,
+  markEnded,
   markRead,
   rememberRoom,
   roomLabel,
@@ -152,5 +153,26 @@ describe('the rooms this device has been in', () => {
     forgetRoom(store, ROOM_A)
     expect(knownRoom(store, ROOM_A)).toBeUndefined()
     expect(loadKeptAdmission(store, invitationId, NOW)).toBeUndefined()
+  })
+
+  it('marks a room ended once, drops what was kept for it, and a new link for the same room clears the mark', () => {
+    const store = memoryDeviceStore()
+    const link = invitationLink({ name: 'PowWow' })
+    const invitationId = deriveInvitationId(parseRoomLink(link).invitation!)
+    expect(markEnded(store, ROOM_A, NOW)).toBe(false)
+    rememberRoom(store, { roomId: ROOM_A, link, openedAt: NOW })
+    setKeepRoom(store, ROOM_A, true)
+    storeKeptAdmission(store, invitationId, { secret: new Uint8Array(32).fill(3), delegate: { delegateSk: generateSecretKey(), chain: [] } }, NOW)
+
+    expect(markEnded(store, ROOM_A, NOW + 10)).toBe(true)
+    expect(markEnded(store, ROOM_A, NOW + 20)).toBe(true)
+    expect(knownRoom(store, ROOM_A)).toMatchObject({ endedAt: NOW + 10 })
+    expect(knownRoom(store, ROOM_A)?.keep).toBeUndefined()
+    expect(loadKeptAdmission(store, invitationId, NOW)).toBeUndefined()
+
+    rememberRoom(store, { roomId: ROOM_A, link, openedAt: NOW + 30 })
+    expect(knownRoom(store, ROOM_A)?.endedAt).toBe(NOW + 10)
+    rememberRoom(store, { roomId: ROOM_A, link: invitationLink(), openedAt: NOW + 40 })
+    expect(knownRoom(store, ROOM_A)?.endedAt).toBeUndefined()
   })
 })

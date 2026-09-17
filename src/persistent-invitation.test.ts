@@ -3,7 +3,7 @@ import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import type { Event } from 'nostr-tools/pure'
 import { base64urlnopad } from '@scure/base'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
-import { createRoomInvitation, encodeInvitationRetirement } from './invitation.js'
+import { createRoomInvitation, encodeInvitationRetirement, ROOM_ENDED_MESSAGE } from './invitation.js'
 import { encodePersistentInvitation, decodePersistentInvitation, requestPersistentRoomAdmission } from './persistent-invitation.js'
 import { generateRoomSecret } from './room.js'
 import { encodeRoomLink, parseRoomLink } from './link.js'
@@ -61,6 +61,12 @@ describe('persistent group invitations', () => {
     const transport = replay(first ? [event, retired] : [retired, event])
     await expect(requestPersistentRoomAdmission({ transport, invitation: host.invitation })).rejects.toThrow(/retired/)
     expect(transport.closed).toBe(true)
+  })
+
+  it('a group whose room was ended says so rather than only that the link is retired', async () => {
+    const { host, event } = setup()
+    const transport = replay([event, encodeInvitationRetirement({ ...host, now: NOW + 60, ended: true })])
+    await expect(requestPersistentRoomAdmission({ transport, invitation: host.invitation })).rejects.toThrow(ROOM_ENDED_MESSAGE)
   })
 
   it('does not admit on a partial result or unavailable relay', async () => {

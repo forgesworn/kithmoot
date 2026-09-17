@@ -896,6 +896,13 @@
           </div>
           <button id="rotateShare" type="button" hidden>New link</button>
           <button id="makePersistent" type="button" hidden>Keep this room open</button>
+          <!-- Only in the browser holding a browser room's authority. A room
+               with a keeper is closed through the keeper instead. -->
+          <button id="endRoom" type="button" class="danger" hidden>End room for everyone</button>
+          <p id="endRoomNote" class="note" hidden>
+            Ending takes everyone out and stops every invite link working.
+            People keep what they already received.
+          </p>
           <!-- Hidden with the button it describes. Only the browser that
                opened the room can make a new link, and everybody else was
                reading a sentence about a control that was not on their

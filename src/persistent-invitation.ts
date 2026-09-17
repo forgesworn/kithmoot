@@ -3,7 +3,7 @@ import { sha256 } from '@noble/hashes/sha2'
 import { base64urlnopad } from '@scure/base'
 import { nip44 } from 'nostr-tools'
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
-import { decodeInvitationRetirement, deriveInvitationId, type RoomInvitation } from './invitation.js'
+import { decodeInvitationRetirementNotice, deriveInvitationId, retirementError, type RoomInvitation } from './invitation.js'
 import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
 import { verifyEventUncached } from './verify.js'
@@ -88,8 +88,9 @@ export function requestPersistentRoomAdmission(opts: {
         authors: [opts.invitation.inviter], '#d': [deriveInvitationId(opts.invitation)],
       }], event => {
         if (settled) return
-        if (decodeInvitationRetirement(event, opts.invitation)) {
-          finish(new Error('this room invitation has been retired'))
+        const retired = decodeInvitationRetirementNotice(event, opts.invitation)
+        if (retired) {
+          finish(retirementError(retired))
           return
         }
         const decoded = decodePersistentInvitation(event, opts.invitation)

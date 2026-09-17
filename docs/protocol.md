@@ -127,6 +127,15 @@ info `kithmoot/v3/group-invitation-key`. The decrypted body is
 the pinned inviter. A valid retirement wins over the invitation. This record
 carries epoch zero only; it cannot override removal or mint authority.
 
+A kind 1461 retirement's content is `{v:1}`. When the room itself was ended,
+not just the link replaced, it is `{v:1,ended:true}`. The field is additive:
+readers MUST treat any valid `v:1` retirement as a retirement and MAY tell a
+newcomer the room ended when `ended` is exactly `true`. A browser room with no
+keeper is ended from the browser holding its authority by publishing that
+retirement and then a closing kind 1462 rekey with no recipients, the same
+pair a keeper's close publishes. A keeper's close does not set `ended`, since
+the admin who asked it to close need not be the person who started the room.
+
 Readers MUST continue accepting v2 (`v:2,j,h`) and v1 (`s:<room secret>`, with no
 version) indefinitely. Resharing an existing room preserves its capability and
 version. In particular, an old keeper state file is not silently converted to a

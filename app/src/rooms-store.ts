@@ -42,6 +42,9 @@ export interface KnownRoom {
    *  list and notifications can read it with no tab open on it. Off unless
    *  they did. */
   keep?: boolean
+  /** Unix seconds this device learned the room was ended for everyone. An
+   *  ended room stays listed, so a person can see what happened to it. */
+  endedAt?: number
 }
 
 /** What a visit to a room says about it. */
@@ -75,6 +78,7 @@ function readRoom(store: DeviceStore, roomId: string): KnownRoom | undefined {
       readAt: typeof parsed.readAt === 'number' && Number.isFinite(parsed.readAt) ? parsed.readAt : 0,
     }
     if (typeof parsed.keep === 'boolean') room.keep = parsed.keep
+    if (typeof parsed.endedAt === 'number' && Number.isFinite(parsed.endedAt)) room.endedAt = parsed.endedAt
     // Sanitised on the way out of storage as well as on the way in, because
     // a stored value is only as trustworthy as whatever wrote it.
     const name = sanitiseDisplayName(parsed.name)
@@ -133,8 +137,22 @@ export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
   if (name !== undefined) room.name = name
   if (existing?.keep !== undefined) room.keep = existing.keep
   else if (link.invitation?.persistent) room.keep = true
+  if (existing?.endedAt !== undefined && existing.link === visit.link) room.endedAt = existing.endedAt
   writeRoom(store, room)
   return room
+}
+
+/** Note that a room was ended for everyone. Its kept admission goes, since
+ *  nothing can be read with it any more. False when the room is not one
+ *  this device has written down. */
+export function markEnded(store: DeviceStore, roomId: string, at: number): boolean {
+  if (!Number.isFinite(at)) return false
+  const room = knownRoom(store, roomId)
+  if (!room) return false
+  const { keep: _kept, ...rest } = room
+  forgetKeptFor(store, room.link)
+  writeRoom(store, { ...rest, endedAt: room.endedAt ?? at })
+  return true
 }
 
 /**

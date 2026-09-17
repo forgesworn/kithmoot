@@ -10,6 +10,9 @@ import {
   encodeInvitationGrant,
   encodeInvitationRequest,
   encodeInvitationRetirement,
+  decodeInvitationRetirement,
+  decodeInvitationRetirementNotice,
+  ROOM_ENDED_MESSAGE,
   hostRoomInvitation,
   requestRoomAdmission,
   requestRoomAdmissionCapability,
@@ -330,6 +333,27 @@ describe('invitation exchange', () => {
       now: NOW,
     }))
     await expect(waiting).rejects.toThrow(/retired/)
+  })
+
+  it('says the room was ended when the tombstone carries it, and stays an ordinary retirement to older readers', async () => {
+    const relay = new SimRelay()
+    const host = createRoomInvitation()
+    const waiting = requestRoomAdmission({
+      transport: new SimTransport(relay),
+      invitation: host.invitation,
+      now,
+      timeoutMs: 1_000,
+    })
+    const ended = encodeInvitationRetirement({ invitation: host.invitation, inviterSk: host.inviterSk, now: NOW, ended: true })
+    await new SimTransport(relay).publish(ended)
+    await expect(waiting).rejects.toThrow(ROOM_ENDED_MESSAGE)
+    expect(JSON.parse(ended.content)).toEqual({ v: 1, ended: true })
+    expect(decodeInvitationRetirement(ended, host.invitation)).toBe(true)
+    expect(decodeInvitationRetirementNotice(ended, host.invitation)).toEqual({ ended: true })
+    const plain = encodeInvitationRetirement({ invitation: host.invitation, inviterSk: host.inviterSk, now: NOW })
+    expect(JSON.parse(plain.content)).toEqual({ v: 1 })
+    expect(decodeInvitationRetirementNotice(plain, host.invitation)).toEqual({ ended: false })
+    expect(decodeInvitationRetirementNotice(ended, createRoomInvitation().invitation)).toBeUndefined()
   })
 })
 

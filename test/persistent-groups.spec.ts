@@ -108,6 +108,55 @@ test('a new member joins two days after everyone leaves, then both members retur
   } finally { await Promise.all(contexts.map(context => context.close())) }
 })
 
+test('the creator ends a browser room for everyone: members are taken out, the old link is refused, and both lists say it ended', async ({ browser, baseURL }) => {
+  const contexts: BrowserContext[] = []
+  try {
+    const owner = await device(browser, baseURL!); contexts.push(owner)
+    const page = await owner.newPage()
+    const link = await create(page, baseURL!)
+    await page.locator('#displayName').fill('Creator')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+
+    const member = await device(browser, baseURL!); contexts.push(member)
+    const other = await member.newPage()
+    await enter(other, link, 'Member')
+    await other.locator('#chatInput').fill('Member here')
+    await other.locator('#chatInput').press('Enter')
+    await expect(page.locator('#chatLog')).toContainText('Member here')
+    await openRoomDetails(other)
+    await expect(other.locator('#endRoom')).toBeHidden()
+    await other.locator('#roomSheetClose').click()
+
+    await openRoomDetails(page)
+    await expect(page.locator('#endRoomNote')).toBeVisible()
+    await page.locator('#endRoom').click()
+    await expect(page.getByRole('alertdialog')).toContainText('relays keep the encrypted history')
+    await page.locator('#actionConfirm').click()
+    await expect(page.locator('#status')).toContainText('You ended this room for everyone')
+    await expect(page.locator('#roomArea')).toBeHidden()
+
+    await expect(other.locator('#status')).toContainText('ended by the person who started it', { timeout: 20_000 })
+    await expect(other.locator('#roomArea')).toBeHidden()
+    await openRoomUrl(other, link)
+    if (await other.locator('#join').isVisible()) await other.locator('#join').click()
+    await expect(other.locator('#roomArea')).toBeHidden()
+    await expect(other.locator('#status, #arrivalTitle').filter({ hasText: /ended/ }).first()).toBeVisible()
+
+    const newcomer = await device(browser, baseURL!); contexts.push(newcomer)
+    const arrival = await newcomer.newPage()
+    await arrival.goto(link)
+    await expect(arrival.locator('#arrivalTitle')).toHaveText('This room has ended')
+    await expect(arrival.locator('#join')).toBeHidden()
+
+    for (const who of [page, other]) {
+      await who.goto(baseURL!)
+      await expect(who.locator('#roomList .roomRow')).toHaveCount(1)
+      await expect(who.locator('#roomList .roomMeta')).toContainText('Ended')
+    }
+  } finally { await Promise.all(contexts.map(context => context.close())) }
+})
+
 test('replacing a group invitation rejects fresh arrivals on the old link while existing members can return', async ({ browser, baseURL }) => {
   const contexts: BrowserContext[] = []
   try {
