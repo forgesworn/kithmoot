@@ -50,6 +50,7 @@ import { readAgentRequestStatuses, type RequestAgent } from './agent-request-sta
 import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
+import { bindRoles, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
 import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
@@ -4582,7 +4583,7 @@ function render(views: ParticipantView[], me: string): void {
       expand.addEventListener('click', () => shareViewer.open(source, expand))
       box.append(expand)
       if (!available) continue
-      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(`${device}|${available.id}`)?.el
+      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(tileKey(device, 'screen'))?.el
         ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el
       if (preview) {
         preview.classList.add('screenPreview')
@@ -7084,17 +7085,16 @@ function screenSource(participant: string, device: string): ShareSource | undefi
   if (!person) return undefined
   const advert = person.tracks.find(track => track.device === device && track.role === 'screen')
   let track = participant === meParticipant && device === myDeviceId
-    ? screenTrack : advert ? remoteVideos.get(`${device}|${advert.trackId}`)?.track : undefined
+    ? screenTrack : advert ? remoteVideos.get(tileKey(device, 'screen'))?.track : undefined
   // The advert says a screen is on and a picture from that device is
-  // playing under some other name: a receiver id the browser minted on a
-  // rebuilt connection, before the slot logic caught up. Any live video
-  // from the device that is not its camera is the share, and "Expand"
-  // must not be missing while the picture is plainly there.
+  // playing in another slot: the binding had not caught up when the tile
+  // was built. Any live video from the device that is not its camera is
+  // the share, and "Expand" must not be missing while the picture is
+  // plainly there.
   if (!track && advert && device !== myDeviceId) {
-    const cameraId = person.tracks.find(t => t.device === device && t.role === 'camera')?.trackId
     for (const [key, entry] of remoteVideos) {
-      if (!key.startsWith(`${device}|`) || entry.track.readyState !== 'live') continue
-      if (cameraId !== undefined && key === `${device}|${cameraId}`) continue
+      if (tileDevice(key) !== device || entry.track.readyState !== 'live') continue
+      if (tileRole(key) === 'camera') continue
       track = entry.track
       break
     }
@@ -7103,7 +7103,11 @@ function screenSource(participant: string, device: string): ShareSource | undefi
   const name = participant === meParticipant ? 'Your screen' : `${shownAs(participant, person.name).name ?? shortKey(participant)}’s screen`
   return { id: advert?.trackId ?? track.id, track, title: name }
 }
-const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamTrack }>()
+/** `last` is the element's clock at the previous poll, exactly as a picture's
+ *  is: a sound that is decoding is a sound whose packets are arriving, which
+ *  is the RTP half of the liveness rule where the browser will not tell us
+ *  about synchronisation sources. */
+const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamTrack; last: number }>()
 
 /**
  * The key our own microphone is tapped under.
@@ -7420,18 +7424,13 @@ function onScreen(entry: RemoteVideo): boolean {
  * only for one that has started at all, which is why `played` gates the
  * stall count rather than the clock doing it alone.
  */
-/**
- * Checks a picture or a sound may go without the roster naming its track
- * before it is taken down. Three, at the one-second poll: a track that
- * lands ahead of its own advert is given a slow relay's worth of time for
- * the advert to arrive, and one whose advert has gone is off inside three
- * seconds.
- */
-const ORPHAN_CHECKS = 3
-const orphanChecks = new Map<string, number>()
+/** The advert half of the liveness rule, and the counter behind it - see
+ *  app/src/remote-tiles.ts, which owns both halves and is tested without a
+ *  browser. */
+const tileLiveness = new TileLiveness()
 
 /**
- * Whether the roster still says this remote track exists.
+ * Whether the roster still says this device is sending this role.
  *
  * The far end stopping a share or a camera removes the sender, and a
  * removed sender does NOT end the receiver's track in any browser - it
@@ -7439,45 +7438,137 @@ const orphanChecks = new Map<string, number>()
  * muted screen share decodes nothing, so the element sat on everybody's
  * screen as a black box for the rest of the call. What the far end does
  * say, and says promptly, is its roster advert: `publishActiveTracks`
- * republishes the full set on every toggle. So the advert is the truth
- * about whether a track is on, and a track the roster has stopped
- * naming is over. Undefined while the roster has nothing to say about
- * the device at all: a device between heartbeats is not a device that
- * has turned everything off.
+ * republishes the full set on every toggle.
+ *
+ * It is no longer the whole truth, though. A second tab of the same device
+ * key publishes presence with no tracks at all, overwrites the entry, and
+ * everybody took A's pictures down while A's packets were still arriving.
+ * So this is one half of the rule and inbound RTP is the other, and a tile
+ * comes down only when both agree. Undefined while the roster has nothing
+ * to say about the device at all: a device between heartbeats is not a
+ * device that has turned everything off.
  */
 function advertised(key: string): boolean | undefined {
-  const bar = key.indexOf('|')
-  const device = key.slice(0, bar), id = key.slice(bar + 1)
+  const device = tileDevice(key), role = tileRole(key)
   const person = session?.participants().find(view => view.devices.includes(device))
   if (!person) return undefined
-  return person.tracks.some(track => track.device === device && track.trackId === id)
+  if (!role) return false
+  return person.tracks.some(track => track.device === device && track.role === role)
 }
 
-/** Count a check against an unadvertised track; true once it has had its
- *  grace. Any check that finds it advertised again forgives it. */
-function orphanedFor(key: string): boolean {
-  const named = advertised(key)
-  if (named !== false) { orphanChecks.delete(key); return false }
-  const checks = (orphanChecks.get(key) ?? 0) + 1
-  orphanChecks.set(key, checks)
-  if (checks < ORPHAN_CHECKS) return false
-  orphanChecks.delete(key)
-  return true
+/** Everything this device is advertising right now. */
+function advertsFor(device: string): TrackAdvert[] {
+  const person = session?.participants().find(view => view.devices.includes(device))
+  return person?.tracks.filter(track => track.device === device) ?? []
+}
+
+/** The remote device an `openConnections` key belongs to. */
+function connectionDevice(key: string): string | undefined {
+  return /^[^:]+:([0-9a-f]{64}):\d+$/.exec(key)?.[1]
+}
+
+/** When RTP was last seen moving on a track, on `performance.now()`'s clock. */
+const trackProgressAt = new WeakMap<MediaStreamTrack, number>()
+/** The newest synchronisation-source timestamp seen for a track, so the next
+ *  look can tell "still arriving" from "the same packets as before". */
+const rtpTimestamps = new WeakMap<MediaStreamTrack, number>()
+
+/**
+ * Note whether anything has arrived on this receiver since the last look.
+ *
+ * `getSynchronizationSources()` is synchronous, needs no `await` in a
+ * one-second poll, and reports only sources heard from recently - so a
+ * receiver whose sender the far end removed falls silent here within its
+ * window while a live one keeps handing back a rising timestamp. Where a
+ * browser does not fill it in for this kind, a playing element's own clock
+ * says the same thing and `syncRemoteVideos` feeds that in instead.
+ */
+function noteRtp(receiver: RTCRtpReceiver, track: MediaStreamTrack, now: number): void {
+  let latest = 0
+  for (const source of receiver.getSynchronizationSources?.() ?? []) if (source.timestamp > latest) latest = source.timestamp
+  if (latest === 0) return
+  if (latest > (rtpTimestamps.get(track) ?? 0)) trackProgressAt.set(track, now)
+  rtpTimestamps.set(track, latest)
+}
+
+/** Note that this track's media moved, however we came to know it. */
+function noteProgress(track: MediaStreamTrack, now: number): void {
+  trackProgressAt.set(track, now)
+}
+
+/** Whether media has moved on this track inside the liveness window. */
+function trackProgressing(track: MediaStreamTrack, now: number): boolean {
+  const at = trackProgressAt.get(track)
+  return at !== undefined && now - at < RTP_GRACE_MS
+}
+
+/**
+ * What this page is receiving from `device`, with the two facts the tile
+ * mapping needs about each receiver: the transceiver direction, which is how
+ * a stale receiver is told from a live one, and whether its packets are
+ * moving, which is how two live-looking ones are told apart.
+ */
+function deviceReceivers(device: string, now: number): ReceiverFacts[] {
+  const facts: ReceiverFacts[] = []
+  for (const [key, pc] of openConnections) {
+    if (pc.connectionState !== 'connected') continue
+    if (connectionDevice(key) !== device) continue
+    for (const transceiver of pc.getTransceivers()) {
+      const track = transceiver.receiver?.track
+      if (!track) continue
+      noteRtp(transceiver.receiver, track, now)
+      facts.push({ track, direction: transceiver.currentDirection, progressing: trackProgressing(track, now) })
+    }
+  }
+  return facts
+}
+
+/** What each tile of this kind is showing now, so a picture that is playing
+ *  is never moved to another slot behind the viewer's back. */
+function boundTracks(device: string, kind: MediaKind): Map<TrackAdvert['role'], MediaStreamTrack> {
+  const bound = new Map<TrackAdvert['role'], MediaStreamTrack>()
+  for (const role of ROLES_BY_KIND[kind]) {
+    const entry = kind === 'video' ? remoteVideos.get(tileKey(device, role)) : remoteAudios.get(tileKey(device, role))
+    if (entry) bound.set(role, entry.track)
+  }
+  return bound
+}
+
+/** Which tile this track belongs on, or nothing if every slot of its kind is
+ *  already held by a receiver with a better claim. */
+function tileKeyFor(device: string, track: MediaStreamTrack): string | undefined {
+  const kind = kindOf(track.kind)
+  const binding = bindRoles({
+    kind,
+    adverts: advertsFor(device),
+    receivers: deviceReceivers(device, performance.now()),
+    bound: boundTracks(device, kind),
+    prefer: track,
+  })
+  for (const [role, chosen] of binding) if (chosen === track) return tileKey(device, role)
+  return undefined
 }
 
 function syncRemoteVideos(): void {
   let changed = false
+  const now = performance.now()
+  // One look at every receiver first, so the RTP half of the liveness rule
+  // is up to date for every tile before any of them is judged by it.
+  for (const device of new Set([...remoteVideos.keys(), ...remoteAudios.keys()].map(tileDevice))) deviceReceivers(device, now)
   for (const [key, entry] of remoteVideos) {
-    if (entry.track.readyState === 'ended' || orphanedFor(key)) {
+    const clock = entry.el.currentTime
+    const moving = clock > entry.last + 0.001
+    entry.last = clock
+    if (moving) noteProgress(entry.track, now)
+    const progressedAt = trackProgressAt.get(entry.track)
+    if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
+    if (entry.track.readyState === 'ended' || tileLiveness.gone(key, advertised(key), now)) {
       if (onScreen(entry)) changed = true
       entry.el.remove()
       remoteVideos.delete(key)
       callTimeline.record('tile-orphaned', short(key.split('|')[0]), 'video')
       continue
     }
-    const now = entry.el.currentTime
-    const moving = now > entry.last + 0.001
-    entry.last = now
     if (moving) {
       entry.stalled = 0
       entry.played = true
@@ -7500,54 +7591,48 @@ function syncRemoteVideos(): void {
       changed = true
     }
   }
-  // Sound, by the same roster rule. A screen share's audio, or a
-  // microphone switched off, leaves a silent element behind otherwise,
-  // and the tile keeps a "mic" chip for a mic that is off.
+  // Sound, by the same liveness rule. A screen share that ends, or a
+  // microphone whose sender the far end removed, leaves a silent element
+  // behind otherwise. A mic muted with `track.enabled = false` keeps
+  // sending packets, so its element is kept on purpose: it stays silent,
+  // nothing about the tile claims otherwise, and the sound is there the
+  // instant the mic comes back.
   for (const [key, entry] of remoteAudios) {
-    if (entry.track.readyState !== 'ended' && !orphanedFor(key)) continue
+    const clock = entry.el.currentTime
+    if (clock > entry.last + 0.001) noteProgress(entry.track, now)
+    entry.last = clock
+    const progressedAt = trackProgressAt.get(entry.track)
+    if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
+    if (entry.track.readyState !== 'ended' && !tileLiveness.gone(key, advertised(key), now)) continue
     entry.el.remove()
     remoteAudios.delete(key)
     remoteVolume.detach(key)
-    const device = key.slice(0, key.indexOf('|'))
+    const device = tileDevice(key)
     const remaining = [...remoteAudios].find(([other]) => other.startsWith(`${device}|`))
     if (remaining) speakingMonitor.watch(device, remaining[1].track)
     else speakingMonitor.unwatch(device)
     changed = true
   }
-  for (const key of orphanChecks.keys()) if (!remoteVideos.has(key) && !remoteAudios.has(key)) orphanChecks.delete(key)
+  tileLiveness.retain([...remoteVideos.keys(), ...remoteAudios.keys()])
   if (changed && session) render(session.participants(), meParticipant)
 }
 
 setInterval(syncRemoteVideos, 1000)
 
 /**
- * The roster's track id is the stable name of a camera, microphone or share.
- * Chromium normally preserves it on the receiver, but may mint a different
- * receiver id when the peer connection is rebuilt on another route. Keep the
- * received object in the advertised slot so screen expansion and annotations
- * survive a move to TURN.
+ * Put a remote track on its device's tile.
+ *
+ * `slot` is which of the device's four slots this is - see
+ * app/src/remote-tiles.ts. Nothing here goes on the receiver's own id: it is
+ * the sender's id in Chromium, a locally minted one in Firefox, and neither
+ * of them follows a `replaceTrack`. The `ontrack` path works the slot out
+ * for itself; the recovery poll has already worked out the whole device's
+ * binding and passes the answer in, so the two cannot disagree and put the
+ * same track on two tiles in turn.
  */
-function advertisedTrackId(device: string, track: MediaStreamTrack): string {
-  const person = session?.participants().find(view => view.devices.includes(device))
-  const compatible = person?.tracks.filter(advert =>
-    advert.device === device &&
-    (track.kind === 'audio' ? advert.role === 'mic' || advert.role === 'screen-audio' : advert.role === 'camera' || advert.role === 'screen'),
-  ) ?? []
-  if (compatible.some(advert => advert.trackId === track.id)) return track.id
-  const collection = track.kind === 'audio' ? remoteAudios : remoteVideos
-  // Once this receiver has been placed in an advertised slot, retain that
-  // binding. Its browser-issued id may differ from the sender's track id;
-  // falling back to it on the next poll makes a live receiver look orphaned.
-  const bound = compatible.find(advert => collection.get(`${device}|${advert.trackId}`)?.track === track)
-  if (bound) return bound.trackId
-  const available = compatible.find(advert => {
-    const current = collection.get(`${device}|${advert.trackId}`)
-    return current === undefined || current.track.readyState === 'ended'
-  })
-  return available?.trackId ?? track.id
-}
-
-function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
+function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: string): void {
+  const key = slot ?? tileKeyFor(device, track)
+  if (!key) return
   let mediaEl = deviceMediaEls.get(device)
   if (!mediaEl) {
     mediaEl = document.createElement('div')
@@ -7555,12 +7640,11 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
     deviceMediaEls.set(device, mediaEl)
   }
   const container = mediaEl
-  const key = `${device}|${advertisedTrackId(device, track)}`
 
-  // A track can arrive before its roster advert and initially be stored by
-  // the browser's receiver id. Once the advert arrives, move the existing
-  // element into its stable slot rather than displaying the same receiver
-  // twice under two names.
+  // A track can arrive before its roster advert and be guessed into the
+  // everyday slot for its kind. Once the advert says otherwise, move the
+  // existing element rather than displaying the same receiver twice under
+  // two names.
   if (track.kind === 'video' && !remoteVideos.has(key)) {
     const alias = [...remoteVideos].find(([, entry]) => entry.track === track)
     if (alias) { remoteVideos.delete(alias[0]); remoteVideos.set(key, alias[1]); callTimeline.record('tile-bound', short(device)) }
@@ -7646,7 +7730,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
     if (!existing) {
       el.autoplay = true
       el.dataset.track = track.id
-      remoteAudios.set(key, { el, track })
+      remoteAudios.set(key, { el, track, last: -1 })
       container.append(el)
       callTimeline.record('track-added', short(device), 'audio')
     } else if (!el.isConnected) {
@@ -7690,25 +7774,36 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
  */
 function recoverRemoteTracks(): void {
   if (!session) return
+  const now = performance.now()
+  const devices = new Set<string>()
   for (const [key, pc] of openConnections) {
     if (pc.connectionState !== 'connected') continue
-    const match = /^[^:]+:([0-9a-f]{64}):\d+$/.exec(key)
-    const device = match?.[1]
-    if (!device || !session.participants().some(view => view.devices.includes(device))) continue
-    for (const receiver of pc.getReceivers()) {
-      const track = receiver.track
-      if (!track || track.readyState !== 'live') continue
-      const stableKey = `${device}|${advertisedTrackId(device, track)}`
-      // A sender the far end removed leaves a receiver whose track is
-      // still `live` and forever muted. `syncRemoteVideos` took its
-      // element down on the roster's word; putting it back here every two
-      // seconds would be the black box again, on a timer.
-      if (advertised(stableKey) === false) continue
-      const entry = track.kind === 'video' ? remoteVideos.get(stableKey) : remoteAudios.get(stableKey)
-      // Safari can keep the sink connected but pause it when a rebuilt peer
-      // swaps in a new MediaStream. A connected element is not necessarily a
-      // playing one; make the recovery path repair both states.
-      if (entry?.track !== track || !entry.el.isConnected || entry.el.paused) attachRemoteTrack(device, track)
+    const device = connectionDevice(key)
+    if (device && session.participants().some(view => view.devices.includes(device))) devices.add(device)
+  }
+  for (const device of devices) {
+    const receivers = deviceReceivers(device, now)
+    const adverts = advertsFor(device)
+    for (const kind of ['video', 'audio'] as const) {
+      // The same decision `attachRemoteTrack` makes, made for the whole
+      // device at once: who should hold each slot, given what the roster
+      // advertises, what the tiles show now, and whose packets are moving.
+      for (const [role, chosen] of bindRoles({ kind, adverts, receivers, bound: boundTracks(device, kind) })) {
+        const track = chosen as MediaStreamTrack
+        if (track.readyState !== 'live') continue
+        const key = tileKey(device, role)
+        const entry = kind === 'video' ? remoteVideos.get(key) : remoteAudios.get(key)
+        // Nothing on screen, no advert and no packets: the far end really
+        // did stop. `syncRemoteVideos` took the element down; opening a new
+        // one here every two seconds would be the black box again, on a
+        // timer. A slot that is advertised, or whose packets are moving, is
+        // a slot somebody should be seeing.
+        if (!entry && advertised(key) === false && !trackProgressing(track, now)) continue
+        // Safari can keep the sink connected but pause it when a rebuilt peer
+        // swaps in a new MediaStream. A connected element is not necessarily a
+        // playing one; make the recovery path repair both states.
+        if (entry?.track !== track || !entry.el.isConnected || entry.el.paused) attachRemoteTrack(device, track, key)
+      }
     }
   }
 }
@@ -7807,7 +7902,8 @@ async function collectDiagnostics(): Promise<string> {
     routes: s ? [...s.routes].map(([d, r]) => ({ device: short(d), tier: r.tier, endpoint: short(r.endpoint), connected: r.connected, exhausted: r.exhausted })) : [],
     connections,
     pictures: [...remoteVideos].map(([key, v]) => ({
-      device: short(key.split('|')[0]),
+      device: short(tileDevice(key)),
+      role: tileRole(key),
       onScreen: onScreen(v),
       played: v.played,
       stalled: v.stalled,
@@ -7817,7 +7913,8 @@ async function collectDiagnostics(): Promise<string> {
       track: `${v.track.readyState}${v.track.muted ? ':muted' : ''}`,
     })),
     sounds: [...remoteAudios].map(([key, a]) => ({
-      device: short(key.split('|')[0]),
+      device: short(tileDevice(key)),
+      role: tileRole(key),
       inDocument: a.el.isConnected,
       paused: a.el.paused,
       currentTime: Number(a.el.currentTime.toFixed(2)),
@@ -9090,7 +9187,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   $('presenceNotice').hidden = true
   $('presenceNotice').textContent = ''
   forgetKnocks()
-  orphanChecks.clear()
+  tileLiveness.retain([])
   $('agentsRow').replaceChildren()
   const preview = $('voicePreviewAudio') as HTMLAudioElement
   preview.pause()
