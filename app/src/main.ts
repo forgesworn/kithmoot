@@ -4524,6 +4524,9 @@ function render(views: ParticipantView[], me: string): void {
     const place = (mediaEl: HTMLDivElement | undefined, label = ''): void => {
       if (!mediaEl || mediaEl.childElementCount === 0) { if (mediaEl?.parentElement === box) mediaEl.remove(); return }
       mediaEl.dataset.cameraLabel = label
+      // Read by the "person beside their screen" layout in style.css: a
+      // share with no camera live beside it still shows whose it is.
+      mediaEl.dataset.ownerName = shown.name ?? shown.short
       if (mediaEl.parentElement !== box) box.append(mediaEl)
     }
 

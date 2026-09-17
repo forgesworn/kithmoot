@@ -3347,6 +3347,80 @@ button.primary:hover:not(:disabled) {
     width: 100%;
   }
 }
+
+/* Person beside their screen, September 2026.
+
+   A shared screen used to force its owner's whole tile across the row, so
+   two people sharing at once stacked one above the other rather than
+   sitting side by side. Above this width there is room to keep them
+   level: the room becomes a row of tiles sized by flex instead of a grid,
+   a camera is `--tile-cam` wide wherever it is - talking, sharing, or
+   neither - and a share fills whatever is left beside its owner's camera.
+   Below this width the room falls back to the stacked behaviour above. */
+@media (min-width: 900px) {
+  #room.sharing {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: .6rem;
+    --tile-cam: 18rem;
+  }
+  #room.sharing .participant {
+    flex: 0 0 var(--tile-cam);
+    min-width: 0;
+  }
+  /* Basis 0, not a nominal width: with a real width here two sharers on a
+     narrower desktop window - especially the installed app, which keeps a
+     project sidebar that a browser tab does not - summed to just over the
+     available row and wrapped one below the other regardless of how much
+     grow they were given. Basis 0 leaves the wrap decision to `min-width`
+     alone, and growth free to fill whatever is actually left. */
+  #room.sharing .participant:has(video.screenPreview) {
+    flex: 1 1 0;
+    min-width: calc(var(--tile-cam) + 6rem);
+    width: auto;
+  }
+  #room.sharing .participant:has(video.screenPreview) .media {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: .4rem;
+  }
+  /* Left, then right, by `order` rather than by DOM position: a screen
+     share's `<video>` can land in the holder before or after its camera's,
+     depending on which track negotiated first, and the layout should not
+     depend on that race. */
+  #room.sharing .participant:has(video.screenPreview) .media video:not(.screenPreview) {
+    order: 1;
+    flex: 0 0 var(--tile-cam);
+    width: var(--tile-cam);
+  }
+  #room.sharing .participant:has(video.screenPreview) .media video.screenPreview {
+    order: 2;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-height: none;
+  }
+  /* A share with no camera behind it still reads as somebody's: the name
+     that would sit under a camera sits in its place instead. See
+     `mediaEl.dataset.ownerName`, set beside `dataset.cameraLabel` in
+     `render()`. */
+  #room.sharing .participant:has(video.screenPreview) .media:not(:has(video:not(.screenPreview)))::before {
+    content: attr(data-owner-name);
+    order: 1;
+    flex: 0 0 var(--tile-cam);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 4 / 3;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: .4rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: .9rem;
+  }
+}
 @media (max-width: 700px) and (orientation: portrait) {
   #room[data-tiles="2"]:has(video) { grid-template-columns: minmax(0, 1fr); }
   #room .participant .media video { max-height: 38dvh; }
