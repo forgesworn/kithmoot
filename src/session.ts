@@ -14,7 +14,7 @@ import { evaluateAccess, evaluateAgentAccess } from './access.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
-import type { ForwardingState, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
+import type { ForwardingState, MeshDiagnostic, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
 import type { ForwarderMediaPipeline } from './mesh.js'
 import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
@@ -200,6 +200,9 @@ export interface RoomSessionBaseOptions {
   onRelayStop?: (pair: RelayPair) => void
   /** Called when a remote device's route changes rung. */
   onRoute?: (device: string, route: RouteView) => void
+  /** Something in signalling worth a line in a call's timeline, failure or
+   *  not. Handed straight to the mesh - see `MeshOptions.onDiagnostic`. */
+  onDiagnostic?: (event: MeshDiagnostic) => void
   /**
    * The epoch to join in. Omit for epoch 0: the room as the link gives it.
    * A keeper reopening a room it has rekeyed passes the epoch it holds; a
@@ -613,6 +616,7 @@ export class RoomSession {
         onRelayStart: this.#opts.onRelayStart,
         onRelayStop: this.#opts.onRelayStop,
         onRoute: this.#opts.onRoute,
+        onDiagnostic: this.#opts.onDiagnostic,
       })
 
       // One subscription on the mesh, fanned out to whoever asked - including
