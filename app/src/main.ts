@@ -51,6 +51,7 @@ import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { RemoteVolume } from './remote-volume.js'
+import { AutoplayBannerState } from './autoplay-banner.js'
 import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
 import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
@@ -3182,6 +3183,8 @@ async function leaveCall(): Promise<void> {
   if (s) await s.setCall(null)
   setCallOpen(false)
   void callWakeLock.release()
+  autoplayBanner.hide()
+  renderAutoplayBanner()
   updateUi()
   if (session) render(session.participants(), meParticipant)
 }
@@ -7107,6 +7110,52 @@ function paintSpeaking(): void {
 
 const remoteVolume = new RemoteVolume()
 
+// ---------------------------------------------------------------------------
+// The browser has paused the sound
+//
+// A device that has never had a gesture on this page - the update-and-rejoin
+// path is the one that matters, but any future one counts too - gets muted
+// video, which the autoplay policy allows, and remote audio that silently
+// does not play. See app/src/autoplay-banner.ts for the decision; this is
+// the browser half - the banner, and one tap resuming everything blocked.
+// ---------------------------------------------------------------------------
+
+const autoplayBanner = new AutoplayBannerState()
+
+function renderAutoplayBanner(): void {
+  $('autoplayBanner').hidden = !autoplayBanner.visible
+}
+
+function reportAutoplayBlock(error: unknown): void {
+  const activation = (navigator as Navigator & { userActivation?: UserActivation }).userActivation
+  const shown = autoplayBanner.blocked(error, { onCall: onCall(), audioDeliberatelyMuted: !cachedMonitorHere || leftCall }, activation)
+  if (shown) renderAutoplayBanner()
+}
+
+/** One tap resumes every remote `<audio>` this page has paused, and the two
+ *  AudioContexts that can also be caught by the same policy: the gain path
+ *  a loud slider opens in `RemoteVolume`, and the analyser behind the
+ *  speaking indicator. Never the thing that leaves the banner up for a
+ *  reason it cannot explain: a play() that still fails here shows the
+ *  banner again, via the same `reportAutoplayBlock` path. */
+function resumeBlockedAudio(): void {
+  remoteVolume.resume()
+  speakingMonitor.resume()
+  for (const { el } of remoteAudios.values()) {
+    if (!el.paused) continue
+    void el.play().then(
+      () => { autoplayBanner.resumed(); renderAutoplayBanner() },
+      (err) => reportAutoplayBlock(err),
+    )
+  }
+  // Nothing was paused - a track arriving just as this was pressed, say.
+  // The tap still counts as a gesture and the banner still has no reason
+  // left to be up.
+  if ([...remoteAudios.values()].every(({ el }) => !el.paused)) { autoplayBanner.resumed(); renderAutoplayBanner() }
+}
+
+$('autoplayBannerButton').addEventListener('click', resumeBlockedAudio)
+
 /** This device's own opinion of how loud each other participant is, from 0
  *  (silenced for this device) to 2 (200%). 1 is the untouched default and
  *  is never written to storage - see volume-store.ts. */
@@ -7204,7 +7253,7 @@ function parkPicture(el: HTMLVideoElement): void {
 function restoreRemoteElement(el: HTMLMediaElement, container: HTMLElement): void {
   const detached = !el.isConnected
   container.append(el)
-  if (detached) void el.play().catch(() => { /* A later user gesture can resume blocked playback. */ })
+  if (detached) void el.play().catch((err) => { if (el instanceof HTMLAudioElement) reportAutoplayBlock(err) })
 }
 
 /** Whether this picture is currently on screen, in its own device's tile. */
@@ -7468,7 +7517,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.srcObject = new MediaStream([track])
       if (existing) existing.track = track
     }
-    if (!leftCall && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
+    if (!leftCall && el.paused) void el.play().catch((err) => reportAutoplayBlock(err))
     // Tap it for the speaking indicator. Keyed by device rather than by
     // track, so a device sending both a microphone and its screen's audio
     // lights its tile from whichever is making noise - which is what a

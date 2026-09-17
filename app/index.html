@@ -223,6 +223,14 @@
              screen it costs and an empty box is not. See `#whoIsHere` in
              style.css. -->
         <div id="whoIsHere">
+          <!-- The browser blocked remote sound because nobody has tapped
+               this page yet - the update-and-rejoin path is the one that
+               matters. Muted video still plays, so this is the only sign a
+               person gets that they can see faces and hear nobody. Filled
+               in by `renderAutoplayBanner` in app/src/main.ts. -->
+          <div id="autoplayBanner" class="autoplayBanner" role="status" aria-live="polite" hidden>
+            <button id="autoplayBannerButton" type="button">Your browser has paused the sound. Tap to hear everyone.</button>
+          </div>
           <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
           <div id="room"></div>
         </div>
