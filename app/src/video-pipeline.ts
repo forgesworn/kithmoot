@@ -57,12 +57,12 @@ export interface BackgroundChoice {
   id: string
   label: string
   /** A still picture under `app/public/`. Fetched when the choice is picked
-   *  and not before: the reef photograph is 167KB and nobody who leaves the
+   *  and not before: the coral photograph is 167KB and nobody who leaves the
    *  blur on should ever pay for it. */
   url?: string
-  /** A scene drawn per frame. `url`, when there is one, becomes the still
-   *  layer underneath it. */
-  scene?: 'reef'
+  /** Underwater, so the fish have somewhere to be. The switch that puts them
+   *  there is only offered on these. */
+  sea?: true
 }
 
 /**
@@ -73,20 +73,19 @@ export interface BackgroundChoice {
  * the point of this feature is to stop publishing pictures of real places.
  * The sea ones are generated rather than taken, for the same reason.
  *
- * "Reef, with fish" is the drawn scene. Its still layer is the coral
- * photograph, and it falls back to a reef drawn in code if that will not
- * load, so the choice never turns into a blurred room because of a missing
- * file.
+ * The fish are not one of these. They are a switch over whichever sea has
+ * been picked, because "which picture" and "is anything swimming in it" are
+ * two questions and folding them into one list meant answering the first to
+ * get at the second.
  */
 export const BACKGROUNDS: BackgroundChoice[] = [
   { id: 'slate', label: 'Slate', url: 'backgrounds/slate.svg' },
   { id: 'ember', label: 'Ember', url: 'backgrounds/ember.svg' },
   { id: 'fen', label: 'Fen', url: 'backgrounds/fen.svg' },
-  { id: 'sea-lagoon', label: 'Lagoon', url: 'backgrounds/sea-lagoon.webp' },
-  { id: 'sea-coral', label: 'Coral garden', url: 'backgrounds/sea-coral.webp' },
-  { id: 'sea-deep', label: 'Deep blue', url: 'backgrounds/sea-deep.webp' },
-  { id: 'sea-sand', label: 'White sand', url: 'backgrounds/sea-sand.webp' },
-  { id: 'reef', label: 'Reef, with fish', url: 'backgrounds/sea-coral.webp', scene: 'reef' },
+  { id: 'sea-lagoon', label: 'Lagoon', url: 'backgrounds/sea-lagoon.webp', sea: true },
+  { id: 'sea-coral', label: 'Coral garden', url: 'backgrounds/sea-coral.webp', sea: true },
+  { id: 'sea-deep', label: 'Deep blue', url: 'backgrounds/sea-deep.webp', sea: true },
+  { id: 'sea-sand', label: 'White sand', url: 'backgrounds/sea-sand.webp', sea: true },
 ]
 
 /**
@@ -163,6 +162,9 @@ export class CameraPipeline {
   #lastDrawAt = 0
   #deviceId: string | undefined
   #facingMode: 'user' | 'environment' = 'user'
+  #choice: BackgroundChoice | null = null
+  #fish = false
+  #backgroundGeneration = 0
 
   #counters: Record<FrameAction, number> = { passthrough: 0, 'blur-all': 0, composite: 0 }
   #window: Record<FrameAction, number> = { passthrough: 0, 'blur-all': 0, composite: 0 }
@@ -336,22 +338,48 @@ export class CameraPipeline {
     this.#effect.setStrength(strength)
   }
 
-  /**
-   * Load a bundled background. Failure leaves the previous one in place and
-   * the mode falls back to blurring, never to showing the room.
-   *
-   * A drawn scene is treated as the same kind of thing as a picture, because
-   * to the compositor it is: the picture becomes the scene's bottom layer,
-   * and a picture that will not load costs the scene its photograph and
-   * nothing else.
-   */
+  /** Load a bundled background. Failure leaves the previous one in place and
+   *  the mode falls back to blurring, never to showing the room. */
   async setBackground(choice: BackgroundChoice | null): Promise<void> {
-    if (!choice) {
+    this.#choice = choice
+    await this.#applyBackground()
+  }
+
+  /** Put the shoal over the chosen sea, or take it away. Silently nothing
+   *  on a background that is not one. */
+  async setFish(on: boolean): Promise<void> {
+    if (this.#fish === on) return
+    this.#fish = on
+    await this.#applyBackground()
+  }
+
+  get fish(): boolean {
+    return this.#fish
+  }
+
+  /**
+   * Hand the compositor whatever the two settings add up to.
+   *
+   * With the fish off, or over a background that is not a sea, that is a
+   * still picture and the old path exactly. With them on it is the drawn
+   * scene with the photograph as its bottom layer - which is also why a
+   * photograph that will not load is not fatal here: the reef drawn in code
+   * stands in, and nobody loses their background mid-call over a missing
+   * file.
+   *
+   * Guarded by a generation counter because both callers are async and a
+   * fast double-click would otherwise let a slow load land on top of a
+   * newer choice.
+   */
+  async #applyBackground(): Promise<void> {
+    const choice = this.#choice
+    const generation = (this.#backgroundGeneration += 1)
+    if (!choice?.url) {
       this.#effect.setBackground(null)
       return
     }
 
-    if (choice.scene === 'reef') {
+    if (this.#fish && choice.sea) {
       const reef = new ReefBackground({
         createCanvas: (width, height) => {
           const canvas = document.createElement('canvas')
@@ -364,23 +392,19 @@ export class CameraPipeline {
         hidden: () => document.visibilityState === 'hidden',
         reducedMotion: prefersReducedMotion,
       })
-      if (choice.url) {
-        // Best effort, and deliberately not awaited into the failure path:
-        // the drawn reef is a complete scene on its own and a missing file
-        // must not cost somebody their background mid-call.
-        loadBackgroundImage(choice)
-          .then((image) => reef.setBackdrop(image, { width: image.naturalWidth, height: image.naturalHeight }))
-          .catch(() => {})
-      }
       this.#effect.setBackgroundSource(reef)
+      try {
+        const image = await loadBackgroundImage(choice)
+        if (this.#backgroundGeneration !== generation) return
+        reef.setBackdrop(image, { width: image.naturalWidth, height: image.naturalHeight })
+      } catch {
+        // The drawn sea is a whole scene on its own. Leave it there.
+      }
       return
     }
 
-    if (!choice.url) {
-      this.#effect.setBackground(null)
-      return
-    }
     const image = await loadBackgroundImage(choice)
+    if (this.#backgroundGeneration !== generation) return
     this.#effect.setBackground(image, { width: image.naturalWidth, height: image.naturalHeight })
   }
 

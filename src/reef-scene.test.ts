@@ -10,6 +10,7 @@ import {
   type SceneCanvas,
   type SceneContext2D,
   type SceneGradient,
+  type ReefBackgroundOptions,
 } from './reef-scene.js'
 
 // ---------------------------------------------------------------------------
@@ -226,9 +227,10 @@ describe('sceneSize', () => {
 })
 
 describe('ReefBackground', () => {
-  const opts = (extra: Record<string, unknown> = {}): never =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ({ random: cycle([0.5]), ...extra }) as never
+  /** Everything but the canvas factory, with the randomness pinned. */
+  const opts = (
+    extra: Omit<Partial<ReefBackgroundOptions>, 'createCanvas'> = {},
+  ): Omit<Partial<ReefBackgroundOptions>, 'createCanvas'> => ({ random: cycle([0.5]), ...extra })
 
   it('draws at the scene size and reports it for cover-fitting', () => {
     const factory = canvasFactory()

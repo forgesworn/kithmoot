@@ -395,7 +395,7 @@ test('replace swaps the room for the sea and leaves the person alone', async ({ 
 
   await page.locator('#effectModes button[data-mode="replace"]').click()
   await expect(page.locator('#effectMode')).toHaveText('replace')
-  await page.locator('#backgroundChoices button[data-background="reef"]').click()
+  await page.locator('#backgroundChoices button[data-background="sea-coral"]').click()
   await page.waitForTimeout(1600)
 
   const replaced = await samplePixels(page)
@@ -427,28 +427,33 @@ test('the sea moves, and a still picture does not', async ({ page }) => {
   await page.locator('#effectModes button[data-mode="replace"]').click()
   await expect(page.locator('#effectMode')).toHaveText('replace')
 
-  // A drawn scene: light, motes and the odd fish, so two frames two and a
-  // half seconds apart are not the same picture.
-  await page.locator('#backgroundChoices button[data-background="reef"]').click()
-  await page.waitForTimeout(1500)
-  const first = await samplePixels(page)
-  await page.waitForTimeout(2500)
-  const second = await samplePixels(page)
-  const moving = drift(first.outside, second.outside)
-
-  // The same measurement against a photograph, which cannot move. This is
-  // the control: without it "the numbers differ" would also be satisfied by
-  // the camera's own noise.
+  // The photograph on its own, which cannot move. Measured first so it is
+  // the control rather than an afterthought: without it, "the numbers
+  // differ" would also be satisfied by the camera's own noise.
   await page.locator('#backgroundChoices button[data-background="sea-sand"]').click()
+  await expect(page.locator('#fishRow')).toBeVisible()
   await page.waitForTimeout(1500)
   const stillFirst = await samplePixels(page)
   await page.waitForTimeout(2500)
   const stillSecond = await samplePixels(page)
   const still = drift(stillFirst.outside, stillSecond.outside)
 
+  // The same picture with the fish switched on: light, motes and the odd
+  // fish, so two frames two and a half seconds apart are not the same one.
+  await page.locator('#fishToggle').check()
+  await page.waitForTimeout(1500)
+  const first = await samplePixels(page)
+  await page.waitForTimeout(2500)
+  const second = await samplePixels(page)
+  const moving = drift(first.outside, second.outside)
+
   expect(still).toBeLessThan(0.05)
   expect(moving).toBeGreaterThan(0.2)
   expect(moving).toBeGreaterThan(still * 5)
+
+  // And the switch is not offered over a picture that is not underwater.
+  await page.locator('#backgroundChoices button[data-background="slate"]').click()
+  await expect(page.locator('#fishRow')).toBeHidden()
 })
 
 test('a segmenter that will not load falls back to passthrough and says so', async ({ page }) => {

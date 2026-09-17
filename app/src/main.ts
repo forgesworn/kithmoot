@@ -2311,6 +2311,14 @@ let camera: CameraPipeline | undefined
 let mic: MicPipeline | undefined
 const pendingMedia = new Set<CameraPipeline | MicPipeline>()
 let backgroundId = BACKGROUNDS[0]?.id ?? ''
+
+/** Whether the shoal swims over the chosen sea. Off to start with - motion
+ *  behind a talking head is a thing you opt into - and remembered on this
+ *  device, because nobody wants to tick it again every call. */
+const FISH_STORAGE_KEY = 'kithmoot.fish.enabled'
+let fishEnabled = (() => {
+  try { return localStorage.getItem(FISH_STORAGE_KEY) === 'true' } catch { return false }
+})()
 let videoInputs: MediaDeviceInfo[] = []
 
 const localPreviewEls = new Map<'camera' | 'screen', HTMLVideoElement>()
@@ -3885,6 +3893,10 @@ function renderEffectState(state: VideoEffectState): void {
   // Strength is a blur radius, so it belongs to blur and to nothing else.
   $('strengthRow').hidden = state.mode !== 'blur'
   $('backgroundChoices').hidden = state.mode !== 'replace'
+  // Only over a sea. Offering fish over Slate would be a question with no
+  // sensible answer.
+  $('fishRow').hidden =
+    state.mode !== 'replace' || !BACKGROUNDS.find((b) => b.id === backgroundId)?.sea
 
   const line = $('effectStatus')
   line.classList.remove('broken', 'working')
@@ -3961,6 +3973,7 @@ function renderBackgroundChoices(): void {
 async function chooseBackground(choice: BackgroundChoice): Promise<void> {
   backgroundId = choice.id
   markSegmented('backgroundChoices', 'background', backgroundId)
+  if (camera) renderEffectState(camera.status)
   await camera?.setBackground(choice)
 }
 
@@ -3968,6 +3981,9 @@ async function setEffectMode(mode: EffectMode): Promise<void> {
   const pipeline = camera
   if (!pipeline) return
   if (mode === 'replace') {
+    // Told before the picture is loaded, so the first composited frame
+    // already has whatever this device asked for last time.
+    await pipeline.setFish(fishEnabled)
     const choice = BACKGROUNDS.find((b) => b.id === backgroundId) ?? BACKGROUNDS[0]
     // Loaded before the mode changes, so there is no frame where replace is
     // selected with nothing to replace with. If it fails the effect stays on
@@ -10252,6 +10268,13 @@ $('effectModes').addEventListener('click', (event) => {
 
 $('blurStrength').addEventListener('input', (event) => {
   camera?.setStrength(Number((event.target as HTMLInputElement).value) / 100)
+})
+
+;($('fishToggle') as HTMLInputElement).checked = fishEnabled
+$('fishToggle').addEventListener('change', () => {
+  fishEnabled = ($('fishToggle') as HTMLInputElement).checked
+  try { localStorage.setItem(FISH_STORAGE_KEY, String(fishEnabled)) } catch { /* Still applies to this visit. */ }
+  camera?.setFish(fishEnabled).catch((err) => setStatus(describeError(err)))
 })
 
 $('switchCamera').addEventListener('click', () => {
