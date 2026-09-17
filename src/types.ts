@@ -184,6 +184,21 @@ export interface RosterEntry {
   /** This endpoint. */
   device: string
   /**
+   * This device speaks fixed media slots, reliable signalling and pair
+   * health - see `docs/protocol.md` "Profile 2 additions". Only the exact
+   * number `2` counts; anything else, including a decode of the wrong
+   * type, is treated as absent. Absent means profile 1, which is every
+   * client before this field existed and is also the safe fallback for a
+   * malformed value - a device that cannot prove it speaks profile 2 is
+   * assumed not to, never assumed to regardless.
+   *
+   * This is why the wire profile tag (`kithmoot: '1'`, `SIGNAL_PROFILE`)
+   * is not bumped for any of this: an unknown profile tag must not enable
+   * new semantics, so the capability lives here, on the one thing each
+   * device already publishes about itself, instead.
+   */
+  callProfile?: number
+  /**
    * Which page session of `device` published this, when it said.
    *
    * Eight lower-case hex characters, minted once per page session and never

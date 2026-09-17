@@ -428,6 +428,41 @@ vectors.rosterEvent.push({
   })
 }
 
+{
+  // A profile-2 device on a second page session: `callProfile: 2` and `sid`
+  // together, so a second implementation can decode both new roster fields
+  // from one event. Decode-only in spirit like the other optional-field
+  // groups above: an implementation that knows neither field still decodes
+  // this event and matches the recorded entry on everything it does model.
+  const profile2Entry = { ...rosterEntry, callProfile: 2, sid: '0a1b2c3d' }
+  const profile2Roster = buildRoster({
+    entry: profile2Entry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-profile2-nonce',
+    auxRandLabel: 'roster-profile2-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'profile-2-and-page-session',
+    kind: 'positive',
+    note: "A roster entry declaring `callProfile: 2` (this device speaks fixed slots, reliable signalling and pair health - docs/protocol.md \"Profile 2 additions\") alongside `sid` (its page session, see H3 and the 'sid' vector group). Both are inside the room-key ciphertext with everything else. A reader that knows neither field decodes this event unchanged on everything it does model; only the exact number `2` is the profile claim, and only 8 lower-case hex is the session id.",
+    input: {
+      entry: profile2Entry,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: profile2Roster.nonceHex,
+      auxRandHex: profile2Roster.auxRandHex,
+    },
+    output: { event: profile2Roster.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeRosterEvent(profile2Roster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
 vectors.rosterEvent.push({
   name: 'wrong-room-key',
   kind: 'negative',
@@ -956,6 +991,78 @@ vectors.signalWrap.push({
     output: { result: unwrapSignal(tamperedOuter, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT }) },
   })
 }
+
+// ===========================================================================
+// 5a. Profile 2 signal bodies (docs/protocol.md "Profile 2 additions") - the
+//     same signalWrap machinery, carrying the new optional fields. Old
+//     readers ignore every one of them via plain JSON.parse; a new reader
+//     validates their shapes strictly - see `validSignalExtensions` in
+//     src/signal.ts. Not a new profile tag: `kithmoot` stays `'1'` on every
+//     one of these, because capability lives in the roster, not the tag.
+// ===========================================================================
+
+function profile2SignalVector(name, note, body, ephemeralSk, auxLabel) {
+  const wrap = buildSignalWrap({
+    body, senderSk: fx.SENDER_SK, recipientPubkey: fx.RECIPIENT, ephemeralSk,
+    createdAt: fx.SIGNAL_CREATED_AT,
+    innerAuxLabel: `signal-${auxLabel}-inner`, outerAuxLabel: `signal-${auxLabel}-outer-aux`, nonceLabel: `signal-${auxLabel}-outer-nonce`,
+  })
+  vectors.signalWrap.push({
+    name,
+    kind: 'positive',
+    note,
+    input: {
+      body, senderSkHex: bytesToHex(fx.SENDER_SK), recipientPubkey: fx.RECIPIENT,
+      ephemeralSkHex: bytesToHex(ephemeralSk), createdAt: fx.SIGNAL_CREATED_AT,
+      innerAuxRandHex: wrap.innerAuxHex, outerAuxRandHex: wrap.outerAuxHex, nip44NonceHex: wrap.nonceHex,
+    },
+    output: { inner: wrap.inner, outer: wrap.outer },
+    expected: {
+      unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_1.roomId },
+      result: unwrapSignal(wrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT }),
+    },
+  })
+}
+
+profile2SignalVector(
+  'profile-2-generation-opening-offer',
+  'A generation-opening offer under profile 2: `gen`/`conn`/`seq` identify the pair generation and connection, and `slots` binds all four fixed media slots (mic, camera, screen, screen-audio) to their m-line mids, exactly once each. An old reader ignores every one of these fields and still decodes `type`, `roomId` and `sdp` exactly as before.',
+  { type: 'offer', roomId: ROOM_1.roomId, sdp: fx.SDP_FIXTURE, gen: 1, conn: fx.CONN_A, seq: 1, slots: { ...fx.SLOTS_FIXTURE } },
+  fx.EPHEMERAL_SK_P2_OFFER,
+  'p2-offer',
+)
+
+profile2SignalVector(
+  'profile-2-batched-ice',
+  'A batched `ice` signal: one wire message carrying every candidate gathered since the last acknowledged seq, `first` naming the lowest seq in the batch. This is what a retransmission of trickled candidates looks like under profile 2 - see A2 in the design amendments - rather than one signal per candidate.',
+  { type: 'ice', roomId: ROOM_1.roomId, gen: 1, conn: fx.CONN_A, first: 2, seq: 4, candidates: [...fx.BATCHED_ICE_FIXTURE] },
+  fx.EPHEMERAL_SK_P2_ICE,
+  'p2-ice',
+)
+
+profile2SignalVector(
+  'profile-2-ack',
+  'A standalone `ack`: the highest contiguous seq received from `peerConn`, sent on its own rather than piggybacked, exactly as the reliable channel emits one after its coalescing delay.',
+  { type: 'ack', roomId: ROOM_1.roomId, gen: 1, conn: fx.CONN_A, peerConn: fx.CONN_B, ack: 4 },
+  fx.EPHEMERAL_SK_P2_ACK,
+  'p2-ack',
+)
+
+profile2SignalVector(
+  'profile-2-health',
+  "A `health` signal naming one dead slot on an otherwise healthy transport: the pairwise feedback path RTCP cannot express on its own - see A3 in the design amendments. `rx` names only the slots the sender has a verdict on; a healthy slot need not be listed.",
+  { type: 'health', roomId: ROOM_1.roomId, gen: 1, conn: fx.CONN_A, rx: { camera: 'dead' } },
+  fx.EPHEMERAL_SK_P2_HEALTH,
+  'p2-health',
+)
+
+profile2SignalVector(
+  'profile-2-sync',
+  "A `sync` signal: \"my current generation is this\", sent when a signal from an older generation arrives. It carries `gen` and nothing else the protocol requires.",
+  { type: 'sync', roomId: ROOM_1.roomId, gen: 9 },
+  fx.EPHEMERAL_SK_P2_SYNC,
+  'p2-sync',
+)
 
 // M2 receive vectors include legacy and sealed forms, author binding and
 // timestamp/id rejection. Expected results are explicit, not copied from the

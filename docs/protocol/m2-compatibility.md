@@ -44,6 +44,29 @@ as newly supported. Its service decoders do not implement service admission.
 A hostile relay can withhold traffic or exhaust the bounded unwrap budget; the
 budget bounds CPU work rather than proving availability through a malicious relay.
 
+### Call reliability profile 2 (2026-09-17 spec, step S3)
+
+Web `src/signal.ts` and `src/types.ts` now carry the profile-2 wire fields
+(`gen`, `conn`, `peerConn`, `seq`, `first`, `candidates`, `ack`, `re`,
+`restart`, `slots`, `rx`), the three new signal types (`ack`, `health`,
+`sync`) and the roster's `callProfile`/`sid`, all additive and validated
+strictly on decode - see `docs/protocol.md` "Profile 2 additions". This is
+wire and vectors only: no `Peer`, `Mesh` or app code reads or writes any of
+it yet, so today's Android build, and today's web build, both remain profile
+1 for every pair.
+
+Android's protocol module (`protocol/.../Signal.kt`, `protocol/.../Roster.kt`)
+does not yet decode these fields, and no fixed-slot transceivers, reliable
+channel, generation tracking or pair-health ladder exist on that platform -
+see section 6 of the spec, work items 1 through 6, none of which have landed.
+Shared vectors already include the profile-2 `signalWrap` cases and the
+`profile-2-and-page-session` roster case; Android reading them decodes the
+fields it recognises and ignores the rest, exactly as the additive-fields
+design intends, but that is a codec-compatibility proof, not a claim that
+Android speaks profile 2. Until Android's work items land, every Android
+pair is profile 1 and the web side carries recovery for it, per the spec's
+interop table (section 5).
+
 ## Mixed versions and shared services
 
 - Built immutable previous release `915ba7d159dbc54a078cc1cb69c5e875e6bc9096`.
