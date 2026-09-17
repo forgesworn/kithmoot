@@ -1368,6 +1368,45 @@ export class RoomSession {
   }
 
   /**
+   * Stop restating presence on the heartbeat, without leaving the room or
+   * its chat.
+   *
+   * Two tabs of the same browser sign with the same device key, so two
+   * `Session`s can exist for one device at once. Ordinary presence merge
+   * keeps whichever entry was stamped later, which works when a second
+   * device is a genuinely different one - see the mic and monitor
+   * arbitration in the app. It does not work for two `Session`s of the
+   * *same* device: both go on heartbeating their own view forever, and
+   * whichever one last happened to land is "the truth" until the other's
+   * next tick overwrites it. One tab correctly saying it carries no tracks
+   * is enough to make every listener believe the device's real, live call
+   * media has gone, and orphan it - see `advertised` in the app. Pausing
+   * here is how the app keeps a second tab open on the same room without
+   * that tab's silence contradicting the tab that is actually on the call.
+   *
+   * The device's last-published entry is left standing; nothing here says
+   * it has gone. Safe to call repeatedly.
+   */
+  pausePresence(): void {
+    if (this.#heartbeatTimer === undefined) return
+    clearInterval(this.#heartbeatTimer)
+    this.#heartbeatTimer = undefined
+  }
+
+  /** Restart the heartbeat `pausePresence` stopped. A no-op once the
+   *  session has left, or if the heartbeat was never paused. Safe to call
+   *  repeatedly. */
+  resumePresence(): void {
+    if (this.#heartbeatTimer !== undefined || this.#left || !this.#self) return
+    this.#heartbeatTimer = this.#every(
+      this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
+      () => {
+        this.#publishEntry(false).catch(() => {})
+      },
+    )
+  }
+
+  /**
    * The calls in progress, read off presence: one entry per call id, with
    * everybody who has a device on it. Usually zero or one. Two means two
    * people pressed Start at once, and a client should offer the bigger or

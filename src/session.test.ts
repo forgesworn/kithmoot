@@ -952,6 +952,28 @@ describe('RoomSession presence lifetime', () => {
     mine.leave()
   })
 
+  it('pausePresence stops the heartbeat without leaving; resumePresence restarts it', async () => {
+    const relay = new SimRelay()
+    const mine = room(now, relay, { heartbeatIntervalMs: 5, sweepIntervalMs: 5 })
+
+    await mine.join([], {})
+    mine.pausePresence()
+    const afterPause = relay.published.filter((e) => e.kind === KINDS.ROSTER).length
+
+    // Long enough that a live heartbeat would certainly have fired again.
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(relay.published.filter((e) => e.kind === KINDS.ROSTER).length).toBe(afterPause)
+
+    // Calling it again is harmless.
+    mine.pausePresence()
+
+    mine.resumePresence()
+    await vi.waitFor(() => {
+      expect(relay.published.filter((e) => e.kind === KINDS.ROSTER).length).toBeGreaterThan(afterPause)
+    })
+    mine.leave()
+  })
+
   it('BUG (M3): says goodbye on leave, so the microphone is released at once', async () => {
     // The wire format has no departure message, so the last thing a device
     // says is an entry claiming nothing - which frees a singular role without
