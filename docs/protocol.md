@@ -177,7 +177,11 @@ expiring credential; it must not copy the participant secret to the new device.
 
 The roster is kind 20461, signed by the device, tagged `d` with the current
 room/epoch selector, and NIP-44-encrypted with the current room/epoch key. Its
-inner credential must agree with the outer author. `updatedAt`, tracks, claims,
+inner credential must agree with the outer author. A device advertises at
+most one track per role: a decode rule, not a new constraint, since a
+device only ever runs one camera, mic, share and screen-audio track at a
+time - an extra advert for a role already seen is dropped and the entry is
+kept. `updatedAt`, tracks, claims,
 name, verified ownership and optional assist advertisement are interpreted by
 `rosterEvent` vectors. A farewell uses `left:true`. An optional `call`
 object `{ id, since }` says the device is on the call with that id (32
@@ -198,6 +202,16 @@ than reused. Absence means unknown and reads exactly as it did before the
 field existed. Presence expires; replayed
 presence is not a permanent guest list. New arrivals announce and existing
 members answer because relays need not retain presence.
+
+An optional `callProfile` names the call-signalling profile a device speaks;
+only the exact number `2` counts, meaning fixed media slots, reliable
+signalling with generations and pairwise health (see "Profile 2 additions"
+below) - anything else, including absence, is profile 1. It is a roster
+field rather than a bump to the signal wire's own profile tag, on purpose:
+`docs/protocol.md` already requires that an unknown profile tag never
+silently enable new semantics, so capability lives on the one thing each
+device already publishes about itself instead. A malformed value is dropped
+and the entry kept, exactly as a malformed `sid` or `call` is.
 
 An automated device declares `agent:true`. It may additionally advertise
 `requestReceipts:true` while its driver sends signed request-received markers
@@ -289,6 +303,65 @@ settles; M2 neither emits them nor pretends a 20462 body is their payload. Assis
 stays on 20462. A weekly independent workflow reports changes to the pinned
 upstream texts and relevant registry entries; it cannot change production code
 or block every ordinary PR because a draft moved.
+
+### Profile 2 additions
+
+A device that speaks fixed media slots, reliable signalling with generations
+and pairwise health declares this on its roster entry (`callProfile: 2`), not
+on the signal wire's profile tag: `kithmoot` stays `'1'` on every signal a
+profile-2 device sends, because an unknown profile tag must not silently
+enable new semantics. A device is profile 2 for a pair once either its roster
+entry says so or a signature-valid signal carrying `gen` has arrived from it,
+whichever the reader learns first - roster presence can lag behind a signal
+that has already crossed. A profile-1-shaped signal (no `gen`) from a device
+believed profile 2 downgrades that pair back to profile 1: this is what a far
+end reloading into an old build looks like.
+
+All of the following are additional optional `SignalBody` fields, ignored by
+an old reader's `JSON.parse` exactly as any other unknown field always was:
+
+| Field | Type | On | Meaning |
+| --- | --- | --- | --- |
+| `gen` | integer >= 1 | every profile-2 signal | Pair generation. Monotonic per pair, never reused. |
+| `conn` | 16 lower-case hex | every profile-2 signal | Sender's connection instance id, fresh per `RTCPeerConnection`. |
+| `peerConn` | 16 lower-case hex | when known | The connection the sender believes it is addressing. |
+| `seq` | integer >= 1 | offer, answer, ice | Per `conn`, from 1, gapless. |
+| `first` | integer >= 1 | batched ice | First seq covered by this batch. |
+| `candidates` | string[] | ice | Batched ICE candidates. `candidate` stays on the wire for profile-1 peers. |
+| `ack` | integer >= 0 | any | Highest contiguous seq received from `peerConn`, piggybacked wherever possible. |
+| `re` | integer >= 1 | answer | Seq of the offer being answered. |
+| `restart` | `true` | offer | This offer carries an ICE restart inside the current generation. |
+| `slots` | `{ [mid]: TrackRole }` | generation-opening offer | Exactly four entries - `mic`, `camera`, `screen`, `screen-audio` - each exactly once, keyed by transceiver mid. |
+| `rx` | `{ [TrackRole]: 'ok' \| 'dead' }` | health | What the sender is receiving from the recipient, per slot; at least one entry. |
+
+Three new `type` values ride the same envelope: `ack` (a standalone
+acknowledgement, when nothing else is due to be sent), `health` (a report
+that carries only `rx`, for a single dead slot on an otherwise healthy
+transport - RTCP cannot express that on its own), and `sync` (carries `gen`
+only, meaning "my current generation is this"; sent when a signal from an
+older generation arrives, rate limited to one per two seconds per pair). An
+old reader rejects all three exactly as it rejects any other unrecognised
+`type` today, which is what keeps them addressed only to peers already known
+to speak profile 2.
+
+Every field above is validated strictly on decode - integer ranges, exact hex
+length, the slot map's fixed shape - and a present-but-malformed field rejects
+the whole signal body rather than being dropped on its own; unlike a roster
+display name or assist offer, there is no "the entry is still someone
+genuinely in the room" to fall back to; a mis-shaped connection id or
+generation number is not safe to act on partially. What is deliberately not
+validated at this layer: whether a field belongs on the `type` it arrived
+with, and any cross-signal bookkeeping such as `gen` ordering or `(conn,
+seq)` receiver dedup - those depend on protocol state the codec does not
+hold and are `Peer`/`Mesh` concerns.
+
+A retransmission of an unacknowledged offer, answer or batched `ice` is
+re-wrapped with a fresh `created_at` each time it goes out, exactly as any
+other call to the wrap function does - so the 60-second relay-retention hint
+and the ±20-second staleness window never confuse a retransmission for a stale
+replay, and the inner-event-id dedup above never mistakes it for a duplicate
+of the original. Receiver dedup for profile-2 signals is keyed `(conn, seq)`
+rather than by inner event id.
 
 ## Files, payments and ecosystem compatibility
 

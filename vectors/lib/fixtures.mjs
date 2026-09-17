@@ -89,6 +89,24 @@ export const EPHEMERAL_SK_ICE = deriveSecretKey('signal-ephemeral-ice')
 /** Wraps a forged inner event - see `signalWrap/tampered-inner-signature`. */
 export const EPHEMERAL_SK_TAMPERED = deriveSecretKey('signal-ephemeral-tampered')
 
+// --- Profile 2 (docs/protocol.md "Profile 2 additions") -------------------
+export const EPHEMERAL_SK_P2_OFFER = deriveSecretKey('signal-ephemeral-p2-offer')
+export const EPHEMERAL_SK_P2_ICE = deriveSecretKey('signal-ephemeral-p2-ice')
+export const EPHEMERAL_SK_P2_ACK = deriveSecretKey('signal-ephemeral-p2-ack')
+export const EPHEMERAL_SK_P2_HEALTH = deriveSecretKey('signal-ephemeral-p2-health')
+export const EPHEMERAL_SK_P2_SYNC = deriveSecretKey('signal-ephemeral-p2-sync')
+
+/** Two fixed connection instance ids, 16 lower-case hex - see `SignalBody.conn`. */
+export const CONN_A = 'a1b2c3d4e5f60718'
+export const CONN_B = '0718a1b2c3d4e5f6'
+
+/** A generation-opening offer's fixed slot map: the four roles of
+ *  `docs/protocol.md` section 3.1, each exactly once. */
+export const SLOTS_FIXTURE = { '0': 'mic', '1': 'camera', '2': 'screen', '3': 'screen-audio' }
+
+/** A batched `ice` signal's candidates - two trickled candidates sent as one. */
+export const BATCHED_ICE_FIXTURE = ['candidate:1 1 udp 1 10.0.0.1 1 typ host', 'candidate:2 1 udp 1 10.0.0.2 1 typ host']
+
 // --- Signalling payloads --------------------------------------------
 export const SDP_FIXTURE =
   'v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host'
