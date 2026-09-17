@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
-import { HOME, ORIGIN, CSP, isAppUrl, isExternalUrl, localAsset, allowedPermissions } from './policy.mjs'
+import { HOME, ORIGIN, CSP, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 // Automation always uses a disposable profile, never the user's account.
@@ -125,7 +125,29 @@ async function createWindow() {
       backgroundThrottling: false, spellcheck: true,
     },
   })
-  win.webContents.setWindowOpenHandler(({ url }) => { void external(url); return { action: 'deny' } })
+  // A link goes to the person's browser, never to a window of ours. The one
+  // exception is the app opening an empty window and writing the share
+  // viewer into it itself (app/src/share-viewer.ts's "Pop out"): there is no
+  // address to hand over, so denying it left the button doing nothing at all
+  // in the packaged app while it worked in a tab. An empty window inherits
+  // this window's own sandbox and preload, and carries no remote content.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (windowOpenAction(url) === 'own-window') {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          title: 'KithMoot', backgroundColor: '#101114', autoHideMenuBar: true,
+          webPreferences: {
+            session: ses, preload: join(here, 'preload.cjs'),
+            nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
+            backgroundThrottling: false,
+          },
+        },
+      }
+    }
+    void external(url)
+    return { action: 'deny' }
+  })
   win.webContents.on('will-navigate', (event, url) => {
     if (!isAppUrl(url)) { event.preventDefault(); void external(url) }
   })
@@ -177,6 +199,19 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
         message: `KithMoot desktop ${app.getVersion()}`, detail: 'Desktop preview. Updates are installed manually. Sign in here using your Nostr account or remote signer; browser extensions are not available. Calls, messages and room sync use the same KithMoot protocol.',
       }) }] },
     ]))
+    // The share pop-out is a window of ours the app writes into, so it never
+    // navigates anywhere. Every other window inherits the same rules as the
+    // main one: a link leaves for the person's browser, nothing else opens a
+    // window, and nothing here may be navigated to remote content.
+    app.on('web-contents-created', (_event, contents) => {
+      if (contents === win?.webContents) return
+      contents.setWindowOpenHandler(({ url }) => { void external(url); return { action: 'deny' } })
+      contents.on('will-navigate', (event, url) => {
+        if (!isAppUrl(url)) { event.preventDefault(); void external(url) }
+      })
+      contents.on('will-redirect', (event, url) => { if (!isAppUrl(url)) event.preventDefault() })
+      contents.on('will-attach-webview', event => event.preventDefault())
+    })
     await createWindow()
     app.on('activate', () => { if (!win) void createWindow() })
   }).catch(error => { console.error('Desktop startup failed:', error.message); app.exit(1) })

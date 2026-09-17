@@ -6,6 +6,19 @@ export function isAppUrl(value) {
   try { const u = new URL(value); return u.origin === ORIGIN && u.pathname === '/j/' && !u.username && !u.password }
   catch { return false }
 }
+/**
+ * What a `window.open` from inside the app may do.
+ *
+ * `'own-window'` is the app opening an empty window and writing into it
+ * itself, which is how the share pop-out works: there is no address to hand
+ * to a browser, and denying it left that button doing nothing in the packaged
+ * app while it worked in a tab. Anything with an address is a link and leaves
+ * for the person's browser; a blank window inherits this window's sandbox and
+ * preload and can never be navigated to remote content.
+ */
+export function windowOpenAction(value) {
+  return value === '' || value === 'about:blank' ? 'own-window' : 'external'
+}
 export function isExternalUrl(value) {
   try { const u = new URL(value); return ['https:', 'http:', 'mailto:'].includes(u.protocol) && !u.username && !u.password }
   catch { return false }
