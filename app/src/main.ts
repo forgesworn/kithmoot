@@ -344,6 +344,25 @@ function configuredPool(urls: string[]): NostrRelayPool {
   return relayConnections.pool(urls === RELAYS ? 'default' : roomRelayScope, urls === RELAYS ? [] : urls === relays ? roomRelayConfig : urls)
 }
 
+// A socket opened while the tab was in the background - or while it still
+// showed the door, before a link brought someone here from another app -
+// can go half-open without either end saying so: `send()` keeps succeeding
+// into the void. `visibilitychange` back to visible, `pageshow` from the
+// back-forward cache, and the network returning are this app's own "we
+// might have missed something" signals, so every live pool gets a cheap
+// liveness check on each of them. `lastHiddenAt` lets a caller about to
+// publish - the join flow, in particular - ask whether the page went to the
+// background at any point after a specific pool connected, which a global
+// probe on the visibility event alone cannot answer for a pool created
+// while still hidden.
+let lastHiddenAt = 0
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void relayConnections.probeAll()
+  else lastHiddenAt = Date.now()
+})
+window.addEventListener('pageshow', event => { if (event.persisted) void relayConnections.probeAll() })
+window.addEventListener('online', () => { void relayConnections.probeAll() })
+
 // The room names its own STUN/TURN, carried in the join URL like the relay
 // hints already are - hardcoding an operator's server here is exactly the
 // kind of central dependency this project exists to avoid. DEFAULT_ICE_URLS
@@ -7695,16 +7714,31 @@ async function enableEntryMedia(choice: EntryMediaChoice): Promise<void> {
   setStatus(`You joined with your ${enabled} on.`, 'done')
 }
 
-async function startSession(asVisitor = false): Promise<void> {
+/** Whether a join failed only because its relays could not be reached in
+ *  time - never because a relay looked at the event and refused it. Kept in
+ *  one place because both the retry loop below and the final status message
+ *  need to agree on what counts as "the relays refused" versus "we could
+ *  not reach them", and `relay-pool.ts` is the only thing that actually
+ *  knows which happened. */
+function isUnreachableRelayFailure(error: unknown): boolean {
+  return error instanceof Error && /no relay could be reached in time/.test(error.message)
+}
+
+async function startSession(asVisitor = false, retry?: { deadline: number }): Promise<void> {
   const generation = roomGeneration
-  if (joining || session || loginBusy) return
+  if (!retry && (joining || session || loginBusy)) return
   const requestedMedia = entryMediaChoice()
   joining = true
-  setStatus('Joining the room…', 'progress')
+  const deadline = retry?.deadline ?? Date.now() + 20_000
+  if (!retry) setStatus('Joining the room…', 'progress')
   const joinBtn = $('join') as HTMLButtonElement
   joinBtn.disabled = true
   joinBtn.textContent = 'Joining…'
   $('joinRoomForm').setAttribute('aria-busy', 'true')
+  // Set once this attempt hands off to a retried one, so the `finally`
+  // below leaves the busy state in place instead of re-enabling the form
+  // between attempts the person never asked to see.
+  let retrying = false
 
   try {
     // A restored signer can arrive after the invitation. Joining first
@@ -7817,6 +7851,7 @@ async function startSession(asVisitor = false): Promise<void> {
     // `shareDroppedFile`.
     const pool = configuredPool(relays)
     sessionTransport = pool
+    const poolCreatedAt = Date.now()
     // A quiet room's chat rides in drops: wrap the pool, and the session
     // hands the wrapper the epoch key. The device holding the identity is
     // slot 0, the device it paired slot 1; each draws from its own half of
@@ -7924,6 +7959,11 @@ async function startSession(asVisitor = false): Promise<void> {
       notifyDrawingOnMyShare(participant, annotation)
     })
 
+    // A half-open socket from before this pool even connected would not be
+    // this pool's problem, but the tab going to the background any time
+    // after it did is: a cheap round trip here catches it before the join
+    // event is the thing that discovers it, the slow and public way.
+    if (lastHiddenAt >= poolCreatedAt) await pool.probe().catch(() => {})
     await s.join(currentAdverts(), currentClaims())
     if (session !== s) return
     requeueQuiet(s)
@@ -8033,18 +8073,35 @@ async function startSession(asVisitor = false): Promise<void> {
     failedTransport?.close()
     if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
     iceRefreshTimer = undefined
+    // A relay that timed out never looked at the event; a phone whose
+    // socket went half-open in the background is not a room that said no.
+    // `relay-pool.ts` retries the timeout itself first, so seeing one here
+    // at all means every relay stayed unreachable through those retries -
+    // worth trying the whole join again, not handing back an error that
+    // reads like a refusal.
+    if (isUnreachableRelayFailure(err) && Date.now() < deadline) {
+      retrying = true
+      setStatus("Still reaching the room's relays\u2026", 'progress')
+      await new Promise(resolve => setTimeout(resolve, 1_000))
+      if (generation === roomGeneration) { await startSession(asVisitor, { deadline }); return }
+      return
+    }
     const message = describeError(err)
     if (message.includes('expired')) {
       forgetCredential()
       setStatus('This device\u2019s pass for this room has run out. Ask your other device for a new one.')
+    } else if (isUnreachableRelayFailure(err)) {
+      setStatus(`Could not reach the room's relays. ${message}. Check your connection, then try again.`)
     } else {
       setStatus(`Could not join the room. ${message}. Check your connection or sign-in, then try again.`)
     }
   } finally {
-    joining = false
-    joinBtn.disabled = false
-    $('joinRoomForm').removeAttribute('aria-busy')
-    renderIdentity()
+    if (!retrying) {
+      joining = false
+      joinBtn.disabled = false
+      $('joinRoomForm').removeAttribute('aria-busy')
+      renderIdentity()
+    }
   }
 }
 

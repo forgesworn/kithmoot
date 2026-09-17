@@ -134,6 +134,16 @@ export class RelayConnections {
     this.#prune()
     for (const [pool, owner] of this.#pools) if (owner.scope === scope) pool.reconnect()
   }
+  /** A cheap liveness check on every pool this device currently holds open,
+   *  reconnecting any relay whose socket has gone quiet without saying so -
+   *  a phone backgrounded mid-handshake, or one that lost the network
+   *  underneath a WebKit tab the OS never told the page about. Called on
+   *  the app's own "we might be back" signals: tab foregrounded, `pageshow`
+   *  from the back-forward cache, and the network coming back. */
+  async probeAll(timeoutMs?: number): Promise<void> {
+    this.#prune()
+    await Promise.all([...this.#pools.keys()].map(pool => pool.probe(timeoutMs).catch(() => {})))
+  }
   health(scope: string, hints: RelayHints = []): RelayHealth[] {
     this.#prune()
     return this.configuration(scope, hints).map(relay => {
