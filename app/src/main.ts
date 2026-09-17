@@ -3806,8 +3806,10 @@ async function toggleMic(): Promise<void> {
       besideAnotherDevice = false
       micClaimedAt = nowSeconds()
       monitorClaimedAt ??= WEAK_MONITOR_CLAIM
-      publishActiveTracks()
     }
+    // Either way the roster's mute flag has to follow, so the far end's
+    // tile stops guessing from audio energy - see `currentAdverts`.
+    publishActiveTracks()
   }
   updateUi()
 }
@@ -4249,7 +4251,7 @@ const WEAK_MONITOR_CLAIM = 1
 function currentAdverts(): TrackAdvert[] {
   const adverts: TrackAdvert[] = []
   if (cameraTrack) adverts.push({ trackId: cameraTrack.id, role: 'camera' })
-  if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic' })
+  if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic', ...(micTrack.enabled === false ? { muted: true } : {}) })
   if (screenTrack) adverts.push({ trackId: screenTrack.id, role: 'screen' })
   if (screenAudioTrack) adverts.push({ trackId: screenAudioTrack.id, role: 'screen-audio' })
   return adverts
@@ -4536,6 +4538,7 @@ function render(views: ParticipantView[], me: string): void {
     if (view.participant !== me) {
       heading.append(verifyChip(view, shown.name ?? ''))
       if (volumeLevel(view.participant) === 0) heading.append(volumeMuteBadge())
+      if (selfMutedMic(view)) heading.append(selfMuteBadge())
     }
     box.prepend(heading)
     const place = (mediaEl: HTMLDivElement | undefined, label = ''): void => {
@@ -7367,6 +7370,23 @@ function volumeMuteBadge(): HTMLElement {
   badge.className = 'badge muted'
   badge.textContent = '\u{1F507} silenced for you'
   badge.title = 'Silenced for you'
+  return badge
+}
+
+/** Whether the device currently holding this person's mic has muted itself
+ *  - `TrackAdvert.muted`, not our own volume slider. Distinct state, distinct
+ *  badge: this one is what THEY did, `volumeMuteBadge` is what WE did. */
+function selfMutedMic(view: ParticipantView): boolean {
+  const micDevice = view.mic
+  if (!micDevice) return false
+  return view.tracks.some((t) => t.role === 'mic' && t.device === micDevice && t.muted === true)
+}
+
+function selfMuteBadge(): HTMLElement {
+  const badge = document.createElement('span')
+  badge.className = 'badge muted-self'
+  badge.textContent = '\u{1F3A4} muted'
+  badge.title = 'This person has muted their own microphone'
   return badge
 }
 

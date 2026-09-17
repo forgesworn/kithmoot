@@ -13,6 +13,11 @@ export type SingularRole = 'mic' | 'monitor'
 export interface TrackAdvert {
   trackId: string
   role: TrackRole
+  /** The device muted this track itself - `track.enabled = false` at the
+   *  source, not a listener's own volume choice. Absent means not muted,
+   *  which keeps the wire byte-identical for a client that has never heard
+   *  of the field. Only the literal `true` counts - see `dedupeTrackAdverts`. */
+  muted?: true
 }
 
 /** Kindred tiers, closest first: family, mutual verified bond, one-way

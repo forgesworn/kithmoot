@@ -1640,6 +1640,43 @@ describe('RoomSession.advertise', () => {
     mine.leave()
     theirs.leave()
   })
+
+  it('carries a muted mic advert through to the far side, so a remote tile can tell a self-mute from a slider mute', async () => {
+    const relay = new SimRelay()
+    const mine = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    const theirs = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    await mine.join([], {})
+    await theirs.join([], {})
+    await settle()
+    const view = () => theirs.participants().find((v) => v.participant === mine.participant)
+
+    await mine.advertise([{ trackId: 'mic1', role: 'mic', muted: true }], { mic: NOW })
+    await settle()
+    expect(view()?.tracks).toEqual([{ trackId: 'mic1', role: 'mic', muted: true, device: mine.device }])
+
+    // Unmuting re-advertises with the flag gone, not `muted: false`.
+    await mine.advertise([{ trackId: 'mic1', role: 'mic' }], { mic: NOW })
+    await settle()
+    expect(view()?.tracks).toEqual([{ trackId: 'mic1', role: 'mic', device: mine.device }])
+    expect(view()?.tracks[0]).not.toHaveProperty('muted')
+
+    mine.leave()
+    theirs.leave()
+  })
 })
 
 describe('agents in the roster', () => {

@@ -213,6 +213,14 @@ silently enable new semantics, so capability lives on the one thing each
 device already publishes about itself instead. A malformed value is dropped
 and the entry kept, exactly as a malformed `sid` or `call` is.
 
+A track advert may carry an optional `muted`, meaning the device itself
+turned the track's source off (`track.enabled = false`) rather than a peer
+turning its own playback down; only the exact boolean `true` counts, so it
+sits beside `callProfile` as one more field where absence, `false`, `1` or
+any other value reads as not-muted and the entry is kept regardless. This is
+the device's own mic state, distinct from and additive to a listener's local
+volume choice, which is never on the wire at all.
+
 An automated device declares `agent:true`. It may additionally advertise
 `requestReceipts:true` while its driver sends signed request-received markers
 (see [agent receipts](agents.md#request-receipts-and-failures)). Only boolean
