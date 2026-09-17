@@ -23,6 +23,11 @@ export class FakeRelayServer {
   readonly stored: Event[] = []
   /** Refuse every publish with `OK false`, the way a full or hostile relay does. */
   rejectPublishes = false
+  /** Accept every frame - `EVENT`, `REQ` - and answer none of it: no `OK`,
+   *  no `EVENT`, no `EOSE`. The way a socket the client still thinks is
+   *  open, but the far end has already gone quiet on, behaves: `send()`
+   *  succeeds into the void. */
+  silent = false
 
   readonly #subscriptions = new Map<string, { socket: FakeWebSocket; subId: string; filters: Filter[] }>()
   readonly #sockets = new Set<FakeWebSocket>()
@@ -77,6 +82,11 @@ export class FakeRelayServer {
   receive(socket: FakeWebSocket, frame: string): void {
     this.frames.push(frame)
     const message = JSON.parse(frame) as [string, ...unknown[]]
+
+    if (this.silent) {
+      if (message[0] === 'EVENT') this.stored.push(message[1] as Event)
+      return
+    }
 
     if (message[0] === 'EVENT') {
       const event = message[1] as Event

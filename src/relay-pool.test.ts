@@ -347,4 +347,116 @@ describe('NostrRelayPool', () => {
 
     expect(seen).toEqual([])
   })
+
+  it('retries a relay whose publish times out, and resolves once it recovers', async () => {
+    // A joiner's socket opened while the door was showing goes half-open in
+    // the background: `send()` succeeds into the void and no `OK` ever
+    // comes back. The retry has to notice, reopen just that connection, and
+    // try again rather than leaving the whole publish to fail.
+    vi.useFakeTimers()
+    a.silent = true
+    const event = evt()
+    const published = pool.publish(event)
+    await vi.advanceTimersByTimeAsync(4_400) // AbstractRelay's own publish timeout
+    expect(pool.health()[0]).toMatchObject({ lastError: 'Publish timed out' })
+    a.silent = false // the reopened connection behaves normally
+    await vi.advanceTimersByTimeAsync(1_000) // first retry backoff
+    await published
+    expect(a.stored.map(e => e.id)).toContain(event.id)
+    expect(pool.health()[0]).toMatchObject({ state: 'connected', lastError: undefined })
+  })
+
+  it('resolves as soon as one relay acknowledges, while a silent relay keeps retrying behind it', async () => {
+    // Before this, a publish waited for every relay to finish - including a
+    // half-open one's own retries, at up to ~13s. A caller only ever needed
+    // to know the event reached somewhere.
+    vi.useFakeTimers()
+    a.silent = true
+    const event = evt()
+    const published = pool.publish(event)
+    // b's OK arrives on the next microtask; nothing here advances anywhere
+    // near a's 4.4s publish timeout, so a resolved `published` at this point
+    // is the proof this did not wait for a at all.
+    await vi.advanceTimersByTimeAsync(1)
+    await published
+    expect(b.stored.map(e => e.id)).toContain(event.id)
+    // a's socket accepted the send (it stores every event, silent or not -
+    // that is what makes it a stand-in for a half-open socket) but never
+    // sent an `OK`, so this publish did not - and could not - wait for it:
+    // no timeout mark has landed yet.
+    expect(pool.health()[0]?.lastError).toBeUndefined()
+    // a is still retrying in the background - let it recover and confirm the
+    // health mark catches up, with no unhandled rejection along the way.
+    await vi.advanceTimersByTimeAsync(4_400)
+    expect(pool.health()[0]).toMatchObject({ lastError: 'Publish timed out' })
+    a.silent = false
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(pool.health()[0]).toMatchObject({ state: 'connected', lastError: undefined })
+  })
+
+  it('rejects with timeout wording, not rejection wording, when every relay only ever times out', async () => {
+    vi.useFakeTimers()
+    a.silent = true
+    b.silent = true
+    const failure = expect(pool.publish(evt())).rejects.toThrow(/no relay could be reached in time/)
+    // Two retries per relay, each preceded by AbstractRelay's own timeout.
+    await vi.advanceTimersByTimeAsync(4_400 + 1_000 + 4_400 + 3_000 + 4_400)
+    await failure
+  })
+
+  it('does not retry an explicit OK false', async () => {
+    a.rejectPublishes = true
+    b.rejectPublishes = true
+    const event = evt()
+    await expect(pool.publish(event)).rejects.toThrow(/every relay rejected the event/)
+    // No reconnection attempt: an explicit refusal answered, so the socket
+    // it answered on is not suspect.
+    expect(a.connections).toBe(1)
+    expect(b.connections).toBe(1)
+  })
+
+  it('probe reconnects a relay whose socket has gone silent, and its subscription hears events again', async () => {
+    vi.useFakeTimers()
+    const seen: string[] = []
+    pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
+    await vi.advanceTimersByTimeAsync(1)
+    a.silent = true
+    const missed = evt()
+    a.seed(missed)
+    const probed = pool.probe(3_000)
+    // The reopened socket answers normally; a relay that has genuinely gone
+    // quiet stays silent, so this has to happen before the probe's own
+    // timeout decides the connection is dead and reopens it.
+    await vi.advanceTimersByTimeAsync(2_900)
+    a.silent = false
+    await vi.advanceTimersByTimeAsync(200)
+    await probed
+    // The reconnect resubscribes, and a fresh `REQ` replays whatever the
+    // relay holds - including what arrived while the old socket sat silent.
+    expect(seen).toEqual([missed.id])
+  })
+
+  it('leaves a healthy relay and its subscriptions untouched when another relay is reconnected by probe', async () => {
+    vi.useFakeTimers()
+    const seen: string[] = []
+    pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
+    await vi.advanceTimersByTimeAsync(1)
+    const healthyRequests = b.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length
+    a.silent = true
+    const probed = pool.probe(3_000)
+    await vi.advanceTimersByTimeAsync(3_000)
+    await probed
+    // b answers its own probe round trip (one more REQ, immediately closed)
+    // but is never reconnected: no new socket, no resubscribe.
+    expect(b.connections).toBe(1)
+    expect(b.frames.filter(frame => JSON.parse(frame)[0] === 'REQ')).toHaveLength(healthyRequests + 1)
+    // b never went near reconnection, so its live subscription just keeps
+    // hearing new events, and a's own retries (still silent) do not stop
+    // the publish resolving on b's account.
+    const stillHeard = evt()
+    const published = pool.publish(stillHeard)
+    await vi.advanceTimersByTimeAsync(4_400 + 1_000 + 4_400 + 3_000 + 4_400)
+    await published
+    expect(seen).toEqual([stillHeard.id])
+  })
 })

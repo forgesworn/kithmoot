@@ -88,6 +88,7 @@ export class NostrRelayPool implements RelayTransport {
   #recovery: ReturnType<typeof setInterval>
   #authentication = new Map<string, AuthenticationGrant | null>()
   #authFailures = new Map<string, string>()
+  #publishing = 0
   readonly #authTimeout: number
 
   constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean, private readonly options: NostrRelayPoolOptions = {}) {
@@ -119,15 +120,28 @@ export class NostrRelayPool implements RelayTransport {
           }
         }, this.#authTimeout)
       : this.options.websocketImplementation
+    // `enablePing` stays off. In a browser `AbstractRelay` has no real ping
+    // frame to send, so it falls back to `waitForDummyReq`: every 29s it
+    // opens a throwaway `REQ` and, if no `EOSE` answers within 20s, closes
+    // the socket outright (abstract-relay.js's ping loop, ~line 293-328).
+    // With `enableReconnect: false` that call is `closeAllSubscriptions`,
+    // not a reconnect - and `#recoverSubscriptions` below only rebinds a
+    // closed relay after its own 15s per-relay cooldown, so a relay that
+    // was merely slow to answer one dummy REQ could cost up to ~35s of
+    // missed events before anything noticed, let alone fixed it. `probe()`
+    // is the same idea done right: it reconnects a relay that fails its own
+    // round trip instead of just closing on it, and `#probeInterval` below
+    // is what runs it on a schedule, so nothing here needs the library's
+    // version of the same check.
     const pool = websocketImplementation ? new class extends AbstractSimplePool {
       override ensureRelay(url: string, params?: Parameters<AbstractSimplePool['ensureRelay']>[1]) {
         return super.ensureRelay(url, owner.#authentication.get(normalizeURL(url))
           ? { ...params, connectionTimeout: owner.#authTimeout + 8_000 }
           : params)
       }
-    }({ enableReconnect: false, enablePing: true, websocketImplementation,
+    }({ enableReconnect: false, enablePing: false, websocketImplementation,
       verifyEvent: verifyEventUncached, maxWaitForConnection: 3_000 })
-      : new SimplePool({ enableReconnect: false, enablePing: true })
+      : new SimplePool({ enableReconnect: false, enablePing: false })
     pool.allowConnectingToRelay = url => current(normalizeURL(url))
     pool.onRelayConnectionSuccess = url => {
       if (generation === this.#generation) this.#mark(url, { state: 'connected', lastConnectedAt: Date.now(), lastError: undefined })
@@ -213,6 +227,11 @@ export class NostrRelayPool implements RelayTransport {
 
   reconnect(): void { this.setRelays(this.#relays) }
 
+  /** Whether a publish is currently in flight. A scheduled liveness probe
+   *  checks this and skips its turn rather than racing a `REQ`/`CLOSE`
+   *  round trip against an event the caller is waiting on. */
+  get publishing(): boolean { return this.#publishing > 0 }
+
   async publish(event: Event): Promise<void> {
     if (this.#closed) throw new Error('pool is closed')
     const urls = this.#relays.filter(relay => relay.write).map(relay => relay.url)
@@ -220,25 +239,132 @@ export class NostrRelayPool implements RelayTransport {
     const generation = this.#generation
     const start = Date.now()
     for (const url of urls) if (!this.#pool.listConnectionStatus().get(url)) this.#mark(url, { state: 'connecting' })
-    // Every writable relay receives the event; success still means at least
-    // one acknowledged it, not that every relay saved it.
-    const results = await Promise.allSettled(this.#pool.publish(urls, event, { abort: this.#abort.signal }).map(async (result, i) => {
-      try {
-        await result
-        if (generation === this.#generation) this.#mark(urls[i]!, { state: 'connected', lastPublishedAt: Date.now(), publishLatencyMs: Date.now() - start, lastError: undefined })
-      } catch (error) {
-        if (generation === this.#generation) this.#mark(urls[i]!, { lastError: this.#authError(urls[i]!) ?? 'Last publish failed or was rejected' })
-        throw error
-      }
-    }))
+    // A caller only ever needed to know the event reached somewhere, not
+    // that it reached everywhere - so this resolves the moment the first
+    // relay acks, rather than waiting out a slow or half-open relay's own
+    // retries. Those keep going in the background regardless (`.then`'s
+    // second argument below is what stops a late rejection from one ever
+    // surfacing as unhandled), so a relay that only answers after a
+    // reconnect still gets the event. `#publishing` stays up - and a
+    // liveness probe skipped - until every one of them, fast or slow, has
+    // actually finished.
+    this.#publishing++
+    const results: (PromiseSettledResult<void> | undefined)[] = urls.map(() => undefined)
+    let remaining = urls.length
+    let settled = false
+    return new Promise<void>((resolve, reject) => {
+      urls.forEach((url, i) => {
+        this.#publishToRelay(url, event, generation, start).then(
+          () => {
+            results[i] = { status: 'fulfilled', value: undefined }
+            if (!settled) { settled = true; resolve() }
+            if (--remaining === 0) this.#publishing--
+          },
+          (error: unknown) => {
+            results[i] = { status: 'rejected', reason: error }
+            const last = --remaining === 0
+            if (last) this.#publishing--
+            // Only the relay that finishes failing last can know whether
+            // every relay refused: reporting on the first one to fail would
+            // have called a publish that later succeeded elsewhere a total
+            // failure.
+            if (last && !settled) {
+              settled = true
+              try { this.#finishPublish(urls, results as PromiseSettledResult<void>[]); resolve() } catch (err) { reject(err) }
+            }
+          },
+        )
+      })
+    })
+  }
+
+  #finishPublish(urls: string[], results: PromiseSettledResult<void>[]): void {
     if (!results.some(result => result.status === 'fulfilled')) {
       // Each relay's own words, because they differ and the difference is
       // the diagnosis: a box's drop tier says it holds kind 1059 only, and
       // a room pinned to that box alone needs to be told that, not that
       // something somewhere said no.
       const reasons = results.map((result, i) => `${urls[i]}: ${result.status === 'rejected' ? errorText(result.reason) : 'ok'}`)
-      throw new Error(`every relay rejected the event (${reasons.join('; ')})`)
+      // A timeout is a socket that never answered - the joiner's own
+      // connection or a phone that went half-open in the background - not a
+      // relay that looked at the event and said no. Conflating the two sent
+      // someone whose relays were simply unreachable a message that read as
+      // a hostile refusal.
+      const allTimedOut = results.every(result => result.status === 'rejected' && isTimeoutError(result.reason))
+      throw new Error(allTimedOut
+        ? `no relay could be reached in time (${reasons.join('; ')})`
+        : `every relay rejected the event (${reasons.join('; ')})`)
     }
+  }
+
+  /** Publish to one relay, retrying a bare timeout (no OK either way) by
+   *  treating the connection as suspect: close and reopen just this relay,
+   *  resubscribe what it was carrying, and try again. An explicit rejection
+   *  (OK false, auth-required, blocked) is a relay that answered, so it is
+   *  never retried here. */
+  async #publishToRelay(url: string, event: Event, generation: number, start: number): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.#pool.publish([url], event, { abort: this.#abort.signal })[0]
+        if (generation === this.#generation) this.#mark(url, { state: 'connected', lastPublishedAt: Date.now(), publishLatencyMs: Date.now() - start, lastError: undefined })
+        return
+      } catch (error) {
+        const timedOut = isTimeoutError(error)
+        if (generation === this.#generation) {
+          this.#mark(url, { lastError: this.#authError(url) ?? (timedOut ? 'Publish timed out' : 'Last publish failed or was rejected') })
+        }
+        if (!timedOut || attempt >= RETRY_DELAYS_MS.length || generation !== this.#generation || this.#closed) throw error
+        // A socket that swallowed the send without ever answering is worth
+        // more suspicion than a slow one: reopen it rather than hammer the
+        // same half-open connection again.
+        if (generation === this.#generation) this.#mark(url, { state: 'disconnected' })
+        this.#pool.close([url])
+        this.#attempted.set(url, Date.now())
+        for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
+        await delay(RETRY_DELAYS_MS[attempt]!, this.#abort.signal)
+        if (generation !== this.#generation || this.#closed) throw error
+      }
+    }
+  }
+
+  /** A cheap round trip per connected relay: a filter that can match
+   *  nothing, so the only thing being timed is whether the socket still
+   *  answers at all. A relay that does not EOSE within `timeoutMs` is
+   *  treated as dead - closed and reopened, with its subscriptions rebound -
+   *  which is the only way to notice a half-open socket that `send()`
+   *  still accepts into the void. `enablePing` stays off (see module intro
+   *  in relay-auth.ts / CLAUDE.md); this is the without-ping substitute. */
+  async probe(timeoutMs = 3_000): Promise<void> {
+    if (this.#closed) return
+    const generation = this.#generation
+    const connected = [...this.#pool.listConnectionStatus().entries()].filter(([, ok]) => ok).map(([url]) => url)
+    await Promise.all(connected.map(url => this.#probeRelay(url, timeoutMs, generation)))
+  }
+
+  async #probeRelay(url: string, timeoutMs: number, generation: number): Promise<void> {
+    const alive = await new Promise<boolean>(resolve => {
+      let settled = false
+      const finish = (ok: boolean): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        handle.close()
+        resolve(ok)
+      }
+      // A filter nothing can match: the round trip is the point, not the
+      // answer. A far-future `since` is honoured by every NIP-01 relay.
+      const handle = this.#pool.subscribeMap([{ url, filter: { since: Math.floor(Date.now() / 1000) + 1_000_000_000 } }], {
+        abort: this.#abort.signal,
+        maxWait: timeoutMs,
+        oneose: () => finish(true),
+        onclose: () => finish(false),
+      })
+      const timer = setTimeout(() => finish(false), timeoutMs)
+    })
+    if (alive || generation !== this.#generation || this.#closed) return
+    this.#pool.close([url])
+    this.#attempted.set(url, Date.now())
+    for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
   }
 
   describe(): RelayConfig[] {
@@ -338,4 +464,23 @@ export class NostrRelayPool implements RelayTransport {
 function errorText(reason: unknown): string {
   if (reason instanceof Error) return reason.message
   return String(reason)
+}
+
+/** Backoff before retrying a relay whose publish timed out: quick first,
+ *  longer second, then give up on that relay for this publish. */
+const RETRY_DELAYS_MS = [1_000, 3_000]
+
+/** `nostr-tools`' `AbstractRelay.publish` rejects with exactly this message
+ *  when no `OK` arrives before `publishTimeout` - never for an explicit
+ *  `OK false`, which rejects with the relay's own reason instead. */
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.message === 'publish timed out'
+}
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise(resolve => {
+    if (signal.aborted) { resolve(); return }
+    const timer = setTimeout(resolve, ms)
+    signal.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+  })
 }

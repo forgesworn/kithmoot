@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, beforeAll, vi } from 'vitest'
+import { useWebSocketImplementation } from 'nostr-tools/pool'
+import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RelayConnections, profilePreference } from './relay-settings.js'
+import { FakeWebSocket, fakeRelay, resetFakeRelays } from '../../test/fake-socket.js'
+
+beforeAll(() => {
+  useWebSocketImplementation(FakeWebSocket as unknown as typeof WebSocket)
+})
 
 const defaults = ['wss://default.test']
 const room = `room:${'a'.repeat(64)}`
@@ -135,5 +142,89 @@ describe('session-only relay identity permission', () => {
     connections.save(room, [{ url: defaults[0]!, read: true, write: true }])
     expect(connections.authenticationIdentity(room, 'wss://default.test/')).toBeUndefined()
     expect(() => connections.authenticate(room, 'wss://invitation-only.test', identity)).toThrow('Apply this relay')
+  })
+})
+
+describe('scheduled liveness probing', () => {
+  // `NostrRelayPool` no longer lets nostr-tools' own ping close a
+  // subscription out from under it (see relay-pool.ts): this is what runs in
+  // its place, on `RelayConnections`' own clock.
+  const probeDefaults = ['wss://probe-a.test']
+
+  it('reconnects a relay that has stopped answering within about two intervals, and its subscription hears events again', async () => {
+    vi.useFakeTimers()
+    try {
+      resetFakeRelays()
+      const relay = fakeRelay(probeDefaults[0]!)
+      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => true })
+      const pool = connections.pool('default')
+      try {
+        const seen: string[] = []
+        pool.subscribe([{ kinds: [1] }], event => seen.push(event.id))
+        await vi.advanceTimersByTimeAsync(1)
+        relay.silent = true
+        const missed = finalizeEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [], content: 'x' }, generateSecretKey())
+        relay.seed(missed)
+        // Interval + the largest possible jitter (half the interval), twice
+        // over, comfortably covers "within about two intervals" even at the
+        // unluckiest jitter draw.
+        await vi.advanceTimersByTimeAsync(3_000)
+        relay.silent = false
+        await vi.advanceTimersByTimeAsync(3_000)
+        expect(seen).toContain(missed.id)
+      } finally { pool.close() }
+    } finally { vi.useRealTimers() }
+  })
+
+  it('does not probe while the tab is hidden', async () => {
+    vi.useFakeTimers()
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    try {
+      resetFakeRelays()
+      const relay = fakeRelay(probeDefaults[0]!)
+      let hidden = true
+      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => !hidden })
+      const pool = connections.pool('default')
+      try {
+        pool.subscribe([{ kinds: [1] }], () => {})
+        await vi.advanceTimersByTimeAsync(1)
+        const before = relay.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length
+        await vi.advanceTimersByTimeAsync(5_000)
+        expect(relay.frames.filter(frame => JSON.parse(frame)[0] === 'REQ')).toHaveLength(before)
+        hidden = false
+        // Jitter is mocked to 0, so the next tick lands exactly on the
+        // interval: no need to wait out a whole extra cycle to see it fire.
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(relay.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length).toBeGreaterThan(before)
+      } finally { pool.close() }
+    } finally { random.mockRestore(); vi.useRealTimers() }
+  })
+
+  it('spreads several pools apart instead of probing them all in the same tick', async () => {
+    vi.useFakeTimers()
+    const random = vi.spyOn(Math, 'random')
+    try {
+      resetFakeRelays()
+      const relayA = fakeRelay('wss://probe-a.test')
+      const relayB = fakeRelay('wss://probe-b.test')
+      random.mockReturnValueOnce(0).mockReturnValueOnce(1)
+      const connections = new RelayConnections(storage(), [], undefined, { intervalMs: 1_000, visible: () => true })
+      const poolA = connections.pool('default', ['wss://probe-a.test'])
+      const poolB = connections.pool('room:' + 'a'.repeat(64), ['wss://probe-b.test'])
+      try {
+        poolA.subscribe([{ kinds: [1] }], () => {})
+        poolB.subscribe([{ kinds: [1] }], () => {})
+        await vi.advanceTimersByTimeAsync(1)
+        const beforeA = relayA.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length
+        const beforeB = relayB.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length
+        // A's jitter is 0: it probes at exactly the interval. B's jitter is
+        // the maximum half-interval: it has not, yet.
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(relayA.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length).toBeGreaterThan(beforeA)
+        expect(relayB.frames.filter(frame => JSON.parse(frame)[0] === 'REQ')).toHaveLength(beforeB)
+        await vi.advanceTimersByTimeAsync(500)
+        expect(relayB.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length).toBeGreaterThan(beforeB)
+      } finally { poolA.close(); poolB.close() }
+    } finally { random.mockRestore(); vi.useRealTimers() }
   })
 })
