@@ -238,16 +238,44 @@ export class NostrRelayPool implements RelayTransport {
     if (!urls.length) throw new Error('no writable relay is configured')
     const generation = this.#generation
     const start = Date.now()
+    for (const url of urls) if (!this.#pool.listConnectionStatus().get(url)) this.#mark(url, { state: 'connecting' })
+    // A caller only ever needed to know the event reached somewhere, not
+    // that it reached everywhere - so this resolves the moment the first
+    // relay acks, rather than waiting out a slow or half-open relay's own
+    // retries. Those keep going in the background regardless (`.then`'s
+    // second argument below is what stops a late rejection from one ever
+    // surfacing as unhandled), so a relay that only answers after a
+    // reconnect still gets the event. `#publishing` stays up - and a
+    // liveness probe skipped - until every one of them, fast or slow, has
+    // actually finished.
     this.#publishing++
-    try {
-      for (const url of urls) if (!this.#pool.listConnectionStatus().get(url)) this.#mark(url, { state: 'connecting' })
-      // Every writable relay receives the event; success still means at
-      // least one acknowledged it, not that every relay saved it.
-      const results = await Promise.allSettled(urls.map(url => this.#publishToRelay(url, event, generation, start)))
-      this.#finishPublish(urls, results)
-    } finally {
-      this.#publishing--
-    }
+    const results: (PromiseSettledResult<void> | undefined)[] = urls.map(() => undefined)
+    let remaining = urls.length
+    let settled = false
+    return new Promise<void>((resolve, reject) => {
+      urls.forEach((url, i) => {
+        this.#publishToRelay(url, event, generation, start).then(
+          () => {
+            results[i] = { status: 'fulfilled', value: undefined }
+            if (!settled) { settled = true; resolve() }
+            if (--remaining === 0) this.#publishing--
+          },
+          (error: unknown) => {
+            results[i] = { status: 'rejected', reason: error }
+            const last = --remaining === 0
+            if (last) this.#publishing--
+            // Only the relay that finishes failing last can know whether
+            // every relay refused: reporting on the first one to fail would
+            // have called a publish that later succeeded elsewhere a total
+            // failure.
+            if (last && !settled) {
+              settled = true
+              try { this.#finishPublish(urls, results as PromiseSettledResult<void>[]); resolve() } catch (err) { reject(err) }
+            }
+          },
+        )
+      })
+    })
   }
 
   #finishPublish(urls: string[], results: PromiseSettledResult<void>[]): void {

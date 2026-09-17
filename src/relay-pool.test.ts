@@ -366,6 +366,34 @@ describe('NostrRelayPool', () => {
     expect(pool.health()[0]).toMatchObject({ state: 'connected', lastError: undefined })
   })
 
+  it('resolves as soon as one relay acknowledges, while a silent relay keeps retrying behind it', async () => {
+    // Before this, a publish waited for every relay to finish - including a
+    // half-open one's own retries, at up to ~13s. A caller only ever needed
+    // to know the event reached somewhere.
+    vi.useFakeTimers()
+    a.silent = true
+    const event = evt()
+    const published = pool.publish(event)
+    // b's OK arrives on the next microtask; nothing here advances anywhere
+    // near a's 4.4s publish timeout, so a resolved `published` at this point
+    // is the proof this did not wait for a at all.
+    await vi.advanceTimersByTimeAsync(1)
+    await published
+    expect(b.stored.map(e => e.id)).toContain(event.id)
+    // a's socket accepted the send (it stores every event, silent or not -
+    // that is what makes it a stand-in for a half-open socket) but never
+    // sent an `OK`, so this publish did not - and could not - wait for it:
+    // no timeout mark has landed yet.
+    expect(pool.health()[0]?.lastError).toBeUndefined()
+    // a is still retrying in the background - let it recover and confirm the
+    // health mark catches up, with no unhandled rejection along the way.
+    await vi.advanceTimersByTimeAsync(4_400)
+    expect(pool.health()[0]).toMatchObject({ lastError: 'Publish timed out' })
+    a.silent = false
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(pool.health()[0]).toMatchObject({ state: 'connected', lastError: undefined })
+  })
+
   it('rejects with timeout wording, not rejection wording, when every relay only ever times out', async () => {
     vi.useFakeTimers()
     a.silent = true
