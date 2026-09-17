@@ -313,7 +313,7 @@ export class NostrRelayPool implements RelayTransport {
         if (generation === this.#generation) {
           this.#mark(url, { lastError: this.#authError(url) ?? (timedOut ? 'Publish timed out' : 'Last publish failed or was rejected') })
         }
-        if (!timedOut || attempt >= RETRY_DELAYS_MS.length || generation !== this.#generation || this.#closed) throw error
+        if (!timedOut || Date.now() - start >= PUBLISH_RETRY_BUDGET_MS || generation !== this.#generation || this.#closed) throw error
         // A socket that swallowed the send without ever answering is worth
         // more suspicion than a slow one: reopen it rather than hammer the
         // same half-open connection again.
@@ -321,7 +321,7 @@ export class NostrRelayPool implements RelayTransport {
         this.#pool.close([url])
         this.#attempted.set(url, Date.now())
         for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
-        await delay(RETRY_DELAYS_MS[attempt]!, this.#abort.signal)
+        await delay(RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]!, this.#abort.signal)
         if (generation !== this.#generation || this.#closed) throw error
       }
     }
@@ -394,7 +394,7 @@ export class NostrRelayPool implements RelayTransport {
     for (const relay of this.#relays) if (relay.read) this.#startRelay(sub, relay.url)
   }
 
-  #startRelay(sub: Subscription, url: string): void {
+  #startRelay(sub: Subscription, url: string, since = Date.now()): void {
     sub.bindings.get(url)?.stop()
     const generation = this.#generation
     const binding = { stop: () => {}, closed: false }
@@ -404,10 +404,32 @@ export class NostrRelayPool implements RelayTransport {
       this.#attempted.set(url, Date.now())
     }
     const active = () => !this.#closed && generation === this.#generation && this.#subscriptions.has(sub) && sub.bindings.get(url) === binding
+    // A `REQ` sent the instant a reopened socket connects can land in the
+    // gap before a relay that was still recovering actually starts
+    // answering again - the socket is open, but the relay drops the frame
+    // on the floor the same way it dropped everything else. Nothing else
+    // notices: the socket never closes, so `#recoverSubscriptions` sees a
+    // healthy connection, and nostr-tools' own `maxWait` below does not
+    // resend anything - it only fakes an `EOSE` locally once it gives up
+    // waiting. So this watches for that specific silence and resends the
+    // `REQ` on the same connection - it does not close it, which would
+    // race a publish retry reopening (or finishing on) that same url and
+    // turn its in-flight `OK` wait into a hard "connection closed by us"
+    // failure instead of a clean, retryable timeout. A connection that is
+    // genuinely dead surfaces as a real close on its own, or gets caught by
+    // a publish attempt's own retry or the next scheduled `probe()`; `since`
+    // carries the original start through each resend so this gives up
+    // resending - not listening - once `SUBSCRIBE_STALL_BUDGET_MS` passes,
+    // rather than resending into the void forever.
+    const stall = setTimeout(() => {
+      if (!active() || this.#authError(url) || Date.now() - since >= SUBSCRIBE_STALL_BUDGET_MS) return
+      this.#startRelay(sub, url, since)
+    }, SUBSCRIBE_STALL_MS)
     const handle = this.#pool.subscribeMap(sub.filters.map(filter => ({ url, filter: { ...filter } })), {
       abort: this.#abort.signal,
       maxWait: 8_000,
       oneose: () => {
+        clearTimeout(stall)
         if (!active() || this.#authError(url)) return
         sub.eosed.add(url)
         if (!sub.eoseSent && this.#relays.filter(relay => relay.read).every(relay => sub.eosed.has(relay.url))) {
@@ -416,13 +438,14 @@ export class NostrRelayPool implements RelayTransport {
         }
       },
       onevent: event => {
+        clearTimeout(stall)
         if (!active() || sub.seen.has(event.id)) return
         sub.seen.add(event.id)
         sub.onEvent(event, url)
       },
-      onclose: () => { if (active()) binding.closed = true },
+      onclose: () => { clearTimeout(stall); if (active()) binding.closed = true },
     })
-    binding.stop = () => handle.close()
+    binding.stop = () => { clearTimeout(stall); handle.close() }
   }
 
   #recoverSubscriptions(): void {
@@ -467,14 +490,47 @@ function errorText(reason: unknown): string {
 }
 
 /** Backoff before retrying a relay whose publish timed out: quick first,
- *  longer second, then give up on that relay for this publish. */
+ *  then a steady 3s. Cycled (the last value repeats) rather than exhausted
+ *  after two goes: a fixed retry COUNT means the last attempt lands wherever
+ *  the arithmetic happens to put it, and a socket that comes back mid-window
+ *  - a phone that was backgrounded for exactly the wrong number of seconds -
+ *  can lose the race against it by a few hundred milliseconds and be judged
+ *  unreachable anyway. `PUBLISH_RETRY_BUDGET_MS` below is the real limit. */
 const RETRY_DELAYS_MS = [1_000, 3_000]
 
-/** `nostr-tools`' `AbstractRelay.publish` rejects with exactly this message
- *  when no `OK` arrives before `publishTimeout` - never for an explicit
- *  `OK false`, which rejects with the relay's own reason instead. */
+/** How long a fresh subscription waits for its own `EOSE` before treating
+ *  the silence as a dropped `REQ` and reopening. Shorter than nostr-tools'
+ *  own 8s `maxWait` (see `#startRelay`), which never resends anything - it
+ *  only fabricates an `EOSE` once it gives up, leaving a relay that ignored
+ *  the request genuinely unsubscribed. Longer than a relay's ordinary
+ *  response time, so an unusually slow but working `REQ` is not mistaken
+ *  for a dropped one. */
+const SUBSCRIBE_STALL_MS = 5_000
+
+/** How long the resend-on-stall watchdog keeps resending a `REQ` that never
+ *  gets an `EOSE`, before it stops and leaves recovery to `#recoverSubscriptions`,
+ *  a publish attempt's own retry, or the next scheduled `probe()` - the same
+ *  ceiling philosophy as `PUBLISH_RETRY_BUDGET_MS` below, so a relay that is
+ *  really gone is not resent to for ever. */
+const SUBSCRIBE_STALL_BUDGET_MS = 20_000
+
+/** How long `#publishToRelay` keeps reopening and retrying a relay that only
+ *  ever times out, before it stops being a retry and starts being a real
+ *  failure. Matches the join flow's own ~20s auto-retry window in
+ *  app/src/main.ts, so one honest attempt covers the whole thing without
+ *  needing that outer retry to paper over a per-relay budget that was too
+ *  short. */
+const PUBLISH_RETRY_BUDGET_MS = 20_000
+
+/** Whether a publish failed without ever being answered - a timeout (no
+ *  `OK` before `publishTimeout`), or the connection it was waiting on being
+ *  closed out from under it (our own retry reopening that same url for
+ *  another reason, `setRelays`, or the far end simply going away). Neither
+ *  is the relay saying no; both are exactly what a suspect connection looks
+ *  like, so both are retried the same way. An explicit `OK false` rejects
+ *  with the relay's own reason instead, and is never mistaken for either. */
 function isTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.message === 'publish timed out'
+  return error instanceof Error && (error.message === 'publish timed out' || error.message.startsWith('relay connection closed'))
 }
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
