@@ -450,7 +450,315 @@ describe('Peer', () => {
     const offers = (signals: SignalBody[]) => signals.filter((s) => s.type === 'offer')
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-    it('is sent again, unchanged, a bounded number of times', async () => {
+    /**
+     * BUG: the two-retry budget was the whole of the permanent wedge.
+     *
+     * Reproduced on a fault-injecting relay, 3 runs out of 3: lose one pair's
+     * signalling for twelve seconds while somebody toggles their camera and
+     * the offer and both of its re-sends are gone inside the first six. The
+     * offerer then sits in `have-local-offer` for the rest of the call - it
+     * will not offer again, because `negotiationneeded` needs `stable`, and
+     * it ignores every offer the far end makes, because while its own is
+     * outstanding each one is a collision. Nobody could see that person
+     * again.
+     *
+     * So it asks for as long as the pair is open. What stops it is the peer
+     * being closed, which is the roster's decision and nothing else's.
+     */
+    it('is re-sent for as long as the pair is open, backing off to a cap and never giving up', async () => {
+      vi.useFakeTimers()
+      try {
+        const factory = createFakeFactory()
+        const signals: SignalBody[] = []
+        // LOW < HIGH, so this side is polite and the wedge breaker - which is
+        // the impolite side's - stays out of a test about the schedule.
+        const peer = new Peer({
+          factory,
+          localDevice: LOW,
+          remoteDevice: HIGH,
+          onSignal: (b) => signals.push(b),
+          onTrack: () => {},
+          offerRetry: { intervalMs: 1_000, maxIntervalMs: 8_000, jitter: 0 },
+          random: () => 0.5,
+        })
+        void peer.start([fakeTrack()])
+        await vi.advanceTimersByTimeAsync(0)
+        expect(offers(signals)).toHaveLength(1)
+
+        // 1s, 2s, 4s, 8s, then 8s for ever. Each step is checked a
+        // millisecond early as well, so "at the cap" is not satisfied by a
+        // timer that simply fires faster than expected.
+        let sent = 1
+        for (const step of [1_000, 2_000, 4_000, 8_000, 8_000, 8_000, 8_000]) {
+          await vi.advanceTimersByTimeAsync(step - 1)
+          expect(offers(signals), `re-sent before ${step}ms had elapsed`).toHaveLength(sent)
+          await vi.advanceTimersByTimeAsync(1)
+          sent += 1
+          expect(offers(signals)).toHaveLength(sent)
+        }
+        // Well past the old budget of two, and past a minute of silence.
+        expect(sent).toBe(8)
+
+        const sdps = new Set(offers(signals).map((s) => s.sdp))
+        expect(sdps.size, 'a re-sent offer must be the same offer, not a new negotiation').toBe(1)
+        // The same offer, which is to say the one the connection is still
+        // holding - not a fresh createOffer.
+        expect(factory.instances[0]!.calls.filter((c) => c.method === 'createOffer')).toHaveLength(1)
+
+        // Closed - which is what a device leaving the roster does to its peer
+        // - and the asking stops.
+        peer.close()
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(offers(signals)).toHaveLength(sent)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('spreads each backoff step by a fifth either way, so two wedged sides do not retransmit in lockstep', async () => {
+      const at = async (random: () => number, expected: number): Promise<void> => {
+        vi.useFakeTimers()
+        try {
+          const signals: SignalBody[] = []
+          const peer = new Peer({
+            factory: createFakeFactory(),
+            localDevice: LOW,
+            remoteDevice: HIGH,
+            onSignal: (b) => signals.push(b),
+            onTrack: () => {},
+            offerRetry: { intervalMs: 1_000, maxIntervalMs: 8_000, jitter: 0.2 },
+            random,
+          })
+          void peer.start([fakeTrack()])
+          await vi.advanceTimersByTimeAsync(0)
+          expect(offers(signals)).toHaveLength(1)
+
+          await vi.advanceTimersByTimeAsync(expected - 1)
+          expect(offers(signals), `re-sent before ${expected}ms`).toHaveLength(1)
+          await vi.advanceTimersByTimeAsync(1)
+          expect(offers(signals), `did not re-send at ${expected}ms`).toHaveLength(2)
+          peer.close()
+        } finally {
+          vi.useRealTimers()
+        }
+      }
+
+      await at(() => 0, 800) // the bottom of the window
+      await at(() => 1, 1_200) // the top of it
+      await at(() => 0.5, 1_000) // dead centre is the nominal step
+    })
+
+    /**
+     * BUG: `signalling: exactly one answer lost after a camera toggle`, and
+     * the three-in-a-row case behind it.
+     *
+     * An answer crosses the same lossy relay an offer does, and nothing on
+     * the answering side is waiting for anything afterwards - so that side
+     * never notices. The offerer notices, and the only thing it can do about
+     * it is ask again. Asking again used to reach a connection that was
+     * already `stable`, which tried to renegotiate with an offer it had
+     * already applied and threw into the mesh's empty `catch`.
+     */
+    it('BUG: an answer lost three times over is recovered by the far end asking again', async () => {
+      const answererFactory = createFakeFactory()
+      const fromOfferer: SignalBody[] = []
+      const fromAnswerer: SignalBody[] = []
+      // HIGH > LOW, so the offerer is the impolite side - the one that can
+      // never be repaired by the far end offering instead.
+      const offerer = new Peer({
+        factory: createFakeFactory(),
+        localDevice: HIGH,
+        remoteDevice: LOW,
+        onSignal: (b) => fromOfferer.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 5 },
+      })
+      const answerer = new Peer({
+        factory: answererFactory,
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: (b) => fromAnswerer.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 5 },
+      })
+
+      await offerer.start([fakeTrack()])
+      await settle()
+      const offer = offers(fromOfferer)[0]!
+
+      // The first offer is answered, and the answer is lost. Then the
+      // offerer's retransmission arrives, twice more, and each one is lost
+      // on the way back too.
+      const answersAfter = (n: number) => fromAnswerer.filter((s) => s.type === 'answer').slice(n)
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await answerer.handleSignal(offer)
+        await settle()
+        expect(answersAfter(attempt), `the ${attempt + 1}th ask went unanswered`).toHaveLength(1)
+      }
+
+      // Every ask after the first was answered from what was sent last time.
+      // Re-applying an offer the connection is already negotiated with is a
+      // second negotiation nobody asked for.
+      expect(answererFactory.instances[0]!.calls.filter((c) => c.method === 'createAnswer')).toHaveLength(1)
+      const answers = fromAnswerer.filter((s) => s.type === 'answer')
+      expect(new Set(answers.map((s) => s.sdp)).size, 'a re-sent answer must be the same answer').toBe(1)
+
+      // The fourth one gets through, and the pair is whole.
+      await offerer.handleSignal(answers[3]!)
+      await settle()
+      expect(answererFactory.instances[0]!.signalingState).toBe('stable')
+
+      const sentSoFar = offers(fromOfferer).length
+      await wait(40)
+      expect(offers(fromOfferer), 'an answered offer was still being asked about').toHaveLength(sentSoFar)
+      offerer.close()
+      answerer.close()
+    })
+
+    /**
+     * BUG: the impolite side's permanent wedge.
+     *
+     * Its own offer is gone, so nothing will answer it; and while it is
+     * outstanding every offer the far end makes is a collision it ignores.
+     * The far end cannot repair this and neither can the route ladder, which
+     * stops watching a pair once it has connected. Only this side can, by
+     * giving its own proposal up.
+     */
+    it('BUG: an impolite side alone in have-local-offer rolls its offer back so the far end can be heard', async () => {
+      vi.useFakeTimers()
+      try {
+        const factory = createFakeFactory()
+        const signals: SignalBody[] = []
+        const peer = new Peer({
+          factory,
+          localDevice: HIGH,
+          remoteDevice: LOW,
+          onSignal: (b) => signals.push(b),
+          onTrack: () => {},
+          offerRetry: { intervalMs: 1_000, maxIntervalMs: 8_000, jitter: 0, wedgeMs: 10_000 },
+          random: () => 0.5,
+        })
+        void peer.start([fakeTrack()])
+        await vi.advanceTimersByTimeAsync(0)
+        const pc = factory.instances[0]!
+        expect(pc.signalingState).toBe('have-local-offer')
+
+        // Nine seconds of silence is still a slow relay, not a wedge.
+        await vi.advanceTimersByTimeAsync(9_000)
+        expect(pc.signalingState).toBe('have-local-offer')
+
+        await vi.advanceTimersByTimeAsync(1_000)
+        const rolledBack = pc.calls.some(
+          (c) => c.method === 'setLocalDescription' && (c.args[0] as { type?: string })?.type === 'rollback',
+        )
+        expect(rolledBack, 'the impolite side never gave its offer up').toBe(true)
+        expect(pc.signalingState).toBe('stable')
+        // Rolled back, not torn down: an old far end handed a fresh
+        // connection's m-lines for a session it already has rejects them.
+        expect(pc.closed).toBe(false)
+
+        // And now the far end's offer lands instead of being ignored.
+        await peer.handleSignal({ type: 'offer', roomId: '', sdp: 'their-offer' })
+        await vi.advanceTimersByTimeAsync(0)
+        expect(signals.filter((s) => s.type === 'answer'), 'the offer was still treated as a collision').toHaveLength(1)
+        peer.close()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('offers again from stable when the far end stays silent after the rollback', async () => {
+      vi.useFakeTimers()
+      try {
+        const factory = createFakeFactory()
+        const signals: SignalBody[] = []
+        const peer = new Peer({
+          factory,
+          localDevice: HIGH,
+          remoteDevice: LOW,
+          onSignal: (b) => signals.push(b),
+          onTrack: () => {},
+          offerRetry: { intervalMs: 1_000, maxIntervalMs: 8_000, jitter: 0, wedgeMs: 10_000 },
+          random: () => 0.5,
+        })
+        void peer.start([fakeTrack()])
+        await vi.advanceTimersByTimeAsync(0)
+        const sentBeforeRollback = offers(signals).length
+
+        await vi.advanceTimersByTimeAsync(10_000)
+        expect(factory.instances[0]!.signalingState).toBe('stable')
+
+        // One backoff step for the far end to speak first, and then this side
+        // proposes again - from `stable`, where a fresh offer is a proposal
+        // rather than a duplicate of one already outstanding.
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(offers(signals).length).toBeGreaterThan(sentBeforeRollback)
+        expect(factory.instances[0]!.signalingState).toBe('have-local-offer')
+        expect(factory.instances[0]!.calls.filter((c) => c.method === 'createOffer').length).toBe(2)
+        peer.close()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('restarts ICE on the connection it has, and never a new one, when the caller says a renegotiation is stuck', async () => {
+      const factory = createFakeFactory()
+      const peer = new Peer({
+        factory,
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: () => {},
+        onTrack: () => {},
+        iceRestart: { graceMs: 5, timeoutMs: 10_000 },
+      })
+      await peer.start([fakeTrack()])
+      await settle()
+      const pc = factory.instances[0]!
+      pc.connectionState = 'connected'
+      pc.onconnectionstatechange?.()
+
+      peer.healStalledNegotiation()
+      await settle()
+
+      expect(pc.calls.some((c) => c.method === 'restartIce')).toBe(true)
+      expect(pc.closed, 'the connection was replaced instead of restarted').toBe(false)
+      expect(factory.instances, 'a second connection was built for a legacy far end').toHaveLength(1)
+      peer.close()
+    })
+
+    it('re-sends what it is owed an answer for the moment a publish is rejected, without advancing the backoff', async () => {
+      vi.useFakeTimers()
+      try {
+        const factory = createFakeFactory()
+        const signals: SignalBody[] = []
+        const peer = new Peer({
+          factory,
+          localDevice: LOW,
+          remoteDevice: HIGH,
+          onSignal: (b) => signals.push(b),
+          onTrack: () => {},
+          offerRetry: { intervalMs: 1_000, maxIntervalMs: 8_000, jitter: 0 },
+          random: () => 0.5,
+        })
+        void peer.start([fakeTrack()])
+        await vi.advanceTimersByTimeAsync(0)
+        expect(offers(signals)).toHaveLength(1)
+
+        peer.retransmitNow()
+        await vi.advanceTimersByTimeAsync(0)
+        expect(offers(signals), 'the rejected offer was left to wait out a backoff step').toHaveLength(2)
+
+        // The attempt that never left the device does not count against the
+        // schedule: the next timed re-send is still a first step away.
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(offers(signals)).toHaveLength(3)
+        peer.close()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('re-sends the last answer when a publish is rejected and there is no offer outstanding', async () => {
       const factory = createFakeFactory()
       const signals: SignalBody[] = []
       const peer = new Peer({
@@ -459,23 +767,16 @@ describe('Peer', () => {
         remoteDevice: HIGH,
         onSignal: (b) => signals.push(b),
         onTrack: () => {},
-        offerRetry: { intervalMs: 5, max: 2 },
       })
-      await peer.start([fakeTrack()])
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: 'their-offer' })
       await settle()
-      expect(offers(signals)).toHaveLength(1)
+      const answers = () => signals.filter((s) => s.type === 'answer')
+      expect(answers()).toHaveLength(1)
 
-      // Two more and then no more: a peer that never answers is the route
-      // ladder's problem, not something to be asked for ever. The arrival is
-      // waited for; the silence after it still needs a window to elapse.
-      await vi.waitFor(() => expect(offers(signals).length).toBeGreaterThanOrEqual(3))
-      await wait(60)
-      expect(offers(signals)).toHaveLength(3)
-      const sdps = new Set(offers(signals).map((s) => s.sdp))
-      expect(sdps.size, 'a re-sent offer must be the same offer, not a new negotiation').toBe(1)
-      // The same offer, which is to say the one the connection is still
-      // holding - not a fresh createOffer.
-      expect(factory.instances[0]!.calls.filter((c) => c.method === 'createOffer')).toHaveLength(1)
+      peer.retransmitNow()
+      await settle()
+      expect(answers()).toHaveLength(2)
+      expect(answers()[1]!.sdp).toBe(answers()[0]!.sdp)
       peer.close()
     })
 
@@ -488,7 +789,7 @@ describe('Peer', () => {
         remoteDevice: HIGH,
         onSignal: (b) => signals.push(b),
         onTrack: () => {},
-        offerRetry: { intervalMs: 10, max: 2 },
+        offerRetry: { intervalMs: 10 },
       })
       await peer.start([fakeTrack()])
       await settle()
@@ -509,7 +810,7 @@ describe('Peer', () => {
         remoteDevice: HIGH,
         onSignal: (b) => signals.push(b),
         onTrack: () => {},
-        offerRetry: { intervalMs: 10, max: 2 },
+        offerRetry: { intervalMs: 10 },
       })
       await peer.start([fakeTrack()])
       await settle()
@@ -531,7 +832,7 @@ describe('Peer', () => {
         remoteDevice: HIGH,
         onSignal: (b) => signals.push(b),
         onTrack: () => {},
-        offerRetry: { intervalMs: 5, max: 2 },
+        offerRetry: { intervalMs: 5 },
       })
       await peer.start([fakeTrack()])
       await settle()
@@ -564,7 +865,7 @@ describe('Peer', () => {
         remoteDevice: HIGH,
         onSignal: (b) => fromPolite.push(b),
         onTrack: () => {},
-        offerRetry: { intervalMs: 10, max: 2 },
+        offerRetry: { intervalMs: 10 },
       })
       const impolite = new Peer({
         factory: factoryImpolite,
@@ -572,7 +873,7 @@ describe('Peer', () => {
         remoteDevice: LOW,
         onSignal: (b) => fromImpolite.push(b),
         onTrack: () => {},
-        offerRetry: { intervalMs: 10, max: 2 },
+        offerRetry: { intervalMs: 10 },
       })
 
       // The impolite side offers first, and the offer goes nowhere.

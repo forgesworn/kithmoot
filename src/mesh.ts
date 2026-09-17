@@ -56,6 +56,32 @@ export interface RemoteAnnotation {
   annotation: ScreenAnnotation
 }
 
+/** Something that went wrong in signalling and was survived. See
+ *  `MeshOptions.onDiagnostic`. */
+export interface MeshDiagnostic {
+  kind:
+    /** A relay rejected a signal outright, so it never left this device. */
+    | 'signal-publish-failed'
+    /** A signal reached the peer and the peer would not have it - a
+     *  description that does not match the session, most often. */
+    | 'signal-handling-failed'
+    /** A renegotiation on a connected pair went unanswered for long enough
+     *  that ICE was restarted on it. */
+    | 'renegotiation-stalled'
+  /** The remote device the signal was to or from. */
+  device: string
+  /** Free text, for a bug report. Signal types and error messages only. */
+  detail: string
+}
+
+/** A rejection reduced to something a bug report can carry: never an object
+ *  a caller could walk back to a key or a room. */
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  return 'rejected'
+}
+
 export interface MeshOptions {
   session: MeshSession
   factory: PeerFactory
@@ -90,8 +116,8 @@ export interface MeshOptions {
    *  come back before it is believed failed. See `PeerOptions.iceRestart`. */
   iceRestart?: { graceMs?: number; timeoutMs?: number }
   /** Passed to every peer: how long an offer waits for its answer before it
-   *  is sent again, and how many times. See `PeerOptions.offerRetry`. */
-  offerRetry?: { intervalMs?: number; max?: number }
+   *  is sent again. See `PeerOptions.offerRetry`. */
+  offerRetry?: { intervalMs?: number; maxIntervalMs?: number; jitter?: number; wedgeMs?: number }
   /** Forwarders the room descriptor names. Swappable at runtime; see
    *  `setForwarders`. */
   forwarders?: ForwarderRef[]
@@ -126,6 +152,25 @@ export interface MeshOptions {
   routeTimeoutMs?: number
   /** How long the TURN rung gets. See `DEFAULT_TURN_ROUTE_TIMEOUT_MS`. */
   turnRouteTimeoutMs?: number
+  /**
+   * How long a renegotiation on an already connected pair gets before ICE is
+   * restarted on it. See `DEFAULT_RENEGOTIATION_TIMEOUT_MS`.
+   */
+  renegotiationTimeoutMs?: number
+  /**
+   * Where things that went wrong and were survived are reported.
+   *
+   * Signalling is full of failures that must not take the room down and must
+   * not be silent either: a relay that rejected a publish, a description the
+   * far end would not apply. Both used to vanish into an empty `catch`, which
+   * is how a pair could be wedged for a whole call with nothing anywhere
+   * saying so. Never called with anything secret - a signal's type and a
+   * device pubkey, both already on the wire.
+   *
+   * Optional, and a throw from it is swallowed: a caller's logger is not
+   * allowed to be the thing that breaks a call.
+   */
+  onDiagnostic?: (event: MeshDiagnostic) => void
   /** How long an exhausted route rests before the ladder is retried from
    *  the top. See `EXHAUSTED_RETRY_MS`. */
   exhaustedRetryMs?: number
@@ -281,6 +326,37 @@ export const DEFAULT_ROUTE_TIMEOUT_MS = 10_000
 export const DEFAULT_TURN_ROUTE_TIMEOUT_MS = 20_000
 
 /**
+ * How long a renegotiation on an already connected pair gets before the pair
+ * is treated as stuck.
+ *
+ * The route ladder deliberately stops watching a pair the moment it connects:
+ * its job is finding a rung that works, and one has. But a connected pair
+ * renegotiates constantly - every camera toggle, every share, every mic
+ * pipeline swap is an offer - and a renegotiation that loses its answer
+ * leaves the connection up, carrying what it was already carrying, and blind
+ * to whatever the offer was about. Nothing noticed, because nothing was
+ * watching: measured on a fault-injecting relay, the others could not see
+ * that person again for the rest of the call.
+ *
+ * Longer than several retransmissions of the offer, because the cheap repair
+ * is the offer arriving on the second or third ask and this is only for when
+ * it does not. What happens at the end of it is an ICE restart on the
+ * connection that exists - never a replacement connection, see
+ * `Peer.healStalledNegotiation`.
+ */
+export const DEFAULT_RENEGOTIATION_TIMEOUT_MS = 20_000
+
+/**
+ * The shortest gap between two retransmissions prompted by a rejected
+ * publish.
+ *
+ * A relay that is rejecting is likely to reject the retry too, and the retry
+ * is itself a publish: without a floor the rejection handler would call
+ * itself for as long as the relay stayed unhappy.
+ */
+export const PUBLISH_RETRY_MIN_MS = 1_000
+
+/**
  * How long a device whose every rung has failed is left alone before the
  * ladder is tried again from the top.
  *
@@ -370,6 +446,14 @@ export class Mesh {
   readonly #routeTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** One timer per exhausted device, after which its ladder is retried. */
   readonly #retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** One timer per endpoint with a negotiation outstanding on a connection
+   *  that is already up. The route timers deliberately stop at `connected`;
+   *  this is what watches what happens after. See
+   *  `DEFAULT_RENEGOTIATION_TIMEOUT_MS`. */
+  readonly #renegotiationTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** When each device last had a retransmission forced by a rejected
+   *  publish. See `PUBLISH_RETRY_MIN_MS`. */
+  readonly #publishRetryAt = new Map<string, number>()
   /** Endpoints being closed deliberately, so their own `closed` state change
    *  is not mistaken for the rung failing. Same guard as
    *  `#tearingDownForwarder`, for the same reason. */
@@ -520,7 +604,9 @@ export class Mesh {
     this.#unsubSignal()
     this.#teardownForwarder()
     for (const endpoint of [...this.#routeTimers.keys()]) this.#clearRouteTimer(endpoint)
+    for (const endpoint of [...this.#renegotiationTimers.keys()]) this.#clearRenegotiationTimer(endpoint)
     for (const device of [...this.#retryTimers.keys()]) this.#clearRetryTimer(device)
+    this.#publishRetryAt.clear()
     this.#opts.relay?.close()
     this.#routes.clear()
     this.#volunteers.clear()
@@ -720,6 +806,8 @@ export class Mesh {
   #closePeer(endpoint: string, peer: Peer): void {
     this.#peers.delete(endpoint)
     this.#clearRouteTimer(endpoint)
+    this.#clearRenegotiationTimer(endpoint)
+    this.#publishRetryAt.delete(endpoint)
     this.#closingEndpoints.add(endpoint)
     try {
       peer.close()
@@ -746,6 +834,88 @@ export class Mesh {
     const timer = this.#routeTimers.get(endpoint)
     if (timer !== undefined) clearTimeout(timer)
     this.#routeTimers.delete(endpoint)
+  }
+
+  /**
+   * A negotiation has started on a pair that is already carrying media.
+   *
+   * Only for a connected pair: everything before that belongs to the route
+   * ladder, which is watching already, and two watchdogs on one negotiation
+   * would race to decide what to do about it.
+   */
+  #armRenegotiationTimer(endpoint: string): void {
+    if (this.#closed) return
+    if (this.#renegotiationTimers.has(endpoint)) return
+    if (!this.#peers.has(endpoint)) return
+    if (!this.#routes.get(endpoint)?.connected) return
+    const timer = setTimeout(() => {
+      this.#renegotiationTimers.delete(endpoint)
+      this.#renegotiationStalled(endpoint)
+    }, this.#opts.renegotiationTimeoutMs ?? DEFAULT_RENEGOTIATION_TIMEOUT_MS)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    this.#renegotiationTimers.set(endpoint, timer)
+  }
+
+  #clearRenegotiationTimer(endpoint: string): void {
+    const timer = this.#renegotiationTimers.get(endpoint)
+    if (timer !== undefined) clearTimeout(timer)
+    this.#renegotiationTimers.delete(endpoint)
+  }
+
+  /**
+   * A renegotiation on a connected pair never got its answer.
+   *
+   * The pair is not torn down and no new connection is made. A far end on the
+   * old profile would be handed a fresh connection's m-line order to apply to
+   * a session it already has, reject it, and be left worse off than the wedge
+   * - which is the whole reason the healing step here is an ICE restart on
+   * the connection that exists. A genuine rebuild waits for the connection
+   * itself to report `failed`.
+   */
+  #renegotiationStalled(endpoint: string): void {
+    if (this.#closed) return
+    const peer = this.#peers.get(endpoint)
+    if (!peer) return
+    this.#diagnose({
+      kind: 'renegotiation-stalled',
+      device: endpoint,
+      detail: 'a renegotiation on a connected pair went unanswered; restarting ICE on the existing connection',
+    })
+    peer.healStalledNegotiation()
+  }
+
+  /** What a signal this device just sent, or just received, says about
+   *  whether a negotiation on a connected pair is outstanding. */
+  #watchNegotiation(endpoint: string, body: SignalBody): void {
+    if (body.type === 'offer') this.#armRenegotiationTimer(endpoint)
+    else if (body.type === 'answer') this.#clearRenegotiationTimer(endpoint)
+  }
+
+  /**
+   * A relay rejected a signal, so it never left this device.
+   *
+   * Two things follow. The failure is reported, because it used to be
+   * swallowed whole and a pair that silently stopped negotiating was
+   * indistinguishable from one that never had anything to say. And the
+   * signal is sent again at once rather than waiting out a backoff step for
+   * an attempt that did not happen.
+   */
+  #signalPublishFailed(device: string, body: SignalBody, error: unknown): void {
+    this.#diagnose({ kind: 'signal-publish-failed', device, detail: `${body.type}: ${describeError(error)}` })
+    if (this.#closed) return
+    if (body.type !== 'offer' && body.type !== 'answer') return
+    const now = Date.now()
+    if (now - (this.#publishRetryAt.get(device) ?? 0) < PUBLISH_RETRY_MIN_MS) return
+    this.#publishRetryAt.set(device, now)
+    this.#peerFor(device)?.retransmitNow()
+  }
+
+  #diagnose(event: MeshDiagnostic): void {
+    try {
+      this.#opts.onDiagnostic?.(event)
+    } catch {
+      // A caller's logger is not allowed to be what breaks a call.
+    }
   }
 
   /** A rung worked. */
@@ -926,7 +1096,9 @@ export class Mesh {
       { ...body, roomId: this.#opts.roomId } as SignalBody,
       { senderSk: this.#opts.deviceSk, recipientPubkey: to },
     )
-    this.#opts.transport.publish(wrap).catch(() => {})
+    this.#opts.transport.publish(wrap).catch((error) =>
+      this.#diagnose({ kind: 'signal-publish-failed', device: to, detail: `${body.type}: ${describeError(error)}` }),
+    )
   }
 
   #requestAssist(device: string, assistant: string): void {
@@ -1210,7 +1382,12 @@ export class Mesh {
           { ...body, ...rung, roomId: this.#opts.roomId },
           { senderSk: this.#opts.deviceSk, recipientPubkey: remoteDevice },
         )
-        this.#opts.transport.publish(wrap).catch(() => {})
+        // Not fire and forget any more. A relay that rejects a publish has
+        // taken this device's only copy of a signal the far end will never
+        // know to ask for, and the empty `catch` that used to be here is why
+        // that looked exactly like a pair with nothing to say.
+        this.#opts.transport.publish(wrap).catch((error) => this.#signalPublishFailed(remoteDevice, body as SignalBody, error))
+        if (!forwarder) this.#watchNegotiation(remoteDevice, body as SignalBody)
       },
       onTrack: (track, receiver) => {
         if (forwarder) this.#onForwardedTrack(track, receiver)
@@ -1365,8 +1542,19 @@ export class Mesh {
       this.#holdSignal(unwrapped.from, unwrapped.body, now)
       return
     }
-    peer.handleSignal(unwrapped.body).catch(() => {})
+    // A rejection here is a description the connection would not take, which
+    // is the one failure mode that produces no answer and no error anywhere.
+    // It stays out of the subscription handler's way and goes to diagnostics
+    // instead of nowhere.
+    peer.handleSignal(unwrapped.body).catch((error) =>
+      this.#diagnose({
+        kind: 'signal-handling-failed',
+        device: unwrapped.from,
+        detail: `${unwrapped.body.type}: ${describeError(error)}`,
+      }),
+    )
     if (unwrapped.body.type === 'offer') this.#armRouteTimerForOffer(unwrapped.from)
+    this.#watchNegotiation(unwrapped.from, unwrapped.body)
   }
 
   /**
@@ -1456,7 +1644,9 @@ export class Mesh {
     let offered = false
     for (const { body, at } of held) {
       if (at < cutoff) continue
-      peer.handleSignal(body).catch(() => {})
+      peer.handleSignal(body).catch((error) =>
+        this.#diagnose({ kind: 'signal-handling-failed', device, detail: `${body.type}: ${describeError(error)}` }),
+      )
       if (body.type === 'offer') offered = true
     }
     if (offered) this.#armRouteTimerForOffer(device)

@@ -114,7 +114,7 @@ export const ICE_RESTART_GRACE_MS = 3_000
 export const ICE_RESTART_TIMEOUT_MS = 15_000
 
 /**
- * How long an offer waits for its answer before it is sent again.
+ * The first step of the offer retransmission backoff.
  *
  * Perfect negotiation assumes the signalling channel delivers. This one does
  * not promise to: a signal is an ephemeral event on a public relay, delivered
@@ -122,17 +122,52 @@ export const ICE_RESTART_TIMEOUT_MS = 15_000
  * offer that lands a moment before the far end is listening is gone, and the
  * far end has no way to know it was ever sent - so nothing on that side can
  * ask for it again. The offerer is the only one who knows, and it knows only
- * by the silence. Long enough that a slow relay round trip is not mistaken
- * for a lost one; short enough to be over before the route ladder
- * (`DEFAULT_ROUTE_TIMEOUT_MS`) gives up on a rung that would have worked.
+ * by the silence.
+ *
+ * Short, because the common case is a single lost signal and the pair is
+ * blind until it is replaced.
  */
-export const OFFER_RETRY_MS = 3_000
+export const OFFER_RETRY_MS = 1_000
 
 /**
- * How many times an unanswered offer is re-sent before the peer stops
- * asking and leaves the route ladder to decide.
+ * The longest an unanswered offer waits between re-sends.
+ *
+ * The schedule is 1s, 2s, 4s, 8s and then 8s for ever, each with +/-20%
+ * jitter so two sides that lost the same window do not retransmit in lockstep
+ * on every attempt.
+ *
+ * Unbounded, and deliberately: a two-retry budget is what left a pair wedged
+ * for the rest of the call when signalling was lost for longer than six
+ * seconds. Whether a peer has gone is the roster's call - the mesh closes the
+ * peer, and a closed peer sends nothing - not a retry counter's.
+ *
+ * The cost is bounded by the cap. Steady state is one signal per pair per
+ * 8 seconds, so 2.5 per pair in the 20 second window that
+ * `MAX_SIGNALS_PER_WINDOW` (120 per sender) is measured over: roughly 48
+ * simultaneously wedged pairs before a device could trip its own budget, an
+ * order of magnitude more than a room this mesh will open.
  */
-export const MAX_OFFER_RETRIES = 2
+export const MAX_OFFER_RETRY_MS = 8_000
+
+/** How much each backoff step is spread by, either way. */
+export const OFFER_RETRY_JITTER = 0.2
+
+/**
+ * How long the impolite side sits in `have-local-offer` with no answer before
+ * it rolls its own offer back.
+ *
+ * The impolite side ignores an incoming offer while its own is outstanding.
+ * That is correct during glare and fatal once its own offer has been lost:
+ * every later offer from the far end looks like a collision, so the far end
+ * can never repair the pair by asking, and the only side that can is the one
+ * holding the offer nobody has. Rolling back returns this side to `stable`,
+ * which lets the far end's next offer land and lets our own tracks be
+ * re-offered from scratch.
+ *
+ * Longer than three retransmissions, so a merely slow relay is never mistaken
+ * for a wedge.
+ */
+export const WEDGE_BREAK_MS = 10_000
 
 export interface PeerOptions {
   factory: PeerFactory
@@ -181,11 +216,21 @@ export interface PeerOptions {
    */
   iceRestart?: { graceMs?: number; timeoutMs?: number }
   /**
-   * How long an offer waits for its answer before it is sent again, and how
-   * many times. Defaults to `OFFER_RETRY_MS` and `MAX_OFFER_RETRIES`; tests
-   * shorten them.
+   * How long an offer waits for its answer before it is sent again.
+   *
+   * `intervalMs` is the first backoff step and `maxIntervalMs` its cap; the
+   * schedule doubles between them and then repeats the cap for as long as the
+   * peer is open. `wedgeMs` is the impolite side's rollback deadline. Defaults
+   * are `OFFER_RETRY_MS`, `MAX_OFFER_RETRY_MS`, `OFFER_RETRY_JITTER` and
+   * `WEDGE_BREAK_MS`; tests shorten them.
    */
-  offerRetry?: { intervalMs?: number; max?: number }
+  offerRetry?: { intervalMs?: number; maxIntervalMs?: number; jitter?: number; wedgeMs?: number }
+  /**
+   * Where the retransmission jitter comes from. Defaults to `Math.random`.
+   * A test pins it so a backoff schedule can be asserted exactly rather than
+   * within a window.
+   */
+  random?: () => number
 }
 
 /**
@@ -243,12 +288,34 @@ export class Peer {
   #graceTimer?: ReturnType<typeof setTimeout>
   #giveUpTimer?: ReturnType<typeof setTimeout>
   readonly #retryMs: number
-  readonly #maxRetries: number
+  readonly #maxRetryMs: number
+  readonly #jitter: number
+  readonly #wedgeMs: number
+  readonly #random: () => number
   /** Armed whenever an offer goes out, and cleared by the answer to it. See
    *  `OFFER_RETRY_MS`. */
   #retryTimer?: ReturnType<typeof setTimeout>
-  /** How many more times the offer currently outstanding may be re-sent. */
-  #retriesLeft = 0
+  /** How many times the offer currently outstanding has already been
+   *  re-sent, which is what the backoff schedule is indexed by. */
+  #retryAttempt = 0
+  /** The impolite side's rollback deadline. See `WEDGE_BREAK_MS`. */
+  #wedgeTimer?: ReturnType<typeof setTimeout>
+  /** After a wedge rollback, the one chance the far end gets to offer before
+   *  this side offers again itself. */
+  #wedgeRetryTimer?: ReturnType<typeof setTimeout>
+  /** How many remote offers this connection has applied. Only ever compared
+   *  with itself, to tell "the far end has spoken since" from "still
+   *  silent". */
+  #remoteOffersApplied = 0
+  /** The last remote offer answered, and the answer that was sent for it.
+   *
+   *  An answer crosses the same lossy relay an offer does and, unlike an
+   *  offer, nothing on this side is waiting for anything afterwards - so
+   *  nothing here would ever notice it had gone. The far end notices, and
+   *  says so by asking again with the same offer. These two fields are what
+   *  makes that ask answerable without touching the connection at all. */
+  #lastRemoteOfferSdp?: string
+  #lastAnswerSdp?: string
   /** A media-security hook rejected a newly-added sender. This connection
    * must never race ahead and offer an unprotected m-line. */
   #senderRefused = false
@@ -258,7 +325,10 @@ export class Peer {
     this.#graceMs = opts.iceRestart?.graceMs ?? ICE_RESTART_GRACE_MS
     this.#timeoutMs = opts.iceRestart?.timeoutMs ?? ICE_RESTART_TIMEOUT_MS
     this.#retryMs = opts.offerRetry?.intervalMs ?? OFFER_RETRY_MS
-    this.#maxRetries = opts.offerRetry?.max ?? MAX_OFFER_RETRIES
+    this.#maxRetryMs = Math.max(this.#retryMs, opts.offerRetry?.maxIntervalMs ?? MAX_OFFER_RETRY_MS)
+    this.#jitter = opts.offerRetry?.jitter ?? OFFER_RETRY_JITTER
+    this.#wedgeMs = opts.offerRetry?.wedgeMs ?? WEDGE_BREAK_MS
+    this.#random = opts.random ?? Math.random
     // Normalised here, once, because this decides politeness and the two
     // sides of a connection MUST land on opposite answers - see the class
     // doc comment. `hexEquals` protects an equality check from a case
@@ -474,7 +544,7 @@ export class Peer {
   async #offer(): Promise<void> {
     if (this.#closed) return
     this.#makingOffer = true
-    this.#clearOfferRetry()
+    this.#clearNegotiationTimers()
     try {
       const offer = await this.#pc.createOffer()
       await this.#pc.setLocalDescription(offer)
@@ -482,8 +552,9 @@ export class Peer {
     } finally {
       this.#makingOffer = false
     }
-    this.#retriesLeft = this.#maxRetries
+    this.#retryAttempt = 0
     this.#armOfferRetry()
+    this.#armWedgeBreaker()
   }
 
   /**
@@ -510,33 +581,156 @@ export class Peer {
    * perfect negotiation already resolves. And to one that is polite and
    * waiting on ours, it is what it was waiting for.
    *
-   * Bounded, because a peer that never answers is a peer that has gone, and
-   * that is the route ladder's call rather than this one's.
+   * Unbounded, because the opposite was measured and it was worse: two
+   * re-sends three seconds apart cover six seconds of silence, and a relay
+   * that goes quiet for longer than that - which the fault-injecting
+   * acceptance run does three times out of three - left the offerer in
+   * `have-local-offer` for the rest of the call, refusing every later offer
+   * from the far end as a collision. See `MAX_OFFER_RETRY_MS` for what the
+   * steady state costs against the signal budget.
    */
   #armOfferRetry(): void {
     this.#clearOfferRetry()
-    if (this.#retriesLeft <= 0) return
-    this.#retryTimer = this.#after(this.#retryMs, () => {
+    this.#retryTimer = this.#after(this.#backoffMs(), () => {
       this.#retryTimer = undefined
       void this.#enqueue(() => this.#resendOffer()).catch(() => {})
     })
   }
 
+  /** 1s, 2s, 4s, 8s, then 8s for ever, each spread by +/-`#jitter`. */
+  #backoffMs(): number {
+    const doublings = Math.min(this.#retryAttempt, 30)
+    const step = Math.min(this.#retryMs * 2 ** doublings, this.#maxRetryMs)
+    const spread = 1 + (this.#random() * 2 - 1) * this.#jitter
+    return Math.max(1, Math.round(step * spread))
+  }
+
   async #resendOffer(): Promise<void> {
-    if (this.#closed || this.#makingOffer) return
+    if (!this.#sendLocalOfferAgain()) return
+    this.#retryAttempt += 1
+    this.#armOfferRetry()
+  }
+
+  /** Emit the offer the connection is still holding, if it is still holding
+   *  one. Returns whether anything went out. */
+  #sendLocalOfferAgain(): boolean {
+    if (this.#closed || this.#makingOffer) return false
     // Answered, rolled back or superseded since the timer was armed: there
     // is nothing outstanding to ask about again.
-    if (this.#pc.signalingState !== 'have-local-offer') return
+    if (this.#pc.signalingState !== 'have-local-offer') return false
     const local = this.#pc.localDescription
-    if (!local || local.type !== 'offer') return
-    this.#retriesLeft -= 1
+    if (!local || local.type !== 'offer') return false
     this.#onSignal({ type: 'offer', roomId: '', sdp: local.sdp })
-    this.#armOfferRetry()
+    return true
   }
 
   #clearOfferRetry(): void {
     if (this.#retryTimer !== undefined) clearTimeout(this.#retryTimer)
     this.#retryTimer = undefined
+  }
+
+  #clearWedgeTimers(): void {
+    if (this.#wedgeTimer !== undefined) clearTimeout(this.#wedgeTimer)
+    this.#wedgeTimer = undefined
+    if (this.#wedgeRetryTimer !== undefined) clearTimeout(this.#wedgeRetryTimer)
+    this.#wedgeRetryTimer = undefined
+  }
+
+  #clearNegotiationTimers(): void {
+    this.#clearOfferRetry()
+    this.#clearWedgeTimers()
+  }
+
+  /**
+   * Arm the impolite side's rollback deadline. See `WEDGE_BREAK_MS`.
+   *
+   * The polite side needs none of this: it gives way to an incoming offer
+   * already, so a far end that never heard ours can always repair the pair by
+   * offering.
+   */
+  #armWedgeBreaker(): void {
+    this.#clearWedgeTimers()
+    if (this.polite) return
+    this.#wedgeTimer = this.#after(this.#wedgeMs, () => {
+      this.#wedgeTimer = undefined
+      void this.#enqueue(() => this.#breakWedge()).catch(() => {})
+    })
+  }
+
+  /**
+   * Give up on an offer nobody has answered, so the far end can be heard.
+   *
+   * Deliberately not a teardown: the connection, its tracks and - on a pair
+   * that was carrying media - its ICE and DTLS all survive a rollback, and an
+   * old far end applying our fresh m-line order to its existing session is
+   * exactly the failure this is meant to avoid. All that is discarded is the
+   * proposal.
+   *
+   * `#hasRemoteDescription` is left alone on purpose. Rolling a local offer
+   * back returns the connection to the description it was negotiated with, if
+   * it had one; clearing the flag would send candidates for a live connection
+   * back into the buffer.
+   */
+  async #breakWedge(): Promise<void> {
+    if (this.#closed || this.#makingOffer) return
+    if (this.#pc.signalingState !== 'have-local-offer') return
+    await this.#pc.setLocalDescription({ type: 'rollback' })
+    this.#clearNegotiationTimers()
+    // A browser raises `negotiationneeded` after a rollback that left tracks
+    // unnegotiated, and that is the ordinary way back. It is not the only
+    // way: the far end may be about to offer, and its offer is now something
+    // this side will apply rather than ignore. So the far end gets one
+    // backoff step to speak first, and if it does not, this side offers
+    // again from `stable` - where a fresh offer is a legitimate proposal
+    // rather than a duplicate of one already outstanding.
+    const spokenBefore = this.#remoteOffersApplied
+    this.#wedgeRetryTimer = this.#after(this.#retryMs, () => {
+      this.#wedgeRetryTimer = undefined
+      void this.#enqueue(async () => {
+        if (this.#closed || this.#makingOffer || this.#senderRefused) return
+        if (this.#remoteOffersApplied !== spokenBefore) return
+        if (this.#pc.signalingState !== 'stable') return
+        await this.#offer()
+      }).catch(() => {})
+    })
+  }
+
+  /**
+   * Send whatever this side is currently owed an answer for, now.
+   *
+   * The mesh calls this when a relay publish was rejected outright: the
+   * signal never left this device, so nothing on the far end will ever ask
+   * for it and the backoff would simply wait out its step for no reason. It
+   * does not advance the backoff - the attempt that failed did not happen.
+   */
+  retransmitNow(): void {
+    void this.#enqueue(async () => {
+      if (this.#closed) return
+      if (this.#sendLocalOfferAgain()) return
+      if (this.#pc.signalingState === 'stable' && this.#lastAnswerSdp !== undefined) {
+        this.#onSignal({ type: 'answer', roomId: '', sdp: this.#lastAnswerSdp })
+      }
+    }).catch(() => {})
+  }
+
+  /**
+   * A negotiation on this connection has gone unanswered for long enough that
+   * the caller wants it unstuck.
+   *
+   * ICE is restarted on the connection that exists, and the connection is
+   * never replaced. A far end on the old profile would apply a rebuilt
+   * connection's m-line order to its existing session, `setRemoteDescription`
+   * would reject it, and the pair would be worse off than the wedge. A
+   * genuine rebuild waits for `connectionState === 'failed'`, which the far
+   * end sees too.
+   */
+  healStalledNegotiation(): void {
+    void this.#enqueue(async () => {
+      if (this.#closed) return
+      if (!this.polite && this.#pc.signalingState === 'have-local-offer') await this.#breakWedge()
+      if (!this.#pc.restartIce) return
+      this.#restartIce()
+    }).catch(() => {})
   }
 
   /** Feed in a signal received from the remote device. Queued behind whatever
@@ -562,9 +756,17 @@ export class Peer {
     if (body.type === 'offer') {
       await this.#handleOffer(body.sdp)
     } else if (body.type === 'answer') {
+      if (this.#pc.signalingState === 'stable') {
+        // A duplicate answer, which is what our own offer retransmission
+        // prompts from a far end that answered the first copy. There is
+        // nothing outstanding for it to answer, and a real connection rejects
+        // it; dropping it here keeps that rejection out of the caller's lap.
+        this.#clearNegotiationTimers()
+        return
+      }
       await this.#pc.setRemoteDescription({ type: 'answer', sdp: body.sdp })
       // The offer has been answered, so it is no longer anything to re-send.
-      this.#clearOfferRetry()
+      this.#clearNegotiationTimers()
       this.#hasRemoteDescription = true
       await this.#drainCandidates()
     } else if (body.type === 'ice') {
@@ -573,6 +775,27 @@ export class Peer {
   }
 
   async #handleOffer(sdp: string | undefined): Promise<void> {
+    // The same offer, again, on a connection that has already applied it and
+    // answered it. That means our answer is what went missing: the far end is
+    // the only side waiting for anything, and asking again is the only way it
+    // has of saying so.
+    //
+    // Answered from what was sent last time rather than by renegotiating.
+    // Re-applying an offer the connection is already negotiated with buys
+    // nothing, and on a real connection it is a second negotiation with all
+    // the risk that carries - which is why this used to fall through, throw
+    // out of `setRemoteDescription`, and vanish into the mesh's `catch`.
+    if (
+      sdp !== undefined &&
+      sdp === this.#lastRemoteOfferSdp &&
+      this.#lastAnswerSdp !== undefined &&
+      !this.#makingOffer &&
+      this.#pc.signalingState === 'stable'
+    ) {
+      this.#onSignal({ type: 'answer', roomId: '', sdp: this.#lastAnswerSdp })
+      return
+    }
+
     const collision = this.#makingOffer || this.#pc.signalingState !== 'stable'
     // A local, not a field: whether we ignored *this* offer governs nothing
     // beyond this call, and holding it across `await` points was one of the
@@ -585,7 +808,7 @@ export class Peer {
       // the incoming one can be answered instead.
       await this.#pc.setLocalDescription({ type: 'rollback' })
       // The offer we gave up on must not come back from a timer.
-      this.#clearOfferRetry()
+      this.#clearNegotiationTimers()
       // We are renegotiating from `stable` now. Candidates still arriving
       // belong to the description that has not landed yet, so they go back to
       // being buffered - applying them against the previous description gets
@@ -596,6 +819,8 @@ export class Peer {
 
     await this.#pc.setRemoteDescription({ type: 'offer', sdp })
     this.#hasRemoteDescription = true
+    this.#remoteOffersApplied += 1
+    this.#lastRemoteOfferSdp = sdp
 
     // The answer comes first, and only then the buffered candidates. Nothing
     // to do with a candidate may stand between an offer and its answer: an
@@ -603,6 +828,7 @@ export class Peer {
     // where a candidate that is never applied costs one path.
     const answer = await this.#pc.createAnswer()
     await this.#pc.setLocalDescription(answer)
+    this.#lastAnswerSdp = answer.sdp
     this.#onSignal({ type: 'answer', roomId: '', sdp: answer.sdp })
 
     await this.#drainCandidates()
@@ -655,7 +881,7 @@ export class Peer {
     if (this.#closed) return
     this.#closed = true
     this.#clearRestartTimers()
-    this.#clearOfferRetry()
+    this.#clearNegotiationTimers()
     this.#pc.close()
   }
 }

@@ -10,6 +10,8 @@ import { MAX_SIGNALS_PER_WINDOW } from './signal-guard.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import type { ParticipantView } from './session.js'
+import type { RelayTransport } from './relay-pool.js'
+import type { Event } from 'nostr-tools/pure'
 
 function device(): { sk: Uint8Array; pub: string } {
   const sk = generateSecretKey()
@@ -1043,4 +1045,194 @@ it('budgets unique anonymous wraps before invoking the codec, then recovers', ()
     relay.publish({ ...event, id: 'f'.repeat(64) })
     expect(decode).toHaveBeenCalledTimes(4097)
   } finally { mesh.close(); decode.mockRestore() }
+})
+
+/**
+ * The route ladder stops watching a pair the moment it connects, and a
+ * connected pair renegotiates constantly: every camera toggle, every share,
+ * every mic pipeline swap is an offer. A renegotiation whose answer is lost
+ * therefore had no watchdog at all - measured on a fault-injecting relay,
+ * three runs out of three, the others could not see that person again for the
+ * rest of the call.
+ */
+describe('a renegotiation that goes unanswered on a pair that is already up', () => {
+  function connectedPair(opts: { renegotiationTimeoutMs?: number; wrap?: (t: RelayTransport) => RelayTransport; onDiagnostic?: (e: unknown) => void } = {}) {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const remote = device()
+    const remoteParticipant = device().pub
+    const base = new SimTransport(relay)
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: device().pub,
+      deviceSk: local.sk,
+      transport: opts.wrap ? opts.wrap(base) : base,
+      roomId: ROOM_ID,
+      renegotiationTimeoutMs: opts.renegotiationTimeoutMs,
+      // A minute, so anything re-sent inside these tests was re-sent because
+      // something asked for it rather than because a backoff step elapsed.
+      offerRetry: { intervalMs: 60_000, wedgeMs: 60_000 },
+      onDiagnostic: opts.onDiagnostic as never,
+    })
+    const first = { id: 'cam', kind: 'video' } as unknown as MediaStreamTrack
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    mesh.publish([first])
+    /** The far end answers the opening offer, so the pair is negotiated and
+     *  what follows is a renegotiation rather than the first one. */
+    const answerOpeningOffer = (sdp = 'their-answer'): void => {
+      relay.publish(wrapSignal({ type: 'answer', roomId: ROOM_ID, sdp }, { senderSk: remote.sk, recipientPubkey: local.pub }))
+    }
+    return { mesh, session, factory, relay, local, remote, remoteParticipant, first, answerOpeningOffer }
+  }
+
+  /** Report the connection up, exactly as a browser does. */
+  function bringUp(pc: { connectionState: RTCPeerConnectionState; onconnectionstatechange: (() => void) | null }): void {
+    pc.connectionState = 'connected'
+    pc.onconnectionstatechange?.()
+  }
+
+  const toggle = (mesh: Mesh) => mesh.publish([{ id: 'screen', kind: 'video' } as unknown as MediaStreamTrack])
+
+  it('BUG: is noticed at all, and healed by restarting ICE on the connection that exists', async () => {
+    vi.useFakeTimers()
+    try {
+      const seen: unknown[] = []
+      const { mesh, factory, remote, answerOpeningOffer } = connectedPair({ renegotiationTimeoutMs: 5_000, onDiagnostic: (e) => seen.push(e) })
+      await vi.advanceTimersByTimeAsync(0)
+      const pc = factory.to(remote.pub)!
+      answerOpeningOffer()
+      await vi.advanceTimersByTimeAsync(0)
+      bringUp(pc)
+      expect(pc.signalingState).toBe('stable')
+
+      // A camera toggle on a pair that is carrying media: an offer goes out
+      // and nothing ever answers it.
+      toggle(mesh)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(pc.signalingState).toBe('have-local-offer')
+
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(pc.calls.some((c) => c.method === 'restartIce'), 'gave up on the renegotiation early').toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+
+      expect(pc.calls.some((c) => c.method === 'restartIce')).toBe(true)
+      // Never a replacement connection: an old far end handed a fresh
+      // connection's m-line order for a session it already has rejects it.
+      expect(pc.closed).toBe(false)
+      expect(factory.instances.filter((i) => i.context?.remoteDevice === remote.pub)).toHaveLength(1)
+      expect(seen).toContainEqual(expect.objectContaining({ kind: 'renegotiation-stalled', device: remote.pub }))
+      mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves an answered renegotiation alone', async () => {
+    vi.useFakeTimers()
+    try {
+      const { mesh, factory, remote, answerOpeningOffer } = connectedPair({ renegotiationTimeoutMs: 5_000 })
+      await vi.advanceTimersByTimeAsync(0)
+      const pc = factory.to(remote.pub)!
+      answerOpeningOffer()
+      await vi.advanceTimersByTimeAsync(0)
+      bringUp(pc)
+
+      toggle(mesh)
+      await vi.advanceTimersByTimeAsync(0)
+      answerOpeningOffer('their-answer-2')
+      await vi.advanceTimersByTimeAsync(0)
+
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(pc.calls.some((c) => c.method === 'restartIce'), 'a healthy renegotiation was disturbed').toBe(false)
+      mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops watching a pair whose device has left the roster, and the peer stops asking', async () => {
+    vi.useFakeTimers()
+    try {
+      const { mesh, session, factory, remote, answerOpeningOffer } = connectedPair({ renegotiationTimeoutMs: 5_000 })
+      await vi.advanceTimersByTimeAsync(0)
+      const pc = factory.to(remote.pub)!
+      answerOpeningOffer()
+      await vi.advanceTimersByTimeAsync(0)
+      bringUp(pc)
+      toggle(mesh)
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Gone. Whether a peer is worth asking again is the roster's call and
+      // nothing else's - which is what makes unbounded retransmission safe.
+      session.setViews([])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(pc.closed).toBe(true)
+
+      const callsWhenClosed = pc.calls.length
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(pc.calls).toHaveLength(callsWhenClosed)
+      mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('BUG: a rejected publish is reported and the signal is sent again, rather than vanishing', async () => {
+    const published: Event[] = []
+    let rejecting = false
+    const seen: unknown[] = []
+    const { mesh, factory, remote, answerOpeningOffer } = connectedPair({
+      wrap: (inner) => ({
+        publish: async (event) => {
+          published.push(event)
+          if (rejecting) throw new Error('relay said no')
+          await inner.publish(event)
+        },
+        subscribe: (filters, onEvent, onEose) => inner.subscribe(filters, onEvent, onEose),
+        close: () => inner.close(),
+      }),
+      onDiagnostic: (e) => seen.push(e),
+    })
+    await flush()
+    const pc = factory.to(remote.pub)!
+    answerOpeningOffer()
+    await flush()
+    bringUp(pc)
+
+    rejecting = true
+    const before = published.length
+    toggle(mesh)
+    await flush()
+
+    // The offer that was rejected, and the one that went straight back out
+    // after it - not a backoff step later, which for this peer is a minute.
+    expect(published.length - before, 'a rejected signal was left to the backoff').toBeGreaterThanOrEqual(2)
+    expect(seen).toContainEqual(expect.objectContaining({ kind: 'signal-publish-failed', device: remote.pub }))
+    mesh.close()
+  })
+
+  it('BUG: a signal the connection would not take is reported rather than dropped', async () => {
+    const seen: unknown[] = []
+    const { mesh, factory, relay, local, remote, answerOpeningOffer } = connectedPair({ onDiagnostic: (e) => seen.push(e) })
+    await flush()
+    const pc = factory.to(remote.pub)!
+    answerOpeningOffer()
+    await flush()
+    bringUp(pc)
+    toggle(mesh)
+    await flush()
+    pc.failNextSetRemoteDescription = true
+
+    relay.publish(
+      wrapSignal({ type: 'answer', roomId: ROOM_ID, sdp: 'a description this session cannot have' }, { senderSk: remote.sk, recipientPubkey: local.pub }),
+    )
+    await flush()
+
+    expect(seen).toContainEqual(expect.objectContaining({ kind: 'signal-handling-failed', device: remote.pub }))
+    mesh.close()
+  })
 })
