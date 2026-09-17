@@ -1557,3 +1557,27 @@ Android is a separate client and a separate repository
 (`kithmoot-android`); this change does not touch it. Its `RoomViewModel.kt`
 carries its own literal `stun:stun.l.google.com:19302` default as of this
 writing, tracked as follow-up work there rather than here.
+
+## relay.trotters.cc rejoins the default list, third and last, 17 September 2026
+
+`5d0ed9b` dropped the project's own relay from the default list on the
+principle that a relay the maker runs becomes load-bearing for everybody who
+never opens relay settings. The principle holds for a relay a room cannot do
+without; it does not hold for one of three. A real joiner on an iPhone could
+not get into a room because both `nos.lol` and `relay.primal.net` timed out
+on publish ("publish timed out"), with no third relay to fall back to.
+
+`RelayConnections.publish` (`src/relay-pool.ts`) sends to every writable
+relay at once and succeeds the moment any one acknowledges. So
+`relay.trotters.cc`, added after the two third-party public relays, only
+adds redundancy against exactly the failure above: a default room keeps
+working with it down, and it is never the only relay a room has.
+
+A room's link still carries its own relay list, so every room already
+running is unaffected by a change to the default; only a link written
+without relay hints picks the new default up, and only for future joins. A
+person who does not want the project's relay in their list can still remove
+it, or add their own, in relay settings.
+
+`relay.trotters.cc` runs strfry, does not require NIP-42 auth, and accepts
+messages up to 131072 bytes, checked the day of this change.
