@@ -6,7 +6,12 @@ import {
   MIN_FRAME_GAP_MS,
   ReefBackground,
   ReefShoal,
+  depthOf,
+  drawFishSprite,
   sceneSize,
+  spriteFor,
+  type Fish,
+  type FishSprite,
   type SceneCanvas,
   type SceneContext2D,
   type SceneGradient,
@@ -27,6 +32,7 @@ function cycle(values: number[]): () => number {
 class RecordingContext implements SceneContext2D {
   fillStyle: unknown = '#000'
   strokeStyle: unknown = '#000'
+  filter = 'none'
   globalAlpha = 1
   globalCompositeOperation = 'source-over'
   lineWidth = 1
@@ -91,7 +97,9 @@ class RecordingContext implements SceneContext2D {
   stroke(): void {
     this.#note('stroke')
   }
-  drawImage(): void {
+  readonly drawn: unknown[] = []
+  drawImage(image: unknown): void {
+    this.drawn.push(image)
     this.#note('drawImage')
   }
   createLinearGradient(): SceneGradient {
@@ -359,5 +367,95 @@ describe('ReefBackground', () => {
     reef.frame(0, 640, 360)
     reef.close()
     expect(reef.frame(1_000, 640, 360)).toBeNull()
+  })
+
+  it('draws the photographs once they arrive, and draws nothing of them before', () => {
+    const factory = canvasFactory()
+    const reef = new ReefBackground({ createCanvas: factory.create, ...opts() })
+    const sprites = [0, 1, 2].map((i) => ({ image: { fish: i }, width: 256, height: 170 }))
+    // Long enough that the shoal certainly has something in it.
+    for (let t = 0; t <= 6_000; t += 33) reef.frame(t, 640, 360)
+    const scene = factory.made[0]!
+    expect(scene.ctx.drawn.some((d) => sprites.some((s) => s.image === d))).toBe(false)
+
+    reef.setFishSprites(sprites)
+    scene.ctx.drawn.length = 0
+    for (let t = 6_033; t <= 7_000; t += 33) reef.frame(t, 640, 360)
+    expect(scene.ctx.drawn.some((d) => sprites.some((s) => s.image === d))).toBe(true)
+  })
+
+  it('falls back to the fish drawn in code when no photograph loaded', () => {
+    const factory = canvasFactory()
+    const reef = new ReefBackground({ createCanvas: factory.create, ...opts() })
+    for (let t = 0; t <= 6_000; t += 33) reef.frame(t, 640, 360)
+    // An ellipse is a body and an eye; the backdrop's corals are on their
+    // own canvas, so one here is a fish.
+    expect(factory.made[0]!.ctx.calls).toContain('ellipse')
+  })
+})
+
+describe('fish sprites', () => {
+  const fish = (variant: number, size = 0.06, direction: 1 | -1 = -1): Fish => ({
+    x: 0.5,
+    y: 0.4,
+    speed: 0.05,
+    size,
+    direction,
+    bobAmplitude: 0.005,
+    bobRate: 1,
+    wagRate: 4,
+    phase: 0,
+    variant,
+    palette: 0,
+  })
+
+  const sprites: FishSprite[] = [0, 1, 2, 3, 4, 5].map((i) => ({
+    image: { fish: i },
+    width: 256,
+    height: 170,
+  }))
+
+  it('picks one, the same one, every frame', () => {
+    const one = fish(0.42)
+    expect(spriteFor(one, sprites)).toBe(sprites[2])
+    expect(spriteFor(one, sprites)).toBe(sprites[2])
+  })
+
+  it('covers the whole set and never runs off the end', () => {
+    const seen = new Set(
+      Array.from({ length: 60 }, (_, i) => spriteFor(fish(i / 60), sprites)),
+    )
+    expect(seen.size).toBe(sprites.length)
+    expect(spriteFor(fish(1), sprites)).toBe(sprites[sprites.length - 1])
+  })
+
+  it('has nothing to pick from when nothing loaded', () => {
+    expect(spriteFor(fish(0.5), [])).toBeNull()
+  })
+
+  it('mirrors the ones swimming right, since the photographs face left', () => {
+    const canvas = new RecordingCanvas(640, 360)
+    drawFishSprite(canvas.ctx, fish(0.1, 0.06, 1), sprites[0]!, 640, 360, 0)
+    expect(canvas.ctx.calls).toContain('scale')
+    const left = new RecordingCanvas(640, 360)
+    drawFishSprite(left.ctx, fish(0.1, 0.06, -1), sprites[0]!, 640, 360, 0)
+    expect(left.ctx.calls).not.toContain('scale')
+  })
+
+  it('leaves the context clean for whatever is drawn next', () => {
+    const canvas = new RecordingCanvas(640, 360)
+    drawFishSprite(canvas.ctx, fish(0.1, 0.045), sprites[0]!, 640, 360, 0)
+    expect(canvas.ctx.filter).toBe('none')
+    expect(canvas.ctx.globalAlpha).toBe(1)
+  })
+
+  it('fades and softens the distant ones, and leaves the near ones alone', () => {
+    const far = depthOf(0.045)
+    const near = depthOf(0.087)
+    expect(far.alpha).toBeLessThan(near.alpha)
+    expect(near.alpha).toBe(1)
+    expect(far.blurPx).toBeGreaterThan(0)
+    // Nothing is paid for on the fish that would not benefit.
+    expect(near.blurPx).toBe(0)
   })
 })

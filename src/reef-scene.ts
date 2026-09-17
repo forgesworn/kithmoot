@@ -56,6 +56,7 @@ export interface SceneContext2D {
    *  here so a real context is assignable to this interface. */
   fillStyle: unknown
   strokeStyle: unknown
+  filter: string
   globalAlpha: number
   globalCompositeOperation: string
   lineWidth: number
@@ -142,13 +143,23 @@ export interface Fish {
   y: number
   /** Widths per second. */
   speed: number
-  /** Body length, as a fraction of the scene width. */
+  /** How wide it is drawn, as a fraction of the scene width. */
   size: number
   direction: 1 | -1
   bobAmplitude: number
   bobRate: number
   wagRate: number
   phase: number
+  /**
+   * Which fish this one is, as a number from 0 to 1.
+   *
+   * Not an index, because the shoal has no idea how many photographs turned
+   * up: it decides *which of them* at spawn time and the drawing side turns
+   * that into a subscript. Keeping it that way round means a sprite failing
+   * to load changes what is drawn and never when.
+   */
+  variant: number
+  /** Which drawn fish it would be, if no photograph is available. */
   palette: number
 }
 
@@ -243,14 +254,17 @@ export class ReefShoal {
       // Fifteen to thirty seconds to cross. Slower than that reads as a
       // screensaver that has stuck.
       speed: 0.034 + r() * 0.033,
-      // Big enough to be a fish rather than a speck once the frame has been
-      // through a call's encoder: a tenth of the width, near enough.
-      size: 0.07 + r() * 0.055,
+      // Small. A reef fish in open water is a long way off, and the first
+      // version of this drew them at a seventh of the frame, which reads as
+      // an aquarium pet with its nose against the lens rather than as
+      // something swimming past behind you.
+      size: 0.045 + r() * 0.042,
       direction,
       bobAmplitude: 0.004 + r() * 0.009,
       bobRate: 0.6 + r() * 0.7,
       wagRate: 3.2 + r() * 2.2,
       phase: r() * Math.PI * 2,
+      variant: r(),
       palette: Math.floor(r() * FISH_PALETTE.length) % FISH_PALETTE.length,
     }
   }
@@ -451,8 +465,83 @@ function drawMotes(ctx: SceneContext2D, width: number, height: number, t: number
   ctx.globalAlpha = 1
 }
 
-/** One fish, at the scene's own scale. Drawn around its own centre so the
- *  direction is a `scale(-1, 1)` and not a second set of coordinates. */
+/**
+ * A photograph of a fish, cut out, facing left.
+ *
+ * Facing left is a contract with the files rather than a preference: every
+ * sprite points the same way so "which way is it swimming" is one mirror
+ * rather than two sets of artwork.
+ */
+export interface FishSprite {
+  image: FrameSourceLike
+  width: number
+  height: number
+}
+
+/** Which of the loaded sprites this fish is. Deterministic, so the same
+ *  fish is the same fish for as long as it is on screen. */
+export function spriteFor(fish: Fish, sprites: readonly FishSprite[]): FishSprite | null {
+  if (sprites.length === 0) return null
+  const index = Math.floor(fish.variant * sprites.length)
+  return sprites[index < 0 ? 0 : index >= sprites.length ? sprites.length - 1 : index]!
+}
+
+/**
+ * Depth, as the two things that actually read as distance.
+ *
+ * A fish further away is smaller, paler against the water between you and
+ * it, and softer. Size is already decided; this turns it into the other
+ * two. The blur is a fraction of a pixel on a thirty-pixel sprite and only
+ * on the small ones, which is the difference between selling depth and
+ * paying for a filter on every fish in the scene.
+ */
+export function depthOf(size: number): { alpha: number; blurPx: number } {
+  const near = Math.min(1, Math.max(0, (size - 0.045) / 0.042))
+  return {
+    alpha: 0.72 + near * 0.28,
+    blurPx: near < 0.45 ? 0.6 : 0,
+  }
+}
+
+/**
+ * One photographed fish.
+ *
+ * Drawn about its own centre: the direction is a mirror, and the gentle
+ * nose-up-as-it-rises tilt has to be negated on the mirrored side or the
+ * fish swimming right would nose down as it climbed.
+ */
+export function drawFishSprite(
+  ctx: SceneContext2D,
+  fish: Fish,
+  sprite: FishSprite,
+  width: number,
+  height: number,
+  t: number,
+): void {
+  const w = fish.size * width
+  const h = sprite.width > 0 ? (w * sprite.height) / sprite.width : w
+  const x = fish.x * width
+  const y = (fish.y + Math.sin(t * fish.bobRate + fish.phase) * fish.bobAmplitude) * height
+  const tilt = Math.cos(t * fish.bobRate + fish.phase) * 0.1
+  const depth = depthOf(fish.size)
+
+  ctx.save()
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.globalAlpha = depth.alpha
+  if (depth.blurPx > 0) ctx.filter = `blur(${depth.blurPx}px)`
+  ctx.translate(x, y)
+  // The sprites face left, so the mirror is for the ones swimming right.
+  if (fish.direction === 1) ctx.scale(-1, 1)
+  ctx.rotate(fish.direction === 1 ? -tilt : tilt)
+  ctx.drawImage(sprite.image, -w / 2, -h / 2, w, h)
+  ctx.restore()
+  ctx.filter = 'none'
+  ctx.globalAlpha = 1
+}
+
+/** One fish drawn in code: the fallback for when no photograph loaded.
+ *  Drawn around its own centre so the direction is a `scale(-1, 1)` and not
+ *  a second set of coordinates. */
 export function drawFish(
   ctx: SceneContext2D,
   fish: Fish,
@@ -567,6 +656,7 @@ export class ReefBackground implements BackgroundSource {
 
   #image: FrameSourceLike | null = null
   #imageSize: { width: number; height: number } | null = null
+  #sprites: readonly FishSprite[] = []
   #backdropDirty = true
   #painted = false
   #stillPainted = false
@@ -595,6 +685,19 @@ export class ReefBackground implements BackgroundSource {
     this.#image = image
     this.#imageSize = size ?? null
     this.#backdropDirty = true
+    this.#stillPainted = false
+  }
+
+  /**
+   * The photographs to swim past, loaded once by whoever can load them.
+   *
+   * May be called late and may be called with fewer than expected: a sprite
+   * that did not arrive is simply not one of the fish, and with none at all
+   * the scene falls back to the fish drawn in code. Nothing here waits for
+   * them, so switching the fish on never delays a frame.
+   */
+  setFishSprites(sprites: readonly FishSprite[]): void {
+    this.#sprites = sprites
     this.#stillPainted = false
   }
 
@@ -741,8 +844,13 @@ export class ReefBackground implements BackgroundSource {
     }
 
     drawMotes(ctx, width, height, t)
-    for (const one of fish) drawFish(ctx, one, width, height, t)
+    for (const one of fish) {
+      const sprite = spriteFor(one, this.#sprites)
+      if (sprite) drawFishSprite(ctx, one, sprite, width, height, t)
+      else drawFish(ctx, one, width, height, t)
+    }
     ctx.globalAlpha = 1
+    ctx.filter = 'none'
     ctx.globalCompositeOperation = 'source-over'
   }
 }

@@ -6,7 +6,7 @@ import {
   type FrameAction,
   type VideoEffectState,
 } from '../../src/video-effects.js'
-import { ReefBackground } from '../../src/reef-scene.js'
+import { ReefBackground, type FishSprite } from '../../src/reef-scene.js'
 import { createSegmenter } from './mediapipe-segmenter.js'
 
 /**
@@ -103,6 +103,52 @@ export function prefersReducedMotion(): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * The fish, as photographs.
+ *
+ * Six files, fifty kilobytes the lot, fetched the first time somebody
+ * switches the fish on and never again - the promise is the cache, so a
+ * second camera or a second call reuses the decoded images rather than
+ * going back for them.
+ *
+ * Every one is loaded independently and a failure is dropped rather than
+ * thrown: five fish is a slightly smaller reef, and none at all falls back
+ * to the ones drawn in code, but neither is a reason to take somebody's
+ * background away mid-call.
+ */
+const FISH_SPRITES = [
+  'tang',
+  'clownfish',
+  'regal',
+  'damsel',
+  'butterfly',
+  'anthias',
+] as const
+
+let fishSprites: Promise<FishSprite[]> | null = null
+
+export function loadFishSprites(): Promise<FishSprite[]> {
+  if (fishSprites) return fishSprites
+  const loading: Promise<FishSprite[]> = Promise.all(
+    FISH_SPRITES.map(async (name): Promise<FishSprite | null> => {
+      const image = new Image()
+      image.decoding = 'async'
+      try {
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve()
+          image.onerror = () => reject(new Error(`could not load the ${name} sprite`))
+          image.src = `${import.meta.env.BASE_URL}backgrounds/fish/${name}.webp`
+        })
+      } catch {
+        return null
+      }
+      return { image, width: image.naturalWidth, height: image.naturalHeight }
+    }),
+  ).then((all) => all.filter((sprite): sprite is FishSprite => sprite !== null))
+  fishSprites = loading
+  return loading
 }
 
 /** A bundled still, decoded. Fetched only when something asks for it. */
@@ -393,6 +439,13 @@ export class CameraPipeline {
         reducedMotion: prefersReducedMotion,
       })
       this.#effect.setBackgroundSource(reef)
+      // Not awaited: the scene starts this frame, with no fish in it for the
+      // moment, which is what it looks like most of the time anyway.
+      loadFishSprites()
+        .then((sprites) => {
+          if (this.#backgroundGeneration === generation) reef.setFishSprites(sprites)
+        })
+        .catch(() => {})
       try {
         const image = await loadBackgroundImage(choice)
         if (this.#backgroundGeneration !== generation) return
