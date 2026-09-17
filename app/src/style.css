@@ -3360,14 +3360,25 @@ button.primary:hover:not(:disabled) {
 @media (min-width: 900px) {
   #room.sharing {
     display: flex;
+    flex: 1 1 auto;
     flex-wrap: wrap;
-    align-items: flex-start;
+    align-items: stretch;
     gap: .6rem;
-    --tile-cam: 18rem;
+    min-height: 0;
+    /* Modest and fixed, scaling a little with the window rather than a
+       plain constant: a face is context for the screen beside it, not
+       the other half of it. The screen must stay the wider of the two
+       even with the chat drawer open and the app's own sidebar taking
+       its share too, so this is deliberately conservative. */
+    --tile-cam: clamp(7rem, 9vw, 12rem);
   }
   #room.sharing .participant {
     flex: 0 0 var(--tile-cam);
     min-width: 0;
+    /* Only a sharer's tile stretches to the row's full height (below); a
+       plain camera tile without a share keeps its own height, or it would
+       show as a tall, mostly empty box next to a full one. */
+    align-self: flex-start;
   }
   /* Basis 0, not a nominal width: with a real width here two sharers on a
      narrower desktop window - especially the installed app, which keeps a
@@ -3375,31 +3386,86 @@ button.primary:hover:not(:disabled) {
      available row and wrapped one below the other regardless of how much
      grow they were given. Basis 0 leaves the wrap decision to `min-width`
      alone, and growth free to fill whatever is actually left. */
+  /* One fixed-height line, always: a longer name, a wrapped line, or a
+     taller badge (a verify chip, "one person") used to leave a shorter
+     heading on one tile than the other, and whichever tile had less
+     heading grew a visibly taller camera to make up the difference. A
+     locked height keeps both cameras the same regardless of what either
+     heading has to say - a badge taller than the line is clipped rather
+     than pushing the row below it out of alignment. */
+  #room.sharing .participant:has(video.screenPreview) > h3 {
+    flex: 0 0 auto;
+    height: 1.6rem;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
   #room.sharing .participant:has(video.screenPreview) {
     flex: 1 1 0;
     min-width: calc(var(--tile-cam) + 6rem);
     width: auto;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  /* Fixed for the same reason as the heading above it: your own tile's
+     track chips ("mic - live mic") and a remote tile's (often none, until
+     its own chip logic has something to say) are not the same height, and
+     that difference used to come straight out of the camera below it. */
+  #room.sharing .participant:has(video.screenPreview) > .tracks {
+    flex: 0 0 auto;
+    height: 1.9rem;
+    overflow: hidden;
   }
   #room.sharing .participant:has(video.screenPreview) .media {
     display: flex;
     flex-wrap: nowrap;
-    align-items: flex-start;
+    align-items: stretch;
     gap: .4rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
   }
   /* Left, then right, by `order` rather than by DOM position: a screen
      share's `<video>` can land in the holder before or after its camera's,
      depending on which track negotiated first, and the layout should not
-     depend on that race. */
+     depend on that race. The camera stays a fixed, modest width and crops
+     to fill the row's height, same as always; the screen is the thing
+     people are actually reading, so it takes the rest of the width and
+     the full height, and keeps its own aspect rather than being cropped
+     to fit - letterboxed if it has to be, never cut off. */
   #room.sharing .participant:has(video.screenPreview) .media video:not(.screenPreview) {
     order: 1;
     flex: 0 0 var(--tile-cam);
     width: var(--tile-cam);
+    height: 100%;
+    aspect-ratio: auto;
   }
   #room.sharing .participant:has(video.screenPreview) .media video.screenPreview {
     order: 2;
     flex: 1 1 auto;
     min-width: 0;
+    width: auto;
+    height: 100%;
     max-height: none;
+  }
+  /* The "This device" / "Device 2" caption used to sit above the picture;
+     now the picture is as tall as the row, so the caption floats over its
+     top-left corner instead of squeezing into the flex row as a narrow
+     column of wrapped text. */
+  #room.sharing .participant:has(video.screenPreview) .media[data-camera-label]:not([data-camera-label=""])::before {
+    position: absolute;
+    top: .3rem;
+    left: .3rem;
+    z-index: 1;
+    background: rgb(0 0 0 / 55%);
+    color: #fff;
+    padding: .1rem .4rem;
+    border-radius: 4px;
+    font-size: .75rem;
   }
   /* A share with no camera behind it still reads as somebody's: the name
      that would sit under a camera sits in its place instead. See
@@ -3412,7 +3478,6 @@ button.primary:hover:not(:disabled) {
     display: flex;
     align-items: center;
     justify-content: center;
-    aspect-ratio: 4 / 3;
     border: 1px dashed var(--border);
     border-radius: 8px;
     padding: .4rem;

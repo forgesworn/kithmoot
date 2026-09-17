@@ -43,7 +43,29 @@ html[data-desktop] #chatDrawerToggle { display: none; }
      width transition rather than a transform, so the stage genuinely gets
      its room back when the drawer is shut, not just the appearance of it. */
   html[data-desktop] .desktopRoomContent { flex-direction: row; align-items: stretch; }
-  html[data-desktop] .desktopRoomContent #callStage { flex: 1 1 auto; min-width: 0; }
+  html[data-desktop] .desktopRoomContent #callStage {
+    flex: 1 1 auto;
+    min-width: 0;
+    /* Column, and stretched by the row above: without this, `#callStage`
+       stayed a plain block sized to its own content, so a shared screen
+       sat in the top third of the window with the rest of it empty. Now
+       the call area itself is the height of the stage, and `#whoIsHere`
+       (then `#room`) is told to fill whatever `#callBay`'s controls
+       leave behind. */
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  html[data-desktop] .desktopRoomContent #callStage > #whoIsHere:not([hidden]) {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  html[data-desktop] .desktopRoomContent #whoIsHere #room {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
   html[data-desktop] .desktopConversation {
     flex: 0 0 auto;
     width: 0;
@@ -52,7 +74,7 @@ html[data-desktop] #chatDrawerToggle { display: none; }
     transition: width .18s ease;
   }
   html[data-desktop] .desktopConversation[data-open="true"] {
-    width: min(24rem, 40%);
+    width: min(20rem, 32%);
     border-left: 1px solid var(--border);
     padding-left: 1rem;
   }

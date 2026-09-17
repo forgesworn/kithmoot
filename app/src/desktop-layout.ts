@@ -30,7 +30,10 @@ if (import.meta.env.VITE_DESKTOP === 'true') {
   }
   toggle.addEventListener('click', () => setOpen(conversation.dataset.open !== 'true'))
   document.getElementById('roomMenu')?.before(toggle)
-  setOpen(loadDrawerOpen(window.localStorage, false))
+  // Open by default: chat has always been there on desktop, and a closed
+  // default would quietly take it away from everyone upgrading into this.
+  // Only a person who actually closes it once gets the closed default back.
+  setOpen(loadDrawerOpen(window.localStorage, true))
 
   const progress = document.createElement('div')
   progress.id = 'roomSwitchProgress'

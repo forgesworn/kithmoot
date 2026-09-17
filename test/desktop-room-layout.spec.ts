@@ -60,6 +60,9 @@ test('two sharers sit beside their own cameras, level with each other, and the c
       // The share sits to the right of its own owner's camera, same row.
       expect(shareBox.x, 'the share is not to the right of its own camera').toBeGreaterThanOrEqual(camBox.x + camBox.width - 2)
       expect(Math.abs(shareBox.y - camBox.y), 'the share is not on the same row as its camera').toBeLessThanOrEqual(4)
+      // The screen is what people are reading; the camera is a modest,
+      // fixed-width strip of context beside it, not the other half of it.
+      expect(shareBox.width, 'the share is not wider than its own camera').toBeGreaterThan(camBox.width)
     }
 
     // Equal faces: the two cameras are one uniform size, whoever is sharing.
@@ -72,22 +75,24 @@ test('two sharers sit beside their own cameras, level with each other, and the c
     // the stacking this asserts against, which differs by a tile height.
     expect(Math.abs(cameraBoxes[0].y - cameraBoxes[1].y), 'the two sharers are not on the same row').toBeLessThanOrEqual(12)
 
-    // The chat drawer: closed by default, and toggling it changes the
-    // room's own width rather than merely floating over it unchanged.
+    // The chat drawer: open by default (chat has always been there on
+    // desktop; a closed default would quietly take it away), and toggling
+    // it changes the room's own width rather than merely floating over it
+    // unchanged.
     const toggle = pageA.locator('#chatDrawerToggle')
     await expect(toggle).toBeVisible()
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     const stage = pageA.locator('#callStage')
-    const closedWidth = (await stage.boundingBox())!.width
+    const openWidth = (await stage.boundingBox())!.width
+
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(pageA.locator('#chatDrawer')).toHaveJSProperty('dataset.open', 'false')
+    await expect.poll(async () => (await stage.boundingBox())!.width).toBeGreaterThan(openWidth + 20)
 
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    await expect(pageA.locator('#chatDrawer')).toHaveJSProperty('dataset.open', 'true')
-    await expect.poll(async () => (await stage.boundingBox())!.width).toBeLessThan(closedWidth - 20)
-
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await expect.poll(async () => (await stage.boundingBox())!.width).toBeGreaterThanOrEqual(closedWidth - 2)
+    await expect.poll(async () => (await stage.boundingBox())!.width).toBeLessThanOrEqual(openWidth + 2)
   } finally {
     await a.close()
     await b.close()
