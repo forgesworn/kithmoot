@@ -124,6 +124,10 @@
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share"><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
             </div>
             <p id="micIndicator" class="indicator"></p>
+            <!-- Another of this device's own tabs holds the microphone.
+                 Filled in by `render` in app/src/main.ts alongside
+                 `micIndicator`; hidden whenever this tab holds it. -->
+            <button id="claimMic" type="button" class="quiet" hidden>Use the microphone on this device instead</button>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
                  no audio track: Firefox, Safari, a window share, or the box
@@ -223,6 +227,21 @@
              screen it costs and an empty box is not. See `#whoIsHere` in
              style.css. -->
         <div id="whoIsHere">
+          <!-- The browser blocked remote sound because nobody has tapped
+               this page yet - the update-and-rejoin path is the one that
+               matters. Muted video still plays, so this is the only sign a
+               person gets that they can see faces and hear nobody. Filled
+               in by `renderAutoplayBanner` in app/src/main.ts. -->
+          <div id="autoplayBanner" class="autoplayBanner" role="status" aria-live="polite" hidden>
+            <button id="autoplayBannerButton" type="button">Your browser has paused the sound. Tap to hear everyone.</button>
+          </div>
+          <!-- This room's call is open in another tab of this browser, on
+               the same account. Filled in by `renderCallTabNotice` in
+               app/src/main.ts. -->
+          <div id="callTabNotice" class="callTabNotice" role="status" hidden>
+            <span id="callTabNoticeText"></span>
+            <button id="callTabNoticeTake" type="button">Take the call here</button>
+          </div>
           <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
           <div id="room"></div>
         </div>

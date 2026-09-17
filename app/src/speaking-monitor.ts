@@ -143,6 +143,17 @@ export class SpeakingMonitor {
   }
 
   /**
+   * Call from a user gesture, alongside `RemoteVolume.resume`: this
+   * context can be the one blocked by the autoplay policy along with the
+   * `<audio>` elements themselves, and a suspended analyser reads silence
+   * for ever without ever throwing to say so. Safe to call whether or not
+   * a context has been opened yet.
+   */
+  resume(): void {
+    if (this.#context && this.#context.state !== 'running' && this.#context.state !== 'closed') void this.#context.resume().catch(() => {})
+  }
+
+  /**
    * Reads every analyser once. Exposed so a test can step the clock rather
    * than wait for a timer.
    */

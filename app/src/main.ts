@@ -51,6 +51,8 @@ import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { RemoteVolume } from './remote-volume.js'
+import { AutoplayBannerState } from './autoplay-banner.js'
+import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
 import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
 import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
@@ -3157,6 +3159,65 @@ function newCallId(): string {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(16)))
 }
 
+// ---------------------------------------------------------------------------
+// One call per device, across this browser's tabs
+//
+// Two tabs signed in as the same account share one device key - see
+// room-tabs.ts, which coordinates the same fact for leaving a room outright.
+// This is the narrower, more damaging case: both tabs open on the same
+// room, and the one not on the call keeps heartbeating "no tracks" under
+// the identical device key - see Session.pausePresence for why that orphans
+// the other tab's live media. call-tab-lock.ts is the wire protocol; this is
+// how the app answers it: whichever tab is not the call holder for this
+// room's device key goes quiet and says so.
+// ---------------------------------------------------------------------------
+
+/** The call-tab-lock key for this device's call on the current room, or
+ *  undefined outside a room. */
+function callLockKey(): string | undefined {
+  const roomId = currentRoomId()
+  return roomId && myDeviceId ? `${roomId}|${myDeviceId}` : undefined
+}
+
+/** The call-tab-lock key another tab currently holds for this device, if
+ *  this tab knows of one - cleared the moment it is freed or this tab takes
+ *  it back. */
+let heldElsewhereKey: string | undefined
+
+function renderCallTabNotice(): void {
+  const held = heldElsewhereKey !== undefined && heldElsewhereKey === callLockKey()
+  const notice = $('callTabNotice')
+  notice.hidden = !held
+  if (held) $('callTabNoticeText').textContent = "This room's call is open in another tab."
+}
+
+const callTabLock = new CallTabLock({
+  onPreempted: (key) => {
+    if (key !== callLockKey()) return
+    heldElsewhereKey = key
+    leaveCall('preempted').then(() => {
+      session?.pausePresence()
+      renderCallTabNotice()
+    }).catch(() => {})
+  },
+  onHeldElsewhere: (key) => {
+    if (key !== callLockKey() || onCall()) return
+    heldElsewhereKey = key
+    session?.pausePresence()
+    renderCallTabNotice()
+  },
+  onFreed: (key) => {
+    if (key !== heldElsewhereKey) return
+    heldElsewhereKey = undefined
+    session?.resumePresence()
+    renderCallTabNotice()
+  },
+})
+
+$('callTabNoticeTake').addEventListener('click', () => {
+  joinCall().catch((err) => setStatus(describeError(err)))
+})
+
 /** Start a call, or join the one that is on. The same act: say which call
  *  this device is on. Nothing is switched on by joining; the controls are. */
 async function joinCall(): Promise<void> {
@@ -3171,6 +3232,15 @@ async function joinCall(): Promise<void> {
   await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
   setCallOpen(true)
   void callWakeLock.acquire()
+  // Claiming the call for this device's key sends every other tab of this
+  // device in this room quiet on it - see the CallTabLock handlers above.
+  const key = callLockKey()
+  if (key) {
+    heldElsewhereKey = undefined
+    s.resumePresence()
+    callTabLock.claim(key)
+  }
+  renderCallTabNotice()
   updateUi()
 }
 
@@ -3192,8 +3262,12 @@ function stopLocalMedia(): void {
   localPreviewEls.clear()
 }
 
-/** Off the call. The room, and everybody else's call, carry on. */
-async function leaveCall(): Promise<void> {
+/** Off the call. The room, and everybody else's call, carry on.
+ *
+ *  `reason: 'preempted'` is another tab of this device taking the call:
+ *  everything here still applies - stop media, say we are off - except
+ *  releasing the tab lock, which the other tab already holds. */
+async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
   const s = session
   stopLocalMedia()
   speakingMonitor.retain([...remoteAudios.keys()])
@@ -3203,6 +3277,12 @@ async function leaveCall(): Promise<void> {
   if (s) await s.setCall(null)
   setCallOpen(false)
   void callWakeLock.release()
+  autoplayBanner.hide()
+  renderAutoplayBanner()
+  if (reason === 'user') {
+    const key = callLockKey()
+    if (key) callTabLock.release(key)
+  }
   updateUi()
   if (session) render(session.participants(), meParticipant)
 }
@@ -4295,15 +4375,17 @@ function render(views: ParticipantView[], me: string): void {
     ;($('listenHere') as HTMLButtonElement).hidden = !twoDevices || monitorHere
   }
   const micEl = $('micIndicator')
+  const micElsewhere = mine?.mic !== undefined && mine.mic !== myDeviceId
   if (mine?.mic) {
     micEl.textContent = mine.mic === myDeviceId
       ? (micTrack?.enabled ? 'Mic: this device' : 'Mic: this device (muted)')
-      : 'Mic: your other device'
+      : 'Your microphone is on your other device.'
     micEl.classList.toggle('mine', mine.mic === myDeviceId)
   } else {
     micEl.textContent = micTrack ? 'Mic: on, not yet claimed' : 'Mic: off'
     micEl.classList.remove('mine')
   }
+  ;($('claimMic') as HTMLButtonElement).hidden = !micElsewhere
 
   renderAssist()
 
@@ -7128,6 +7210,52 @@ function paintSpeaking(): void {
 
 const remoteVolume = new RemoteVolume()
 
+// ---------------------------------------------------------------------------
+// The browser has paused the sound
+//
+// A device that has never had a gesture on this page - the update-and-rejoin
+// path is the one that matters, but any future one counts too - gets muted
+// video, which the autoplay policy allows, and remote audio that silently
+// does not play. See app/src/autoplay-banner.ts for the decision; this is
+// the browser half - the banner, and one tap resuming everything blocked.
+// ---------------------------------------------------------------------------
+
+const autoplayBanner = new AutoplayBannerState()
+
+function renderAutoplayBanner(): void {
+  $('autoplayBanner').hidden = !autoplayBanner.visible
+}
+
+function reportAutoplayBlock(error: unknown): void {
+  const activation = (navigator as Navigator & { userActivation?: UserActivation }).userActivation
+  const shown = autoplayBanner.blocked(error, { onCall: onCall(), audioDeliberatelyMuted: !cachedMonitorHere || leftCall }, activation)
+  if (shown) renderAutoplayBanner()
+}
+
+/** One tap resumes every remote `<audio>` this page has paused, and the two
+ *  AudioContexts that can also be caught by the same policy: the gain path
+ *  a loud slider opens in `RemoteVolume`, and the analyser behind the
+ *  speaking indicator. Never the thing that leaves the banner up for a
+ *  reason it cannot explain: a play() that still fails here shows the
+ *  banner again, via the same `reportAutoplayBlock` path. */
+function resumeBlockedAudio(): void {
+  remoteVolume.resume()
+  speakingMonitor.resume()
+  for (const { el } of remoteAudios.values()) {
+    if (!el.paused) continue
+    void el.play().then(
+      () => { autoplayBanner.resumed(); renderAutoplayBanner() },
+      (err) => reportAutoplayBlock(err),
+    )
+  }
+  // Nothing was paused - a track arriving just as this was pressed, say.
+  // The tap still counts as a gesture and the banner still has no reason
+  // left to be up.
+  if ([...remoteAudios.values()].every(({ el }) => !el.paused)) { autoplayBanner.resumed(); renderAutoplayBanner() }
+}
+
+$('autoplayBannerButton').addEventListener('click', resumeBlockedAudio)
+
 /** This device's own opinion of how loud each other participant is, from 0
  *  (silenced for this device) to 2 (200%). 1 is the untouched default and
  *  is never written to storage - see volume-store.ts. */
@@ -7225,7 +7353,7 @@ function parkPicture(el: HTMLVideoElement): void {
 function restoreRemoteElement(el: HTMLMediaElement, container: HTMLElement): void {
   const detached = !el.isConnected
   container.append(el)
-  if (detached) void el.play().catch(() => { /* A later user gesture can resume blocked playback. */ })
+  if (detached) void el.play().catch((err) => { if (el instanceof HTMLAudioElement) reportAutoplayBlock(err) })
 }
 
 /** Whether this picture is currently on screen, in its own device's tile. */
@@ -7489,7 +7617,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.srcObject = new MediaStream([track])
       if (existing) existing.track = track
     }
-    if (!leftCall && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
+    if (!leftCall && el.paused) void el.play().catch((err) => reportAutoplayBlock(err))
     // Tap it for the speaking indicator. Keyed by device rather than by
     // track, so a device sending both a microphone and its screen's audio
     // lights its tile from whichever is making noise - which is what a
@@ -7968,6 +8096,22 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     if (lastHiddenAt >= poolCreatedAt) await pool.probe().catch(() => {})
     await s.join(currentAdverts(), currentClaims())
     if (session !== s) return
+    // Another tab of this browser, same account, may already be on this
+    // room's call under the identical device key - see call-tab-lock.ts.
+    // Asked once, now, because a fresh tab's own heartbeat asserting no
+    // tracks is exactly the contradiction that orphans that tab's live
+    // media a few seconds later.
+    {
+      const lockKey = callLockKey()
+      if (lockKey) {
+        callTabLock.askHeldElsewhere(lockKey).then((held) => {
+          if (!held || session !== s || callLockKey() !== lockKey || onCall()) return
+          heldElsewhereKey = lockKey
+          s.pausePresence()
+          renderCallTabNotice()
+        }).catch(() => {})
+      }
+    }
     requeueQuiet(s)
     // A reply draft reads its original message from the new session. Its
     // logs must exist before restoring that context.
@@ -8798,6 +8942,11 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   chatScroll.suspend()
   ++roomGeneration
   const old = session
+  {
+    const key = callLockKey()
+    if (key) callTabLock.release(key)
+    if (heldElsewhereKey !== undefined) { heldElsewhereKey = undefined; renderCallTabNotice() }
+  }
   const transport = sessionTransport
   persistQuiet()
   session = undefined
@@ -9515,6 +9664,9 @@ $('listenHere').addEventListener('click', () => {
   monitorClaimedAt = nowSeconds()
   publishActiveTracks()
   updateUi()
+})
+$('claimMic').addEventListener('click', () => {
+  toggleMic().catch((err) => setStatus(describeError(err)))
 })
 
 // The way back into the room this tab just left. A fragment-only change is
