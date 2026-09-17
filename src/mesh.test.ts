@@ -93,6 +93,82 @@ describe('Mesh', () => {
     mesh.close()
   })
 
+  it('rebuilds a peer at once when the far end is a different page session under the same device key', async () => {
+    // Two tabs of one browser sign as the same device, so the endpoint key
+    // is unchanged while the endpoint itself is a physically different
+    // connection that cannot take over a transport it was never party to.
+    // Left to the route ladder, this pair waited out its timers while a
+    // live person was audible to nobody - see `RosterEntry.sid`.
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const remoteParticipant = device().pub
+    const remote = device()
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+
+    session.setViews([{ ...view(remoteParticipant, [remote.pub]), sids: { [remote.pub]: 'aaaaaaaa' } }])
+    await settle()
+    const first = factory.instances.at(-1)!
+    expect(factory.instances).toHaveLength(1)
+
+    // The same device restating the same page session changes nothing: a
+    // working connection is not rebuilt on every heartbeat.
+    session.setViews([{ ...view(remoteParticipant, [remote.pub]), sids: { [remote.pub]: 'aaaaaaaa' } }])
+    await settle()
+    expect(factory.instances).toHaveLength(1)
+    expect(first.closed).toBe(false)
+
+    // A different page session of the same device: closed and rebuilt now.
+    session.setViews([{ ...view(remoteParticipant, [remote.pub]), sids: { [remote.pub]: 'bbbbbbbb' } }])
+    await settle()
+    expect(first.closed).toBe(true)
+    expect(factory.instances).toHaveLength(2)
+    expect(factory.instances.at(-1)!.closed).toBe(false)
+    expect(mesh.directPeers).toBe(1)
+
+    // A far end that never names a page session is no news at all, and one
+    // that starts naming one mid-room is not a reason to churn a working
+    // connection either.
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    await settle()
+    expect(factory.instances).toHaveLength(2)
+    expect(factory.instances.at(-1)!.closed).toBe(false)
+    mesh.close()
+  })
+
+  it('stands down for another page session of this device, and takes the mesh back when it stands up', async () => {
+    // Both tabs unwrap every signal addressed to the shared device key, and
+    // the far end has one connection per device key to give. A tab that is
+    // not the one speaking for this device answers nothing.
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const remoteParticipant = device().pub
+    const remote = device()
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    await settle()
+    const first = factory.instances.at(-1)!
+    expect(mesh.directPeers).toBe(1)
+
+    mesh.standDown()
+    await settle()
+    expect(first.closed).toBe(true)
+    expect(mesh.directPeers).toBe(0)
+    // And no new one while it stays quiet, however the roster moves.
+    session.setViews([view(remoteParticipant, [remote.pub, device().pub])])
+    await settle()
+    expect(mesh.directPeers).toBe(0)
+
+    mesh.standUp()
+    await settle()
+    expect(mesh.directPeers).toBe(2)
+    mesh.close()
+  })
+
   it('connects our other device without connecting this device to itself', () => {
     const session = new FakeSession()
     const factory = createFakeFactory()

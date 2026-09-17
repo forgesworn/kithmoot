@@ -183,6 +183,25 @@ export interface RosterEntry {
   name?: string
   /** This endpoint. */
   device: string
+  /**
+   * Which page session of `device` published this, when it said.
+   *
+   * Eight lower-case hex characters, minted once per page session and never
+   * reused. A device key is per browser profile, not per tab: two tabs of
+   * one room sign as the same device, so without this they are one identity
+   * on the wire and the later heartbeat silently replaces the earlier one -
+   * including the one carrying live media. Readers therefore treat
+   * `device|sid` as the presence identity: two tabs are two entries, a
+   * farewell removes only the tab that sent it, and a peer connection is
+   * bound to the page session it was negotiated with rather than to the
+   * device key, because a new page session is a physically different
+   * endpoint that cannot take over a transport it was never party to.
+   *
+   * Absent means unknown, and is treated exactly as this field never
+   * existed - one entry per device, last writer wins. So the wire stays
+   * byte-identical for a client that has never heard of it.
+   */
+  sid?: string
   /** Proof that `device` speaks for `participant` in this room. */
   credential: DeviceCredential
   /** This participant's kindred proof, so every other member can evaluate

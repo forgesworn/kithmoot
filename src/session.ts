@@ -7,7 +7,7 @@ import { hexEquals, normaliseHex } from './hex.js'
 import type { ParticipantIdentity } from './identity.js'
 import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
 import { sanitiseDisplayName } from './display-name.js'
-import { encodeRosterEvent, decodeRosterEvent } from './roster.js'
+import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid } from './roster.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
 import { evaluateAccess, evaluateAgentAccess } from './access.js'
@@ -61,6 +61,18 @@ export interface ParticipantView {
    */
   name?: string
   devices: string[]
+  /**
+   * The page session each of those devices is currently to be dealt with
+   * as, for the devices that said - see `RosterEntry.sid`. A connection is
+   * to a page session, not to a device key: when this changes for a device,
+   * the far end is a physically different endpoint and whatever was open to
+   * the old one is finished, whatever the roster still says about the
+   * device itself.
+   *
+   * Absent for a device that publishes no `sid`, which is every client from
+   * before the field existed.
+   */
+  sids?: Record<string, string>
   tracks: Array<TrackAdvert & { device: string }>
   /**
    * Offers this person's devices have made to relay for the room.
@@ -110,6 +122,15 @@ export interface RoomSessionBaseOptions {
   deviceSk: Uint8Array
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
+  /**
+   * This page session's id, published on every entry - see `RosterEntry.sid`.
+   *
+   * One is minted per session if none is given, which is the right default:
+   * a session object is a page session, and two of them for one device key
+   * are two endpoints whatever made them. Injectable so tests can name it,
+   * and so a host that already has a stable per-process id can use that.
+   */
+  sid?: string
   /** Builds an `RTCPeerConnectionLike` for each remote device. Omit to run
    *  the session with no media - roster, access and chat still work, but
    *  `publishTracks`/`onRemoteTrack` become no-ops. */
@@ -356,6 +377,15 @@ export class RoomSession {
    *  identity's pubkey; on a secondary it is read off the credential,
    *  which is the only thing that could have told us. */
   readonly participant: string
+  /** This page session's id, published on every entry and the second half
+   *  of this session's presence identity. See `RosterEntry.sid`. */
+  readonly sid: string
+  /** The key this session's own entry is held under - see `presenceKey`.
+   *  Another page session of the same device is a different key, and is
+   *  swept, answered and remembered like any other endpoint. */
+  #selfKey(): string {
+    return `${this.device}|${this.sid}`
+  }
   #roomKey: Uint8Array
   #opts: RoomSessionOptions
   #now: () => number
@@ -459,6 +489,7 @@ export class RoomSession {
     opts.transport.rekey?.(this.#epoch.key.slice())
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.device = getPublicKey(opts.deviceSk)
+    this.sid = sanitiseSid(opts.sid) ?? newSid()
     this.#name = sanitiseDisplayName(opts.name)
     this.#assist = opts.assist
 
@@ -994,9 +1025,13 @@ export class RoomSession {
     if (this.#opts.authority && !hexEquals(authority, this.#opts.authority)) throw new Error('only the room authority can rekey it')
     const removed = [...new Set((opts.removed ?? []).map(normaliseHex))].sort()
     const next: RoomEpoch = { epoch: this.#epoch.epoch + 1, secret: generateEpochSecret() }
-    const recipients = [...this.#entries.values()]
-      .filter((e) => e.device !== this.device && !removed.includes(e.participant) && !this.#removed.has(e.participant))
-      .map((e) => e.device)
+    // Deduplicated: a device with two tabs of this room open is two roster
+    // entries and still exactly one key to seal the epoch to.
+    const recipients = [...new Set(
+      [...this.#entries.values()]
+        .filter((e) => e.device !== this.device && !removed.includes(e.participant) && !this.#removed.has(e.participant))
+        .map((e) => e.device),
+    )]
     const now = this.#now()
     const event = encodeRekeyEvent({
       roomId: this.roomId,
@@ -1217,6 +1252,7 @@ export class RoomSession {
     const entry: RosterEntry = {
       participant: this.participant,
       device: this.device,
+      sid: this.sid,
       credential: self.credential,
       tracks: self.tracks,
       claims: self.claims,
@@ -1259,9 +1295,9 @@ export class RoomSession {
     const cutoff = now - (this.#opts.timing?.presenceTtlSeconds ?? PRESENCE_TTL_SECONDS)
     let changed = false
 
-    for (const [device, entry] of this.#entries) {
-      if (device === this.device) continue
-      let lapsed = (this.#seenAt.get(device) ?? entry.updatedAt) < cutoff
+    for (const [key, entry] of this.#entries) {
+      if (key === this.#selfKey()) continue
+      let lapsed = (this.#seenAt.get(key) ?? entry.updatedAt) < cutoff
       // Media still flowing from a device is stronger evidence that it is
       // here than a heartbeat carried by a third party's relay. A tab in the
       // background has its timers throttled; a relay drops a socket and
@@ -1273,14 +1309,18 @@ export class RoomSession {
       // authority on its own health: when it really goes, ICE says so within
       // a few tens of seconds, the route stops reading connected, and the
       // ordinary timeout takes over from there.
-      if (lapsed && this.#mesh?.routes.get(device)?.connected) {
-        this.#seenAt.set(device, now)
+      // The reprieve belongs to the page session the connection is actually
+      // with, which is the freshest entry that device has published. A tab
+      // that was closed without a farewell would otherwise be held here for
+      // ever by the media its successor tab is sending.
+      if (lapsed && this.#isCurrentSession(entry) && this.#mesh?.routes.get(entry.device)?.connected) {
+        this.#seenAt.set(key, now)
         lapsed = false
       }
       const credentialExpired = !verifyDeviceCredential(entry.credential, { roomId: this.roomId, now }).ok
       if (!lapsed && !credentialExpired) continue
-      this.#entries.delete(device)
-      this.#seenAt.delete(device)
+      this.#entries.delete(key)
+      this.#seenAt.delete(key)
       // Forgetting a departed device is what lets a genuine rejoin be
       // answered again later without reopening the announce loop: they are
       // gone, so the next thing we hear from them really is an arrival.
@@ -1289,21 +1329,32 @@ export class RoomSession {
     // Under the agent rule, an agent goes with its principal: the proof
     // said whose it was, and that person is not here any more.
     if (this.#opts.policy?.agents === 'owned-by-members') {
-      for (const [device, entry] of this.#entries) {
-        if (device === this.device) continue
+      for (const [key, entry] of this.#entries) {
+        if (key === this.#selfKey()) continue
         if (evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p)).admitted) continue
-        this.#entries.delete(device)
-        this.#seenAt.delete(device)
+        this.#entries.delete(key)
+        this.#seenAt.delete(key)
         changed = true
       }
     }
     // A farewell only needs remembering for as long as an entry from before
     // it could still be delivered and still be fresh.
-    for (const [device, leftAt] of this.#departed) {
-      if (leftAt < cutoff) this.#departed.delete(device)
+    for (const [key, leftAt] of this.#departed) {
+      if (leftAt < cutoff) this.#departed.delete(key)
     }
 
     return changed
+  }
+
+  /** Whether this entry is the freshest one its device has published: the
+   *  page session another member is currently dealing with. Trivially true
+   *  for a device with one tab open, which is nearly all of them. */
+  #isCurrentSession(entry: RosterEntry): boolean {
+    for (const other of this.#entries.values()) {
+      if (other === entry || other.device !== entry.device) continue
+      if (other.updatedAt > entry.updatedAt) return false
+    }
+    return true
   }
 
   /** Schedule one answer to a new arrival, jittered. Coalesced: an answer
@@ -1386,17 +1437,28 @@ export class RoomSession {
    *
    * The device's last-published entry is left standing; nothing here says
    * it has gone. Safe to call repeatedly.
+   *
+   * Signalling goes quiet with the heartbeat, and for the same reason. Two
+   * tabs share a device key on the wire as well as in the roster: both
+   * unwrap every offer addressed to it and both can answer, and the far end
+   * has one connection per device key to give. A quiet tab that wins that
+   * race answers with a connection carrying nothing, and the person talking
+   * in the other tab is audible to nobody until somebody rejoins. So a
+   * session that has stopped speaking for this device stops speaking for it
+   * altogether - see `Mesh.standDown`.
    */
   pausePresence(): void {
+    this.#mesh?.standDown()
     if (this.#heartbeatTimer === undefined) return
     clearInterval(this.#heartbeatTimer)
     this.#heartbeatTimer = undefined
   }
 
-  /** Restart the heartbeat `pausePresence` stopped. A no-op once the
-   *  session has left, or if the heartbeat was never paused. Safe to call
-   *  repeatedly. */
+  /** Restart the heartbeat `pausePresence` stopped, and take the device's
+   *  signalling back with it. A no-op once the session has left. Safe to
+   *  call repeatedly. */
   resumePresence(): void {
+    this.#mesh?.standUp()
     if (this.#heartbeatTimer !== undefined || this.#left || !this.#self) return
     this.#heartbeatTimer = this.#every(
       this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
@@ -1586,7 +1648,12 @@ export class RoomSession {
       if (entry.device !== this.device && !evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p)).admitted) return
     }
 
-    const existing = this.#entries.get(entry.device)
+    // The presence identity, which is the device key only for an entry that
+    // names no page session - see `presenceKey`. Two tabs of one browser
+    // sign as one device, and holding them under one key is what let the
+    // tab that is only looking overwrite the tab that is on the call.
+    const key = presenceKey(entry)
+    const existing = this.#entries.get(key)
     if (existing && existing.updatedAt > entry.updatedAt) return
 
     // Stamped before the presence window opened: not presence, whoever
@@ -1608,26 +1675,29 @@ export class RoomSession {
     if (entry.left) {
       // A farewell. The device goes now, not when its presence lapses, and
       // the moment it left is kept so a slower relay delivering something it
-      // said earlier cannot put it back in the room.
-      if (entry.device === this.device) return
-      this.#departed.set(entry.device, entry.updatedAt)
+      // said earlier cannot put it back in the room. Per page session, not
+      // per device: one tab handing a live call to another tab says goodbye
+      // for itself, and that must not suppress the entries the tab taking
+      // the call is publishing in the same second under the same device key.
+      if (key === this.#selfKey()) return
+      this.#departed.set(key, entry.updatedAt)
       if (!existing) return
-      this.#entries.delete(entry.device)
-      this.#seenAt.delete(entry.device)
+      this.#entries.delete(key)
+      this.#seenAt.delete(key)
       this.#notify()
       return
     }
 
-    const leftAt = this.#departed.get(entry.device)
+    const leftAt = this.#departed.get(key)
     if (leftAt !== undefined) {
       // Stamped at or before the farewell: delivered late, not come back.
       if (entry.updatedAt <= leftAt) return
       // Stamped after it: they really are back, and this is an arrival.
-      this.#departed.delete(entry.device)
+      this.#departed.delete(key)
     }
 
-    this.#entries.set(entry.device, entry)
-    if (entry.device !== this.device) this.#seenAt.set(entry.device, this.#now())
+    this.#entries.set(key, entry)
+    if (key !== this.#selfKey()) this.#seenAt.set(key, this.#now())
 
     // A device we had not seen before has arrived, so tell it we are here.
     // Never for our own entry echoing back, never for a device we already
@@ -1671,6 +1741,9 @@ export class RoomSession {
     const nameStamp = new Map<string, number>()
     /** Which call a participant is held to be on, and when that was last restated. */
     const callStamp = new Map<string, { id: string; at: number }>()
+    /** The page session each device is currently to be dealt with as, and
+     *  how good a claim the entry that named it had - see `#sessionOf`. */
+    const sessions = new Map<string, { sid: string; rank: number; at: number }>()
 
     for (const entry of entries) {
       let view = byParticipant.get(entry.participant)
@@ -1687,7 +1760,21 @@ export class RoomSession {
         view.name = entry.name
         nameStamp.set(entry.participant, entry.updatedAt)
       }
-      view.devices.push(entry.device)
+      // One entry per device until two tabs of one browser are in the same
+      // room; the device is still one device, so it appears once.
+      if (!view.devices.includes(entry.device)) view.devices.push(entry.device)
+      if (entry.sid !== undefined) {
+        // Which of a device's page sessions a peer connection belongs to.
+        // The one on the call, ahead of the one that is only looking: the
+        // second tab publishes an entry simply to be in the room, and a
+        // connection rebuilt onto that tab would be rebuilt onto a tab with
+        // nothing to send. Between two of equal standing, the fresher.
+        const rank = entry.call ? 2 : entry.tracks.length > 0 ? 1 : 0
+        const held = sessions.get(entry.device)
+        if (!held || rank > held.rank || (rank === held.rank && entry.updatedAt >= held.at)) {
+          sessions.set(entry.device, { sid: entry.sid, rank, at: entry.updatedAt })
+        }
+      }
       if (entry.agent === true) view.agent = true
       if (entry.agent === true && entry.requestReceipts === true) view.requestReceipts = true
       // Verified at decode, or not here at all. One proof per person is
@@ -1711,7 +1798,7 @@ export class RoomSession {
           callStamp.set(entry.participant, { id: entry.call.id, at: entry.updatedAt })
         } else if (entry.call.id === view.call.id) {
           view.call.since = Math.min(view.call.since, entry.call.since)
-          view.call.devices.push(entry.device)
+          if (!view.call.devices.includes(entry.device)) view.call.devices.push(entry.device)
           if (entry.updatedAt > held.at) callStamp.set(entry.participant, { id: held.id, at: entry.updatedAt })
         }
       }
@@ -1722,6 +1809,15 @@ export class RoomSession {
       if (!view) continue
       view.mic = assigned.mic
       view.monitor = assigned.monitor
+    }
+
+    for (const view of byParticipant.values()) {
+      for (const device of view.devices) {
+        const session = sessions.get(device)
+        if (!session) continue
+        view.sids = view.sids ?? {}
+        view.sids[device] = session.sid
+      }
     }
 
     return [...byParticipant.values()]

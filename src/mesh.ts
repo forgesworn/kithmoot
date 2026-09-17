@@ -410,6 +410,24 @@ export const MAX_HELD_SIGNAL_DEVICES = 16
 export class Mesh {
   readonly #opts: MeshOptions
   readonly #peers = new Map<string, Peer>()
+  /**
+   * The page session each open peer was built for - see `RosterEntry.sid`.
+   *
+   * A connection is to a page session, not to a device key. Two tabs of one
+   * browser sign as the same device, so a second tab taking over a call
+   * used to collide with the first tab's still-open connection under the
+   * identical key: the endpoint looked unchanged, the peer was reused, and
+   * the pair waited out the route ladder while a live person was audible to
+   * nobody. A changed `sid` is a physically different endpoint that cannot
+   * take over a transport it was never party to, so the peer is closed and
+   * rebuilt at once rather than waited out.
+   */
+  readonly #peerSids = new Map<string, string>()
+  /** The page session the roster currently names for each device. */
+  readonly #deviceSids = new Map<string, string>()
+  /** Another page session of this device is speaking for it. See
+   *  `standDown`. */
+  #quiet = false
   /** Every other admitted room device, including another device belonging
    *  to our own participant. Room signalling such as screen annotations
    *  reaches these devices even before their media connects. */
@@ -518,6 +536,40 @@ export class Mesh {
   }
 
   /**
+   * Stop being this device on the wire: close every connection, open none,
+   * and answer nothing addressed to this device key.
+   *
+   * For the one case where a device key is not one endpoint: another page
+   * session of this browser, in this room, is on the call. Both tabs sign
+   * as the same device, so both unwrap and both can answer the same offer,
+   * and the far end has exactly one connection per device key to give. The
+   * tab that is only looking wins that race often enough to matter, and
+   * when it does it answers with a connection carrying no media at all: the
+   * others reach "Ada", hear silence, and their ladder walks itself to TURN
+   * against a tab that has nothing to send, while the tab the person is
+   * actually talking into cannot get a connection of its own.
+   *
+   * So the quiet tab goes quiet on signalling too, not only on presence.
+   * See `RoomSession.pausePresence`, which is the same fact said about the
+   * roster, and `RosterEntry.sid`, which is how everybody else tells the
+   * two page sessions apart.
+   */
+  standDown(): void {
+    if (this.#quiet) return
+    this.#quiet = true
+    this.#teardownForwarder()
+    this.#reconcile(this.#opts.session.participants())
+  }
+
+  /** This page session speaks for the device again: rebuild the mesh from
+   *  the roster as it stands. Safe to call when it never stood down. */
+  standUp(): void {
+    if (!this.#quiet) return
+    this.#quiet = false
+    this.#reconcile(this.#opts.session.participants())
+  }
+
+  /**
    * Replace the forwarder list, as a new room descriptor names it.
    *
    * A list that names a forwarder this session has not already failed is a
@@ -613,6 +665,7 @@ export class Mesh {
     this.#pendingSignals.clear()
     for (const peer of this.#peers.values()) peer.close()
     this.#peers.clear()
+    this.#peerSids.clear()
     this.#annotationDevices.clear()
     this.#deviceToParticipant.clear()
     this.#trackOwner.clear()
@@ -636,7 +689,9 @@ export class Mesh {
     const wantedDevices = new Map<string, string>() // device -> participant
     const annotationDevices = new Map<string, string>() // every other admitted room device
     this.#trackOwner.clear()
+    this.#deviceSids.clear()
     for (const view of views) {
+      for (const [device, sid] of Object.entries(view.sids ?? {})) this.#deviceSids.set(device, sid)
       for (const device of view.devices) {
         if (device !== this.#opts.localDevice) annotationDevices.set(device, view.participant)
       }
@@ -670,9 +725,14 @@ export class Mesh {
     // Decided before any peer is opened or closed, because the answer governs
     // both. `wantedDevices.size` is the `(N-1)` in `(N-1) x bitrate`: the
     // devices this one would have to send its own media to.
-    this.#evaluatePromotion(wantedDevices.size)
+    // Never while stood down: a tab that is carrying nothing must not go
+    // looking for a forwarder to carry it.
+    if (!this.#quiet) this.#evaluatePromotion(wantedDevices.size)
 
-    const direct = this.#forwarding !== 'up'
+    // A tab that has stood down holds no connections and opens none: the
+    // empty endpoint set below closes what it had, and the early return
+    // after it stops anything being opened. See `standDown`.
+    const direct = this.#forwarding !== 'up' && !this.#quiet
 
     // The endpoints, not the devices. Usually the same set: most people are
     // reached at their own address. A device being carried by a volunteer is
@@ -687,8 +747,36 @@ export class Mesh {
     }
 
     for (const [endpoint, peer] of [...this.#peers]) {
-      if (endpoints.has(endpoint)) continue
+      // Not the endpoint we built this for any more, even though the key is
+      // the same one: another page session of that device is answering now,
+      // and it has no way to take over a transport it was never party to.
+      // Closed here rather than left to the route ladder, because the
+      // ladder's own timers are what made this cost half a minute.
+      const swapped = endpoints.has(endpoint) && this.#sessionChanged(endpoint)
+      if (endpoints.has(endpoint) && !swapped) continue
       this.#closePeer(endpoint, peer)
+      // The rung did not fail - there is nothing wrong with this route - so
+      // it keeps its tier and its budget. What it loses is the claim to be
+      // connected, which was true of a connection that no longer exists and
+      // which would otherwise stop the rebuilt one from being given a
+      // watchdog at all.
+      if (!swapped) continue
+      for (const [device, route] of this.#routes) {
+        if (route.endpoint !== endpoint || !route.connected) continue
+        route.connected = false
+        this.#announceRoute(device, route)
+      }
+    }
+
+    // Nothing is negotiating, so nothing is connected: a route left saying
+    // it was would deny the rebuilt connection a watchdog when this page
+    // session speaks for the device again.
+    if (this.#quiet) {
+      for (const [device, route] of this.#routes) {
+        if (!route.connected) continue
+        route.connected = false
+        this.#announceRoute(device, route)
+      }
     }
 
     if (!direct) return
@@ -704,6 +792,9 @@ export class Mesh {
       }
       const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
       this.#peers.set(endpoint, peer)
+      const sid = this.#deviceSids.get(endpoint)
+      if (sid === undefined) this.#peerSids.delete(endpoint)
+      else this.#peerSids.set(endpoint, sid)
       this.#armRouteTimerIfNeeded(endpoint)
       peer.start(this.#tracksFor(endpoint)).catch(() => {})
       // After `start`, never before: the offer waiting here is answered by
@@ -803,8 +894,24 @@ export class Mesh {
     return this.#routes.get(endpoint)?.tier === 'turn' ? 'turn' : 'direct'
   }
 
+  /**
+   * Whether the page session behind this endpoint is not the one its open
+   * peer was built for.
+   *
+   * Only a swap between two *named* page sessions counts. A far end that
+   * has never published one, and one that publishes for the first time
+   * mid-room, both read as "no news": rebuilding a working connection on
+   * that would churn every pair the first time a peer upgraded.
+   */
+  #sessionChanged(endpoint: string): boolean {
+    const built = this.#peerSids.get(endpoint)
+    const current = this.#deviceSids.get(endpoint)
+    return built !== undefined && current !== undefined && built !== current
+  }
+
   #closePeer(endpoint: string, peer: Peer): void {
     this.#peers.delete(endpoint)
+    this.#peerSids.delete(endpoint)
     this.#clearRouteTimer(endpoint)
     this.#clearRenegotiationTimer(endpoint)
     this.#publishRetryAt.delete(endpoint)
@@ -1324,6 +1431,7 @@ export class Mesh {
     this.#clearForwarderTimer()
     for (const peer of this.#peers.values()) peer.close()
     this.#peers.clear()
+    this.#peerSids.clear()
   }
 
   /** The forwarder never came up, or dropped after it had. Back to a direct
@@ -1539,7 +1647,11 @@ export class Mesh {
 
     const peer = this.#peerFor(unwrapped.from)
     if (!peer) {
-      this.#holdSignal(unwrapped.from, unwrapped.body, now)
+      // Stood down: this page session is not the one the far end is
+      // negotiating with, so it neither answers nor keeps the signal to
+      // answer later - see `standDown`. Held, it would be drained into a
+      // fresh connection as a description of one that is already gone.
+      if (!this.#quiet) this.#holdSignal(unwrapped.from, unwrapped.body, now)
       return
     }
     // A rejection here is a description the connection would not take, which

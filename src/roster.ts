@@ -47,6 +47,11 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
   const plaintext = JSON.stringify({
     ...entry,
     name: sanitiseDisplayName(entry.name),
+    // Same rule as the name and the assist offer, and for the same reason:
+    // never publish something another client has to defuse. `undefined` is
+    // dropped by JSON.stringify, so an entry without a page-session id is
+    // byte-identical to one written before the field existed.
+    sid: sanitiseSid(entry.sid),
     assist: sanitiseAssistOffer(entry.assist),
     left: entry.left === true ? true : undefined,
     agent: entry.agent === true ? true : undefined,
@@ -137,6 +142,15 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     const assist = sanitiseAssistOffer(entry.assist)
     if (assist === undefined) delete entry.assist
     else entry.assist = assist
+    // The page session that published this, if it said which. Bounded hex
+    // or nothing: it is a map key at every reader - see `presenceKey` - so
+    // an unbounded string from another implementation would be a key of
+    // whatever length that implementation chose. A malformed one costs the
+    // claim and leaves the entry, which then reads exactly as an entry from
+    // a client that has never heard of the field.
+    const sid = sanitiseSid(entry.sid)
+    if (sid === undefined) delete entry.sid
+    else entry.sid = sid
     // A call membership is a claim like the rest: a bounded id and a time,
     // or nothing. A malformed one costs the claim, never the entry.
     const call = sanitiseCallMembership(entry.call)
@@ -212,6 +226,34 @@ export function sanitiseCallMembership(value: unknown): CallMembership | undefin
   if (typeof id !== 'string' || !/^[0-9a-f]{32}$/i.test(id)) return undefined
   if (typeof since !== 'number' || !Number.isFinite(since) || since < 0) return undefined
   return { id: id.toLowerCase(), since: Math.floor(since) }
+}
+
+/** A page-session id is opaque, and it is also a string another
+ *  implementation chose, so it is held to 8 hex characters and nothing
+ *  else. See `RosterEntry.sid`. */
+export function sanitiseSid(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}$/i.test(value)) return undefined
+  return value.toLowerCase()
+}
+
+/** A fresh page-session id: 8 lower-case hex characters. */
+export function newSid(): string {
+  const bytes = new Uint8Array(4)
+  crypto.getRandomValues(bytes)
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * The identity a reader holds a roster entry under.
+ *
+ * `device` alone while the entry names no page session, so an entry from a
+ * client that has never heard of `sid` behaves exactly as it always did:
+ * one entry per device, last writer wins. `device|sid` once it does, which
+ * is what lets two tabs of one browser - one on the call, one just looking -
+ * hold two entries instead of overwriting each other. See `RosterEntry.sid`.
+ */
+export function presenceKey(entry: Pick<RosterEntry, 'device' | 'sid'>): string {
+  return entry.sid ? `${entry.device}|${entry.sid}` : entry.device
 }
 
 /** Convenience for callers that hold a device secret key rather than a pubkey. */

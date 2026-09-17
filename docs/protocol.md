@@ -184,7 +184,18 @@ object `{ id, since }` says the device is on the call with that id (32
 lower-case hex characters, chosen by whoever started it) since that Unix
 second; a call is read off presence, has no kind of its own, and ends when
 the last present device stops carrying it (`valid-on-call` vector). A
-malformed `call` is dropped and the entry kept. Presence expires; replayed
+malformed `call` is dropped and the entry kept. An optional `sid` of 8
+lower-case hex characters names the page session that published the entry,
+minted fresh per page session and never reused; a malformed one is dropped
+and the entry kept. A device key is per browser profile, not per tab, so a
+reader holds entries under `device|sid` where one is given and under
+`device` alone where it is absent: two tabs of one room are two entries
+rather than a last-writer-wins overwrite, a farewell removes only the page
+session that sent it, and a media connection is bound to the page session
+it was negotiated with - a changed `sid` for a device is a different
+endpoint, and whatever was open to the old one is closed and rebuilt rather
+than reused. Absence means unknown and reads exactly as it did before the
+field existed. Presence expires; replayed
 presence is not a permanent guest list. New arrivals announce and existing
 members answer because relays need not retain presence.
 
