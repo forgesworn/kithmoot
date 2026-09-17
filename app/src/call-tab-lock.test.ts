@@ -6,17 +6,20 @@ const OTHER_KEY = `${'a'.repeat(64)}|${'c'.repeat(64)}`
 const open: CallTabLock[] = []
 afterEach(() => { for (const lock of open.splice(0)) lock.close() })
 
-function handlers(): CallTabLockHandlers & { preempted: string[]; heldElsewhere: string[]; freed: string[] } {
+function handlers(): CallTabLockHandlers & { preempted: string[]; heldElsewhere: string[]; freed: string[]; probeAnswered: string[] } {
   const preempted: string[] = []
   const heldElsewhere: string[] = []
   const freed: string[] = []
+  const probeAnswered: string[] = []
   return {
     preempted,
     heldElsewhere,
     freed,
+    probeAnswered,
     onPreempted: (key) => preempted.push(key),
     onHeldElsewhere: (key) => heldElsewhere.push(key),
     onFreed: (key) => freed.push(key),
+    onProbeAnswered: (key) => probeAnswered.push(key),
   }
 }
 
@@ -40,6 +43,18 @@ describe('CallTabLock', () => {
     expect(await me.askHeldElsewhere(KEY, 100)).toBe(true)
     // A different key held by nobody is unaffected.
     expect(await me.askHeldElsewhere(OTHER_KEY, 50)).toBe(false)
+  })
+
+  it('answering a probe tells the holder to republish at once', async () => {
+    const h = handlers()
+    const holder = lock(h)
+    holder.claim(KEY)
+    const me = lock()
+    await me.askHeldElsewhere(KEY, 100)
+    expect(h.probeAnswered).toEqual([KEY])
+    // A probe for a key this tab does not hold gets no reply and no callback.
+    await me.askHeldElsewhere(OTHER_KEY, 50)
+    expect(h.probeAnswered).toEqual([KEY])
   })
 
   it('claiming a key another tab holds preempts it, and only it', async () => {

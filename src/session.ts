@@ -1407,6 +1407,35 @@ export class RoomSession {
   }
 
   /**
+   * A temporary goodbye for this device's call footprint - the room and its
+   * chat stay open, unlike `leave()`, which this borrows its shape from.
+   *
+   * Every peer's mesh keeps exactly one connection per remote device for as
+   * long as that device is on the roster at all, camera and microphone
+   * aside - see `Mesh#reconcile`. Handing an active call from one tab to
+   * another of the same device is not that: it is a second, physically
+   * different endpoint that needs the FIRST one's connection gone, not
+   * renegotiated, because it has no way to take over a transport it was
+   * never party to. This is the same signal a real departure sends -
+   * `left`, tracks cleared - so every peer drops its connection to this
+   * device cleanly through its own reconciliation, the way it already does
+   * for a device that actually left. The device then looks freshly
+   * arrived the moment any tab of it - this one taking the call back, or
+   * the one that just claimed it - next publishes, which is what makes the
+   * peer open a new connection rather than reuse the one just dropped.
+   *
+   * Unlike `leave()`, nothing here is torn down: the heartbeat this call
+   * leaves paused is the caller's to resume, and `#self` is left set so
+   * `setCall`, `advertise` and the rest keep working normally.
+   */
+  async farewellCall(): Promise<void> {
+    if (!this.#self || this.#left) return
+    const { call: _off, ...rest } = this.#self
+    this.#self = { ...rest, tracks: [], claims: {} }
+    await this.#publishEntry(true, true)
+  }
+
+  /**
    * The calls in progress, read off presence: one entry per call id, with
    * everybody who has a device on it. Usually zero or one. Two means two
    * people pressed Start at once, and a client should offer the bigger or

@@ -24,12 +24,17 @@ export function isAutoplayBlock(error: unknown, activation?: UserActivation): bo
 }
 
 /**
- * Whether the banner should show at all, given the wider call state - never
- * for a person who is off the call with remote audio deliberately muted for
- * that reason, whatever the browser is doing to it.
+ * Whether the banner should show at all, given the wider call state.
+ *
+ * `inRoom` is not "this device has pressed Join call" - a person who has
+ * just walked into a room where a call is already on sees and hears it
+ * before pressing anything, and is exactly who this banner is for. It is
+ * false only once this device has left the room entirely. Never shown for
+ * a person who has pressed Leave, or whose remote audio is deliberately
+ * muted for some other reason, whatever the browser is doing to it.
  */
-export function shouldShowAutoplayBanner(deps: { onCall: boolean; audioDeliberatelyMuted: boolean }): boolean {
-  return deps.onCall && !deps.audioDeliberatelyMuted
+export function shouldShowAutoplayBanner(deps: { inRoom: boolean; audioDeliberatelyMuted: boolean }): boolean {
+  return deps.inRoom && !deps.audioDeliberatelyMuted
 }
 
 /**
@@ -48,7 +53,7 @@ export class AutoplayBannerState {
   /** Call whenever a remote audio element's `play()` rejects. Returns
    *  whether the banner should now be shown - a caller with no state of its
    *  own can just render on the return value. */
-  blocked(error: unknown, deps: { onCall: boolean; audioDeliberatelyMuted: boolean }, activation?: UserActivation): boolean {
+  blocked(error: unknown, deps: { inRoom: boolean; audioDeliberatelyMuted: boolean }, activation?: UserActivation): boolean {
     if (isAutoplayBlock(error, activation) && shouldShowAutoplayBanner(deps)) this.#visible = true
     return this.#visible
   }
