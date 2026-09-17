@@ -5,6 +5,8 @@ import {
   MAX_BLUR_RADIUS_FRACTION,
   MIN_BLUR_RADIUS_FRACTION,
   MAX_CONSECUTIVE_SEGMENT_FAILURES,
+  MaskSmoother,
+  STENCIL_ERODE_PX,
   VideoEffect,
   blurRadiusPx,
   clampStrength,
@@ -525,5 +527,202 @@ describe('coverRect', () => {
 
   it('degrades to a stretch rather than dividing by zero', () => {
     expect(coverRect(0, 0, 320, 240)).toEqual({ dx: 0, dy: 0, dw: 320, dh: 240 })
+  })
+})
+
+describe('MaskSmoother', () => {
+  const mask = (data: number[], width = data.length, height = 1): SegmentationMask => ({
+    width,
+    height,
+    data: new Float32Array(data),
+  })
+
+  it('takes the first frame as it is, so the person does not fade in', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    const out = smoother.push(mask([0, 0.5, 1]))
+    expect(Array.from(out.data)).toEqual([0, 0.5, 1])
+  })
+
+  it('damps a pixel that is flickering about the threshold', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    smoother.push(mask([0.5]))
+    // The thing the edge actually does: 0.45, 0.55, 0.45, 0.55 for ever.
+    let worst = 0
+    for (let i = 0; i < 12; i += 1) {
+      const value = smoother.push(mask([i % 2 === 0 ? 0.45 : 0.55])).data[0]!
+      worst = Math.max(worst, Math.abs(value - 0.5))
+    }
+    // The raw signal swings 0.05 either side; smoothed it must sit well
+    // inside that, or the edge still crawls.
+    expect(worst).toBeLessThan(0.025)
+  })
+
+  it('follows a pixel the person has actually moved into, in one frame', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    smoother.push(mask([0]))
+    expect(smoother.push(mask([1])).data[0]!).toBeGreaterThan(0.95)
+  })
+
+  it('converges on a value that has stopped changing', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    smoother.push(mask([0]))
+    for (let i = 0; i < 40; i += 1) smoother.push(mask([0.8]))
+    expect(smoother.push(mask([0.8])).data[0]!).toBeCloseTo(0.8, 3)
+  })
+
+  it('forgets everything on reset, so a swap is not averaged across', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    smoother.push(mask([1]))
+    smoother.reset()
+    expect(smoother.push(mask([0])).data[0]).toBe(0)
+  })
+
+  it('starts again when the mask changes size rather than reading off the end', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    smoother.push(mask([1, 1, 1, 1]))
+    const out = smoother.push(mask([0, 0.25, 0.5, 0.75, 1, 1, 1, 1, 1], 3, 3))
+    expect(out.width).toBe(3)
+    expect(out.data[0]).toBe(0)
+  })
+
+  it('pulls the person edge in rather than leaving a fringe of the room', () => {
+    const smoother = new MaskSmoother({ erode: 1 })
+    // A person occupying the middle three of five columns.
+    const out = smoother.push(mask([0, 1, 1, 1, 0]))
+    expect(Array.from(out.data)).toEqual([0, 0, 1, 0, 0])
+  })
+
+  it('does not eat a person standing at the edge of the frame', () => {
+    const smoother = new MaskSmoother({ erode: 1 })
+    const out = smoother.push(mask([1, 1, 1, 0, 0]))
+    // Nothing outside the frame is treated as background to erode by.
+    expect(out.data[0]).toBe(1)
+  })
+
+  it('erodes in both directions, not only across', () => {
+    const smoother = new MaskSmoother({ erode: 1 })
+    const out = smoother.push(mask([0, 0, 0, 0, 1, 0, 0, 0, 0], 3, 3))
+    expect(Array.from(out.data)).toEqual(new Array(9).fill(0))
+  })
+})
+
+describe('stencil erosion', () => {
+  it('pulls the outline in with four offset destination-in draws', async () => {
+    const { effect, factory } = newEffect()
+    await effect.ready()
+    effect.renderFrame(SOURCE, 320, 240, 0)
+    // The stencil is the canvas that had image data put into it.
+    const stencil = factory.made.find((c) => c.ctx.ops.some((o) => o.op === 'putImageData'))
+    expect(stencil).toBeDefined()
+    const erosion = stencil!.ctx.ops.filter(
+      (o) => o.op === 'drawImage' && o.gco === 'destination-in' && o.image === stencil,
+    )
+    expect(erosion).toHaveLength(4)
+    // Left, right, up, down by the same amount, which is what makes the four
+    // of them a separable minimum filter rather than a smear.
+    const offsets = erosion.map((o) => [o.args[0], o.args[1]])
+    expect(offsets).toEqual([
+      [-STENCIL_ERODE_PX, 0],
+      [STENCIL_ERODE_PX, 0],
+      [0, -STENCIL_ERODE_PX],
+      [0, STENCIL_ERODE_PX],
+    ])
+  })
+
+  it('leaves the stencil context in source-over, so the next frame is not eaten', async () => {
+    const { effect, factory } = newEffect()
+    await effect.ready()
+    effect.renderFrame(SOURCE, 320, 240, 0)
+    const stencil = factory.made.find((c) => c.ctx.ops.some((o) => o.op === 'putImageData'))!
+    expect(stencil.ctx.globalCompositeOperation).toBe('source-over')
+  })
+})
+
+describe('VideoEffect with an animated background', () => {
+  it('asks the source for a frame on every composited frame', async () => {
+    const { effect, out } = newEffect()
+    await effect.ready()
+    const frames = [{ a: 1 }, { b: 2 }, { c: 3 }]
+    let calls = 0
+    effect.setMode('replace')
+    effect.setBackgroundSource({
+      frame: () => frames[calls++ % frames.length]!,
+      size: () => null,
+    })
+    effect.renderFrame(SOURCE, 320, 240, 0)
+    effect.renderFrame(SOURCE, 320, 240, 33)
+    const drawn = out.ctx.ops.filter(
+      (o) => o.op === 'drawImage' && frames.includes(o.image as (typeof frames)[number]),
+    )
+    expect(drawn).toHaveLength(2)
+    expect(drawn[0]!.image).not.toBe(drawn[1]!.image)
+  })
+
+  it('passes the frame timestamp through, so the scene has a clock', async () => {
+    const { effect } = newEffect()
+    await effect.ready()
+    const seen: number[] = []
+    effect.setMode('replace')
+    effect.setBackgroundSource({
+      frame: (now) => {
+        seen.push(now)
+        return { image: true }
+      },
+      size: () => null,
+    })
+    effect.renderFrame(SOURCE, 320, 240, 1000)
+    effect.renderFrame(SOURCE, 320, 240, 1033)
+    expect(seen).toEqual([1000, 1033])
+  })
+
+  it('blurs rather than showing the room when the source hands back nothing', async () => {
+    const { effect, out } = newEffect()
+    await effect.ready()
+    effect.setMode('replace')
+    effect.setBackgroundSource({ frame: () => null, size: () => null })
+    effect.renderFrame(SOURCE, 320, 240, 0)
+    const draws = out.ctx.ops.filter((o) => o.op === 'drawImage')
+    expect(draws[0]!.filter).toMatch(/^blur\(/)
+    expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+  })
+
+  it('blurs rather than showing the room when the source throws', async () => {
+    const { effect, out } = newEffect()
+    await effect.ready()
+    effect.setMode('replace')
+    effect.setBackgroundSource({
+      frame: () => {
+        throw new Error('the scene fell over')
+      },
+      size: () => null,
+    })
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('composite')
+    const draws = out.ctx.ops.filter((o) => o.op === 'drawImage')
+    expect(draws[0]!.filter).toMatch(/^blur\(/)
+    expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+  })
+
+  it('closes the source it replaces, and its own on teardown', async () => {
+    const { effect } = newEffect()
+    await effect.ready()
+    let closedFirst = false
+    let closedSecond = false
+    effect.setBackgroundSource({
+      frame: () => null,
+      size: () => null,
+      close: () => {
+        closedFirst = true
+      },
+    })
+    effect.setBackgroundSource({
+      frame: () => null,
+      size: () => null,
+      close: () => {
+        closedSecond = true
+      },
+    })
+    expect(closedFirst).toBe(true)
+    effect.close()
+    expect(closedSecond).toBe(true)
   })
 })

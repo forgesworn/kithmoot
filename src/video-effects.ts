@@ -135,8 +135,87 @@ export const MAX_CONSECUTIVE_SEGMENT_FAILURES = 5
 /** Default cut between background and person, and the width of the soft
  *  band either side of it. A hard cut looks like a badly done cut-out; this
  *  is the cheapest thing that does not. */
-const DEFAULT_MASK_THRESHOLD = 0.5
-const DEFAULT_MASK_FEATHER = 0.4
+/**
+ * Where the cut falls, and therefore how much of the edge is kept.
+ *
+ * This was 0.5, the obvious answer, and 0.5 keeps every pixel the model is
+ * merely half sure about - which at the hair line and along a shoulder is a
+ * fringe of the real room, sharp, drawn on top of a beach. The cut is nudged
+ * past the middle so the doubtful pixels go with the room rather than with
+ * the person; `STENCIL_ERODE_PX` does the rest, and does the part that a
+ * threshold cannot.
+ */
+const DEFAULT_MASK_THRESHOLD = 0.55
+/**
+ * Width of the soft band, in confidence units.
+ *
+ * This was 0.4, which is very wide: it turned everything between 0.3 and 0.7
+ * confidence into a ramp, and against a blurred copy of the same room that
+ * reads as a pleasantly soft edge. Against a *replacement* it reads as a
+ * halo, because the pixels being faded in are the real room and they no
+ * longer match what is behind them. With temporal smoothing holding the
+ * edge still (`MaskSmoother`) a narrower band is affordable, and narrower is
+ * what replacement wants.
+ */
+const DEFAULT_MASK_FEATHER = 0.26
+
+/**
+ * How much of a new frame's confidence to believe where it agrees with the
+ * last frame.
+ *
+ * The segmenter is run from scratch on every frame and nothing carries over,
+ * so a pixel on the boundary of a perfectly still shoulder flips between
+ * 0.45 and 0.55 frame after frame. Blur hid that. Replacement does not: the
+ * edge crawls. Damping the agreeing case to about a third means a still edge
+ * settles over three or four frames instead of buzzing.
+ */
+export const MASK_ALPHA_CALM = 0.34
+
+/** ...and how much to believe it where it disagrees. A pixel that went from
+ *  "definitely room" to "definitely person" is movement, not noise, and
+ *  movement must not be smeared, so it is followed outright. */
+export const MASK_ALPHA_MOVING = 1
+
+/** The confidence change at which a pixel counts as having moved rather than
+ *  wobbled. Below it the weight ramps between the two above. */
+export const MASK_MOTION_DELTA = 0.4
+
+/**
+ * Erosion radius, in mask pixels. Zero by default, and the reason is a
+ * measurement rather than a preference.
+ *
+ * MediaPipe hands back a confidence mask at the *camera's* resolution, not
+ * the model's, so a 640x480 camera means 307,200 floats and a 720p one means
+ * 921,600. A separable minimum filter over that measured 3.3ms and 11.5ms a
+ * frame respectively - more than the segmentation itself - for an edge that
+ * `DEFAULT_MASK_THRESHOLD` moves by the same distance for free.
+ *
+ * `erode` stays here, tested and exported, because a segmenter that returns
+ * a mask at its own 256x256 costs 0.8ms for the same work and could afford
+ * it. Turning it on is a one-line option; it is off because of what it
+ * costs today, not because it is wrong.
+ */
+export const MASK_ERODE_PX = 0
+
+/**
+ * How far the person's outline is pulled in, in output pixels, and the part
+ * of this work that earns its keep.
+ *
+ * A threshold moves the cut in *confidence*, which only moves the edge as
+ * far as the mask happens to ramp. What has to go is fixed in *pixels*: a
+ * camera's own edge, after 4:2:0 chroma subsampling and whatever scaling
+ * happened on the way, is a pixel or so of the person blended with the room
+ * behind them. Keep it and it gets drawn on the beach, and against a busy
+ * photograph it reads as a dotted line around the head.
+ *
+ * So this is a real morphological erosion - and it is done on the stencil
+ * canvas, not in JavaScript. Four `destination-in` draws of the stencil over
+ * itself, offset left, right, up and down, come out as exactly the separable
+ * minimum filter `erode` computes, on whatever is accelerating the canvas,
+ * for none of the 3.3ms a frame the same thing costs over a camera-sized
+ * Float32Array.
+ */
+export const STENCIL_ERODE_PX = 1.5
 
 /**
  * How far past each edge the blurred background is drawn.
@@ -236,6 +315,191 @@ export function maskToAlpha(
   }
 }
 
+export interface MaskSmootherOptions {
+  /** Weight on the new frame where it agrees with the last one. */
+  calmAlpha?: number
+  /** Weight on the new frame where it disagrees with it completely. */
+  movingAlpha?: number
+  /** Confidence change at which `movingAlpha` is reached. */
+  motionDelta?: number
+  /** Mask pixels to pull the person's edge in by. 0 leaves it alone. */
+  erode?: number
+}
+
+/**
+ * Carries the mask from one frame to the next.
+ *
+ * Two things happen here and they are separate ideas that happen to want the
+ * same buffer:
+ *
+ * 1. **An exponential moving average with a motion-aware weight.** A plain
+ *    EMA either buzzes (weight too high) or leaves a ghost trailing an arm
+ *    (weight too low), and picking between those is picking which artefact
+ *    to ship. Making the weight depend on how much *this* pixel changed
+ *    dodges the choice: a still pixel is averaged hard, a pixel the person
+ *    just moved into is taken as it comes.
+ *
+ * 2. **A small erosion.** The model over-claims at the hair line, so the
+ *    edge is pulled in by a pixel before it is feathered.
+ *
+ * Buffers are allocated once per mask size and reused, because this runs on
+ * the same thread as everything else the page is doing.
+ */
+export class MaskSmoother {
+  #width = 0
+  #height = 0
+  #state: Float32Array | null = null
+  #scratch: Float32Array | null = null
+  #out: Float32Array | null = null
+
+  readonly #calm: number
+  readonly #moving: number
+  readonly #delta: number
+  readonly #erode: number
+
+  constructor(opts: MaskSmootherOptions = {}) {
+    this.#calm = clamp01(opts.calmAlpha ?? MASK_ALPHA_CALM)
+    this.#moving = clamp01(opts.movingAlpha ?? MASK_ALPHA_MOVING)
+    this.#delta = Math.max(1e-3, opts.motionDelta ?? MASK_MOTION_DELTA)
+    this.#erode = Math.max(0, Math.round(opts.erode ?? MASK_ERODE_PX))
+  }
+
+  /**
+   * Forget everything.
+   *
+   * Called wherever `invalidateSource` is: a mask averaged across a camera
+   * swap describes a person who is in neither picture.
+   */
+  reset(): void {
+    this.#state = null
+  }
+
+  /** The smoothed mask for this frame. The returned buffer is reused, so it
+   *  is only valid until the next call. */
+  push(mask: SegmentationMask): SegmentationMask {
+    const { width, height } = mask
+    const pixels = width * height
+    const data = mask.data
+
+    if (!this.#state || this.#width !== width || this.#height !== height) {
+      this.#width = width
+      this.#height = height
+      this.#state = new Float32Array(pixels)
+      this.#scratch = new Float32Array(pixels)
+      this.#out = new Float32Array(pixels)
+      // The first frame of a new source has nothing to average against, and
+      // inventing a history for it would mean fading the person in.
+      this.#state.set(data.subarray(0, pixels))
+    } else {
+      // Written out longhand and with no allocation, because this runs over
+      // every pixel of every frame on the same thread as the rest of the
+      // page. `data[i]!` rather than `data[i] ?? 0`: the nullish check is
+      // real code and a typed array read in range cannot be undefined.
+      const state = this.#state
+      const calm = this.#calm
+      const span = this.#moving - calm
+      const inverseDelta = 1 / this.#delta
+      for (let i = 0; i < pixels; i += 1) {
+        const previous = state[i]!
+        const current = data[i]!
+        const step = current - previous
+        const change = step < 0 ? -step : step
+        const t = change * inverseDelta
+        state[i] = previous + step * (t >= 1 ? this.#moving : calm + span * t)
+      }
+    }
+
+    if (this.#erode === 0) {
+      return { width, height, data: this.#state }
+    }
+    erode(this.#state, this.#scratch!, this.#out!, width, height, this.#erode)
+    return { width, height, data: this.#out! }
+  }
+}
+
+function clamp01(value: number): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0
+  return value < 0 ? 0 : value > 1 ? 1 : value
+}
+
+/**
+ * Separable minimum filter: the person's edge, pulled in by `radius`.
+ *
+ * Separable because a square window of minima is the minimum of the row
+ * minima, so an `r`-radius erosion costs `2 * (2r + 1)` comparisons a pixel
+ * rather than `(2r + 1)^2`. At r=1 on a 256x256 mask that is the difference
+ * between something worth writing and something worth not doing.
+ *
+ * Out-of-bounds neighbours are skipped rather than treated as background,
+ * which would eat a pixel off every edge of the frame and cut a person
+ * standing at the side of it in half.
+ *
+ * Both passes walk rows, never columns. The obvious way to write the
+ * vertical one - for each pixel, look at the pixels above and below - strides
+ * the array by a whole row per step and misses the cache on almost every
+ * read. On a mask the size of the camera frame that cost more than the whole
+ * of the rest of the effect put together: measured here, 6.3ms a frame
+ * against 1.0ms for the same arithmetic done row by row.
+ */
+export function erode(
+  src: Float32Array,
+  scratch: Float32Array,
+  out: Float32Array,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  if (radius === 1) {
+    // The case that actually ships, with the window carried along the row
+    // instead of re-read: three reads a pixel become one.
+    for (let y = 0; y < height; y += 1) {
+      const row = y * width
+      let left = src[row]!
+      let middle = left
+      for (let x = 0; x < width; x += 1) {
+        const right = x + 1 < width ? src[row + x + 1]! : middle
+        let min = middle
+        if (left < min) min = left
+        if (right < min) min = right
+        scratch[row + x] = min
+        left = middle
+        middle = right
+      }
+    }
+  } else {
+    for (let y = 0; y < height; y += 1) {
+      const row = y * width
+      for (let x = 0; x < width; x += 1) {
+        const from = x - radius < 0 ? 0 : x - radius
+        const to = x + radius >= width ? width - 1 : x + radius
+        let min = src[row + from]!
+        for (let i = from + 1; i <= to; i += 1) {
+          const v = src[row + i]!
+          if (v < min) min = v
+        }
+        scratch[row + x] = min
+      }
+    }
+  }
+
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width
+    const from = y - radius < 0 ? 0 : y - radius
+    const to = y + radius >= height ? height - 1 : y + radius
+    // Seed the output row from the first contributing row, then take the
+    // minimum against each of the others a row at a time.
+    out.set(scratch.subarray(from * width, from * width + width), row)
+    for (let i = from + 1; i <= to; i += 1) {
+      const other = i * width
+      for (let x = 0; x < width; x += 1) {
+        const a = out[row + x]!
+        const b = scratch[other + x]!
+        out[row + x] = a < b ? a : b
+      }
+    }
+  }
+}
+
 /**
  * The rule, written down.
  *
@@ -269,6 +533,41 @@ export function coverRect(srcW: number, srcH: number, dstW: number, dstH: number
 }
 
 // ---------------------------------------------------------------------------
+// Backgrounds
+// ---------------------------------------------------------------------------
+
+/**
+ * Whatever is behind the person in `replace` mode.
+ *
+ * A still picture is the degenerate case - `frame` hands back the same image
+ * every time - and that is deliberate: once the background is a thing that
+ * is *asked* for a frame rather than a thing that is *held*, an animated
+ * scene is not a special case in the compositor, and the compositor stays
+ * the one place that decides whether the camera is safe to show.
+ *
+ * Returning `null` is allowed and means "nothing to draw": the compositor
+ * falls back to blurring the real frame, never to showing it.
+ */
+export interface BackgroundSource {
+  /** The image to composite behind the person, at this moment, for an output
+   *  of this size. Called once per composited frame and must be cheap. */
+  frame(nowMs: number, width: number, height: number): FrameSourceLike | null
+  /** Natural size of what `frame` returns, for cover-fitting, or `null` when
+   *  it is already the size that was asked for. */
+  size(): { width: number; height: number } | null
+  close?(): void
+}
+
+/** A still picture, as a `BackgroundSource`. */
+export function stillBackground(
+  image: FrameSourceLike,
+  size?: { width: number; height: number } | null,
+): BackgroundSource {
+  const natural = size ?? null
+  return { frame: () => image, size: () => natural }
+}
+
+// ---------------------------------------------------------------------------
 // The pipeline
 // ---------------------------------------------------------------------------
 
@@ -292,6 +591,9 @@ export interface VideoEffectOptions {
   mode?: EffectMode
   strength?: number
   onStateChange?: (state: VideoEffectState) => void
+  /** Temporal mask smoothing. `false` turns it off, which is only ever
+   *  wanted by a test that is measuring what it costs. */
+  maskSmoothing?: MaskSmootherOptions | false
 }
 
 export class VideoEffect {
@@ -312,9 +614,9 @@ export class VideoEffect {
   #lastMask: SegmentationMask | null = null
   #maskValid = false
   #failures = 0
+  readonly #smoother: MaskSmoother | null
 
-  #background: FrameSourceLike | null = null
-  #backgroundSize: { width: number; height: number } | null = null
+  #source: BackgroundSource | null = null
 
   #personCanvas: CanvasLike | null = null
   #personCtx: Context2DLike | null = null
@@ -332,6 +634,8 @@ export class VideoEffect {
     this.#onStateChange = opts.onStateChange
     this.#mode = opts.mode ?? (BLUR_ON_BY_DEFAULT ? 'blur' : 'off')
     this.#strength = clampStrength(opts.strength ?? DEFAULT_BLUR_STRENGTH)
+    this.#smoother =
+      opts.maskSmoothing === false ? null : new MaskSmoother(opts.maskSmoothing ?? {})
     if (this.#mode !== 'off') this.#ensureSegmenter()
   }
 
@@ -349,6 +653,20 @@ export class VideoEffect {
 
   get lastError(): string | undefined {
     return this.#error
+  }
+
+  /**
+   * Size of the mask last used, or null if there has not been one.
+   *
+   * Published rather than kept private because everything per-pixel in here
+   * is priced by it, and it is not the number anybody expects: MediaPipe
+   * returns the confidence mask at the *camera's* resolution, not the
+   * model's 256x256. Guessing that wrong is how a 0.8ms idea turns into a
+   * 3.3ms one.
+   */
+  get maskSize(): { width: number; height: number } | null {
+    const mask = this.#lastMask
+    return mask ? { width: mask.width, height: mask.height } : null
   }
 
   /** Resolves when the current load attempt has settled, whichever way. Not
@@ -369,11 +687,23 @@ export class VideoEffect {
     this.#emit()
   }
 
-  /** The replacement background, plus its natural size if the caller knows
-   *  it, so it can be cover-fitted rather than stretched. */
+  /** A still replacement background, plus its natural size if the caller
+   *  knows it, so it can be cover-fitted rather than stretched. */
   setBackground(image: FrameSourceLike | null, size?: { width: number; height: number }): void {
-    this.#background = image
-    this.#backgroundSize = size ?? null
+    this.setBackgroundSource(image ? stillBackground(image, size ?? null) : null)
+  }
+
+  /**
+   * A replacement background that redraws itself.
+   *
+   * Replaces whatever was there, still or animated, and closes it: the
+   * previous one may be holding a canvas, and there is no point keeping the
+   * reef alive behind a photograph of a bookshelf.
+   */
+  setBackgroundSource(source: BackgroundSource | null): void {
+    const previous = this.#source
+    this.#source = source
+    if (previous && previous !== source) previous.close?.()
   }
 
   /**
@@ -389,6 +719,8 @@ export class VideoEffect {
     this.#lastMask = null
     this.#maskValid = false
     this.#failures = 0
+    // A mask averaged across a swap is an average of two different rooms.
+    this.#smoother?.reset()
   }
 
   /** Draw one frame. Returns what it decided to do, which is what the tests
@@ -421,7 +753,7 @@ export class VideoEffect {
       const mask = this.#segmenter.segment(source, timestampMs)
       this.#failures = 0
       if (mask) {
-        this.#lastMask = mask
+        this.#lastMask = this.#smoother ? this.#smoother.push(mask) : mask
         this.#maskValid = true
       }
     } catch (err) {
@@ -444,7 +776,7 @@ export class VideoEffect {
 
     if (action === 'composite') {
       try {
-        this.#paintComposite(source, this.#lastMask!, width, height)
+        this.#paintComposite(source, this.#lastMask!, width, height, timestampMs)
         return 'composite'
       } catch (err) {
         // A compositing failure is a canvas problem, not a segmentation one,
@@ -464,8 +796,11 @@ export class VideoEffect {
     this.#closed = true
     this.#segmenter?.close()
     this.#segmenter = null
+    this.#source?.close?.()
+    this.#source = null
     this.#lastMask = null
     this.#maskValid = false
+    this.#smoother?.reset()
   }
 
   // -- internals ------------------------------------------------------------
@@ -525,6 +860,7 @@ export class VideoEffect {
     mask: SegmentationMask,
     width: number,
     height: number,
+    nowMs: number,
   ): void {
     const person = this.#ensurePerson(width, height)
     const stencil = this.#ensureMask(mask.width, mask.height)
@@ -537,6 +873,7 @@ export class VideoEffect {
 
     maskToAlpha(mask, stencil.image.data)
     stencil.ctx.putImageData(stencil.image, 0, 0)
+    this.#erodeStencil(stencil.canvas, stencil.ctx, mask.width, mask.height)
 
     // Scaling a low-resolution stencil up with smoothing on is what softens
     // the mask edge for free; the feather in `maskToAlpha` handles the rest.
@@ -545,16 +882,29 @@ export class VideoEffect {
     person.ctx.drawImage(stencil.canvas, 0, 0, width, height)
     person.ctx.globalCompositeOperation = 'source-over'
 
-    // 2. The background.
+    // 2. The background. A source that throws or hands back nothing is not
+    //    allowed to take the frame down with it: it falls through to blur,
+    //    like every other thing that can go wrong in here.
+    let replacement: FrameSourceLike | null = null
+    let replacementSize: { width: number; height: number } | null = null
+    if (this.#mode === 'replace' && this.#source) {
+      try {
+        replacement = this.#source.frame(nowMs, width, height)
+        replacementSize = replacement ? this.#source.size() : null
+      } catch (err) {
+        this.#error = errorMessage(err)
+        replacement = null
+      }
+    }
+
     const ctx = this.#outCtx
     ctx.globalCompositeOperation = 'source-over'
-    if (this.#mode === 'replace' && this.#background) {
+    if (replacement) {
       ctx.filter = 'none'
-      const size = this.#backgroundSize
-      const rect = size
-        ? coverRect(size.width, size.height, width, height)
+      const rect = replacementSize
+        ? coverRect(replacementSize.width, replacementSize.height, width, height)
         : { dx: 0, dy: 0, dw: width, dh: height }
-      ctx.drawImage(this.#background, rect.dx, rect.dy, rect.dw, rect.dh)
+      ctx.drawImage(replacement, rect.dx, rect.dy, rect.dw, rect.dh)
     } else {
       // Also the fallback when replace is on but no background has loaded:
       // blurred is the safe thing to show, never the room.
@@ -567,6 +917,30 @@ export class VideoEffect {
 
     // 3. The person over the top.
     ctx.drawImage(person.canvas, 0, 0, width, height)
+  }
+
+  /**
+   * Pull the stencil's outline in, on the canvas rather than in a loop.
+   *
+   * Four draws of the stencil over itself with `destination-in`, which keeps
+   * the smaller of the two alphas at every pixel. Left then right is a
+   * three-tap minimum across; up then down is the same down the column; the
+   * two together are the separable erosion, arrived at by the same algebra
+   * and paid for by whatever is drawing the canvas.
+   *
+   * Drawing a canvas onto itself is defined behaviour - the source is
+   * snapshotted before the draw - and it is the whole trick here.
+   */
+  #erodeStencil(canvas: CanvasLike, ctx: Context2DLike, width: number, height: number): void {
+    const px = STENCIL_ERODE_PX
+    if (!(px > 0)) return
+    ctx.filter = 'none'
+    ctx.globalCompositeOperation = 'destination-in'
+    ctx.drawImage(canvas, -px, 0, width, height)
+    ctx.drawImage(canvas, px, 0, width, height)
+    ctx.drawImage(canvas, 0, -px, width, height)
+    ctx.drawImage(canvas, 0, px, width, height)
+    ctx.globalCompositeOperation = 'source-over'
   }
 
   #ensurePerson(width: number, height: number): { canvas: CanvasLike; ctx: Context2DLike } {
