@@ -30,8 +30,25 @@ in the segmentation mask shows. `sea-sand` is the kindest to the mask and
 Regenerating costs money, so it is a deliberate act with the owner's say-so,
 not something a build does.
 
+## Fish
+
+`fish/` holds the six sprites drawn over a sea background when "Fish swimming
+past" is ticked, cut from `fish-sheet.png`: a yellow tang, a clownfish, a
+regal tang, a damselfish, a butterflyfish and an anthias. One generation on
+the same day and model, asked for six reef fish in side profile on a
+transparent background, well separated, no water and no shadows. Every sprite
+faces LEFT; the code mirrors the ones swimming the other way, so a
+replacement must face left too.
+
+The sheet was cut into 512x512 cells, the alpha levelled to drop the soft
+coloured glow the model leaves around each fish (`-channel A -level 45%,85%`),
+trimmed and resized to 256px. Check a new sprite over pale water before
+shipping it: a glow that is invisible against black shows up plainly against
+sand.
+
 Convert with:
 
 ```
 cwebp -q 80 -resize 1280 0 sea-lagoon.png -o ../../app/public/backgrounds/sea-lagoon.webp
+cwebp -q 86 -alpha_q 100 fish/tang.png -o ../../app/public/backgrounds/fish/tang.webp
 ```
