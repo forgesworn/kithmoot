@@ -56,8 +56,8 @@ export interface RemoteAnnotation {
   annotation: ScreenAnnotation
 }
 
-/** Something that went wrong in signalling and was survived. See
- *  `MeshOptions.onDiagnostic`. */
+/** Something that went wrong in signalling and was survived, or something
+ *  ordinary worth a line in a call's timeline. See `MeshOptions.onDiagnostic`. */
 export interface MeshDiagnostic {
   kind:
     /** A relay rejected a signal outright, so it never left this device. */
@@ -68,9 +68,21 @@ export interface MeshDiagnostic {
     /** A renegotiation on a connected pair went unanswered for long enough
      *  that ICE was restarted on it. */
     | 'renegotiation-stalled'
+    /** An ordinary signal was handed to the transport for publishing. */
+    | 'signal-sent'
+    /** An ordinary signal was received, decrypted and admitted. */
+    | 'signal-received'
+    /** A signal was retransmitted after its publish failed. */
+    | 'signal-retransmitted'
+    /** A signal held for a peer that did not exist yet was dropped as too
+     *  old once that peer was finally created. */
+    | 'signal-dropped-as-stale'
+    /** This endpoint's connection changed state. */
+    | 'connection-state-change'
   /** The remote device the signal was to or from. */
   device: string
-  /** Free text, for a bug report. Signal types and error messages only. */
+  /** Free text, for a bug report. Signal types, states and error messages
+   *  only - never a description, a candidate or anything from the SDP. */
   detail: string
 }
 
@@ -1014,7 +1026,10 @@ export class Mesh {
     const now = Date.now()
     if (now - (this.#publishRetryAt.get(device) ?? 0) < PUBLISH_RETRY_MIN_MS) return
     this.#publishRetryAt.set(device, now)
-    this.#peerFor(device)?.retransmitNow()
+    const peer = this.#peerFor(device)
+    if (!peer) return
+    peer.retransmitNow()
+    this.#diagnose({ kind: 'signal-retransmitted', device, detail: body.type })
   }
 
   #diagnose(event: MeshDiagnostic): void {
@@ -1495,7 +1510,10 @@ export class Mesh {
         // know to ask for, and the empty `catch` that used to be here is why
         // that looked exactly like a pair with nothing to say.
         this.#opts.transport.publish(wrap).catch((error) => this.#signalPublishFailed(remoteDevice, body as SignalBody, error))
-        if (!forwarder) this.#watchNegotiation(remoteDevice, body as SignalBody)
+        if (!forwarder) {
+          this.#watchNegotiation(remoteDevice, body as SignalBody)
+          this.#diagnose({ kind: 'signal-sent', device: remoteDevice, detail: (body as SignalBody).type })
+        }
       },
       onTrack: (track, receiver) => {
         if (forwarder) this.#onForwardedTrack(track, receiver)
@@ -1520,6 +1538,7 @@ export class Mesh {
             else if (state === 'failed' || state === 'closed') this.#forwarderFailed()
           }
         : (state: RTCPeerConnectionState) => {
+            this.#diagnose({ kind: 'connection-state-change', device: remoteDevice, detail: state })
             if (state === 'connected') this.#endpointConnected(remoteDevice)
             else if (state === 'failed' || state === 'closed') this.#endpointFailed(remoteDevice)
           },
@@ -1615,6 +1634,8 @@ export class Mesh {
     // wrap's pubkey: every wrap is signed by a fresh ephemeral key, so the
     // only stable identity a budget can be held against is the one inside.
     if (!this.#guard.admitSender(unwrapped.from, now)) return
+
+    this.#diagnose({ kind: 'signal-received', device: unwrapped.from, detail: unwrapped.body.type })
 
     if (unwrapped.body.type === 'assist') {
       // Assist requests act immediately rather than waiting for a Peer, so
@@ -1755,7 +1776,10 @@ export class Mesh {
     const cutoff = this.#now() - SIGNAL_MAX_AGE_SECONDS
     let offered = false
     for (const { body, at } of held) {
-      if (at < cutoff) continue
+      if (at < cutoff) {
+        this.#diagnose({ kind: 'signal-dropped-as-stale', device, detail: body.type })
+        continue
+      }
       peer.handleSignal(body).catch((error) =>
         this.#diagnose({ kind: 'signal-handling-failed', device, detail: `${body.type}: ${describeError(error)}` }),
       )

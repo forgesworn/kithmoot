@@ -53,6 +53,7 @@ import { SpeakingMonitor } from './speaking-monitor.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
 import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
+import { AdvertTracker, CallTimeline, PairHealthSampler, type PairSample } from './call-timeline.js'
 import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
 import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
@@ -3191,10 +3192,19 @@ function renderCallTabNotice(): void {
   if (held) $('callTabNoticeText').textContent = "This room's call is open in another tab."
 }
 
+// A rolling, redacted record of what happened during this call, and a
+// per-pair health sampler that turns single-snapshot stats into "is it
+// actually moving". Both feed `collectDiagnostics` below; see
+// app/src/call-timeline.ts for what they will and will not record.
+const callTimeline = new CallTimeline()
+const pairHealthSampler = new PairHealthSampler()
+const advertTracker = new AdvertTracker()
+
 const callTabLock = new CallTabLock({
   onPreempted: (key) => {
     if (key !== callLockKey()) return
     heldElsewhereKey = key
+    callTimeline.record('call-tab-lock', undefined, 'preempted')
     leaveCall('preempted').then(() => {
       session?.pausePresence()
       renderCallTabNotice()
@@ -3203,12 +3213,14 @@ const callTabLock = new CallTabLock({
   onHeldElsewhere: (key) => {
     if (key !== callLockKey() || onCall()) return
     heldElsewhereKey = key
+    callTimeline.record('call-tab-lock', undefined, 'held-elsewhere')
     session?.pausePresence()
     renderCallTabNotice()
   },
   onFreed: (key) => {
     if (key !== heldElsewhereKey) return
     heldElsewhereKey = undefined
+    callTimeline.record('call-tab-lock', undefined, 'freed')
     session?.resumePresence()
     renderCallTabNotice()
   },
@@ -3220,6 +3232,7 @@ const callTabLock = new CallTabLock({
   // up to a full heartbeat interval.
   onProbeAnswered: (key) => {
     if (key !== callLockKey()) return
+    callTimeline.record('call-tab-lock', undefined, 'probe-answered')
     publishActiveTracks()
   },
 })
@@ -7255,7 +7268,7 @@ function reportAutoplayBlock(error: unknown): void {
   // that actually excuses this device from hearing it - see
   // shouldShowAutoplayBanner.
   const shown = autoplayBanner.blocked(error, { inRoom: session !== undefined, audioDeliberatelyMuted: !cachedMonitorHere || leftCall }, activation)
-  if (shown) renderAutoplayBanner()
+  if (shown) { callTimeline.record('autoplay-blocked'); renderAutoplayBanner() }
 }
 
 /** One tap resumes every remote `<audio>` this page has paused, and the two
@@ -7270,14 +7283,14 @@ function resumeBlockedAudio(): void {
   for (const { el } of remoteAudios.values()) {
     if (!el.paused) continue
     void el.play().then(
-      () => { autoplayBanner.resumed(); renderAutoplayBanner() },
+      () => { autoplayBanner.resumed(); callTimeline.record('autoplay-resumed'); renderAutoplayBanner() },
       (err) => reportAutoplayBlock(err),
     )
   }
   // Nothing was paused - a track arriving just as this was pressed, say.
   // The tap still counts as a gesture and the banner still has no reason
   // left to be up.
-  if ([...remoteAudios.values()].every(({ el }) => !el.paused)) { autoplayBanner.resumed(); renderAutoplayBanner() }
+  if ([...remoteAudios.values()].every(({ el }) => !el.paused)) { autoplayBanner.resumed(); callTimeline.record('autoplay-resumed'); renderAutoplayBanner() }
 }
 
 $('autoplayBannerButton').addEventListener('click', resumeBlockedAudio)
@@ -7459,6 +7472,7 @@ function syncRemoteVideos(): void {
       if (onScreen(entry)) changed = true
       entry.el.remove()
       remoteVideos.delete(key)
+      callTimeline.record('tile-orphaned', short(key.split('|')[0]), 'video')
       continue
     }
     const now = entry.el.currentTime
@@ -7549,14 +7563,14 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
   // twice under two names.
   if (track.kind === 'video' && !remoteVideos.has(key)) {
     const alias = [...remoteVideos].find(([, entry]) => entry.track === track)
-    if (alias) { remoteVideos.delete(alias[0]); remoteVideos.set(key, alias[1]) }
+    if (alias) { remoteVideos.delete(alias[0]); remoteVideos.set(key, alias[1]); callTimeline.record('tile-bound', short(device)) }
   }
   if (track.kind === 'audio' && !remoteAudios.has(key)) {
     const alias = [...remoteAudios].find(([, entry]) => entry.track === track)
     // Any route the old key held is torn down rather than left dangling
     // under a name `remoteAudios` no longer has; `render()` opens a fresh
     // one under the new key on its next pass.
-    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]); remoteVolume.detach(alias[0]) }
+    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]); remoteVolume.detach(alias[0]); callTimeline.record('tile-bound', short(device)) }
   }
 
   // One element PER TRACK, not per kind. A device sharing its screen while
@@ -7590,6 +7604,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.dataset.track = track.id
       remoteVideos.set(key, { el, container, track, last: -1, stalled: 0, played: false })
       container.append(el)
+      callTimeline.record('track-added', short(device), 'video')
     } else if (!onScreen(existing)) {
       // Parked, and the far end is publishing this track again - a
       // renegotiation hands the same track over and `ontrack` fires afresh.
@@ -7616,6 +7631,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       if (remoteVideos.get(key)?.track !== track) return
       el.remove()
       remoteVideos.delete(key)
+      callTimeline.record('track-removed', short(device), 'video')
       if (session) render(session.participants(), meParticipant)
     })
   } else {
@@ -7632,6 +7648,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.dataset.track = track.id
       remoteAudios.set(key, { el, track })
       container.append(el)
+      callTimeline.record('track-added', short(device), 'audio')
     } else if (!el.isConnected) {
       restoreRemoteElement(el, container)
     }
@@ -7656,6 +7673,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       remoteVolume.detach(key)
       speakingMonitor.unwatch(device)
       paintSpeaking()
+      callTimeline.record('track-removed', short(device), 'audio')
       if (session) render(session.participants(), meParticipant)
     })
   }
@@ -7729,6 +7747,11 @@ async function collectDiagnostics(): Promise<string> {
             case 'inbound-rtp':
             case 'outbound-rtp':
               stats.push(pick(r, ['type', 'kind', 'bytesReceived', 'bytesSent', 'packetsReceived', 'packetsSent', 'packetsLost', 'framesDecoded', 'framesEncoded', 'framesReceived', 'framesSent', 'frameWidth', 'frameHeight', 'codecId', 'pliCount', 'nackCount', 'jitterBufferDelay']))
+              break
+            // Tells this device whether the far end is actually receiving
+            // what it sends - see PairSample.outboundAcknowledged.
+            case 'remote-inbound-rtp':
+              stats.push(pick(r, ['type', 'kind', 'packetsLost', 'roundTripTime']))
               break
             case 'candidate-pair':
               if (r.nominated === true || r.selected === true) stats.push(pick(r, ['type', 'state', 'localCandidateId', 'remoteCandidateId', 'bytesSent', 'bytesReceived', 'currentRoundTripTime', 'availableOutgoingBitrate']))
@@ -7804,7 +7827,42 @@ async function collectDiagnostics(): Promise<string> {
     // been turned up or down is nobody's business but this browser's.
     volume: { customLevels: volumeLevelCount(deviceStore), gainAvailable: remoteVolume.gainAvailable },
   }
-  return JSON.stringify(out, null, 1)
+  // Per-pair health: one line per connection, built from the same stats
+  // pass above. `label` counts inbound-rtp entries of the same kind
+  // (camera plus screen video, say) rather than trying to name them.
+  const routeTiers = new Map((s ? [...s.routes] : []).map(([d, r]) => [short(d), r.tier]))
+  const kindCounts = new Map<string, number>()
+  const pairSamples: PairSample[] = connections.map((c) => {
+    const device = /:([0-9a-f]{8}):/.exec(c.key)?.[1]
+    kindCounts.clear()
+    const slots = c.stats
+      .filter((r) => r.type === 'inbound-rtp')
+      .map((r) => {
+        const kind = String(r.kind ?? 'unknown')
+        const n = (kindCounts.get(kind) ?? 0) + 1
+        kindCounts.set(kind, n)
+        const label = n === 1 ? kind : `${kind}#${n}`
+        const counter = Number(r.kind === 'audio' ? r.packetsReceived ?? 0 : r.framesDecoded ?? r.packetsReceived ?? 0)
+        return { label, counter }
+      })
+    return {
+      device: device ?? 'unknown',
+      tier: device ? routeTiers.get(device) : undefined,
+      connectionState: c.connectionState,
+      signalingState: c.signalingState,
+      slots,
+      outboundAcknowledged: c.stats.some((r) => r.type === 'remote-inbound-rtp'),
+    }
+  })
+  const pairLines = pairHealthSampler.snapshot(pairSamples)
+  const timelineLines = callTimeline.format()
+  return (
+    JSON.stringify(out, null, 1) +
+    '\n\nCall timeline (redacted, newest last):\n' +
+    (timelineLines.length > 0 ? timelineLines.join('\n') : '(nothing recorded yet)') +
+    '\n\nPer-pair summary:\n' +
+    (pairLines.length > 0 ? pairLines.join('\n') : '(no open connections)')
+  )
 }
 
 $('diagnostics').addEventListener('click', () => {
@@ -8061,9 +8119,11 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           onRelayStart: () => renderAssist(),
           onRelayStop: () => renderAssist(),
           // The chips say which rung a connection is on, so they move when it does.
-          onRoute: () => {
+          onRoute: (device, route) => {
+            callTimeline.record('route-tier-change', short(device), route.tier)
             if (session) render(session.participants(), meParticipant)
           },
+          onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
       : new RoomSession({
           transport,
@@ -8091,15 +8151,23 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           onRelayStart: () => renderAssist(),
           onRelayStop: () => renderAssist(),
           // The chips say which rung a connection is on, so they move when it does.
-          onRoute: () => {
+          onRoute: (device, route) => {
+            callTimeline.record('route-tier-change', short(device), route.tier)
             if (session) render(session.participants(), meParticipant)
           },
+          onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
     session = s
     meParticipant = s.participant
 
     s.onChange((views) => {
       if (session !== s) return
+      const byDevice = new Map<string, string[]>()
+      for (const view of views) for (const t of view.tracks) byDevice.set(t.device, [...(byDevice.get(t.device) ?? []), t.role])
+      for (const change of advertTracker.update([...byDevice].map(([device, roles]) => ({ device, roles })))) {
+        if (change.added.length > 0) callTimeline.record('advert-change', short(change.device), `+${change.added.join(',')}`)
+        if (change.removed.length > 0) callTimeline.record('advert-change', short(change.device), `-${change.removed.join(',')}`)
+      }
       announceComings(views, meParticipant)
       assignmentPanel.refreshPeople()
       render(views, meParticipant)
@@ -8119,7 +8187,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // this pool's problem, but the tab going to the background any time
     // after it did is: a cheap round trip here catches it before the join
     // event is the thing that discovers it, the slow and public way.
-    if (lastHiddenAt >= poolCreatedAt) await pool.probe().catch(() => {})
+    if (lastHiddenAt >= poolCreatedAt) await pool.probe().catch((err) => callTimeline.record('probe-failed', undefined, describeError(err)))
     await s.join(currentAdverts(), currentClaims())
     if (session !== s) return
     // Another tab of this browser, same account, may already be on this
