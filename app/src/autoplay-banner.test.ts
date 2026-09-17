@@ -34,16 +34,16 @@ describe('isAutoplayBlock', () => {
 })
 
 describe('shouldShowAutoplayBanner', () => {
-  it('shows while on the call with audio not deliberately muted', () => {
-    expect(shouldShowAutoplayBanner({ onCall: true, audioDeliberatelyMuted: false })).toBe(true)
+  it('shows while in the room with audio not deliberately muted, whether or not this device pressed Join call', () => {
+    expect(shouldShowAutoplayBanner({ inRoom: true, audioDeliberatelyMuted: false })).toBe(true)
   })
 
-  it('never shows off the call', () => {
-    expect(shouldShowAutoplayBanner({ onCall: false, audioDeliberatelyMuted: false })).toBe(false)
+  it('never shows outside the room', () => {
+    expect(shouldShowAutoplayBanner({ inRoom: false, audioDeliberatelyMuted: false })).toBe(false)
   })
 
   it('never shows when audio is deliberately muted', () => {
-    expect(shouldShowAutoplayBanner({ onCall: true, audioDeliberatelyMuted: true })).toBe(false)
+    expect(shouldShowAutoplayBanner({ inRoom: true, audioDeliberatelyMuted: true })).toBe(false)
   })
 })
 
@@ -54,33 +54,33 @@ describe('AutoplayBannerState', () => {
 
   it('a block shows it', () => {
     const state = new AutoplayBannerState()
-    const shown = state.blocked(new DOMException('blocked', 'NotAllowedError'), { onCall: true, audioDeliberatelyMuted: false })
+    const shown = state.blocked(new DOMException('blocked', 'NotAllowedError'), { inRoom: true, audioDeliberatelyMuted: false })
     expect(shown).toBe(true)
     expect(state.visible).toBe(true)
   })
 
   it('a block that is not an autoplay error never shows it', () => {
     const state = new AutoplayBannerState()
-    state.blocked(new Error('network'), { onCall: true, audioDeliberatelyMuted: false })
+    state.blocked(new Error('network'), { inRoom: true, audioDeliberatelyMuted: false })
     expect(state.visible).toBe(false)
   })
 
   it('a block while off the call never shows it', () => {
     const state = new AutoplayBannerState()
-    state.blocked(new DOMException('blocked', 'NotAllowedError'), { onCall: false, audioDeliberatelyMuted: false })
+    state.blocked(new DOMException('blocked', 'NotAllowedError'), { inRoom: false, audioDeliberatelyMuted: false })
     expect(state.visible).toBe(false)
   })
 
   it('resumed hides it', () => {
     const state = new AutoplayBannerState()
-    state.blocked(new DOMException('blocked', 'NotAllowedError'), { onCall: true, audioDeliberatelyMuted: false })
+    state.blocked(new DOMException('blocked', 'NotAllowedError'), { inRoom: true, audioDeliberatelyMuted: false })
     state.resumed()
     expect(state.visible).toBe(false)
   })
 
   it('a later block shows it again after it was resumed', () => {
     const state = new AutoplayBannerState()
-    const deps = { onCall: true, audioDeliberatelyMuted: false }
+    const deps = { inRoom: true, audioDeliberatelyMuted: false }
     state.blocked(new DOMException('blocked', 'NotAllowedError'), deps)
     state.resumed()
     state.blocked(new DOMException('blocked', 'NotAllowedError'), deps)
@@ -89,7 +89,7 @@ describe('AutoplayBannerState', () => {
 
   it('hide forces it off regardless of prior state', () => {
     const state = new AutoplayBannerState()
-    state.blocked(new DOMException('blocked', 'NotAllowedError'), { onCall: true, audioDeliberatelyMuted: false })
+    state.blocked(new DOMException('blocked', 'NotAllowedError'), { inRoom: true, audioDeliberatelyMuted: false })
     state.hide()
     expect(state.visible).toBe(false)
   })

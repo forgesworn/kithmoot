@@ -3212,6 +3212,16 @@ const callTabLock = new CallTabLock({
     session?.resumePresence()
     renderCallTabNotice()
   },
+  // A fresh tab has just probed and been told this tab holds the call. Its
+  // own join() is about to publish (or has just published) one trackless
+  // entry under the identical device key, simply to enter the room - see
+  // call-tab-lock.ts. Republishing now, rather than waiting for the next
+  // heartbeat, keeps that contradiction down to one round trip instead of
+  // up to a full heartbeat interval.
+  onProbeAnswered: (key) => {
+    if (key !== callLockKey()) return
+    publishActiveTracks()
+  },
 })
 
 $('callTabNoticeTake').addEventListener('click', () => {
@@ -3264,17 +3274,27 @@ function stopLocalMedia(): void {
 
 /** Off the call. The room, and everybody else's call, carry on.
  *
- *  `reason: 'preempted'` is another tab of this device taking the call:
- *  everything here still applies - stop media, say we are off - except
- *  releasing the tab lock, which the other tab already holds. */
+ *  `reason: 'preempted'` is another tab of this device taking the call.
+ *  Everything here still applies - stop media, say we are off - and one
+ *  thing more: this device sends a farewell for its call footprint rather
+ *  than an ordinary "no tracks" update, so every peer's mesh drops its
+ *  connection to this device cleanly instead of trying to renegotiate it -
+ *  see `Session.farewellCall` for why an ordinary update cannot hand a live
+ *  connection to a different physical tab. Never done for `'user'`: a
+ *  normal Leave keeps the connection warm on purpose, for an instant Join
+ *  back. */
 async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
   const s = session
   stopLocalMedia()
   speakingMonitor.retain([...remoteAudios.keys()])
   remoteVolume.retain([...remoteAudios.keys()])
-  publishActiveTracks()
   leftCall = true
-  if (s) await s.setCall(null)
+  if (reason === 'preempted') {
+    if (s) await s.farewellCall()
+  } else {
+    publishActiveTracks()
+    if (s) await s.setCall(null)
+  }
   setCallOpen(false)
   void callWakeLock.release()
   autoplayBanner.hide()
@@ -7228,7 +7248,13 @@ function renderAutoplayBanner(): void {
 
 function reportAutoplayBlock(error: unknown): void {
   const activation = (navigator as Navigator & { userActivation?: UserActivation }).userActivation
-  const shown = autoplayBanner.blocked(error, { onCall: onCall(), audioDeliberatelyMuted: !cachedMonitorHere || leftCall }, activation)
+  // Not `onCall()`: that is whether this device pressed Join call, and a
+  // person who has only walked into a room where a call is already on -
+  // the auto-join path this banner exists for - never presses anything.
+  // `session` here is "in the room at all"; `leftCall` is the one thing
+  // that actually excuses this device from hearing it - see
+  // shouldShowAutoplayBanner.
+  const shown = autoplayBanner.blocked(error, { inRoom: session !== undefined, audioDeliberatelyMuted: !cachedMonitorHere || leftCall }, activation)
   if (shown) renderAutoplayBanner()
 }
 

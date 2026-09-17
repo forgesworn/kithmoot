@@ -80,6 +80,18 @@ export interface CallTabLockHandlers {
   /** Nobody now claims a call key this tab was quiet about. Safe to resume
    *  ordinary presence. */
   onFreed(key: string): void
+  /**
+   * This tab holds `key` and has just told a freshly-probing tab so.
+   *
+   * The asking tab still has to publish its own presence once, simply to
+   * enter the room's roster at all, and that single entry carries no
+   * tracks - the asking tab genuinely has none yet. Landed after this
+   * tab's last heartbeat, it is briefly "the truth" about a device this
+   * tab is still sending real media for. Republishing right away, rather
+   * than waiting for the next heartbeat, is what keeps that window down to
+   * one round trip instead of up to `HEARTBEAT_INTERVAL_MS`.
+   */
+  onProbeAnswered(key: string): void
 }
 
 export class CallTabLock {
@@ -138,7 +150,10 @@ export class CallTabLock {
   #receive(data: unknown): void {
     if (!isMessage(data) || data.tab === this.tab) return
     if (data.t === 'probe') {
-      if (this.#held.has(data.key)) this.#channel.postMessage({ t: 'claim', key: data.key, tab: this.tab })
+      if (this.#held.has(data.key)) {
+        this.#channel.postMessage({ t: 'claim', key: data.key, tab: this.tab })
+        this.#handlers.onProbeAnswered(data.key)
+      }
       return
     }
     if (data.t === 'claim') {
