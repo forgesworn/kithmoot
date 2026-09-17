@@ -1,0 +1,274 @@
+import { describe, expect, it } from 'vitest'
+import type { TrackAdvert } from '../../src/types.js'
+import {
+  bindRoles,
+  isReceiving,
+  ORPHAN_CHECKS,
+  RTP_GRACE_MS,
+  TileLiveness,
+  tileDevice,
+  tileKey,
+  tileRole,
+  type ReceiverFacts,
+  type TrackLike,
+} from './remote-tiles.js'
+
+const DEVICE = 'a'.repeat(64)
+
+function track(id: string, kind: 'audio' | 'video', readyState = 'live'): TrackLike {
+  return { id, kind, readyState }
+}
+
+function receiving(t: TrackLike, progressing = false): ReceiverFacts {
+  return { track: t, direction: 'recvonly', progressing }
+}
+
+function advert(role: TrackAdvert['role'], trackId: string): TrackAdvert {
+  return { role, trackId }
+}
+
+describe('tile keys', () => {
+  it('names a tile by device and role, and reads both back', () => {
+    const key = tileKey(DEVICE, 'screen')
+    expect(key).toBe(`${DEVICE}|screen`)
+    expect(tileDevice(key)).toBe(DEVICE)
+    expect(tileRole(key)).toBe('screen')
+  })
+
+  it('has no role for a key that is not one of ours', () => {
+    expect(tileRole(`${DEVICE}|7f3c-not-a-role`)).toBeUndefined()
+  })
+})
+
+describe('isReceiving', () => {
+  it('is true only for a direction that carries media towards us', () => {
+    expect(isReceiving('sendrecv')).toBe(true)
+    expect(isReceiving('recvonly')).toBe(true)
+  })
+
+  it('is false for the stale receiver of a sender the far end removed', () => {
+    expect(isReceiving('sendonly')).toBe(false)
+    expect(isReceiving('inactive')).toBe(false)
+    expect(isReceiving('stopped')).toBe(false)
+    expect(isReceiving(null)).toBe(false)
+    expect(isReceiving(undefined)).toBe(false)
+  })
+})
+
+describe('bindRoles', () => {
+  it('keys by role, not by track id: a receiver whose id matches nothing still takes the advertised slot', () => {
+    // Firefox mints its own receiver ids, so no advert will ever name one.
+    const fox = track('firefox-minted-id', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [advert('camera', 'senders-own-id')],
+      receivers: [receiving(fox, true)],
+    })
+    expect(binding.get('camera')).toBe(fox)
+    expect(binding.has('screen')).toBe(false)
+  })
+
+  it('puts a camera and a screen from one device in their own slots by advertised id', () => {
+    const cam = track('cam', 'video'), screen = track('screen', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [advert('screen', 'screen'), advert('camera', 'cam')],
+      receivers: [receiving(screen), receiving(cam)],
+    })
+    expect(binding.get('camera')).toBe(cam)
+    expect(binding.get('screen')).toBe(screen)
+  })
+
+  it('never binds a receiver whose direction is not receiving', () => {
+    const stale = track('stale', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [advert('camera', 'stale')],
+      receivers: [{ track: stale, direction: 'sendonly' }],
+    })
+    expect(binding.size).toBe(0)
+  })
+
+  it('ignores a stopped, inactive or null transceiver even when it is the only one', () => {
+    for (const direction of ['inactive', 'stopped', null, undefined] as const) {
+      const binding = bindRoles({
+        kind: 'audio',
+        adverts: [advert('mic', 'mic')],
+        receivers: [{ track: track('mic', 'audio'), direction }],
+      })
+      expect(binding.size, `direction ${String(direction)}`).toBe(0)
+    }
+  })
+
+  it('leaves the slot to the live receiver when a stale muted one is still around', () => {
+    // H5 exactly: the far end renegotiated, the old receiver stays `live`
+    // and muted for ever, and its id is the one the advert happens to name.
+    const stale = track('old-camera', 'video')
+    const live = track('browser-minted', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [advert('camera', 'old-camera')],
+      receivers: [{ track: stale, direction: 'inactive' }, receiving(live, true)],
+      bound: new Map([['camera', stale]]),
+    })
+    expect(binding.get('camera')).toBe(live)
+  })
+
+  it('prefers a receiver whose packets are moving over one whose are not', () => {
+    const quiet = track('quiet', 'video'), moving = track('moving', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [advert('camera', 'gone-with-the-old-connection')],
+      receivers: [receiving(quiet), receiving(moving, true)],
+    })
+    expect(binding.get('camera')).toBe(moving)
+  })
+
+  it('an advert naming a receiver outranks packets moving on another one', () => {
+    const named = track('named', 'video'), other = track('other', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [advert('camera', 'named')],
+      receivers: [receiving(other, true), receiving(named)],
+    })
+    expect(binding.get('camera')).toBe(named)
+    expect(binding.get('screen')).toBe(other)
+  })
+
+  it('keeps a playing picture where it is when the advert says nothing useful', () => {
+    const playing = track('playing', 'video'), fresh = track('fresh', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [advert('camera', 'neither')],
+      receivers: [receiving(fresh), receiving(playing)],
+      bound: new Map([['camera', playing]]),
+    })
+    expect(binding.get('camera')).toBe(playing)
+  })
+
+  it('guesses the everyday role for a track that arrived ahead of its advert', () => {
+    const early = track('early', 'video')
+    expect(bindRoles({ kind: 'video', adverts: [], receivers: [receiving(early)] }).get('camera')).toBe(early)
+    const sound = track('sound', 'audio')
+    expect(bindRoles({ kind: 'audio', adverts: [], receivers: [receiving(sound)] }).get('mic')).toBe(sound)
+  })
+
+  it('gives an arriving track a slot even though its transceiver cannot be found yet', () => {
+    // `ontrack` is proof the far end is sending; the app may not be able to
+    // read a direction for it until the connection settles.
+    const arriving = track('arriving', 'audio')
+    const binding = bindRoles({
+      kind: 'audio',
+      adverts: [advert('mic', 'mic-id')],
+      receivers: [],
+      prefer: arriving,
+    })
+    expect(binding.get('mic')).toBe(arriving)
+  })
+
+  it('never lists an arriving track twice when its receiver is also known', () => {
+    const arriving = track('arriving', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [],
+      receivers: [receiving(arriving)],
+      prefer: arriving,
+    })
+    expect([...binding.values()].filter(t => t === arriving)).toHaveLength(1)
+  })
+
+  it('takes at most one advert per role, so a duplicate cannot open a second slot', () => {
+    const first = track('first', 'video'), second = track('second', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [advert('camera', 'first'), advert('camera', 'second')],
+      receivers: [receiving(first), receiving(second)],
+    })
+    expect(binding.get('camera')).toBe(first)
+    expect(binding.get('screen')).toBe(second)
+  })
+
+  it('does not mix the kinds up', () => {
+    const cam = track('cam', 'video'), mic = track('mic', 'audio')
+    const video = bindRoles({ kind: 'video', adverts: [advert('camera', 'cam'), advert('mic', 'mic')], receivers: [receiving(cam), receiving(mic)] })
+    expect([...video.values()]).toEqual([cam])
+    const audio = bindRoles({ kind: 'audio', adverts: [advert('camera', 'cam'), advert('mic', 'mic')], receivers: [receiving(cam), receiving(mic)] })
+    expect([...audio.values()]).toEqual([mic])
+  })
+
+  it('drops a receiver whose track has ended', () => {
+    const over = track('over', 'audio', 'ended')
+    expect(bindRoles({ kind: 'audio', adverts: [advert('mic', 'over')], receivers: [receiving(over)] }).size).toBe(0)
+  })
+})
+
+describe('TileLiveness', () => {
+  const key = tileKey(DEVICE, 'camera')
+
+  it('keeps a tile the roster still advertises, however long it has been quiet', () => {
+    const live = new TileLiveness()
+    for (let at = 0; at < 60_000; at += 1000) expect(live.gone(key, true, at)).toBe(false)
+  })
+
+  it('keeps a tile while the roster has nothing to say about the device', () => {
+    const live = new TileLiveness()
+    for (let at = 0; at < 60_000; at += 1000) expect(live.gone(key, undefined, at)).toBe(false)
+  })
+
+  it('takes a tile down once the advert has gone for its grace and nothing is arriving', () => {
+    const live = new TileLiveness()
+    for (let i = 1; i < ORPHAN_CHECKS; i++) expect(live.gone(key, false, i * 1000)).toBe(false)
+    expect(live.gone(key, false, ORPHAN_CHECKS * 1000)).toBe(true)
+  })
+
+  it('forgives a tile whose advert comes back', () => {
+    const live = new TileLiveness()
+    expect(live.gone(key, false, 1000)).toBe(false)
+    expect(live.gone(key, false, 2000)).toBe(false)
+    expect(live.gone(key, true, 3000)).toBe(false)
+    expect(live.gone(key, false, 4000)).toBe(false)
+    expect(live.gone(key, false, 5000)).toBe(false)
+    expect(live.gone(key, false, 6000)).toBe(true)
+  })
+
+  it('packets arriving override an advert that has gone', () => {
+    // The second-tab case: the roster entry was overwritten by a tab with no
+    // tracks, and the pictures are still coming.
+    const live = new TileLiveness()
+    for (let at = 1000; at <= 30_000; at += 1000) {
+      live.progressed(key, at)
+      expect(live.gone(key, false, at)).toBe(false)
+    }
+  })
+
+  it('takes the tile down once the packets stop as well', () => {
+    const live = new TileLiveness()
+    live.progressed(key, 1000)
+    for (let at = 1000; at < 1000 + RTP_GRACE_MS; at += 1000) expect(live.gone(key, false, at)).toBe(false)
+    expect(live.gone(key, false, 1000 + RTP_GRACE_MS)).toBe(true)
+  })
+
+  it('needs the advert half of the rule too: packets alone do not take a tile down', () => {
+    const live = new TileLiveness()
+    expect(live.progressing(key, 0)).toBe(false)
+    live.progressed(key, 1000)
+    expect(live.progressing(key, 1000 + RTP_GRACE_MS - 1)).toBe(true)
+    expect(live.progressing(key, 1000 + RTP_GRACE_MS)).toBe(false)
+  })
+
+  it('forgets a tile that has gone, so it starts afresh if it comes back', () => {
+    const live = new TileLiveness()
+    for (let i = 1; i <= ORPHAN_CHECKS; i++) live.gone(key, false, i * 1000)
+    expect(live.gone(key, false, 10_000)).toBe(false)
+  })
+
+  it('retain drops what it remembers about tiles that have gone', () => {
+    const live = new TileLiveness()
+    const other = tileKey(DEVICE, 'screen')
+    live.progressed(other, 1000)
+    live.gone(other, false, 1000)
+    live.retain([key])
+    expect(live.progressing(other, 1001)).toBe(false)
+    expect(live.gone(other, false, 2000)).toBe(false)
+  })
+})
