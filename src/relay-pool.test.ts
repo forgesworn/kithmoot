@@ -399,8 +399,9 @@ describe('NostrRelayPool', () => {
     a.silent = true
     b.silent = true
     const failure = expect(pool.publish(evt())).rejects.toThrow(/no relay could be reached in time/)
-    // Two retries per relay, each preceded by AbstractRelay's own timeout.
-    await vi.advanceTimersByTimeAsync(4_400 + 1_000 + 4_400 + 3_000 + 4_400)
+    // Retries for as long as the 20s per-relay budget allows, each preceded
+    // by AbstractRelay's own timeout: comfortably more than two rounds.
+    await vi.advanceTimersByTimeAsync(30_000)
     await failure
   })
 
