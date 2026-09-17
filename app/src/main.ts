@@ -26,6 +26,7 @@ import type { ScreenAnnotation } from '../../src/signal.js'
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
+  DEVICE_PREFIX,
   browserDeviceStore,
   deviceKeyFor,
   forgetCredentialFor,
@@ -149,6 +150,9 @@ import { deleteImportedHistory, recordPrivateHistoryTombstone } from './private-
 import { indexAccessibleNip17GiftWraps, indexAccountAuthoredTextNotes } from './private-history-index.js'
 import { recoverHistoryWindows, retainRecoveredHistory } from './private-history-recovery.js'
 import { NostrPublicDeletionRelayWriter } from './public-deletion-relay-writer.js'
+import { runTidyUp, tidyUpSteps, TIDY_UP_LIMITS, type TidyStepReport, type TidyUpReport } from './room-tidy-up.js'
+import { RoomTabs } from './room-tabs.js'
+import { readPositionId } from '../../src/read-position.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
 import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
@@ -8750,7 +8754,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   hideDrawingNotice()
   closeMentionPicker()
   closeRoomSheet()
-  for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]')) dialog.close()
+  for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]:not([data-keep-open])')) dialog.close()
   stopInvitationHost()
   pairingHost?.close()
   pairingTransport?.close()
@@ -9776,8 +9780,10 @@ function roomWasClosed(notice: { by?: string }): void {
     markEnded(deviceStore, s.roomId, nowSeconds())
     if (bookmarks) markEnded(bookmarks.rooms, s.roomId, nowSeconds())
   }
+  // The closing rekey can be heard more than once: from the call that made
+  // it and again off the relay. A tidy-up leaves by itself, for its report.
+  if (tidyUpRunning) return
   if (endingRoom) {
-    endingRoom = false
     leaveWithNotice('You ended this room for everyone. Its invite link no longer works.')
     return
   }
@@ -9924,6 +9930,238 @@ async function leaveRoom(): Promise<void> {
   await closeRoomSession()
   approvedReload()
 }
+
+// ---------------------------------------------------------------------------
+// Leave and tidy up. The steps and their order live in room-tidy-up.ts; this
+// is where the keys, relays, tabs and storage they act on come from.
+// ---------------------------------------------------------------------------
+
+const roomTabs = typeof BroadcastChannel === 'undefined' ? undefined : new RoomTabs(
+  () => session ? currentRoomId() : undefined,
+  async roomId => { if (session && currentRoomId() === roomId) leaveForTidyUp() },
+)
+
+interface TidyUpContext {
+  roomId: string
+  roomKey: Uint8Array
+  roomRelays: string[]
+  invitation?: RoomInvitation
+  inviterSk?: Uint8Array
+  deviceSk: Uint8Array
+  account?: SignetSession
+  canEnd: boolean
+}
+
+let tidyUpContext: TidyUpContext | undefined
+let tidyUpRunning = false
+
+function tidyUpAccount(roomId: string): SignetSession | undefined {
+  return nostrSession && bookmarks && knownRoom(bookmarks.rooms, roomId) ? nostrSession : undefined
+}
+
+async function openTidyUp(): Promise<void> {
+  const s = session
+  const roomId = currentRoomId()
+  if (!s || !roomId) return
+  // Saved to an account whose signer is not here: tidying would clear this
+  // browser and leave the account's records behind. See C10.
+  if (accountDisconnected() && disconnectedAccountRooms().some(room => room.roomId === roomId)) {
+    const signer = signerLabel(expectedMethod)
+    setStatus(`This room is saved to your Nostr account, and ${signer} is not connected in this tab. Leave the room, reconnect ${signer}, then tidy up so your account’s records go too.`)
+    return
+  }
+  const owner = invitationDelegation.length === 0 && invitationAuthoritySk && roomInvitationCapability ? roomInvitationCapability : undefined
+  tidyUpContext = {
+    roomId,
+    roomKey: deriveRoom(roomSecret).roomKey,
+    roomRelays: [...relays],
+    invitation: owner,
+    inviterSk: owner ? invitationAuthoritySk : undefined,
+    deviceSk: deviceKey(),
+    account: tidyUpAccount(roomId),
+    canEnd: canEndRoom(),
+  }
+  closeRoomSheet()
+  renderTidyUpPlan()
+  $('tidyUpResults').replaceChildren()
+  ;($('tidyUpRun') as HTMLButtonElement).hidden = false
+  ;($('tidyUpCancel') as HTMLButtonElement).hidden = false
+  ;($('tidyUpDone') as HTMLButtonElement).hidden = true
+  ;($('tidyUpTombstone') as HTMLInputElement).disabled = false
+  ;($('tidyUpEnd') as HTMLInputElement).disabled = false
+  const dialog = $('tidyUpDialog') as HTMLDialogElement
+  if (!dialog.open) dialog.showModal()
+  ;($('tidyUpCancel') as HTMLButtonElement).focus()
+}
+
+function renderTidyUpPlan(): void {
+  const context = tidyUpContext
+  if (!context) return
+  const deleteTombstone = ($('tidyUpTombstone') as HTMLInputElement).checked
+  const end = context.canEnd && ($('tidyUpEnd') as HTMLInputElement).checked
+  $('tidyUpTombstoneRow').hidden = !context.account
+  $('tidyUpEndRow').hidden = !context.canEnd
+  const list = $('tidyUpSteps')
+  const results = new Map([...list.querySelectorAll<HTMLElement>('li')].map(li => [li.dataset.step, li.querySelector('.tidyResult')]))
+  list.replaceChildren(...tidyUpSteps({ creator: !!context.inviterSk, account: !!context.account, deleteTombstone, end }).map(step => {
+    const li = document.createElement('li')
+    li.dataset.step = step.id
+    li.textContent = step.label
+    const kept = results.get(step.id)
+    if (kept) li.append(kept)
+    return li
+  }))
+  $('tidyUpLimits').replaceChildren(...TIDY_UP_LIMITS.map(text => { const li = document.createElement('li'); li.textContent = text; return li }))
+}
+
+function describeTidyStep(report: TidyStepReport): string {
+  if (report.skipped) return report.skipped
+  const parts: string[] = []
+  if (['invitations', 'retirement', 'device', 'account'].includes(report.id)) parts.push(report.found === 0 ? 'Nothing found to delete.' : `Found ${report.found}.`)
+  for (const answer of report.answers) parts.push(`${answer.relay}: ${answer.status}${answer.detail ? ` (${answer.detail})` : ''}.`)
+  if (report.unread.length) parts.push(`Did not answer the query: ${report.unread.join(', ')}.`)
+  if (report.id === 'check') parts.push(report.found === 0 ? 'The relays that answered hold nothing more of yours for this room.' : `${report.found} still found.`)
+  return parts.join(' ') || 'Done.'
+}
+
+function showTidyStep(report: TidyStepReport): void {
+  const li = $('tidyUpSteps').querySelector<HTMLElement>(`li[data-step="${report.id}"]`)
+  if (!li) return
+  li.querySelector('.tidyResult')?.remove()
+  const result = document.createElement('span')
+  result.className = 'tidyResult'
+  result.dataset.status = report.skipped ? 'skipped' : report.answers.some(a => a.status !== 'accepted') ? 'partial' : 'done'
+  result.textContent = describeTidyStep(report)
+  li.append(result)
+}
+
+function showTidyReport(report: TidyUpReport): void {
+  const results = $('tidyUpResults')
+  results.replaceChildren()
+  const heading = document.createElement('h3')
+  heading.textContent = report.refused ? 'Nothing was deleted' : report.remaining.length ? 'What a fresh query still finds' : 'Tidied up'
+  const lead = document.createElement('p')
+  lead.textContent = report.refused ?? (report.remaining.length ? 'These relays still return records of yours for this room:' : 'Every relay that answered returned nothing more of yours for this room.')
+  results.append(heading, lead)
+  if (report.remaining.length) {
+    const list = document.createElement('ul')
+    list.id = 'tidyUpRemaining'
+    for (const left of report.remaining) {
+      const li = document.createElement('li')
+      li.textContent = left.count < 0 ? `${left.what}: ${left.relay}` : `${left.what}: ${left.count} on ${left.relay}`
+      list.append(li)
+    }
+    results.append(list)
+  }
+}
+
+function clearRoomLocally(context: TidyUpContext): void {
+  forgetLocally(context.roomId)
+  bookmarks?.dropLocalRecord(context.roomId)
+  if (bookmarks) forgetRoom(bookmarks.rooms, context.roomId)
+  forgetRoom(deviceStore, context.roomId)
+  if (context.invitation) forgetInvitationOwner(context.invitation)
+  const names = [context.roomId, ...(context.invitation ? [deriveInvitationId(context.invitation)] : [])]
+  for (const storage of [localStorage, sessionStorage]) {
+    try {
+      for (const key of Object.keys(storage)) if (names.some(name => key.includes(name))) storage.removeItem(key)
+    } catch { /* Storage unavailable: nothing more is held there. */ }
+  }
+}
+
+async function runRoomTidyUp(): Promise<void> {
+  const context = tidyUpContext
+  if (!context || tidyUpRunning) return
+  tidyUpRunning = true
+  const deleteTombstone = ($('tidyUpTombstone') as HTMLInputElement).checked
+  const end = context.canEnd && ($('tidyUpEnd') as HTMLInputElement).checked
+  ;($('tidyUpEnd') as HTMLInputElement).disabled = true
+  ;($('tidyUpRun') as HTMLButtonElement).hidden = true
+  ;($('tidyUpCancel') as HTMLButtonElement).hidden = true
+  ;($('tidyUpTombstone') as HTMLInputElement).disabled = true
+  const reader = new NostrHistoryRelayReader()
+  const writer = new NostrPublicDeletionRelayWriter()
+  const account = context.account
+  let tabsLeft: boolean | undefined
+  ++roomOperation
+  try {
+    const report = await runTidyUp({
+      now: nowSeconds,
+      roomRelays: context.roomRelays,
+      accountRelays: [...new Set([...RELAYS, ...context.roomRelays])],
+      read: reader.read,
+      publish: (to, event) => writer.publish(to, event),
+      ...(context.invitation && context.inviterSk ? { inviter: { sk: context.inviterSk, invitationId: deriveInvitationId(context.invitation) } } : {}),
+      device: { sk: context.deviceSk },
+      ...(end ? { endRoom: endRoomForEveryone } : {}),
+      ...(account ? { account: {
+        pubkey: account.pubkey,
+        sign: template => account.signer.signEvent(template),
+        readPositionD: readPositionId(context.roomKey),
+        forgetBookmark: async () => {
+          stopWatching(context.roomId)
+          return bookmarks ? bookmarks.removeAndConfirm(context.roomId) : undefined
+        },
+        deleteTombstone,
+      } } : {}),
+      otherTabsAnswer: async () => { tabsLeft = roomTabs ? await roomTabs.leaveOthers(context.roomId) : true; return tabsLeft },
+      leaveOtherTabs: async () => tabsLeft !== false && (roomTabs ? await roomTabs.leaveOthers(context.roomId) : true),
+      leaveHere: async () => {
+        closeAllDrafts()
+        await closeRoomSession()
+      },
+      clearLocal: () => clearRoomLocally(context),
+      progress: showTidyStep,
+    })
+    showTidyReport(report)
+    if (report.refused) {
+      ;($('tidyUpCancel') as HTMLButtonElement).hidden = false
+      ;($('tidyUpCancel') as HTMLButtonElement).textContent = 'Close'
+      return
+    }
+    tidyUpContext = undefined
+    ;($('tidyUpDone') as HTMLButtonElement).hidden = false
+    ;($('tidyUpDone') as HTMLButtonElement).focus()
+  } catch (err) {
+    const problem = document.createElement('p')
+    problem.textContent = `The tidy-up stopped: ${describeError(err)}. Steps marked above ran; the rest did not.`
+    $('tidyUpResults').append(problem)
+    ;($('tidyUpDone') as HTMLButtonElement).hidden = false
+  } finally {
+    --roomOperation
+    tidyUpRunning = false
+  }
+}
+
+$('tidyUpRoom').addEventListener('click', () => { void openTidyUp() })
+$('tidyUpTombstone').addEventListener('change', renderTidyUpPlan)
+$('tidyUpEnd').addEventListener('change', renderTidyUpPlan)
+$('tidyUpCancel').addEventListener('click', () => { if (!tidyUpRunning) ($('tidyUpDialog') as HTMLDialogElement).close() })
+$('tidyUpDialog').addEventListener('cancel', event => { if (tidyUpRunning) event.preventDefault() })
+$('tidyUpDialog').addEventListener('close', () => { ($('tidyUpCancel') as HTMLButtonElement).textContent = 'Cancel' })
+$('tidyUpRun').addEventListener('click', () => { void runRoomTidyUp() })
+$('tidyUpDone').addEventListener('click', () => {
+  ;($('tidyUpDialog') as HTMLDialogElement).close()
+  if (session) return
+  history.replaceState(null, '', joinLinkBase())
+  approvedReload()
+})
+
+/** Taken out by a tidy-up elsewhere: back to the rooms list, not the room's
+ *  own link, whose keys are about to go. */
+function leaveForTidyUp(): void {
+  history.replaceState(null, '', joinLinkBase())
+  leaveWithNotice('You tidied this room up in another tab, so this tab left it.')
+}
+
+// A tab frozen while another tidied the room up could not answer. When it
+// wakes, the room's device key is gone from storage: leave rather than go on
+// publishing under a key nothing here holds any more.
+window.addEventListener('storage', event => {
+  const roomId = session ? currentRoomId() : undefined
+  if (!roomId || event.key !== DEVICE_PREFIX + roomId || event.newValue !== null) return
+  leaveForTidyUp()
+})
 
 $('leave').addEventListener('click', async () => {
   if (hasUnsentWork() && !await confirmDiscardAndLeave()) return
@@ -10979,11 +11217,12 @@ roomArrival
       // No link: the front page, with the rooms this device has been in.
       $('setup').hidden = false
       showRoomsList()
-      return
+    } else {
+      showRoomUi()
+      renderIdentity()
     }
-    showRoomUi()
-    renderIdentity()
-    // Why the last page left, if the room told it to.
+    // Why the last page left, if the room told it to. A tab taken out by a
+    // tidy-up elsewhere comes back to the front page, not the room.
     try {
       const notice = sessionStorage.getItem(NOTICE_STORAGE_KEY)
       if (notice) {

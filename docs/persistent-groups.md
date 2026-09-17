@@ -68,6 +68,28 @@ use the existing keeper.  This change removes the keeper requirement for
 basic group membership, chat and calls; it does not add distributed group
 administration or mobile push delivery.
 
+## Ending a room and tidying up
+
+The browser holding a browser room's authority can end it for everyone. It
+retires the link with `{v:1,ended:true}` and then publishes a closing rekey
+with no recipients, the same pair a keeper's close publishes. Members leave
+with a notice, a newcomer on the old link is told the room ended, and each
+rooms list marks it ended. A browser whose link was replaced no longer holds
+the key members follow, so it offers no end action. Removing one member from a
+browser room still needs the admission design in P1.
+
+**Leave and tidy up** asks the room's relays to delete what one person left,
+in an order that keeps the keys it needs: the group invitation under the link
+keys; the retirement notice only once no relay still returns the invitation,
+since without it the old link would open the room again; every other tab in
+the room, which must confirm it left; everything signed by the room's device
+key; the account's bookmark, by tombstone; the account's read position and,
+if chosen, the tombstone, named by both `e` and `a`; then this browser's
+keys and caches. It reports each relay's answer and queries again. It cannot
+delete other members' events, copies anybody already made, or quiet-room gift
+wraps signed with throwaway keys, and an accepting relay may still keep a copy.
+History imported through private recovery stays in this device's encrypted index until deleted there.
+
 The JS library and web app read v3.  Android 0.4.0 also reads and creates v3
 groups, with encrypted membership recovery on the device. Older Android builds
 need updating before using these links.
@@ -80,6 +102,9 @@ signature/bearer validation, retirement ordering, missing EOSE and conflicts.
 expiry, opt-out and forgetting.  `test/persistent-groups.spec.ts` drives
 fresh browser contexts against a real test WebSocket relay: everyone leaves,
 a new member joins two days later, persisted browsers return four days
-later, an old link is retired, a meeting is converted, and publication fails.
+later, an old link is retired, a meeting is converted, publication fails, a
+creator ends a room for everyone, and ends and tidies up in one action.
+`app/src/room-tidy-up.test.ts` checks the deletion order, `e` and `a` naming,
+the kept retirement and the refusal while a tab does not answer.
 Browser time is advanced for the days-later cases; this is automated evidence,
 not a multi-day production observation.

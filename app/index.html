@@ -786,6 +786,28 @@
       <div class="sheetBar"><h2 id="mobileCallSettingsTitle">Call settings</h2><button id="mobileCallSettingsClose" type="button">Done</button></div>
       <div class="sheetBody"></div>
     </dialog>
+    <!-- Stays open while the room is left, so the report can be read. -->
+    <dialog id="tidyUpDialog" class="actionDialog tidyUp" aria-labelledby="tidyUpTitle" data-keep-open>
+      <h2 id="tidyUpTitle">Leave and tidy up</h2>
+      <p id="tidyUpLead">Leave this room and ask its relays to delete what you left there. These steps run in this order:</p>
+      <ol id="tidyUpSteps"></ol>
+      <label id="tidyUpEndRow" class="checkRow" hidden>
+        <input id="tidyUpEnd" type="checkbox" />
+        End the room for everyone first. Everyone is taken out and every invite link stops working.
+      </label>
+      <label id="tidyUpTombstoneRow" class="checkRow" hidden>
+        <input id="tidyUpTombstone" type="checkbox" />
+        Also delete the tombstone that marks the room forgotten on your account. A relay that kept an older bookmark could then bring the room back to your list.
+      </label>
+      <h3>What nobody can delete</h3>
+      <ul id="tidyUpLimits" class="note"></ul>
+      <div id="tidyUpResults" role="status" aria-live="polite"></div>
+      <div class="actionDialogButtons">
+        <button id="tidyUpCancel" type="button">Cancel</button>
+        <button id="tidyUpRun" type="button" class="danger">Leave and tidy up</button>
+        <button id="tidyUpDone" type="button" class="primary" hidden>Done</button>
+      </div>
+    </dialog>
     <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
       <div class="sheetBar">
         <h2 id="roomSheetTitle">Room details</h2>
@@ -1036,6 +1058,7 @@
 
         <div class="sheetRow">
           <button id="leave" type="button" class="danger">Leave this room</button>
+          <button id="tidyUpRoom" type="button" class="danger quiet">Leave and tidy up</button>
           <button id="forgetBrowserRoom" type="button" class="danger">Forget this browser</button>
         </div>
       </div>

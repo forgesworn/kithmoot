@@ -131,6 +131,18 @@ wss.on('connection', (socket) => {
         send(socket, ['OK', event?.id ?? '', false, 'invalid: bad signature'])
         return
       }
+      // NIP-09, as relays that honour it do: a kind 5 removes the named events
+      // by the same author, by id or by address, and is itself kept.
+      if (event.kind === 5) {
+        const ids = new Set(event.tags.filter((t) => t[0] === 'e').map((t) => t[1]))
+        const addresses = new Set(event.tags.filter((t) => t[0] === 'a').map((t) => t[1]))
+        for (let i = stored.length - 1; i >= 0; i--) {
+          const e = stored[i]
+          if (e.pubkey !== event.pubkey || e.kind === 5) continue
+          const address = `${e.kind}:${e.pubkey}:${e.tags.find((t) => t[0] === 'd')?.[1] ?? ''}`
+          if (ids.has(e.id) || (addresses.has(address) && e.created_at <= event.created_at)) stored.splice(i, 1)
+        }
+      }
       if (!isEphemeral(event.kind)) {
         if (!stored.some((e) => e.id === event.id)) stored.push(event)
       }

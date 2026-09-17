@@ -116,6 +116,35 @@ export class RoomBookmarks {
     this.#queue({ roomId, at: Date.now() })
   }
 
+  /**
+   * Remove a room and wait for a relay to accept the tombstone. Resolves
+   * with the tombstone's `d`, or undefined when none was accepted in time,
+   * or when this signer cannot sync bookmarks at all.
+   */
+  async removeAndConfirm(roomId: string, timeoutMs = 20_000): Promise<string | undefined> {
+    this.remove(roomId)
+    const pending = this.#pending.get(roomId)
+    if (!pending) return undefined
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline && !this.#closed) {
+      if (this.#pending.get(roomId) !== pending) {
+        const record = this.#records.get(roomId)
+        return record && !record.room && record.d === pending.d ? record.d : undefined
+      }
+      if (!this.signer.nip44) return undefined
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    return undefined
+  }
+
+  /** Forget this browser's copy of a room's bookmark record, tombstone
+   *  included. Only for a room being tidied away entirely. */
+  dropLocalRecord(roomId: string): void {
+    this.#records.delete(roomId)
+    this.#pending.delete(roomId)
+    this.store.remove(this.#prefix + roomId)
+  }
+
   #queue(value: RecordValue): void {
     if (this.#closed) return
     // Only bookmark fields travel. Read positions, device credentials and

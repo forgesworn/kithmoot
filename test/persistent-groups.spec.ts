@@ -6,6 +6,24 @@ import { test, expect, type Browser, type BrowserContext, type Page } from '@pla
 import { openRoomDetails } from './browser.js'
 import { parseRoomLink } from '../src/link.js'
 import { openRoomUrl } from './relays.js'
+import { getPublicKey, type Event } from 'nostr-tools/pure'
+import { hexToBytes } from '@noble/hashes/utils'
+import WebSocket from 'ws'
+
+/** Everything the local test relay holds for a filter, read straight off it. */
+function relayHolds(filter: Record<string, unknown>): Promise<Event[]> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket('ws://127.0.0.1:7777')
+    const events: Event[] = []
+    socket.on('open', () => socket.send(JSON.stringify(['REQ', 'held', filter])))
+    socket.on('message', raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1] === 'held') events.push(frame[2])
+      if (frame[0] === 'EOSE' && frame[1] === 'held') { socket.close(); resolve(events) }
+    })
+    socket.on('error', reject)
+  })
+}
 
 /** Real WebSocket relay and built app; every creator socket is closed
  * before the next device opens its first invitation. */
@@ -154,6 +172,46 @@ test('the creator ends a browser room for everyone: members are taken out, the o
       await expect(who.locator('#roomList .roomRow')).toHaveCount(1)
       await expect(who.locator('#roomList .roomMeta')).toContainText('Ended')
     }
+  } finally { await Promise.all(contexts.map(context => context.close())) }
+})
+
+test('the creator ends the room and tidies up in one action: members are taken out and the link keys hold nothing on the relay', async ({ browser, baseURL }) => {
+  const contexts: BrowserContext[] = []
+  try {
+    const owner = await device(browser, baseURL!); contexts.push(owner)
+    const page = await owner.newPage()
+    const link = await create(page, baseURL!)
+    await page.locator('#displayName').fill('Creator')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    const member = await device(browser, baseURL!); contexts.push(member)
+    const other = await member.newPage()
+    await enter(other, link, 'Member')
+    await other.locator('#chatInput').fill('Member here')
+    await other.locator('#chatInput').press('Enter')
+    await expect(page.locator('#chatLog')).toContainText('Member here')
+
+    const inviterPub = await page.evaluate(async () => {
+      const owner = Object.keys(localStorage).find(key => key.startsWith('kithmoot.invitation-owner.v1.'))!
+      return JSON.parse(localStorage.getItem(owner)!).inviterSk as string
+    }).then(sk => getPublicKey(hexToBytes(sk)))
+
+    await openRoomDetails(page)
+    await page.locator('#tidyUpRoom').click()
+    await expect(page.locator('#tidyUpTombstoneRow')).toBeHidden()
+    await page.locator('#tidyUpEnd').check()
+    await expect(page.locator('#tidyUpSteps li').first()).toContainText('End the room for everyone')
+    await page.locator('#tidyUpRun').click()
+    await expect(page.locator('#tidyUpDone')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#tidyUpResults')).toContainText('Tidied up')
+    await expect(page.locator('#tidyUpSteps li[data-step="retirement"]')).toContainText('accepted')
+
+    await expect(other.locator('#status')).toContainText('ended by the person who started it', { timeout: 20_000 })
+    await expect(other.locator('#roomArea')).toBeHidden()
+    expect((await relayHolds({ authors: [inviterPub] })).map(event => event.kind).filter(kind => kind !== 5 && kind !== 1462)).toEqual([])
+
+    await page.locator('#tidyUpDone').click()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
   } finally { await Promise.all(contexts.map(context => context.close())) }
 })
 

@@ -3675,3 +3675,9 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 }
 
 #notificationSettings #notify > h3 { display: none; }
+
+.tidyUp { max-width: min(40rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
+.tidyUp ol, .tidyUp ul { padding-left: 1.25rem; }
+.tidyUp li { margin: .35rem 0; }
+.tidyUp .tidyResult { display: block; color: var(--muted); font-size: .95rem; overflow-wrap: anywhere; }
+.tidyUp .checkRow { display: flex; gap: .5rem; align-items: flex-start; margin: .75rem 0; }
