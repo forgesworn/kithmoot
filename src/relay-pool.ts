@@ -88,6 +88,7 @@ export class NostrRelayPool implements RelayTransport {
   #recovery: ReturnType<typeof setInterval>
   #authentication = new Map<string, AuthenticationGrant | null>()
   #authFailures = new Map<string, string>()
+  #publishing = 0
   readonly #authTimeout: number
 
   constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean, private readonly options: NostrRelayPoolOptions = {}) {
@@ -119,15 +120,28 @@ export class NostrRelayPool implements RelayTransport {
           }
         }, this.#authTimeout)
       : this.options.websocketImplementation
+    // `enablePing` stays off. In a browser `AbstractRelay` has no real ping
+    // frame to send, so it falls back to `waitForDummyReq`: every 29s it
+    // opens a throwaway `REQ` and, if no `EOSE` answers within 20s, closes
+    // the socket outright (abstract-relay.js's ping loop, ~line 293-328).
+    // With `enableReconnect: false` that call is `closeAllSubscriptions`,
+    // not a reconnect - and `#recoverSubscriptions` below only rebinds a
+    // closed relay after its own 15s per-relay cooldown, so a relay that
+    // was merely slow to answer one dummy REQ could cost up to ~35s of
+    // missed events before anything noticed, let alone fixed it. `probe()`
+    // is the same idea done right: it reconnects a relay that fails its own
+    // round trip instead of just closing on it, and `#probeInterval` below
+    // is what runs it on a schedule, so nothing here needs the library's
+    // version of the same check.
     const pool = websocketImplementation ? new class extends AbstractSimplePool {
       override ensureRelay(url: string, params?: Parameters<AbstractSimplePool['ensureRelay']>[1]) {
         return super.ensureRelay(url, owner.#authentication.get(normalizeURL(url))
           ? { ...params, connectionTimeout: owner.#authTimeout + 8_000 }
           : params)
       }
-    }({ enableReconnect: false, enablePing: true, websocketImplementation,
+    }({ enableReconnect: false, enablePing: false, websocketImplementation,
       verifyEvent: verifyEventUncached, maxWaitForConnection: 3_000 })
-      : new SimplePool({ enableReconnect: false, enablePing: true })
+      : new SimplePool({ enableReconnect: false, enablePing: false })
     pool.allowConnectingToRelay = url => current(normalizeURL(url))
     pool.onRelayConnectionSuccess = url => {
       if (generation === this.#generation) this.#mark(url, { state: 'connected', lastConnectedAt: Date.now(), lastError: undefined })
@@ -213,16 +227,30 @@ export class NostrRelayPool implements RelayTransport {
 
   reconnect(): void { this.setRelays(this.#relays) }
 
+  /** Whether a publish is currently in flight. A scheduled liveness probe
+   *  checks this and skips its turn rather than racing a `REQ`/`CLOSE`
+   *  round trip against an event the caller is waiting on. */
+  get publishing(): boolean { return this.#publishing > 0 }
+
   async publish(event: Event): Promise<void> {
     if (this.#closed) throw new Error('pool is closed')
     const urls = this.#relays.filter(relay => relay.write).map(relay => relay.url)
     if (!urls.length) throw new Error('no writable relay is configured')
     const generation = this.#generation
     const start = Date.now()
-    for (const url of urls) if (!this.#pool.listConnectionStatus().get(url)) this.#mark(url, { state: 'connecting' })
-    // Every writable relay receives the event; success still means at least
-    // one acknowledged it, not that every relay saved it.
-    const results = await Promise.allSettled(urls.map(url => this.#publishToRelay(url, event, generation, start)))
+    this.#publishing++
+    try {
+      for (const url of urls) if (!this.#pool.listConnectionStatus().get(url)) this.#mark(url, { state: 'connecting' })
+      // Every writable relay receives the event; success still means at
+      // least one acknowledged it, not that every relay saved it.
+      const results = await Promise.allSettled(urls.map(url => this.#publishToRelay(url, event, generation, start)))
+      this.#finishPublish(urls, results)
+    } finally {
+      this.#publishing--
+    }
+  }
+
+  #finishPublish(urls: string[], results: PromiseSettledResult<void>[]): void {
     if (!results.some(result => result.status === 'fulfilled')) {
       // Each relay's own words, because they differ and the difference is
       // the diagnosis: a box's drop tier says it holds kind 1059 only, and
