@@ -463,6 +463,73 @@ vectors.rosterEvent.push({
   })
 }
 
+{
+  // A device that has muted its own mic - `track.enabled = false` at the
+  // source, not a peer's own volume choice. Only the exact literal `true`
+  // is the claim; absence (every client from before the field existed)
+  // reads as not-muted.
+  const mutedEntry = { ...rosterEntry, tracks: [{ trackId: 't1', role: 'screen' }, { trackId: 'm1', role: 'mic', muted: true }] }
+  const mutedRoster = buildRoster({
+    entry: mutedEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-muted-mic-nonce',
+    auxRandLabel: 'roster-muted-mic-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'muted-mic-track',
+    kind: 'positive',
+    note: "A roster entry whose mic advert carries `muted: true`: this device turned its own microphone off, distinct from and additive to a listener's own volume choice, which is never on the wire. Only the exact literal `true` counts - docs/protocol.md's 'muted' paragraph. A reader that has never heard of the field decodes this event unchanged on everything it does model.",
+    input: {
+      entry: mutedEntry,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: mutedRoster.nonceHex,
+      auxRandHex: mutedRoster.auxRandHex,
+    },
+    output: { event: mutedRoster.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeRosterEvent(mutedRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
+  // A looser implementation's `muted: false` on the wire: not the honest
+  // `true` the claim requires, so it is dropped and the advert decodes
+  // exactly as if the field had never been written.
+  const looseMutedEntry = { ...rosterEntry, tracks: [{ trackId: 'm1', role: 'mic', muted: false }] }
+  const looseMutedRoster = buildRoster({
+    entry: looseMutedEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-muted-false-nonce',
+    auxRandLabel: 'roster-muted-false-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'muted-false-drops-to-absent',
+    kind: 'negative',
+    note: "A mic advert with `muted: false` on the wire: only the literal `true` is the mute claim, so this is not one, and the field is dropped - the advert decodes as `{ trackId, role }` with no `muted` key at all, the same as an advert that never carried the field.",
+    input: {
+      entry: looseMutedEntry,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: looseMutedRoster.nonceHex,
+      auxRandHex: looseMutedRoster.auxRandHex,
+    },
+    output: { event: looseMutedRoster.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeRosterEvent(looseMutedRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
 vectors.rosterEvent.push({
   name: 'wrong-room-key',
   kind: 'negative',

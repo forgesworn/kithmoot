@@ -1439,6 +1439,15 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--muted);
 }
 
+/* Self-asserted, like `.badge.agent`: this is what the person did to their
+   own microphone, on the wire, not a fact this browser worked out. Coexists
+   with `.badge.muted` above - one is what THEY did, the other what WE did. */
+.badge.muted-self {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--muted);
+}
+
 /* Identity
  *
  * A name is a claim and a pubkey is not, so they never look the same: the

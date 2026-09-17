@@ -284,9 +284,18 @@ export function dedupeTrackAdverts(value: unknown): TrackAdvert[] {
     if (!TRACK_ROLES.includes(role as TrackRole)) continue
     if (seenRoles.has(role as TrackRole)) continue
     seenRoles.add(role as TrackRole)
-    result.push({ trackId, role: role as TrackRole })
+    const muted = sanitiseTrackMuted((item as Partial<TrackAdvert>).muted)
+    result.push(muted === undefined ? { trackId, role: role as TrackRole } : { trackId, role: role as TrackRole, muted })
   }
   return result
+}
+
+/** Only the exact literal `true` is a mute claim - see `TrackAdvert.muted`.
+ *  Anything else (`false`, `1`, `"true"`, `null`) is dropped so the key is
+ *  absent, the same rule `sanitiseCallProfile` applies to the profile-2
+ *  claim. */
+export function sanitiseTrackMuted(value: unknown): true | undefined {
+  return value === true ? true : undefined
 }
 
 /**
