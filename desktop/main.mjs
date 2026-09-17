@@ -4,6 +4,7 @@ import { extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
 import { HOME, ORIGIN, CSP, isAppUrl, isExternalUrl, localAsset, allowedPermissions } from './policy.mjs'
+import { SCREEN_SETTINGS_URL, answerDisplayRequest, screenAccessGranted } from './screen-share.mjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 // Automation always uses a disposable profile, never the user's account.
@@ -96,20 +97,32 @@ async function createWindow() {
         callback(true)
       } catch { callback(false) }
     })
-    ses.setDisplayMediaRequestHandler(async (request, callback) => {
-      if (!request.frame || request.frame !== win?.webContents.mainFrame || !isAppUrl(request.frame.url) || !request.userGesture) return callback({})
-      try {
-        const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 120, height: 75 } })
-        let answered = false
-        const finish = (selection) => { if (!answered) { answered = true; callback(selection) } }
-        const menu = Menu.buildFromTemplate([
+    ses.setDisplayMediaRequestHandler((request, callback) => answerDisplayRequest(request, callback, {
+      allowed: request => Boolean(request.frame) && request.frame === win?.webContents.mainFrame && isAppUrl(request.frame.url) && request.userGesture,
+      screenAccessGranted: () => screenAccessGranted({
+        platform: testProfile ? 'test' : process.platform,
+        status: () => systemPreferences.getMediaAccessStatus('screen'),
+        listSources: () => desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }),
+        askToOpenSettings: async () => (await dialog.showMessageBox(win, {
+          type: 'info', message: 'Let KithMoot share your screen',
+          detail: 'macOS has not allowed KithMoot to record the screen. In System Settings, open Privacy & Security, then Screen & System Audio Recording, and turn KithMoot on. Quit and reopen KithMoot afterwards.',
+          buttons: ['Not now', 'Open System Settings'], defaultId: 1, cancelId: 0,
+        })).response === 1,
+        openSettings: () => shell.openExternal(SCREEN_SETTINGS_URL),
+      }),
+      listSources: () => desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 120, height: 75 } }),
+      choose: (sources, chosen) => {
+        let picked = false
+        const pick = source => { picked = true; chosen(source) }
+        Menu.buildFromTemplate([
           { label: 'Choose what to share', enabled: false },
-          ...sources.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => finish({ video: source }) })),
-          { type: 'separator' }, { label: 'Cancel', click: () => finish({}) },
-        ])
-        menu.popup({ window: win, callback: () => finish({}) })
-      } catch { callback({}) }
-    }, { useSystemPicker: true })
+          ...sources.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => pick(source) })),
+          { type: 'separator' }, { label: 'Cancel', click: () => pick() },
+        // A click lands after the close callback on some platforms, so a
+        // close only counts as Cancel once a click has had its turn.
+        ]).popup({ window: win, callback: () => setTimeout(() => { if (!picked) chosen() }, 250) })
+      },
+    }), { useSystemPicker: true })
     ses.on('will-download', (_event, item) => {
       // Chromium's save dialog provides a destination for attachments.
       item.setSaveDialogOptions({ title: 'Save attachment' })

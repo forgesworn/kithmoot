@@ -9654,7 +9654,13 @@ $('toggleCamera').addEventListener('click', () => {
   toggleCamera().catch((err) => setStatus(describeError(err)))
 })
 $('toggleScreen').addEventListener('click', () => {
-  toggleScreen().catch((err) => setStatus(describeError(err)))
+  toggleScreen().catch((err) => {
+    // The desktop app refuses with an AbortError reading "Invalid capture
+    // constraints" when the picker is dismissed or macOS has not allowed
+    // screen recording, and has already explained the second in a dialog.
+    if (window.kithmootDesktop && err instanceof DOMException && err.name === 'AbortError') return
+    setStatus(describeError(err))
+  })
 })
 $('toggleCompanion').addEventListener('click', toggleCompanionMode)
 $('toggleAssist').addEventListener('click', () => {
