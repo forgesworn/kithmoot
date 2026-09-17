@@ -504,10 +504,17 @@ export class Peer {
         // Forwarders attach mirrored tracks directly to the connection.
         // Updating this peer's own publications must not remove those tracks.
         if (!sender.track || !this.#addedTracks.has(sender.track) || published.has(sender.track)) continue
+        // Held before the removal, because `removeTrack` nulls `sender.track`
+        // there and then in a real browser. Reading it afterwards forgot
+        // `null` instead of the track, so the very same track object coming
+        // back - a camera switched off and on again keeps its track - was
+        // skipped as already-present and never re-added, and nobody saw that
+        // person for the rest of the call.
+        const removed = sender.track
         this.#pc.removeTrack(sender)
         // Forgotten, so the same track coming back is added again rather
         // than skipped as already-present.
-        this.#addedTracks.delete(sender.track)
+        this.#addedTracks.delete(removed)
       }
     }
 

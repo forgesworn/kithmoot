@@ -318,6 +318,23 @@ describe('Peer', () => {
     expect(factory.instances[0]!.tracks).toEqual([camera])
   })
 
+  it('re-adds a track that comes back when the browser nulls the sender it removed', async () => {
+    // A real `removeTrack` nulls `sender.track` there and then, so reading
+    // the track off the sender afterwards forgets `null` and leaves the
+    // track itself remembered as still published: it is never added again,
+    // and a camera switched off and on is invisible to everybody else for
+    // the rest of the call. Measured in Chromium and Firefox, 17 Sept 2026.
+    const factory = createFakeFactory({ nullTrackOnRemove: true })
+    const camera = fakeTrack()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })
+
+    await peer.start([camera])
+    await peer.start([])
+    await peer.start([camera])
+
+    expect(factory.instances[0]!.tracks).toEqual([camera])
+  })
+
   it('keeps externally managed forwarder tracks when updating its own published tracks', async () => {
     const factory = createFakeFactory()
     const camera = fakeTrack(), forwarded = fakeTrack()
