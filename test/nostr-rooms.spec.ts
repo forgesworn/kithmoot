@@ -331,6 +331,63 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
   } finally { await context.close(); await clerk.leave() }
 })
 
+test('a disconnected signer offers Reconnect before forgetting an account room, and names the signer', async ({ browser, baseURL }) => {
+  let unavailable = false
+  const secret = generateSecretKey()
+  const context = await device(browser, baseURL!, secret, true, async () => { if (unavailable) throw new Error('Signer offline') })
+  try {
+    const page = await context.newPage()
+    await signIn(page, baseURL!)
+    await page.locator('#roomName').fill('Kept on the account')
+    await page.locator('#create').click()
+    await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
+
+    unavailable = true
+    await page.goto(baseURL!)
+    await page.reload()
+    const notice = page.locator('#accountReconnect')
+    await expect(notice).toBeVisible()
+    await expect(notice).toContainText(npubEncode(getPublicKey(secret)))
+    await expect(notice).toContainText('One room saved to it is not shown')
+    await expect(notice).toContainText('browser extension')
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+
+    // The same room in this browser's own list, as a visit in a tab without
+    // the signer leaves it: the case where a local Forget used to look done.
+    await page.evaluate(pubkey => {
+      const prefix = `kithmoot.account.${pubkey}.`
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith(prefix + 'kithmoot.room.')) localStorage.setItem(key.slice(prefix.length), localStorage.getItem(key)!)
+      }
+    }, getPublicKey(secret))
+    await page.reload()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
+    await expect(notice).toContainText('Rooms saved to it are not shown')
+
+    await page.locator('#roomList').getByRole('button', { name: 'Forget Kept on the account', exact: true }).click()
+    const dialog = page.getByRole('alertdialog')
+    await expect(dialog).toContainText('Reconnect before forgetting')
+    await expect(dialog).toContainText('your Nostr browser extension is not connected in this tab')
+    await expect(page.locator('#actionAlternative')).toHaveText('Forget in this browser only')
+    await page.locator('#actionCancel').click()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
+
+    unavailable = false
+    await page.locator('#roomList').getByRole('button', { name: 'Forget Kept on the account', exact: true }).click()
+    await page.locator('#actionConfirm').click()
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await expect(page.getByRole('alertdialog')).toContainText('from your Nostr room bookmarks on all devices')
+    await page.locator('#actionConfirm').click()
+    await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
+    await expect(notice).toBeHidden()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.room.')))).toEqual([])
+    await page.reload()
+    await expect(page.locator('#signOut')).toBeVisible()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+  } finally { await context.close() }
+})
+
 test('choosing a visitor after sign-out requires an explicit decision and labels the composer', async ({ browser, baseURL }) => {
   const context = await device(browser, baseURL!)
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'

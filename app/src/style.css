@@ -2798,6 +2798,9 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #home #rooms { margin-bottom: 1.5rem; }
 #home #roomsHeading { margin-top: 0; }
 .roomSearchRow { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
+.accountReconnect { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin: 0 0 .75rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+.accountReconnect[hidden] { display: none; }
+.accountReconnect .note { flex: 1 1 16rem; margin: 0; }
 .roomSearchRow input { min-width: 0; }
 .roomSearchRow button { margin: 0; }
 #roomList .roomMain { flex-basis: 12rem; }

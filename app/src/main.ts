@@ -10,7 +10,8 @@ import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
-import { confirmAction, type ConfirmActionOptions } from './confirm-action.js'
+import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
+import { signerLabel } from './signer-label.js'
 import { ChatScroll } from './chat-scroll.js'
 import { installReactionHold } from './reaction-hold.js'
 import { splitLinks } from './linkify.js'
@@ -45,7 +46,7 @@ import { SharedProjectsPanel } from './shared-projects.js'
 import { RoomWatch } from './room-watch.js'
 import { PresenceAnnouncements } from './presence-announcements.js'
 import { readAgentRequestStatuses, type RequestAgent } from './agent-request-status.js'
-import { RoomBookmarks } from './room-bookmarks.js'
+import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { RemoteVolume } from './remote-volume.js'
@@ -517,17 +518,35 @@ const NAME_STORAGE_KEY = 'kithmoot.name'
 const ACCOUNT_STORAGE_KEY = 'kithmoot.last-nostr-account'
 // Read only the SDK's public identity hint before restore can clear it.
 // This is a reminder to reconnect, never proof of identity or permission.
+const ACCOUNT_METHOD_STORAGE_KEY = 'kithmoot.last-nostr-method'
 let expectedAccount: string | undefined
+let expectedMethod: string | undefined
 try {
   const saved = localStorage.getItem(ACCOUNT_STORAGE_KEY) ?? localStorage.getItem('signet:login.pubkey')
   if (saved && /^[0-9a-f]{64}$/.test(saved)) expectedAccount = saved
+  expectedMethod = localStorage.getItem(ACCOUNT_METHOD_STORAGE_KEY) ?? localStorage.getItem('signet:login.method') ?? undefined
 } catch { /* The active session still identifies this visit. */ }
-function rememberAccount(pubkey: string): void {
-  expectedAccount = pubkey
-  try { localStorage.setItem(ACCOUNT_STORAGE_KEY, pubkey) } catch { /* Optional persistence. */ }
+function rememberAccount(account: SignetSession): void {
+  expectedAccount = account.pubkey
+  expectedMethod = account.signer.method
+  try {
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, account.pubkey)
+    localStorage.setItem(ACCOUNT_METHOD_STORAGE_KEY, account.signer.method)
+  } catch { /* Optional persistence. */ }
 }
 function needsAccountReconnect(): boolean {
   return !!expectedAccount && !nostrSession && !loadCredential()
+}
+/** A Nostr account was used in this browser and is not connected in this
+ *  tab, once restoring has had its chance. Account-scoped actions must ask
+ *  to reconnect rather than fall back to this browser or a visitor. */
+function accountDisconnected(): boolean {
+  return !!expectedAccount && !nostrSession && !identityRestoring
+}
+/** Rooms this browser last saw under the disconnected account. A cache from
+ *  an earlier sign-in, used only to warn, never to act for the account. */
+function disconnectedAccountRooms(): KnownRoom[] {
+  return accountDisconnected() ? knownRooms(accountRoomStore(deviceStore, expectedAccount!)) : []
 }
 
 
@@ -798,7 +817,7 @@ async function signInWithNostr(): Promise<void> {
   const previous = expectedAccount
   relayConnections.clearAuthentication()
   nostrSession = account
-  rememberAccount(account.pubkey)
+  rememberAccount(account)
   startRoomBookmarks(account)
   profiles.want([account.pubkey])
   renderIdentity()
@@ -8188,7 +8207,17 @@ function renderRooms(): void {
   const project = ($('homeProject') as HTMLSelectElement).value
   const filtered = rooms.filter(room => matchesRoom(room, query, project))
   $('homeProjectFilter').hidden = !rooms.some(room => projectOf(room))
-  $('rooms').hidden = rooms.length === 0 && !nostrSession
+  const hidden = disconnectedAccountRooms()
+  $('rooms').hidden = rooms.length === 0 && !nostrSession && !accountDisconnected()
+  $('accountReconnect').hidden = !accountDisconnected()
+  if (accountDisconnected()) {
+    const signer = signerLabel(expectedMethod)
+    const kept = hidden.filter(room => !knownRoom(deviceStore, room.roomId)).length
+    $('accountReconnectText').textContent = `Your Nostr account (${npubEncode(expectedAccount!)}) is not connected in this tab. `
+      + (kept ? `${kept === 1 ? 'One room' : `${kept} rooms`} saved to it ${kept === 1 ? 'is' : 'are'} not shown until you reconnect ${signer}.`
+        : `Rooms saved to it are not shown until you reconnect ${signer}.`)
+    $('accountReconnectButton').textContent = expectedMethod === 'nip07' ? 'Reconnect extension' : 'Reconnect'
+  }
   $('homeNotifications').hidden = false
   $('notify').hidden = rooms.length === 0
   $('homeHeading').textContent = rooms.length ? 'Pick up the conversation.' : 'Make room for a conversation.'
@@ -8225,6 +8254,13 @@ function confirmRoomAction(options: ConfirmActionOptions): Promise<boolean> {
   const account = nostrSession?.pubkey
   const generation = roomGeneration
   return confirmAction({ ...options, isCurrent: () => room === session && account === nostrSession?.pubkey && generation === roomGeneration })
+}
+
+function chooseRoomAction(options: ChooseActionOptions): ReturnType<typeof chooseAction> {
+  const room = session
+  const account = nostrSession?.pubkey
+  const generation = roomGeneration
+  return chooseAction({ ...options, isCurrent: () => room === session && account === nostrSession?.pubkey && generation === roomGeneration })
 }
 
 function confirmDiscardAndLeave(): Promise<boolean> {
@@ -8809,13 +8845,43 @@ function resetRoomState(): void {
 }
 
 async function forgetKnownRoom(room: KnownRoom): Promise<void> {
+  // Saved under an account whose signer is not here: a local forget would
+  // look done and the bookmark would come back at the next sign-in.
+  if (disconnectedAccountRooms().some(saved => saved.roomId === room.roomId)) {
+    const signer = signerLabel(expectedMethod)
+    const choice = await chooseRoomAction({
+      title: `Reconnect before forgetting ${knownRoomLabel(room)}?`,
+      message: `This room is also saved to your Nostr account (${npubEncode(expectedAccount!)}), and ${signer} is not connected in this tab. `
+        + 'Forgetting it here removes it from this browser only; it comes back the next time you sign in. '
+        + `Reconnect ${signer} first to remove it from your account on every device.`,
+      confirmLabel: 'Reconnect first',
+      alternativeLabel: 'Forget in this browser only',
+      alternativeDanger: true,
+    })
+    if (choice === 'cancel') return
+    if (choice === 'confirm') {
+      await signInWithNostr().catch(e => setStatus(describeError(e)))
+      const saved = nostrSession && knownRoom(roomStore(), room.roomId)
+      if (!saved) { if (nostrSession) setStatus('Signed in, and this room is not saved to that account. Nothing was forgotten.'); return }
+      return forgetKnownRoom(saved)
+    }
+    forgetLocally(room.roomId)
+    return
+  }
   if (!await confirmRoomAction({ title: `Forget ${knownRoomLabel(room)}?`, message: `Remove it ${nostrSession ? 'from your Nostr room bookmarks on all devices' : 'on this device'}. You will need its invitation link to come back. This does not revoke access or erase relay history.`, confirmLabel: 'Forget room', danger: true })) return
-  stopWatching(room.roomId)
-  forgetRoomAccess(deviceStore, room.roomId)
-  forgetRoomAccess(browserDeviceStore(sessionStorage), room.roomId)
-  forgetQuietState(deviceStore, room.roomId)
   if (bookmarks) bookmarks.remove(room.roomId)
-  else forgetRoom(deviceStore, room.roomId)
+  forgetLocally(room.roomId)
+}
+
+/** The room forgotten here only; an account bookmark is the caller's job.
+ *  The browser's own list entry goes too, or it would be offered straight
+ *  back as a room "already here" to add to the account. */
+function forgetLocally(roomId: string): void {
+  stopWatching(roomId)
+  forgetRoomAccess(deviceStore, roomId)
+  forgetRoomAccess(browserDeviceStore(sessionStorage), roomId)
+  forgetQuietState(deviceStore, roomId)
+  forgetRoom(deviceStore, roomId)
   renderRooms()
 }
 
@@ -9456,6 +9522,9 @@ $('displayName').addEventListener('input', (event) => {
   renderIdentity()
 })
 
+$('accountReconnectButton').addEventListener('click', () => {
+  signInWithNostr().catch((err) => setStatus(describeError(err)))
+})
 $('joinNostr').addEventListener('click', () => {
   signInWithNostr().catch((err) => setStatus(describeError(err)))
 })
@@ -10905,7 +10974,7 @@ const identityReady = restoreSessionWithExtensionGrace()
       return
     }
     nostrSession = session
-    rememberAccount(session.pubkey)
+    rememberAccount(session)
     startRoomBookmarks(session)
     profiles.want([session.pubkey])
     renderIdentity()

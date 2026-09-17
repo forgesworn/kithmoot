@@ -420,6 +420,13 @@
 
       <section id="rooms" hidden>
         <h2 id="roomsHeading">Your rooms</h2>
+        <!-- A Nostr account used here whose signer is not in this tab. Its
+             rooms are not listed, and nothing may act for it until it is
+             reconnected. -->
+        <div id="accountReconnect" class="accountReconnect" role="status" hidden>
+          <p id="accountReconnectText" class="note"></p>
+          <button id="accountReconnectButton" type="button" class="primary">Reconnect</button>
+        </div>
         <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
         <div id="homeRoomSearch" class="roomSearchRow" hidden>
           <label for="homeRoomQuery" class="sr-only">Search saved rooms</label>
