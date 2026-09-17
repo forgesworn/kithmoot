@@ -65,7 +65,7 @@ describe('M2 signalling compatibility', () => {
     const profile2Body = {
       type: 'offer' as const, roomId, sdp: 'v=0\r\n',
       gen: 4, conn: 'a1b2c3d4e5f60718', seq: 1,
-      slots: { '0': 'mic', '1': 'camera', '2': 'screen', '3': 'screen-audio' },
+      slots: { '0': 'mic', '1': 'camera', '2': 'screen', '3': 'screen-audio' } as const,
     }
     const wrap = wrapSignal(profile2Body, { senderSk, recipientPubkey: recipient })
     const result = unwrapSignal(wrap, { recipientSk, roomId }) as { from: string; body: Record<string, unknown> } | null

@@ -7968,15 +7968,14 @@ async function collectDiagnostics(): Promise<string> {
       outboundAcknowledged: c.stats.some((r) => r.type === 'remote-inbound-rtp'),
     }
   })
-  const pairLines = pairHealthSampler.snapshot(pairSamples)
-  const timelineLines = callTimeline.format()
-  return (
-    JSON.stringify(out, null, 1) +
-    '\n\nCall timeline (redacted, newest last):\n' +
-    (timelineLines.length > 0 ? timelineLines.join('\n') : '(nothing recorded yet)') +
-    '\n\nPer-pair summary:\n' +
-    (pairLines.length > 0 ? pairLines.join('\n') : '(no open connections)')
-  )
+  // Inside the JSON, not appended after it: the report is pasted into bug
+  // threads by people and parsed by the acceptance suite, and text after a
+  // closing brace serves neither.
+  return JSON.stringify({
+    ...out,
+    callTimeline: callTimeline.format(),
+    pairSummary: pairHealthSampler.snapshot(pairSamples),
+  }, null, 1)
 }
 
 $('diagnostics').addEventListener('click', () => {

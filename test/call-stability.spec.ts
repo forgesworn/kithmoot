@@ -1,5 +1,6 @@
 import { test, expect, chromium, firefox, type Browser, type BrowserContext, type CDPSession, type Page } from '@playwright/test'
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createRoom, joinWithMedia, newDeviceContext, open, openCall } from './browser.js'
 
@@ -716,6 +717,10 @@ test.describe('call stability', () => {
 
   test('Firefox receiver keeps seeing and hearing through camera and mic toggles', async ({ browser, baseURL }) => {
     test.setTimeout(600_000)
+    // This case launches Firefox itself whatever project runs it. A machine
+    // without Firefox installed skips it by name rather than failing in the
+    // first millisecond and reading as a call bug.
+    test.skip(!existsSync(firefox.executablePath()), 'Firefox is not installed: npx playwright install firefox')
     const fx = await firefox.launch({
       firefoxUserPrefs: {
         'media.navigator.streams.fake': true,
