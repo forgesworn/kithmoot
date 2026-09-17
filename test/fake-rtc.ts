@@ -1,4 +1,4 @@
-import type { PeerContext, RTCPeerConnectionLike } from '../src/peer.js'
+import type { PeerContext, RtpTransceiverLike, RTCPeerConnectionLike } from '../src/peer.js'
 
 export interface RecordedCall {
   method: string
@@ -301,8 +301,13 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
     this.#structured = this.options.structuredSdp
   }
 
+  /** Typed against the library's `RtpTransceiverLike` rather than the
+   *  fixture's own class: `ontrack` is a property, so its parameter is
+   *  checked contravariantly, and a handler that insisted on the concrete
+   *  class could not be given to `RTCPeerConnectionLike`. A test that wants
+   *  the fixture's extra fields casts. */
   ontrack:
-    | ((event: { track: MediaStreamTrack; receiver?: unknown; transceiver?: FakeRtpTransceiver; streams?: unknown[] }) => void)
+    | ((event: { track: MediaStreamTrack; receiver?: unknown; transceiver?: RtpTransceiverLike; streams?: unknown[] }) => void)
     | null = null
   onicecandidate: ((event: { candidate: RTCIceCandidateInit | null }) => void) | null = null
   onconnectionstatechange: (() => void) | null = null

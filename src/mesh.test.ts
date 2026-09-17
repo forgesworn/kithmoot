@@ -1312,3 +1312,76 @@ describe('a renegotiation that goes unanswered on a pair that is already up', ()
     mesh.close()
   })
 })
+
+/**
+ * The minimum capability gate S4 and S5 needed to reach a real connection.
+ *
+ * The roster reading here is deliberately the whole of it. §2.3's other half -
+ * admitting a pair on the strength of a signature-valid signal carrying `gen`,
+ * which covers the window where the roster is behind a far end's reload -
+ * belongs to S6, along with the route-timer bypass.
+ */
+describe('call profile gate', () => {
+  function profileView(participant: string, deviceKey: string, callProfile?: number): ParticipantView {
+    const v: ParticipantView = { participant, devices: [deviceKey], tracks: [] }
+    if (callProfile !== undefined) v.callProfiles = { [deviceKey]: callProfile }
+    return v
+  }
+
+  it('stays on profile 1 unless this build and the far end both say profile 2', async () => {
+    for (const [mine, theirs, wantSlots] of [
+      [1, 2, false],
+      [2, undefined, false],
+      [2, 1, false],
+      [2, 2, true],
+    ] as const) {
+      const session = new FakeSession()
+      const factory = createFakeFactory()
+      const local = device()
+      const remote = device()
+      const mesh = new Mesh({
+        session,
+        factory,
+        localDevice: local.pub,
+        localParticipant: device().pub,
+        deviceSk: local.sk,
+        transport: new SimTransport(new SimRelay()),
+        roomId: ROOM_ID,
+        callProfile: mine,
+      })
+      session.setViews([profileView(device().pub, remote.pub, theirs)])
+      mesh.publish([{ kind: 'audio', id: 'mic-1' } as MediaStreamTrack])
+      await settle()
+
+      // Four fixed slots, or none at all: the whole of the difference between
+      // the two profiles is visible in the first thing a connection does.
+      const opened = factory.instances[0]!
+      expect(opened.calls.some((c) => c.method === 'addTransceiver'), `${mine} -> ${theirs}`).toBe(wantSlots)
+      mesh.close()
+    }
+  })
+
+  it('says nothing about a slot for a profile-1 peer', async () => {
+    const seen: { role?: string }[] = []
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const local = device()
+    const remote = device()
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: device().pub,
+      deviceSk: local.sk,
+      transport: new SimTransport(new SimRelay()),
+      roomId: ROOM_ID,
+    })
+    mesh.onRemoteTrack((t) => seen.push({ role: t.role }))
+    session.setViews([view(device().pub, [remote.pub])])
+    await settle()
+
+    factory.instances[0]!.ontrack?.({ track: { id: 'x' } as MediaStreamTrack })
+    expect(seen).toEqual([{ role: undefined }])
+    mesh.close()
+  })
+})

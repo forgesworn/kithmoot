@@ -139,6 +139,16 @@ export interface SignalChannelOptions {
   /** The remote connection being addressed, when it is already known. It is
    *  otherwise learned from the first signal that arrives. */
   peerConn?: string
+  /**
+   * The first seq this channel should expect from the far end. Defaults to 1.
+   *
+   * Only ever anything else when a connection is replaced while the far end's
+   * is not: amendment A1's polite side discards its connection object on
+   * generation-opening glare, and the offer that caused it is at whatever seq
+   * the far end's unbroken stream had reached. A fresh channel expecting 1
+   * would buffer that offer for ever and the pair would never be answered.
+   */
+  expectedSeq?: number
   /** Put a body on the wire. Failure is the caller's business; a publish that
    *  never left the device is repaired by `retransmitNow`. */
   send: (body: ChannelSignal) => void
@@ -245,6 +255,7 @@ export class SignalChannel {
     this.#ackDelayMs = timing.ackDelayMs ?? ACK_DELAY_MS
     this.#syncMs = timing.syncMs ?? SYNC_INTERVAL_MS
     this.#bufferLimit = timing.bufferLimit ?? MAX_BUFFERED_SIGNALS
+    if (options.expectedSeq !== undefined && options.expectedSeq >= 1) this.#expected = options.expectedSeq
   }
 
   /** The remote connection this channel is bound to, once it is known. */
@@ -388,6 +399,26 @@ export class SignalChannel {
       this.#release(next)
     }
     this.#armAck()
+  }
+
+  /**
+   * Stop asking about a signal this side has given up on.
+   *
+   * Exactly one caller: the polite side of an in-generation glare, which
+   * rolls its own offer back so the far end's can land. The connection no
+   * longer holds that proposal, so retransmitting it would re-open a
+   * negotiation this side has already conceded - and, since the retransmission
+   * re-sends the connection's *current* local description, would re-send the
+   * far end's own answer back at it.
+   */
+  drop(seq: number): void {
+    if (this.#closed) return
+    this.#queue = this.#queue.filter((entry) => entry.seq !== seq)
+    if (this.#outstandingOffer === seq) this.#outstandingOffer = undefined
+    if (this.#queue.length > 0) return
+    this.#attempt = 0
+    this.#clock.clearTimer(this.#retryTimer)
+    this.#retryTimer = undefined
   }
 
   /**

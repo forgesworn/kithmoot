@@ -1,6 +1,8 @@
 import type { Event } from 'nostr-tools/pure'
 import { Peer } from './peer.js'
-import type { PeerFactory } from './peer.js'
+import type { NegotiatingPeer, PeerFactory } from './peer.js'
+import { SlotPeer } from './slot-peer.js'
+import type { RoleResolver } from './peer-slots.js'
 import { wrapSignal, unwrapSignalEvent, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import type { ScreenAnnotation, SignalBody } from './signal.js'
 import { SignalGuard } from './signal-guard.js'
@@ -13,7 +15,7 @@ import { selectAssistant } from './peer-assist.js'
 import type { AssistVolunteer } from './peer-assist.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import type { RouteTier } from './peer.js'
-import type { AssistOffer } from './types.js'
+import type { AssistOffer, TrackRole } from './types.js'
 import { normaliseHex } from './hex.js'
 
 /**
@@ -233,6 +235,31 @@ export interface MeshOptions {
    *  say "connected through Priya" honestly, and to say "we could not connect"
    *  when the ladder runs out. */
   onRoute?: (device: string, route: RouteView) => void
+  /**
+   * Which call signalling profile this build speaks.
+   *
+   * `1` is every client from before today: negotiation per track, no
+   * generations, healing by ICE restart. `2` adds the fixed media slots, the
+   * reliable signal channel and pair generations of the call reliability
+   * design - and only ever for a pair where the far end's roster entry says
+   * `callProfile: 2` as well, because a profile-2 offer is meaningless to a
+   * far end that cannot read `slots`.
+   *
+   * Defaults to `1`, deliberately: the published library must behave exactly
+   * as it did, and an embedding turns this on when it has shipped the rest of
+   * the profile. A bad day is then one flag away from today's behaviour.
+   */
+  callProfile?: 1 | 2
+  /**
+   * Which fixed slot each published track belongs in.
+   *
+   * Only read on a profile-2 pair, where a track has to land in the right one
+   * of four m-lines. The app knows - it publishes a `TrackAdvert` carrying
+   * exactly this role - so asking is honest where guessing from kind and
+   * order is not. Omitted, the slots fall back to inference, which two
+   * cameras or a share with no camera would get wrong.
+   */
+  trackRole?: RoleResolver
 }
 
 /** How one remote device is currently being reached. */
@@ -283,6 +310,20 @@ export interface RemoteTrack {
    * produces frames that will not decrypt.
    */
   via: 'direct' | 'assist' | 'forwarder'
+  /**
+   * Which fixed slot this track arrived in, on a profile-2 pair.
+   *
+   * Resolved from the transceiver mid against the generation-opening offer's
+   * `slots` map, which is the one identity both ends agree on: measured in
+   * Chromium and Firefox, a receiver's track id never matches the sender's in
+   * a slot, and `muted` never becomes true when the far end stops sending. So
+   * the app is told the role rather than left to infer it from an advert that
+   * may be a moment stale.
+   *
+   * Absent for a profile-1 peer, and for a forwarded or assisted track, where
+   * the roster advert remains the only hint there is.
+   */
+  role?: TrackRole
 }
 
 /** Whether this room is routing through a forwarder, and how confidently. */
@@ -421,7 +462,7 @@ export const MAX_HELD_SIGNAL_DEVICES = 16
  */
 export class Mesh {
   readonly #opts: MeshOptions
-  readonly #peers = new Map<string, Peer>()
+  readonly #peers = new Map<string, NegotiatingPeer>()
   /**
    * The page session each open peer was built for - see `RosterEntry.sid`.
    *
@@ -437,6 +478,17 @@ export class Mesh {
   readonly #peerSids = new Map<string, string>()
   /** The page session the roster currently names for each device. */
   readonly #deviceSids = new Map<string, string>()
+  /** The call signalling profile each device's roster entry claims. See
+   *  `RosterEntry.callProfile`; absent means profile 1. */
+  readonly #deviceProfiles = new Map<string, number>()
+  /**
+   * Devices whose roster entry claims profile 2 but whose signalling says
+   * otherwise - a far end that reloaded into an old build mid-call (§2.3).
+   * Held for the life of the room rather than the roster snapshot, because
+   * the roster entry that lied will keep arriving and would otherwise flip
+   * the pair back on every heartbeat.
+   */
+  readonly #downgraded = new Set<string>()
   /** Another page session of this device is speaking for it. See
    *  `standDown`. */
   #quiet = false
@@ -678,6 +730,8 @@ export class Mesh {
     for (const peer of this.#peers.values()) peer.close()
     this.#peers.clear()
     this.#peerSids.clear()
+    this.#deviceProfiles.clear()
+    this.#downgraded.clear()
     this.#annotationDevices.clear()
     this.#deviceToParticipant.clear()
     this.#trackOwner.clear()
@@ -702,8 +756,10 @@ export class Mesh {
     const annotationDevices = new Map<string, string>() // every other admitted room device
     this.#trackOwner.clear()
     this.#deviceSids.clear()
+    this.#deviceProfiles.clear()
     for (const view of views) {
       for (const [device, sid] of Object.entries(view.sids ?? {})) this.#deviceSids.set(device, sid)
+      for (const [device, profile] of Object.entries(view.callProfiles ?? {})) this.#deviceProfiles.set(device, profile)
       for (const device of view.devices) {
         if (device !== this.#opts.localDevice) annotationDevices.set(device, view.participant)
       }
@@ -802,7 +858,7 @@ export class Mesh {
         this.#armRouteTimerIfNeeded(endpoint)
         continue
       }
-      const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
+      const peer = this.#createEndpointPeer(endpoint)
       this.#peers.set(endpoint, peer)
       const sid = this.#deviceSids.get(endpoint)
       if (sid === undefined) this.#peerSids.delete(endpoint)
@@ -921,7 +977,7 @@ export class Mesh {
     return built !== undefined && current !== undefined && built !== current
   }
 
-  #closePeer(endpoint: string, peer: Peer): void {
+  #closePeer(endpoint: string, peer: NegotiatingPeer): void {
     this.#peers.delete(endpoint)
     this.#peerSids.delete(endpoint)
     this.#clearRouteTimer(endpoint)
@@ -1489,6 +1545,89 @@ export class Mesh {
     this.#forwarderTimer = undefined
   }
 
+  /**
+   * Whether this pair speaks profile 2.
+   *
+   * Both ends, and both by their own account: this build has to have it
+   * turned on, and the far end's roster entry - signed by that device and
+   * encrypted to the room key - has to claim it. One end guessing is exactly
+   * what the capability field exists to prevent, because a profile-2 offer
+   * reaching a far end that cannot read `slots` is four m-lines it will bind
+   * by kind and order and then never be able to explain.
+   *
+   * Roster only, for now. §2.3 also admits a pair on the strength of a
+   * signature-valid signal carrying `gen`, which covers the window where the
+   * roster is behind the far end's reload; that half is S6's, and until it
+   * lands such a pair simply stays on profile 1 for a heartbeat longer.
+   */
+  #speaksProfile2(device: string): boolean {
+    if (this.#opts.callProfile !== 2) return false
+    if (this.#downgraded.has(device)) return false
+    return this.#deviceProfiles.get(device) === 2
+  }
+
+  /** The peer for an ordinary room device, on whichever profile the pair
+   *  speaks. Never a forwarder: that path stays profile 1 in phase 1. */
+  #createEndpointPeer(endpoint: string): NegotiatingPeer {
+    const tier = this.#tierOfEndpoint(endpoint)
+    if (!this.#speaksProfile2(endpoint)) return this.#createPeer(endpoint, false, tier)
+    return new SlotPeer({
+      factory: this.#opts.factory,
+      localDevice: this.#opts.localDevice,
+      remoteDevice: endpoint,
+      context: { tier, remoteDevice: endpoint },
+      iceRestart: this.#opts.iceRestart,
+      trackRole: this.#opts.trackRole,
+      onSignal: (body) => {
+        // The tier rides on the offer already - `SlotPeer` knows which rung
+        // its connection was built on, and adopts the far end's when it
+        // adopts a generation - so nothing is added here.
+        const wrap = wrapSignal({ ...body, roomId: this.#opts.roomId }, { senderSk: this.#opts.deviceSk, recipientPubkey: endpoint })
+        this.#opts.transport.publish(wrap).catch((error) => this.#signalPublishFailed(endpoint, body, error))
+        this.#watchNegotiation(endpoint, body)
+        this.#diagnose({ kind: 'signal-sent', device: endpoint, detail: body.type })
+      },
+      onTrack: (track, _receiver, role) => this.#onEndpointTrack(endpoint, track, role),
+      onConnectionState: (state) => {
+        this.#diagnose({ kind: 'connection-state-change', device: endpoint, detail: state })
+        if (state === 'connected') this.#endpointConnected(endpoint)
+        else if (state === 'failed' || state === 'closed') this.#endpointFailed(endpoint)
+      },
+      onDowngrade: (body) => this.#downgradePeer(endpoint, body),
+    })
+  }
+
+  /**
+   * The far end has stopped speaking profile 2 - it reloaded into an old
+   * build, which on the wire is a signal with no `gen` on it.
+   *
+   * Rebuilt legacy-style at once rather than waited out: everything the
+   * profile-2 peer would say from here is addressed to a connection and a
+   * generation the far end has never heard of, so the pair would sit blind
+   * until the route ladder gave up on it. The signal that gave the game away
+   * is handed straight to the replacement, because it is an offer far more
+   * often than not and it is the only thing either side has to work with.
+   */
+  #downgradePeer(endpoint: string, body: SignalBody): void {
+    if (this.#closed) return
+    this.#downgraded.add(endpoint)
+    const existing = this.#peers.get(endpoint)
+    if (!existing) return
+    this.#closePeer(endpoint, existing)
+    this.#diagnose({ kind: 'signal-handling-failed', device: endpoint, detail: `${body.type}: far end is on call profile 1; rebuilding` })
+    const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
+    this.#peers.set(endpoint, peer)
+    const sid = this.#deviceSids.get(endpoint)
+    if (sid === undefined) this.#peerSids.delete(endpoint)
+    else this.#peerSids.set(endpoint, sid)
+    this.#armRouteTimerIfNeeded(endpoint)
+    peer.start(this.#tracksFor(endpoint)).catch(() => {})
+    peer.handleSignal(body).catch((error) =>
+      this.#diagnose({ kind: 'signal-handling-failed', device: endpoint, detail: `${body.type}: ${describeError(error)}` }),
+    )
+    if (body.type === 'offer') this.#armRouteTimerForOffer(endpoint)
+  }
+
   #createPeer(remoteDevice: string, forwarder = false, tier: RouteTier = 'direct'): Peer {
     return new Peer({
       factory: this.#opts.factory,
@@ -1556,16 +1695,19 @@ export class Mesh {
    * Both have to agree before a track is attributed to anybody but the
    * endpoint it arrived on.
    */
-  #onEndpointTrack(endpoint: string, track: MediaStreamTrack): void {
+  #onEndpointTrack(endpoint: string, track: MediaStreamTrack, role?: TrackRole): void {
     const owner = this.#trackOwner.get(track.id)
     if (owner !== undefined && owner !== endpoint) {
       const route = this.#routes.get(owner)
       if (route?.tier === 'assist' && route.endpoint === endpoint) {
+        // A volunteer's connection carries somebody else's media, so its
+        // slots are the volunteer's and say nothing about whose track this
+        // is. The advert is the only hint there is on that path.
         this.#emitTrack(owner, track, 'assist')
         return
       }
     }
-    this.#emitTrack(endpoint, track, 'direct')
+    this.#emitTrack(endpoint, track, 'direct', role)
   }
 
   /**
@@ -1604,10 +1746,12 @@ export class Mesh {
     }
   }
 
-  #emitTrack(device: string, track: MediaStreamTrack, via: 'direct' | 'assist' | 'forwarder'): void {
+  #emitTrack(device: string, track: MediaStreamTrack, via: 'direct' | 'assist' | 'forwarder', role?: TrackRole): void {
     const participant = this.#deviceToParticipant.get(device)
     if (!participant) return
-    for (const listener of this.#trackListeners) listener({ participant, device, track, via })
+    const remote: RemoteTrack = { participant, device, track, via }
+    if (role !== undefined) remote.role = role
+    for (const listener of this.#trackListeners) listener(remote)
   }
 
   /** Never throws - this runs inside a relay subscription handler where a
@@ -1725,7 +1869,7 @@ export class Mesh {
    * offers ("only an offer is an arrival"), that answer was the whole
    * negotiation.
    */
-  #peerFor(device: string): Peer | undefined {
+  #peerFor(device: string): NegotiatingPeer | undefined {
     if (this.#forwarderPeer && this.#forwarderDevice === device) return this.#forwarderPeer
     return this.#peers.get(device)
   }
@@ -1769,7 +1913,7 @@ export class Mesh {
   /** Hand a new peer whatever arrived for it before it existed, oldest
    *  first, dropping anything that has since gone stale by the same rule
    *  `unwrapSignal` applies on the way in. */
-  #drainSignals(device: string, peer: Peer): void {
+  #drainSignals(device: string, peer: NegotiatingPeer): void {
     const held = this.#pendingSignals.get(device)
     if (!held) return
     this.#pendingSignals.delete(device)

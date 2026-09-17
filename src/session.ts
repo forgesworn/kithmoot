@@ -73,6 +73,15 @@ export interface ParticipantView {
    * before the field existed.
    */
   sids?: Record<string, string>
+  /**
+   * The call signalling profile each of this person's devices claims - see
+   * `RosterEntry.callProfile`. Only the exact number `2` means the device
+   * speaks fixed media slots, reliable signalling and pair generations.
+   *
+   * Absent for a device that says nothing, which is every client from before
+   * the field existed and is read as profile 1.
+   */
+  callProfiles?: Record<string, number>
   tracks: Array<TrackAdvert & { device: string }>
   /**
    * Offers this person's devices have made to relay for the room.
@@ -1778,6 +1787,13 @@ export class RoomSession {
         if (!held || rank > held.rank || (rank === held.rank && entry.updatedAt >= held.at)) {
           sessions.set(entry.device, { sid: entry.sid, rank, at: entry.updatedAt })
         }
+      }
+      // Per device: a person's laptop can speak the new call profile while
+      // their phone, on an older build, cannot, and a pair is negotiated
+      // device to device.
+      if (entry.callProfile !== undefined) {
+        view.callProfiles = view.callProfiles ?? {}
+        view.callProfiles[entry.device] = entry.callProfile
       }
       if (entry.agent === true) view.agent = true
       if (entry.agent === true && entry.requestReceipts === true) view.requestReceipts = true

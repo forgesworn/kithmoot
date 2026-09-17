@@ -1,5 +1,30 @@
 import { normaliseHex } from './hex.js'
 import type { SignalBody } from './signal.js'
+import type { TrackRole } from './types.js'
+
+/** The half of an `RTCRtpSender` a fixed slot uses, and nothing else:
+ *  swapping what a slot carries without renegotiating it. */
+export interface RtpSenderLike {
+  readonly track?: MediaStreamTrack | null
+  replaceTrack(track: MediaStreamTrack | null): Promise<void>
+}
+
+/**
+ * The half of an `RTCRtpTransceiver` the fixed slots of profile 2 use.
+ *
+ * `mid` is the load-bearing field and the only identity in the design that
+ * both ends agree on: measured in Chromium and Firefox, a receiver's track id
+ * never matches the sender's in a slot, and `muted` never becomes true when
+ * the far end stops sending. See section 4 of the spec, and
+ * `test/rtc-probe.spec.ts`, which keeps that a measurement rather than a
+ * memory.
+ */
+export interface RtpTransceiverLike {
+  readonly mid: string | null
+  direction: RTCRtpTransceiverDirection
+  readonly currentDirection?: RTCRtpTransceiverDirection | null
+  readonly sender: RtpSenderLike
+}
 
 /**
  * The subset of `RTCPeerConnection` that `Peer` actually touches. A real
@@ -13,6 +38,12 @@ export interface RTCPeerConnectionLike {
   setLocalDescription(description?: RTCSessionDescriptionInit): Promise<void>
   setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void>
   addIceCandidate(candidate: RTCIceCandidateInit): Promise<void>
+  /** Open an m-line with nothing in it. Optional only because a Node adapter
+   *  or a test double written before fixed slots existed has no need of one;
+   *  every browser has it, and `supportsSlots` is what checks. */
+  addTransceiver?(kind: 'audio' | 'video', init?: { direction?: RTCRtpTransceiverDirection }): RtpTransceiverLike
+  /** The connection's m-lines, in order. Optional for the same reason. */
+  getTransceivers?(): readonly RtpTransceiverLike[]
   /** A browser returns the sender it created. Older test and Node adapters
    * may return nothing, in which case callers can find it through
    * `getSenders()` after the call. */
@@ -30,7 +61,10 @@ export interface RTCPeerConnectionLike {
   readonly signalingState: RTCSignalingState
   readonly localDescription: RTCSessionDescriptionInit | null
   readonly connectionState: RTCPeerConnectionState
-  ontrack: ((event: { track: MediaStreamTrack; receiver?: unknown }) => void) | null
+  /** `transceiver` is how a profile-2 receiver learns which slot a track
+   *  arrived in: `event.transceiver.mid` against the generation-opening
+   *  offer's `slots` map. Optional, so an older double stays valid. */
+  ontrack: ((event: { track: MediaStreamTrack; receiver?: unknown; transceiver?: RtpTransceiverLike }) => void) | null
   onicecandidate: ((event: { candidate: RTCIceCandidateInit | null }) => void) | null
   onconnectionstatechange: (() => void) | null
   onnegotiationneeded: (() => void) | null
@@ -169,6 +203,30 @@ export const OFFER_RETRY_JITTER = 0.2
  */
 export const WEDGE_BREAK_MS = 10_000
 
+/**
+ * What `Mesh` needs from a connection to one remote device, whichever profile
+ * that pair speaks.
+ *
+ * Two implementations: `Peer`, which negotiates track by track and is what
+ * every far end from before today speaks, and `SlotPeer`, which has four
+ * fixed slots and a generation on every signal. The mesh chooses per pair and
+ * otherwise cannot tell them apart - which is the point, because the profile
+ * of one pair must never be able to change how another pair is treated.
+ */
+export interface NegotiatingPeer {
+  /** Politeness, decided by pubkey order. Opposite on the two sides. */
+  readonly polite: boolean
+  start(tracks: MediaStreamTrack[]): Promise<void>
+  handleSignal(body: SignalBody): Promise<void>
+  /** Send what this side is owed an answer for, now: a relay rejected the
+   *  publish, so the attempt never happened. */
+  retransmitNow(): void
+  /** A negotiation has gone unanswered for long enough that the caller wants
+   *  it unstuck. */
+  healStalledNegotiation(): void
+  close(): void
+}
+
 export interface PeerOptions {
   factory: PeerFactory
   localDevice: string
@@ -176,7 +234,7 @@ export interface PeerOptions {
   onSignal: (body: SignalBody) => void
   /** `receiver` is the browser receiver when the factory exposes it. It is
    * deliberately optional so Node and existing test factories stay valid. */
-  onTrack: (track: MediaStreamTrack, receiver?: unknown) => void
+  onTrack: (track: MediaStreamTrack, receiver?: unknown, role?: TrackRole) => void
   /**
    * Called immediately after a local track is added and before this peer can
    * offer it. A browser embedding can install an encoded-frame sender
@@ -249,11 +307,11 @@ export interface PeerOptions {
  * emits bare bodies, and the caller (the mesh) is what knows which room and
  * how to address and encrypt them.
  */
-export class Peer {
+export class Peer implements NegotiatingPeer {
   readonly polite: boolean
   readonly #pc: RTCPeerConnectionLike
   readonly #onSignal: (body: SignalBody) => void
-  readonly #onTrack: (track: MediaStreamTrack, receiver?: unknown) => void
+  readonly #onTrack: (track: MediaStreamTrack, receiver?: unknown, role?: TrackRole) => void
   readonly #mustOfferFirst: boolean
   #makingOffer = false
   #hasRemoteDescription = false
