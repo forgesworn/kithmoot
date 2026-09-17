@@ -125,6 +125,88 @@ async function measure(page: Page): Promise<Sharpness> {
   )
 }
 
+/**
+ * Mean colour of a patch, and the whole background as raw bytes.
+ *
+ * Replacement is not answered by the sharpness measure alone: a blurred room
+ * and a drawn sea are both "less detail than a checkerboard". What separates
+ * them is that the sea is a different colour, and that it is not the same
+ * two frames running. Both of those need pixels rather than a number, so
+ * this hands back the bytes and lets the test do the arithmetic.
+ */
+async function samplePixels(page: Page): Promise<{
+  background: { r: number; g: number; b: number }
+  face: { r: number; g: number; b: number }
+  /** Luma along the two outer columns and the very top of the frame.
+   *
+   *  Deliberately narrow. The generated scene's shoulders reach to about a
+   *  sixth of the way in from each side and the whole silhouette slides a
+   *  few pixels back and forth, so a wider sample would be measuring the
+   *  person moving and calling it a moving background. */
+  outside: number[]
+}> {
+  return page.evaluate(
+    ({ background, face }) => {
+      const video = document.querySelector<HTMLVideoElement>('.media.mine video')
+      if (!video || video.videoWidth === 0) throw new Error('no local preview frame yet')
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('no 2D context')
+      ctx.drawImage(video, 0, 0)
+
+      const mean = (region: { x: number; y: number; w: number; h: number }) => {
+        const x = Math.round(region.x * canvas.width)
+        const y = Math.round(region.y * canvas.height)
+        const w = Math.round(region.w * canvas.width)
+        const h = Math.round(region.h * canvas.height)
+        const { data } = ctx.getImageData(x, y, w, h)
+        let r = 0
+        let g = 0
+        let b = 0
+        for (let i = 0; i < w * h; i += 1) {
+          r += data[i * 4]!
+          g += data[i * 4 + 1]!
+          b += data[i * 4 + 2]!
+        }
+        return { r: r / (w * h), g: g / (w * h), b: b / (w * h) }
+      }
+
+      const strip = (x: number, y: number, w: number, h: number): number[] => {
+        const px = Math.round(x * canvas.width)
+        const py = Math.round(y * canvas.height)
+        const pw = Math.round(w * canvas.width)
+        const ph = Math.round(h * canvas.height)
+        const { data } = ctx.getImageData(px, py, pw, ph)
+        const out: number[] = []
+        // Every fourth pixel: enough to see a scene move, a tenth of the
+        // bytes to carry back out of the page.
+        for (let i = 0; i < pw * ph; i += 4) {
+          out.push(0.299 * data[i * 4]! + 0.587 * data[i * 4 + 1]! + 0.114 * data[i * 4 + 2]!)
+        }
+        return out
+      }
+
+      return {
+        background: mean(background),
+        face: mean(face),
+        outside: [...strip(0, 0, 0.1, 1), ...strip(0.9, 0, 0.1, 1), ...strip(0.1, 0, 0.8, 0.1)],
+      }
+    },
+    { background: BACKGROUND_PATCH, face: FACE_PATCH },
+  )
+}
+
+/** Mean absolute difference between two of those strips. Zero means the
+ *  background is a still picture; anything above it means something moved. */
+function drift(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length)
+  let total = 0
+  for (let i = 0; i < n; i += 1) total += Math.abs(a[i]! - b[i]!)
+  return n ? total / n : 0
+}
+
 async function openCamera(page: Page): Promise<void> {
   await goIn(page)
   await page.getByRole('button', { name: 'Camera' }).click()
@@ -298,6 +380,75 @@ test('a camera swap never publishes an unblurred frame', async ({ page }) => {
   // Still blurred afterwards, rather than merely not-passthrough.
   const sharpness = await measure(page)
   expect(sharpness.background).toBeLessThan(60)
+})
+
+test('replace swaps the room for the sea and leaves the person alone', async ({ page }) => {
+  await openCamera(page)
+  await settle(page)
+
+  // The room as it really is, for comparison.
+  await page.locator('#effectModes button[data-mode="off"]').click()
+  await expect(page.locator('#effectMode')).toHaveText('off')
+  await page.waitForTimeout(900)
+  const raw = await samplePixels(page)
+  const rawSharp = await measure(page)
+
+  await page.locator('#effectModes button[data-mode="replace"]').click()
+  await expect(page.locator('#effectMode')).toHaveText('replace')
+  await page.locator('#backgroundChoices button[data-background="reef"]').click()
+  await page.waitForTimeout(1600)
+
+  const replaced = await samplePixels(page)
+  const replacedSharp = await measure(page)
+
+  // The room is gone: the checkerboard's detail has collapsed and what is
+  // there now is sea rather than a grey wall.
+  expect(rawSharp.background).toBeGreaterThan(50)
+  expect(replacedSharp.background).toBeLessThan(rawSharp.background * 0.35)
+  expect(replaced.background.b - replaced.background.r).toBeGreaterThan(40)
+  expect(replaced.background.b - replaced.background.r).toBeGreaterThan(
+    raw.background.b - raw.background.r + 30,
+  )
+
+  // The person is not: the face is still the face, warm where the sea is
+  // cold, and the eyes and mouth are still hard-edged rather than smeared
+  // or replaced along with everything else.
+  expect(replaced.face.r).toBeGreaterThan(replaced.face.b)
+  expect(Math.abs(replaced.face.r - raw.face.r)).toBeLessThan(40)
+  expect(replacedSharp.face).toBeGreaterThan(rawSharp.face * 0.4)
+  // And the person is a long way from the sea behind them, which is the
+  // thing a broken mask destroys first.
+  expect(replaced.face.r - replaced.background.r).toBeGreaterThan(30)
+})
+
+test('the sea moves, and a still picture does not', async ({ page }) => {
+  await openCamera(page)
+  await settle(page)
+  await page.locator('#effectModes button[data-mode="replace"]').click()
+  await expect(page.locator('#effectMode')).toHaveText('replace')
+
+  // A drawn scene: light, motes and the odd fish, so two frames two and a
+  // half seconds apart are not the same picture.
+  await page.locator('#backgroundChoices button[data-background="reef"]').click()
+  await page.waitForTimeout(1500)
+  const first = await samplePixels(page)
+  await page.waitForTimeout(2500)
+  const second = await samplePixels(page)
+  const moving = drift(first.outside, second.outside)
+
+  // The same measurement against a photograph, which cannot move. This is
+  // the control: without it "the numbers differ" would also be satisfied by
+  // the camera's own noise.
+  await page.locator('#backgroundChoices button[data-background="sea-sand"]').click()
+  await page.waitForTimeout(1500)
+  const stillFirst = await samplePixels(page)
+  await page.waitForTimeout(2500)
+  const stillSecond = await samplePixels(page)
+  const still = drift(stillFirst.outside, stillSecond.outside)
+
+  expect(still).toBeLessThan(0.05)
+  expect(moving).toBeGreaterThan(0.2)
+  expect(moving).toBeGreaterThan(still * 5)
 })
 
 test('a segmenter that will not load falls back to passthrough and says so', async ({ page }) => {

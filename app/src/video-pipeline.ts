@@ -6,6 +6,7 @@ import {
   type FrameAction,
   type VideoEffectState,
 } from '../../src/video-effects.js'
+import { ReefBackground } from '../../src/reef-scene.js'
 import { createSegmenter } from './mediapipe-segmenter.js'
 
 /**
@@ -55,17 +56,66 @@ const WATCHDOG_INTERVAL_MS = 100
 export interface BackgroundChoice {
   id: string
   label: string
-  url: string
+  /** A still picture under `app/public/`. Fetched when the choice is picked
+   *  and not before: the reef photograph is 167KB and nobody who leaves the
+   *  blur on should ever pay for it. */
+  url?: string
+  /** A scene drawn per frame. `url`, when there is one, becomes the still
+   *  layer underneath it. */
+  scene?: 'reef'
 }
 
-/** Abstract rather than photographic on purpose. A stock photograph of
- *  somebody's office is a picture of a real place, and the point of this
- *  feature is to stop publishing pictures of real places. */
+/**
+ * What you can put behind yourself.
+ *
+ * The three abstract ones are first and deliberately not photographs: a
+ * stock photograph of somebody's office is a picture of a real place, and
+ * the point of this feature is to stop publishing pictures of real places.
+ * The sea ones are generated rather than taken, for the same reason.
+ *
+ * "Reef, with fish" is the drawn scene. Its still layer is the coral
+ * photograph, and it falls back to a reef drawn in code if that will not
+ * load, so the choice never turns into a blurred room because of a missing
+ * file.
+ */
 export const BACKGROUNDS: BackgroundChoice[] = [
   { id: 'slate', label: 'Slate', url: 'backgrounds/slate.svg' },
   { id: 'ember', label: 'Ember', url: 'backgrounds/ember.svg' },
   { id: 'fen', label: 'Fen', url: 'backgrounds/fen.svg' },
+  { id: 'sea-lagoon', label: 'Lagoon', url: 'backgrounds/sea-lagoon.webp' },
+  { id: 'sea-coral', label: 'Coral garden', url: 'backgrounds/sea-coral.webp' },
+  { id: 'sea-deep', label: 'Deep blue', url: 'backgrounds/sea-deep.webp' },
+  { id: 'sea-sand', label: 'White sand', url: 'backgrounds/sea-sand.webp' },
+  { id: 'reef', label: 'Reef, with fish', url: 'backgrounds/sea-coral.webp', scene: 'reef' },
 ]
+
+/**
+ * Whether this person has asked their machine for less movement.
+ *
+ * An accessibility setting, and one of the few that is about physical
+ * discomfort rather than preference: drifting light and swimming fish behind
+ * a talking head is exactly the sort of thing it exists to switch off. Read
+ * per frame rather than once, because it can be changed mid-call, and false
+ * wherever the query is not supported.
+ */
+export function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+  } catch {
+    return false
+  }
+}
+
+/** A bundled still, decoded. Fetched only when something asks for it. */
+function loadBackgroundImage(choice: BackgroundChoice): Promise<HTMLImageElement> {
+  const image = new Image()
+  image.decoding = 'async'
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error(`could not load the ${choice.label} background`))
+    image.src = `${import.meta.env.BASE_URL}${choice.url}`
+  })
+}
 
 export interface CameraPipelineOptions {
   onStateChange?: (state: VideoEffectState) => void
@@ -84,6 +134,10 @@ export interface CameraStats {
   actions: Record<FrameAction, number>
   /** Mean milliseconds spent inside `renderFrame`, segmentation included. */
   frameCostMs: number
+  /** `widthxheight` of the mask being composited with, or `''`. Everything
+   *  per-pixel in the effect is priced by this and it is the camera's
+   *  resolution rather than the model's, so it is worth being able to read. */
+  mask: string
 }
 
 type FrameCallbackHost = HTMLVideoElement & {
@@ -183,7 +237,13 @@ export class CameraPipeline {
   }
 
   get stats(): CameraStats {
-    return { fps: this.#fps, actions: { ...this.#window }, frameCostMs: this.#frameCostMs }
+    const mask = this.#effect.maskSize
+    return {
+      fps: this.#fps,
+      actions: { ...this.#window },
+      frameCostMs: this.#frameCostMs,
+      mask: mask ? `${mask.width}x${mask.height}` : '',
+    }
   }
 
   /** Every route taken since the pipeline started, which is what a test
@@ -276,20 +336,51 @@ export class CameraPipeline {
     this.#effect.setStrength(strength)
   }
 
-  /** Load a bundled background. Failure leaves the previous one in place and
-   *  the mode falls back to blurring, never to showing the room. */
+  /**
+   * Load a bundled background. Failure leaves the previous one in place and
+   * the mode falls back to blurring, never to showing the room.
+   *
+   * A drawn scene is treated as the same kind of thing as a picture, because
+   * to the compositor it is: the picture becomes the scene's bottom layer,
+   * and a picture that will not load costs the scene its photograph and
+   * nothing else.
+   */
   async setBackground(choice: BackgroundChoice | null): Promise<void> {
     if (!choice) {
       this.#effect.setBackground(null)
       return
     }
-    const image = new Image()
-    image.decoding = 'async'
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve()
-      image.onerror = () => reject(new Error(`could not load the ${choice.label} background`))
-      image.src = `${import.meta.env.BASE_URL}${choice.url}`
-    })
+
+    if (choice.scene === 'reef') {
+      const reef = new ReefBackground({
+        createCanvas: (width, height) => {
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          return canvas
+        },
+        // Nobody is watching the tab, so nobody is watching the fish. The
+        // camera track keeps running off the last painted frame.
+        hidden: () => document.visibilityState === 'hidden',
+        reducedMotion: prefersReducedMotion,
+      })
+      if (choice.url) {
+        // Best effort, and deliberately not awaited into the failure path:
+        // the drawn reef is a complete scene on its own and a missing file
+        // must not cost somebody their background mid-call.
+        loadBackgroundImage(choice)
+          .then((image) => reef.setBackdrop(image, { width: image.naturalWidth, height: image.naturalHeight }))
+          .catch(() => {})
+      }
+      this.#effect.setBackgroundSource(reef)
+      return
+    }
+
+    if (!choice.url) {
+      this.#effect.setBackground(null)
+      return
+    }
+    const image = await loadBackgroundImage(choice)
     this.#effect.setBackground(image, { width: image.naturalWidth, height: image.naturalHeight })
   }
 

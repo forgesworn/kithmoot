@@ -3994,6 +3994,7 @@ function publishEffectStats(): void {
   const stats = camera.stats
   panel.dataset.fps = String(stats.fps)
   panel.dataset.frameCostMs = stats.frameCostMs.toFixed(2)
+  panel.dataset.mask = stats.mask
   panel.dataset.passthrough = String(totals.passthrough)
   panel.dataset.blurAll = String(totals['blur-all'])
   panel.dataset.composite = String(totals.composite)
