@@ -108,6 +108,35 @@ describe('leave and tidy up', () => {
     for (const relay of ROOM_RELAYS) expect(r.stores.get(relay)!.some(e => e.pubkey === getPublicKey(otherSk))).toBe(true)
   })
 
+  it('stops this browser’s read positions before deleting them, and covers a marker that lands during the request', async () => {
+    const { r, deps, order, accountSk } = setup()
+    // The read position published on a delay while the tidy-up ran: it is
+    // newer than the deletion, so the request that was already in flight
+    // cannot reach it. This is the CI race, forced.
+    let raced = false
+    const late = signed(accountSk, 30078, [['d', 'read-d'], ['l', 'kithmoot.read.v1']], NOW + 1)
+    const publish: TidyUpDeps['publish'] = async (to, event) => {
+      const answers = await r.deps.publish(to, event)
+      if (!raced && event.pubkey === getPublicKey(accountSk)) {
+        raced = true
+        for (const relay of ACCOUNT_RELAYS) r.put(relay, late)
+      }
+      return answers
+    }
+    const report = await runTidyUp({ ...deps, publish, stopReadPositions: async () => { order.push('reads') } })
+
+    // Nothing of the account's is left for the room, whatever the timing.
+    expect(report.remaining).toEqual([])
+    for (const relay of ACCOUNT_RELAYS) expect(r.stores.get(relay)!.filter(e => e.kind === 30078)).toEqual([])
+    const account = r.published.filter(p => p.event.pubkey === getPublicKey(accountSk))
+    expect(account).toHaveLength(2)
+    expect(account[1]!.event.tags.filter(t => t[0] === 'e').map(t => t[1])).toEqual([late.id])
+    expect(report.steps.find(s => s.id === 'account')!.found).toBe(3)
+    // Stopped once every tab is out of the room, before anything of the
+    // account's is looked for or deleted.
+    expect(order).toEqual(['tabs', 'here', 'reads', 'bookmark', 'local'])
+  })
+
   it('keeps the retirement notice when a relay refused to delete the group invitation', async () => {
     const { r, deps } = setup((relay, event) => relay === 'wss://b.example' && kindsOf(event).includes(1463))
     const report = await runTidyUp(deps)

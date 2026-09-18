@@ -86,6 +86,12 @@ export interface TidyUpDeps {
   endRoom?: () => Promise<void>
   /** Ask every other tab in this room to leave. False when one did not. */
   leaveOtherTabs: () => Promise<boolean>
+  /** Stop this browser publishing read positions for the room, and wait for
+   *  anything already on its way to a relay. Called once every tab has left,
+   *  before the account's records are deleted: a read marker is published on
+   *  a delay, so one scheduled minutes ago would otherwise land after the
+   *  deletion and outlive it. */
+  stopReadPositions?: () => Promise<void>
   /** Is another tab in this room? Asked before anything is deleted. */
   otherTabsAnswer: () => Promise<boolean>
   leaveHere: () => Promise<void>
@@ -237,6 +243,10 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
 
   const left = await deps.leaveOtherTabs()
   await deps.leaveHere()
+  // Leaving stops the chat; the read position it left behind is published on
+  // a delay and would land after the deletion below. Every tab is out of the
+  // room by now, so this is the moment nothing more can be read.
+  await deps.stopReadPositions?.()
   record({ id: 'tabs', found: 0, answers: [], unread: [], ...(left ? {} : { skipped: 'A tab did not confirm it left. Close any other tab with this room open.' }) })
 
   const device = await gather(deps, deps.roomRelays, { authors: [devicePub] })
@@ -253,10 +263,19 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
     const ds = [account.readPositionD, account.deleteTombstone ? tombstoneD : undefined].filter((d): d is string => !!d)
     if (ds.length === 0) record({ id: 'account', found: 0, answers: [], unread: [], skipped: 'Nothing of your account’s for this room was known to this browser.' })
     else {
-      const found = await gather(deps, deps.accountRelays, { kinds: [30078], authors: [account.pubkey], '#d': ds })
+      const filter: Filter = { kinds: [30078], authors: [account.pubkey], '#d': ds }
       const addresses = ds.map(d => `30078:${account.pubkey}:${d}`)
-      record({ id: 'account', found: found.events.length, unread: found.unread,
-        answers: await requestDeletion(deps, deps.accountRelays, found.events, account.sign, addresses) })
+      const askedAt = deps.now()
+      const found = await gather(deps, deps.accountRelays, filter)
+      const answers = await requestDeletion(deps, deps.accountRelays, found.events, account.sign, addresses)
+      // A record that landed while that request was in flight is newer than
+      // the request, and a NIP-09 deletion naming an address does not reach
+      // past its own `created_at`. Ask again for anything dated since, so a
+      // late marker is covered rather than left as the one thing remaining.
+      const late = (await gather(deps, deps.accountRelays, filter)).events.filter(event => event.created_at >= askedAt)
+      const lateAnswers = late.length ? await requestDeletion(deps, deps.accountRelays, late, account.sign, addresses) : []
+      record({ id: 'account', found: found.events.length + late.length, unread: found.unread,
+        answers: late.length ? worst([answers, lateAnswers]) : answers })
     }
   }
 
