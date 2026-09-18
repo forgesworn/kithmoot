@@ -1,3 +1,26 @@
+/* What the installed window's three panels are worth, in one place.
+   Constant for constant, this is app/src/desktop-panes.ts - the arithmetic
+   is unit-tested there and measured through these properties in
+   test/desktop-room-layout.spec.ts, so the two cannot drift quietly.
+
+   Declared on the root rather than inside a media query: `--work-panel`
+   reads the others, and a property that exists at only some widths is a
+   property that resolves to nothing at the rest. */
+html[data-desktop] {
+  --chat-min: 360px;          /* CHAT_MIN_WIDTH_PX */
+  --chat-min-height: 60svh;   /* CHAT_MIN_HEIGHT_FRACTION */
+  --call-min: 240px;          /* CALL_MIN_WIDTH_PX */
+  --work-max: 28rem;          /* WORK_MAX_PX */
+  --work-min: 20rem;          /* WORK_MIN_PX */
+  --chat-read: 860px;         /* CHAT_READING_WIDTH_PX */
+  --rail-w: 13rem;            /* RAIL_WIDTH_PX */
+  --room-gutter: 3rem;        /* ROOM_GUTTER_PX: the window's own padding, both sides, plus the grid gap */
+  /* Shared Work is the panel that gives way. It asks for 28rem and gets
+     whatever is left once the conversation and the call pane have their
+     floors - see `workPanelWidth`. */
+  --work-panel: clamp(var(--work-min), calc(100vw - (var(--rail-w) + var(--chat-min) + var(--call-min) + var(--room-gutter))), var(--work-max));
+}
+
 /* An installed desktop window has a fixed working area. Scroll its panels,
    not the whole room, so the composer and Leave call remain reachable. */
 @media (min-width: 701px) and (min-height: 541px) {
@@ -73,10 +96,56 @@ html[data-desktop] #chatDrawerToggle { display: none; }
     overflow: hidden;
     transition: width .18s ease;
   }
+  /* The conversation's floor comes before the call pane's share. 32% of a
+     room area with Shared Work open is 197px, which is what the owner
+     called unusable; `--chat-min` is the answer and the call pane pays for
+     it, never the other way round. */
   html[data-desktop] .desktopConversation[data-open="true"] {
-    width: min(20rem, 32%);
+    width: clamp(var(--chat-min), 32%, var(--work-max));
     border-left: 1px solid var(--border);
     padding-left: 1rem;
+  }
+
+  /* Nobody on a call anywhere in the room.
+     "there's loads of free space in call (we aren't running a call)": the
+     empty pane was taking the whole row because the row had nothing else to
+     give the space to. Resting, it is one line - what the room is doing and
+     the way to start - and the conversation takes the width and the height
+     it was holding. A call, or somebody else's call, puts the row back. */
+  /* And the conversation stops being a drawer at all.
+     A drawer is right beside a call. Beside nothing it was a ~300px strip
+     against a window of empty black, wrapping messages at three or four
+     words a line while the room they could have used sat unused. So with
+     nothing to show beside it the conversation is the main column, capped
+     at a line worth reading and left-aligned - the same place the eye
+     starts in the narrow layout, rather than a column that moves to the
+     middle of the window when Shared Work closes. */
+  html[data-desktop][data-call-pane="resting"] .desktopRoomContent {
+    flex-direction: column;
+    max-width: var(--chat-read);
+    margin-right: auto;
+  }
+  /* The notices that sit directly above the conversation belong to the same
+     column. Left at the window's full width they read as a banner across
+     the top of something else entirely, with the conversation stopping
+     halfway under them. The room's own bar is not in this list: it is the
+     window's bar and it spans the window. */
+  html[data-desktop][data-call-pane="resting"] #roomArea > :is(#callBanner, #agentActivity, #workAttention, #presenceNotice, #sharerMarksNotice, .conversationNav) {
+    max-width: var(--chat-read);
+  }
+  html[data-desktop][data-call-pane="resting"] .desktopRoomContent #callStage {
+    flex: 0 0 auto;
+    max-height: 30vh;
+  }
+  html[data-desktop][data-call-pane="resting"] .desktopConversation[data-open="true"] {
+    width: auto;
+    flex: 1 1 auto;
+    min-height: var(--chat-min-height);
+    border-left: 0;
+    padding-left: 0;
+    /* A width transition across a change of flex direction animates from a
+       pixel width to `auto`, which browsers draw as a jump anyway. */
+    transition: none;
   }
   @media (prefers-reduced-motion: reduce) {
     html[data-desktop] .desktopConversation { transition: none; }
@@ -84,6 +153,59 @@ html[data-desktop] #chatDrawerToggle { display: none; }
   html[data-desktop] #chatDrawerToggle { display: inline-flex; }
 }
 #chatDrawerToggle[aria-expanded="true"] { background: var(--accent-dim); border-color: var(--accent); }
+
+/* The resting strip itself. One row, whatever the window is doing, and
+   short enough that the room it frees is worth freeing - the spec pins it
+   under 80px. */
+html[data-desktop][data-call-pane="resting"] .callStrip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: .75rem;
+  margin: 0;
+  padding: .35rem .6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+html[data-desktop][data-call-pane="resting"] .callStripText { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+html[data-desktop][data-call-pane="resting"] .callStrip button { margin: 0; white-space: nowrap; }
+/* The banner above already says a call is on and offers the way into it.
+   The strip beneath it would be the same offer twice on one screen. */
+html[data-desktop][data-call-pane="resting"] #roomArea:has(#callBanner:not([hidden])) .callStrip { display: none; }
+
+/* The rooms rail, and the control that puts it away.
+   Collapsed, the grid column comes down to the control's own width and the
+   room takes the rest; `--rail-w` comes down with it, so the width the rail
+   gave up is width Shared Work and the conversation can actually have
+   rather than width nobody is using. */
+html[data-desktop] .railBar { display: flex; align-items: center; justify-content: space-between; gap: .35rem; margin: 0 0 .5rem; }
+html[data-desktop] #projectsRailToggle { margin: 0; padding: .3rem .55rem; line-height: 1; font-size: 1.1rem; }
+html[data-desktop] .railUnread {
+  min-width: 1.35rem;
+  padding: .1rem .3rem;
+  border-radius: 1rem;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: .72rem;
+  font-weight: 650;
+  text-align: center;
+}
+@media (min-width: 1100px) and (min-height: 541px) {
+  html[data-desktop][data-rail="collapsed"] { --rail-w: 3.5rem; }
+  html[data-desktop][data-rail="collapsed"] main:has(#roomArea:not([hidden])) { grid-template-columns: 3.5rem minmax(0, 1fr); }
+  html[data-desktop][data-rail="collapsed"] #workspaceRailBody { display: none; }
+  html[data-desktop][data-rail="collapsed"] #workspaceNav:not([hidden]) { padding-right: .35rem; }
+  html[data-desktop][data-rail="collapsed"] .railBar { flex-direction: column; gap: .5rem; }
+}
+
+/* Shared Work narrows before the conversation does. The web client keeps
+   its fixed 28rem panel; this window is the one where all three are open at
+   once and the arithmetic has to hold. */
+@media (min-width: 1280px) and (min-height: 541px) {
+  html[data-desktop] #assignmentPanel[open] { width: var(--work-panel); }
+  html[data-desktop] body:has(#assignmentPanel[open]) > main { padding-right: var(--work-panel); }
+}
 
 html[data-desktop] #roomArea { position: relative; }
 html[data-desktop] #roomSwitchProgress { position: absolute; inset: 5rem 1rem auto; padding: 1.25rem; color: var(--muted); }

@@ -156,7 +156,10 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
     await page.keyboard.press('Shift+Tab')
     await expect(reply).toBeFocused()
     await expect(panel.getByRole('button', { name: 'Edit this message', exact: true })).toHaveCount(0)
-    await expect(panel.getByRole('group', { name: 'React to this message' }).getByRole('button')).toHaveCount(8)
+    await expect(panel.getByRole('group', { name: 'React to this message' }).getByRole('button')).toHaveCount(9)
+    // A hundred per cent, as a reaction and not only as something the emoji
+    // picker can find - the owner asked for it on the quick choices.
+    await expect(panel.getByRole('button', { name: 'Add 💯 reaction', exact: true })).toBeVisible()
     sentAt++; await writer.chat.send('The conversation continues while actions are open.')
     await expect(rows).toHaveCount(10)
     await expect(reply).toBeFocused()
@@ -259,7 +262,7 @@ test('holding an older message opens emoji choices without losing the reading po
     await page.mouse.up()
     await expect(panel).toBeVisible()
     await expect(panel.getByRole('button', { name: 'Add 👍 reaction', exact: true })).toBeFocused()
-    await expect(panel.getByRole('button')).toHaveCount(8)
+    await expect(panel.getByRole('button')).toHaveCount(9)
     expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
     sentAt++; await writer.chat.send('A new arrival while choosing an emoji.')
     sentAt++; await writer.chat.send('Workshop note 5: updated while choosing an emoji.', { replaces: original.id })

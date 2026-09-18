@@ -1,6 +1,14 @@
 import type { ChatMessage } from './chat.js'
 
-export const REACTION_EMOJIS = ['👍', '❤️', '🤦', '😂', '🎉', '👀', '🙏', '😢'] as const
+// Nine choices, in the order they are offered, and the order is the one a
+// person has learned: 💯 was added at the end rather than beside 👍, so that
+// nobody's thumb lands on a different reaction than it did yesterday.
+//
+// This list is also the allow-list `normaliseReaction` checks, which makes
+// adding to it a compatibility event in one direction: a client that has
+// not updated drops a 💯 it is sent rather than showing an unknown mark.
+// Adding is therefore safe and removing never is.
+export const REACTION_EMOJIS = ['👍', '❤️', '🤦', '😂', '🎉', '👀', '🙏', '😢', '💯'] as const
 export interface ChatReaction {
   messageId: string
   participant: string

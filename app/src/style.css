@@ -3278,6 +3278,11 @@ button.primary:hover:not(:disabled) {
   background: var(--accent-dim);
 }
 .callBanner button.primary { margin: 0; white-space: nowrap; }
+/* The resting call strip belongs to the installed desktop window alone -
+   see `[data-call-pane="resting"]` in desktop.css. A browser tab's call
+   area already costs nothing when it is empty, because the page scrolls;
+   the installed window's does not, which is what the strip is for. */
+.callStrip { display: none; }
 #callToggle[data-live="true"] {
   background: var(--live);
   border-color: var(--live);
