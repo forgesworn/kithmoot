@@ -373,6 +373,38 @@ describe('SignalChannel receiver', () => {
     expect(wire.last).toMatchObject({ type: 'ack', ack: 3 })
   })
 
+  it('takes a batch that starts at the expected seq as the missing signal, not as its last seq', () => {
+    const { channel, delivered, wire, clock } = harness()
+
+    channel.receive(from({ type: 'offer', seq: 1, sdp: 'o1' }))
+    // Candidate 2 was lost; 3 and 4 arrived singly and wait behind the hole.
+    channel.receive(from({ type: 'ice', seq: 3, candidate: 'c3' }))
+    channel.receive(from({ type: 'ice', seq: 4, candidate: 'c4' }))
+    expect(delivered.map((b) => b.seq)).toEqual([1])
+
+    // The far end re-sends 2 only as part of a batch covering 2..4.
+    channel.receive(from({ type: 'ice', first: 2, seq: 4, candidates: ['c2', 'c3', 'c4'] }))
+
+    expect(delivered.map((b) => b.seq)).toEqual([1, 4])
+    expect(delivered[1]).toMatchObject({ candidates: ['c2', 'c3', 'c4'] })
+    clock.advance(ACK_DELAY_MS)
+    expect(wire.last).toMatchObject({ type: 'ack', ack: 4 })
+
+    // And what comes next is 5, with nothing stale left waiting.
+    channel.receive(from({ type: 'ice', seq: 5, candidate: 'c5' }))
+    expect(delivered.map((b) => b.seq)).toEqual([1, 4, 5])
+  })
+
+  it('still buffers a batch whose range starts beyond the expected seq', () => {
+    const { channel, delivered } = harness()
+
+    channel.receive(from({ type: 'ice', first: 3, seq: 4, candidates: ['c3', 'c4'] }))
+    expect(delivered).toHaveLength(0)
+
+    channel.receive(from({ type: 'ice', first: 1, seq: 2, candidates: ['c1', 'c2'] }))
+    expect(delivered.map((b) => b.seq)).toEqual([2, 4])
+  })
+
   it('drops the oldest buffered signal rather than growing without bound', () => {
     const { channel, delivered } = harness()
     const limit = MAX_BUFFERED_SIGNALS

@@ -3817,8 +3817,10 @@ async function toggleMic(): Promise<void> {
       besideAnotherDevice = false
       micClaimedAt = nowSeconds()
       monitorClaimedAt ??= WEAK_MONITOR_CLAIM
-      publishActiveTracks()
     }
+    // Either way the roster's mute flag has to follow, so the far end's
+    // tile stops guessing from audio energy - see `currentAdverts`.
+    publishActiveTracks()
   }
   updateUi()
 }
@@ -4260,7 +4262,7 @@ const WEAK_MONITOR_CLAIM = 1
 function currentAdverts(): TrackAdvert[] {
   const adverts: TrackAdvert[] = []
   if (cameraTrack) adverts.push({ trackId: cameraTrack.id, role: 'camera' })
-  if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic' })
+  if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic', ...(micTrack.enabled === false ? { muted: true } : {}) })
   if (screenTrack) adverts.push({ trackId: screenTrack.id, role: 'screen' })
   if (screenAudioTrack) adverts.push({ trackId: screenAudioTrack.id, role: 'screen-audio' })
   return adverts
@@ -4547,11 +4549,15 @@ function render(views: ParticipantView[], me: string): void {
     if (view.participant !== me) {
       heading.append(verifyChip(view, shown.name ?? ''))
       if (volumeLevel(view.participant) === 0) heading.append(volumeMuteBadge())
+      if (selfMutedMic(view)) heading.append(selfMuteBadge())
     }
     box.prepend(heading)
     const place = (mediaEl: HTMLDivElement | undefined, label = ''): void => {
       if (!mediaEl || mediaEl.childElementCount === 0) { if (mediaEl?.parentElement === box) mediaEl.remove(); return }
       mediaEl.dataset.cameraLabel = label
+      // Read by the "person beside their screen" layout in style.css: a
+      // share with no camera live beside it still shows whose it is.
+      mediaEl.dataset.ownerName = shown.name ?? shown.short
       if (mediaEl.parentElement !== box) box.append(mediaEl)
     }
 
@@ -7381,6 +7387,23 @@ function volumeMuteBadge(): HTMLElement {
   return badge
 }
 
+/** Whether the device currently holding this person's mic has muted itself
+ *  - `TrackAdvert.muted`, not our own volume slider. Distinct state, distinct
+ *  badge: this one is what THEY did, `volumeMuteBadge` is what WE did. */
+function selfMutedMic(view: ParticipantView): boolean {
+  const micDevice = view.mic
+  if (!micDevice) return false
+  return view.tracks.some((t) => t.role === 'mic' && t.device === micDevice && t.muted === true)
+}
+
+function selfMuteBadge(): HTMLElement {
+  const badge = document.createElement('span')
+  badge.className = 'badge muted-self'
+  badge.textContent = '\u{1F3A4} muted'
+  badge.title = 'This person has muted their own microphone'
+  return badge
+}
+
 /** Keeps a tile's "silenced for you" tag in step with the slider while it
  *  is being dragged, without waiting for the next full render. */
 function paintVolumeMute(participant: string, silenced: boolean): void {
@@ -7925,7 +7948,7 @@ async function collectDiagnostics(): Promise<string> {
       participant: short(v.participant),
       agent: v.agent === true,
       devices: v.devices.map(short),
-      tracks: v.tracks.map((t) => `${t.role}@${short(t.device)}`),
+      tracks: v.tracks.map((t) => `${t.role}@${short(t.device)}${t.muted ? '(muted)' : ''}`),
       mic: short(v.mic),
     })),
     routes: s ? [...s.routes].map(([d, r]) => ({ device: short(d), tier: r.tier, endpoint: short(r.endpoint), connected: r.connected, exhausted: r.exhausted })) : [],
@@ -7998,15 +8021,14 @@ async function collectDiagnostics(): Promise<string> {
         : {}),
     }
   })
-  const pairLines = pairHealthSampler.snapshot(pairSamples)
-  const timelineLines = callTimeline.format()
-  return (
-    JSON.stringify(out, null, 1) +
-    '\n\nCall timeline (redacted, newest last):\n' +
-    (timelineLines.length > 0 ? timelineLines.join('\n') : '(nothing recorded yet)') +
-    '\n\nPer-pair summary:\n' +
-    (pairLines.length > 0 ? pairLines.join('\n') : '(no open connections)')
-  )
+  // Inside the JSON, not appended after it: the report is pasted into bug
+  // threads by people and parsed by the acceptance suite, and text after a
+  // closing brace serves neither.
+  return JSON.stringify({
+    ...out,
+    callTimeline: callTimeline.format(),
+    pairSummary: pairHealthSampler.snapshot(pairSamples),
+  }, null, 1)
 }
 
 $('diagnostics').addEventListener('click', () => {

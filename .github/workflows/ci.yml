@@ -85,8 +85,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The Chromium run also launches Firefox itself, for the cross-browser
+      # call case in test/call-stability.spec.ts; without it that case dies
+      # in the first millisecond rather than proving anything.
       - name: Install browser
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: npx playwright install --with-deps ${{ matrix.browser }} ${{ matrix.browser == 'chromium' && 'firefox' || '' }}
 
       # playwright.config.ts builds the app, serves it, and - because
       # E2E_RELAYS=local - starts the test relay beside it.

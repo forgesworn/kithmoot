@@ -384,6 +384,43 @@ describe('at most one track advert per role', () => {
   })
 })
 
+describe('a track advert\'s muted flag', () => {
+  it('round-trips the exact literal true', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const tracks = [{ trackId: 'mic-1', role: 'mic' as const, muted: true as const }]
+    const event = encodeRosterEvent({ ...entry, tracks }, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded).not.toBeNull()
+    expect(decoded!.tracks).toEqual([{ trackId: 'mic-1', role: 'mic', muted: true }])
+  })
+
+  it('only the exact literal true counts; anything else drops the flag and keeps the advert', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    for (const hostile of [false, 1, 'true', null, {}, [true], 0]) {
+      const tracks = [{ trackId: 'mic-1', role: 'mic', muted: hostile }]
+      const event = encodeRosterEvent({ ...entry, tracks } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+      const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+      expect(decoded, `muted=${JSON.stringify(hostile)}`).not.toBeNull()
+      expect(decoded!.tracks, `muted=${JSON.stringify(hostile)}`).toEqual([{ trackId: 'mic-1', role: 'mic' }])
+    }
+  })
+
+  it('is absent when nobody set it, so an entry without it is byte-identical to one from before it existed', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const without = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+    const plaintext = JSON.parse(nip44.v2.decrypt(without.content, roomKey))
+    expect(plaintext.tracks).toEqual([{ trackId: 't1', role: 'screen' }])
+    expect(plaintext.tracks[0]).not.toHaveProperty('muted')
+    const decodedWithout = decodeRosterEvent(without, { roomId, roomKey, now: NOW })
+    expect(decodedWithout!.tracks).toEqual([{ trackId: 't1', role: 'screen' }])
+    expect(decodedWithout!.tracks[0]).not.toHaveProperty('muted')
+
+    const withMute = encodeRosterEvent({ ...entry, tracks: [{ trackId: 't1', role: 'screen', muted: true }] }, { roomId, roomKey, deviceSk })
+    const decodedWith = decodeRosterEvent(withMute, { roomId, roomKey, now: NOW })
+    expect(decodedWith!.tracks).toEqual([{ trackId: 't1', role: 'screen', muted: true }])
+  })
+})
+
 describe('the agent flag', () => {
   it('carries `agent: true`, and an entry without it is byte-identical to one from before agents existed', async () => {
     const { roomId, roomKey, deviceSk, entry } = await fixture()
