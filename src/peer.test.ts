@@ -1373,6 +1373,88 @@ describe('Peer', () => {
     expect(fromOfferer.filter((s) => s.type === 'offer'), 'a duplicate answer renegotiated the pair').toHaveLength(offersSoFar)
   })
 
+  /**
+   * BUG: the same one-way audio, reached the other way round - measured in a
+   * four-person join on 18 September 2026, with both ends' descriptions read
+   * off the pages.
+   *
+   * The last joiner offers before its microphone has reached that
+   * connection, so the audio m-line is `a=recvonly` and the answerer settles
+   * at `sendonly`. The microphone arrives, the answerer offers - and its own
+   * offer goes unanswered long enough for the wedge breaker to roll it back.
+   * The answer to it turns up afterwards, at a connection that is `stable`
+   * again, where it was dropped. The far end applied that answer when it
+   * made it, so from then on it sent audio on an m-line this side had
+   * settled as one it does not receive on, and nothing renegotiated.
+   *
+   * The important difference from the case above is that there is no answer
+   * of our own to compare the late one against: the last exchange this
+   * connection completed is the one where WE answered.
+   */
+  it('BUG: an answer that arrives after our own offer was rolled back is a disagreement too', async () => {
+    const structured = { structuredSdp: true }
+    const fromWedged: SignalBody[] = []
+    const fromFarEnd: SignalBody[] = []
+    // HIGH is the impolite side - the one with a wedge breaker.
+    const wedgedFactory = createFakeFactory(structured)
+    const wedged = new Peer({
+      factory: wedgedFactory,
+      localDevice: HIGH,
+      remoteDevice: LOW,
+      onSignal: (b) => fromWedged.push(b),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 60_000 },
+    })
+    const farEnd = new Peer({
+      factory: createFakeFactory(structured),
+      localDevice: LOW,
+      remoteDevice: HIGH,
+      onSignal: (b) => fromFarEnd.push(b),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 60_000 },
+    })
+    expect(wedged.polite, 'the wedged side must be the impolite one').toBe(false)
+
+    // The far end offers with nothing to send on the audio m-line yet, which
+    // is what a microphone pipeline that has not started looks like.
+    await farEnd.start([fakeAudioTrack()])
+    await settle()
+    const first = fromFarEnd.filter((s) => s.type === 'offer')[0]!
+    await wedged.handleSignal(first)
+    await settle()
+    await farEnd.handleSignal(fromWedged.filter((s) => s.type === 'answer')[0]!)
+    await settle()
+
+    // This side's microphone arrives, so it offers - and the answer to that
+    // offer is held back while the wedge breaker rolls the offer away.
+    await wedged.start([fakeAudioTrack()])
+    await settle()
+    const mine = fromWedged.filter((s) => s.type === 'offer')[0]!
+    await farEnd.handleSignal(mine)
+    await settle()
+    const held = fromFarEnd.filter((s) => s.type === 'answer')[0]!
+    wedged.healStalledNegotiation()
+    await settle()
+    expect(wedgedFactory.instances[0]!.signalingState, 'the wedge breaker never rolled the offer back').toBe('stable')
+
+    // And then it turns up.
+    await wedged.handleSignal(held)
+    await settle()
+    for (const body of fromWedged.filter((s) => s.type === 'offer').slice(1)) {
+      await farEnd.handleSignal(body)
+      await settle()
+    }
+    for (const body of fromFarEnd.filter((s) => s.type === 'answer').slice(1)) {
+      await wedged.handleSignal(body)
+      await settle()
+    }
+
+    const audio = wedgedFactory.instances[0]!.getTransceivers().find((t) => t.kind === 'audio')!
+    expect(audio.currentDirection, 'the two ends never agreed that audio flows both ways').toBe('sendrecv')
+    wedged.close()
+    farEnd.close()
+  })
+
   it('close() is idempotent', async () => {
     const factory = createFakeFactory()
     const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })

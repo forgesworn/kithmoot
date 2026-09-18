@@ -915,13 +915,23 @@ export class Peer implements NegotiatingPeer {
    * the repair is an ordinary renegotiation from `stable`, which settles
    * both sides on one description without touching ICE or DTLS.
    *
-   * Only ever when we were the offerer of the completed exchange, and only
-   * once per distinct answer, so a far end repeating a stale copy cannot
-   * make this side offer once per copy.
+   * The second route into the same state, measured the same day: this side's
+   * own offer went unanswered long enough for the wedge breaker to roll it
+   * back, and the answer arrived after that. The far end applied its own
+   * answer when it made it, so the far end has moved and this side has not -
+   * and there is no answer of ours to compare against, because the last
+   * exchange this connection completed is one where WE answered. An answer
+   * that reaches a `stable` connection and is not the one it is negotiated
+   * with is a divergence however this side got here, so that is the whole
+   * test: not the duplicate, and not on a connection that has never
+   * negotiated anything, where an offer would describe nothing.
+   *
+   * Only once per distinct answer, so a far end repeating a stale copy
+   * cannot make this side offer once per copy.
    */
   #answerDisagrees(sdp: string | undefined): boolean {
     if (sdp === undefined || this.#closed || this.#makingOffer || this.#senderRefused) return false
-    if (this.#appliedAnswerSdp === undefined) return false
+    if (this.#remoteOffersApplied === 0 && this.#appliedAnswerSdp === undefined) return false
     return this.#appliedAnswerSdp !== sdp && this.#repairedAnswerSdp !== sdp
   }
 
