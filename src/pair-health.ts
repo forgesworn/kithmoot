@@ -318,9 +318,29 @@ export class PairHealth {
       if (!sending) memory.sendingSince = undefined
       else if (memory.sendingSince === undefined) memory.sendingSince = Math.max(now, this.#connectedAt ?? now)
 
-      const outbound = mid === null ? undefined : outboundByMid.get(mid)
-      const ssrc = typeof outbound?.ssrc === 'number' ? outbound.ssrc : undefined
-      const remote = ssrc === undefined ? undefined : remoteInboundBySsrc.get(ssrc)
+      let outbound = mid === null ? undefined : outboundByMid.get(mid)
+      let remote = pickRemoteInbound(outbound, remoteInboundBySsrc)
+      // The sender's own report, for the engines that leave `mid` off
+      // `outbound-rtp` exactly as Firefox leaves it off `inbound-rtp`. Without
+      // this the slot's ssrc is unknown, its `remote-inbound-rtp` is never
+      // found, and a call where every packet is arriving in both directions
+      // reads as "the far end is receiving nothing from us".
+      if (remote === undefined && sending && transceiver?.sender.getStats) {
+        try {
+          const scoped = await transceiver.sender.getStats()
+          const bySsrc = new Map<number, Record<string, unknown>>()
+          scoped.forEach((raw) => {
+            const candidate = raw as Record<string, unknown>
+            if (candidate.type === 'outbound-rtp') outbound = candidate
+            else if (candidate.type === 'remote-inbound-rtp' && typeof candidate.ssrc === 'number') {
+              bySsrc.set(candidate.ssrc, candidate)
+            }
+          })
+          remote = pickRemoteInbound(outbound, bySsrc) ?? pickRemoteInbound(outbound, remoteInboundBySsrc)
+        } catch {
+          // A sender that will not report is one with nothing to report.
+        }
+      }
       const figures = readRemoteInbound(remote)
       if (figures) {
         const before = memory.rtcp
@@ -337,7 +357,13 @@ export class PairHealth {
         memory.rtcp = figures
       }
 
-      const rtcp = this.#verdict(sending, now, memory.rtcpAt, memory.sendingSince, this.#rtcpDeadMs)
+      // `sending` alone is not enough to judge this direction. A slot whose
+      // RTCP has never been readable at all - no `mid` on `outbound-rtp`, no
+      // sender-scoped report, an engine that reports neither - would
+      // otherwise read `dead` on a perfectly healthy call, and the ladder
+      // would restart and then rebuild it. Never observed is `idle`: this
+      // side cannot say, and cannot say is not the same as bad news.
+      const rtcp = this.#verdict(sending && memory.rtcp !== undefined, now, memory.rtcpAt, memory.sendingSince, this.#rtcpDeadMs)
 
       const slot: SlotHealth = { role, mid, advertised: live, inbound, rtcp, progressed }
       if (counter !== undefined) slot.counter = counter
@@ -407,6 +433,16 @@ function readCounter(stat: Record<string, unknown> | undefined, kind: 'audio' | 
   }
   const packets = stat.packetsReceived
   return typeof packets === 'number' ? packets : undefined
+}
+
+/** The `remote-inbound-rtp` that belongs to this outbound stream, matched
+ *  the only way the two are linked: the ssrc they share. */
+function pickRemoteInbound(
+  outbound: Record<string, unknown> | undefined,
+  bySsrc: Map<number, Record<string, unknown>>,
+): Record<string, unknown> | undefined {
+  const ssrc = typeof outbound?.ssrc === 'number' ? outbound.ssrc : undefined
+  return ssrc === undefined ? undefined : bySsrc.get(ssrc)
 }
 
 function readRemoteInbound(stat: Record<string, unknown> | undefined): { measurements: number; timestamp: number; lost: number } | undefined {
