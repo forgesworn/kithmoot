@@ -39,35 +39,71 @@ function parse(value: string | null | undefined): CallProfile | undefined {
 /**
  * What this device should advertise, given a URL and a storage.
  *
- * The query wins over storage and is remembered, so a link someone was sent
- * survives the reload the app does when it re-reads a room fragment - and so
- * that turning it off stays off without anybody having to keep the URL.
+ * The query wins over storage, and **only the off value is remembered**.
+ *
+ * That asymmetry is the whole of the rule, and it is about who chose. A room
+ * link is a thing people forward: "join us" goes into a group chat and is
+ * opened by everybody, and a `?callProfile=2` on the end of it would then
+ * turn a different negotiation on for every one of those devices, for this
+ * origin, permanently, with nothing on screen to say so and nothing to undo
+ * it with. Nobody chose that; one person pasted a link. So turning it **on**
+ * lasts as long as the page session that asked - a reload of the same tab
+ * keeps it, a new tab does not, closing the browser ends it - and turning it
+ * **off** is remembered for good, because that one is somebody saying "not
+ * this, not on my device", and it must not need saying twice.
+ *
  * Storage that throws (a private window, blocked site data) is simply
  * absent: the default is the safe one, so there is nothing to fall back to.
  */
-export function readCallProfile(search: string, storage?: Pick<Storage, 'getItem' | 'setItem'>): CallProfile {
-  let stored: CallProfile | undefined
+export function readCallProfile(search: string, storage?: CallProfileStorage, session?: CallProfileStorage): CallProfile {
+  const asked = ask(search)
+
+  if (asked === 1) {
+    // Remembered, and remembered in the durable place: an off switch that
+    // had to be set again on the next visit would not be an off switch.
+    write(storage, '1')
+    write(session, '1')
+    return 1
+  }
+
+  if (asked === 2) {
+    // This page session only. Kept so the reload the app does when it
+    // re-reads a room fragment does not drop it mid-join.
+    write(session, '2')
+    return 2
+  }
+
+  // Nothing asked: an explicit off is durable, an on is only ever this page
+  // session's.
+  if (read(storage) === 1) return 1
+  return read(session) ?? 1
+}
+
+/** `localStorage` and `sessionStorage` both satisfy this, and so does a test
+ *  double. Both are optional everywhere: a browser may refuse either. */
+export type CallProfileStorage = Pick<Storage, 'getItem' | 'setItem'>
+
+function read(storage: CallProfileStorage | undefined): CallProfile | undefined {
   try {
-    stored = parse(storage?.getItem(CALL_PROFILE_KEY))
+    return parse(storage?.getItem(CALL_PROFILE_KEY))
   } catch {
-    stored = undefined
+    return undefined
   }
+}
 
-  let asked: CallProfile | undefined
+function ask(search: string): CallProfile | undefined {
   try {
-    asked = parse(new URLSearchParams(search).get(CALL_PROFILE_PARAM))
+    return parse(new URLSearchParams(search).get(CALL_PROFILE_PARAM))
   } catch {
-    asked = undefined
+    return undefined
   }
+}
 
-  if (asked !== undefined && asked !== stored) {
-    try {
-      storage?.setItem(CALL_PROFILE_KEY, String(asked))
-    } catch {
-      // A browser that will not remember it still honours it for this page,
-      // which is all a one-off diagnosis needs.
-    }
+function write(storage: CallProfileStorage | undefined, value: string): void {
+  try {
+    storage?.setItem(CALL_PROFILE_KEY, value)
+  } catch {
+    // A browser that will not remember it still honours it for this page,
+    // which is all a one-off diagnosis needs.
   }
-
-  return asked ?? stored ?? 1
 }

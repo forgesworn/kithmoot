@@ -330,6 +330,9 @@ function say(
     advertised: true,
     inbound: (what.dead ?? []).includes(role) ? ('dead' as const) : ('ok' as const),
     rtcp: (what.unreceived ?? []).includes(role) ? ('dead' as const) : what.rtcpOk === false ? ('idle' as const) : ('ok' as const),
+    // The ladder is handed `transportOk` directly, so this only has to be
+    // consistent with it rather than drive it.
+    progressed: !(what.dead ?? []).includes(role) && what.transportOk !== false,
   }))
   return {
     at,
