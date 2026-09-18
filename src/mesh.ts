@@ -266,6 +266,17 @@ export interface MeshOptions {
    */
   trackRole?: RoleResolver
   /**
+   * A profile-2 far end reports a slot of ours dead and the local track for
+   * it has ended - a camera another application took, a microphone that was
+   * unplugged.
+   *
+   * Nothing this library owns can repair that: replacing the track means
+   * asking for a device, which is the embedding app's business and nobody
+   * else's. Absent, the slot simply stays empty and the far end keeps saying
+   * so, which is exactly what happened before this existed.
+   */
+  onSlotRecovery?: (device: string, role: TrackRole) => void
+  /**
    * The pair-health thresholds of §3.4, for a caller that has to drive them
    * in milliseconds rather than wait them out. Defaults are the constants in
    * `src/pair-health.ts`; nothing in the app overrides them.
@@ -1769,6 +1780,24 @@ export class Mesh {
     this.#reconcile(this.#opts.session.participants())
   }
 
+  /**
+   * A slot's own track has ended, so re-attaching it would only make the slot
+   * look busy. The application is the only thing that can replace it.
+   *
+   * Reported rather than repaired here for the same reason `Mesh` does not
+   * own `getUserMedia`: the media pipeline, the device choice and the
+   * permission prompt are all the app's, and a protocol library that reached
+   * for a camera would be a protocol library nobody could embed.
+   */
+  #recoverSlot(device: string, role: TrackRole): void {
+    this.#diagnose({ kind: 'pair-ladder', device, detail: `the local ${role} track has ended; media recovery is the app's` })
+    try {
+      this.#opts.onSlotRecovery?.(device, role)
+    } catch {
+      // A caller's media pipeline is not allowed to take the room down.
+    }
+  }
+
   /** Every profile-2 pair's state, for the bug report. See §8, step S12. */
   pairDiagnostics(): PairDiagnostics[] {
     return [...this.#controllers.values()].map((controller) => controller.summary())
@@ -1803,6 +1832,13 @@ export class Mesh {
         else if (state === 'failed' || state === 'closed') this.#endpointFailed(endpoint)
       },
       onDowngrade: (body) => this.#downgradePeer(endpoint, body),
+      // The far end says a slot of ours is dead. Believed only where this
+      // side cannot contradict it - see `SlotPeerOptions.outboundReceived`.
+      outboundReceived: (role) => controller.outboundReceived(role),
+      // And where the repair is impossible because the local track has
+      // ended, only the application can answer: it owns the camera, the
+      // microphone and the permission prompt.
+      onSlotRecovery: (role) => this.#recoverSlot(endpoint, role),
     })
     controller.attach(peer)
     return peer

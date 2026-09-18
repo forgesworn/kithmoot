@@ -356,6 +356,20 @@ export class PairController {
   }
 
   /**
+   * Whether this side can see that the far end IS receiving that slot.
+   *
+   * Only `ok` counts. `idle` means this side cannot tell - no RTCP readable
+   * on this engine, or nothing attached to the slot - and "cannot tell" is
+   * not grounds to call a far end a liar; `dead` means this side agrees with
+   * it. So the one thing this refuses is a report that our own measurement
+   * flatly contradicts, which is the only shape a hostile one can take
+   * without also being true.
+   */
+  outboundReceived(role: TrackRole): boolean {
+    return this.#health.last?.slots.find((slot) => slot.role === role)?.rtcp === 'ok'
+  }
+
+  /**
    * One sample, judged.
    *
    * The generation check comes first and is not a detail: an incoming higher
