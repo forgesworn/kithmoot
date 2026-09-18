@@ -1590,6 +1590,89 @@ describe('Peer', () => {
     farEnd.close()
   })
 
+
+  /**
+   * BUG: the answering side's half of the repair, on its own.
+   *
+   * The case above proves the pair converges, but the offering side can
+   * carry it alone - replacing the answerer's repair with nothing left every
+   * test passing. This one takes the offering side out of the picture: the
+   * second answer never reaches it, exactly as a lost signal would, so the
+   * only thing that can settle the pair is the answerer noticing it has
+   * answered the same offer twice with two different descriptions.
+   *
+   * That is also the real mixed-version case: a far end built before any of
+   * this has no repair of its own, and must still end up with sound.
+   */
+  it('BUG: the answering side settles the pair when its second answer never gets back', async () => {
+    const structured = { structuredSdp: true }
+    const fromOfferer: SignalBody[] = []
+    const fromAnswerer: SignalBody[] = []
+    const offererFactory = createFakeFactory(structured)
+    const answererFactory = createFakeFactory(structured)
+    // LOW is polite, so it is the side that rolls back and answers again.
+    const offerer = new Peer({
+      factory: offererFactory,
+      localDevice: HIGH,
+      remoteDevice: LOW,
+      onSignal: (b) => fromOfferer.push(b),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 60_000 },
+    })
+    const answerer = new Peer({
+      factory: answererFactory,
+      localDevice: LOW,
+      remoteDevice: HIGH,
+      onSignal: (b) => fromAnswerer.push(b),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 60_000 },
+    })
+
+    await offerer.start([fakeAudioTrack()])
+    await settle()
+    const offer = fromOfferer.filter((s) => s.type === 'offer')[0]!
+
+    // Answered before the answerer's microphone exists, so `a=recvonly`.
+    await answerer.handleSignal(offer)
+    await settle()
+    await offerer.handleSignal(fromAnswerer.filter((s) => s.type === 'answer')[0]!)
+    await settle()
+    const audio = offererFactory.instances[0]!.getTransceivers().find((t) => t.kind === 'audio')!
+    expect(audio.currentDirection).toBe('sendonly')
+
+    // The microphone arrives, the answerer offers, and the offerer's retry
+    // crosses it - so the same offer is answered a second time, now with
+    // something to send.
+    await answerer.start([fakeAudioTrack()])
+    await settle()
+    await answerer.handleSignal(offer)
+    await settle()
+    const answers = fromAnswerer.filter((s) => s.type === 'answer')
+    expect(answers).toHaveLength(2)
+
+    // And that answer is lost on the way. Nothing the offering side does can
+    // help: it has heard nothing it did not expect.
+    const offersFromAnswerer = fromAnswerer.filter((s) => s.type === 'offer')
+    expect(offersFromAnswerer.length, 'the answering side said nothing about answering twice').toBeGreaterThan(0)
+
+    // Its repair offer is delivered, and answered.
+    const repair = offersFromAnswerer[offersFromAnswerer.length - 1]!
+    const beforeReply = fromOfferer.filter((s) => s.type === 'answer').length
+    await offerer.handleSignal(repair)
+    await settle()
+    const reply = fromOfferer.filter((s) => s.type === 'answer')[beforeReply]
+    expect(reply, 'the repair offer went unanswered').toBeDefined()
+    await answerer.handleSignal(reply!)
+    await settle()
+
+    expect(audio.currentDirection, 'the answering side never settled the pair').toBe('sendrecv')
+    expect(answererFactory.instances[0]!.getTransceivers().find((t) => t.kind === 'audio')!.currentDirection).toBe('sendrecv')
+    expect(offererFactory.instances[0]!.signalingState).toBe('stable')
+    expect(answererFactory.instances[0]!.signalingState).toBe('stable')
+    offerer.close()
+    answerer.close()
+  })
+
   it('close() is idempotent', async () => {
     const factory = createFakeFactory()
     const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })
