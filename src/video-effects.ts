@@ -897,14 +897,26 @@ export class VideoEffect {
     return this.#loadPromise ?? Promise.resolve()
   }
 
+  /**
+   * A mode change is also the one deliberate way out of degraded: turning
+   * the effect off and on again is exactly what the failure notice tells
+   * somebody to do, so it must actually work rather than leaving the
+   * segmenter stuck on whatever backoff attempt it was on. Any transition
+   * away from a degraded state - to off, or straight to a different mode
+   * while still on - forgets the failure and, if the new mode wants a
+   * segmenter, starts loading one immediately rather than waiting for the
+   * next scheduled retry.
+   */
   setMode(mode: EffectMode): void {
     if (this.#mode === mode) return
     this.#mode = mode
-    if (mode === 'off') {
-      this.#cancelRetry()
-    } else {
-      this.#ensureSegmenter()
+    this.#cancelRetry()
+    if (this.#status === 'degraded') {
+      this.#failures = 0
+      this.#loadPromise = null
+      this.#setStatus('idle')
     }
+    if (mode !== 'off') this.#ensureSegmenter()
     this.#emit()
   }
 

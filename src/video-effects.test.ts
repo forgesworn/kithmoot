@@ -560,6 +560,42 @@ describe('VideoEffect failure behaviour', () => {
     }
   })
 
+  it('recovers immediately on turning the effect off and back on again, rather than staying degraded for the session', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let attempt = 0
+      let seg: FakeSegmenter | null = null
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          attempt += 1
+          if (attempt === 1) throw new Error('first attempt fails')
+          seg = new FakeSegmenter()
+          return seg
+        },
+      })
+      await effect.ready()
+      expect(effect.status).toBe('degraded')
+      expect(attempt).toBe(1)
+
+      // Off, then straight back on - the thing the failure notice itself
+      // tells somebody to do - with no time advanced at all: no waiting for
+      // whatever backoff attempt the timer was on.
+      effect.setMode('off')
+      effect.setMode('blur')
+      await effect.ready()
+      expect(attempt).toBe(2)
+      expect(effect.status).toBe('ready')
+      expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('composite')
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('recovers if a single frame throws and the next one works', async () => {
     const { effect, seg } = newEffect()
     await effect.ready()
