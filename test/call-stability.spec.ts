@@ -158,7 +158,15 @@ function judge(before: TileSample | undefined, after: TileSample | undefined): C
     // a speaking one is 1e-2 and up.
     return s.energy !== null && prev.energy !== null && s.energy - prev.energy > 1e-3
   })
-  const v = after.videos.map(x => `v${x.i}[w${x.w} sp${x.spread.toFixed(0)} ${x.paused ? 'paused ' : ''}${x.track}]`).join(' ') || 'no-video'
+  // The element's own clock, and how far it moved between the two samples.
+  // Without it a still picture reads the same whether the decoder stopped or
+  // the far end is sending the same frame over and over, and those are
+  // different faults in different places.
+  const v = after.videos.map(x => {
+    const prev = before?.videos.find(p => p.i === x.i)
+    const dt = prev ? (x.time - prev.time).toFixed(2) : 'n/a'
+    return `v${x.i}[w${x.w} sp${x.spread.toFixed(0)} t${x.time.toFixed(2)} dt:${dt} ${x.paused ? 'paused ' : ''}${x.track}]`
+  }).join(' ') || 'no-video'
   const a = after.sounds.map(x => {
     const prev = before?.sounds.find(p => p.i === x.i)
     const dE = x.energy !== null && prev?.energy != null ? (x.energy - prev.energy).toExponential(1) : 'n/a'
