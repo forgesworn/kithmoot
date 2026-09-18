@@ -429,6 +429,138 @@ vectors.rosterEvent.push({
 }
 
 {
+  // --- `call` malformed and edge-case shapes -------------------------------
+  //
+  // `sanitiseCallMembership` (src/roster.ts) holds a call membership to: an
+  // object; `id` exactly 32 hex characters (either case, lower-cased on the
+  // way in); `since` a finite number that is not negative (floored on the
+  // way in). Anything short of that costs the claim, never the entry - the
+  // same rule every other optional field on a roster entry follows.
+  const CALL_ID = 'c0ffee'.repeat(5) + 'c0'
+
+  const callCases = [
+    {
+      name: 'call-id-upper-case',
+      kind: 'positive',
+      call: { id: CALL_ID.toUpperCase(), since: fx.NOW - 60 },
+      note: '`call.id` in upper-case hex: accepted, and lower-cased on decode - the same case-folding every other hex field on a roster entry gets, so a case-insensitive comparison is never needed downstream.',
+    },
+    {
+      name: 'call-id-wrong-length',
+      kind: 'negative',
+      call: { id: CALL_ID.slice(0, 30), since: fx.NOW - 60 },
+      note: '`call.id` one byte short of 32 hex characters: not a call id, so `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-id-non-hex',
+      kind: 'negative',
+      call: { id: 'z'.repeat(32), since: fx.NOW - 60 },
+      note: '`call.id` the right length but not hex (`z` is not a hex digit): `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-since-string',
+      kind: 'negative',
+      call: { id: CALL_ID, since: String(fx.NOW - 60) },
+      note: '`call.since` as a JSON string rather than a number: not the claim `sanitiseCallMembership` requires, so `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-since-missing',
+      kind: 'negative',
+      call: { id: CALL_ID },
+      note: '`call` with no `since` at all: `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-since-negative',
+      kind: 'negative',
+      call: { id: CALL_ID, since: -1 },
+      note: '`call.since` negative: not a Unix timestamp anybody could have meant, so `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-not-an-object',
+      kind: 'negative',
+      call: CALL_ID,
+      note: '`call` as a bare string rather than an `{ id, since }` object: `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-since-fractional',
+      kind: 'positive',
+      call: { id: CALL_ID, since: fx.NOW - 60.75 },
+      note: '`call.since` with a fractional part: kept, floored to a whole second - a call joined at a fraction of a second is still a Unix-second claim once decoded.',
+    },
+    {
+      name: 'call-extra-keys',
+      kind: 'positive',
+      call: { id: CALL_ID, since: fx.NOW - 60, profile: 'video', note: 'ignored' },
+      note: 'A `call` object carrying extra keys a future client might add: kept, but only `id` and `since` survive decode - `sanitiseCallMembership` reads exactly those two fields and nothing else, so an unrecognised extra is silently dropped rather than carried through.',
+    },
+  ]
+
+  for (const { name, kind, call, note } of callCases) {
+    const entry = { ...rosterEntry, call }
+    const roster = buildRoster({
+      entry,
+      roomId: ROOM_1.roomId,
+      roomKey: ROOM_1.roomKey,
+      deviceSk: fx.DEVICE_A_SK,
+      nonceLabel: `roster-${name}-nonce`,
+      auxRandLabel: `roster-${name}-auxrand`,
+    })
+    vectors.rosterEvent.push({
+      name,
+      kind,
+      note,
+      input: {
+        entry,
+        roomId: ROOM_1.roomId,
+        roomKeyHex: bytesToHex(ROOM_1.roomKey),
+        deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+        nonceHex: roster.nonceHex,
+        auxRandHex: roster.auxRandHex,
+      },
+      output: { event: roster.event },
+      expected: {
+        decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+        result: decodeRosterEvent(roster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+      },
+    })
+  }
+
+  // A farewell entry that also carries a valid `call`: the decoder applies
+  // `sanitiseCallMembership` the same way regardless of `left`, so both
+  // survive decode together. Publishing `call` alongside a farewell is a
+  // rule for a well-behaved SENDER (farewell payloads are emptied - see
+  // the `farewell` vector below), not something a reader enforces; a reader
+  // that gets both from a looser implementation decodes both.
+  const farewellOnCallEntry = { ...rosterEntry, tracks: [], claims: {}, reply: true, left: true, call: { id: CALL_ID, since: fx.NOW - 60 } }
+  const farewellOnCallRoster = buildRoster({
+    entry: farewellOnCallEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-farewell-on-call-nonce',
+    auxRandLabel: 'roster-farewell-on-call-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'farewell-on-call',
+    kind: 'positive',
+    note: 'A farewell entry (`left: true`) that also carries a valid `call`: the decoder applies `sanitiseCallMembership` regardless of `left`, so `left` and `call` both survive decode. Never publishing `call` on a farewell is a sender-side rule, not a decode-side one - this vector pins what a reader does when a looser implementation sends both.',
+    input: {
+      entry: farewellOnCallEntry,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: farewellOnCallRoster.nonceHex,
+      auxRandHex: farewellOnCallRoster.auxRandHex,
+    },
+    output: { event: farewellOnCallRoster.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeRosterEvent(farewellOnCallRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
   // A profile-2 device on a second page session: `callProfile: 2` and `sid`
   // together, so a second implementation can decode both new roster fields
   // from one event. Decode-only in spirit like the other optional-field
