@@ -203,6 +203,12 @@ interface Unacked {
  * every outgoing body carries what this side has received, which is what
  * makes acknowledgement free in the common case.
  */
+/** The first seq a signal stands for: `first` on a batched `ice` covering
+ *  `first`..`seq`, otherwise its own `seq`. Batches are judged by the range. */
+function rangeStart(body: ChannelSignal, seq: number): number {
+  return body.type === 'ice' && typeof body.first === 'number' && body.first < seq ? body.first : seq
+}
+
 export class SignalChannel {
   readonly gen: number
   readonly conn: string
@@ -370,15 +376,27 @@ export class SignalChannel {
       return
     }
 
+    // A batched `ice` stands for every candidate from `first` to `seq`, and
+    // is judged by the range, not by `seq` alone. The far end re-sends a lost
+    // candidate only inside such a batch, so a batch covering 2..4 that
+    // arrives while this side waits on 2 is the missing 2 - filed under 4 it
+    // would sit behind a hole nothing ever fills, and the identical batch
+    // that follows would look like a duplicate and be acked at 1, for ever.
+    const first = rangeStart(body, seq)
+
     // A duplicate means our acknowledgement was lost - the far end would not
     // be asking again otherwise - so the repair is to ack at once rather than
     // wait out the delay and watch it ask a third time.
-    if (seq < this.#expected || this.#buffer.has(seq)) {
+    if (seq < this.#expected) {
       this.#sendAckNow()
       return
     }
 
-    if (seq > this.#expected) {
+    if (first > this.#expected) {
+      if (this.#buffer.has(seq)) {
+        this.#sendAckNow()
+        return
+      }
       this.#buffer.set(seq, body)
       while (this.#buffer.size > this.#bufferLimit) {
         const oldest = this.#buffer.keys().next().value
@@ -393,9 +411,17 @@ export class SignalChannel {
 
     this.#release(body)
     for (;;) {
-      const next = this.#buffer.get(this.#expected)
+      // Whatever waited behind the hole and is now inside a released range
+      // has been delivered by that range; it is done with, not next.
+      for (const held of [...this.#buffer.keys()]) if (held < this.#expected) this.#buffer.delete(held)
+      // The next thing is whichever buffered signal, single or batch, reaches
+      // back to the expected seq - a batch is filed under its last seq.
+      let next: ChannelSignal | undefined
+      for (const [held, waiting] of this.#buffer) {
+        if (rangeStart(waiting, held) <= this.#expected) { next = waiting; break }
+      }
       if (next === undefined) break
-      this.#buffer.delete(this.#expected)
+      this.#buffer.delete(next.seq as number)
       this.#release(next)
     }
     this.#armAck()

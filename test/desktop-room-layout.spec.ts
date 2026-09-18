@@ -73,9 +73,9 @@ async function checkRoom(page: Page, label: string): Promise<void> {
       const r = (el: Element) => { const b = el.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) } }
       return {
         stage: r(stage), stageScroll: stage.scrollHeight, room: r(room), innerHeight: window.innerHeight,
-        tiles: [...room.children].map(t => ({
+        tiles: Array.from(room.children).map(t => ({
           box: r(t), cls: t.className,
-          media: [...t.children].filter(c => c.classList.contains('media')).map(m => r(m)),
+          media: Array.from(t.children).filter(c => c.classList.contains('media')).map(m => r(m)),
           share: t.querySelector('video.screenPreview') ? r(t.querySelector('video.screenPreview')!) : null,
           cam: t.querySelector('video:not(.screenPreview)') ? r(t.querySelector('video:not(.screenPreview)')!) : null,
         })),
