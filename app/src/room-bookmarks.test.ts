@@ -29,15 +29,16 @@ function room(name = 'Private room'): KnownRoom {
 function harness(identity = signer(), store = memoryDeviceStore()) {
   const events: Event[] = []
   let incoming: ((event: Event) => void) | undefined
+  let finished: (() => void) | undefined
   const relay: RelayTransport = {
     publish: vi.fn(async event => { events.push(event) }),
-    subscribe: (_filters, callback) => { incoming = callback; return () => { incoming = undefined } },
+    subscribe: (_filters, callback, eose) => { incoming = callback; finished = eose; return () => { incoming = undefined; finished = undefined } },
     close: vi.fn(),
   }
   const status = vi.fn()
   const library = new RoomBookmarks(store, identity, relay, vi.fn(), status)
   library.start()
-  return { library, store, events, relay, status, identity, incoming: (event: Event) => incoming?.(event) }
+  return { library, store, events, relay, status, identity, incoming: (event: Event) => incoming?.(event), eose: () => finished?.() }
 }
 
 async function saved(h: ReturnType<typeof harness>, expected = 1) {
@@ -156,6 +157,27 @@ describe('private Nostr room bookmarks', () => {
     expect(a.events).toEqual([])
     await a.library.retry()
     expect(a.events).toHaveLength(1)
+    a.library.close()
+  })
+
+  it('keeps a save confirmed while a relay armed before it finishes the lookup late', async () => {
+    const a = harness()
+    a.library.save(room())
+    await vi.waitFor(() => expect(a.status).toHaveBeenLastCalledWith(expect.stringContaining('accepted by a relay')))
+    // The lookup was armed at sign-in, before the save. A relay reconnecting
+    // can answer it seconds later; it must not undo what the person just saw.
+    a.eose()
+    expect(a.status).toHaveBeenLastCalledWith(expect.stringContaining('accepted by a relay'))
+    a.library.close()
+  })
+
+  it('still reports a lookup that finishes after a fresh retry with nothing pending', async () => {
+    const a = harness()
+    a.library.save(room())
+    await vi.waitFor(() => expect(a.status).toHaveBeenLastCalledWith(expect.stringContaining('accepted by a relay')))
+    await a.library.retry()
+    a.eose()
+    expect(a.status).toHaveBeenLastCalledWith(expect.stringContaining('Relay lookup finished'))
     a.library.close()
   })
 

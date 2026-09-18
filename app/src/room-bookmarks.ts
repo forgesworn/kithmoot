@@ -40,6 +40,10 @@ export class RoomBookmarks {
   #pending = new Map<string, Pending>()
   #closed = false
   #busy = false
+  /** Counts the outcomes a save has reported. A lookup carries the count it
+   *  was armed with, so a relay that answers late cannot replace a newer
+   *  save's outcome with news of a lookup that started before it. */
+  #reports = 0
   #off?: () => void
   #prefix: string
   constructor(
@@ -67,10 +71,14 @@ export class RoomBookmarks {
     }
     this.status(this.#pending.size ? 'Some room changes are not synced. Retry when your signer and relays are available.' : 'Looking for your encrypted room bookmarks. Relay availability determines what can be restored.')
     this.#off?.()
+    const armed = this.#reports
     this.#off = this.relay.subscribe([{ kinds: [KIND], authors: [this.signer.pubkey], '#l': [APP] }], event => {
       void this.receive(event)
     }, () => {
-      if (!this.#closed && !this.#pending.size) this.status('Relay lookup finished. Your signer may still be decrypting; unreachable relays cannot restore bookmarks.')
+      // The end of a lookup is not news once a save started after it has
+      // reported: a reconnecting relay can take seconds to answer, and this
+      // weaker message would hide the confirmation the person waited for.
+      if (!this.#closed && !this.#pending.size && this.#reports === armed) this.status('Relay lookup finished. Your signer may still be decrypting; unreachable relays cannot restore bookmarks.')
     })
   }
 
@@ -165,6 +173,12 @@ export class RoomBookmarks {
     void this.retry()
   }
 
+  /** Report how a queued change ended. Later than any lookup already armed. */
+  #report(message: string): void {
+    this.#reports++
+    this.status(message)
+  }
+
   #apply(value: RecordValue): void {
     if (value.room) rememberRoom(this.rooms, value.room)
     else forgetRoom(this.rooms, value.roomId)
@@ -178,7 +192,7 @@ export class RoomBookmarks {
     if (this.#closed || this.#busy) return
     if (!this.#pending.size) { this.start(); return }
     if (!this.signer.nip44) {
-      this.status('Saved in this browser only. Use a signer with NIP-44 encryption to sync your rooms.')
+      this.#report('Saved in this browser only. Use a signer with NIP-44 encryption to sync your rooms.')
       return
     }
     this.#busy = true
@@ -208,9 +222,9 @@ export class RoomBookmarks {
         this.#persist(roomId)
         this.changed()
       }
-      if (!this.#closed) this.status('Room bookmarks accepted by a relay, encrypted to your Nostr key. Sign in with the same key on another device to find them.')
+      if (!this.#closed) this.#report('Room bookmarks accepted by a relay, encrypted to your Nostr key. Sign in with the same key on another device to find them.')
     } catch {
-      if (!this.#closed) this.status('Saved in this browser, but sync was not confirmed. Retry room sync when your signer and relays are available.')
+      if (!this.#closed) this.#report('Saved in this browser, but sync was not confirmed. Retry room sync when your signer and relays are available.')
     } finally { this.#busy = false }
   }
 
