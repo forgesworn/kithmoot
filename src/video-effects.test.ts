@@ -300,6 +300,22 @@ describe('VideoEffect defaults', () => {
   })
 })
 
+describe('VideoEffect with an invalid frame size', () => {
+  it('paints nothing at all while the effect is on, rather than a passthrough no-op', async () => {
+    const { effect, out } = newEffect()
+    await effect.ready()
+    const action = effect.renderFrame(SOURCE, 0, 0, 0)
+    expect(action).not.toBe('passthrough')
+    expect(out.ctx.ops).toHaveLength(0)
+  })
+
+  it('still passes the frame through when the effect is off, size or not', () => {
+    const { effect, out } = newEffect({ mode: 'off' })
+    expect(effect.renderFrame(SOURCE, 0, 0, 0)).toBe('passthrough')
+    expect(rawSourcePaints(out.ctx)).toHaveLength(1)
+  })
+})
+
 describe('VideoEffect rendering', () => {
   it('composites the person over a blurred copy of the frame', async () => {
     const { effect, out } = newEffect()

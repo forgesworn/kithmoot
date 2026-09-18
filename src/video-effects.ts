@@ -988,9 +988,20 @@ export class VideoEffect {
     height: number,
     timestampMs: number,
   ): FrameAction {
-    if (this.#closed || width <= 0 || height <= 0) {
-      if (!this.#closed) this.#paintPassthrough(source, width, height)
-      return 'passthrough'
+    if (this.#closed) return 'passthrough'
+
+    // A zero-size frame is a canvas or track that is not ready yet, not a
+    // decision about what to show. Painting it was only ever safe because
+    // it happened to be a no-op; painting the same `drawImage` call with
+    // the effect *on* would be the exact leak this module exists to close
+    // the moment a real frame follows an invalid one into the same call.
+    // Nothing is painted here unless the person chose to show the camera.
+    if (width <= 0 || height <= 0) {
+      if (this.#mode === 'off') {
+        this.#paintPassthrough(source, width, height)
+        return 'passthrough'
+      }
+      return 'blur-all'
     }
 
     if (this.#output.width !== width) this.#output.width = width
