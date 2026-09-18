@@ -158,6 +158,26 @@ export class FakeRtpSender {
 export class FakeRtpReceiver {
   track: MediaStreamTrack | null = null
   constructor(readonly transceiver: FakeRtpTransceiver) {}
+
+  /**
+   * The report a browser scopes to one receiver.
+   *
+   * Firefox omits `mid` from `inbound-rtp`, so a sampler that mapped stats to
+   * slots by that field alone would see nothing at all there. This is the
+   * fallback §3.4 names: the report belongs to exactly one m-line, so the
+   * slot is known without the field - and `mid` is left out here on purpose
+   * when the connection is set to omit it, so the fallback is exercised
+   * rather than shadowed by the field it exists to replace.
+   */
+  async getStats(): Promise<Map<string, Record<string, unknown>>> {
+    const report = new Map<string, Record<string, unknown>>()
+    const mid = this.transceiver.mid
+    if (mid === null) return report
+    const full = await this.transceiver.connection.getStats()
+    const inbound = full.get(`inbound-${mid}`)
+    if (inbound) report.set(`inbound-${mid}`, inbound)
+    return report
+  }
 }
 
 /** Which call created a transceiver, because JSEP only lets one of them be
@@ -228,6 +248,15 @@ export interface FakeConnectionOptions {
    * failure; leave it off to drive the existing negotiation tests.
    */
   nullTrackOnRemove?: boolean
+  /**
+   * Leave `mid` off every `inbound-rtp` entry, as Firefox does.
+   *
+   * A sampler that maps stats to slots by `mid` alone sees nothing at all
+   * there, which is why §3.4 names `transceiver.receiver.getStats()` as the
+   * fallback. Turning this on is the only way to prove the fallback is
+   * reached rather than shadowed by the field it replaces.
+   */
+  omitStatsMid?: boolean
 }
 
 /**
@@ -297,6 +326,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
       receiverTrackIds: options.receiverTrackIds ?? 'msid',
       structuredSdp: options.structuredSdp ?? false,
       nullTrackOnRemove: options.nullTrackOnRemove ?? false,
+      omitStatsMid: options.omitStatsMid ?? false,
     }
     this.#structured = this.options.structuredSdp
   }
@@ -745,7 +775,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
           id: `inbound-${mid}`,
           type: 'inbound-rtp',
           kind: transceiver.kind,
-          mid,
+          ...(this.options.omitStatsMid ? {} : { mid }),
           ssrc: stats.outbound.ssrc + 10_000,
           timestamp: this.statsClock,
           packetsReceived: stats.inbound.packetsReceived,

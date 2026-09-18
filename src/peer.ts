@@ -24,6 +24,23 @@ export interface RtpTransceiverLike {
   direction: RTCRtpTransceiverDirection
   readonly currentDirection?: RTCRtpTransceiverDirection | null
   readonly sender: RtpSenderLike
+  /** The receiving half, and the one thing the health sampler wants from it:
+   *  a report scoped to this m-line, for the browsers that omit `mid` from
+   *  `inbound-rtp`. Optional, because a double written before any of this
+   *  existed has neither. */
+  readonly receiver?: { getStats?(): Promise<StatsReportLike> }
+}
+
+/**
+ * A stats report, structurally.
+ *
+ * A browser's `RTCStatsReport` and a plain `Map<string, …>` both satisfy it,
+ * which is the whole requirement: the health sampler walks a report and reads
+ * named fields off each entry, and has no business knowing which of the two
+ * it was handed.
+ */
+export interface StatsReportLike {
+  forEach(callback: (value: Record<string, unknown>, key: string) => void): void
 }
 
 /**
@@ -44,6 +61,16 @@ export interface RTCPeerConnectionLike {
   addTransceiver?(kind: 'audio' | 'video', init?: { direction?: RTCRtpTransceiverDirection }): RtpTransceiverLike
   /** The connection's m-lines, in order. Optional for the same reason. */
   getTransceivers?(): readonly RtpTransceiverLike[]
+  /**
+   * What this connection is actually carrying, per slot and per direction.
+   *
+   * The pair-health sampler of §3.4 reads `inbound-rtp` and
+   * `remote-inbound-rtp` off it every two seconds, which is the only honest
+   * answer to "is this direction alive" that any browser gives - see
+   * `src/pair-health.ts`. Optional, so a Node adapter or an existing test
+   * double stays valid and is simply never sampled.
+   */
+  getStats?(): Promise<StatsReportLike>
   /** A browser returns the sender it created. Older test and Node adapters
    * may return nothing, in which case callers can find it through
    * `getSenders()` after the call. */
