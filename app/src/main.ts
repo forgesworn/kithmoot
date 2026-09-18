@@ -973,6 +973,21 @@ function followReadPositions(roomId: string, roomKey: Uint8Array): void {
   readSync?.follow(roomId, roomKey, { '': { at: knownRoom(roomStore(), roomId)?.readAt ?? 0 } })
 }
 
+/**
+ * Stop keeping a read position for a room, and wait for anything already on
+ * its way to a relay.
+ *
+ * A read position is published on a delay, so a room read a moment ago has a
+ * record still to come. For a room this browser is only leaving that is
+ * right. For one whose records are being deleted it is not: the late marker
+ * is newer than the deletion, and NIP-09 does not reach past a request's own
+ * time. Every tab whose room is going does this before the deletion.
+ */
+async function stopReadPositions(roomId: string): Promise<void> {
+  readSync?.forget(roomId)
+  await readSync?.settle()
+}
+
 function refreshAccountRooms(): void {
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
   if (roomsListShown) showRoomsList()
@@ -9371,6 +9386,8 @@ async function forgetKnownRoom(room: KnownRoom): Promise<void> {
  *  back as a room "already here" to add to the account. */
 function forgetLocally(roomId: string): void {
   stopWatching(roomId)
+  // The room is not this browser's any more: no more read positions for it.
+  readSync?.forget(roomId)
   forgetRoomAccess(deviceStore, roomId)
   forgetRoomAccess(browserDeviceStore(sessionStorage), roomId)
   forgetQuietState(deviceStore, roomId)
@@ -10422,7 +10439,7 @@ async function leaveRoom(): Promise<void> {
 
 const roomTabs = typeof BroadcastChannel === 'undefined' ? undefined : new RoomTabs(
   () => session ? currentRoomId() : undefined,
-  async roomId => { if (session && currentRoomId() === roomId) leaveForTidyUp() },
+  async roomId => { if (session && currentRoomId() === roomId) await leaveForTidyUp() },
 )
 
 interface TidyUpContext {
@@ -10590,6 +10607,7 @@ async function runRoomTidyUp(): Promise<void> {
       } } : {}),
       otherTabsAnswer: async () => { tabsLeft = roomTabs ? await roomTabs.leaveOthers(context.roomId) : true; return tabsLeft },
       leaveOtherTabs: async () => tabsLeft !== false && (roomTabs ? await roomTabs.leaveOthers(context.roomId) : true),
+      stopReadPositions: () => stopReadPositions(context.roomId),
       leaveHere: async () => {
         closeAllDrafts()
         await closeRoomSession()
@@ -10632,9 +10650,13 @@ $('tidyUpDone').addEventListener('click', () => {
 })
 
 /** Taken out by a tidy-up elsewhere: back to the rooms list, not the room's
- *  own link, whose keys are about to go. */
-function leaveForTidyUp(): void {
+ *  own link, whose keys are about to go. The read position goes quiet before
+ *  this tab says it left, or its delayed record would land on a relay after
+ *  the other tab had deleted what it found. */
+async function leaveForTidyUp(): Promise<void> {
+  const roomId = currentRoomId()
   history.replaceState(null, '', joinLinkBase())
+  if (roomId) await stopReadPositions(roomId)
   leaveWithNotice('You tidied this room up in another tab, so this tab left it.')
 }
 
@@ -10644,7 +10666,7 @@ function leaveForTidyUp(): void {
 window.addEventListener('storage', event => {
   const roomId = session ? currentRoomId() : undefined
   if (!roomId || event.key !== DEVICE_PREFIX + roomId || event.newValue !== null) return
-  leaveForTidyUp()
+  void leaveForTidyUp()
 })
 
 $('leave').addEventListener('click', async () => {

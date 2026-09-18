@@ -454,6 +454,11 @@ test('leave and tidy up deletes in order while the keys exist, takes a second ta
 
     await expect(second.locator('#roomArea')).toBeHidden()
     await expect(second.locator('#status')).toContainText('tidied this room up in another tab')
+    // A read position is published a few seconds after the chat was read, so
+    // the one this room earned is due about now. Wait past it: without the
+    // wait, a fast machine asks the relay before the record was ever due and
+    // a slow one fails instead, which is how this was a CI-only bug.
+    await page.waitForTimeout(6_000)
 
     const deletions = (await relayHolds({ kinds: [5], authors: [inviterPub, devicePub, account] }))
     // The room was never retired, so there is no retirement notice to delete.
