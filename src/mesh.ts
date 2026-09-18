@@ -265,6 +265,22 @@ export interface MeshOptions {
    * cameras or a share with no camera would get wrong.
    */
   trackRole?: RoleResolver
+  /**
+   * The pair-health thresholds of §3.4, for a caller that has to drive them
+   * in milliseconds rather than wait them out. Defaults are the constants in
+   * `src/pair-health.ts`; nothing in the app overrides them.
+   */
+  pairHealth?: {
+    sampleMs?: number
+    deadMs?: number
+    graceMs?: number
+    rtcpDeadMs?: number
+    restartMs?: { direct: number; turn: number }
+    rebuildMs?: { direct: number; turn: number }
+    healthMs?: number
+    rebuildWindowMs?: number
+    maxRebuilds?: number
+  }
 }
 
 /** How one remote device is currently being reached. */
@@ -1666,12 +1682,15 @@ export class Mesh {
     if (existing) return existing
     const controller = new PairController({
       device,
-      onRestOver: () => this.#retryRoute(device),
+      advertised: () => this.#advertisedRoles(device),
+      onNextTier: () => this.#nextRungForPair(device),
+      onRestOver: () => this.#restartPair(device),
       onDiagnostic: (detail) => this.#diagnose({ kind: 'pair-ladder', device, detail }),
       rest: {
         baseMs: this.#opts.exhaustedRetryMs,
         maxMs: this.#opts.maxExhaustedRetryMs,
       },
+      health: this.#opts.pairHealth,
     })
     if (this.#forwarding === 'up') controller.suspend()
     this.#controllers.set(device, controller)
@@ -1683,6 +1702,71 @@ export class Mesh {
    *  what puts the route ladder back in charge of the rungs it still owns. */
   #controlled(endpoint: string): boolean {
     return this.#controllers.get(endpoint)?.active === true
+  }
+
+  /**
+   * Which slots this device's roster advert says are live.
+   *
+   * The advert is what turns "nothing is arriving in this slot" into a fault
+   * rather than a fact: a camera that is off is an idle slot. It is up to
+   * twenty seconds stale, which is exactly why it is only ever half of the
+   * rule - the other half is the counters, and §4's liveness is the two of
+   * them together.
+   */
+  #advertisedRoles(device: string): TrackRole[] {
+    const roles: TrackRole[] = []
+    for (const view of this.#views) {
+      for (const advert of view.tracks) {
+        if (advert.device !== device) continue
+        // §2.1's decode rule: at most one advert per role per device.
+        if (!roles.includes(advert.role)) roles.push(advert.role)
+      }
+    }
+    return roles
+  }
+
+  /**
+   * §3.4's step 3 for a profile-2 pair: direct to TURN, at a new generation.
+   *
+   * Only those two rungs. Assist and forwarder keep the route ladder's own
+   * behaviour, and a pair already on TURN has nowhere left to go - which is
+   * what `false` says, and what the controller answers with a rest.
+   */
+  #nextRungForPair(device: string): boolean {
+    if (this.#closed) return false
+    const route = this.#routes.get(device)
+    if (!route || route.tier !== 'direct') return false
+    route.tier = 'turn'
+    route.endpoint = device
+    route.connected = false
+    this.#announceRoute(device, route)
+    const peer = this.#peers.get(device)
+    if (peer) this.#closePeer(device, peer)
+    this.#reconcile(this.#opts.session.participants())
+    return true
+  }
+
+  /**
+   * A rest is over: this pair starts again from the top rung.
+   *
+   * The peer is closed explicitly rather than left to `#reconcile`, because
+   * the device is still wanted and the endpoint set is unchanged - so nothing
+   * else would replace a connection that has been failing for a minute.
+   */
+  #restartPair(device: string): void {
+    if (this.#closed) return
+    const route = this.#routes.get(device)
+    if (!route) return
+    route.tier = 'direct'
+    route.endpoint = device
+    route.connected = false
+    route.exhausted = false
+    route.failed = []
+    route.retries += 1
+    this.#announceRoute(device, route)
+    const peer = this.#peers.get(device)
+    if (peer) this.#closePeer(device, peer)
+    this.#reconcile(this.#opts.session.participants())
   }
 
   /** Every profile-2 pair's state, for the bug report. See §8, step S12. */

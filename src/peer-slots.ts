@@ -202,6 +202,37 @@ export class SlotSet {
   }
 
   /**
+   * Detach and re-attach one slot's track, without renegotiating anything.
+   *
+   * §3.4's repair for the one case the transport cannot explain: the far end
+   * says this slot is dead while every other slot on the pair is arriving, so
+   * the fault is the encoder or the sender rather than the path. Swapping the
+   * track out and back in is what makes a browser start a fresh encode and
+   * send a keyframe, and it costs no SDP, no signal and no glare.
+   *
+   * `ended` is reported rather than repaired: a track whose source has gone -
+   * a camera another application took, a microphone that was unplugged - is
+   * the application's to replace, and re-attaching a dead one would only make
+   * the slot look busy.
+   */
+  async refresh(role: TrackRole): Promise<'ok' | 'empty' | 'ended' | 'broken'> {
+    const transceiver = this.#byRole.get(role)
+    const track = this.#attached.get(role) ?? null
+    if (!transceiver || !track) return 'empty'
+    if (track.readyState === 'ended') return 'ended'
+    try {
+      await transceiver.sender.replaceTrack(null)
+      await transceiver.sender.replaceTrack(track)
+      this.#broken.delete(role)
+      return 'ok'
+    } catch {
+      this.#attached.set(role, null)
+      this.#broken.add(role)
+      return 'broken'
+    }
+  }
+
+  /**
    * Put this set of tracks in their slots, and empty every slot they do not
    * fill.
    *

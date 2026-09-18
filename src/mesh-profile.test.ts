@@ -15,12 +15,12 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
 import type { MeshSession } from './mesh.js'
 
-import { wrapSignal } from './signal.js'
+import { unwrapSignalEvent, wrapSignal } from './signal.js'
 import type { SignalBody } from './signal.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import type { ParticipantView } from './session.js'
-import type { ForwarderRef } from './types.js'
+import type { ForwarderRef, TrackRole } from './types.js'
 
 const ROOM_ID = 'room-1'
 
@@ -59,10 +59,13 @@ interface Harness {
   local: { sk: Uint8Array; pub: string }
   remote: { sk: Uint8Array; pub: string }
   /** Put a roster on the wire for the remote device, with or without a
-   *  profile claim. */
-  roster: (callProfile?: number) => void
+   *  profile claim, and with whichever slots it claims are live. */
+  roster: (callProfile?: number, advertised?: TrackRole[]) => void
   /** Deliver one signal from the remote device to this mesh. */
   fromRemote: (body: Omit<SignalBody, 'roomId'>) => void
+  /** Everything this mesh has addressed to the remote device, unwrapped as
+   *  that device would. */
+  toRemote: () => SignalBody[]
 }
 
 function harness(
@@ -73,6 +76,7 @@ function harness(
     forwarders?: ForwarderRef[]
     uplink?: () => { uplinkBps: number; perPeerBps: number } | null
     forwarderMedia?: () => boolean
+    pairHealth?: Record<string, unknown>
     onDiagnostic?: (event: unknown) => void
   } = {},
 ): Harness {
@@ -96,6 +100,7 @@ function harness(
     forwarders: options.forwarders,
     uplink: options.uplink,
     forwarderMedia: options.forwarderMedia,
+    pairHealth: options.pairHealth as never,
     forwarderMediaPipeline: options.forwarderMedia
       ? { rekey: () => true, protectSender: () => true, protectReceiver: () => true }
       : undefined,
@@ -108,13 +113,22 @@ function harness(
     relay,
     local,
     remote,
-    roster: (callProfile?: number) => {
-      const view: ParticipantView = { participant: remoteParticipant, devices: [remote.pub], tracks: [] }
+    roster: (callProfile?: number, advertised: TrackRole[] = []) => {
+      const view: ParticipantView = {
+        participant: remoteParticipant,
+        devices: [remote.pub],
+        tracks: advertised.map((role) => ({ device: remote.pub, role, trackId: `${role}-remote` })),
+      }
       if (callProfile !== undefined) view.callProfiles = { [remote.pub]: callProfile }
       session.setViews([view])
     },
     fromRemote: (body) =>
       relay.publish(wrapSignal({ ...body, roomId: ROOM_ID } as SignalBody, { senderSk: remote.sk, recipientPubkey: local.pub })),
+    toRemote: () =>
+      relay.published
+        .map((event) => unwrapSignalEvent(event, { recipientSk: remote.sk, roomId: ROOM_ID }))
+        .filter((s): s is NonNullable<typeof s> => s !== null && s.from === local.pub)
+        .map((s) => s.body),
   }
 }
 
@@ -329,6 +343,119 @@ describe('a forwarder carrying the room suspends the controller', () => {
       await vi.advanceTimersByTimeAsync(0)
       expect(h.mesh.forwarding).toBe('failed')
       expect(h.mesh.pairDiagnostics()[0]?.ladder).toBe('healthy')
+      h.mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('the controller acts on what it measures (§3.4)', () => {
+  /** Short enough to drive in milliseconds, in the same proportions as the
+   *  real thresholds. */
+  const FAST = {
+    sampleMs: 500,
+    graceMs: 1_000,
+    deadMs: 1_000,
+    rtcpDeadMs: 2_000,
+    restartMs: { direct: 2_000, turn: 3_000 },
+    rebuildMs: { direct: 3_000, turn: 5_000 },
+  }
+
+  /**
+   * What a browser looks like once the answer has been applied: every slot
+   * negotiated `sendrecv`, with a receiver on each. The mesh tests do not
+   * exchange real SDP, so this is what stands in for it - and without it a
+   * connection reports no `inbound-rtp` at all, which would make every case
+   * here pass for the wrong reason.
+   */
+  function negotiated(pc: ReturnType<typeof createFakeFactory>['instances'][number]): void {
+    for (const transceiver of pc.getTransceivers()) {
+      transceiver.currentDirection = 'sendrecv'
+      transceiver.receiver.track = { id: `remote-${transceiver.mid}`, kind: transceiver.kind } as MediaStreamTrack
+    }
+  }
+
+  it('restarts ICE, then rebuilds, on a connected pair that delivers nothing', async () => {
+    vi.useFakeTimers()
+    try {
+      const seen: { kind?: string; detail?: string }[] = []
+      const h = harness({ callProfile: 2, pairHealth: FAST, onDiagnostic: (e) => seen.push(e as never) })
+      // The far end says its microphone is live. Nothing ever arrives.
+      h.roster(2, ['mic'])
+      h.mesh.publish([track('mic-1')])
+      await vi.advanceTimersByTimeAsync(0)
+
+      const pc = h.factory.to(h.remote.pub)!
+      negotiated(pc)
+      pc.connectionState = 'connected'
+      pc.onconnectionstatechange?.()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.mesh.pairDiagnostics()[0]?.ladder).toBe('healthy')
+
+      // Inside the grace nothing is judged: a connection that has just come
+      // up has not had time to key, let alone deliver.
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(pc.calls.some((c) => c.method === 'restartIce'), 'judged inside its grace').toBe(false)
+
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(pc.calls.some((c) => c.method === 'restartIce')).toBe(true)
+      expect(h.mesh.pairDiagnostics()[0]?.ladder).toBe('restarting')
+      expect(h.mesh.pairDiagnostics()[0]?.inbound?.mic).toBe('dead')
+
+      // The restart did not help either, so the pair is rebuilt at the next
+      // generation - a new connection, and a generation above the last.
+      const generationBefore = h.mesh.pairDiagnostics()[0]!.generation
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(h.mesh.pairDiagnostics()[0]?.generation).toBeGreaterThan(generationBefore)
+      expect(h.factory.to(h.remote.pub), 'the connection was not replaced').not.toBe(pc)
+      h.mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sends a health signal for one dead slot and leaves the connection alone', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({ callProfile: 2, pairHealth: FAST })
+      h.roster(2, ['mic', 'camera'])
+      h.mesh.publish([track('mic-1')])
+      await vi.advanceTimersByTimeAsync(0)
+
+      const pc = h.factory.to(h.remote.pub)!
+      negotiated(pc)
+      pc.connectionState = 'connected'
+      pc.onconnectionstatechange?.()
+      await vi.advanceTimersByTimeAsync(0)
+
+      // The microphone slot delivers; the camera slot does not. That is one
+      // slot on a transport that is plainly fine.
+      const feed = async (ms: number) => {
+        for (let elapsed = 0; elapsed < ms; elapsed += FAST.sampleMs) {
+          // Packets in, and RTCP coming back for what we send: this
+          // transport is working, which is what makes the camera's silence a
+          // slot problem rather than a pair problem.
+          pc.scriptStats('0', { packetsReceived: 50, roundTripTimeMeasurements: 1 })
+          pc.advanceStatsClock(FAST.sampleMs)
+          await vi.advanceTimersByTimeAsync(FAST.sampleMs)
+        }
+      }
+      await feed(6_000)
+
+      expect(pc.calls.some((c) => c.method === 'restartIce'), 'one dead slot cost the whole pair').toBe(false)
+      const health = h.toRemote().filter((body) => body.type === 'health')
+      expect(health, 'the far end was never told its camera is arriving as nothing').not.toEqual([])
+      expect(health[0]?.rx).toEqual({ camera: 'dead' })
+      expect(health[0]?.gen, 'a health report belongs to a generation like every other signal').toBe(1)
+      // Once per window, not once per sample: §9 budgets one signal per ten
+      // seconds for this, against 120 per twenty.
+      expect(health.length).toBeLessThanOrEqual(2)
+
+      const diagnostics = h.mesh.pairDiagnostics()[0]!
+      expect(diagnostics.inbound?.mic).toBe('ok')
+      expect(diagnostics.inbound?.camera).toBe('dead')
+      expect(diagnostics.ladder).toBe('healthy')
       h.mesh.close()
     } finally {
       vi.useRealTimers()

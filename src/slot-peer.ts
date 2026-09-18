@@ -52,6 +52,15 @@ const REAL_CLOCK: ChannelClock = {
   clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 }
 
+/**
+ * How often one slot may be re-attached in answer to a `health` report.
+ *
+ * §3.4's "once per 10s per slot". A far end whose decoder is stuck keeps
+ * saying so; re-keying this side's encoder every two seconds in reply would
+ * be the fault rather than the repair.
+ */
+export const SLOT_REPAIR_MS = 10_000
+
 /** A connection instance id: 16 lower-case hex, fresh per
  *  `RTCPeerConnection` and never reused, per §2.2. */
 function randomConnectionId(): string {
@@ -78,6 +87,15 @@ export interface SlotPeerOptions {
    * connection the far end no longer has.
    */
   onDowngrade?: (body: SignalBody) => void
+  /**
+   * The far end reports one of our slots dead and this side cannot repair it
+   * because the local track has ended - a camera another application took, a
+   * microphone that was unplugged.
+   *
+   * Only the application can answer that: it owns the media pipeline and the
+   * permission prompt. See §3.4's "run app media recovery".
+   */
+  onSlotRecovery?: (role: TrackRole) => void
   /** Which rung this connection is being opened on. Adopted from an incoming
    *  offer's `tier` when a higher generation is adopted. */
   context?: PeerContext
@@ -156,6 +174,9 @@ export class SlotPeer implements NegotiatingPeer {
    *  not ask for. Expected to stay zero on a profile-2 connection; anything
    *  else is a code path calling `addTrack` and is worth a diagnostic. */
   #unexpectedNegotiations = 0
+  /** When each slot was last re-attached because the far end said it was
+   *  dead. See `SLOT_REPAIR_MS`. */
+  readonly #repairedAt = new Map<TrackRole, number>()
 
   constructor(opts: SlotPeerOptions) {
     this.#opts = opts
@@ -194,6 +215,17 @@ export class SlotPeer implements NegotiatingPeer {
   /** `negotiationneeded` firing for something other than an ICE restart. */
   get unexpectedNegotiations(): number {
     return this.#unexpectedNegotiations
+  }
+
+  /** The generation's mid-to-role map, for a caller that samples stats off
+   *  the connection and has to know which m-line is which slot. */
+  get slotMap(): Record<string, TrackRole> | undefined {
+    return this.#slotMap
+  }
+
+  /** The rung this connection was opened on. */
+  get tier(): RouteTier {
+    return this.#tier
   }
 
   /** What each slot is doing. Undefined before a generation is open. */
@@ -246,6 +278,35 @@ export class SlotPeer implements NegotiatingPeer {
       if (this.#closed || !this.#pc) return
       this.#restartIce()
     }).catch(() => {})
+  }
+
+  /**
+   * Throw this connection away and open the next generation.
+   *
+   * Step 2 and step 3 of §3.4's ladder. Safe to call at any moment because
+   * the generation number is what makes it safe: it goes above both sides'
+   * highest, so the far end adopts it whatever it was in the middle of, and
+   * nothing addressed to the connection this replaces can be mistaken for
+   * something addressed to the new one.
+   */
+  rebuild(tier?: RouteTier): void {
+    if (tier) this.#tier = tier
+    void this.#enqueue(() => this.#openGeneration(nextGeneration(this.#gen, this.#lastRemoteGen))).catch(() => {})
+  }
+
+  /**
+   * Tell the far end what this side is receiving from it, per slot.
+   *
+   * Sent unreliably on purpose: it describes what is happening right now, and
+   * a copy of it retransmitted eight seconds later would ask the far end to
+   * repair a slot that has since come back. §3.4 sends it only for the one
+   * thing RTCP cannot express - a single dead slot on a transport that is
+   * otherwise fine.
+   */
+  reportHealth(rx: Partial<Record<TrackRole, 'ok' | 'dead'>>): void {
+    if (this.#closed || !this.#channel) return
+    if (Object.keys(rx).length === 0) return
+    this.#channel.sendUnreliable({ type: 'health', rx })
   }
 
   close(): void {
@@ -528,8 +589,39 @@ export class SlotPeer implements NegotiatingPeer {
     if (signal.type === 'offer') await this.#applyOffer(signal)
     else if (signal.type === 'answer') await this.#applyAnswer(signal)
     else if (signal.type === 'ice') await this.#applyIce(signal)
-    // `health` is S8's. Delivered and ignored here rather than rejected, so
-    // a far end that ships the ladder first is not punished for it.
+    else if (signal.type === 'health') await this.#applyHealth(signal)
+  }
+
+  /**
+   * The far end says a slot of ours is arriving as nothing.
+   *
+   * It only ever says so about a *single* slot on a transport it is otherwise
+   * happy with - everything worse than that is a rebuild it takes itself - so
+   * the repair is local and cheap: swap the track out of the slot and back
+   * in, which restarts the encode without touching the m-line.
+   *
+   * Rate limited per slot, because a far end whose decoder is genuinely stuck
+   * will keep saying so for as long as it is stuck, and re-keying the encoder
+   * every two seconds would be the fault rather than the fix.
+   */
+  async #applyHealth(body: SignalBody): Promise<void> {
+    const rx = body.rx
+    if (!rx || !this.#slots) return
+    const now = this.#clock.now()
+    for (const [role, verdict] of Object.entries(rx) as [TrackRole, 'ok' | 'dead'][]) {
+      if (verdict !== 'dead') continue
+      const last = this.#repairedAt.get(role)
+      if (last !== undefined && now - last < SLOT_REPAIR_MS) continue
+      this.#repairedAt.set(role, now)
+      const outcome = await this.#slots.refresh(role)
+      if (outcome === 'ended') this.#opts.onSlotRecovery?.(role)
+      else if (outcome === 'broken') {
+        // The only path in §3.1 where a slot change still costs a
+        // negotiation, and the answer to it is the same as everywhere else.
+        this.rebuild()
+        return
+      }
+    }
   }
 
   async #applyOffer(body: SignalBody): Promise<void> {
@@ -655,6 +747,7 @@ export class SlotPeer implements NegotiatingPeer {
     this.#pendingCandidates = []
     this.#everConnected = false
     this.#restarted = false
+    this.#repairedAt.clear()
     const pc = this.#pc
     this.#pc = undefined
     if (!pc) return

@@ -406,3 +406,206 @@ function readRemoteInbound(stat: Record<string, unknown> | undefined): { measure
     lost: typeof stat.packetsLost === 'number' ? stat.packetsLost : 0,
   }
 }
+
+// ---------------------------------------------------------------------------
+// The ladder
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a restarted connection is given to deliver before the pair is
+ * rebuilt at the next generation. §3.4, step 2.
+ *
+ * TURN gets longer because a restart there needs a fresh allocation from the
+ * server before ICE can begin, on top of the offer and answer each crossing
+ * a public relay.
+ */
+export const REBUILD_AFTER_RESTART_MS = { direct: 8_000, turn: 12_000 } as const
+
+/** How long a rebuilt connection is given before the pair changes rung.
+ *  §3.4, step 3. */
+export const NEXT_TIER_AFTER_REBUILD_MS = { direct: 12_000, turn: 20_000 } as const
+
+/** How often the same set of dead slots is reported to the far end. One per
+ *  ten seconds is the cost §9 budgets for the `health` signal. */
+export const HEALTH_REPORT_MS = 10_000
+
+/** No more than this many rebuilds in `REBUILD_WINDOW_MS`, after which the
+ *  rest ladder takes over. The mitigation §9 names for rebuild storms on a
+ *  network that is simply bad. */
+export const MAX_REBUILDS_PER_WINDOW = 3
+export const REBUILD_WINDOW_MS = 60_000
+
+/** What the ladder asks the pair to do. Nothing here acts; the controller
+ *  does, and the mesh owns the rung. */
+export type LadderAction =
+  /** One slot is dead on a transport that is otherwise fine. Tell the far
+   *  end, and do nothing else - RTCP cannot express this, and a rebuild
+   *  would cost the whole pair for one slot. */
+  | { do: 'health'; dead: TrackRole[] }
+  /** Step 1: gather again on the connection that exists. */
+  | { do: 'restart-ice' }
+  /** Step 2: a new connection at `gen + 1`, same rung. */
+  | { do: 'rebuild' }
+  /** Step 3: a new connection at `gen + 1`, next rung down. */
+  | { do: 'next-tier' }
+  /** Out of rungs: rest, then start again from the top. */
+  | { do: 'rest' }
+
+export type LadderStep = 'healthy' | 'restarting' | 'rebuilding' | 'changing-tier' | 'resting'
+
+export interface PairLadderOptions {
+  /** Which rung the pair is on, which is what sets the two deadlines. */
+  tier: () => 'direct' | 'turn'
+  onAction: (action: LadderAction) => void
+  timing?: {
+    restartMs?: { direct: number; turn: number }
+    rebuildMs?: { direct: number; turn: number }
+    healthMs?: number
+    rebuildWindowMs?: number
+    maxRebuilds?: number
+  }
+}
+
+/**
+ * §3.4's rungs, as a state machine over health samples.
+ *
+ * Asymmetry is the design, not an accident: the side that is missing media
+ * acts at six seconds and the side whose media is not arriving acts at
+ * fourteen, so the two ends of a broken pair do not both rebuild it at once -
+ * and because a generation always wins over a lower one, a double rebuild
+ * costs a round trip rather than a wedge when they do.
+ *
+ * There is no terminal state. A pair whose two devices are both still in the
+ * roster is a pair that should be on a call; what used to end the attempt was
+ * a retry counter, and a retry counter is what left people looking at a tile
+ * that never came back.
+ */
+export class PairLadder {
+  readonly #opts: PairLadderOptions
+  readonly #restartMs: { direct: number; turn: number }
+  readonly #rebuildMs: { direct: number; turn: number }
+  readonly #healthMs: number
+  readonly #rebuildWindowMs: number
+  readonly #maxRebuilds: number
+
+  #state: LadderStep = 'healthy'
+  #steppedAt = 0
+  #rebuildsAt: number[] = []
+  #reported: { at: number; dead: string } | undefined
+
+  constructor(opts: PairLadderOptions) {
+    this.#opts = opts
+    this.#restartMs = opts.timing?.restartMs ?? REBUILD_AFTER_RESTART_MS
+    this.#rebuildMs = opts.timing?.rebuildMs ?? NEXT_TIER_AFTER_REBUILD_MS
+    this.#healthMs = opts.timing?.healthMs ?? HEALTH_REPORT_MS
+    this.#rebuildWindowMs = opts.timing?.rebuildWindowMs ?? REBUILD_WINDOW_MS
+    this.#maxRebuilds = opts.timing?.maxRebuilds ?? MAX_REBUILDS_PER_WINDOW
+  }
+
+  get state(): LadderStep {
+    return this.#state
+  }
+
+  /**
+   * Back to the top, with no action taken.
+   *
+   * Two callers: the pair connected, and a higher generation arrived from the
+   * far end. The second matters as much as the first - the far end has just
+   * rebuilt, so whatever this side was walking the ladder about is a fault on
+   * a connection neither of them has any more, and carrying the position
+   * across would rebuild the one that has just arrived.
+   */
+  reset(): void {
+    this.#state = 'healthy'
+    this.#steppedAt = 0
+    this.#reported = undefined
+  }
+
+  /** One sample. At most one action comes out of it. */
+  observe(sample: PairHealthSample): void {
+    const now = sample.at
+    const broken = sample.allDead || this.#outboundLost(sample)
+
+    if (!broken) {
+      if (this.#state !== 'healthy') {
+        // Whatever was wrong is not wrong now.
+        this.#state = 'healthy'
+        this.#steppedAt = 0
+      }
+      this.#reportDeadSlots(sample)
+      return
+    }
+
+    // From here the transport is the problem rather than a slot, so the
+    // `health` signal has nothing useful to say: the far end would not
+    // receive it either.
+    switch (this.#state) {
+      case 'healthy':
+        this.#step('restarting', now, { do: 'restart-ice' })
+        return
+      case 'restarting':
+        if (now - this.#steppedAt < this.#restartMs[this.#opts.tier()]) return
+        this.#rebuild(now)
+        return
+      case 'rebuilding':
+        if (now - this.#steppedAt < this.#rebuildMs[this.#opts.tier()]) return
+        this.#step('changing-tier', now, { do: 'next-tier' })
+        return
+      case 'changing-tier':
+        if (now - this.#steppedAt < this.#rebuildMs[this.#opts.tier()]) return
+        this.#step('resting', now, { do: 'rest' })
+        return
+      case 'resting':
+        // The controller owns the rest and will say when the pair starts
+        // again. Nothing here should keep asking.
+        return
+    }
+  }
+
+  /** The RTCP backstop: we are sending, and nothing we send is getting
+   *  through, on every slot we send on. The far end plainly did not act - it
+   *  is profile 1, or the current Android build - so this side does. */
+  #outboundLost(sample: PairHealthSample): boolean {
+    if (sample.unreceivedSlots.length === 0) return false
+    return !sample.slots.some((slot) => slot.rtcp === 'ok')
+  }
+
+  #reportDeadSlots(sample: PairHealthSample): void {
+    if (sample.deadSlots.length === 0 || !sample.transportOk) {
+      this.#reported = undefined
+      return
+    }
+    const dead = sample.deadSlots.join(',')
+    // Immediately when the set changes, and otherwise once per window: a far
+    // end whose encoder is stuck keeps being told, but not every two seconds.
+    if (this.#reported?.dead === dead && sample.at - this.#reported.at < this.#healthMs) return
+    this.#reported = { at: sample.at, dead }
+    this.#emit({ do: 'health', dead: [...sample.deadSlots] })
+  }
+
+  /** Step 2, unless this pair has been rebuilt too often lately - in which
+   *  case the honest answer is to stop churning and rest. */
+  #rebuild(now: number): void {
+    this.#rebuildsAt = this.#rebuildsAt.filter((at) => now - at < this.#rebuildWindowMs)
+    if (this.#rebuildsAt.length >= this.#maxRebuilds) {
+      this.#step('resting', now, { do: 'rest' })
+      return
+    }
+    this.#rebuildsAt.push(now)
+    this.#step('rebuilding', now, { do: 'rebuild' })
+  }
+
+  #step(state: LadderStep, now: number, action: LadderAction): void {
+    this.#state = state
+    this.#steppedAt = now
+    this.#emit(action)
+  }
+
+  #emit(action: LadderAction): void {
+    try {
+      this.#opts.onAction(action)
+    } catch {
+      // A caller that throws must not stop the next sample being judged.
+    }
+  }
+}

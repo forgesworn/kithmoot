@@ -10,8 +10,8 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { PairHealth, SLOT_DEAD_MS, SLOT_GRACE_MS, HEALTH_SAMPLE_MS, RTCP_DEAD_MS } from './pair-health.js'
-import type { PairHealthSample, SlotVerdict } from './pair-health.js'
+import { PairHealth, PairLadder, SLOT_DEAD_MS, SLOT_GRACE_MS, HEALTH_SAMPLE_MS, RTCP_DEAD_MS, HEALTH_REPORT_MS } from './pair-health.js'
+import type { LadderAction, PairHealthSample, SlotVerdict } from './pair-health.js'
 import { FakeRTCPeerConnection, FakeRtcLink, fakeTrack } from '../test/fake-rtc.js'
 import type { FakeConnectionOptions, FakeRtpTransceiver } from '../test/fake-rtc.js'
 import { testClock } from '../test/slot-pair.js'
@@ -307,3 +307,193 @@ describe('the two second sampler', () => {
 async function settleMicrotasks(times = 8): Promise<void> {
   for (let i = 0; i < times; i++) await Promise.resolve()
 }
+
+// ---------------------------------------------------------------------------
+// The ladder (S8)
+// ---------------------------------------------------------------------------
+
+/** A sample with only the fields the ladder reads, so a case can state the
+ *  situation it is about rather than arrange a connection that produces it. */
+function say(
+  at: number,
+  what: {
+    dead?: TrackRole[]
+    transportOk?: boolean
+    allDead?: boolean
+    unreceived?: TrackRole[]
+    rtcpOk?: boolean
+  },
+): PairHealthSample {
+  const slots = SLOTS.map(([role]) => ({
+    role,
+    mid: midOf(role),
+    advertised: true,
+    inbound: (what.dead ?? []).includes(role) ? ('dead' as const) : ('ok' as const),
+    rtcp: (what.unreceived ?? []).includes(role) ? ('dead' as const) : what.rtcpOk === false ? ('idle' as const) : ('ok' as const),
+  }))
+  return {
+    at,
+    slots,
+    deadSlots: what.dead ?? [],
+    transportOk: what.transportOk ?? true,
+    allDead: what.allDead ?? false,
+    unreceivedSlots: what.unreceived ?? [],
+  }
+}
+
+function ladder(tier: 'direct' | 'turn' = 'direct') {
+  const actions: LadderAction[] = []
+  const steps = new PairLadder({ tier: () => tier, onAction: (a) => actions.push(a) })
+  return { steps, actions }
+}
+
+describe('one dead slot on a healthy transport', () => {
+  it('tells the far end and does nothing else', () => {
+    const { steps, actions } = ladder()
+    steps.observe(say(0, { dead: ['camera'] }))
+    expect(actions).toEqual([{ do: 'health', dead: ['camera'] }])
+    expect(steps.state, 'a rebuild for one slot would cost everybody the pair').toBe('healthy')
+  })
+
+  it('does not say it again every two seconds, but does when the answer changes', () => {
+    const { steps, actions } = ladder()
+    steps.observe(say(0, { dead: ['camera'] }))
+    steps.observe(say(2_000, { dead: ['camera'] }))
+    steps.observe(say(4_000, { dead: ['camera'] }))
+    expect(actions).toHaveLength(1)
+
+    // The microphone goes too: a different report, worth sending at once.
+    steps.observe(say(6_000, { dead: ['camera', 'mic'] }))
+    expect(actions.at(-1)).toEqual({ do: 'health', dead: ['camera', 'mic'] })
+
+    // And the same report again, once the window is up.
+    steps.observe(say(6_000 + HEALTH_REPORT_MS, { dead: ['camera', 'mic'] }))
+    expect(actions).toHaveLength(3)
+  })
+
+  it('says nothing about slots when the transport itself is down', () => {
+    // The far end would not receive the report either, and the pair has a
+    // much bigger problem than one slot.
+    const { steps, actions } = ladder()
+    steps.observe(say(0, { dead: ['camera', 'mic'], transportOk: false, allDead: true }))
+    expect(actions).toEqual([{ do: 'restart-ice' }])
+  })
+})
+
+describe('every advertised slot dead', () => {
+  it('walks restart, rebuild, tier, rest - and no faster than the rung allows', () => {
+    const { steps, actions } = ladder()
+    const dead = (at: number) => steps.observe(say(at, { allDead: true, transportOk: false, dead: ['mic', 'camera'] }))
+
+    dead(0)
+    expect(actions).toEqual([{ do: 'restart-ice' }])
+    expect(steps.state).toBe('restarting')
+
+    // Eight seconds on the direct rung, and not a sample sooner.
+    dead(6_000)
+    expect(actions, 'gave up on the ICE restart early').toHaveLength(1)
+    dead(8_000)
+    expect(actions.at(-1)).toEqual({ do: 'rebuild' })
+    expect(steps.state).toBe('rebuilding')
+
+    // Twelve more for the rebuild.
+    dead(18_000)
+    expect(actions).toHaveLength(2)
+    dead(20_000)
+    expect(actions.at(-1)).toEqual({ do: 'next-tier' })
+    expect(steps.state).toBe('changing-tier')
+
+    dead(32_000)
+    expect(actions.at(-1)).toEqual({ do: 'rest' })
+    expect(steps.state).toBe('resting')
+
+    // And then it stops asking: the rest is the controller's, and a ladder
+    // that kept emitting would rebuild the pair it is meant to be leaving
+    // alone.
+    dead(60_000)
+    expect(actions).toHaveLength(4)
+  })
+
+  it('gives the TURN rung longer, because a restart there needs a fresh allocation', () => {
+    const { steps, actions } = ladder('turn')
+    const dead = (at: number) => steps.observe(say(at, { allDead: true, transportOk: false }))
+    dead(0)
+    dead(8_000)
+    expect(actions, 'TURN was judged on the direct rung\'s clock').toHaveLength(1)
+    dead(12_000)
+    expect(actions.at(-1)).toEqual({ do: 'rebuild' })
+  })
+
+  it('stops after three rebuilds in a minute and rests instead', () => {
+    // §9's mitigation for rebuild storms: a network that is simply bad must
+    // not be answered with a rebuild every twenty seconds for ever.
+    const { steps, actions } = ladder()
+    let at = 0
+    for (let round = 0; round < 3; round++) {
+      steps.observe(say(at, { allDead: true, transportOk: false }))
+      at += 8_000
+      steps.observe(say(at, { allDead: true, transportOk: false }))
+      // The pair comes back, briefly, which is what makes this a storm
+      // rather than one long outage.
+      at += 2_000
+      steps.observe(say(at, {}))
+      at += 2_000
+    }
+    expect(actions.filter((a) => a.do === 'rebuild')).toHaveLength(3)
+
+    steps.observe(say(at, { allDead: true, transportOk: false }))
+    steps.observe(say(at + 8_000, { allDead: true, transportOk: false }))
+    expect(actions.at(-1)).toEqual({ do: 'rest' })
+  })
+
+  it('goes back to healthy the moment media returns', () => {
+    const { steps, actions } = ladder()
+    steps.observe(say(0, { allDead: true, transportOk: false }))
+    expect(steps.state).toBe('restarting')
+    steps.observe(say(2_000, {}))
+    expect(steps.state).toBe('healthy')
+    // And the next fault starts from the top rather than from where the last
+    // one had got to.
+    steps.observe(say(4_000, { allDead: true, transportOk: false }))
+    expect(actions.at(-1)).toEqual({ do: 'restart-ice' })
+  })
+})
+
+describe('the RTCP backstop', () => {
+  it('walks the same ladder when nothing we send is getting through', () => {
+    // The far end is profile 1, or the current Android build: it cannot heal
+    // itself, so the only side that can is this one. The sampler has already
+    // applied the fourteen second threshold; what reaches here is its
+    // verdict.
+    const { steps, actions } = ladder()
+    steps.observe(say(0, { unreceived: ['mic', 'camera'], rtcpOk: false }))
+    expect(actions).toEqual([{ do: 'restart-ice' }])
+  })
+
+  it('leaves the pair alone while any slot is still getting through', () => {
+    const { steps, actions } = ladder()
+    // The camera is not being received, the microphone is. That is one slot,
+    // and one slot is not the transport.
+    const sample = say(0, { unreceived: ['camera'] })
+    sample.slots.find((s) => s.role === 'mic')!.rtcp = 'ok'
+    steps.observe(sample)
+    expect(actions).toEqual([])
+  })
+})
+
+describe('an incoming higher generation', () => {
+  it('resets the ladder, so the pair the far end just rebuilt is left alone', () => {
+    const { steps, actions } = ladder()
+    steps.observe(say(0, { allDead: true, transportOk: false }))
+    steps.observe(say(8_000, { allDead: true, transportOk: false }))
+    expect(steps.state).toBe('rebuilding')
+
+    // The far end rebuilt first. Everything measured so far is about a
+    // connection neither side has any more.
+    steps.reset()
+    expect(steps.state).toBe('healthy')
+
+    steps.observe(say(10_000, { allDead: true, transportOk: false }))
+    expect(actions.at(-1), 'the new connection was torn down on the old one\'s evidence').toEqual({ do: 'restart-ice' })
+  })
+})

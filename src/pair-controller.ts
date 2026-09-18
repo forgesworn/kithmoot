@@ -17,14 +17,19 @@
  * and the controller suspends itself while a forwarder is carrying the room -
  * a pair that is not being negotiated must not be measured, let alone rebuilt.
  *
- * S6 is the skeleton: lifecycle, suspension and the rest ladder that stands
- * in for the exhausted retry timer. The health sampler (S7) and the rungs
- * above the rest - ICE restart, rebuild, tier - are S8, and they arrive as
- * `ladder` below without moving anything here.
+ * Three parts, kept apart on purpose. `PairHealth` measures and has no
+ * opinion; `PairLadder` decides and touches nothing; this owns the pair and
+ * is the only one of the three that acts. The awkward timing - a slot that
+ * goes quiet inside its grace, a rebuild that crosses a generation the far
+ * end opened - is then testable against a fake clock rather than inferred
+ * from a call.
  */
 
+import { PairHealth, PairLadder } from './pair-health.js'
+import type { LadderAction, PairHealthSample, SlotVerdict } from './pair-health.js'
 import type { ChannelClock } from './signal-channel.js'
 import type { SlotPeer } from './slot-peer.js'
+import type { RouteTier } from './peer.js'
 import type { TrackRole } from './types.js'
 
 const REAL_CLOCK: ChannelClock = {
@@ -93,6 +98,23 @@ export interface PairControllerOptions {
   /** The remote device this pair is with. */
   device: string
   /**
+   * Which slots the far end's roster advert says are live.
+   *
+   * What makes "nothing is arriving" mean something. A camera that is off is
+   * an idle slot, not a dead one, and a pair judged without this would
+   * report three dead slots for everybody on a call with only a microphone
+   * on.
+   */
+  advertised: () => readonly TrackRole[]
+  /**
+   * Put this pair on the next rung down - §3.4's step 3, which in this
+   * controller's scope means `direct` to `turn`.
+   *
+   * Returns false when there is no rung left, and the controller rests
+   * instead. The mesh owns the route table, so it is the mesh that answers.
+   */
+  onNextTier: () => boolean
+  /**
    * Start this pair's route ladder again from the top rung.
    *
    * Called when a rest is over. The mesh owns the route table, so it is the
@@ -104,6 +126,18 @@ export interface PairControllerOptions {
   onDiagnostic?: (detail: string) => void
   /** Defaults to the constants above; tests shorten them. */
   rest?: { baseMs?: number; maxMs?: number; jitter?: number }
+  /** Passed through to `PairHealth` and `PairLadder`; tests shorten them. */
+  health?: {
+    sampleMs?: number
+    deadMs?: number
+    graceMs?: number
+    rtcpDeadMs?: number
+    restartMs?: { direct: number; turn: number }
+    rebuildMs?: { direct: number; turn: number }
+    healthMs?: number
+    rebuildWindowMs?: number
+    maxRebuilds?: number
+  }
   random?: () => number
   clock?: ChannelClock
 }
@@ -119,6 +153,7 @@ export interface PairControllerOptions {
 export class PairController {
   readonly device: string
 
+  readonly #opts: PairControllerOptions
   readonly #onRestOver: () => void
   readonly #onDiagnostic: ((detail: string) => void) | undefined
   readonly #clock: ChannelClock
@@ -127,14 +162,22 @@ export class PairController {
   readonly #maxRestMs: number
   readonly #restJitter: number
 
+  readonly #health: PairHealth
+  readonly #steps: PairLadder
+
   #peer: SlotPeer | undefined
   #ladder: LadderState = 'healthy'
   #suspended = false
   #closed = false
   #restAttempt = 0
   #restTimer: unknown
+  /** The generation the last sample was taken on. A change means the far end
+   *  rebuilt, and everything measured about the old connection is about a
+   *  connection neither side has any more. */
+  #watchedGeneration = 0
 
   constructor(opts: PairControllerOptions) {
+    this.#opts = opts
     this.device = opts.device
     this.#onRestOver = opts.onRestOver
     this.#onDiagnostic = opts.onDiagnostic
@@ -143,6 +186,19 @@ export class PairController {
     this.#restMs = opts.rest?.baseMs ?? PAIR_REST_MS
     this.#maxRestMs = opts.rest?.maxMs ?? MAX_PAIR_REST_MS
     this.#restJitter = opts.rest?.jitter ?? PAIR_REST_JITTER
+    this.#health = new PairHealth({
+      connection: () => this.#peer?.connection,
+      slots: () => this.#peer?.slotMap,
+      advertised: opts.advertised,
+      onSample: (sample) => this.#observe(sample),
+      timing: opts.health,
+      clock: this.#clock,
+    })
+    this.#steps = new PairLadder({
+      tier: () => (this.#peer?.tier === 'turn' ? 'turn' : 'direct'),
+      onAction: (action) => this.#act(action),
+      timing: opts.health,
+    })
   }
 
   /** The connection this pair is currently on, if it has one. */
@@ -169,12 +225,20 @@ export class PairController {
   attach(peer: SlotPeer): void {
     if (this.#closed) return
     this.#peer = peer
+    // A fresh connection has delivered nothing yet, so every grace starts
+    // again; carrying the last one's silence across would condemn this one on
+    // its first sample.
+    this.#watchedGeneration = peer.generation
+    this.#health.reset(this.#clock.now())
+    this.#steps.reset()
+    if (!this.#suspended) this.#health.start()
   }
 
   /** The connection is gone and no replacement has arrived yet. The rest
    *  ladder's position is deliberately kept: a pair that fails, is rebuilt
    *  and fails again has not started afresh. */
   detach(): void {
+    this.#health.stop()
     this.#peer = undefined
   }
 
@@ -184,6 +248,11 @@ export class PairController {
     this.#restAttempt = 0
     this.#ladder = 'healthy'
     this.#clearRest()
+    // The grace runs from here, not from when the connection object was
+    // made: DTLS, SRTP keying and the first keyframe all happen after this.
+    this.#health.reset(this.#clock.now())
+    this.#steps.reset()
+    if (!this.#suspended) this.#health.start()
   }
 
   /**
@@ -223,6 +292,7 @@ export class PairController {
     if (this.#closed || this.#suspended) return
     this.#suspended = true
     this.#clearRest()
+    this.#health.stop()
     this.#peer = undefined
   }
 
@@ -237,17 +307,91 @@ export class PairController {
     if (this.#closed) return
     this.#closed = true
     this.#clearRest()
+    this.#health.stop()
     this.#peer = undefined
   }
 
   /** What the bug report says about this pair. */
   summary(): PairDiagnostics {
-    return {
+    const sample = this.#health.last
+    const out: PairDiagnostics = {
       device: this.device,
       generation: this.#peer?.generation ?? 0,
       ladder: this.ladder,
       unacked: this.#peer?.queueDepth ?? 0,
       unexpectedNegotiations: this.#peer?.unexpectedNegotiations ?? 0,
+    }
+    if (!sample) return out
+    const inbound: Partial<Record<TrackRole, SlotVerdict>> = {}
+    const rtcp: Partial<Record<TrackRole, SlotVerdict>> = {}
+    for (const slot of sample.slots) {
+      inbound[slot.role] = slot.inbound
+      rtcp[slot.role] = slot.rtcp
+    }
+    out.inbound = inbound
+    out.rtcp = rtcp
+    return out
+  }
+
+  /** The most recent health sample, for a caller that wants the counters
+   *  rather than the verdicts. */
+  get health(): PairHealthSample | undefined {
+    return this.#health.last
+  }
+
+  /**
+   * One sample, judged.
+   *
+   * The generation check comes first and is not a detail: an incoming higher
+   * generation means the far end has already rebuilt this pair, so the
+   * ladder's position describes a connection that no longer exists, and
+   * acting on it would tear down the one that has just arrived.
+   */
+  #observe(sample: PairHealthSample): void {
+    if (this.#closed || this.#suspended) return
+    const generation = this.#peer?.generation ?? 0
+    if (generation !== this.#watchedGeneration) {
+      this.#watchedGeneration = generation
+      this.#health.reset(sample.at)
+      this.#steps.reset()
+      this.#ladder = 'healthy'
+      return
+    }
+    this.#steps.observe(sample)
+    if (this.#steps.state !== 'resting') this.#ladder = this.#steps.state
+  }
+
+  /** §3.4's rungs, carried out. The ladder decided; this is the only part
+   *  that touches the connection or the route. */
+  #act(action: LadderAction): void {
+    const peer = this.#peer
+    if (this.#closed || this.#suspended || !peer) return
+    switch (action.do) {
+      case 'health':
+        // The transport is fine and one slot is not, which is the one thing
+        // RTCP cannot express. Nothing else happens: rebuilding the whole
+        // pair for one slot would cost everybody's picture for one person's.
+        this.#diagnose(`telling the far end its ${action.dead.join(' and ')} is arriving as nothing`)
+        peer.reportHealth(Object.fromEntries(action.dead.map((role) => [role, 'dead'])))
+        return
+      case 'restart-ice':
+        this.#diagnose('no media at all on this pair; restarting ICE inside the generation')
+        peer.healStalledNegotiation()
+        return
+      case 'rebuild':
+        this.#diagnose('the restart did not bring media back; rebuilding at the next generation')
+        peer.rebuild()
+        return
+      case 'next-tier': {
+        this.#diagnose('the rebuild did not bring media back; moving this pair to the next rung')
+        // False means there is no rung left below this one, and the honest
+        // answer to that is the rest rather than another identical attempt.
+        if (!this.#opts.onNextTier()) this.exhausted()
+        return
+      }
+      case 'rest':
+        this.exhausted()
+        return
     }
   }
 
