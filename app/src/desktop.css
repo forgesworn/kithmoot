@@ -104,45 +104,61 @@ html[data-desktop] #chatDrawerToggle { display: none; }
   /* The conversation's floor comes before the call pane's share. 32% of a
      room area with Shared Work open is 197px, which is what the owner
      called unusable; `--chat-min` is the answer and the call pane pays for
-     it, never the other way round. */
+     it, never the other way round.
+
+     Only `live` reaches this rule now - see the peek/resting/controls
+     override below - so these numbers are what a call this device is
+     actually on gets beside it: never thinner than a phone's own reading
+     width, never so wide that the tiles it sits beside are starved for it. */
   html[data-desktop] .desktopConversation[data-open="true"] {
-    width: clamp(var(--chat-min), 32%, var(--work-max));
+    width: clamp(420px, 36vw, 640px);
     border-left: 1px solid var(--border);
     padding-left: 1rem;
   }
 
-  /* The two strips: nothing at all, and a voice call.
+  /* The three strips: nothing at all, a voice call, and pictures this
+     device is not part of.
      "there's loads of free space in call (we aren't running a call)" was
      the first of them, and an empty video grid during a call with every
-     camera off was the last place the same complaint still showed. Neither
-     has a picture in it, so neither is worth a column: the pane is a strip
-     across the top and the conversation is the main column beneath it.
+     camera off was the last place the same complaint still showed. A third
+     showed later: somebody else's camera turned the whole window into a
+     call this device was never on - a full row of tiles and the
+     conversation squeezed into a drawer, to watch a call nobody here
+     pressed anything to join. None of the three is this device's own call
+     with a picture in it, so none of them is worth a column: the pane is a
+     strip across the top and the conversation is the main column beneath
+     it.
 
      And in that column it stops being a drawer at all. A drawer is right
      beside a call. Beside nothing it was a ~300px strip against a window of
      empty black, wrapping messages at three or four words a line while the
      room they could have used sat unused. So it is capped at a line worth
-     reading and left-aligned - the same place the eye starts in the narrow
-     layout, rather than a column that moves to the middle of the window
-     when Shared Work closes. */
-  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopRoomContent {
+     reading - and centred in the room area rather than pinned to its left
+     edge, which at a wide window (Shared Work closed, nothing beside it)
+     read as the whole right half of the window sitting empty beside a
+     column stuck to the sidebar. `margin-inline: auto` rather than
+     `margin-right: auto`, which pins the left edge and only gives the
+     spare width away on the right. */
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"], [data-call-pane="peek"]) .desktopRoomContent {
     flex-direction: column;
     max-width: var(--chat-read);
-    margin-right: auto;
+    margin-inline: auto;
   }
   /* The notices that sit directly above the conversation belong to the same
-     column. Left at the window's full width they read as a banner across
-     the top of something else entirely, with the conversation stopping
-     halfway under them. The room's own bar is not in this list: it is the
-     window's bar and it spans the window. */
-  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) #roomArea > :is(#callBanner, #agentActivity, #workAttention, #presenceNotice, #sharerMarksNotice, .conversationNav) {
+     column, so they are centred with it - a banner spanning the window's
+     full width with a centred column of messages starting only under its
+     middle reads as two different layouts arguing with each other. The
+     room's own bar is not in this list: it is the window's bar and it
+     spans the window. */
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"], [data-call-pane="peek"]) #roomArea > :is(#callBanner, #agentActivity, #workAttention, #presenceNotice, #sharerMarksNotice, .conversationNav) {
     max-width: var(--chat-read);
+    margin-inline: auto;
   }
-  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopRoomContent #callStage {
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"], [data-call-pane="peek"]) .desktopRoomContent #callStage {
     flex: 0 0 auto;
     max-height: 30vh;
   }
-  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopConversation[data-open="true"] {
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"], [data-call-pane="peek"]) .desktopConversation[data-open="true"] {
     width: auto;
     flex: 1 1 auto;
     min-height: var(--chat-min-height);
@@ -187,22 +203,165 @@ html[data-desktop][data-call-pane="controls"] #deviceControls > #micIndicator,
 html[data-desktop][data-call-pane="controls"] #deviceControls > #local { display: none; }
 html[data-desktop][data-call-pane="controls"] #callChips { display: flex; }
 
-html[data-desktop][data-call-pane="resting"] .callStrip {
+html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="peek"]) .callStrip {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: nowrap;
   gap: .75rem;
-  margin: 0;
+  margin: 0 0 .4rem;
   padding: .35rem .6rem;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
-html[data-desktop][data-call-pane="resting"] .callStripText { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
-html[data-desktop][data-call-pane="resting"] .callStrip button { margin: 0; white-space: nowrap; }
+html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="peek"]) .callStripText { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="peek"]) .callStrip button { margin: 0; white-space: nowrap; }
 /* The banner above already says a call is on and offers the way into it.
    The strip beneath it would be the same offer twice on one screen. */
-html[data-desktop][data-call-pane="resting"] #roomArea:has(#callBanner:not([hidden])) .callStrip { display: none; }
+html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="peek"]) #roomArea:has(#callBanner:not([hidden])) .callStrip { display: none; }
+
+/* `peek`: pictures exist, this device is not on the call. A compact strip
+   of thumbnails - real video elements, just small - rather than the full
+   row layout `live` gets, because watching is not the same claim on the
+   window as being on the call. `#whoIsHere`/`#room` stay visible (unlike
+   `controls`, which hides them entirely and names people instead: here
+   there is something worth a small picture of).
+
+   The name, device count and verify chip used to sit in their own row
+   above the picture - `#room .participant h3` costs a real line - and at
+   the strip's height that row plus a 96px video overran the pane, which
+   `overflow: hidden` then quietly cropped off the video's own bottom
+   rather than the row nobody needed to read at this size. So the caption
+   is an overlay instead: the tile's total height is the picture's height
+   plus its border, nothing added above it, and nothing left to clip.
+
+   `!important` earns its keep here: `desktop-layout-fit.ts` writes pixel
+   width/height directly onto a sharer's `<video>` while it is live, and
+   those inline styles outrank any plain selector. A leftover 600px share
+   from the moment before this device left the call must not survive into
+   the thumbnail strip. */
+html[data-desktop][data-call-pane="peek"] #whoIsHere { margin-bottom: .4rem; }
+html[data-desktop][data-call-pane="peek"] .desktopRoomContent #callStage {
+  max-height: 150px;
+}
+html[data-desktop][data-call-pane="peek"] #room {
+  display: flex !important;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: .5rem;
+}
+html[data-desktop][data-call-pane="peek"] #room .participant:has(video) {
+  position: relative;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 220px;
+  padding: 0;
+  border-width: 1px;
+  overflow: hidden;
+}
+/* The caption: name, and a dot for the verify chip rather than its full
+   "not checked" / "checked" words - still a real button with the same
+   title and accessible name, just not spelled out at this size. Over the
+   bottom of the picture, not a row that costs it height. */
+html[data-desktop][data-call-pane="peek"] #room .participant:has(video) h3 {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  margin: 0;
+  padding: .15rem .35rem;
+  gap: .3rem;
+  background: rgb(0 0 0 / 60%);
+  color: #fff;
+  font-size: .72rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+html[data-desktop][data-call-pane="peek"] #room .participant:has(video) h3 > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html[data-desktop][data-call-pane="peek"] #room .participant:has(video) h3 .devices,
+html[data-desktop][data-call-pane="peek"] #room .participant:has(video) h3 .badge {
+  display: none;
+}
+html[data-desktop][data-call-pane="peek"] #room .participant:has(video) h3 .verifyChip {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  background: currentColor;
+}
+html[data-desktop][data-call-pane="peek"] #room .participant .media {
+  margin-top: 0;
+  display: block;
+}
+/* Height only, never width: the browser derives the width from the
+   camera's own `aspect-ratio` and this one definite side, which is the
+   only way to grow a box in one dimension and have the other follow
+   without measuring anything in script. `object-fit: contain` rather than
+   `cover` - a native aspect that is not quite 4:3 gets a sliver of letterbox
+   instead of losing part of the picture, which `cover` would crop. */
+html[data-desktop][data-call-pane="peek"] #room .participant .media video {
+  display: block;
+  width: auto !important;
+  height: 96px !important;
+  max-width: 220px !important;
+  max-height: none !important;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  background: #000;
+}
+/* A sharer's screen is worth no more room than a face here: still a
+   thumbnail, still the whole point of "peek" rather than "live". Its own
+   aspect stands, rather than being forced to 4:3, and `contain` still
+   keeps the whole picture on screen either way. */
+html[data-desktop][data-call-pane="peek"] #room .participant .media video.screenPreview {
+  aspect-ratio: auto;
+  max-width: 220px !important;
+}
+
+/* `live`: this device is on the call and there is a picture in it. The
+   tile fills the pane rather than sitting small in a large empty box under
+   it - the owner's original complaint. Pure CSS cannot pick the biggest
+   box of the camera's own shape that fits both a width and a height bound
+   at once - `aspect-ratio` with one side pinned to a percentage clamps the
+   OTHER side and stops there, which draws a box that is not 4:3 any more
+   rather than a smaller one that still is. So the actual pixels come from
+   `fitCameraOnly` in desktop-layout-fit.ts, the same idea as `fitShares`
+   for a shared screen; this is just the box it centres. Scoped to a room
+   with no active screen share: `fitShares` already owns that case, and the
+   two must never both be writing to the same element. */
+html[data-desktop][data-call-pane="live"] .desktopRoomContent #whoIsHere #room:not(.sharing) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  align-content: center;
+  gap: .6rem;
+}
+html[data-desktop][data-call-pane="live"] .desktopRoomContent #whoIsHere #room:not(.sharing) .participant {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+}
+html[data-desktop][data-call-pane="live"] .desktopRoomContent #whoIsHere #room:not(.sharing) .participant .media {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+html[data-desktop][data-call-pane="live"] .desktopRoomContent #whoIsHere #room:not(.sharing) .participant .media video {
+  max-width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
 
 /* The rooms rail, and the control that puts it away.
    Collapsed, the grid column comes down to the control's own width and the

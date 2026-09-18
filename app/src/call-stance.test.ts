@@ -65,13 +65,21 @@ test('a voice call is the controls strip, not an empty video grid', () => {
   expect(callPane({ ...quiet, mineOn: true, otherDevicesOn: 3 })).toBe('controls')
 })
 
-test('any picture at all is the live pane', () => {
-  expect(callPane({ ...quiet, pictures: true })).toBe('live')
+test('a picture with this device on the call is the live pane', () => {
   expect(callPane({ ...quiet, mineOn: true, pictures: true })).toBe('live')
-  // Off the call, watching somebody else's camera: still a picture to show.
-  expect(callPane({ ...quiet, otherDevicesOn: 1, pictures: true })).toBe('live')
-  // Their pictures do not vanish because this device pressed Leave.
-  expect(callPane({ mineOn: true, otherDevicesOn: 1, leaving: true, pictures: true })).toBe('live')
+})
+
+test('a picture with this device off the call is the peek strip, not the drawer', () => {
+  // Nobody on this device is on the call, but somebody has a camera on: a
+  // compact strip of thumbnails, not the full row layout and chat drawer -
+  // this device is not the one making the claim on the window.
+  expect(callPane({ ...quiet, pictures: true })).toBe('peek')
+  // Off the call, watching somebody else's camera: still a picture to show,
+  // still not this device's call.
+  expect(callPane({ ...quiet, otherDevicesOn: 1, pictures: true })).toBe('peek')
+  // Leaving: the pictures do not vanish, but this device is on its way out,
+  // so it reads as peek rather than holding the drawer open underneath it.
+  expect(callPane({ mineOn: true, otherDevicesOn: 1, leaving: true, pictures: true })).toBe('peek')
 })
 
 test('a pane grows the moment a picture arrives', () => {
@@ -109,6 +117,23 @@ test('a wavering target cannot hold the pane open for ever', () => {
   expect(settler.settle('controls', 0)).toBe('live')
   expect(settler.settle('resting', 900)).toBe('live')
   expect(settler.settle('resting', PANE_COLLAPSE_MS)).toBe('resting')
+})
+
+test('peek is a small strip like controls: growing to it never waits, and shrinking from live to it waits', () => {
+  const settler = new PaneSettler('resting')
+  expect(settler.settle('peek', 0)).toBe('peek')
+  expect(settler.due).toBeUndefined()
+  // Straight from live to peek - somebody watched a call leave the last
+  // camera on without ever joining it themselves.
+  const fromLive = new PaneSettler('live')
+  expect(fromLive.settle('peek', 1000)).toBe('live')
+  expect(fromLive.due).toBe(1000 + PANE_COLLAPSE_MS)
+  expect(fromLive.settle('peek', 1000 + PANE_COLLAPSE_MS)).toBe('peek')
+  // And moving between the small strips themselves is always immediate.
+  const betweenStrips = new PaneSettler('peek')
+  expect(betweenStrips.settle('controls', 0)).toBe('controls')
+  expect(betweenStrips.settle('resting', 1)).toBe('resting')
+  expect(betweenStrips.due).toBeUndefined()
 })
 
 test('joining and leaving a call never wait', () => {

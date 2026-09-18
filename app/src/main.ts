@@ -3461,10 +3461,17 @@ let paneTimer: ReturnType<typeof setTimeout> | undefined
 function roomHasPictures(views: ParticipantView[]): boolean {
   if (cameraTrack || screenTrack) return true
   if (localMediaEl.querySelector('video')) return true
-  // After Leave the pictures are parked on purpose - see `leftCall` - so
-  // there is nothing for the pane to hold, whatever the roster still says.
-  if (leftCall) return false
-  return views.some(view => view.tracks.some(track => track.role === 'camera' || track.role === 'screen'))
+  return views.some(view => {
+    // This device's own roster entry can carry its last-advertised tracks
+    // for a moment after Leave, before the farewell settles - see
+    // `leftCall`. That lingering entry is never a picture to hold this
+    // device's own pane open for; the own-device checks above already say
+    // what this device is really showing. Everybody else's tracks are the
+    // truth regardless: their picture does not vanish because this device
+    // pressed Leave, which is exactly what `peek` exists to keep showing.
+    if (leftCall && view.participant === meParticipant) return false
+    return view.tracks.some(track => track.role === 'camera' || track.role === 'screen')
+  })
 }
 
 function applyCallPane(views: ParticipantView[], state: CallStanceInput): void {
@@ -6070,12 +6077,19 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
   return card
 }
 
+/** The lane's own words: what it is called, and what it means. Shared by
+ *  the composer's chip and, when a message's own lane needs saying, the
+ *  message header - so the two never describe the same lane two ways. */
+function laneWords(lane: Lane): { label: string; meaning: string } {
+  const label = lane === 'public' ? 'Encrypted · public relay' : lane === 'sheltered' ? 'Encrypted · circle relay' : 'Encrypted · direct'
+  return { label, meaning: 'Message content is encrypted for this conversation. ' + LANE_MEANING[lane] }
+}
+
 /** The lane indicator: a glyph and a word, the meaning as its title. */
 function laneChip(lane: Lane): HTMLSpanElement {
   const span = document.createElement('span')
   span.className = `chip lane ${lane}`
-  const label = lane === 'public' ? 'Encrypted · public relay' : lane === 'sheltered' ? 'Encrypted · circle relay' : 'Encrypted · direct'
-  const meaning = 'Message content is encrypted for this conversation. ' + LANE_MEANING[lane]
+  const { label, meaning } = laneWords(lane)
   span.textContent = `${LANE_GLYPH[lane]} ${label}`
   span.title = meaning
   span.setAttribute('aria-label', `${label}. ${meaning}`)
@@ -7047,6 +7061,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     if (!r.retracted && previous?.classList.contains('msg') && !previous.classList.contains('retracted') &&
       previous.dataset.senderGroup === row.dataset.senderGroup && original.sentAt - previousAt >= 0 &&
       original.sentAt - previousAt < 5 * 60 && new Date(original.sentAt * 1000).toDateString() === new Date(previousAt * 1000).toDateString()) row.classList.add('continuation')
+    const continuation = row.classList.contains('continuation')
     // Addressed to the reader, by the field on the wire or by name on a
     // message from before the field existed: the one thing a person scans
     // a busy room for, and exactly what an agent would answer to. Your own
@@ -7079,12 +7094,37 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       if (original.owner) sender.append(ownerRun(original.owner))
       header.append(sender)
     }
-    // The time it was first said. An edit does not move a message.
-    header.append(timeChip(original.sentAt, true))
+    // The time it was first said. An edit does not move a message. Own
+    // messages, and a follow-on from somebody else in the same run, carry
+    // it beside the bubble instead of the header - see `.messageBody`
+    // below - so neither a right-aligned run of your own messages nor a
+    // run of somebody else's costs every message after the first a whole
+    // row of header carrying nothing but a clock. The first message of a
+    // run from somebody else keeps its header, time included - that
+    // header is the only place its name, avatar and badge are said at
+    // all, so the time stays there with them rather than jumping to the
+    // bubble a moment before the run's later rows do.
+    const time = timeChip(original.sentAt, true)
+    if (!mine && !continuation) header.append(time)
     // The lane it travelled, from where the bytes went and never from what
     // the message says about itself. Glyph and word, so it reads without
     // colour; the meaning is in the title and is the same everywhere.
-    if (original.lane) header.append(laneChip(original.lane))
+    //
+    // Shown on the message only when it differs from the room's current
+    // transport - the same fact beside the composer for every other
+    // message would be the loudest, most repeated thing on the screen.
+    // When it matches, the fact does not disappear: it rides the time's
+    // own title and accessible name, discoverable the same way an edit's
+    // history already is.
+    if (original.lane) {
+      if (original.lane !== activeChat()?.sendLane()) {
+        header.append(laneChip(original.lane))
+      } else {
+        const { label, meaning } = laneWords(original.lane)
+        time.title = `${time.title} · ${label}. ${meaning}`
+        time.setAttribute('aria-label', `${time.getAttribute('aria-label')}. ${meaning}`)
+      }
+    }
     if (r.edited && !r.retracted) {
       header.append(chip('edited', `Edited${r.edits.length > 1 ? ` ${r.edits.length} times` : ''}. Earlier versions are kept on every device that received them.`, 'edited'))
     }
@@ -7108,7 +7148,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       text.textContent = 'Message retracted'
       bubble.title = 'Retracted by its author. Every device that already received it still holds it, and the relays hold it encrypted; it is marked, not erased.'
       bubble.append(text)
-      row.append(bubble)
+      body.append(bubble)
+      if (mine || continuation) body.append(time)
+      row.append(body)
       into.append(row)
       if (!nested && r.replies.length) paintThread(r, into)
       return
@@ -7147,6 +7189,13 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     }
     for (const [i, a] of (m.attachments ?? []).entries()) bubble.append(attachmentCard(logId, m, i, a))
     body.append(bubble)
+    // Own message, or a follow-on from somebody else: the time sits
+    // beside the bubble, in this same row - see `.messageBody > time.when`
+    // in style.css, which puts it on the near side of the bubble either
+    // way (append order plus `.msg.mine`'s row-reverse does the rest) -
+    // rather than in the header above it, which for these rows carries
+    // nothing else worth a whole line.
+    if (mine || continuation) body.append(time)
     row.append(body)
     if (mine && !m.reaction && !m.retracts) {
       const status = document.createElement('p')
@@ -10250,8 +10299,11 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
   room: () => roomRelayScope === 'default' ? undefined : { scope: roomRelayScope, hints: roomRelayConfig },
   // A relay marked as a circle box by hand moves the lane the same way a
   // card's box does; the marks are already in every pool, so only the
-  // screen needs telling.
-  circleChanged: () => { if (session) render(session.participants(), meParticipant); renderLaneNote() },
+  // screen needs telling. The conversation itself needs a repaint too, not
+  // just the composer's own pill: a message already on screen whose lane
+  // now differs from (or now matches) the room's current transport has to
+  // pick up or drop its own pill - see the lane-pill rule in `renderLog`.
+  circleChanged: () => { if (session) render(session.participants(), meParticipant); renderLaneNote(); repaintActiveChat() },
   applied: (scope, entries) => {
     if (scope === 'default') {
       RELAYS = relayConnections.configuration('default').map(relay => relay.url)

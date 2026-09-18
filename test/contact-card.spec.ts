@@ -76,7 +76,11 @@ test('a contact card marks its holder without treating its transport relay as sh
     await page.locator('#chatInput').press('Enter')
     const sent = page.locator('#chatLog .msg').filter({ hasText: 'through the box' })
     await expect(sent).toBeVisible()
-    await expect(sent.locator('.chip.lane')).toHaveText(/public/)
+    // The message's lane is public, the same as the composer's pill above
+    // it, so the message does not repeat it - see the lane-pill rule in
+    // `renderLog` in main.ts. The fact rides the time's title instead.
+    await expect(sent.locator('.chip.lane')).toHaveCount(0)
+    await expect(sent.locator('time.when')).toHaveAttribute('title', /public relay/)
     await expect.poll(() => rowan.chat.messages().some(m => m.text === 'through the box')).toBe(true)
 
     // Ada's own card, signed by whatever holds her identity, reads back

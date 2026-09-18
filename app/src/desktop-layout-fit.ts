@@ -235,6 +235,55 @@ export function fitShares(room: HTMLElement, bottom: number): void {
   }
 }
 
+/** Hand a set of camera-only videos back to the stylesheet. */
+function clearCameraFit(tiles: Iterable<HTMLElement>): void {
+  for (const tile of tiles) {
+    const video = tile.querySelector('video:not(.screenPreview)') as HTMLVideoElement | null
+    if (!video || (!video.style.width && !video.style.height)) continue
+    video.style.removeProperty('width')
+    video.style.removeProperty('height')
+  }
+}
+
+/**
+ * The `live` pane's own version of `fitShares`: nobody is sharing a
+ * screen, so there is no row to divide, but the tile still has to fill the
+ * box it was given rather than sit at its default size with the rest of
+ * the pane empty around it - the owner's original complaint, once the
+ * pane had grown to hold it. Same idea as `fitShares`, in miniature: the
+ * biggest box of the camera's own shape that fits both the width a tile
+ * has (the room's width, shared evenly) and the height the pane has,
+ * written onto the `<video>` directly rather than through `--tile-cam`,
+ * because `--tile-cam` only ever shrank to a fixed ceiling and here there
+ * is no ceiling - the tile grows until a bound stops it.
+ *
+ * Scoped to `live` and to a room with nobody sharing: `fitShares` already
+ * owns the sharing case, `peek`'s thumbnails are fixed by CSS `!important`
+ * on purpose, and the two must never both be writing to the same element.
+ */
+export function fitCameraOnly(room: HTMLElement, bottom: number): void {
+  const tiles = [...room.children].filter((child): child is HTMLElement => child instanceof HTMLElement && child.querySelector('video:not(.screenPreview)') !== null && !isSharer(child))
+  if (!matchMedia(DESKTOP_QUERY).matches || room.classList.contains('sharing') ||
+    document.documentElement.dataset.callPane !== 'live' || tiles.length === 0) return clearCameraFit(tiles)
+
+  const roomStyle = getComputedStyle(room)
+  const rowGap = gapOf(roomStyle.columnGap)
+  const top = room.getBoundingClientRect().top
+  const availableHeight = Math.max(1, bottom - top - ROW_SAFETY_PX)
+  const availableWidth = Math.max(1, room.clientWidth - rowGap * (tiles.length - 1))
+  const perTileWidth = availableWidth / tiles.length
+
+  const box = fitShare({ aspect: CAMERA_ASPECT, maxWidth: perTileWidth, maxHeight: availableHeight, minHeight: CAMERA_MIN_PX })
+  const width = `${box.width}px`
+  const height = `${box.height}px`
+  for (const tile of tiles) {
+    const video = tile.querySelector('video:not(.screenPreview)') as HTMLVideoElement
+    if (video.style.width === width && video.style.height === height) continue
+    video.style.width = width
+    video.style.height = height
+  }
+}
+
 /**
  * Keep `fitShares` in step with the things that change its answer: the
  * window, the chat drawer, a person arriving or leaving, and a share whose
@@ -251,7 +300,9 @@ export function installShareFitting(room: HTMLElement, stage: HTMLElement | null
     queued = 0
     if (!room.isConnected) return
     const stageBottom = stage ? stage.getBoundingClientRect().bottom : window.innerHeight
-    fitShares(room, Math.min(stageBottom, window.innerHeight))
+    const bottom = Math.min(stageBottom, window.innerHeight)
+    fitShares(room, bottom)
+    fitCameraOnly(room, bottom)
   }
   const schedule = (): void => {
     if (queued) return
@@ -268,11 +319,18 @@ export function installShareFitting(room: HTMLElement, stage: HTMLElement | null
   room.addEventListener('loadedmetadata', schedule, true)
   room.addEventListener('resize', schedule, true)
   window.addEventListener('resize', schedule)
+  // `fitCameraOnly` reads `data-call-pane` on the way in and out of `live`,
+  // and that change happens on `<html>`, well outside `room` - the pane
+  // settling from `peek`'s fixed thumbnails to `live`'s grown tile, or back,
+  // is exactly the moment this has to run again.
+  const paneObserver = new MutationObserver(schedule)
+  paneObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-call-pane'] })
   schedule()
 
   return () => {
     observer.disconnect()
     sizes.disconnect()
+    paneObserver.disconnect()
     room.removeEventListener('loadedmetadata', schedule, true)
     room.removeEventListener('resize', schedule, true)
     window.removeEventListener('resize', schedule)

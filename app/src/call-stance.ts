@@ -90,10 +90,20 @@ export function joinDoorOpen(input: CallStanceInput): boolean {
  *                and the conversation is the main column beneath it. An
  *                empty video grid is not worth a column, and was the last
  *                place the owner's original complaint still showed.
- *  - `live`      a picture exists. The pane grows to the row layout and the
- *                conversation goes back to being a drawer beside it.
+ *  - `peek`      a picture exists, but this device is not on the call (or
+ *                is on the way out of it). Watching without joining is not
+ *                the same claim on the window as being on the call: the
+ *                pane is a compact strip of thumbnails, one call away from
+ *                the drawer, and the conversation stays the main column.
+ *                This is the state a phone in the room and a desktop window
+ *                just watching used to be shown as `live` - a whole row
+ *                layout and a chat drawer for a call this device was never
+ *                on, which was the second half of the owner's complaint.
+ *  - `live`      a picture exists AND this device is on the call. The pane
+ *                grows to the row layout and the conversation goes back to
+ *                being a drawer beside it.
  */
-export type CallPane = 'resting' | 'controls' | 'live'
+export type CallPane = 'resting' | 'controls' | 'peek' | 'live'
 
 export interface CallPaneInput extends CallStanceInput {
   /**
@@ -111,8 +121,9 @@ export interface CallPaneInput extends CallStanceInput {
 }
 
 export function callPane(input: CallPaneInput): CallPane {
-  if (input.pictures) return 'live'
-  return input.mineOn && !input.leaving ? 'controls' : 'resting'
+  const onCall = input.mineOn && !input.leaving
+  if (!input.pictures) return onCall ? 'controls' : 'resting'
+  return onCall ? 'live' : 'peek'
 }
 
 /** How long a pane waits before shrinking. Long enough that a picture
@@ -164,7 +175,8 @@ export class PaneSettler {
       return this.#shown
     }
     if (target === 'live' || this.#shown !== 'live') {
-      // Growing, or moving between the two strips - neither waits.
+      // Growing, or moving between the strips (resting, controls, peek) -
+      // none of that waits.
       this.#since = undefined
       this.#shown = target
       return this.#shown

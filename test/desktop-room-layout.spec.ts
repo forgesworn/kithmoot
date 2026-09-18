@@ -647,3 +647,209 @@ test('a call with no cameras is a strip of names, and a camera brings the pane b
     await b.close()
   }
 })
+
+/**
+ * The owner's phone was in the room with its camera on. This device was
+ * not on the call at all. Two screenshots of the installed window showed
+ * the same bug at two widths: a whole row layout and a chat drawer for a
+ * call nobody here pressed anything to join, with a vast empty pane under
+ * one small tile.
+ *
+ * `peek` is the answer: pictures this device is not part of get a compact
+ * strip of thumbnails, never the drawer. Joining makes it this device's
+ * own call, and only then does the pane grow and the tile fill it.
+ */
+test('a picture this device is not on is a thumbnail strip, not the drawer - joining grows it, leaving shrinks it back', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
+  await mkdir(SHOTS, { recursive: true })
+
+  const a = await newDeviceContext(browser, baseURL!)
+  const b = await newDeviceContext(browser, baseURL!)
+  try {
+    const ada = await a.newPage()
+    const bob = await b.newPage()
+    await ada.setViewportSize({ width: 1727, height: 1311 })
+    await bob.setViewportSize({ width: 1320, height: 880 })
+
+    const link = await createRoom(ada, baseURL!)
+    await open(ada, link, 'Ada')
+    await ada.locator('#join').click()
+    await expect(ada.locator('#roomArea')).toBeVisible()
+
+    // Eight messages, two authors, grouped runs and Ada's own, so the
+    // screenshots also show the message-density work: shared headers on a
+    // run from the same author, and time beside the bubble for Ada's own.
+    const rowan = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: [TEST_RELAY_WS], name: 'Rowan' })
+    try {
+      // `sentAt` is second-granular, and messages sent within the same
+      // second tie-break on something other than send order - so a
+      // millisecond wait between each one is not padding, it is what
+      // keeps the run's chronological order (and so its grouping) honest
+      // in the screenshot.
+      for (const text of ['Morning', 'Coffee first?', 'Then the probe log']) {
+        await rowan.chat.send(text)
+        await ada.waitForTimeout(1100)
+      }
+      await expect(ada.locator('#chatLog .msg')).toHaveCount(3, { timeout: 60_000 })
+      for (const text of ['On it', 'Give me five minutes', 'Nearly there', 'Sharing now', 'Done - have a look']) {
+        await ada.locator('#chatInput').fill(text)
+        await ada.locator('#chatInput').press('Enter')
+        await ada.waitForTimeout(1100)
+      }
+      await expect(ada.locator('#chatLog .msg')).toHaveCount(8, { timeout: 60_000 })
+
+      // Bob joins the call with his camera on. Ada never touches the call
+      // control, so this is a picture she is not part of.
+      await joinWithMedia(bob, link, 'Bob')
+
+      await expect(ada.locator('html')).toHaveAttribute('data-call-pane', 'peek', { timeout: 60_000 })
+      await expect(ada.locator('#callToggle')).toHaveText('Join call')
+      await expect(ada.locator('#room video')).toBeVisible({ timeout: 30_000 })
+
+      const peekPane = await boxOf(ada.locator('#callStage'))
+      expect(peekPane.height, `the peek pane is ${peekPane.height.toFixed(0)}px tall, watching a call nobody here joined`).toBeLessThan(160)
+      const peekChat = await boxOf(ada.locator('#chatDrawer'))
+      expect(peekChat.width, `the conversation is ${peekChat.width.toFixed(0)}px wide while peeking`).toBeGreaterThanOrEqual(600)
+      await ada.screenshot({ path: `${SHOTS}/peek-1727x1311.png` })
+
+      // The narrower, stacked layout, while this connection is settled and
+      // quiet: thumbnails, not full tiles, while Ada is not on the call. A
+      // plain resize touches nothing about the call itself, unlike a fresh
+      // join or leave, so this is the stable moment to check it.
+      await ada.setViewportSize({ width: 982, height: 1299 })
+      await expect(ada.locator('#room video').first()).toBeVisible({ timeout: 30_000 })
+      await ada.waitForTimeout(200)
+      const stackedPeekTile = await boxOf(ada.locator('#room video').first())
+      expect(stackedPeekTile.height, `the stacked peek tile is ${stackedPeekTile.height.toFixed(0)}px tall, not a thumbnail`).toBeLessThan(160)
+      await ada.screenshot({ path: `${SHOTS}/peek-982x1299.png` })
+      await ada.setViewportSize({ width: 1727, height: 1311 })
+      await ada.waitForTimeout(200)
+
+      // Ada joins. It is her call now, and the pane may take the row.
+      const doorRecorder = () => {
+        const seen: Array<{ hidden: boolean; label: string | null }> = []
+        const banner = document.getElementById('callBanner') as HTMLElement
+        const toggle = document.getElementById('callToggle') as HTMLElement
+        const record = () => seen.push({ hidden: banner.hidden, label: toggle.textContent })
+        record()
+        const observer = new MutationObserver(record)
+        observer.observe(banner, { attributes: true, attributeFilter: ['hidden'] })
+        Object.assign(window as unknown as Record<string, unknown>, { peekDoorSeen: seen, stopPeekDoor: () => observer.disconnect() })
+      }
+      await ada.locator('#callToggle').click()
+      await expect(ada.locator('#callToggle')).toHaveText('Leave call')
+      await expect(ada.locator('html')).toHaveAttribute('data-call-pane', 'live', { timeout: 60_000 })
+
+      const tile = ada.locator('#room .participant:has(video)').first()
+      await expect(tile).toBeVisible()
+      const video = tile.locator('video').first()
+      // `fitCameraOnly` runs off a frame callback, same as `fitShares` - the
+      // width settles a moment after the pane's own data attribute does.
+      await expect.poll(async () => (await boxOf(video)).width).toBeGreaterThan(300)
+      await ada.waitForTimeout(200)
+      const tileBox = await boxOf(video)
+      // Measured against `#room` - the picture area itself - rather than
+      // `#callStage`, which also carries this device's own call controls
+      // above it; those are never going to be "the tile" whatever their
+      // height, and the owner's complaint was about the picture's own box.
+      const livePane = await boxOf(ada.locator('#room'))
+      const tileArea = tileBox.width * tileBox.height
+      const paneArea = livePane.width * livePane.height
+      expect(tileArea / paneArea, `the tile is only ${(100 * tileArea / paneArea).toFixed(0)}% of a ${livePane.width.toFixed(0)}x${livePane.height.toFixed(0)} pane`).toBeGreaterThanOrEqual(0.6)
+      const liveChat = await boxOf(ada.locator('#chatDrawer'))
+      expect(liveChat.width, `the drawer is ${liveChat.width.toFixed(0)}px, outside the 420-640px clamp`).toBeGreaterThanOrEqual(420 - 1)
+      expect(liveChat.width, `the drawer is ${liveChat.width.toFixed(0)}px, outside the 420-640px clamp`).toBeLessThanOrEqual(640 + 1)
+      await ada.screenshot({ path: `${SHOTS}/live-1727x1311.png` })
+
+      // The stacked layout while live too, still on the same settled
+      // connection - a full tile, not a thumbnail, because this is Ada's
+      // own call now.
+      await ada.setViewportSize({ width: 982, height: 1299 })
+      await expect(ada.locator('#room video').first()).toBeVisible({ timeout: 30_000 })
+      await ada.waitForTimeout(200)
+      await ada.screenshot({ path: `${SHOTS}/live-982x1299.png` })
+      await ada.setViewportSize({ width: 1727, height: 1311 })
+      await ada.waitForTimeout(200)
+
+      // Ada leaves. Bob is still on the call with his camera on, so the
+      // room genuinely goes back to peek - and the join door, which a
+      // leave still in flight must never paint, stays shut for every
+      // record taken before the button actually says "Join call".
+      await ada.evaluate(doorRecorder)
+      await ada.locator('#callToggle').click()
+      await expect(ada.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })
+      await expect(ada.locator('html')).toHaveAttribute('data-call-pane', 'peek', { timeout: 60_000 })
+      const door = await ada.evaluate(() => {
+        const w = window as unknown as { peekDoorSeen: Array<{ hidden: boolean; label: string | null }>; stopPeekDoor: () => void }
+        w.stopPeekDoor()
+        return w.peekDoorSeen
+      })
+      expect(door.length, 'the join door was never observed at all, so this proves nothing').toBeGreaterThan(0)
+      const flashedWhileLeaving = door.some(record => !record.hidden && record.label !== 'Join call')
+      expect(flashedWhileLeaving, `the join door was painted before the leave settled: ${JSON.stringify(door)}`).toBe(false)
+
+      const peekAgain = await boxOf(ada.locator('#callStage'))
+      expect(peekAgain.height, `the pane came back as ${peekAgain.height.toFixed(0)}px rather than the peek strip`).toBeLessThan(160)
+    } finally {
+      await rowan.leave()
+    }
+  } finally {
+    await a.close()
+    await b.close()
+  }
+})
+
+/**
+ * The message density pass: the per-message transport pill only earns its
+ * place when it disagrees with the composer's own pill above it. A room
+ * with one relay, later marked as a box of the person's circle, gives both
+ * halves of that rule in one flow - a message sent before the mark differs
+ * from the room's transport once it changes, and a message sent after it
+ * agrees.
+ */
+test("a message only carries its own transport pill when it differs from the composer's", async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
+  const a = await newDeviceContext(browser, baseURL!)
+  try {
+    const page = await a.newPage()
+    await page.setViewportSize({ width: 1320, height: 880 })
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/public/)
+
+    // Sent while the room's only relay is a public one: matches the
+    // composer's own pill, so no pill of its own - the fact is on the
+    // time instead.
+    await page.locator('#chatInput').fill('Before the mark')
+    await page.locator('#chatInput').press('Enter')
+    const before = page.locator('#chatLog .msg').filter({ hasText: 'Before the mark' })
+    await expect(before).toBeVisible()
+    await expect(before.locator('.chip.lane')).toHaveCount(0)
+    await expect(before.locator('time.when')).toHaveAttribute('title', /public relay/)
+
+    // Mark the room's relay as a box of the circle: the composer's own
+    // pill changes to sheltered, and the message sent before this now
+    // disagrees with it - so it shows its own pill, for the first time.
+    await page.locator('#roomMenu').click()
+    await page.locator('#roomRelaySettings').click()
+    await expect(page.locator('#relayList .relayRow')).toHaveCount(1)
+    await page.locator('#relayList .relayRow .relayCircle input').check()
+    await expect(page.locator('#relaySettingsStatus')).toContainText('Marked as a box of your circle')
+    await page.locator('#relaySettingsClose').click()
+    await expect(page.locator('#laneNote .chip.lane')).toHaveText(/Encrypted · circle relay/)
+    await expect(before.locator('.chip.lane')).toHaveText(/public/)
+
+    // Sent after the mark: matches the composer's now-sheltered pill, so
+    // again no pill of its own.
+    await page.locator('#chatInput').fill('After the mark')
+    await page.locator('#chatInput').press('Enter')
+    const after = page.locator('#chatLog .msg').filter({ hasText: 'After the mark' })
+    await expect(after).toBeVisible()
+    await expect(after.locator('.chip.lane')).toHaveCount(0)
+    await expect(after.locator('time.when')).toHaveAttribute('title', /circle relay/)
+  } finally {
+    await a.close()
+  }
+})
