@@ -407,6 +407,16 @@ export class Peer implements NegotiatingPeer {
    *  makes that ask answerable without touching the connection at all. */
   #lastRemoteOfferSdp?: string
   #lastAnswerSdp?: string
+  /** The answer this connection is currently negotiated with, as it was
+   *  applied - not as the connection reads it back, which a browser is free
+   *  to reformat. Cleared whenever a remote OFFER is applied, because this
+   *  side is then the one that answered and has no answer of its own to
+   *  compare against. See `#answerDisagrees`. */
+  #appliedAnswerSdp?: string
+  /** The answer this side has already reacted to by re-offering, so a far
+   *  end re-sending the same stale one cannot start an offer per copy. See
+   *  `#answerDisagrees`. */
+  #repairedAnswerSdp?: string
   /** A media-security hook rejected a newly-added sender. This connection
    * must never race ahead and offer an unprotected m-line. */
   #senderRefused = false
@@ -860,9 +870,17 @@ export class Peer implements NegotiatingPeer {
         // nothing outstanding for it to answer, and a real connection rejects
         // it; dropping it here keeps that rejection out of the caller's lap.
         this.#clearNegotiationTimers()
+        // Unless it is a DIFFERENT answer to that same offer, which is not a
+        // duplicate at all but the two sides disagreeing about what was
+        // negotiated - see `#answerDisagrees`.
+        if (this.#answerDisagrees(body.sdp)) {
+          this.#repairedAnswerSdp = body.sdp
+          await this.#offer()
+        }
         return
       }
       await this.#pc.setRemoteDescription({ type: 'answer', sdp: body.sdp })
+      this.#appliedAnswerSdp = body.sdp
       // The offer has been answered, so it is no longer anything to re-send.
       this.#clearNegotiationTimers()
       this.#hasRemoteDescription = true
@@ -870,6 +888,41 @@ export class Peer implements NegotiatingPeer {
     } else if (body.type === 'ice') {
       await this.#handleIce(body.candidate)
     }
+  }
+
+  /**
+   * Whether an answer arriving at a `stable` connection contradicts the one
+   * this side already negotiated with.
+   *
+   * The reproduction, measured four times out of eleven four-person joins on
+   * 18 September 2026: A offers, C answers before her microphone has reached
+   * that connection, so the audio m-line comes back `a=recvonly` and A's
+   * transceiver settles at `sendonly`. A's ordinary offer retry then sends
+   * the same offer again; by the time it lands C has her microphone, so C
+   * answers it a SECOND time - from a rollback of her own pending offer, so
+   * not by the duplicate-offer shortcut below - and that answer says
+   * `a=sendrecv`. A is already `stable` and dropped it as a duplicate. The
+   * two ends then disagreed for the rest of the call: C sent audio and
+   * counted it out, A's counters climbed, and A's receiver track stayed
+   * muted with a direction that says it is not receiving - so the tile
+   * mapping gave it no `<audio>` element and A could see C but not hear her.
+   * Nothing renegotiates afterwards, because nothing on either side has
+   * changed: this is the only moment the disagreement is visible.
+   *
+   * So a second answer whose SDP differs is not noise to be dropped, it is
+   * the far end saying our session is not the session it has. It cannot be
+   * applied - `setRemoteDescription` of an answer at `stable` throws - and
+   * the repair is an ordinary renegotiation from `stable`, which settles
+   * both sides on one description without touching ICE or DTLS.
+   *
+   * Only ever when we were the offerer of the completed exchange, and only
+   * once per distinct answer, so a far end repeating a stale copy cannot
+   * make this side offer once per copy.
+   */
+  #answerDisagrees(sdp: string | undefined): boolean {
+    if (sdp === undefined || this.#closed || this.#makingOffer || this.#senderRefused) return false
+    if (this.#appliedAnswerSdp === undefined) return false
+    return this.#appliedAnswerSdp !== sdp && this.#repairedAnswerSdp !== sdp
   }
 
   async #handleOffer(sdp: string | undefined): Promise<void> {
@@ -918,6 +971,14 @@ export class Peer implements NegotiatingPeer {
     await this.#pc.setRemoteDescription({ type: 'offer', sdp })
     this.#hasRemoteDescription = true
     this.#remoteOffersApplied += 1
+    // We are the side that answers this exchange, so there is no answer of
+    // our own for `#answerDisagrees` to compare a late one against.
+    this.#appliedAnswerSdp = undefined
+    // Whether this is an offer this side has answered before, held now
+    // because the field it is read from is about to be overwritten. What it
+    // is for is at the foot of this method.
+    const reanswered = sdp !== undefined && sdp === this.#lastRemoteOfferSdp
+    const answeredBefore = this.#lastAnswerSdp
     this.#lastRemoteOfferSdp = sdp
 
     // The answer comes first, and only then the buffered candidates. Nothing
@@ -930,6 +991,29 @@ export class Peer implements NegotiatingPeer {
     this.#onSignal({ type: 'answer', roomId: '', sdp: answer.sdp })
 
     await this.#drainCandidates()
+
+    /**
+     * The same offer, answered twice, differently.
+     *
+     * The other half of `#answerDisagrees`, from the answering side. A copy
+     * of an offer this side has already answered does not usually reach
+     * here - the shortcut at the top of this method replies with the answer
+     * it sent last time - but it does when this side had an offer of its own
+     * outstanding, because then it is a collision and the polite side rolls
+     * its offer back and answers afresh. Anything that changed in between,
+     * a microphone arriving being the measured case, makes that second
+     * answer a different description from the first.
+     *
+     * The far end may have applied either. If it applied the first, it is
+     * now negotiated with directions this side has already moved on from,
+     * and neither end has anything left to say about it. So say something:
+     * one offer from `stable` settles both ends on one description.
+     */
+    if (reanswered && answeredBefore !== undefined && answeredBefore !== answer.sdp) {
+      if (this.#closed || this.#makingOffer || this.#senderRefused) return
+      if (this.#pc.signalingState !== 'stable') return
+      await this.#offer()
+    }
   }
 
   async #handleIce(candidateJson: string | undefined): Promise<void> {

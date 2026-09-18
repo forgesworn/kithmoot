@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Peer, MAX_PENDING_CANDIDATES } from './peer.js'
-import { createFakeFactory } from '../test/fake-rtc.js'
+import { createFakeFactory, fakeTrack as fakeMediaTrack } from '../test/fake-rtc.js'
 import type { SignalBody } from './signal.js'
+
+/** A track the fixture writes a real `m=audio` line for. The bare `{}` below
+ *  is enough for a test about the negotiation state machine; a test about
+ *  directions needs the SDP to say which kind it is. */
+const fakeAudioTrack = () => fakeMediaTrack('audio')
 
 const LOW = 'a'.repeat(64)
 const HIGH = 'b'.repeat(64)
@@ -1234,6 +1239,138 @@ describe('Peer', () => {
     // The oldest are the ones dropped: the newest candidates are the ones
     // most likely still to work.
     expect((applied[0]!.args[0] as { candidate: string }).candidate).toBe('candidate:20')
+  })
+
+  /**
+   * BUG: one-way audio with nothing injected - the four-person baseline of
+   * `test/call-stability.spec.ts`, which failed four times out of eleven
+   * joins on 18 September 2026 and once in CI (run 35320249730).
+   *
+   * The whole failure, in one connection: the answerer's microphone is a
+   * pipeline that takes a moment to start, so an offer that arrives first is
+   * answered `a=recvonly` for audio - honestly, there is nothing to send yet.
+   * The offerer settles at `sendonly` and stops asking. The microphone then
+   * arrives, the answerer raises its own offer, and the offerer's ordinary
+   * retry lands in the middle of it: a collision, rolled back by the polite
+   * answerer, which answers the SAME offer a second time and now says
+   * `a=sendrecv`. That answer reached a connection that was already
+   * `stable`, where it was dropped as a duplicate - and from then on one end
+   * sent audio and the other's transceiver said it was not receiving any, for
+   * the rest of the call, with nothing left to renegotiate it.
+   */
+  it('BUG: a second, different answer to the same offer is a disagreement to repair, not a duplicate to drop', async () => {
+    const structured = { structuredSdp: true }
+    const fromOfferer: SignalBody[] = []
+    const fromAnswerer: SignalBody[] = []
+    // HIGH offers, LOW answers: the answerer is the polite side, so it is the
+    // one that rolls back and answers again.
+    const offererFactory = createFakeFactory(structured)
+    const answererFactory = createFakeFactory(structured)
+    const offerer = new Peer({
+      factory: offererFactory,
+      localDevice: HIGH,
+      remoteDevice: LOW,
+      onSignal: (b) => fromOfferer.push(b),
+      onTrack: () => {},
+      // Long enough that the retry never fires by itself: this test re-sends
+      // the offer where the reproduction's timer did.
+      offerRetry: { intervalMs: 60_000 },
+    })
+    const answerer = new Peer({
+      factory: answererFactory,
+      localDevice: LOW,
+      remoteDevice: HIGH,
+      onSignal: (b) => fromAnswerer.push(b),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 60_000 },
+    })
+
+    await offerer.start([fakeAudioTrack()])
+    await settle()
+    const offer = fromOfferer.filter((s) => s.type === 'offer')[0]!
+
+    // Answered before the answerer's own microphone exists.
+    await answerer.handleSignal(offer)
+    await settle()
+    await offerer.handleSignal(fromAnswerer.filter((s) => s.type === 'answer')[0]!)
+    await settle()
+
+    const offererPc = offererFactory.instances[0]!
+    const audio = offererPc.getTransceivers().find((t) => t.kind === 'audio')!
+    expect(audio.currentDirection, 'the answer said recvonly, so this side only sends').toBe('sendonly')
+
+    // The microphone arrives. The answerer offers, and the offerer's retry
+    // crosses it, so the same offer is answered a second time - this time
+    // with something to send.
+    await answerer.start([fakeAudioTrack()])
+    await settle()
+    expect(answererFactory.instances[0]!.signalingState).toBe('have-local-offer')
+    await answerer.handleSignal(offer)
+    await settle()
+    const answers = fromAnswerer.filter((s) => s.type === 'answer')
+    expect(answers, 'the rolled-back answerer answered the offer again').toHaveLength(2)
+    expect(answers[1]!.sdp, 'and its answer changed, because its media did').not.toBe(answers[0]!.sdp)
+
+    // Which reaches a connection that is already stable.
+    await offerer.handleSignal(answers[1]!)
+    await settle()
+
+    // The repair is an ordinary renegotiation, so the answerer has to be
+    // given the offer it prompts and its answer handed back.
+    for (const body of fromOfferer.filter((s) => s.type === 'offer').slice(1)) {
+      await answerer.handleSignal(body)
+      await settle()
+    }
+    for (const body of fromAnswerer.filter((s) => s.type === 'answer').slice(2)) {
+      await offerer.handleSignal(body)
+      await settle()
+    }
+
+    expect(audio.currentDirection, 'the two ends never agreed that audio flows both ways').toBe('sendrecv')
+    expect(offererPc.signalingState).toBe('stable')
+    expect(answererFactory.instances[0]!.signalingState).toBe('stable')
+    offerer.close()
+    answerer.close()
+  })
+
+  it('does not offer again for a repeat of the answer it is already negotiated with', async () => {
+    const structured = { structuredSdp: true }
+    const fromOfferer: SignalBody[] = []
+    const fromAnswerer: SignalBody[] = []
+    const offererFactory = createFakeFactory(structured)
+    const offerer = new Peer({
+      factory: offererFactory,
+      localDevice: HIGH,
+      remoteDevice: LOW,
+      onSignal: (b) => fromOfferer.push(b),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 60_000 },
+    })
+    const answerer = new Peer({
+      factory: createFakeFactory(structured),
+      localDevice: LOW,
+      remoteDevice: HIGH,
+      onSignal: (b) => fromAnswerer.push(b),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 60_000 },
+    })
+
+    await offerer.start([fakeAudioTrack()])
+    await settle()
+    await answerer.handleSignal(fromOfferer.filter((s) => s.type === 'offer')[0]!)
+    await settle()
+    const answer = fromAnswerer.filter((s) => s.type === 'answer')[0]!
+    await offerer.handleSignal(answer)
+    await settle()
+
+    const offersSoFar = fromOfferer.filter((s) => s.type === 'offer').length
+    // The same answer again, twice - what the far end's own retransmission
+    // of an answer looks like, and what used to be the only case here.
+    await offerer.handleSignal(answer)
+    await offerer.handleSignal(answer)
+    await settle()
+
+    expect(fromOfferer.filter((s) => s.type === 'offer'), 'a duplicate answer renegotiated the pair').toHaveLength(offersSoFar)
   })
 
   it('close() is idempotent', async () => {
