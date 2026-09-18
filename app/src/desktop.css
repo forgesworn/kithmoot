@@ -174,6 +174,31 @@ html[data-desktop][data-call-pane="resting"] .callStrip button { margin: 0; whit
    The strip beneath it would be the same offer twice on one screen. */
 html[data-desktop][data-call-pane="resting"] #roomArea:has(#callBanner:not([hidden])) .callStrip { display: none; }
 
+/* The rooms rail, and the control that puts it away.
+   Collapsed, the grid column comes down to the control's own width and the
+   room takes the rest; `--rail-w` comes down with it, so the width the rail
+   gave up is width Shared Work and the conversation can actually have
+   rather than width nobody is using. */
+html[data-desktop] .railBar { display: flex; align-items: center; justify-content: space-between; gap: .35rem; margin: 0 0 .5rem; }
+html[data-desktop] #projectsRailToggle { margin: 0; padding: .3rem .55rem; line-height: 1; font-size: 1.1rem; }
+html[data-desktop] .railUnread {
+  min-width: 1.35rem;
+  padding: .1rem .3rem;
+  border-radius: 1rem;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: .72rem;
+  font-weight: 650;
+  text-align: center;
+}
+@media (min-width: 1100px) and (min-height: 541px) {
+  html[data-desktop][data-rail="collapsed"] { --rail-w: 3.5rem; }
+  html[data-desktop][data-rail="collapsed"] main:has(#roomArea:not([hidden])) { grid-template-columns: 3.5rem minmax(0, 1fr); }
+  html[data-desktop][data-rail="collapsed"] #workspaceRailBody { display: none; }
+  html[data-desktop][data-rail="collapsed"] #workspaceNav:not([hidden]) { padding-right: .35rem; }
+  html[data-desktop][data-rail="collapsed"] .railBar { flex-direction: column; gap: .5rem; }
+}
+
 /* Shared Work narrows before the conversation does. The web client keeps
    its fixed 28rem panel; this window is the one where all three are open at
    once and the arithmetic has to hold. */

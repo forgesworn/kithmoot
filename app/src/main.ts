@@ -3,6 +3,7 @@ import { playZenChime, unlockZenChime } from './zen-chime.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, callPaneLive, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
+import { setProjectsRailUnread } from './desktop-projects-rail.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { EmojiPicker } from './emoji-picker.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
@@ -9583,6 +9584,9 @@ function updateDesktopUnread(): void {
       !message.retracted && message.original.participant !== self && message.original.sentAt > (room.readAt ?? 0)).length
   }
   if (session) for (const [name] of conversationTabs()) count += conversationUnread(name)
+  // The same total the badge carries, on the collapsed rooms rail: putting
+  // the rail away must not mean losing sight of a room that is talking.
+  setProjectsRailUnread(count)
   window.kithmootDesktop?.setUnread(count)
   if (!window.kithmootDesktop) updateAppBadge(count)
   document.title = titleWithCount('KithMoot', count)
