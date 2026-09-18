@@ -3278,6 +3278,35 @@ button.primary:hover:not(:disabled) {
   background: var(--accent-dim);
 }
 .callBanner button.primary { margin: 0; white-space: nowrap; }
+/* Who is on the call, by name, for the pane that has no pictures in it.
+   Hidden until the installed window's controls-only pane asks for it - see
+   `[data-call-pane="controls"]` in desktop.css - because everywhere else
+   there is a tile or a scrolling page to carry the same facts. */
+.callChips { display: none; align-items: center; flex-wrap: wrap; gap: .4rem; min-width: 0; }
+.callChip {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  max-width: 100%;
+  min-width: 0;
+  padding: .15rem .5rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  font-size: .9rem;
+  white-space: nowrap;
+}
+/* The same ring the tiles use, so "who is talking" reads the same whether
+   the room is showing faces or names. */
+.callChip.speaking { border-color: var(--live); box-shadow: 0 0 0 2px var(--live); }
+.callChip .name { overflow: hidden; text-overflow: ellipsis; }
+.callChip .avatar, .callChip .donorRing { width: 20px; height: 20px; }
+.callChip .badge { font-size: .7rem; }
+
+/* The resting call strip belongs to the installed desktop window alone -
+   see `[data-call-pane="resting"]` in desktop.css. A browser tab's call
+   area already costs nothing when it is empty, because the page scrolls;
+   the installed window's does not, which is what the strip is for. */
+.callStrip { display: none; }
 #callToggle[data-live="true"] {
   background: var(--live);
   border-color: var(--live);

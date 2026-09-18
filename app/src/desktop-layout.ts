@@ -1,5 +1,6 @@
 import './desktop.css'
 import { loadDrawerOpen, saveDrawerOpen, wrapConversation } from './desktop-chat-drawer.js'
+import { loadRailOpen, saveRailOpen, wrapRail } from './desktop-projects-rail.js'
 import { installShareFitting } from './desktop-layout-fit.js'
 
 // Reuse the same controls and media elements; moving them preserves listeners,
@@ -35,6 +36,42 @@ if (import.meta.env.VITE_DESKTOP === 'true') {
   // default would quietly take it away from everyone upgrading into this.
   // Only a person who actually closes it once gets the closed default back.
   setOpen(loadDrawerOpen(window.localStorage, true))
+
+  // The rooms rail, and a way to put it away. Same pattern as the drawer
+  // above: one state on the root element, one control that says what it
+  // will do, and this device's own answer remembered. Collapsed it keeps
+  // the control and the unread total, so putting the rail away never means
+  // losing track of a room that is talking.
+  const rail = document.getElementById('workspaceNav')
+  if (rail) {
+    const body = wrapRail(rail)
+    const bar = document.createElement('div')
+    bar.className = 'railBar'
+    const railToggle = document.createElement('button')
+    railToggle.type = 'button'
+    railToggle.id = 'projectsRailToggle'
+    railToggle.className = 'barBtn'
+    railToggle.setAttribute('aria-controls', body.id)
+    const unread = document.createElement('span')
+    unread.id = 'projectsRailUnread'
+    unread.className = 'railUnread'
+    unread.hidden = true
+    bar.append(railToggle, unread)
+    rail.prepend(bar)
+    const setRailOpen = (open: boolean): void => {
+      document.documentElement.dataset.rail = open ? 'open' : 'collapsed'
+      railToggle.setAttribute('aria-expanded', String(open))
+      // A glyph in a 3.5rem rail, and the whole sentence to anything that
+      // reads it out or hovers it.
+      railToggle.textContent = open ? '‹' : '›'
+      const label = open ? 'Hide projects and rooms' : 'Show projects and rooms'
+      railToggle.setAttribute('aria-label', label)
+      railToggle.title = label
+      saveRailOpen(window.localStorage, open)
+    }
+    railToggle.addEventListener('click', () => setRailOpen(document.documentElement.dataset.rail !== 'open'))
+    setRailOpen(loadRailOpen(window.localStorage, true))
+  }
 
   // A shared screen's box is shaped by the picture in it, and the rows are
   // bounded so a second sharer costs the first one size rather than a place
