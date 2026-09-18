@@ -3307,10 +3307,16 @@ button.primary:hover:not(:disabled) {
    area already costs nothing when it is empty, because the page scrolls;
    the installed window's does not, which is what the strip is for. */
 .callStrip { display: none; }
+/* On a call, this button's only job left is to leave it - the same act
+   #leaveCall offers in the pane - so it takes the same danger treatment,
+   not the accent-like "live" colour a leave should never wear. "On the
+   call" itself is still said clearly: by #callWho beside the pane's
+   controls, and by the green ring on this device's own tile below
+   (#room .participant.onCall) - both of which stay green on purpose. */
 #callToggle[data-live="true"] {
-  background: var(--live);
-  border-color: var(--live);
-  color: var(--on-live);
+  background: var(--danger);
+  border-color: var(--danger-border);
+  color: var(--on-danger);
 }
 .callHead { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .4rem; }
 .callHead p { margin: 0; }

@@ -44,6 +44,11 @@ html[data-desktop] {
   html[data-desktop] #attachStaged { max-height: 20vh; overflow: auto; }
   html[data-desktop] #leaveCall { background: #b3261e; color: white; border-color: #b3261e; }
   html[data-desktop] #leaveCall:hover { background: #8f1e18; }
+  /* The top-bar toggle reads "Leave call" in this state too, and a leave
+     action is never green - see style.css for the non-desktop rule this
+     matches pixel for pixel. */
+  html[data-desktop] #callToggle[data-live="true"] { background: #b3261e; color: white; border-color: #b3261e; }
+  html[data-desktop] #callToggle[data-live="true"]:hover { background: #8f1e18; }
 }
 /* Below the width the drawer needs, the conversation is back to a plain
    stacked panel (see the 701px block above) and there is nothing to toggle.
