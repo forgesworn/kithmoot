@@ -107,6 +107,17 @@
              they can share one bounded area and never push the conversation
              off the screen. See "Phone reading pass" in style.css. -->
         <div id="callStage">
+        <!-- Nobody is on a call, so the call area is one line: what the room
+             is doing, and the way to start. Shown only by the installed
+             desktop window, whose height is fixed and whose empty call panel
+             was taking that height from the conversation - see
+             `[data-call-pane="resting"]` in app/src/desktop.css. Filled in
+             by `renderCallState` in app/src/main.ts for every build, so the
+             words cannot drift from the room bar's own control. -->
+        <div id="callStrip" class="callStrip">
+          <span id="callStripText" class="callStripText">Nobody is on a call.</span>
+          <button id="callStripAction" type="button" class="primary">Start call</button>
+        </div>
         <!-- The call. Absent until there is one, the way a phone shows call
              controls only during a call. Revealed by the Call button above,
              and kept open for as long as anything of yours is live. -->

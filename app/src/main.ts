@@ -2,6 +2,7 @@ import { updateAppBadge } from './app-badge.js'
 import { playZenChime, unlockZenChime } from './zen-chime.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
+import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, callPaneLive, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { EmojiPicker } from './emoji-picker.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
@@ -219,7 +220,10 @@ for (const target of [$('chatLog'), window]) target.addEventListener('scroll', (
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
-  if (!$('callBay').hidden && !callIsLive() && !document.querySelector('dialog[open]')) setCallOpen(false)
+  // Not while on the call: the room bar's control now leaves a call rather
+  // than reopening its panel, so a bay folded away by Escape would be a
+  // call with no controls and no way back to them.
+  if (!$('callBay').hidden && !callIsLive() && !onCall() && !document.querySelector('dialog[open]')) setCallOpen(false)
 })
 
 function positionReactionDetails(details: HTMLElement): void {
@@ -3181,6 +3185,37 @@ function renderWakeLockNote(): void {
  */
 let leftCall = false
 
+/**
+ * Leave was pressed and has not finished.
+ *
+ * Set before anything is torn down and cleared only once the panes have
+ * been repainted, so every call control reads "on the way out" for the
+ * whole of it. Without this, the moment between "this device stopped saying
+ * it is on the call" and "the roster agrees" painted the join door - see
+ * app/src/call-stance.ts for why that is our own shadow and not a race.
+ */
+let leavingCall = false
+
+/**
+ * What every call control is looking at: this device's own membership, how
+ * many OTHER devices are on the room's current call, and whether a leave is
+ * in flight. Other devices, never the roster's count of people, because
+ * this device's own entry outlives its leave by a beat.
+ */
+function callStanceNow(views: ParticipantView[]): CallStanceInput {
+  const current = (session?.calls() ?? [])[0]
+  let otherDevicesOn = 0
+  if (current) {
+    for (const view of views) {
+      if (view.call?.id !== current.id) continue
+      // Own other devices count. A call taken on the laptop is one this
+      // window may join, and the notice about it says so.
+      otherDevicesOn += view.call.devices.filter(device => device !== myDeviceId).length
+    }
+  }
+  return { mineOn: onCall(), otherDevicesOn, leaving: leavingCall }
+}
+
 function newCallId(): string {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(16)))
 }
@@ -3334,23 +3369,34 @@ function stopLocalMedia(): void {
  *  back. */
 async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
   const s = session
-  stopLocalMedia()
-  speakingMonitor.retain([...remoteAudios.keys()])
-  remoteVolume.retain([...remoteAudios.keys()])
-  leftCall = true
-  if (reason === 'preempted') {
-    if (s) await s.farewellCall()
-  } else {
-    publishActiveTracks()
-    if (s) await s.setCall(null)
-  }
-  setCallOpen(false)
-  void callWakeLock.release()
-  autoplayBanner.hide()
-  renderAutoplayBanner()
-  if (reason === 'user') {
-    const key = callLockKey()
-    if (key) callTabLock.release(key)
+  // Before a single thing is torn down. Everything between here and the
+  // repaint at the end reads this and paints the resting state, so the
+  // person sees the call go and never sees a door asking them back in.
+  leavingCall = true
+  try {
+    stopLocalMedia()
+    speakingMonitor.retain([...remoteAudios.keys()])
+    remoteVolume.retain([...remoteAudios.keys()])
+    leftCall = true
+    if (reason === 'preempted') {
+      if (s) await s.farewellCall()
+    } else {
+      publishActiveTracks()
+      if (s) await s.setCall(null)
+    }
+    setCallOpen(false)
+    void callWakeLock.release()
+    autoplayBanner.hide()
+    renderAutoplayBanner()
+    if (reason === 'user') {
+      const key = callLockKey()
+      if (key) callTabLock.release(key)
+    }
+  } finally {
+    // Cleared before the last repaint, not after: this is where the resting
+    // state becomes the honest answer rather than a held one, and the
+    // repaint below is the one that draws it.
+    leavingCall = false
   }
   updateUi()
   if (session) render(session.participants(), meParticipant)
@@ -3363,18 +3409,49 @@ async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
  */
 function renderCallState(views: ParticipantView[]): void {
   const calls = session?.calls() ?? []
-  const mineOn = onCall()
+  const state = callStanceNow(views)
+  const stance = callStance(state)
+  const mineOn = stance === 'leave'
   window.kithmootDesktop?.setCallActive(mineOn)
   const button = $('callToggle')
   const current = calls[0]
-  button.textContent = mineOn ? 'On call' : current ? 'Join call' : 'Call'
-  button.dataset.live = String(mineOn)
-  $('mobileCall').textContent = mineOn ? 'Call · live' : current ? 'Call · join' : 'Call'
-  button.title = mineOn ? 'Your call controls' : current ? 'A call is on in this room' : 'Start a call in this room'
+  // One control, three things it can do, and it says which. "Call" told a
+  // person nothing, and "On call" was a state where they expected an act.
+  //
+  // Written only when it changes, here and below. This runs on every
+  // heartbeat of every device in the room, and the pane's state lives on
+  // the root element: restating it would throw the whole document's style
+  // away several times a second, during a call, which is the one moment
+  // the machine has something better to do.
+  const label = CALL_STANCE_LABELS[stance]
+  if (button.textContent !== label) {
+    button.textContent = label
+    button.setAttribute('aria-label', label)
+    button.title = CALL_STANCE_TITLES[stance]
+    button.dataset.stance = stance
+  }
+  if (button.dataset.live !== String(mineOn)) button.dataset.live = String(mineOn)
+  const mobile = mineOn ? 'Call · live' : stance === 'join' ? 'Call · join' : 'Call'
+  if ($('mobileCall').textContent !== mobile) $('mobileCall').textContent = mobile
+
+  // A call pane with nothing in it costs the conversation its room. What it
+  // has to show is this device's own controls and the pictures in
+  // `#whoIsHere` - which `render` has just hidden, or not, immediately
+  // above this call. See `callPaneLive` and the resting strip in
+  // app/src/desktop.css.
+  const pane = callPaneLive({ ...state, showing: !$('whoIsHere').hidden }) ? 'live' : 'resting'
+  if (document.documentElement.dataset.callPane !== pane) document.documentElement.dataset.callPane = pane
+  if ($('callStripAction').textContent !== label) {
+    $('callStripAction').textContent = label
+    $('callStripAction').setAttribute('aria-label', label)
+  }
+  const strip = stance === 'join' ? 'A call is on in this room.' : 'Nobody is on a call.'
+  if ($('callStripText').textContent !== strip) $('callStripText').textContent = strip
 
   const banner = $('callBanner')
-  banner.hidden = mineOn || !current
-  if (current && !mineOn) {
+  const doorShut = !joinDoorOpen(state)
+  if (banner.hidden !== doorShut) banner.hidden = doorShut
+  if (current && !banner.hidden) {
     const on = views.filter(view => view.call?.id === current.id).sort((a, b) => (a.call?.since ?? 0) - (b.call?.since ?? 0))
     const starter = on[0]
     const who = starter ? (shownAs(starter.participant, starter.name).name ?? 'Somebody') : 'Somebody'
@@ -9924,20 +10001,24 @@ $('profileSettings').addEventListener('close', () => profileReturnFocus.focus({ 
 $('roomSheet').addEventListener('click', (event) => {
   if (event.target === $('roomSheet')) closeRoomSheet()
 })
+// The button does what it says. It said "On call" and did neither of the
+// two things a person on a call might want; now it reads Start call, Join
+// call or Leave call - see app/src/call-stance.ts - and pressing it does
+// that. The Leave inside the call pane stays: it is where the hand already
+// is once the controls are open.
 $('callToggle').addEventListener('click', () => {
-  if (!onCall()) {
-    joinCall().catch((err) => setStatus(describeError(err)))
+  if (onCall()) {
+    if (!leavingCall) leaveCall().catch((err) => setStatus(describeError(err)))
     return
   }
-  // On a call the controls stay up. Pressing "On call" used to fold them
-  // away, so the one button a person had just pressed to get the mic and
-  // camera hid the mic and camera; now it brings them back into view if
-  // the page has scrolled past them, and that is all.
-  setCallOpen(true)
-  showMobileRoomView('call')
-  $('deviceControls').scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  joinCall().catch((err) => setStatus(describeError(err)))
 })
 $('joinCall').addEventListener('click', () => {
+  joinCall().catch((err) => setStatus(describeError(err)))
+})
+// The resting strip's own control. Only ever on screen when this device is
+// off the call, so it starts or joins one; it never has to leave.
+$('callStripAction').addEventListener('click', () => {
   joinCall().catch((err) => setStatus(describeError(err)))
 })
 $('leaveCall').addEventListener('click', () => {
