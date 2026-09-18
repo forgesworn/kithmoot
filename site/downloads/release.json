@@ -1,22 +1,22 @@
 {
-  "version": "0.1.6",
+  "version": "0.1.7",
   "channel": "preview",
   "published": "2026-09-18",
   "files": [
     {
-      "filename": "KithMoot-0.1.6-mac-arm64.zip",
-      "sha256": "31cdadf0e768c460703200354ea36edcb2e42fbd0fadeda5bfb267e4874e10b8",
-      "bytes": 136470379
+      "filename": "KithMoot-0.1.7-mac-arm64.zip",
+      "sha256": "5191b5d716a5ed37cbb8ababb91d37d826af32107684cf27d9ad78c8b6c5c363",
+      "bytes": 136472694
     },
     {
-      "filename": "KithMoot-0.1.6-linux-x64.tar.gz",
-      "sha256": "1d147a05afd985820084dcfe284e75ef4310456a8f35ce24deca4bb45dc8347d",
-      "bytes": 131612514
+      "filename": "KithMoot-0.1.7-linux-x64.tar.gz",
+      "sha256": "31a97e6244076b2ffc8ba3c2f811492e78df6d1742c42fd62b3ea792d4c40c11",
+      "bytes": 131607870
     },
     {
-      "filename": "KithMoot-0.1.6-linux-arm64.tar.gz",
-      "sha256": "83a6f26fd90332c46df8b524cf039af9cf30d7712e0a30469c6b41488444bf95",
-      "bytes": 132731803
+      "filename": "KithMoot-0.1.7-linux-arm64.tar.gz",
+      "sha256": "89e6e7fe0cac14c3ba2851d75338e7c519c78fdd029b48547ad63c6625dc5aef",
+      "bytes": 132727696
     }
   ]
 }
