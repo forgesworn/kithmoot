@@ -418,6 +418,27 @@ describe('VideoEffect failure behaviour', () => {
     effect.close()
   })
 
+  it('clears the canvas to opaque black before drawing the backdrop, so a stale frame can never show through', async () => {
+    const { effect, out } = newEffect({ loadError: new Error('wasm did not arrive'), mode: 'replace' })
+    await effect.ready()
+    const background = { background: true }
+    effect.setBackground(background)
+    effect.renderFrame(SOURCE, 320, 240, 0)
+
+    const clear = out.ctx.ops.find((o) => o.op === 'clearRect')
+    const fill = out.ctx.ops.find((o) => o.op === 'fillRect')
+    const draw = out.ctx.ops.find((o) => o.op === 'drawImage' && o.image === background)
+    expect(clear).toBeDefined()
+    expect(clear!.args).toEqual([0, 0, 320, 240])
+    expect(fill).toBeDefined()
+    expect(fill!.args).toEqual([0, 0, 320, 240])
+    expect(out.ctx.fillStyle).toBe('#000')
+    // Opaque base, then the backdrop, in that order - never the other way
+    // round, and never skipped.
+    expect(out.ctx.ops.indexOf(clear!)).toBeLessThan(out.ctx.ops.indexOf(fill!))
+    expect(out.ctx.ops.indexOf(fill!)).toBeLessThan(out.ctx.ops.indexOf(draw!))
+  })
+
   it('falls back to a maximum-strength blur in replace mode with no backdrop loaded either', async () => {
     const { effect, out } = newEffect({ loadError: new Error('wasm did not arrive'), mode: 'replace' })
     await effect.ready()

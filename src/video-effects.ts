@@ -65,7 +65,9 @@ export interface Context2DLike {
   globalCompositeOperation: string
   imageSmoothingEnabled: boolean
   imageSmoothingQuality?: string
+  fillStyle: string
   clearRect(x: number, y: number, w: number, h: number): void
+  fillRect(x: number, y: number, w: number, h: number): void
   drawImage(image: FrameSourceLike, dx: number, dy: number, dw: number, dh: number): void
   putImageData(image: ImageDataLike, dx: number, dy: number): void
   createImageData(width: number, height: number): ImageDataLike
@@ -1208,6 +1210,13 @@ export class VideoEffect {
    * answer to "the effect cannot be trusted" - there is no mask to composite
    * with, but there is still a backdrop, and painting it over the whole
    * frame is strictly safer than showing any of the room behind it.
+   *
+   * Cleared to opaque black before anything else is drawn. `drawImage` of a
+   * backdrop that is transparent, or not yet decoded, leaves whatever the
+   * canvas already held showing through or untouched - which, the one
+   * moment this path exists for, could be a frame from before the effect
+   * broke. Black first means the worst case is a black frame, never a
+   * stale one.
    */
   #paintCover(source: FrameSourceLike, width: number, height: number, nowMs: number): FrameAction {
     let replacement: FrameSourceLike | null = null
@@ -1232,6 +1241,9 @@ export class VideoEffect {
     const ctx = this.#outCtx
     ctx.globalCompositeOperation = 'source-over'
     ctx.filter = 'none'
+    ctx.clearRect(0, 0, width, height)
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, width, height)
     const rect = replacementSize
       ? coverRect(replacementSize.width, replacementSize.height, width, height)
       : { dx: 0, dy: 0, dw: width, dh: height }
