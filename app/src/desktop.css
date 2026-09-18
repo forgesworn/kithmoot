@@ -109,9 +109,17 @@ html[data-desktop] #chatDrawerToggle { display: none; }
      Only `live` reaches this rule now - see the peek/resting/controls
      override below - so these numbers are what a call this device is
      actually on gets beside it: never thinner than a phone's own reading
-     width, never so wide that the tiles it sits beside are starved for it. */
+     width, never so wide that the tiles it sits beside are starved for it.
+
+     28vw rather than a rounder fraction, and a 360px floor rather than a
+     420px one: at 1320px - the narrowest window "two people each share a
+     screen" is measured at - a wider drawer took enough of the row that a
+     share stopped being wider than its own camera, which is the one
+     invariant that layout exists to hold. A smaller minimum at a narrow
+     window is the trade the call pane's own floor already makes
+     everywhere else in this file; the drawer is not special. */
   html[data-desktop] .desktopConversation[data-open="true"] {
-    width: clamp(420px, 36vw, 640px);
+    width: clamp(360px, 28vw, 560px);
     border-left: 1px solid var(--border);
     padding-left: 1rem;
   }

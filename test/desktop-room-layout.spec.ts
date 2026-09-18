@@ -477,10 +477,17 @@ test('with nothing beside it the conversation is the main column, not a strip', 
       const label = `${size.width}x${size.height}, Chat only`
       const room = await boxOf(page.locator('#roomArea'))
       const column = await boxOf(log)
-      expect(column.width, `${label}: the message column is ${column.width.toFixed(0)}px wide`).toBeGreaterThanOrEqual(600)
-      // Left-aligned, so the window is not a column adrift in empty black.
-      const gap = column.x - room.x
-      expect(gap, `${label}: ${gap.toFixed(0)}px of empty room to the left of the conversation, of ${room.width.toFixed(0)}px`).toBeLessThan(room.width * 0.15)
+      // Centred in the room area, not pinned to its left edge - a wide
+      // window with nothing beside the column used to leave the whole
+      // right half empty. Left and right gaps equal within a few pixels
+      // is "centred"; a column adrift at either edge is not.
+      const leftGap = column.x - room.x
+      const rightGap = (room.x + room.width) - (column.x + column.width)
+      expect(Math.abs(leftGap - rightGap), `${label}: ${leftGap.toFixed(0)}px on the left, ${rightGap.toFixed(0)}px on the right of a ${room.width.toFixed(0)}px room - not centred`).toBeLessThanOrEqual(8)
+      // Still capped at a line worth reading, and still at least the room's
+      // width minus a little breathing room either side, whichever is less.
+      const expectedWidth = Math.min(860, room.width - 32)
+      expect(column.width, `${label}: the message column is ${column.width.toFixed(0)}px wide, short of ${expectedWidth.toFixed(0)}px`).toBeGreaterThanOrEqual(expectedWidth - 1)
       const lines = await lineCount(rows.first().locator('.bubble .text'))
       expect(lines, `${label}: a twenty-word message wrapped to ${lines} lines`).toBeLessThanOrEqual(3)
       if (size.width === 1744) await page.screenshot({ path: `${SHOTS}/chat-only-1744x850.png` })
