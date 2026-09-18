@@ -188,6 +188,37 @@ export interface PairSlotSample {
   counter: number
 }
 
+/**
+ * What a profile-2 pair's own controller says about itself.
+ *
+ * This is the half of a bug report that used to be missing entirely. The
+ * counters below say whether media is moving; these say what the pair thinks
+ * about that and what it is doing next - which generation it is on, where it
+ * has got to on the health ladder, which slot it has judged dead in each
+ * direction, and how much signalling the far end has never acknowledged.
+ * "Ada cannot hear Bob" becomes "Ada's pair with Bob is on generation 4,
+ * rebuilding, mic dead inbound, two signals unacked" - which names the fault
+ * instead of describing the symptom.
+ *
+ * Every value here is a short word or a small number. No ids, no SDP, no
+ * candidates: the same rule the timeline keeps, for the same reason.
+ */
+export interface PairProfileSample {
+  /** Pair generation. Monotonic per pair, never reused. */
+  generation: number
+  /** Where the pair is on the health ladder of the call reliability design. */
+  ladder: string
+  /** Signals sent and not yet acknowledged by the far end. */
+  unacked: number
+  /** Per slot role, what is arriving from the far end. */
+  inbound?: Record<string, string>
+  /** Per slot role, what RTCP says the far end is receiving from us. */
+  rtcp?: Record<string, string>
+  /** `negotiationneeded` on a connection whose slots are fixed: always a
+   *  bug, and never otherwise visible. */
+  unexpectedNegotiations?: number
+}
+
 /** One snapshot of one pair, as `collectDiagnostics` already has the data
  *  to build from its existing `getStats()` pass. */
 export interface PairSample {
@@ -200,6 +231,42 @@ export interface PairSample {
   /** Whether a `remote-inbound-rtp` report was present for this pair,
    *  meaning the far end is telling us it is receiving our outbound RTP. */
   outboundAcknowledged: boolean
+  /** Absent for a profile-1 pair, which is every pair by default. */
+  profile?: PairProfileSample
+}
+
+/** A slot map as one short, ordered clause: `mic:ok,camera:dead`. Sorted so
+ *  two reports of the same state read identically. */
+function slotClause(verdicts: Record<string, string> | undefined): string {
+  if (!verdicts) return ''
+  const parts = Object.entries(verdicts)
+    .filter(([role, verdict]) => SAFE_WORD.test(role) && SAFE_WORD.test(verdict))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([role, verdict]) => `${role}:${verdict}`)
+  return parts.join(',')
+}
+
+/** A slot role and a verdict are both closed vocabularies. Anything that is
+ *  not one is dropped rather than printed, on the same principle as
+ *  `sanitiseDetail`: a bug report is pasted into a chat. */
+const SAFE_WORD = /^[a-z][a-z-]{0,23}$/
+
+/** The profile-2 clause of a pair's line, or nothing at all. */
+export function formatPairProfile(profile: PairProfileSample | undefined): string {
+  if (!profile) return ''
+  const parts = [
+    `gen=${Math.trunc(profile.generation)}`,
+    `ladder=${SAFE_WORD.test(profile.ladder) ? profile.ladder : '?'}`,
+    `unacked=${Math.trunc(profile.unacked)}`,
+  ]
+  const inbound = slotClause(profile.inbound)
+  if (inbound) parts.push(`in[${inbound}]`)
+  const rtcp = slotClause(profile.rtcp)
+  if (rtcp) parts.push(`rtcp[${rtcp}]`)
+  // Only when it has happened: a zero here would be noise on every line of
+  // every report, and the number is only ever interesting above zero.
+  if (profile.unexpectedNegotiations) parts.push(`unexpected-negotiations=${Math.trunc(profile.unexpectedNegotiations)}`)
+  return ` profile2(${parts.join(' ')})`
 }
 
 /**
@@ -228,7 +295,8 @@ export class PairHealthSampler {
     const unanswered = pair.signalingState === 'have-local-offer'
     return (
       `${pair.device} tier=${pair.tier ?? '?'} conn=${pair.connectionState ?? '?'} sig=${pair.signalingState ?? '?'}` +
-      ` inbound[${progress.join(',')}] outboundAcked=${pair.outboundAcknowledged}${unanswered ? ' unanswered-offer' : ''}`
+      ` inbound[${progress.join(',')}] outboundAcked=${pair.outboundAcknowledged}${unanswered ? ' unanswered-offer' : ''}` +
+      formatPairProfile(pair.profile)
     )
   }
 }

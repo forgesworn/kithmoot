@@ -16,6 +16,7 @@ import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
 import type { ForwardingState, MeshDiagnostic, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
 import type { ForwarderMediaPipeline } from './mesh.js'
+import type { PairDiagnostics } from './pair-controller.js'
 import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
@@ -157,6 +158,16 @@ export interface RoomSessionBaseOptions {
    * wire looked like before names existed.
    */
   name?: string
+  /**
+   * Which call signalling profile this device speaks, published on every
+   * roster entry it writes and honoured per pair.
+   *
+   * Defaults to profile 1 - every client from before today - and the default
+   * is the point: profile 2's fixed slots, reliable channel and pair health
+   * are turned on by an embedding that has shipped the rest of it, and a bad
+   * day is one reload away from today's behaviour. See `MeshOptions.callProfile`.
+   */
+  callProfile?: 1 | 2
   /** Declare this device an automated participant on every entry it
    *  publishes. See `RosterEntry.agent`. */
   agent?: boolean
@@ -627,6 +638,10 @@ export class RoomSession {
     if (this.#opts.factory) {
       this.#mesh = new Mesh({
         session: this,
+        // Profile 2 is off unless the embedding turns it on, and a pair only
+        // speaks it when the far end's roster entry says so too. See
+        // `RoomSessionBaseOptions.callProfile`.
+        callProfile: this.#opts.callProfile,
         factory: this.#opts.factory,
         localDevice: device,
         localParticipant: this.participant,
@@ -1154,6 +1169,18 @@ export class RoomSession {
     return this.#mesh?.routes ?? new Map()
   }
 
+  /**
+   * What each profile-2 pair's own controller says about itself: generation,
+   * where it is on the health ladder, per-slot verdicts and how much
+   * signalling is still unacknowledged.
+   *
+   * Empty on a build or a room where no pair speaks profile 2, which is the
+   * default. Meant for the bug report - see `collectDiagnostics` in the app.
+   */
+  get pairs(): PairDiagnostics[] {
+    return this.#mesh?.pairDiagnostics() ?? []
+  }
+
   /** How many pairs this device is carrying for other people. */
   get relaying(): number {
     return this.#mesh?.relaying ?? 0
@@ -1271,6 +1298,7 @@ export class RoomSession {
       claims: self.claims,
       updatedAt: this.#now(),
       ...(this.#name !== undefined ? { name: this.#name } : {}),
+      ...(this.#opts.callProfile === 2 ? { callProfile: 2 as const } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),

@@ -7,6 +7,8 @@ import {
   sanitiseDetail,
   MAX_ENTRIES,
   MAX_AGE_MS,
+  formatPairProfile,
+  type PairProfileSample,
   type PairSample,
 } from './call-timeline.js'
 
@@ -223,5 +225,83 @@ describe('PairHealthSampler', () => {
     const sampler = new PairHealthSampler()
     const [line] = sampler.snapshot([sample({ outboundAcknowledged: false })])
     expect(line).toContain('outboundAcked=false')
+  })
+})
+
+/**
+ * The profile-2 half of a pair's line in the bug report: step S12 of the call
+ * reliability design.
+ *
+ * What it is for is worth stating, because it decides what belongs in it. A
+ * report that says "Ada cannot hear Bob" describes the symptom the person
+ * already told you about. One that says the pair is on generation four,
+ * rebuilding, with the microphone dead inbound and two signals the far end
+ * never acknowledged, names the fault - and names it from one screen, which
+ * is the only kind of evidence a person can actually paste into a chat.
+ */
+describe('the profile-2 clause of a pair line', () => {
+  const profile = (over: Partial<PairProfileSample> = {}): PairProfileSample => ({
+    generation: 4,
+    ladder: 'rebuilding',
+    unacked: 2,
+    inbound: { mic: 'dead', camera: 'ok' },
+    rtcp: { mic: 'ok' },
+    ...over,
+  })
+
+  it('names the generation, the ladder, the unacked depth and both directions', () => {
+    const text = formatPairProfile(profile())
+    expect(text).toBe(' profile2(gen=4 ladder=rebuilding unacked=2 in[camera:ok,mic:dead] rtcp[mic:ok])')
+  })
+
+  it('says nothing at all for a profile-1 pair', () => {
+    // Every pair, by default. A report full of empty clauses would be worse
+    // than one without them.
+    expect(formatPairProfile(undefined)).toBe('')
+  })
+
+  it('mentions unexpected renegotiation only when there has been some', () => {
+    expect(formatPairProfile(profile())).not.toContain('unexpected-negotiations')
+    // A slotted connection that raises `negotiationneeded` is some other code
+    // path calling `addTrack`, which grows the m-lines for the life of the
+    // pair - section 9's named risk, and invisible without this.
+    expect(formatPairProfile(profile({ unexpectedNegotiations: 3 }))).toContain('unexpected-negotiations=3')
+  })
+
+  it('drops anything that is not a short closed-vocabulary word', () => {
+    // The destination is a chat message. A role or a verdict is one of a
+    // handful of known words, so anything else is a bug or a smuggling
+    // attempt and is left out rather than printed.
+    const text = formatPairProfile(
+      profile({
+        ladder: 'a=candidate:1 1 udp 2 192.0.2.1 9 typ host',
+        inbound: { mic: 'ok', 'a=fingerprint': 'sha-256 AB:CD', SCREEN: 'ok' },
+        rtcp: {},
+      }),
+    )
+    expect(text).toContain('ladder=?')
+    expect(text).toBe(' profile2(gen=4 ladder=? unacked=2 in[mic:ok])')
+  })
+
+  it('keeps the numbers whole', () => {
+    const text = formatPairProfile(profile({ generation: 4.9, unacked: 2.5, inbound: undefined, rtcp: undefined }))
+    expect(text).toBe(' profile2(gen=4 ladder=rebuilding unacked=2)')
+  })
+
+  it('rides on the existing per-pair line rather than beside it', () => {
+    const sampler = new PairHealthSampler()
+    const [line] = sampler.snapshot([
+      {
+        device: 'aabbccdd',
+        tier: 'direct',
+        connectionState: 'connected',
+        signalingState: 'stable',
+        slots: [{ label: 'audio', counter: 10 }],
+        outboundAcknowledged: true,
+        profile: profile(),
+      },
+    ])
+    expect(line).toContain('aabbccdd tier=direct')
+    expect(line).toContain('profile2(gen=4 ladder=rebuilding')
   })
 })

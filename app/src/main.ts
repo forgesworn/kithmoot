@@ -55,6 +55,7 @@ import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
 import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
 import { AdvertTracker, CallTimeline, PairHealthSampler, type PairSample } from './call-timeline.js'
+import { readCallProfile } from './call-profile.js'
 import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
 import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
@@ -3207,6 +3208,16 @@ function renderCallTabNotice(): void {
 // app/src/call-timeline.ts for what they will and will not record.
 const callTimeline = new CallTimeline()
 const pairHealthSampler = new PairHealthSampler()
+
+/**
+ * Which call signalling profile this device advertises, decided once per page
+ * load and off unless somebody turned it on.
+ *
+ * Read here rather than at each room join so a person cannot end up with one
+ * room on each profile in the same tab, and so the answer is in the bug
+ * report whatever they do next. See app/src/call-profile.ts.
+ */
+const callProfile = readCallProfile(location.search, localStorage)
 const advertTracker = new AdvertTracker()
 
 const callTabLock = new CallTabLock({
@@ -7901,6 +7912,7 @@ async function collectDiagnostics(): Promise<string> {
       participant: short(meParticipant),
       device: short(myDeviceId),
       publishing: currentAdverts().map((a) => a.role),
+      callProfile,
       agentsMayHear,
       effect: $('effectMode').textContent,
       screenAudio: screenAudioTrack
@@ -7945,6 +7957,11 @@ async function collectDiagnostics(): Promise<string> {
   // pass above. `label` counts inbound-rtp entries of the same kind
   // (camera plus screen video, say) rather than trying to name them.
   const routeTiers = new Map((s ? [...s.routes] : []).map(([d, r]) => [short(d), r.tier]))
+  // Only profile-2 pairs have one of these, and by default no pair does.
+  // What it adds is the pair's own account of itself - which generation,
+  // where on the health ladder, which slot it has judged dead in each
+  // direction, and how much signalling the far end never acknowledged.
+  const pairProfiles = new Map((s?.pairs ?? []).map((p) => [short(p.device), p]))
   const kindCounts = new Map<string, number>()
   const pairSamples: PairSample[] = connections.map((c) => {
     const device = /:([0-9a-f]{8}):/.exec(c.key)?.[1]
@@ -7959,6 +7976,7 @@ async function collectDiagnostics(): Promise<string> {
         const counter = Number(r.kind === 'audio' ? r.packetsReceived ?? 0 : r.framesDecoded ?? r.packetsReceived ?? 0)
         return { label, counter }
       })
+    const pair = device ? pairProfiles.get(device) : undefined
     return {
       device: device ?? 'unknown',
       tier: device ? routeTiers.get(device) : undefined,
@@ -7966,6 +7984,18 @@ async function collectDiagnostics(): Promise<string> {
       signalingState: c.signalingState,
       slots,
       outboundAcknowledged: c.stats.some((r) => r.type === 'remote-inbound-rtp'),
+      ...(pair
+        ? {
+            profile: {
+              generation: pair.generation,
+              ladder: pair.ladder,
+              unacked: pair.unacked,
+              ...(pair.inbound ? { inbound: pair.inbound as Record<string, string> } : {}),
+              ...(pair.rtcp ? { rtcp: pair.rtcp as Record<string, string> } : {}),
+              unexpectedNegotiations: pair.unexpectedNegotiations,
+            },
+          }
+        : {}),
     }
   })
   const pairLines = pairHealthSampler.snapshot(pairSamples)
@@ -8217,6 +8247,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           factory,
           policy: roomPolicy,
           name,
+          // Off unless the kill switch says otherwise, and a pair uses it
+          // only when the far end's roster entry says 2 as well.
+          callProfile,
           assist: currentAssistOffer,
           relay: peerRelay,
           ...forwarderMediaOptions,
@@ -8249,6 +8282,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           factory,
           policy: roomPolicy,
           name,
+          // Off unless the kill switch says otherwise, and a pair uses it
+          // only when the far end's roster entry says 2 as well.
+          callProfile,
           assist: currentAssistOffer,
           relay: peerRelay,
           ...forwarderMediaOptions,
