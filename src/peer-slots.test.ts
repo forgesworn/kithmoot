@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { SLOT_ORDER, SlotSet, inferRoles, supportsSlots } from './peer-slots.js'
 import { SlotPair, slotTrack, settle } from '../test/slot-pair.js'
-import { FakeRTCPeerConnection } from '../test/fake-rtc.js'
+import { FakeRTCPeerConnection, trackState } from '../test/fake-rtc.js'
+import { SLOT_REPAIR_MS } from './slot-peer.js'
 import type { SignalBody } from './signal.js'
+import type { SlotPeerOptions } from './slot-peer.js'
+import type { TrackRole } from './types.js'
 
 /**
  * D1: fixed media slots. Every one of these pins a failure that was measured
@@ -244,5 +247,137 @@ describe('profile-1 interop', () => {
     await settle()
     expect(pair.since(mark)).toEqual([])
     pair.close()
+  })
+})
+
+/**
+ * The `health` signal on the receiving side: §3.4's row 2.
+ *
+ * This is the one signal on the wire that asks the recipient to do something
+ * to its own media, which makes it the one that has to be read sceptically. A
+ * room member is not a trusted party - it is whoever was let in.
+ */
+describe('a far end reporting one of our slots dead', () => {
+  /** A connected pair with both sides sending, and a handle on the polite
+   *  side's slot transceivers. */
+  async function pair(options: Partial<SlotPeerOptions> = {}) {
+    const p = new SlotPair(options)
+    await p.polite.start([slotTrack('mic'), slotTrack('camera')])
+    await settle()
+    await p.impolite.start([slotTrack('mic')])
+    await settle()
+    await p.connect()
+    return p
+  }
+
+  /** How many times a slot's track has been swapped out and back in. */
+  function replacements(pc: FakeRTCPeerConnection, mid: string): number {
+    return pc.calls.filter((c) => c.method === 'replaceTrack' && c.args[0] === mid).length
+  }
+
+  it('re-attaches the named slot, and only the named slot', async () => {
+    const p = await pair()
+    const pc = p.live('polite')
+    const before = replacements(pc, '1')
+
+    p.impolite.reportHealth({ camera: 'dead' })
+    await settle()
+
+    // Out and back in: two calls, no SDP, no signal.
+    expect(replacements(pc, '1') - before).toBe(2)
+    expect(replacements(pc, '0'), 'a slot nobody complained about was re-keyed').toBe(0)
+    expect(p.since(0, 'offer', 'answer').length, 'a slot repair cost a negotiation').toBe(
+      p.sent.filter((s) => s.body.type === 'offer' || s.body.type === 'answer').length,
+    )
+    p.close()
+  })
+
+  it('BUG: will not re-key a slot our own RTCP says is arriving', async () => {
+    // Unchecked, one member could re-key a victim's camera encoder every ten
+    // seconds for a whole call by simply claiming not to receive it - while
+    // the victim's own receiver reports said the opposite throughout.
+    let receiving = true
+    const p = await pair({ outboundReceived: () => receiving })
+    const pc = p.live('polite')
+
+    p.impolite.reportHealth({ camera: 'dead' })
+    await settle()
+    expect(replacements(pc, '1'), 'a claim our own measurement contradicts was believed').toBe(0)
+
+    // The moment this side can no longer contradict it, the repair happens.
+    receiving = false
+    p.impolite.reportHealth({ camera: 'dead' })
+    await settle()
+    expect(replacements(pc, '1')).toBe(2)
+    p.close()
+  })
+
+  it('repairs at most once per slot per ten seconds', async () => {
+    const p = await pair()
+    const pc = p.live('polite')
+
+    p.impolite.reportHealth({ camera: 'dead' })
+    await settle()
+    p.impolite.reportHealth({ camera: 'dead' })
+    p.impolite.reportHealth({ camera: 'dead' })
+    await settle()
+    expect(replacements(pc, '1'), 'a far end with a stuck decoder re-keyed us every time it said so').toBe(2)
+
+    p.clock.advance(SLOT_REPAIR_MS)
+    p.impolite.reportHealth({ camera: 'dead' })
+    await settle()
+    expect(replacements(pc, '1')).toBe(4)
+    p.close()
+  })
+
+  it('BUG: an empty slot does not spend the repair budget', async () => {
+    // Nothing is attached to the screen slot, so there is nothing to
+    // re-attach. Stamping it anyway would blind that slot for ten seconds
+    // after a share finally started.
+    const p = await pair()
+    const pc = p.live('polite')
+
+    p.impolite.reportHealth({ screen: 'dead' })
+    await settle()
+    expect(replacements(pc, '2')).toBe(0)
+
+    await p.polite.start([slotTrack('mic'), slotTrack('camera'), slotTrack('screen')])
+    await settle()
+    const attached = replacements(pc, '2')
+    p.impolite.reportHealth({ screen: 'dead' })
+    await settle()
+    expect(replacements(pc, '2') - attached, 'the empty slot had spent the budget for the real one').toBe(2)
+    p.close()
+  })
+
+  it('BUG: asks the application to recover a track that has ended', async () => {
+    const recovered: TrackRole[] = []
+    const p = await pair({ onSlotRecovery: (role) => recovered.push(role) })
+    const pc = p.live('polite')
+
+    // A camera another application took, or a microphone unplugged. Nothing
+    // this library owns can replace it.
+    trackState(pc.getTransceivers()[1]!.sender.track!).readyState = 'ended'
+
+    p.impolite.reportHealth({ camera: 'dead' })
+    await settle()
+
+    expect(recovered, 'an ended track was silently left in its slot').toEqual(['camera'])
+    expect(replacements(pc, '1'), 'a dead track was re-attached as though it were live').toBe(0)
+    p.close()
+  })
+
+  it('rebuilds when the slot itself refuses the track', async () => {
+    const p = await pair()
+    const pc = p.live('polite')
+    const generation = p.polite.generation
+    pc.getTransceivers()[1]!.sender.failReplaceTrack = true
+
+    p.impolite.reportHealth({ camera: 'dead' })
+    await settle()
+
+    // The one path in §3.1 where a slot change still costs a negotiation.
+    expect(p.polite.generation).toBeGreaterThan(generation)
+    p.close()
   })
 })

@@ -3230,9 +3230,10 @@ const pairHealthSampler = new PairHealthSampler()
  *
  * Read here rather than at each room join so a person cannot end up with one
  * room on each profile in the same tab, and so the answer is in the bug
- * report whatever they do next. See app/src/call-profile.ts.
+ * report whatever they do next. Turning it on lasts this page session;
+ * turning it off is remembered for good. See app/src/call-profile.ts.
  */
-const callProfile = readCallProfile(location.search, localStorage)
+const callProfile = readCallProfile(location.search, localStorage, sessionStorage)
 const advertTracker = new AdvertTracker()
 
 const callTabLock = new CallTabLock({

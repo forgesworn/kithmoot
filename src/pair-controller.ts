@@ -171,10 +171,24 @@ export class PairController {
   #closed = false
   #restAttempt = 0
   #restTimer: unknown
-  /** The generation the last sample was taken on. A change means the far end
+  /** The generation the last sample was taken on. A change means the pair was
    *  rebuilt, and everything measured about the old connection is about a
-   *  connection neither side has any more. */
+   *  connection that no longer exists. */
   #watchedGeneration = 0
+  /**
+   * Whether the generation about to change is one this controller asked for.
+   *
+   * The two cases look identical from a sample - the generation went up - and
+   * they could not be more different. The far end rebuilding means our ladder
+   * was judging a connection neither side has any more, so its position is
+   * meaningless and must be dropped. *Our own* rebuild is step 2 of that very
+   * ladder, and dropping the position there means step 3 is never reached:
+   * the pair restarts ICE, rebuilds, reads itself as healthy, and does it
+   * again for the length of the call - twenty-five rebuilds and no change of
+   * rung, measured over ten minutes of a dead pair. The grace still starts
+   * again either way; what this preserves is where the ladder had got to.
+   */
+  #selfRebuild = false
 
   constructor(opts: PairControllerOptions) {
     this.#opts = opts
@@ -229,6 +243,7 @@ export class PairController {
     // again; carrying the last one's silence across would condemn this one on
     // its first sample.
     this.#watchedGeneration = peer.generation
+    this.#selfRebuild = false
     this.#health.reset(this.#clock.now())
     this.#steps.reset()
     if (!this.#suspended) this.#health.start()
@@ -250,6 +265,7 @@ export class PairController {
     this.#clearRest()
     // The grace runs from here, not from when the connection object was
     // made: DTLS, SRTP keying and the first keyframe all happen after this.
+    this.#selfRebuild = false
     this.#health.reset(this.#clock.now())
     this.#steps.reset()
     if (!this.#suspended) this.#health.start()
@@ -340,6 +356,20 @@ export class PairController {
   }
 
   /**
+   * Whether this side can see that the far end IS receiving that slot.
+   *
+   * Only `ok` counts. `idle` means this side cannot tell - no RTCP readable
+   * on this engine, or nothing attached to the slot - and "cannot tell" is
+   * not grounds to call a far end a liar; `dead` means this side agrees with
+   * it. So the one thing this refuses is a report that our own measurement
+   * flatly contradicts, which is the only shape a hostile one can take
+   * without also being true.
+   */
+  outboundReceived(role: TrackRole): boolean {
+    return this.#health.last?.slots.find((slot) => slot.role === role)?.rtcp === 'ok'
+  }
+
+  /**
    * One sample, judged.
    *
    * The generation check comes first and is not a detail: an incoming higher
@@ -352,7 +382,15 @@ export class PairController {
     const generation = this.#peer?.generation ?? 0
     if (generation !== this.#watchedGeneration) {
       this.#watchedGeneration = generation
+      // A fresh connection has delivered nothing yet, so the grace starts
+      // again whoever asked for it.
       this.#health.reset(sample.at)
+      if (this.#selfRebuild) {
+        // Our own step 2. The ladder keeps its place, so the next deadline
+        // is step 3 rather than step 1 all over again.
+        this.#selfRebuild = false
+        return
+      }
       this.#steps.reset()
       this.#ladder = 'healthy'
       return
@@ -380,13 +418,21 @@ export class PairController {
         return
       case 'rebuild':
         this.#diagnose('the restart did not bring media back; rebuilding at the next generation')
+        // Set before the call, not after: `rebuild()` bumps the generation
+        // synchronously enough that the next sample can already see it.
+        this.#selfRebuild = true
         peer.rebuild()
         return
       case 'next-tier': {
         this.#diagnose('the rebuild did not bring media back; moving this pair to the next rung')
         // False means there is no rung left below this one, and the honest
         // answer to that is the rest rather than another identical attempt.
-        if (!this.#opts.onNextTier()) this.exhausted()
+        // The ladder is told too: it stepped to `changing-tier` on the way in
+        // and has not actually moved anywhere.
+        if (!this.#opts.onNextTier()) {
+          this.#steps.rest()
+          this.exhausted()
+        }
         return
       }
       case 'rest':

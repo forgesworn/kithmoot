@@ -7,6 +7,12 @@ import type { TrackRole } from './types.js'
 export interface RtpSenderLike {
   readonly track?: MediaStreamTrack | null
   replaceTrack(track: MediaStreamTrack | null): Promise<void>
+  /** A report scoped to this sender, for the engines that leave `mid` off
+   *  `outbound-rtp`. The mirror of the receiver's, and needed for the same
+   *  reason: without it a slot's RTCP can never be read at all, and "never
+   *  read" must not be mistaken for "not being received". Optional, so a
+   *  double written before any of this existed stays valid. */
+  getStats?(): Promise<StatsReportLike>
 }
 
 /**

@@ -330,6 +330,9 @@ function say(
     advertised: true,
     inbound: (what.dead ?? []).includes(role) ? ('dead' as const) : ('ok' as const),
     rtcp: (what.unreceived ?? []).includes(role) ? ('dead' as const) : what.rtcpOk === false ? ('idle' as const) : ('ok' as const),
+    // The ladder is handed `transportOk` directly, so this only has to be
+    // consistent with it rather than drive it.
+    progressed: !(what.dead ?? []).includes(role) && what.transportOk !== false,
   }))
   return {
     at,
@@ -495,5 +498,77 @@ describe('an incoming higher generation', () => {
 
     steps.observe(say(10_000, { allDead: true, transportOk: false }))
     expect(actions.at(-1), 'the new connection was torn down on the old one\'s evidence').toEqual({ do: 'restart-ice' })
+  })
+})
+
+describe('reading the other direction on an engine that says less', () => {
+  it('BUG: never-readable RTCP is idle, not the far end receiving nothing', async () => {
+    // No `mid` on `outbound-rtp`, no sender-scoped report, no
+    // `remote-inbound-rtp` at all: this side simply cannot tell. Read as
+    // `dead` it is a healthy call that restarts ICE and then rebuilds itself
+    // every fourteen seconds for the length of the call.
+    const h = await harness({ connection: { omitStatsMid: true, omitRemoteInbound: true } })
+    await h.run(SLOT_GRACE_MS + RTCP_DEAD_MS + HEALTH_SAMPLE_MS * 4)
+
+    expect(h.verdict('mic'), 'inbound is arriving, so this pair is fine').toBe('ok')
+    expect(h.rtcpVerdict('mic'), 'cannot tell was read as bad news').toBe('idle')
+    expect(h.samples.at(-1)!.unreceivedSlots).toEqual([])
+  })
+
+  it('finds the far end\'s receiver report through the sender where mid is missing', async () => {
+    // Same engine, except it does report `remote-inbound-rtp`. The sender's
+    // own scoped report is the only way to reach it, because without `mid`
+    // there is nothing to match the outbound stream to a slot.
+    const h = await harness({ connection: { omitStatsMid: true } })
+    await h.run(SLOT_GRACE_MS + HEALTH_SAMPLE_MS * 4)
+
+    expect(h.rtcpVerdict('mic'), 'the sender-scoped fallback was never reached').toBe('ok')
+    expect(h.rtcpVerdict('camera')).toBe('ok')
+    expect(h.samples.at(-1)!.unreceivedSlots).toEqual([])
+  })
+
+  it('still calls it dead once reports were arriving and stopped', async () => {
+    // The distinction that matters: "never observed" is idle, "observed and
+    // then stopped" is the fault the RTCP backstop exists for.
+    const h = await harness({ connection: { omitStatsMid: true } })
+    await h.run(SLOT_GRACE_MS + HEALTH_SAMPLE_MS * 2)
+    expect(h.rtcpVerdict('mic')).toBe('ok')
+
+    // Media keeps arriving; nothing acknowledges what we send any more.
+    for (let elapsed = 0; elapsed < RTCP_DEAD_MS + HEALTH_SAMPLE_MS * 2; elapsed += HEALTH_SAMPLE_MS) {
+      for (const role of ['mic', 'camera'] as const) h.a.scriptStats(midOf(role), { packetsReceived: 50, framesDecoded: 30 })
+      h.a.advanceStatsClock(HEALTH_SAMPLE_MS)
+      h.clock.advance(HEALTH_SAMPLE_MS)
+      await h.health.sample()
+    }
+
+    expect(h.rtcpVerdict('mic')).toBe('dead')
+    expect(h.samples.at(-1)!.unreceivedSlots).toEqual(['mic', 'camera'])
+  })
+})
+
+describe('what "the transport is fine" means', () => {
+  it('BUG: is a counter that moved, not a clock that has not run out', async () => {
+    // A slot that has never delivered anything reads `ok` for the whole of
+    // its first dead window, because `ok` only means "not silent long
+    // enough yet". A ladder that took that for recovery would forget it was
+    // mid-rebuild every time the grace started again - which is a pair that
+    // restarts and rebuilds for ever and never changes rung.
+    const h = await harness({ receiving: [] })
+    h.advertised.add('mic')
+    h.advertised.add('camera')
+
+    await h.run(SLOT_GRACE_MS + HEALTH_SAMPLE_MS, false)
+    expect(h.verdict('mic'), 'nothing has been silent long enough to be called dead').toBe('ok')
+    expect(h.samples.at(-1)!.transportOk, 'nothing has ever arrived on this pair').toBe(false)
+    expect(h.samples.at(-1)!.slots.every((slot) => !slot.progressed)).toBe(true)
+  })
+
+  it('is true while packets are actually moving', async () => {
+    const h = await harness()
+    await h.run(HEALTH_SAMPLE_MS * 2)
+    expect(h.samples.at(-1)!.transportOk).toBe(true)
+    expect(h.samples.at(-1)!.slots.find((s) => s.role === 'mic')!.progressed).toBe(true)
+    expect(h.samples.at(-1)!.slots.find((s) => s.role === 'screen')!.progressed, 'an idle slot has not progressed').toBe(false)
   })
 })

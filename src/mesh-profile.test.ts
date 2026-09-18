@@ -16,7 +16,7 @@ import { Mesh } from './mesh.js'
 import type { MeshSession } from './mesh.js'
 import { unwrapSignalEvent, wrapSignal } from './signal.js'
 import type { SignalBody } from './signal.js'
-import { createFakeFactory } from '../test/fake-rtc.js'
+import { createFakeFactory, fakeTrack, trackState } from '../test/fake-rtc.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import type { ParticipantView } from './session.js'
 import type { ForwarderRef, TrackRole } from './types.js'
@@ -76,6 +76,7 @@ function harness(
     uplink?: () => { uplinkBps: number; perPeerBps: number } | null
     forwarderMedia?: () => boolean
     pairHealth?: Record<string, unknown>
+    onSlotRecovery?: (device: string, role: TrackRole) => void
     onDiagnostic?: (event: unknown) => void
   } = {},
 ): Harness {
@@ -100,6 +101,7 @@ function harness(
     uplink: options.uplink,
     forwarderMedia: options.forwarderMedia,
     pairHealth: options.pairHealth as never,
+    onSlotRecovery: options.onSlotRecovery,
     forwarderMediaPipeline: options.forwarderMedia
       ? { rekey: () => true, protectSender: () => true, protectReceiver: () => true }
       : undefined,
@@ -455,6 +457,87 @@ describe('the controller acts on what it measures (§3.4)', () => {
       expect(diagnostics.inbound?.mic).toBe('ok')
       expect(diagnostics.inbound?.camera).toBe('dead')
       expect(diagnostics.ladder).toBe('healthy')
+      h.mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('the mesh hands a profile-2 peer its two health callbacks', () => {
+  /**
+   * The far end reports one of our slots dead, on the connection this mesh
+   * actually opened.
+   *
+   * Addressed to the mesh's own generation-opening offer rather than by
+   * offering one back, because answering a new generation would tear the
+   * connection down and take the pair's measurements with it - and those
+   * measurements are half of what is under test.
+   */
+  function reportDead(h: Harness, role: TrackRole): void {
+    const offer = h.toRemote().find((body) => body.type === 'offer')
+    expect(offer?.conn, 'the mesh never opened a generation').toBeDefined()
+    h.fromRemote({ type: 'health', gen: offer!.gen, conn: 'cccccccccccccccc', peerConn: offer!.conn, rx: { [role]: 'dead' } })
+  }
+
+  it('BUG: asks the application to recover a slot whose local track has ended', async () => {
+    // `onSlotRecovery` existed on the peer and was never passed by the mesh,
+    // so an ended microphone stayed an empty slot for the rest of the call
+    // while the far end kept saying so into nothing.
+    const recovered: { device: string; role: TrackRole }[] = []
+    const h = harness({ callProfile: 2, onSlotRecovery: (device, role) => recovered.push({ device, role }) })
+    h.roster(2)
+    const mic = fakeTrack('audio', 'mic-1')
+    h.mesh.publish([mic])
+    await settle()
+
+    // Unplugged, or taken by another application. Nothing this library owns
+    // can replace it.
+    trackState(mic).readyState = 'ended'
+    reportDead(h, 'mic')
+    await settle()
+
+    expect(recovered).toEqual([{ device: h.remote.pub, role: 'mic' }])
+    h.mesh.close()
+  })
+
+  it('BUG: refuses a report the pair\'s own RTCP contradicts', async () => {
+    // The corroboration reaches the peer from the pair's own sampler, which
+    // the controller owns. Unwired, any member of a room could re-key any
+    // other member's encoder every ten seconds by claiming not to hear them.
+    vi.useFakeTimers()
+    try {
+      const FAST = { sampleMs: 500, graceMs: 1_000, deadMs: 1_000, rtcpDeadMs: 2_000 }
+      const h = harness({ callProfile: 2, pairHealth: FAST })
+      h.roster(2, ['mic'])
+      h.mesh.publish([fakeTrack('audio', 'mic-1')])
+      await vi.advanceTimersByTimeAsync(0)
+
+      const pc = h.factory.to(h.remote.pub)!
+      for (const transceiver of pc.getTransceivers()) {
+        transceiver.currentDirection = 'sendrecv'
+        transceiver.receiver.track = { id: `remote-${transceiver.mid}`, kind: transceiver.kind } as MediaStreamTrack
+      }
+      pc.connectionState = 'connected'
+      pc.onconnectionstatechange?.()
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Everything is arriving, and RTCP is coming back for what we send.
+      for (let elapsed = 0; elapsed < 4_000; elapsed += FAST.sampleMs) {
+        pc.scriptStats('0', { packetsReceived: 50, roundTripTimeMeasurements: 1 })
+        pc.advanceStatsClock(FAST.sampleMs)
+        await vi.advanceTimersByTimeAsync(FAST.sampleMs)
+      }
+      expect(h.mesh.pairDiagnostics()[0]?.rtcp?.mic, 'the sampler never saw our outbound acknowledged').toBe('ok')
+
+      const before = pc.calls.filter((c) => c.method === 'replaceTrack').length
+      reportDead(h, 'mic')
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(
+        pc.calls.filter((c) => c.method === 'replaceTrack').length,
+        'a claim this side can see is false re-keyed the encoder anyway',
+      ).toBe(before)
       h.mesh.close()
     } finally {
       vi.useRealTimers()

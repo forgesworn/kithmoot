@@ -153,6 +153,26 @@ export class FakeRtpSender {
     this.track = track
     if (track) this.everSent = true
   }
+
+  /**
+   * The report a browser scopes to one sender.
+   *
+   * The mirror of the receiver's, and the fallback §3.4 needs on the sending
+   * side: the report belongs to exactly one m-line, so the slot is known
+   * without a `mid` field - and the `remote-inbound-rtp` beside it is the
+   * only thing that says whether the far end is receiving this slot at all.
+   */
+  async getStats(): Promise<Map<string, Record<string, unknown>>> {
+    const report = new Map<string, Record<string, unknown>>()
+    const mid = this.transceiver.mid
+    if (mid === null) return report
+    const full = await this.transceiver.connection.getStats()
+    for (const key of [`outbound-${mid}`, `remote-inbound-${mid}`]) {
+      const stat = full.get(key)
+      if (stat) report.set(key, stat)
+    }
+    return report
+  }
 }
 
 export class FakeRtpReceiver {
@@ -249,14 +269,25 @@ export interface FakeConnectionOptions {
    */
   nullTrackOnRemove?: boolean
   /**
-   * Leave `mid` off every `inbound-rtp` entry, as Firefox does.
+   * Leave `mid` off every `inbound-rtp` and `outbound-rtp` entry, as Firefox
+   * does.
    *
    * A sampler that maps stats to slots by `mid` alone sees nothing at all
-   * there, which is why §3.4 names `transceiver.receiver.getStats()` as the
-   * fallback. Turning this on is the only way to prove the fallback is
-   * reached rather than shadowed by the field it replaces.
+   * there, which is why §3.4 names the transceiver's own scoped reports as
+   * the fallback. Turning this on is the only way to prove the fallback is
+   * reached rather than shadowed by the field it replaces - and on the
+   * outbound side it is the difference between "this side cannot tell" and
+   * "the far end is receiving nothing", which the ladder acts on.
    */
   omitStatsMid?: boolean
+  /**
+   * Report no `remote-inbound-rtp` at all.
+   *
+   * Some engines simply do not, and a sampler that reads "no report" as "our
+   * media is not arriving" would rebuild every pair on such a browser every
+   * fourteen seconds, for ever.
+   */
+  omitRemoteInbound?: boolean
 }
 
 /**
@@ -327,6 +358,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
       structuredSdp: options.structuredSdp ?? false,
       nullTrackOnRemove: options.nullTrackOnRemove ?? false,
       omitStatsMid: options.omitStatsMid ?? false,
+      omitRemoteInbound: options.omitRemoteInbound ?? false,
     }
     this.#structured = this.options.structuredSdp
   }
@@ -788,24 +820,26 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
           id: `outbound-${mid}`,
           type: 'outbound-rtp',
           kind: transceiver.kind,
-          mid,
+          ...(this.options.omitStatsMid ? {} : { mid }),
           ssrc: stats.outbound.ssrc,
           timestamp: this.statsClock,
           packetsSent: stats.outbound.packetsSent,
           bytesSent: stats.outbound.bytesSent,
           ...(transceiver.kind === 'video' ? { framesEncoded: stats.outbound.framesEncoded } : {}),
         })
-        report.set(`remote-inbound-${mid}`, {
-          id: `remote-inbound-${mid}`,
-          type: 'remote-inbound-rtp',
-          kind: transceiver.kind,
-          ssrc: stats.outbound.ssrc,
-          localId: `outbound-${mid}`,
-          timestamp: stats.remoteInbound.timestamp,
-          packetsLost: stats.remoteInbound.packetsLost,
-          roundTripTime: stats.remoteInbound.roundTripTime,
-          roundTripTimeMeasurements: stats.remoteInbound.roundTripTimeMeasurements,
-        })
+        if (!this.options.omitRemoteInbound) {
+          report.set(`remote-inbound-${mid}`, {
+            id: `remote-inbound-${mid}`,
+            type: 'remote-inbound-rtp',
+            kind: transceiver.kind,
+            ssrc: stats.outbound.ssrc,
+            localId: `outbound-${mid}`,
+            timestamp: stats.remoteInbound.timestamp,
+            packetsLost: stats.remoteInbound.packetsLost,
+            roundTripTime: stats.remoteInbound.roundTripTime,
+            roundTripTimeMeasurements: stats.remoteInbound.roundTripTimeMeasurements,
+          })
+        }
       }
     }
     return report

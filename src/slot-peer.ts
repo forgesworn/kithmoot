@@ -96,6 +96,15 @@ export interface SlotPeerOptions {
    * permission prompt. See §3.4's "run app media recovery".
    */
   onSlotRecovery?: (role: TrackRole) => void
+  /**
+   * Whether this side can see that the far end IS receiving that slot.
+   *
+   * The corroboration for a `health` report, and the reason it is a callback
+   * rather than something this class works out: the answer lives in the
+   * pair's health sampler, which the controller owns. Absent, every report is
+   * believed - which is what a peer with no sampler running has to do.
+   */
+  outboundReceived?: (role: TrackRole) => boolean
   /** Which rung this connection is being opened on. Adopted from an incoming
    *  offer's `tier` when a higher generation is adopted. */
   context?: PeerContext
@@ -606,9 +615,23 @@ export class SlotPeer implements NegotiatingPeer {
    * the repair is local and cheap: swap the track out of the slot and back
    * in, which restarts the encode without touching the m-line.
    *
-   * Rate limited per slot, because a far end whose decoder is genuinely stuck
-   * will keep saying so for as long as it is stuck, and re-keying the encoder
-   * every two seconds would be the fault rather than the fix.
+   * Two things guard it, and neither is optional.
+   *
+   * **Corroboration.** This is the one signal on the wire that asks the
+   * recipient to do something to its own media, and a room member is not a
+   * trusted party - it is whoever was let in. Unchecked, a single peer could
+   * re-key a victim's camera encoder every ten seconds for the whole call by
+   * simply claiming not to receive it, and the victim's own RTCP would be
+   * saying the opposite the entire time. So the report is acted on only where
+   * this side cannot contradict it: if our own `remote-inbound-rtp` for that
+   * slot says the far end *is* receiving it, the claim is false and is
+   * dropped.
+   *
+   * **Rate.** A far end whose decoder is genuinely stuck keeps saying so for
+   * as long as it is stuck; re-keying the encoder every two seconds in reply
+   * would be the fault rather than the fix. Only an actual repair starts that
+   * clock - a slot with nothing in it costs nothing to skip, and stamping it
+   * would blind the slot for ten seconds after a track finally arrived.
    */
   async #applyHealth(body: SignalBody): Promise<void> {
     const rx = body.rx
@@ -616,10 +639,14 @@ export class SlotPeer implements NegotiatingPeer {
     const now = this.#clock.now()
     for (const [role, verdict] of Object.entries(rx) as [TrackRole, 'ok' | 'dead'][]) {
       if (verdict !== 'dead') continue
+      // Our own measurement beats their claim about it.
+      if (this.#opts.outboundReceived?.(role) === true) continue
       const last = this.#repairedAt.get(role)
       if (last !== undefined && now - last < SLOT_REPAIR_MS) continue
-      this.#repairedAt.set(role, now)
       const outcome = await this.#slots.refresh(role)
+      // 'empty' is not a repair and must not spend the budget for one.
+      if (outcome === 'empty') continue
+      this.#repairedAt.set(role, now)
       if (outcome === 'ended') this.#opts.onSlotRecovery?.(role)
       else if (outcome === 'broken') {
         // The only path in §3.1 where a slot change still costs a
