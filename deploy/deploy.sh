@@ -189,12 +189,17 @@ if [[ -n "$apk_name" ]]; then
 set -euo pipefail
 actual="\$(sha256sum "$incoming" | awk '{print \$1}')"
 [[ "\$actual" == "$apk_sha" ]] || { echo "remote APK checksum mismatch" >&2; exit 1; }
+# The signer writes its APK under umask 077 and rsync carries that mode here,
+# where it is a file the web server cannot read: 0.6.5 was a 403 for everyone
+# until somebody noticed. A published download is world-readable, always.
+chmod 644 "$incoming"
 if [[ -L "$DEPLOY_ROOT/apk/$apk_name" ]]; then
   echo "refusing a symlink at the versioned APK path" >&2
   exit 1
 elif [[ -e "$DEPLOY_ROOT/apk/$apk_name" ]]; then
   existing="\$(sha256sum "$DEPLOY_ROOT/apk/$apk_name" | awk '{print \$1}')"
   [[ "\$existing" == "$apk_sha" ]] || { echo "refusing to replace a different $apk_name" >&2; exit 1; }
+  chmod 644 "$DEPLOY_ROOT/apk/$apk_name"
   rm "$incoming"
 else
   mv "$incoming" "$DEPLOY_ROOT/apk/$apk_name"
