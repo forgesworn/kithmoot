@@ -79,7 +79,7 @@ describe('bindRoles', () => {
     expect(binding.get('screen')).toBe(screen)
   })
 
-  it('never binds a receiver whose direction is not receiving', () => {
+  it('never binds a receiver whose direction is not receiving and whose packets have stopped', () => {
     const stale = track('stale', 'video')
     const binding = bindRoles({
       kind: 'video',
@@ -87,6 +87,40 @@ describe('bindRoles', () => {
       receivers: [{ track: stale, direction: 'sendonly' }],
     })
     expect(binding.size).toBe(0)
+  })
+
+  /**
+   * BUG: the one-way audio of 18 September 2026 - see `src/peer.test.ts`,
+   * which has the negotiation that gets a pair into this state.
+   *
+   * The two ends settled on different directions: the far end went on
+   * sending its microphone, this end's transceiver said `sendonly`. The
+   * packets kept arriving and were counted, and this rule gave them no slot
+   * - so no `<audio>` element was ever made for them, and a track with no
+   * sink is never decoded. The person could be seen and not heard, with no
+   * way back for the rest of the call.
+   */
+  it('binds a receiver whose packets are arriving however its direction reads', () => {
+    const sounding = track('sounding', 'audio')
+    const binding = bindRoles({
+      kind: 'audio',
+      adverts: [advert('mic', 'sounding')],
+      receivers: [{ track: sounding, direction: 'sendonly', progressing: true }],
+    })
+    expect(binding.get('mic')).toBe(sounding)
+  })
+
+  it('still prefers the receiver that is actually receiving over one that only says it is', () => {
+    const arriving = track('arriving', 'audio'), quiet = track('quiet', 'audio')
+    const binding = bindRoles({
+      kind: 'audio',
+      adverts: [advert('mic', 'quiet')],
+      receivers: [{ track: quiet, direction: 'recvonly' }, { track: arriving, direction: 'sendonly', progressing: true }],
+    })
+    // The advert names the quiet one, which is the strongest hint there is,
+    // so it keeps the microphone; the arriving one is not thrown away.
+    expect(binding.get('mic')).toBe(quiet)
+    expect(binding.get('screen-audio')).toBe(arriving)
   })
 
   it('ignores a stopped, inactive or null transceiver even when it is the only one', () => {

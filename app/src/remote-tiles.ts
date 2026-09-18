@@ -135,7 +135,15 @@ export function bindRoles({ kind, adverts, receivers, bound, prefer }: BindInput
     if (kindOf(facts.track.kind) !== kind) continue
     if (facts.track === prefer) continue
     if (facts.track.readyState === 'ended') continue
-    if (!isReceiving(facts.direction)) continue
+    // The direction is what the two ends last agreed on. Arriving packets
+    // are what is actually happening, and when they disagree the packets
+    // win: measured on 18 September 2026, a pair could settle with one end
+    // at `sendonly` while the other went on sending, and a tile that
+    // believed the direction left that person's microphone with no element
+    // at all - never decoded, never heard, and no way back. This does not
+    // let the stale receiver above into a live slot: a sender the far end
+    // removed stops arriving, so it is never progressing.
+    if (!isReceiving(facts.direction) && facts.progressing !== true) continue
     eligible.push(facts.track)
   }
   if (prefer && kindOf(prefer.kind) === kind) eligible.unshift(prefer)

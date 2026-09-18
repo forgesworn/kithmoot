@@ -7636,15 +7636,24 @@ function syncRemoteVideos(): void {
       callTimeline.record('tile-orphaned', short(key.split('|')[0]), 'video')
       continue
     }
+    // Arriving packets count as movement for the purpose of being on screen,
+    // and they are the ONLY signal a parked picture has left: measured on 18
+    // September 2026, a picture parked for two quiet seconds under load never
+    // came back, because a parked element's clock stopped advancing and the
+    // clock was the only way back. Frames arriving is what a person means by
+    // "they are there", so it both restores a parked picture and keeps a
+    // live one from being parked in the first place - which is what stops
+    // the two rules flapping against each other every three seconds.
+    const arriving = trackProgressing(entry.track, now)
     if (moving) {
       entry.stalled = 0
       entry.played = true
-      if (!onScreen(entry) && !leftCall) {
-        restoreRemoteElement(entry.el, entry.container)
-        changed = true
-      }
-      continue
     }
+    if ((moving || arriving) && !onScreen(entry) && !leftCall) {
+      restoreRemoteElement(entry.el, entry.container)
+      changed = true
+    }
+    if (moving) continue
     // Safari can pause off-screen video during Chat. That is not evidence
     // that the sender stopped; the Call gesture resumes the existing player.
     if (!$('callStage').checkVisibility()) { entry.stalled = 0; continue }
@@ -7653,7 +7662,7 @@ function syncRemoteVideos(): void {
     // needs: the tile says so meanwhile, and nothing about it is a lie. Only
     // a picture that ran and stopped is taken off screen.
     if (!entry.played) continue
-    if (++entry.stalled >= STALLED_CHECKS && onScreen(entry)) {
+    if (++entry.stalled >= STALLED_CHECKS && onScreen(entry) && !arriving) {
       parkPicture(entry.el)
       changed = true
     }
@@ -7937,7 +7946,17 @@ async function collectDiagnostics(): Promise<string> {
         iceGatheringState: pc.iceGatheringState,
         signalingState: pc.signalingState,
         senders: pc.getSenders().map((sn) => (sn.track ? `${sn.track.kind}:${sn.track.readyState}${sn.track.muted ? ':muted' : ''}${sn.track.enabled ? '' : ':disabled'}` : 'none')),
-        receivers: pc.getReceivers().map((rc) => `${rc.track.kind}:${rc.track.readyState}${rc.track.muted ? ':muted' : ''}`),
+        // The transceiver's direction belongs on this line, not just the
+        // track's state: a receiver whose `currentDirection` no longer says
+        // `recv` is one the tile mapping will not bind, and a report that
+        // says only `live:muted` cannot tell that apart from a tile that is
+        // simply quiet. `mid` names the m-line, so two transceivers of the
+        // same kind on one connection are told apart at a glance.
+        receivers: pc.getTransceivers().map((tr) => {
+          const track = tr.receiver?.track
+          const where = `${tr.mid ?? '-'}:${tr.currentDirection ?? 'unnegotiated'}`
+          return track ? `${track.kind}:${track.readyState}${track.muted ? ':muted' : ''}@${where}` : `none@${where}`
+        }),
         stats,
       }
     }),
