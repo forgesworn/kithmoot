@@ -212,6 +212,120 @@ export const ORPHAN_CHECKS = 3
 export const RTP_GRACE_MS = 6000
 
 /**
+ * How many one-second checks a picture may go without a new frame before it
+ * is taken off screen.
+ */
+export const STALLED_CHECKS = 2
+
+/**
+ * How long a picture may sit frozen while its packets keep arriving before
+ * its element is handed the track again.
+ *
+ * Long enough that an ordinary freeze - a keyframe interval, a burst of
+ * loss, a machine catching up - is over well before it; short enough that a
+ * decoder which has genuinely wedged is not what somebody looks at for the
+ * rest of a call.
+ */
+export const FROZEN_REBIND_MS = 15_000
+
+/** What the poller knows about one picture, and what it may change. */
+export interface PictureState {
+  /** Consecutive checks with no new frame. */
+  stalled: number
+  /** Whether this picture has ever moved. */
+  played: boolean
+  /** Whether its element is in its own device's tile. */
+  onScreen: boolean
+  /** When it was first seen frozen with its packets still arriving. */
+  frozenSince?: number
+}
+
+/** One second's worth of facts about a picture. */
+export interface PictureLook {
+  /** Its element's clock moved since the last check. */
+  moving: boolean
+  /** PACKETS have arrived inside the liveness window - read off the
+   *  receiver, not off the element, because a parked element's clock stops
+   *  and a wedged decoder's does too while the packets keep coming. */
+  arriving: boolean
+  /** Whether the call is on screen at all. */
+  visible: boolean
+  at: number
+}
+
+export type PictureAction =
+  /** Leave it be. */
+  | 'none'
+  /** Put it back in its tile, playing. */
+  | 'restore'
+  /** Take it off screen: the far end stopped. */
+  | 'park'
+  /** Frozen too long with its packets still arriving - give the element the
+   *  track again, which builds a new decoder. */
+  | 'rebind'
+
+/**
+ * What to do about one picture this second.
+ *
+ * Pure, so the three rules that used to be tangled in the poller can be
+ * asked directly. They are:
+ *
+ * - a picture whose PACKETS are arriving is not parked, and a parked one is
+ *   restored the moment they arrive again. A parked element's clock stops -
+ *   see `parkPicture` - so the clock cannot be the way back.
+ * - a picture that comes back on screen starts its stall count again, or a
+ *   still one - a shared slide, a paused camera - is parked and restored and
+ *   parked again every three seconds for the rest of the call.
+ * - a picture frozen with its packets still arriving is not parked, because
+ *   that would be a lie and would flap against the first rule, but it is not
+ *   waited out for ever either: a decoder wedged on a missed keyframe stays
+ *   wedged, and nothing here can ask for another keyframe.
+ */
+export function judgePicture(state: PictureState, look: PictureLook): { action: PictureAction; state: PictureState } {
+  const next: PictureState = { ...state }
+  let action: PictureAction = 'none'
+
+  if (look.moving) {
+    next.stalled = 0
+    next.played = true
+    next.frozenSince = undefined
+  }
+  if ((look.moving || look.arriving) && !next.onScreen) {
+    next.onScreen = true
+    next.stalled = 0
+    action = 'restore'
+  }
+  if (look.moving) return { action, state: next }
+
+  // Safari can pause off-screen video while the chat is up. That is not
+  // evidence that the sender stopped.
+  if (!look.visible) {
+    next.stalled = 0
+    return { action, state: next }
+  }
+  // Not moving yet is not the same as no longer moving. A picture that has
+  // never had a frame is still on its way, and it is given as long as it
+  // needs.
+  if (!next.played) return { action, state: next }
+
+  next.stalled += 1
+  if (next.stalled >= STALLED_CHECKS && next.onScreen && !look.arriving) {
+    next.onScreen = false
+    return { action: 'park', state: next }
+  }
+  if (!look.arriving) {
+    next.frozenSince = undefined
+    return { action, state: next }
+  }
+  next.frozenSince ??= look.at
+  if (look.at - next.frozenSince < FROZEN_REBIND_MS) return { action, state: next }
+  next.frozenSince = look.at
+  next.stalled = 0
+  next.played = false
+  return { action: 'rebind', state: next }
+}
+
+/**
  * When a tile's element comes down.
  *
  * Holds one counter and one timestamp per tile and no more; the caller owns

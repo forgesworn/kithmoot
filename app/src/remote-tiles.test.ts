@@ -5,10 +5,16 @@ import {
   isReceiving,
   ORPHAN_CHECKS,
   RTP_GRACE_MS,
+  FROZEN_REBIND_MS,
+  judgePicture,
+  STALLED_CHECKS,
   TileLiveness,
   tileDevice,
   tileKey,
   tileRole,
+  type PictureAction,
+  type PictureLook,
+  type PictureState,
   type ReceiverFacts,
   type TrackLike,
 } from './remote-tiles.js'
@@ -338,5 +344,92 @@ describe('TileLiveness', () => {
     live.retain([key])
     expect(live.progressing(other, 1001)).toBe(false)
     expect(live.gone(other, false, 2000)).toBe(false)
+  })
+})
+
+describe('judgePicture', () => {
+  const look = (over: Partial<PictureLook> = {}): PictureLook => ({ moving: false, arriving: false, visible: true, at: 0, ...over })
+  const state = (over: Partial<PictureState> = {}): PictureState => ({ stalled: 0, played: true, onScreen: true, ...over })
+
+  it('parks a picture that ran and stopped, once nothing is arriving either', () => {
+    let s = state()
+    let action: PictureAction = 'none'
+    for (let check = 0; check < STALLED_CHECKS; check++) ({ action, state: s } = judgePicture(s, look({ at: check * 1000 })))
+    expect(action).toBe('park')
+    expect(s.onScreen).toBe(false)
+  })
+
+  /**
+   * BUG: a picture parked for two quiet seconds under load never came back,
+   * because a parked element's clock stops and the clock was the only way
+   * back. Packets are what says the far end is still there.
+   */
+  it('does not park one whose packets are arriving, and restores a parked one when they return', () => {
+    let s = state()
+    for (let check = 0; check < 6; check++) ({ state: s } = judgePicture(s, look({ arriving: true, at: check * 1000 })))
+    expect(s.onScreen, 'a picture with packets arriving was taken off screen').toBe(true)
+
+    const parked = judgePicture(state({ onScreen: false }), look({ arriving: true, at: 9000 }))
+    expect(parked.action).toBe('restore')
+    expect(parked.state.onScreen).toBe(true)
+  })
+
+  /**
+   * BUG: `arriving` used to be read off the store a painted frame also
+   * writes to, so a picture that had just stopped answered "packets are
+   * arriving" for the whole grace window and could not be parked inside it.
+   * This asks the question the poller now asks: packets, separately.
+   */
+  it('parks on the stall count alone when the packets have stopped, however lately it painted', () => {
+    const { action } = judgePicture(state({ stalled: STALLED_CHECKS - 1 }), look({ arriving: false, at: 1000 }))
+    expect(action).toBe('park')
+  })
+
+  it('starts the stall count again when a picture comes back on screen', () => {
+    const { action, state: s } = judgePicture(state({ onScreen: false, stalled: 5 }), look({ arriving: true, at: 1000 }))
+    expect(action).toBe('restore')
+    expect(s.stalled, 'a still picture will be parked and restored for ever').toBe(1)
+  })
+
+  /**
+   * BUG: a decoder wedged on a missed keyframe stays wedged, and nothing
+   * here can ask for another one. Left alone it is a frozen frame for the
+   * rest of the call, because the packets arriving keep it on screen.
+   */
+  it('rebinds a picture frozen with its packets still arriving, and not before', () => {
+    let s = state()
+    const actions: PictureAction[] = []
+    for (let at = 0; at <= FROZEN_REBIND_MS + 2000; at += 1000) {
+      const judged = judgePicture(s, look({ arriving: true, at }))
+      actions.push(judged.action)
+      s = judged.state
+    }
+    expect(actions.filter(a => a === 'rebind'), 'a frozen picture was rebound early, or never').toHaveLength(1)
+    expect(actions.indexOf('rebind'), 'the rebind did not wait out the whole window').toBe(FROZEN_REBIND_MS / 1000)
+    expect(actions).not.toContain('park')
+  })
+
+  it('forgets the frozen clock as soon as a frame is painted', () => {
+    let s = state({ frozenSince: 0 })
+    ;({ state: s } = judgePicture(s, look({ moving: true, arriving: true, at: 5000 })))
+    expect(s.frozenSince).toBeUndefined()
+    const actions: PictureAction[] = []
+    for (let at = 6000; at <= 6000 + FROZEN_REBIND_MS; at += 1000) {
+      const judged = judgePicture(s, look({ arriving: true, at }))
+      actions.push(judged.action)
+      s = judged.state
+    }
+    expect(actions.filter(a => a === 'rebind'), 'the frozen window was not measured from the last frame').toHaveLength(1)
+  })
+
+  it('leaves a picture that has never had a frame alone, however long it takes', () => {
+    let s = state({ played: false })
+    const actions: PictureAction[] = []
+    for (let at = 0; at < 30_000; at += 1000) {
+      const judged = judgePicture(s, look({ at }))
+      actions.push(judged.action)
+      s = judged.state
+    }
+    expect(new Set(actions)).toEqual(new Set(['none']))
   })
 })
