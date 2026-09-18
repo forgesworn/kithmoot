@@ -250,6 +250,21 @@ export const MASK_MAX_AGE_MS = 500
 export const SEGMENTER_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000]
 
 /**
+ * Consecutive successfully-segmented frames before the backoff level is
+ * allowed to reset to the top of `SEGMENTER_RETRY_DELAYS_MS`.
+ *
+ * A segmenter that loads fine but whose `segment()` always throws - a lost
+ * GPU context, say - looks like a *success* to the loader every time: load,
+ * five throws, degrade, retry, load, five throws, degrade... Resetting the
+ * backoff on load rather than on sustained use turns that into a 2-second
+ * loop forever, which is thirty pointless loads a minute for a segmenter
+ * that was never going to work. Thirty consecutive good frames is a second
+ * at 30fps: enough to call it actually recovered rather than about to throw
+ * again.
+ */
+export const SEGMENTER_BACKOFF_RESET_STREAK = 30
+
+/**
  * Hole filling for the temporally-smoothed mask.
  *
  * selfie_segmenter hands back 0.4-0.7 over a flat, plain torso - genuinely
@@ -837,6 +852,9 @@ export class VideoEffect {
 
   #retryTimer: ReturnType<typeof setTimeout> | null = null
   #retryIndex = 0
+  /** Consecutive frames segmented without throwing since the last time the
+   *  backoff level was reset - see `SEGMENTER_BACKOFF_RESET_STREAK`. */
+  #successStreak = 0
 
   #source: BackgroundSource | null = null
 
@@ -990,6 +1008,12 @@ export class VideoEffect {
     try {
       const mask = this.#segmenter.segment(source, timestampMs)
       this.#failures = 0
+      // Only sustained use earns back the short retry delay - see
+      // `SEGMENTER_BACKOFF_RESET_STREAK`.
+      this.#successStreak += 1
+      if (this.#successStreak >= SEGMENTER_BACKOFF_RESET_STREAK) {
+        this.#retryIndex = 0
+      }
       if (mask) {
         this.#lastMask = this.#smoother ? this.#smoother.push(mask) : mask
         this.#maskValid = true
@@ -997,6 +1021,7 @@ export class VideoEffect {
       }
     } catch (err) {
       this.#failures += 1
+      this.#successStreak = 0
       this.#error = errorMessage(err)
       if (this.#failures >= MAX_CONSECUTIVE_SEGMENT_FAILURES) {
         // The segmenter itself is what is broken, not just this frame, so it
@@ -1110,7 +1135,18 @@ export class VideoEffect {
         }
         this.#segmenter = segmenter
         this.#failures = 0
-        this.#cancelRetry()
+        this.#successStreak = 0
+        // The timer that led here, if any, has already fired and cleared
+        // itself; this only matters for the case where loading was kicked
+        // off some other way. The backoff *level* is deliberately left
+        // alone - a segmenter that loads but immediately throws again
+        // should not get the same short delay every time. It resets only
+        // after `SEGMENTER_BACKOFF_RESET_STREAK` frames of real use, in
+        // `renderFrame`.
+        if (this.#retryTimer) {
+          clearTimeout(this.#retryTimer)
+          this.#retryTimer = null
+        }
         this.#setStatus('ready')
       })
       .catch((err: unknown) => {

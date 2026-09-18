@@ -8,6 +8,7 @@ import {
   MASK_MAX_AGE_MS,
   MAX_CONSECUTIVE_SEGMENT_FAILURES,
   SEGMENTER_RETRY_DELAYS_MS,
+  SEGMENTER_BACKOFF_RESET_STREAK,
   HOLE_FILL_CONFIDENCE,
   MaskSmoother,
   STENCIL_ERODE_PX,
@@ -529,6 +530,111 @@ describe('VideoEffect failure behaviour', () => {
       )
       await effect.ready()
       expect(attempt).toBe(3)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps escalating backoff when the segmenter loads fine but segment() always throws', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let loads = 0
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          loads += 1
+          const seg = new FakeSegmenter()
+          seg.throws = new Error('lost the GPU context')
+          return seg
+        },
+      })
+      await effect.ready()
+      expect(loads).toBe(1)
+      expect(effect.status).toBe('ready')
+
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, i)
+      }
+      expect(effect.status).toBe('degraded')
+
+      // First retry: the shortest delay, and it loads - but throws again at
+      // once, which is not the same thing as having recovered.
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      await effect.ready()
+      expect(loads).toBe(2)
+      expect(effect.status).toBe('ready')
+
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, 100 + i)
+      }
+      expect(effect.status).toBe('degraded')
+
+      // A load succeeding must not have reset the backoff: the second retry
+      // is due at the *second* delay, not the first one again.
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]! - 1)
+      expect(loads).toBe(2)
+
+      await vi.advanceTimersByTimeAsync(
+        SEGMENTER_RETRY_DELAYS_MS[1]! - (SEGMENTER_RETRY_DELAYS_MS[0]! - 1),
+      )
+      await effect.ready()
+      expect(loads).toBe(3)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('resets the backoff level after a sustained run of good frames', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let loads = 0
+      let seg: FakeSegmenter | null = null
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          loads += 1
+          seg = new FakeSegmenter()
+          if (loads === 1) seg.throws = new Error('first load is bad')
+          return seg
+        },
+      })
+      await effect.ready()
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, i)
+      }
+      expect(effect.status).toBe('degraded')
+
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      await effect.ready()
+      expect(loads).toBe(2)
+      expect(effect.status).toBe('ready')
+
+      // A long run of genuinely good frames - well past the reset streak.
+      for (let i = 0; i < SEGMENTER_BACKOFF_RESET_STREAK + 5; i += 1) {
+        expect(effect.renderFrame(SOURCE, 320, 240, 1000 + i)).toBe('composite')
+      }
+
+      // Degrades again, and this time the retry is due back at the first,
+      // shortest delay: sustained use earned the backoff level back.
+      seg!.throws = new Error('broke again')
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, 2000 + i)
+      }
+      expect(effect.status).toBe('degraded')
+
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]! - 1)
+      expect(loads).toBe(2)
+      await vi.advanceTimersByTimeAsync(1)
+      await effect.ready()
+      expect(loads).toBe(3)
       effect.close()
     } finally {
       vi.useRealTimers()
