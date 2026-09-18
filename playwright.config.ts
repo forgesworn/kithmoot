@@ -87,6 +87,9 @@ export default defineConfig({
     },
     {
       name: 'chromium',
+      // Everything but the desktop shell's own spec, which needs the other
+      // build and runs in `chromium-desktop` below.
+      testIgnore: ['desktop-room-layout.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
@@ -118,6 +121,33 @@ export default defineConfig({
         },
       },
     },
+    {
+      // The installed desktop window, in a browser.
+      //
+      // `desktop-room-layout.spec.ts` is about the shell that only exists in
+      // a VITE_DESKTOP build: the chat drawer, and a room whose height is
+      // fixed by the window instead of running off the bottom of a scrolling
+      // page. Neither is in the ordinary build, so this project points at a
+      // second preview server serving `desktop/web` (see `webServer` below)
+      // rather than quietly skipping - a layout spec that skips is exactly
+      // how the last two attempts at this "passed".
+      name: 'chromium-desktop',
+      testMatch: ['desktop-room-layout.spec.ts'],
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.E2E_DESKTOP_BASE_URL ?? 'https://localhost:4174/j/',
+        launchOptions: {
+          args: [
+            '--use-fake-device-for-media-stream',
+            '--disable-audio-output',
+            '--use-fake-ui-for-media-stream',
+            '--autoplay-policy=no-user-gesture-required',
+            '--auto-accept-this-tab-capture',
+            '--auto-select-desktop-capture-source=Entire screen',
+          ],
+        },
+      },
+    },
   ],
   // Builds the app and serves app/dist on localhost via `vite preview`,
   // which - like `npm run demo` - runs under app/vite.config.ts's basicSsl
@@ -140,6 +170,21 @@ export default defineConfig({
         ignoreHTTPSErrors: true,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
+      },
+    ]),
+    ...(process.env.E2E_DESKTOP_BASE_URL ? [] : [
+      {
+        // The same app built as the installed desktop window. `VITE_DESKTOP`
+        // gates both the chat drawer's wiring in desktop-layout.ts and every
+        // rule in desktop.css, and app/vite.config.ts sends that build to
+        // `desktop/web` rather than `app/dist`, so the two can be served side
+        // by side without either clobbering the other. Costs one extra build
+        // per fresh run; `reuseExistingServer` means you pay it once locally.
+        command: 'VITE_DESKTOP=true VITE_QUIET_SLOT_SECONDS=8 npm run build && VITE_DESKTOP=true npx vite preview --config app/vite.config.ts --port 4174 --strictPort',
+        url: 'https://localhost:4174/j/',
+        ignoreHTTPSErrors: true,
+        reuseExistingServer: !process.env.CI,
+        timeout: 180_000,
       },
     ]),
     {
