@@ -158,7 +158,15 @@ function judge(before: TileSample | undefined, after: TileSample | undefined): C
     // a speaking one is 1e-2 and up.
     return s.energy !== null && prev.energy !== null && s.energy - prev.energy > 1e-3
   })
-  const v = after.videos.map(x => `v${x.i}[w${x.w} sp${x.spread.toFixed(0)} ${x.paused ? 'paused ' : ''}${x.track}]`).join(' ') || 'no-video'
+  // The element's own clock, and how far it moved between the two samples.
+  // Without it a still picture reads the same whether the decoder stopped or
+  // the far end is sending the same frame over and over, and those are
+  // different faults in different places.
+  const v = after.videos.map(x => {
+    const prev = before?.videos.find(p => p.i === x.i)
+    const dt = prev ? (x.time - prev.time).toFixed(2) : 'n/a'
+    return `v${x.i}[w${x.w} sp${x.spread.toFixed(0)} t${x.time.toFixed(2)} dt:${dt} ${x.paused ? 'paused ' : ''}${x.track}]`
+  }).join(' ') || 'no-video'
   const a = after.sounds.map(x => {
     const prev = before?.sounds.find(p => p.i === x.i)
     const dE = x.energy !== null && prev?.energy != null ? (x.energy - prev.energy).toExponential(1) : 'n/a'
@@ -479,6 +487,43 @@ test.describe('call stability', () => {
       verdict([await waitForMatrix(people, 'baseline', 90_000)])
     } finally {
       for (const c of contexts) await c.close()
+    }
+  })
+
+  /**
+   * The same four people, joining through ONE relay, with nothing injected.
+   *
+   * This is the shape that failed in CI on 18 September 2026: the baseline of
+   * the signalling-window case and of case 7b, before either of them touched
+   * anything. Both join through the fault relay, so signalling has no second
+   * relay to arrive by and the roster reaches a joiner exactly once. The
+   * failure was always the same - the third person's microphone missing on
+   * the first two screens, packets arriving, no `<audio>` element at all -
+   * so the case is kept here without the fault: what it reproduces is a race
+   * at join, not a reaction to a fault.
+   */
+  test('four people join through one relay: every direction comes up, with nothing injected', async ({ browser, baseURL }) => {
+    test.setTimeout(600_000)
+    const relay = await startFaultRelay()
+    const known = new Set<string>()
+    const contexts: BrowserContext[] = []
+    const people: Person[] = []
+    try {
+      let url = ''
+      for (const name of FOUR) {
+        const context = await newDeviceContext(browser, baseURL!)
+        contexts.push(context)
+        const page = await context.newPage()
+        if (!url) url = await createRoom(page, baseURL!, [relay.url])
+        await joinWithMedia(page, url, name)
+        await effectsOff(page)
+        await newDevice(relay, known)
+        people.push({ name, page })
+      }
+      verdict([await waitForMatrix(people, 'one-relay baseline', 90_000)])
+    } finally {
+      for (const c of contexts) await c.close()
+      await relay.stop()
     }
   })
 

@@ -288,6 +288,12 @@ export interface FakeConnectionOptions {
    * fourteen seconds, for ever.
    */
   omitRemoteInbound?: boolean
+  /**
+   * Rewrite `localDescription` as a real connection does once it has a
+   * default candidate - see `#rewriteLocalDescription`. Off by default: the
+   * negotiation tests written before it compare these strings for identity.
+   */
+  rewriteGatheredSdp?: boolean
 }
 
 /**
@@ -359,6 +365,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
       nullTrackOnRemove: options.nullTrackOnRemove ?? false,
       omitStatsMid: options.omitStatsMid ?? false,
       omitRemoteInbound: options.omitRemoteInbound ?? false,
+      rewriteGatheredSdp: options.rewriteGatheredSdp ?? false,
     }
     this.#structured = this.options.structuredSdp
   }
@@ -671,8 +678,51 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
       sdpMLineIndex: 0,
     }
     this.gathered.push(value)
+    this.#rewriteLocalDescription()
     this.onicecandidate?.({ candidate: value })
     return value
+  }
+
+  /**
+   * What a real connection does to the description it hands back once it has
+   * a default candidate.
+   *
+   * The description a caller reads out of `localDescription` is not the one
+   * `createOffer` wrote: the m-line port stops being the discard port 9 and
+   * becomes the default candidate's, the `c=` line stops being
+   * `IN IP4 0.0.0.0` and becomes that candidate's address, an `a=rtcp:` line
+   * turns up beside them, and every candidate gathered so far is written in.
+   * `Peer` re-sends exactly that string when it asks about an unanswered
+   * offer, so a fixture whose `localDescription` never moves cannot show
+   * whether the far end still recognises the offer it answered. Off by
+   * default, because the tests written before any of this exists compare
+   * these strings for identity.
+   */
+  #rewriteLocalDescription(): void {
+    if (!this.options.rewriteGatheredSdp) return
+    const local = this.localDescription
+    if (!local?.sdp || !local.sdp.includes('\nm=')) return
+    const port = 40000 + this.gathered.length
+    const address = `192.0.2.${this.gathered.length}`
+    const lines: string[] = []
+    for (const raw of local.sdp.split('\n')) {
+      const line = raw.replace(/\r$/, '')
+      if (line.startsWith('m=')) {
+        const parts = line.split(' ')
+        parts[1] = String(port)
+        lines.push(parts.join(' '))
+        continue
+      }
+      if (line.startsWith('c=')) {
+        lines.push(`c=IN IP4 ${address}`)
+        lines.push(`a=rtcp:${port} IN IP4 ${address}`)
+        continue
+      }
+      if (line.startsWith('a=rtcp:') || line.startsWith('a=candidate:')) continue
+      lines.push(line)
+    }
+    for (const gathered of this.gathered) lines.push(`a=${gathered.candidate}`)
+    this.localDescription = { ...local, sdp: lines.join('\n') }
   }
 
   setConnectionState(state: RTCPeerConnectionState): void {

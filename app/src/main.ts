@@ -55,7 +55,7 @@ import { readAgentRequestStatuses, type RequestAgent } from './agent-request-sta
 import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
-import { bindRoles, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
+import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
 import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
@@ -7299,6 +7299,10 @@ interface RemoteVideo {
    * everything negotiated perfectly ended up with nobody visible in it.
    */
   played: boolean
+  /** When this picture was first seen frozen while its packets kept
+   *  arriving, so the wait for it to come back on its own is bounded. See
+   *  `FROZEN_REBIND_MS`. */
+  frozenSince?: number
 }
 
 const remoteVideos = new Map<string, RemoteVideo>()
@@ -7617,11 +7621,6 @@ function paintVolumeMute(participant: string, silenced: boolean): void {
   else if (!silenced && existing) existing.remove()
 }
 
-/** How many checks a picture may go without a new frame before it comes off
- *  screen. Two at a one-second interval: long enough not to flicker on a
- *  dropped frame or a slow moment, short enough that "off" looks off. */
-const STALLED_CHECKS = 2
-
 /**
  * Where a picture waits while it is off screen.
  *
@@ -7634,9 +7633,16 @@ const STALLED_CHECKS = 2
  * screen was what stopped the clock it was being judged by, and a picture
  * that went off once was off for the rest of the call.
  *
- * Parked here it keeps decoding and keeps advancing, so "is it moving again"
- * remains a question with an answer. The holder is `display:none`, which
- * pauses nothing: it is out of the room's layout and - the part that
+ * Parked here it is at least still in the document, so nothing runs the
+ * pause steps on it and the element survives to be put back. What it does
+ * NOT reliably do is keep advancing: `display:none` takes it out of the
+ * rendering tree, and a browser is free to stop feeding it there - measured
+ * on 18 September 2026, a parked picture's clock stopped and never started
+ * again. So the clock is not the way back. Arriving packets are, which is
+ * read off the receiver and does not care where the element is - see
+ * `trackReceivingRtp`.
+ *
+ * The holder is `display:none`: out of the room's layout and - the part that
  * matters - out of `#room .participant`, which is what "off everybody else's
  * screen" has to mean.
  */
@@ -7644,13 +7650,20 @@ function parkPicture(el: HTMLVideoElement): void {
   $('parked').append(el)
 }
 
-/** Removing a media element can run the browser's pause steps. Reattaching
- * the same receiver does not reliably restart autoplay; resume only when
- * recovering an element that actually left the document. */
+/**
+ * Put a media element back where people can see or hear it, playing.
+ *
+ * Removing an element from the document runs the browser's pause steps, so
+ * one that actually left has to be resumed. One that was only parked -
+ * `display:none`, still in the document - was assumed not to need it, and
+ * that assumption is not free: a paused element with packets arriving is
+ * silent or still for as long as nobody asks it to play, and nothing else
+ * here asks. `play()` on an element that is already playing is a no-op, so
+ * the question to ask is simply whether it is paused.
+ */
 function restoreRemoteElement(el: HTMLMediaElement, container: HTMLElement): void {
-  const detached = !el.isConnected
   container.append(el)
-  if (detached) void el.play().catch((err) => { if (el instanceof HTMLAudioElement) reportAutoplayBlock(err) })
+  if (el.paused) void el.play().catch((err) => { if (el instanceof HTMLAudioElement) reportAutoplayBlock(err) })
 }
 
 /** Whether this picture is currently on screen, in its own device's tile. */
@@ -7723,6 +7736,9 @@ function connectionDevice(key: string): string | undefined {
 
 /** When RTP was last seen moving on a track, on `performance.now()`'s clock. */
 const trackProgressAt = new WeakMap<MediaStreamTrack, number>()
+/** When RTP alone was last seen arriving, never written by a painted frame.
+ *  See `trackReceivingRtp`. */
+const rtpAt = new WeakMap<MediaStreamTrack, number>()
 /** The newest synchronisation-source timestamp seen for a track, so the next
  *  look can tell "still arriving" from "the same packets as before". */
 const rtpTimestamps = new WeakMap<MediaStreamTrack, number>()
@@ -7741,7 +7757,16 @@ function noteRtp(receiver: RTCRtpReceiver, track: MediaStreamTrack, now: number)
   let latest = 0
   for (const source of receiver.getSynchronizationSources?.() ?? []) if (source.timestamp > latest) latest = source.timestamp
   if (latest === 0) return
-  if (latest > (rtpTimestamps.get(track) ?? 0)) trackProgressAt.set(track, now)
+  if (latest > (rtpTimestamps.get(track) ?? 0)) {
+    trackProgressAt.set(track, now)
+    // RTP only, kept apart from the store above, which a painted frame also
+    // writes to. "Packets are arriving" and "a frame was painted recently"
+    // are different questions, and the park rule needs the first one: read
+    // off the second, a picture that had just stopped answered "yes" for the
+    // whole grace window afterwards, and a decoder wedged with packets still
+    // coming in answered "yes" for ever.
+    rtpAt.set(track, now)
+  }
   rtpTimestamps.set(track, latest)
 }
 
@@ -7753,6 +7778,13 @@ function noteProgress(track: MediaStreamTrack, now: number): void {
 /** Whether media has moved on this track inside the liveness window. */
 function trackProgressing(track: MediaStreamTrack, now: number): boolean {
   const at = trackProgressAt.get(track)
+  return at !== undefined && now - at < RTP_GRACE_MS
+}
+
+/** Whether PACKETS have arrived on this track inside the liveness window,
+ *  whatever the element on it has painted. */
+function trackReceivingRtp(track: MediaStreamTrack, now: number): boolean {
+  const at = rtpAt.get(track)
   return at !== undefined && now - at < RTP_GRACE_MS
 }
 
@@ -7823,26 +7855,32 @@ function syncRemoteVideos(): void {
       callTimeline.record('tile-orphaned', short(key.split('|')[0]), 'video')
       continue
     }
-    if (moving) {
-      entry.stalled = 0
-      entry.played = true
-      if (!onScreen(entry) && !leftCall) {
-        restoreRemoteElement(entry.el, entry.container)
-        changed = true
-      }
-      continue
+    // What to do about this picture is decided in app/src/remote-tiles.ts,
+    // which owns the rule and is tested without a browser. Packets are read
+    // off the receiver rather than off the element: a parked element's clock
+    // stops, and so does a wedged decoder's while the packets keep coming.
+    const { action, state } = judgePicture(
+      { stalled: entry.stalled, played: entry.played, onScreen: onScreen(entry), frozenSince: entry.frozenSince },
+      { moving, arriving: trackReceivingRtp(entry.track, now), visible: $('callStage').checkVisibility(), at: now },
+    )
+    entry.stalled = state.stalled
+    entry.played = state.played
+    entry.frozenSince = state.frozenSince
+    if (action === 'restore' && !leftCall) {
+      restoreRemoteElement(entry.el, entry.container)
+      changed = true
     }
-    // Safari can pause off-screen video during Chat. That is not evidence
-    // that the sender stopped; the Call gesture resumes the existing player.
-    if (!$('callStage').checkVisibility()) { entry.stalled = 0; continue }
-    // Not moving yet is not the same as no longer moving. A picture that has
-    // never had a frame is still arriving, and it is given as long as it
-    // needs: the tile says so meanwhile, and nothing about it is a lie. Only
-    // a picture that ran and stopped is taken off screen.
-    if (!entry.played) continue
-    if (++entry.stalled >= STALLED_CHECKS && onScreen(entry)) {
+    if (action === 'park') {
       parkPicture(entry.el)
       changed = true
+    }
+    if (action === 'rebind') {
+      // The same track, a new decoder. Cheap, and at worst it repeats every
+      // fifteen seconds for as long as the picture stays frozen.
+      entry.el.srcObject = new MediaStream([entry.track])
+      entry.last = -1
+      if (!leftCall && entry.el.paused) void entry.el.play().catch(() => { /* the next pass tries again */ })
+      callTimeline.record('tile-bound', short(tileDevice(key)), 'video')
     }
   }
   // Sound, by the same liveness rule. A screen share that ends, or a
@@ -8026,6 +8064,49 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
  * are already retained for diagnostics, so reconcile their live receivers
  * with the UI as a recovery path. Re-attaching the same object is skipped.
  */
+/**
+ * Take down a tile showing a receiver the mapping no longer binds.
+ *
+ * The liveness rule is about a far end that stopped: no advert, no packets,
+ * so the tile goes. It cannot answer the other case, and a far end toggling
+ * its camera makes that case every time. The receiver it leaves behind is
+ * not gone - its transceiver stays, `getSynchronizationSources` reports its
+ * last sources, its counters stand - so the advert half never agrees and the
+ * tile stays for ever. Measured in Firefox, where a receiver's id matches no
+ * advert: three video receivers for one camera, two of them stale, two
+ * elements on that person's tile and neither of them the live one.
+ *
+ * `bindRoles` already knows which receivers this device should be showing.
+ * Anything else is a tile nothing is claiming, whatever its counters say.
+ */
+function dropUnboundTiles(device: string, kind: MediaKind, binding: ReadonlyMap<TrackAdvert['role'], { readonly id: string }>): void {
+  const keep = new Set<unknown>(binding.values())
+  const tiles = kind === 'video' ? remoteVideos : remoteAudios
+  for (const [key, entry] of tiles) {
+    if (tileDevice(key) !== device) continue
+    if (keep.has(entry.track)) continue
+    if (kind === 'video') {
+      const video = entry as RemoteVideo
+      if (onScreen(video)) changedTiles = true
+      video.el.remove()
+      remoteVideos.delete(key)
+      callTimeline.record('tile-orphaned', short(device), 'video')
+    } else {
+      entry.el.remove()
+      remoteAudios.delete(key)
+      remoteVolume.detach(key)
+      speakingMonitor.unwatch(device)
+      changedTiles = true
+      callTimeline.record('track-removed', short(device), 'audio')
+    }
+    tileLiveness.forget(key)
+  }
+}
+
+/** Set by a tile coming down outside `syncRemoteVideos`, so the grid is
+ *  repainted once rather than per tile. */
+let changedTiles = false
+
 function recoverRemoteTracks(): void {
   if (!session) return
   const now = performance.now()
@@ -8042,7 +8123,9 @@ function recoverRemoteTracks(): void {
       // The same decision `attachRemoteTrack` makes, made for the whole
       // device at once: who should hold each slot, given what the roster
       // advertises, what the tiles show now, and whose packets are moving.
-      for (const [role, chosen] of bindRoles({ kind, adverts, receivers, bound: boundTracks(device, kind) })) {
+      const binding = bindRoles({ kind, adverts, receivers, bound: boundTracks(device, kind) })
+      dropUnboundTiles(device, kind, binding)
+      for (const [role, chosen] of binding) {
         const track = chosen as MediaStreamTrack
         if (track.readyState !== 'live') continue
         const key = tileKey(device, role)
@@ -8059,6 +8142,10 @@ function recoverRemoteTracks(): void {
         if (entry?.track !== track || !entry.el.isConnected || entry.el.paused) attachRemoteTrack(device, track, key)
       }
     }
+  }
+  if (changedTiles) {
+    changedTiles = false
+    if (session) render(session.participants(), meParticipant)
   }
 }
 
@@ -8124,7 +8211,17 @@ async function collectDiagnostics(): Promise<string> {
         iceGatheringState: pc.iceGatheringState,
         signalingState: pc.signalingState,
         senders: pc.getSenders().map((sn) => (sn.track ? `${sn.track.kind}:${sn.track.readyState}${sn.track.muted ? ':muted' : ''}${sn.track.enabled ? '' : ':disabled'}` : 'none')),
-        receivers: pc.getReceivers().map((rc) => `${rc.track.kind}:${rc.track.readyState}${rc.track.muted ? ':muted' : ''}`),
+        // The transceiver's direction belongs on this line, not just the
+        // track's state: a receiver whose `currentDirection` no longer says
+        // `recv` is one the tile mapping will not bind, and a report that
+        // says only `live:muted` cannot tell that apart from a tile that is
+        // simply quiet. `mid` names the m-line, so two transceivers of the
+        // same kind on one connection are told apart at a glance.
+        receivers: pc.getTransceivers().map((tr) => {
+          const track = tr.receiver?.track
+          const where = `${tr.mid ?? '-'}:${tr.currentDirection ?? 'unnegotiated'}`
+          return track ? `${track.kind}:${track.readyState}${track.muted ? ':muted' : ''}@${where}` : `none@${where}`
+        }),
         stats,
       }
     }),
