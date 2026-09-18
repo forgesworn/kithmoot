@@ -1704,6 +1704,23 @@ button.primary:hover:not(:disabled) {
   color: var(--muted);
 }
 
+/* The failure notice next to the self-view, outside the folded effect
+   panel - see `renderEffectFailureNotice` in app/src/main.ts. `.broken`
+   above is deliberately muted grey there: it sits beside other quiet
+   indicator lines inside a details element somebody already opened. This
+   one is read at a glance from a call in progress, so it needs its own,
+   louder styling rather than inheriting that. */
+#effectDegradedNotice.broken {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--panel);
+  border: 2px solid var(--danger-border);
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  margin: 0.4rem 0;
+}
+
 .note.warn {
   border-left: 2px solid var(--accent-dim);
   padding-left: 0.6rem;
