@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
-import { openRoomDetails } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
 
 /**
  * The message layer, as a person meets it: a reply that sits under the
@@ -24,7 +24,7 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
   await device(context)
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
-  const rowan = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: ['ws://127.0.0.1:7777'], name: 'Rowan' })
+  const rowan = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: [TEST_RELAY_WS], name: 'Rowan' })
   try {
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()

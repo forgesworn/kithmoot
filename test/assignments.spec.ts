@@ -1,12 +1,12 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
-import { open } from './browser.js'
+import { open, TEST_RELAY_WS } from './browser.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 
 test('room cards carry a question and exact-result review through reload at phone width', async ({ browser, baseURL }, testInfo) => {
   test.setTimeout(60_000)
-  const worker = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: ['ws://127.0.0.1:7777'] })
+  const worker = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: [TEST_RELAY_WS] })
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { ...parseRoomLink(worker.url), relays: [relay.href] })
   let cache: string | undefined
@@ -280,7 +280,7 @@ test('assignment retries clear only the submitted form and keep a newer draft', 
 
 test('an advertised agent can be invited and assigned work without replacing an unfinished draft', async ({ browser, baseURL }, testInfo) => {
   const { context, page, relay } = await workDevice(browser, baseURL!)
-  const host = await RoomAgent.create({ base: baseURL!, name: 'Workshop host', roomName: 'Agent workshop', agent: false, relays: ['ws://127.0.0.1:7777'] })
+  const host = await RoomAgent.create({ base: baseURL!, name: 'Workshop host', roomName: 'Agent workshop', agent: false, relays: [TEST_RELAY_WS] })
   let worker: RoomAgent | undefined
   let actions = [{ id: 'check-release', label: 'Check release evidence', description: 'Check a named build and return its evidence for review.', inputs: [{ id: 'build', label: 'Build identifier', required: true }] }]
   const requests: string[] = []
@@ -302,7 +302,7 @@ test('an advertised agent can be invited and assigned work without replacing an 
     await expect.poll(() => requests).toContain('checker')
     // A real peer joins when the fixture host receives the invitation. Its
     // work results below exercise the shared state machine, not an external job.
-    worker = await RoomAgent.join({ link: host.url, name: 'Build checker', agent: true, relays: ['ws://127.0.0.1:7777'] })
+    worker = await RoomAgent.join({ link: host.url, name: 'Build checker', agent: true, relays: [TEST_RELAY_WS] })
     let journal: string | undefined
     const log = await worker.session.assignments({ async load() { return journal }, async save(value) { journal = value } })
     await announce()
@@ -358,7 +358,7 @@ test('an advertised agent can be invited and assigned work without replacing an 
 })
 
 test('a message offers a summary with its exact source and preserves an unfinished task', async ({ browser, baseURL }) => {
-  const worker = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: ['ws://127.0.0.1:7777'] })
+  const worker = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: [TEST_RELAY_WS] })
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { ...parseRoomLink(worker.url), relays: [relay.href] })
   const log = await worker.session.assignments({ async load() { return undefined }, async save() {} })

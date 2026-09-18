@@ -3,6 +3,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
+import { TEST_RELAY_WS } from './browser.js'
 
 // Somebody on a phone during a live call could not read the chat. These are
 // the measurements that were wrong, taken the way that person met them: a
@@ -81,7 +82,7 @@ const px = (page: Page, selector: string) => page.locator(selector).first().eval
 
 test('a phone reads the conversation: size, width, contrast and no sideways scroll', async ({ browser, baseURL }) => {
   const { context, link } = await phone(browser, baseURL!)
-  const relays = ['ws://127.0.0.1:7777']
+  const relays = [TEST_RELAY_WS]
   const page = await context.newPage()
   await page.goto(link)
   await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()

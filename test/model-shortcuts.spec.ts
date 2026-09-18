@@ -3,6 +3,7 @@ import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
 import type { ModelShortcut } from '../src/control.js'
+import { TEST_RELAY_WS } from './browser.js'
 
 test('model menu supports keyboard and touch, sends the selector and rejects stale choices', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -10,7 +11,7 @@ test('model menu supports keyboard and touch, sends the selector and rejects sta
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Model workshop', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
   let models: ModelShortcut[] = [
     { id: 'astra', label: 'Astra' }, { id: 'opus5', label: 'Opus 5' }, { id: 'fable5', label: 'Fable 5' },
   ]

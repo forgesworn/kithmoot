@@ -3,7 +3,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { openRoomDetails } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
 import { parseRoomLink } from '../src/link.js'
 import { openRoomUrl } from './relays.js'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
@@ -13,7 +13,7 @@ import WebSocket from 'ws'
 /** Everything the local test relay holds for a filter, read straight off it. */
 function relayHolds(filter: Record<string, unknown>): Promise<Event[]> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket('ws://127.0.0.1:7777')
+    const socket = new WebSocket(TEST_RELAY_WS)
     const events: Event[] = []
     socket.on('open', () => socket.send(JSON.stringify(['REQ', 'held', filter])))
     socket.on('message', raw => {

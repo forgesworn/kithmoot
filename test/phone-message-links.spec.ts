@@ -2,6 +2,7 @@ import { test, expect, type Browser } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
+import { TEST_RELAY_WS } from './browser.js'
 
 /**
  * On a phone a link in a message could not be tapped or copied, and holding
@@ -27,7 +28,7 @@ async function phone(browser: Browser, baseURL: string) {
 
 test('a link in a message is tappable, safe and wraps; the rest of the text can be copied; holding the link does not open reactions', async ({ browser, baseURL }) => {
   const { context, link } = await phone(browser, baseURL!)
-  const writer = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Rowan', agent: false })
+  const writer = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false })
   try {
     const page = await context.newPage()
     await page.goto(link)
