@@ -482,6 +482,43 @@ test.describe('call stability', () => {
     }
   })
 
+  /**
+   * The same four people, joining through ONE relay, with nothing injected.
+   *
+   * This is the shape that failed in CI on 18 September 2026: the baseline of
+   * the signalling-window case and of case 7b, before either of them touched
+   * anything. Both join through the fault relay, so signalling has no second
+   * relay to arrive by and the roster reaches a joiner exactly once. The
+   * failure was always the same - the third person's microphone missing on
+   * the first two screens, packets arriving, no `<audio>` element at all -
+   * so the case is kept here without the fault: what it reproduces is a race
+   * at join, not a reaction to a fault.
+   */
+  test('four people join through one relay: every direction comes up, with nothing injected', async ({ browser, baseURL }) => {
+    test.setTimeout(600_000)
+    const relay = await startFaultRelay()
+    const known = new Set<string>()
+    const contexts: BrowserContext[] = []
+    const people: Person[] = []
+    try {
+      let url = ''
+      for (const name of FOUR) {
+        const context = await newDeviceContext(browser, baseURL!)
+        contexts.push(context)
+        const page = await context.newPage()
+        if (!url) url = await createRoom(page, baseURL!, [relay.url])
+        await joinWithMedia(page, url, name)
+        await effectsOff(page)
+        await newDevice(relay, known)
+        people.push({ name, page })
+      }
+      verdict([await waitForMatrix(people, 'one-relay baseline', 90_000)])
+    } finally {
+      for (const c of contexts) await c.close()
+      await relay.stop()
+    }
+  })
+
   test('mid-call toggles: every direction recovers after camera, mic and share changes', async ({ browser, baseURL }) => {
     test.setTimeout(600_000)
     const BOUND = 20_000
