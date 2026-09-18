@@ -435,6 +435,10 @@ export class MaskSmoother {
   #state: Float32Array | null = null
   #scratch: Float32Array | null = null
   #out: Float32Array | null = null
+  /** A copy of `#state` that hole filling is applied to. `#state` itself is
+   *  the true temporal history and must never carry a filled value into the
+   *  next frame's blend - see `push`. */
+  #holeFilled: Float32Array | null = null
   #holeVisited: Uint8Array | null = null
   #holeStack: Int32Array | null = null
 
@@ -481,6 +485,7 @@ export class MaskSmoother {
       this.#state = new Float32Array(pixels)
       this.#scratch = new Float32Array(pixels)
       this.#out = new Float32Array(pixels)
+      this.#holeFilled = new Float32Array(pixels)
       this.#holeVisited = new Uint8Array(pixels)
       this.#holeStack = new Int32Array(pixels)
       // The first frame of a new source has nothing to average against, and
@@ -505,9 +510,16 @@ export class MaskSmoother {
       }
     }
 
+    // Hole filling runs on a copy. `#state` is the true temporal history -
+    // what next frame's blend calls "previous" - and a filled pixel is a
+    // display decision, not evidence that the person really is there; the
+    // pixel it stands in for stays exactly what the model said.
+    let output = this.#state
     if (this.#holeFill) {
+      const filled = this.#holeFilled!
+      filled.set(this.#state)
       fillMaskHoles(
-        this.#state,
+        filled,
         width,
         height,
         this.#holeVisited!,
@@ -516,12 +528,13 @@ export class MaskSmoother {
         this.#holeFillConfidence,
         this.#holeFillMaxFraction,
       )
+      output = filled
     }
 
     if (this.#erode === 0) {
-      return { width, height, data: this.#state }
+      return { width, height, data: output }
     }
-    erode(this.#state, this.#scratch!, this.#out!, width, height, this.#erode)
+    erode(output, this.#scratch!, this.#out!, width, height, this.#erode)
     return { width, height, data: this.#out! }
   }
 }

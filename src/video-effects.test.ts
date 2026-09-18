@@ -1080,6 +1080,39 @@ describe('MaskSmoother hole filling', () => {
     )
     expect(out.data[4]).toBeCloseTo(0.2, 5)
   })
+
+  it('applies hole filling to the output only, never the stored temporal state', () => {
+    const withFill = new MaskSmoother({ erode: 0 })
+    const withoutFill = new MaskSmoother({ erode: 0, holeFill: false })
+
+    const enclosed = mask2d([
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1],
+      [1, 1, 0.2, 1, 1],
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1],
+    ])
+    withFill.push(enclosed)
+    withoutFill.push(enclosed)
+
+    // Frame two opens a path to the edge along the whole middle row, with a
+    // different value at the same pixel: the blend this frame produces
+    // depends on frame one's *true* confidence there, not on the 0.9 frame
+    // one's output displayed for it. If hole filling had corrupted the
+    // stored state, this frame's result would follow the filled 0.9
+    // instead and the two smoothers would disagree.
+    const opened = mask2d([
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1],
+      [0.5, 0.5, 0.5, 0.5, 0.5],
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1],
+    ])
+    const outWith = withFill.push(opened)
+    const outWithout = withoutFill.push(opened)
+
+    expect(outWith.data[2 * 5 + 2]).toBeCloseTo(outWithout.data[2 * 5 + 2]!, 4)
+  })
 })
 
 describe('fillMaskHoles performance', () => {
