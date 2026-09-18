@@ -1,4 +1,6 @@
 import { updateAppBadge } from './app-badge.js'
+import { resolveShownName, LastKnownNames } from './profile-name.js'
+import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
 import { playZenChime, unlockZenChime } from './zen-chime.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
@@ -122,7 +124,6 @@ import {
   resolveConversation,
   mentionedBy,
   mentionsOf,
-  ROOM_MENTION_PATTERN,
   sameRef,
   refKey,
   retractionText,
@@ -1731,6 +1732,29 @@ function nameCollides(pubkey: string, name: string | undefined): boolean {
   return keys !== undefined && (keys.size > 1 || !keys.has(pubkey))
 }
 
+/**
+ * The last name a kind-0 profile actually carried for a key, kept across
+ * reloads so the join flash - the announced name showing for a second or
+ * two before the real profile arrives - happens once per key, not on
+ * every single visit. See `profile-name.ts` for the store itself and for
+ * `resolveShownName`, which decides what `shownAs` below actually shows.
+ */
+const LAST_KNOWN_PROFILE_NAME_KEY = 'kithmoot.profiles.lastKnownName.v1'
+const lastKnownProfileNames = new LastKnownNames(500, (() => {
+  try {
+    const raw = deviceStore.get(LAST_KNOWN_PROFILE_NAME_KEY)
+    const parsed = raw ? (JSON.parse(raw) as unknown) : {}
+    if (!parsed || typeof parsed !== 'object') return []
+    return Object.entries(parsed as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string')
+  } catch {
+    return []
+  }
+})())
+function rememberProfileName(pubkey: string, name: string): void {
+  if (!lastKnownProfileNames.remember(pubkey, name)) return
+  try { deviceStore.set(LAST_KNOWN_PROFILE_NAME_KEY, JSON.stringify(lastKnownProfileNames.toRecord())) } catch { /* Still applies to this visit. */ }
+}
+
 /** The full npub, for a title attribute - somewhere the whole key is
  *  available without it taking a row of its own. */
 function npubOf(pubkey: string): string {
@@ -1766,7 +1790,13 @@ function shownAs(pubkey: string, asserted?: string): Shown {
   // every render by design - it does nothing for a total that is still
   // fresh, and nothing at all when the feature is off.
   if (profile !== undefined) donations.want([pubkey])
-  const name = profile?.name ?? asserted
+  if (profile?.name) rememberProfileName(pubkey, profile.name)
+  const name = resolveShownName({
+    profileName: profile?.name,
+    rememberedName: lastKnownProfileNames.get(pubkey),
+    assertedName: asserted,
+    profilesEnabled,
+  })
   noteName(pubkey, name)
   return {
     pubkey,
@@ -6723,9 +6753,12 @@ setInterval(() => {
 // easy rather than to make the old one fail.
 // ---------------------------------------------------------------------------
 
-/** The names this room knows: everybody on the roster right now. */
+/** The names this room knows: everybody on the roster right now, as they
+ *  are actually shown - a profile name once one has arrived, not the
+ *  announced name that got them in the door. Matches `myNames` below,
+ *  which already prefers the shown name over the typed one. */
 function rosterNames(): string[] {
-  return (session?.participants() ?? []).map((v) => v.name?.trim() ?? '').filter((n) => n.length > 0)
+  return (session?.participants() ?? []).map((v) => shownAs(v.participant, v.name).name?.trim() ?? '').filter((n) => n.length > 0)
 }
 
 /** What a message calls ME, so a mention of the reader can be marked as
@@ -6739,24 +6772,6 @@ function myNames(): Set<string> {
     if (shown) mine.add(shown.toLowerCase())
   }
   return mine
-}
-
-/** One pattern for every name in the room, longest first so "The moot"
- *  wins over a shorter name inside it. Word boundaries by letter-or-digit
- *  rather than \b, exactly as the agent side does them, so a name that is
- *  not ASCII still gets the boundary it needs and a name with a space in it
- *  still works. */
-function mentionPattern(names: string[]): RegExp | undefined {
-  const wanted = [...new Set(names)].sort((a, b) => b.length - a.length)
-  const alternatives = wanted.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-  try {
-    const named = alternatives ? `|(?<![\\p{L}\\p{N}_])@?(?:${alternatives})(?![\\p{L}\\p{N}_])` : ''
-    return new RegExp(`${ROOM_MENTION_PATTERN.source}${named}`, 'giu')
-  } catch {
-    // A name that will not compile is a name nobody gets highlighted for,
-    // which is better than a log that fails to draw.
-    return undefined
-  }
 }
 
 /**
@@ -6793,23 +6808,14 @@ function linkElement(url: string): HTMLAnchorElement {
 }
 
 function appendMentions(into: HTMLElement, text: string, pattern: RegExp | undefined, mine: Set<string>): void {
-  if (!pattern) {
-    into.append(text)
-    return
-  }
-  let at = 0
-  for (const match of text.matchAll(pattern)) {
-    const token = match[0]
-    const start = match.index ?? 0
-    if (start > at) into.append(text.slice(at, start))
+  for (const segment of segmentMentions(text, pattern, mine)) {
+    if (!segment.mention) { into.append(segment.text); continue }
     const span = document.createElement('span')
     span.className = 'mention'
-    if (ROOM_MENTION_PATTERN.test(token) || mine.has(token.replace(/^@/, '').toLowerCase())) span.classList.add('me')
-    span.textContent = token
+    if (segment.me) span.classList.add('me')
+    span.textContent = segment.text
     into.append(span)
-    at = start + token.length
   }
-  if (at < text.length) into.append(text.slice(at))
 }
 
 /** Copy a message's exact text to the clipboard, for a phone where a
@@ -6862,12 +6868,19 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   pruneOpenedAttachments(logId, messages)
   profiles.want(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
 
-  // Built once for the whole log rather than once per message: it is one
-  // pattern over the whole roster and rebuilding it per line is the sort of
-  // thing that only shows up in a room with a thousand messages in it.
-  const mentions = mentionPattern(rosterNames())
   const namesOfMine = myNames()
   const roster = session?.participants() ?? []
+  // Cached by the exact set of names each pattern covers, because most
+  // messages in a log share the same handful of participants: the whole
+  // point of the comment this replaced still holds, just per message
+  // rather than per log.
+  const mentionPatterns = new Map<string, RegExp | undefined>()
+  const mentionsFor = (message: Pick<ChatMessage, 'text' | 'mentions'>): RegExp | undefined => {
+    const names = mentionedNames(message, roster, (p) => shownAs(p).name)
+    const key = [...new Set(names)].sort().join(' ')
+    if (!mentionPatterns.has(key)) mentionPatterns.set(key, mentionPattern(names))
+    return mentionPatterns.get(key)
+  }
   // The log as a person reads it rather than as the relay holds it: the
   // latest edit's words on each message, a retracted one shown as such,
   // replies under the message they answer. See `resolveConversation` and
@@ -6944,7 +6957,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       by.append(' · heard by ')
       by.append(identityRun(shownAs(m.participant, m.name), false))
       p.append(timeChip(original.sentAt, true), who)
-      appendWithMentions(p, m.text, mentions, namesOfMine)
+      appendWithMentions(p, m.text, mentionsFor(m), namesOfMine)
       p.append(by)
       for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
       into.append(p)
@@ -7039,7 +7052,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     const paintText = () => {
       text.replaceChildren()
       const shown = long && !expandedMessages.has(expansionKey) ? m.text.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + '…' : m.text
-      appendWithMentions(text, shown, mentions, mine ? new Set<string>() : namesOfMine)
+      appendWithMentions(text, shown, mentionsFor(m), mine ? new Set<string>() : namesOfMine)
     }
     paintText()
     bubble.append(text)
