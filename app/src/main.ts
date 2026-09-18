@@ -4127,26 +4127,45 @@ function renderEffectState(state: VideoEffectState): void {
     line.textContent = `Background effects have stopped working: ${state.error ?? 'the model would not load'}. Your camera is not being shown - only your backdrop or a full blur is, while it keeps retrying.`
     line.classList.add('broken')
   } else if (state.status === 'loading' || state.status === 'idle') {
-    line.textContent = 'Loading the background model. Everything is blurred until it arrives.'
+    line.textContent =
+      state.mode === 'replace'
+        ? 'Loading the background model. Your backdrop is covering the frame until it arrives.'
+        : 'Loading the background model. Everything is blurred until it arrives.'
     line.classList.add('working')
   } else {
     line.textContent = 'Running.'
     line.classList.add('working')
   }
 
-  // Degraded is the one state where the camera is not showing what it looks
-  // like it is showing: the details above are folded shut by default, so
-  // this is the copy that is actually seen, next to the self-view rather
-  // than inside a summary somebody has to open.
+  renderEffectFailureNotice()
+}
+
+/**
+ * The notice next to the self-view, seen without opening the folded "Hide
+ * what is behind you" details.
+ *
+ * Driven off what the effect actually just painted (`lastAction`) and
+ * whether it has failed and not yet earned its way back (`untrustworthy`),
+ * not off `status`: `status` flips to `loading` for every retry attempt,
+ * which is exactly the moment this must not go quiet. Runs on the same
+ * 500ms tick as `publishEffectStats` so a retry's outcome shows up promptly
+ * either way, and once more from `renderEffectState` so a mode change is
+ * not left showing stale wording for up to that long.
+ */
+function renderEffectFailureNotice(): void {
   const outer = $('effectDegradedNotice')
-  if (state.mode !== 'off' && state.status === 'degraded') {
-    outer.hidden = false
-    outer.textContent =
-      'Background effect has stopped working. Others see only your backdrop, not you. Turn the effect off to show your camera, or wait while it retries.'
-  } else {
+  const action = camera?.lastAction
+  const failing = !!camera?.untrustworthy && (action === 'cover' || action === 'blur-all')
+  if (!failing) {
     outer.hidden = true
     outer.textContent = ''
+    return
   }
+  outer.hidden = false
+  outer.textContent =
+    camera!.mode === 'replace'
+      ? 'Background effect has stopped working. Others see only your backdrop, not you. Turn the effect off to show your camera, or wait while it retries.'
+      : 'Background effect has stopped working. Others see a full blur, not you. Turn the effect off to show your camera, or wait while it retries.'
 }
 
 function renderVoiceState(state: MicState): void {
@@ -4238,6 +4257,7 @@ function publishEffectStats(): void {
   const panel = $('effects')
   if (!camera) {
     panel.removeAttribute('data-fps')
+    renderEffectFailureNotice()
     return
   }
   const totals = camera.totals
@@ -4249,6 +4269,7 @@ function publishEffectStats(): void {
   panel.dataset.blurAll = String(totals['blur-all'])
   panel.dataset.cover = String(totals.cover)
   panel.dataset.composite = String(totals.composite)
+  renderEffectFailureNotice()
 }
 
 setInterval(publishEffectStats, 500)

@@ -65,7 +65,10 @@ export interface Context2DLike {
   globalCompositeOperation: string
   imageSmoothingEnabled: boolean
   imageSmoothingQuality?: string
-  fillStyle: string
+  // `string | CanvasGradient | CanvasPattern`, matching the real DOM type,
+  // so a real `CanvasRenderingContext2D` satisfies this with no adapter.
+  // This module only ever assigns a string to it.
+  fillStyle: string | CanvasGradient | CanvasPattern
   clearRect(x: number, y: number, w: number, h: number): void
   fillRect(x: number, y: number, w: number, h: number): void
   drawImage(image: FrameSourceLike, dx: number, dy: number, dw: number, dh: number): void
@@ -870,6 +873,13 @@ export class VideoEffect {
   /** Consecutive frames segmented without throwing since the last time the
    *  backoff level was reset - see `SEGMENTER_BACKOFF_RESET_STREAK`. */
   #successStreak = 0
+  /** Has failed since the last explicit reset or sustained recovery - see
+   *  the `untrustworthy` getter. */
+  #untrustworthy = false
+  /** What `renderFrame` last actually painted - see the `lastAction`
+   *  getter. `blur-all` before any frame has been drawn: never a claim
+   *  that a camera frame or a composite has been shown. */
+  #lastAction: FrameAction = 'blur-all'
 
   #source: BackgroundSource | null = null
 
@@ -946,6 +956,8 @@ export class VideoEffect {
     this.#cancelRetry()
     if (this.#status === 'degraded') {
       this.#failures = 0
+      this.#successStreak = 0
+      this.#untrustworthy = false
       this.#loadPromise = null
       this.#setStatus('idle')
     }
@@ -995,9 +1007,38 @@ export class VideoEffect {
     this.#smoother?.reset()
   }
 
+  /** What the last `renderFrame` call actually painted. Driving anything
+   *  visible to the person off this, rather than off `status`, is
+   *  deliberate: `status` flips to `loading` for every retry attempt,
+   *  which is exactly the moment a failure notice must not go quiet. */
+  get lastAction(): FrameAction {
+    return this.#lastAction
+  }
+
+  /** Has failed and not yet earned the backoff back with sustained good
+   *  use - see `SEGMENTER_BACKOFF_RESET_STREAK`. Unlike `status`, this
+   *  stays true across the `loading` blip of every retry attempt, which is
+   *  the whole point of it: a caller deciding whether to warn somebody
+   *  needs "has this actually recovered", not "is a load in flight right
+   *  now". */
+  get untrustworthy(): boolean {
+    return this.#untrustworthy
+  }
+
   /** Draw one frame. Returns what it decided to do, which is what the tests
    *  and the metrics both read. Never throws. */
   renderFrame(
+    source: FrameSourceLike,
+    width: number,
+    height: number,
+    timestampMs: number,
+  ): FrameAction {
+    const action = this.#computeAction(source, width, height, timestampMs)
+    this.#lastAction = action
+    return action
+  }
+
+  #computeAction(
     source: FrameSourceLike,
     width: number,
     height: number,
@@ -1039,6 +1080,7 @@ export class VideoEffect {
       this.#successStreak += 1
       if (this.#successStreak >= SEGMENTER_BACKOFF_RESET_STREAK) {
         this.#retryIndex = 0
+        this.#untrustworthy = false
       }
       if (mask) {
         this.#lastMask = this.#smoother ? this.#smoother.push(mask) : mask
@@ -1055,6 +1097,7 @@ export class VideoEffect {
         // again, on its own schedule, not the render loop.
         this.#segmenter.close()
         this.#segmenter = null
+        this.#untrustworthy = true
         this.#setStatus('degraded')
         this.#scheduleRetry()
       }
@@ -1178,6 +1221,7 @@ export class VideoEffect {
       .catch((err: unknown) => {
         if (this.#closed) return
         this.#error = errorMessage(err)
+        this.#untrustworthy = true
         this.#setStatus('degraded')
         this.#scheduleRetry()
       })

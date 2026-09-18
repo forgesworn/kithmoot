@@ -269,6 +269,19 @@ export class CameraPipeline {
     }
   }
 
+  /** What the effect actually painted last, and whether it has failed and
+   *  not yet earned its way back - see `VideoEffect.lastAction` and
+   *  `VideoEffect.untrustworthy`. The failure notice is driven off these,
+   *  not off `status`, because `status` flips to `loading` for every retry
+   *  attempt. */
+  get lastAction(): FrameAction {
+    return this.#effect.lastAction
+  }
+
+  get untrustworthy(): boolean {
+    return this.#effect.untrustworthy
+  }
+
   get track(): MediaStreamTrack | undefined {
     return this.#outputStream?.getVideoTracks()[0]
   }

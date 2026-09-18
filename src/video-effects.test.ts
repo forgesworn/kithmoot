@@ -815,6 +815,101 @@ describe('VideoEffect across a camera flip', () => {
   })
 })
 
+describe('VideoEffect failure visibility', () => {
+  it('lastAction reflects what was actually painted, not the status', async () => {
+    const { effect, seg } = newEffect({ mode: 'replace' })
+    expect(effect.lastAction).not.toBe('composite')
+    await effect.ready()
+    effect.setBackground({ background: true })
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('composite')
+    expect(effect.lastAction).toBe('composite')
+
+    seg!.throws = new Error('lost the GPU context')
+    for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+      effect.renderFrame(SOURCE, 320, 240, i)
+    }
+    expect(effect.lastAction).toBe('cover')
+  })
+
+  it('untrustworthy stays true through a retry, when status flips back to loading', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          throw new Error('will not load')
+        },
+      })
+      await effect.ready()
+      expect(effect.status).toBe('degraded')
+      expect(effect.untrustworthy).toBe(true)
+
+      // The retry timer fires and flips status to loading, synchronously,
+      // before the (also failing) load has had a chance to settle - the
+      // exact moment a status-driven notice would wrongly go quiet.
+      vi.advanceTimersByTime(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      expect(effect.status).toBe('loading')
+      expect(effect.untrustworthy).toBe(true)
+
+      await effect.ready()
+      expect(effect.status).toBe('degraded')
+      expect(effect.untrustworthy).toBe(true)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('untrustworthy clears once the segmenter has been genuinely reliable for a while', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let loads = 0
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          loads += 1
+          const seg = new FakeSegmenter()
+          if (loads === 1) seg.throws = new Error('first load is bad')
+          return seg
+        },
+      })
+      await effect.ready()
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, i)
+      }
+      expect(effect.untrustworthy).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      await effect.ready()
+      expect(effect.untrustworthy).toBe(true)
+
+      for (let i = 0; i < SEGMENTER_BACKOFF_RESET_STREAK - 1; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, 1000 + i)
+        expect(effect.untrustworthy).toBe(true)
+      }
+      effect.renderFrame(SOURCE, 320, 240, 2000)
+      expect(effect.untrustworthy).toBe(false)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('untrustworthy clears immediately on turning the effect off and on again', async () => {
+    const { effect } = newEffect({ loadError: new Error('will not load') })
+    await effect.ready()
+    expect(effect.untrustworthy).toBe(true)
+    effect.setMode('off')
+    expect(effect.untrustworthy).toBe(false)
+  })
+})
+
 describe('VideoEffect mask staleness', () => {
   it('keeps compositing on a held mask within MASK_MAX_AGE_MS', async () => {
     const { effect, seg } = newEffect()
