@@ -4,8 +4,8 @@
 // test/desktop-room-layout.spec.ts; this pins the arithmetic they mirror.
 import { expect, test } from 'vitest'
 import {
-  CALL_MIN_WIDTH_PX, CHAT_MIN_WIDTH_PX, RAIL_COLLAPSED_PX, WORK_MAX_PX, WORK_MIN_PX,
-  callPaneWidth, chatDrawerWidth, roomAreaWidth, workPanelWidth,
+  CALL_MIN_WIDTH_PX, CHAT_MIN_WIDTH_PX, CHAT_READING_WIDTH_PX, RAIL_COLLAPSED_PX, WORK_MAX_PX, WORK_MIN_PX,
+  callPaneWidth, chatColumnWidth, chatDrawerWidth, chatIsDrawer, roomAreaWidth, workPanelWidth,
 } from './desktop-panes.js'
 
 /** The three windows named in the brief. */
@@ -52,6 +52,27 @@ test('the call pane takes what is left, and the conversation never pays for it',
   const cramped = roomAreaWidth(1000, { work: true })
   expect(chatDrawerWidth(cramped)).toBe(CHAT_MIN_WIDTH_PX)
   expect(callPaneWidth(cramped)).toBeLessThan(CALL_MIN_WIDTH_PX)
+})
+
+test('with nothing beside it the conversation is the main column, not a strip', () => {
+  // The window the regression was reported from. A 1744px window left the
+  // drawer at about 300px and the middle 1150px black.
+  const wide = roomAreaWidth(1744, { work: false })
+  expect(chatIsDrawer(false)).toBe(false)
+  expect(chatColumnWidth(wide)).toBe(CHAT_READING_WIDTH_PX)
+  expect(chatColumnWidth(wide)).toBeGreaterThan(600)
+  // And it is not allowed to become a 1500px line either.
+  expect(chatColumnWidth(wide)).toBeLessThanOrEqual(CHAT_READING_WIDTH_PX)
+})
+
+test('a narrow room gives the main column everything it has', () => {
+  expect(chatColumnWidth(616)).toBe(616)
+  expect(chatColumnWidth(0)).toBe(0)
+})
+
+test('the drawer comes back only when the call pane has something in it', () => {
+  expect(chatIsDrawer(true)).toBe(true)
+  expect(chatDrawerWidth(roomAreaWidth(1744, { work: true }))).toBeGreaterThanOrEqual(CHAT_MIN_WIDTH_PX)
 })
 
 test('with Work shut, the room area is the window less the rail and the gutter', () => {

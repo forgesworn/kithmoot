@@ -12,6 +12,7 @@ html[data-desktop] {
   --call-min: 240px;          /* CALL_MIN_WIDTH_PX */
   --work-max: 28rem;          /* WORK_MAX_PX */
   --work-min: 20rem;          /* WORK_MIN_PX */
+  --chat-read: 860px;         /* CHAT_READING_WIDTH_PX */
   --rail-w: 13rem;            /* RAIL_WIDTH_PX */
   --room-gutter: 3rem;        /* ROOM_GUTTER_PX: the window's own padding, both sides, plus the grid gap */
   /* Shared Work is the panel that gives way. It asks for 28rem and gets
@@ -111,7 +112,27 @@ html[data-desktop] #chatDrawerToggle { display: none; }
      give the space to. Resting, it is one line - what the room is doing and
      the way to start - and the conversation takes the width and the height
      it was holding. A call, or somebody else's call, puts the row back. */
-  html[data-desktop][data-call-pane="resting"] .desktopRoomContent { flex-direction: column; }
+  /* And the conversation stops being a drawer at all.
+     A drawer is right beside a call. Beside nothing it was a ~300px strip
+     against a window of empty black, wrapping messages at three or four
+     words a line while the room they could have used sat unused. So with
+     nothing to show beside it the conversation is the main column, capped
+     at a line worth reading and left-aligned - the same place the eye
+     starts in the narrow layout, rather than a column that moves to the
+     middle of the window when Shared Work closes. */
+  html[data-desktop][data-call-pane="resting"] .desktopRoomContent {
+    flex-direction: column;
+    max-width: var(--chat-read);
+    margin-right: auto;
+  }
+  /* The notices that sit directly above the conversation belong to the same
+     column. Left at the window's full width they read as a banner across
+     the top of something else entirely, with the conversation stopping
+     halfway under them. The room's own bar is not in this list: it is the
+     window's bar and it spans the window. */
+  html[data-desktop][data-call-pane="resting"] #roomArea > :is(#callBanner, #agentActivity, #workAttention, #presenceNotice, #sharerMarksNotice, .conversationNav) {
+    max-width: var(--chat-read);
+  }
   html[data-desktop][data-call-pane="resting"] .desktopRoomContent #callStage {
     flex: 0 0 auto;
     max-height: 30vh;

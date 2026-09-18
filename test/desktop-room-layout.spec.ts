@@ -1,7 +1,10 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, open, openCall, turnOnMedia } from './browser.js'
+import { generateSecretKey } from 'nostr-tools/pure'
+import { RoomAgent } from '../src/agent.js'
+import { localIdentity } from '../src/identity.js'
+import { createRoom, joinWithMedia, newDeviceContext, open, openCall, turnOnMedia, TEST_RELAY_WS } from './browser.js'
 
 /**
  * Person beside their screen, and a chat that slides rather than sits.
@@ -411,5 +414,105 @@ test('an empty call pane costs nothing, the call control says what it does, and 
   } finally {
     await a.close()
     await b.close()
+  }
+})
+
+/**
+ * The drawer had one job too many.
+ *
+ * Reported from the installed window at 1744x850 with Call off, Work off
+ * and Chat on: the conversation was still the ~300px right-hand drawer,
+ * about 1150px of the window was empty, and messages wrapped at three or
+ * four words a line. The same room in a 986px window was fine, because
+ * below the drawer's breakpoint the conversation is simply the page.
+ *
+ * So a drawer is a drawer only while something is showing beside it. With
+ * nothing beside it, it is the main column - capped at a line worth
+ * reading, and starting where the eye already starts.
+ */
+
+/** How many lines a piece of text actually occupies, which is the thing
+ *  being complained about and cannot be inferred from a width. */
+async function lineCount(text: Locator): Promise<number> {
+  return text.evaluate(el => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    return range.getClientRects().length
+  })
+}
+
+/** Twenty words. Long enough that a strip wraps it to five lines or more
+ *  and a readable column does not. */
+const TWENTY_WORDS = 'Please could somebody check the probe failure before the workshop on Thursday because the results need writing up first'
+
+test('with nothing beside it the conversation is the main column, not a strip', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
+  await mkdir(SHOTS, { recursive: true })
+
+  const a = await newDeviceContext(browser, baseURL!)
+  let writer: RoomAgent | undefined
+  try {
+    const page = await a.newPage()
+    await page.setViewportSize({ width: 1744, height: 850 })
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+
+    // Enough conversation that the log genuinely scrolls: a scroll position
+    // that is always zero proves nothing about keeping one.
+    writer = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: [TEST_RELAY_WS], name: 'Rowan' })
+    for (let i = 1; i <= 24; i++) await writer.chat.send(`Note ${i}: ${TWENTY_WORDS}`)
+    const rows = page.locator('#chatLog .msg')
+    await expect(rows).toHaveCount(24, { timeout: 60_000 })
+
+    const log = page.locator('#chatLog')
+    for (const size of [{ width: 1744, height: 850 }, { width: 1320, height: 880 }]) {
+      await page.setViewportSize(size)
+      await page.waitForTimeout(200)
+      const label = `${size.width}x${size.height}, Chat only`
+      const room = await boxOf(page.locator('#roomArea'))
+      const column = await boxOf(log)
+      expect(column.width, `${label}: the message column is ${column.width.toFixed(0)}px wide`).toBeGreaterThanOrEqual(600)
+      // Left-aligned, so the window is not a column adrift in empty black.
+      const gap = column.x - room.x
+      expect(gap, `${label}: ${gap.toFixed(0)}px of empty room to the left of the conversation, of ${room.width.toFixed(0)}px`).toBeLessThan(room.width * 0.15)
+      const lines = await lineCount(rows.first().locator('.bubble .text'))
+      expect(lines, `${label}: a twenty-word message wrapped to ${lines} lines`).toBeLessThanOrEqual(3)
+      if (size.width === 1744) await page.screenshot({ path: `${SHOTS}/chat-only-1744x850.png` })
+    }
+
+    // Opening and closing Shared Work must not cost the reader their place
+    // or their half-written message. Nothing here rebuilds the log or the
+    // composer, and this is what proves it stayed that way.
+    await page.setViewportSize({ width: 1744, height: 850 })
+    await page.waitForTimeout(200)
+    await page.locator('#chatInput').fill('Half a thought, still being written')
+    await log.evaluate(el => { el.scrollTop = Math.round(el.scrollHeight / 3) })
+    const before = await log.evaluate(el => el.scrollTop)
+    expect(before, 'the log never scrolled, so keeping its position proves nothing').toBeGreaterThan(10)
+    await page.locator('#openAssignments').click()
+    await expect(page.locator('#assignmentPanel')).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(Math.abs(await log.evaluate(el => el.scrollTop) - before), 'opening Shared Work moved the reader').toBeLessThanOrEqual(2)
+    await page.locator('#assignmentClose').click()
+    await expect(page.locator('#assignmentPanel')).toBeHidden()
+    await page.waitForTimeout(300)
+    expect(Math.abs(await log.evaluate(el => el.scrollTop) - before), 'closing Shared Work moved the reader').toBeLessThanOrEqual(2)
+    await expect(page.locator('#chatInput')).toHaveValue('Half a thought, still being written')
+
+    // A call puts something beside it, and the drawer is right again.
+    await page.locator('#callToggle').click()
+    await expect(page.locator('#callToggle')).toHaveText('Leave call')
+    await expect.poll(async () => (await boxOf(log)).width).toBeLessThan(600)
+    await checkChatIsUsable(page, '1744x850, on a call')
+    // And leaving gives the column back.
+    await page.locator('#callToggle').click()
+    await expect(page.locator('#callToggle')).toHaveText('Start call')
+    await expect.poll(async () => (await boxOf(log)).width).toBeGreaterThanOrEqual(600)
+    await expect(page.locator('#chatInput')).toHaveValue('Half a thought, still being written')
+  } finally {
+    await writer?.leave()
+    await a.close()
   }
 })
