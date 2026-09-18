@@ -221,18 +221,39 @@ function dead(people: Person[], matrix: Matrix, want: Want): string[] {
 // The app's own bug report
 // ---------------------------------------------------------------------------
 
-async function diagnostics(person: Person): Promise<Record<string, unknown> | undefined> {
+/**
+ * The whole report, exactly as the button puts it on somebody's clipboard.
+ *
+ * Not JSON: it is a JSON object, then the redacted call timeline, then one
+ * line per pair. The tail is the part a person actually reads, so a helper
+ * that only returned the JSON would be throwing away the half of the report
+ * that names the fault.
+ */
+async function diagnosticsText(person: Person): Promise<string | undefined> {
   if (person.cdp) {
     // Nothing the harness does may hand this page a gesture; the page's
     // report is read off its box only if a person already produced it.
     return undefined
   }
+  const page = person.page
+  await page.locator('#diagnosticsOut').evaluate(el => { (el as HTMLTextAreaElement).value = '' })
+  await page.locator('#diagnostics').dispatchEvent('click')
+  await expect.poll(() => page.locator('#diagnosticsOut').inputValue(), { timeout: 10_000 }).not.toBe('')
+  return page.locator('#diagnosticsOut').inputValue()
+}
+
+/** The report's JSON head. Everything from the timeline marker on is prose
+ *  and would make `JSON.parse` throw - which it did, silently, turning every
+ *  printed bug report into "report failed". */
+function reportJson(text: string): Record<string, unknown> {
+  const end = text.indexOf('\n\nCall timeline')
+  return JSON.parse(end === -1 ? text : text.slice(0, end)) as Record<string, unknown>
+}
+
+async function diagnostics(person: Person): Promise<Record<string, unknown> | undefined> {
   try {
-    const page = person.page
-    await page.locator('#diagnosticsOut').evaluate(el => { (el as HTMLTextAreaElement).value = '' })
-    await page.locator('#diagnostics').dispatchEvent('click')
-    await expect.poll(() => page.locator('#diagnosticsOut').inputValue(), { timeout: 10_000 }).not.toBe('')
-    return JSON.parse(await page.locator('#diagnosticsOut').inputValue()) as Record<string, unknown>
+    const text = await diagnosticsText(person)
+    return text === undefined ? undefined : reportJson(text)
   } catch (err) {
     return { error: String(err) }
   }
@@ -405,6 +426,19 @@ async function startFaultRelay(port = FAULT_PORT): Promise<FaultRelay> {
   }
 }
 
+/**
+ * A room link that also turns the call signalling profile on or off.
+ *
+ * The switch is a query parameter and a localStorage key (see
+ * `app/src/call-profile.ts`), and it is off by default - so a spec that wants
+ * profile 2 has to ask for it, in the link every person in the room opens.
+ */
+function withCallProfile(url: string, profile: 1 | 2): string {
+  const parsed = new URL(url)
+  parsed.searchParams.set('callProfile', String(profile))
+  return parsed.href
+}
+
 /** The device key the newest joiner subscribed for signals as. */
 async function newDevice(relay: FaultRelay, known: Set<string>): Promise<string> {
   let found: string | undefined
@@ -485,8 +519,21 @@ test.describe('call stability', () => {
     }
   })
 
-  test('signalling lost for a window after connect: every direction recovers once it is back', async ({ browser, baseURL }) => {
-    test.setTimeout(600_000)
+  /**
+   * Signalling is lost for twelve seconds while one person toggles their
+   * camera and microphone, and then comes back.
+   *
+   * The reproduction that started all of this. On profile 1 the offer and its
+   * two re-sends all fall inside the window, and nothing re-sends after it:
+   * the others never see Ada again for the rest of the call. Run on both
+   * profiles deliberately - the legacy path has its own hardening and must
+   * keep passing, and the new one must not merely pass differently.
+   */
+  async function signallingLostFor(
+    browser: Browser,
+    baseURL: string,
+    callProfile: 1 | 2,
+  ): Promise<void> {
     const relay = await startFaultRelay()
     const devices = new Map<string, string>()
     const known = new Set<string>()
@@ -495,18 +542,26 @@ test.describe('call stability', () => {
     try {
       let url = ''
       for (const name of FOUR) {
-        const context = await newDeviceContext(browser, baseURL!)
+        const context = await newDeviceContext(browser, baseURL)
         contexts.push(context)
         const page = await context.newPage()
-        if (!url) url = await createRoom(page, baseURL!, [relay.url])
+        if (!url) url = withCallProfile(await createRoom(page, baseURL, [relay.url]), callProfile)
         await joinWithMedia(page, url, name)
         await effectsOff(page)
         devices.set(name, await newDevice(relay, known))
         people.push({ name, page })
       }
       const [A] = people as [Person]
-      const base = await waitForMatrix(people, 'baseline', 90_000)
+      const base = await waitForMatrix(people, `baseline (profile ${callProfile})`, 90_000)
       expect(base.ok, 'the room never came up whole, so nothing after it means anything').toBe(true)
+
+      // A test that quietly ran on profile 1 either way would prove nothing
+      // about the profile it is named after.
+      const report = await diagnosticsText(A)
+      expect(reportJson(report!).me, `Ada is not on call profile ${callProfile}`).toMatchObject({ callProfile })
+      if (callProfile === 2) {
+        expect(report, 'no pair reached profile 2, so the far ends never agreed to it').toContain('profile2(')
+      }
 
       const since = Date.now()
       await relay.fault({ dropKinds: [SIGNAL_WRAP] })
@@ -520,13 +575,31 @@ test.describe('call stability', () => {
       await relay.fault({ dropKinds: [] })
       const restored = Date.now()
 
-      const cp = await waitForMatrix(people, 'after signalling window', 30_000, ALL, async () =>
+      const cp = await waitForMatrix(people, `after signalling window (profile ${callProfile})`, 30_000, ALL, async () =>
         `relay signal log (from start of window; restored at +${restored - since}ms):\n${signalSummary((await relay.log()).signals, devices, since)}`)
+
+      // The report for the reproduced case, whichever way it went: it is the
+      // evidence a fix has to change, and on a green run it is what proves
+      // the pair lines say something worth reading.
+      const after = await diagnosticsText(A)
+      if (after) await test.info().attach(`report-profile${callProfile}-after-window.txt`, { body: after, contentType: 'text/plain' })
+      console.log(`[profile ${callProfile}] Ada's per-pair summary after the window:\n${after?.slice(after.indexOf('Per-pair summary:')) ?? 'none'}`)
+
       verdict([cp])
     } finally {
       for (const c of contexts) await c.close()
       await relay.stop()
     }
+  }
+
+  test('signalling lost for a window after connect: every direction recovers once it is back', async ({ browser, baseURL }) => {
+    test.setTimeout(600_000)
+    await signallingLostFor(browser, baseURL!, 1)
+  })
+
+  test('signalling lost for a window after connect: every direction recovers once it is back, on call profile 2', async ({ browser, baseURL }) => {
+    test.setTimeout(600_000)
+    await signallingLostFor(browser, baseURL!, 2)
   })
 
   test('signalling: exactly one answer lost after a camera toggle', async ({ browser, baseURL }) => {

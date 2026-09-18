@@ -425,8 +425,14 @@ export class SlotPeer implements NegotiatingPeer {
     // So a `negotiationneeded` here means some other code path called
     // `addTrack` on a slotted connection, which would grow the m-lines - the
     // risk named in section 9 of the spec. Counted, never acted on.
+    //
+    // Only once the generation exists, though. Opening one sets the browser's
+    // own negotiation-needed flag four times - that is what `addTransceiver`
+    // is - and the event for it arrives while the opening offer is still in
+    // flight. Counting that would put `unexpected-negotiations=1` on every
+    // healthy pair in every bug report, which is a counter that says nothing.
     pc.onnegotiationneeded = () => {
-      this.#unexpectedNegotiations += 1
+      if (this.#hasRemoteDescription) this.#unexpectedNegotiations += 1
     }
 
     pc.onconnectionstatechange = () => this.#onConnectionState(pc)

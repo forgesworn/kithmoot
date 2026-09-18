@@ -14,7 +14,6 @@ import { describe, it, expect, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
 import type { MeshSession } from './mesh.js'
-
 import { unwrapSignalEvent, wrapSignal } from './signal.js'
 import type { SignalBody } from './signal.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
