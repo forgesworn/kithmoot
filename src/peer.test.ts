@@ -1673,6 +1673,72 @@ describe('Peer', () => {
     answerer.close()
   })
 
+
+  /**
+   * BUG: the offer that comes back after gathering is the same offer.
+   *
+   * `#sendLocalOfferAgain` re-sends `localDescription`, and by then the
+   * connection has rewritten it: the m-line port, the `c=` line and
+   * `a=rtcp:` all now name the default candidate, and every candidate
+   * gathered since is written in. Compared as text that is not the offer the
+   * far end answered - so the answerer stops recognising it exactly during
+   * the race the recognition exists for, and answers it afresh instead of
+   * replaying what it sent.
+   */
+  it('BUG: an offer re-sent after gathering is still the offer that was answered', async () => {
+    const structured = { structuredSdp: true, rewriteGatheredSdp: true }
+    const fromOfferer: SignalBody[] = []
+    const fromAnswerer: SignalBody[] = []
+    const offererFactory = createFakeFactory(structured)
+    const answererFactory = createFakeFactory(structured)
+    const offerer = new Peer({
+      factory: offererFactory,
+      localDevice: HIGH,
+      remoteDevice: LOW,
+      onSignal: (b) => fromOfferer.push(b),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 5 },
+    })
+    const answerer = new Peer({
+      factory: answererFactory,
+      localDevice: LOW,
+      remoteDevice: HIGH,
+      onSignal: (b) => fromAnswerer.push(b),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 60_000 },
+    })
+
+    await offerer.start([fakeAudioTrack()])
+    await settle()
+    const first = fromOfferer.filter((s) => s.type === 'offer')[0]!
+    await answerer.handleSignal(first)
+    await settle()
+    expect(answererFactory.instances[0]!.calls.filter((c) => c.method === 'createAnswer')).toHaveLength(1)
+
+    // Candidates are gathered, so the connection rewrites what it holds, and
+    // the retry sends that.
+    offererFactory.instances[0]!.emitCandidate()
+    offererFactory.instances[0]!.emitCandidate()
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    const retry = fromOfferer.filter((s) => s.type === 'offer').slice(-1)[0]!
+    expect(retry.sdp, 'the fixture did not rewrite the description it hands back').not.toBe(first.sdp)
+
+    await answerer.handleSignal(retry)
+    await settle()
+
+    // Answered from what was sent last time: no second negotiation, and the
+    // answer the far end already has is the answer it is sent again.
+    expect(
+      answererFactory.instances[0]!.calls.filter((c) => c.method === 'createAnswer'),
+      'the retried offer was treated as a new one',
+    ).toHaveLength(1)
+    const answers = fromAnswerer.filter((s) => s.type === 'answer')
+    expect(answers).toHaveLength(2)
+    expect(answers[1]!.sdp).toBe(answers[0]!.sdp)
+    offerer.close()
+    answerer.close()
+  })
+
   it('close() is idempotent', async () => {
     const factory = createFakeFactory()
     const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })
