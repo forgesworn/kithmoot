@@ -4,7 +4,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
-import { createRoom, joinWithMedia, newDeviceContext, open, openCall, turnOnMedia, TEST_RELAY_WS } from './browser.js'
+import { SYNTHETIC_MIC, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, remoteAudioCount, turnOnMedia, TEST_RELAY_WS } from './browser.js'
 
 /**
  * Person beside their screen, and a chat that slides rather than sits.
@@ -317,7 +317,10 @@ test('an empty call pane costs nothing, the call control says what it does, and 
     await page.setViewportSize({ width: 1320, height: 880 })
     await toggle.click()
     await expect(toggle).toHaveText('Leave call')
-    await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'live')
+    // On the call with nothing switched on, so the pane is the controls
+    // strip rather than an empty video grid - see `CallPane`. The resting
+    // strip gives way to it.
+    await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'controls')
     await expect(page.locator('#deviceControls')).toBeVisible()
     await expect(strip).toBeHidden()
     for (const size of SIZES.slice(0, 3)) {
@@ -370,7 +373,8 @@ test('an empty call pane costs nothing, the call control says what it does, and 
     await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'resting')
     await toggle.click()
     await expect(toggle).toHaveText('Leave call')
-    await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'live')
+    // Still nobody on camera, so joining swaps one strip for the other.
+    await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'controls')
     await expect(page.locator('#callBanner')).toBeHidden()
     // Off it again with Bob still on it: the door is the honest answer now,
     // so it comes back rather than being suppressed for ever.
@@ -501,12 +505,20 @@ test('with nothing beside it the conversation is the main column, not a strip', 
     expect(Math.abs(await log.evaluate(el => el.scrollTop) - before), 'closing Shared Work moved the reader').toBeLessThanOrEqual(2)
     await expect(page.locator('#chatInput')).toHaveValue('Half a thought, still being written')
 
-    // A call puts something beside it, and the drawer is right again.
+    // A picture puts something beside it, and the drawer is right again.
+    // A call on its own does not: a voice call has nothing to show either,
+    // so it is the controls strip and the conversation stays the column.
     await page.locator('#callToggle').click()
     await expect(page.locator('#callToggle')).toHaveText('Leave call')
+    await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'controls')
+    await expect.poll(async () => (await boxOf(log)).width, { message: 'a voice call should not turn the conversation back into a strip' })
+      .toBeGreaterThanOrEqual(600)
+    await page.locator('#toggleCamera').click()
+    await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'live')
     await expect.poll(async () => (await boxOf(log)).width).toBeLessThan(600)
-    await checkChatIsUsable(page, '1744x850, on a call')
-    // And leaving gives the column back.
+    await checkChatIsUsable(page, '1744x850, on a call with a camera')
+    // And leaving gives the column back - Leave takes the camera with it.
     await page.locator('#callToggle').click()
     await expect(page.locator('#callToggle')).toHaveText('Start call')
     await expect.poll(async () => (await boxOf(log)).width).toBeGreaterThanOrEqual(600)
@@ -514,5 +526,124 @@ test('with nothing beside it the conversation is the main column, not a strip', 
   } finally {
     await writer?.leave()
     await a.close()
+  }
+})
+
+/**
+ * The last place the owner's complaint still showed: a call with every
+ * camera off.
+ *
+ * The pane had something to draw - this device's own controls - so it kept
+ * the row layout, and the conversation sat at its 360px floor beside an
+ * empty video grid. A voice call is now a strip too: who is on it by name,
+ * the four controls, and Leave.
+ *
+ * The half of this that would be worth catching in the night is the sound.
+ * The grid is hidden, never unmounted, because the remote `<audio>`
+ * elements live inside those tiles and Chromium pauses a media element that
+ * leaves the document. So the hear half is measured in every state this
+ * walks through, with the same `inbound` statistics the media acceptance
+ * test uses rather than a new measurement invented here.
+ */
+
+/** Sound actually arriving at this page, not merely an element that could
+ *  carry some. Silent fake microphones are an environment fault and say so
+ *  rather than failing, exactly as `expectToSeeAndHear` does. */
+async function expectToStillHear(page: Page, label: string): Promise<void> {
+  expect(await page.evaluate(remoteAudioCount), `${label}: no remote <audio> element is wired to a stream`).toBeGreaterThan(0)
+  if (!(await page.evaluate(fakeMicMakesSound))) {
+    test.info().annotations.push({ type: 'audio not checked', description: `${label}: this browser's fake microphone is emitting silence` })
+    return
+  }
+  await expect.poll(async () => (await page.evaluate(inbound)).audioEnergy, {
+    message: `${label}: the call is carrying no sound`,
+    timeout: 60_000,
+  }).toBeGreaterThan(0)
+}
+
+test('a call with no cameras is a strip of names, and a camera brings the pane back', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
+  await mkdir(SHOTS, { recursive: true })
+
+  const a = await newDeviceContext(browser, baseURL!)
+  const b = await newDeviceContext(browser, baseURL!)
+  // A microphone that genuinely makes a noise, so "can they hear each
+  // other" is a measurement rather than a hope.
+  await a.addInitScript(SYNTHETIC_MIC)
+  await b.addInitScript(SYNTHETIC_MIC)
+  try {
+    const ada = await a.newPage()
+    const bob = await b.newPage()
+    await ada.setViewportSize({ width: 1320, height: 880 })
+    await bob.setViewportSize({ width: 1320, height: 880 })
+
+    const link = await createRoom(ada, baseURL!)
+    await open(ada, link, 'Ada')
+    await ada.locator('#join').click()
+    await expect(ada.locator('#roomArea')).toBeVisible()
+    await open(bob, link, 'Bob')
+    await bob.locator('#join').click()
+    await expect(bob.locator('#roomArea')).toBeVisible()
+
+    // Both on the call, microphones on, nobody on camera.
+    for (const page of [ada, bob]) {
+      await page.locator('#callToggle').click()
+      await expect(page.locator('#callToggle')).toHaveText('Leave call')
+      await page.locator('#toggleMic').click()
+      await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+      await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'false')
+    }
+
+    await expect(ada.locator('html')).toHaveAttribute('data-call-pane', 'controls', { timeout: 60_000 })
+    const chips = ada.locator('#callChips .callChip')
+    await expect(chips, 'both people should be named on the strip').toHaveCount(2, { timeout: 60_000 })
+    await expect(ada.locator('#callChips')).toContainText('Ada')
+    await expect(ada.locator('#callChips')).toContainText('Bob')
+    // Everything a voice call needs, still to hand.
+    for (const id of ['toggleMic', 'toggleCamera', 'toggleScreen', 'leaveCall']) {
+      await expect(ada.locator(`#${id}`), `${id} should be on the strip`).toBeVisible()
+    }
+    await expectToStillHear(ada, 'voice call, pane collapsed')
+
+    for (const size of [{ width: 1320, height: 880 }, { width: 1744, height: 850 }]) {
+      await ada.setViewportSize(size)
+      await ada.waitForTimeout(250)
+      const label = `${size.width}x${size.height}, voice call`
+      const pane = await boxOf(ada.locator('#callStage'))
+      expect(pane.height, `${label}: the call pane is ${pane.height.toFixed(0)}px tall with nothing to show in it`).toBeLessThan(140)
+      const chat = await boxOf(ada.locator('#chatLog'))
+      expect(chat.width, `${label}: the conversation is ${chat.width.toFixed(0)}px wide`).toBeGreaterThanOrEqual(600)
+      await ada.screenshot({ path: `${SHOTS}/voice-call-strip-${size.width}x${size.height}.png` })
+    }
+    await ada.setViewportSize({ width: 1320, height: 880 })
+
+    // A camera comes on and the pane has something to hold again.
+    await bob.locator('#toggleCamera').click()
+    await expect(bob.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    await expect(ada.locator('html'), 'a camera should grow the pane').toHaveAttribute('data-call-pane', 'live', { timeout: 5_000 })
+    await expect(ada.locator('#room .participant video'), 'a tile should appear for the camera').toHaveCount(1, { timeout: 5_000 })
+    await expect.poll(async () => (await boxOf(ada.locator('#callStage'))).height).toBeGreaterThan(140)
+    await expect.poll(async () => (await boxOf(ada.locator('#chatDrawer'))).width, { message: 'the conversation should be the drawer again' })
+      .toBeLessThan(600)
+    await expectToStillHear(ada, 'camera on, pane expanded')
+    for (const size of [{ width: 1320, height: 880 }, { width: 1744, height: 850 }]) {
+      await ada.setViewportSize(size)
+      await ada.waitForTimeout(250)
+      await ada.screenshot({ path: `${SHOTS}/voice-call-live-${size.width}x${size.height}.png` })
+    }
+    await ada.setViewportSize({ width: 1320, height: 880 })
+
+    // And off again: back to the strip, after the wait that stops a
+    // flickering picture moving the layout.
+    await bob.locator('#toggleCamera').click()
+    await expect(bob.locator('#toggleCamera')).toHaveAttribute('data-on', 'false')
+    await expect(ada.locator('html'), 'the last camera going should give the room back').toHaveAttribute('data-call-pane', 'controls', { timeout: 60_000 })
+    await expect(chips).toHaveCount(2)
+    const back = await boxOf(ada.locator('#callStage'))
+    expect(back.height, `the pane came back as ${back.height.toFixed(0)}px rather than a strip`).toBeLessThan(140)
+    await expectToStillHear(ada, 'camera off again, pane collapsed')
+  } finally {
+    await a.close()
+    await b.close()
   }
 })

@@ -125,6 +125,14 @@
           <section id="deviceControls" hidden>
             <div class="callHead">
               <p id="callWho" class="callWho">On the call.</p>
+              <!-- The same call with nobody on camera: who is on it, as
+                   names rather than as empty video tiles, with whoever is
+                   speaking lit and the mute badges they would have carried.
+                   Shown in place of the line above only by the installed
+                   window's controls-only pane - see `[data-call-pane]` in
+                   app/src/desktop.css. Filled by `renderCallChips` in
+                   app/src/main.ts. -->
+              <div id="callChips" class="callChips" aria-label="On the call"></div>
               <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
             </div>
             <div class="toggles">
