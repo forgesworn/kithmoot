@@ -5,6 +5,7 @@ import { RoomAgent } from '../../src/agent.js'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { localIdentity } from '../../src/identity.js'
 import { reactionText, toggleReaction } from '../../src/reactions.js'
+import { TEST_RELAY_WS } from '../browser.js'
 
 /**
  * Regenerates the website's hero image, `site/img/web-conversation.png`,
@@ -26,7 +27,7 @@ test('the hero image shows the conversation the page describes', async ({ browse
   // Rowan is a person in the picture, driven from Node: the library joins
   // as an agent unless told otherwise, and an agent badge on Rowan would
   // make the page say something the caption does not.
-  const rowan = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: ['ws://127.0.0.1:7777'], name: 'Rowan', agent: false })
+  const rowan = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: [TEST_RELAY_WS], name: 'Rowan', agent: false })
   let scribe: RoomAgent | undefined
   try {
     const page = await context.newPage(); await page.goto(link)
@@ -37,7 +38,7 @@ test('the hero image shows the conversation the page describes', async ({ browse
     // It arrives after Ada, so her page hears its announcement and knows it
     // for an agent before it speaks; a message from a participant the page
     // has not met yet is painted as a person's.
-    scribe = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: ['ws://127.0.0.1:7777'], name: 'Scribe' })
+    scribe = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: [TEST_RELAY_WS], name: 'Scribe' })
     await expect(page.getByText(/2 people, 1 agent/).first()).toBeVisible()
     await rowan.chat.send('Budget draft is in the shared folder. Can someone check the venue line?')
     const root = page.locator('#chatLog .msg').filter({ hasText: 'check the venue line' })

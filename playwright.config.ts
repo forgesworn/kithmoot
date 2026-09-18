@@ -7,6 +7,12 @@ import { defineConfig, devices } from '@playwright/test'
 // does - real network, real relay weather, not something every `npm test`
 // run should pay for or be flaky because of.
 const appPort = Number(process.env.E2E_PORT ?? 4173)
+// The companion relay/Blossom server's port. `E2E_RELAY_PORT` names it
+// directly; failing that, when `E2E_PORT` moves the app it carries the
+// relay with it at `E2E_PORT + 100`, so moving a whole run beside another
+// checkout's needs setting only one variable. Neither set, and this is 7777 -
+// today's fixed value, which is what CI still gets.
+const relayPort = Number(process.env.E2E_RELAY_PORT ?? (process.env.E2E_PORT ? appPort + 100 : 7777))
 
 export default defineConfig({
   testDir: './test',
@@ -167,7 +173,7 @@ export default defineConfig({
         // A quiet room's slot is five minutes in a real build; the suite's
         // browsers cannot wait that long for a message, so the acceptance
         // build shortens it. The variable can only shorten, see main.ts.
-        command: `VITE_QUIET_SLOT_SECONDS=8 npm run build && npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
+        command: `VITE_QUIET_SLOT_SECONDS=8 npm run build && E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
         url: `https://localhost:${appPort}/j/`,
         ignoreHTTPSErrors: true,
         // Never reused unless asked. Several checkouts of this repo run the
@@ -189,7 +195,7 @@ export default defineConfig({
         // by side without either clobbering the other. Costs one extra build
         // per fresh run; E2E_REUSE=1 means you pay it once locally. Sits one
         // port above the app server so E2E_PORT moves both together.
-        command: `VITE_DESKTOP=true VITE_QUIET_SLOT_SECONDS=8 npm run build && VITE_DESKTOP=true npx vite preview --config app/vite.config.ts --port ${appPort + 1} --strictPort`,
+        command: `VITE_DESKTOP=true VITE_QUIET_SLOT_SECONDS=8 npm run build && VITE_DESKTOP=true E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort + 1} --strictPort`,
         url: `https://localhost:${appPort + 1}/j/`,
         ignoreHTTPSErrors: true,
         reuseExistingServer: process.env.E2E_REUSE === '1',
@@ -200,13 +206,14 @@ export default defineConfig({
       // Besides the deterministic relay, this companion supplies the
       // test-only Blossom endpoint proxied by Vite. It is still needed
       // when E2E_RELAYS=live even though its WebSocket side is not.
-      command: 'node test/ws-relay.mjs',
-      url: 'http://127.0.0.1:7777/',
+      command: `RELAY_PORT=${relayPort} node test/ws-relay.mjs`,
+      url: `http://127.0.0.1:${relayPort}/`,
       // Same rule as the app server. A relay borrowed from another run
-      // dies when that run ends, mid-room for this one. Its port is still
-      // fixed here and in the specs, so two runs cannot yet share a machine
-      // at all; the one that finds it taken now fails at startup, which is
-      // the honest outcome.
+      // dies when that run ends, mid-room for this one. Its port moves with
+      // `relayPort` above, so two checkouts can each set E2E_PORT (or
+      // E2E_RELAY_PORT directly) and run at the same time; the one that
+      // still finds its chosen port taken fails at startup, which is the
+      // honest outcome.
       reuseExistingServer: process.env.E2E_REUSE === '1',
       timeout: 30_000,
     },

@@ -3,7 +3,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
-import { withRelays } from './relays.js'
+import { withRelays, TEST_RELAY_WS } from './relays.js'
 
 async function setup(browser: Browser, base: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
@@ -93,7 +93,7 @@ test('projects group rooms, filter by name, survive reload and remain reachable 
 
 test('agent exchanges arrive in visible navigation and can be watched or joined without opening settings', async ({ browser, baseURL }, testInfo) => {
   const { context, page, relay } = await setup(browser, baseURL!)
-  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'KithMoot workshop', relays: ['ws://127.0.0.1:7777'] })
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'KithMoot workshop', relays: [TEST_RELAY_WS] })
   const agent = await RoomAgent.join({ link: keeper.url, name: 'Reviewer' })
   try {
     await join(page, withRelays(keeper.url, [relay]))
@@ -161,7 +161,7 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
 
 test('catching up starts at unread messages and keeps your place across conversations', async ({ browser, baseURL }, testInfo) => {
   const { context, page, relay } = await setup(browser, baseURL!)
-  const writer = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Design workshop', relays: ['ws://127.0.0.1:7777'] })
+  const writer = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Design workshop', relays: [TEST_RELAY_WS] })
   try {
     await page.setViewportSize({ width: 390, height: 740 })
     await join(page, withRelays(writer.url, [relay]))
@@ -259,7 +259,7 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
   const { context, page, relay } = await setup(browser, baseURL!)
   // A small clock difference proves notices use the authority's timestamp,
   // not the time this browser renders them.
-  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Standing room', relays: ['ws://127.0.0.1:7777'], now: () => Math.floor(Date.now() / 1000) - 5 })
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Standing room', relays: [TEST_RELAY_WS], now: () => Math.floor(Date.now() / 1000) - 5 })
   const former = await RoomAgent.join({ link: keeper.url, name: 'Former member' })
   let next: RoomAgent | undefined
   try {
@@ -311,8 +311,8 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
 
 test('switching rooms restores independent reading places after delayed history and honours Jump to latest', async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
-  const first = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', relays: ['ws://127.0.0.1:7777'] })
-  const second = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', relays: ['ws://127.0.0.1:7777'] })
+  const first = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', relays: [TEST_RELAY_WS] })
+  const second = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', relays: [TEST_RELAY_WS] })
   let hold = false
   let held: (() => void)[] = []
   await context.routeWebSocket(relay, ws => {
@@ -462,7 +462,7 @@ test('keyboard section shortcuts preserve drafts, skip hidden areas and leave di
 test('keyboard readers navigate messages, reply through actions and retain focus through edits and retractions', async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
   let sentAt = Math.floor(Date.now() / 1000) - 30
-  const writer = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Keyboard workshop', relays: ['ws://127.0.0.1:7777'], now: () => sentAt })
+  const writer = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Keyboard workshop', relays: [TEST_RELAY_WS], now: () => sentAt })
   try {
     await page.setViewportSize({ width: 390, height: 740 })
     await join(page, withRelays(writer.url, [relay]))

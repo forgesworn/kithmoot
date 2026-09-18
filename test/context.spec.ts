@@ -4,7 +4,7 @@ import { bytesToHex } from '@noble/hashes/utils'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { openRoomDetails, allowTestFileStorage } from './browser.js'
+import { openRoomDetails, allowTestFileStorage, TEST_RELAY_WS } from './browser.js'
 import { sha256Hex } from '../src/attachment.js'
 
 async function openContext(page: Page) {
@@ -16,7 +16,7 @@ async function openContext(page: Page) {
 test('two people share encrypted context, keep personal notes private, and recover after reopening', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Context workshop', relays: [relay.href], iceUrls: [] })
-  const keeper = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Fixture keeper' })
+  const keeper = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Fixture keeper' })
   const aliceSk = generateSecretKey(), bobSk = generateSecretKey()
   const contexts = await Promise.all([aliceSk, bobSk].map(async sk => {
     const c = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })

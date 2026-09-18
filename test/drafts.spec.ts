@@ -4,7 +4,7 @@ import { buildFileEvent } from '../src/attachment.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { withRelays } from './relays.js'
-import { goToConversation, openRoomDetails, allowTestFileStorage } from './browser.js'
+import { goToConversation, openRoomDetails, allowTestFileStorage, TEST_RELAY_WS } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: BrowserContext, relay: string) => Promise<void>) {
@@ -327,7 +327,7 @@ test('stopping during a stalled relay announcement releases the draft and ignore
 })
 
 test('closing a conversation keeps its draft reachable and prevents sending it into another conversation', async ({ browser, baseURL }) => {
-  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', relays: ['ws://127.0.0.1:7777'] })
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', relays: [TEST_RELAY_WS] })
   await keeper.setChannel('workshop', true)
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'

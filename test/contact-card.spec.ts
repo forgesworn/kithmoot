@@ -9,7 +9,7 @@ import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
 import { matchFilters, type Filter } from 'nostr-tools/filter'
 import { boxFixture } from './box-status-fixture.js'
-import { openRoomDetails } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
 
 /**
  * A contact card, as a person meets it: pasted into Room details, or opened
@@ -41,7 +41,7 @@ test('a contact card marks its holder without treating its transport relay as sh
   await device(context)
   const rowanSk = generateSecretKey()
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
-  const rowan = await RoomAgent.join({ link, identity: localIdentity(rowanSk), relays: ['ws://127.0.0.1:7777'], name: 'Rowan' })
+  const rowan = await RoomAgent.join({ link, identity: localIdentity(rowanSk), relays: [TEST_RELAY_WS], name: 'Rowan' })
   try {
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()

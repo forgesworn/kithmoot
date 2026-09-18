@@ -3,6 +3,11 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { openRoomUrl, withRelays, testRelays } from './relays.js'
 
+/** The companion relay's port, and the two addresses built from it. See the
+ *  comment above `TEST_RELAY_PORT` in relays.ts for how the port is chosen;
+ *  re-exported here because most specs already import from this file. */
+export { TEST_RELAY_PORT, TEST_RELAY_WS, TEST_RELAY_HTTP } from './relays.js'
+
 /** Explicit opt-in for synthetic uploads to local fixtures only. */
 export async function allowTestFileStorage(page: Page, origin: string): Promise<void> {
   if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname)) throw new Error('File fixture must stay local')

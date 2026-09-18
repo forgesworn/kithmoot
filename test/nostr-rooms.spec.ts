@@ -13,12 +13,12 @@ import { memoryDeviceStore, deviceKeyFor, storeCredentialFor } from '../app/src/
 import WebSocket from 'ws'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
-import { openRoomDetails } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
 
 /** Everything the local test relay holds for a filter, read straight off it. */
 function relayHolds(filter: Record<string, unknown>): Promise<Event[]> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket('ws://127.0.0.1:7777')
+    const socket = new WebSocket(TEST_RELAY_WS)
     const events: Event[] = []
     socket.on('open', () => socket.send(JSON.stringify(['REQ', 'held', filter])))
     socket.on('message', raw => {
@@ -78,8 +78,8 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
   const context = await device(browser, baseURL!, secret)
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Account choice', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
-  const profiles = new NostrRelayPool(['ws://127.0.0.1:7777'])
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
+  const profiles = new NostrRelayPool([TEST_RELAY_WS])
   try {
     await profiles.publish(finalizeEvent({ kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Account Alice', picture: 'https://profile.example/alice.svg', nip05: 'alice@profile.example' }) }, secret))
     await context.route('https://profile.example/.well-known/nostr.json?name=alice', route => route.fulfill({ json: { names: { alice: pubkey } } }))
@@ -116,7 +116,7 @@ test('a saved paired credential cannot override a different signed-in Nostr acco
   const roomSecret = generateRoomSecret()
   const roomId = deriveRoom(roomSecret).roomId
   const link = encodeRoomLink(baseURL!, { secret: roomSecret, name: 'Paired identity check', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
@@ -145,7 +145,7 @@ test('joining waits for the saved Nostr identity before sending to a clerk', asy
   const context = await device(browser, baseURL!, secret, true, async () => { restoring = true; await gate })
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Clerk identity check', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
   try {
     const signedInPage = await context.newPage()
     await signIn(signedInPage, baseURL!)
@@ -320,7 +320,7 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
   const context = await device(browser, baseURL!, secret, true, async () => { if (unavailable) throw new Error('Signer offline') })
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Reconnect account', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
@@ -484,7 +484,7 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
   const context = await device(browser, baseURL!)
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Visitor choice', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
@@ -518,7 +518,7 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
   const aliceSk = generateSecretKey(), bobSk = generateSecretKey(), carolSk = generateSecretKey(), agentSk = generateSecretKey()
   const aliceKey = getPublicKey(aliceSk), bobKey = getPublicKey(bobSk), carolKey = getPublicKey(carolSk), agentKey = getPublicKey(agentSk)
   const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
-  const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, relays: ['ws://127.0.0.1:7777'] })))
+  const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, relays: [TEST_RELAY_WS] })))
   const roomLinks = keepers.map(k => ({ roomId: k.roomId, name: k.link.name!, link: encodeRoomLink(baseURL!, { ...k.link, relays: [relay.href] }), openedAt: 1, readAt: 0 }))
   const aContext = await device(browser, baseURL!, aliceSk), bContext = await device(browser, baseURL!, bobSk), cContext = await device(browser, baseURL!, carolSk)
   const contexts = [aContext, bContext, cContext]

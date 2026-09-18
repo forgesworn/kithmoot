@@ -1,6 +1,7 @@
 import type { APIResponse, BrowserContext, Route } from '@playwright/test'
+import { TEST_RELAY_HTTP } from './browser.js'
 
-const TEST_BLOSSOM_ORIGIN = 'http://127.0.0.1:7777'
+const TEST_BLOSSOM_ORIGIN = TEST_RELAY_HTTP
 
 /** Forward an intercepted public-origin Blossom request to the acceptance
  * companion without asking Playwright to materialise its body. WebKit keeps a

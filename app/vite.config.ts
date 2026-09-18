@@ -10,6 +10,12 @@ import { VitePWA } from 'vite-plugin-pwa'
 const here = dirname(fileURLToPath(import.meta.url))
 const BASE = '/j/'
 const desktop = process.env.VITE_DESKTOP === 'true'
+// The acceptance companion's port (test/ws-relay.mjs). playwright.config.ts
+// passes E2E_RELAY_PORT to the `vite preview` command it spawns so this
+// proxy always targets the same relay the specs were told to use; unset
+// (a plain `npm run dev` / `npm run demo`), and this is 7777, the value the
+// companion itself defaults to.
+const relayPort = Number(process.env.E2E_RELAY_PORT ?? 7777)
 
 /**
  * The MediaPipe WASM runtime, served from our own origin.
@@ -128,12 +134,12 @@ export default defineConfig({
   // Preview configuration is not included in the deployed static app.
   preview: {
     proxy: {
-      '/__test-relay': { target: 'ws://127.0.0.1:7777', ws: true },
+      '/__test-relay': { target: `ws://127.0.0.1:${relayPort}`, ws: true },
       // The acceptance companion also acts as a test-only Blossom server.
       // A real HTTP request matters here: WebKit streams Blob uploads but
       // does not expose their body to Playwright route inspection.
-      '/upload': { target: 'http://127.0.0.1:7777' },
-      '/blossom': { target: 'http://127.0.0.1:7777' },
+      '/upload': { target: `http://127.0.0.1:${relayPort}` },
+      '/blossom': { target: `http://127.0.0.1:${relayPort}` },
     },
   },
   build: {
