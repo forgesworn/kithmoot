@@ -107,5 +107,15 @@ time. The fixes above are on the legacy path, which is what is live.
 
 `test/call-stability.spec.ts` keeps the case as
 `four people join through one relay: every direction comes up, with nothing
-injected` - four people, one relay, no fault. It failed 4 times in 11 runs
-before the repair.
+injected` - four people, one relay, no fault.
+
+It is a race, so it answers to how busy the machine is. Before the repair it
+failed 4 times in 11 runs, and once more in a run of 10 on an idle machine -
+that one with all three of the others unable to hear the last joiner, whose
+audio m-line never came back from `recvonly`. After the repair: 20 runs, no
+direction lost its sound. Ten of those were on a machine loaded far past
+anything CI does, where half the runs failed instead on a picture that had
+stopped moving, with every m-line `sendrecv` and the audio perfect - and one
+page too starved to produce its own bug report inside ten seconds. That is a
+different fault, and it is not pursued further here: it wants a quiet machine
+and a sitting of its own.
