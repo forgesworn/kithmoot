@@ -137,15 +137,26 @@ test('a bare word that only echoes an announced name does not light up, and a re
     await expect(bare.locator('.mention')).toHaveCount(0)
 
     // Bob genuinely names himself on the wire, by the name Ada is actually
-    // shown for him - "Bob", not "Buzz" - and that word lights up. Sent
-    // straight from the agent rather than through Ada's own `@` picker:
-    // the picker still offers and inserts the announced name, a separate,
-    // unfixed gap this spec does not paper over.
+    // shown for him - "Bob", not "Buzz" - and that word lights up.
     await bob.chat.send('Bob will chair the meeting', { mentions: [bobPubkey] })
     const named = page.locator('#chatLog .msg').filter({ hasText: 'Bob will chair the meeting' })
     await expect(named).toBeVisible()
     await expect(named.locator('.mention')).toHaveCount(1)
     await expect(named.locator('.mention')).toHaveText('Bob')
+
+    // Ada's own `@` picker offers and inserts the same shown name, "Bob" -
+    // not the announced "Buzz" underneath it - and the message she sends
+    // through it carries Bob's participant key on the wire, exactly as if
+    // she had typed the hex herself.
+    await page.locator('#chatInput').fill('@Bo')
+    await expect(page.locator('#mentions [role="option"]').first()).toContainText('Bob')
+    await expect(page.locator('#mentions [role="option"]').first()).not.toContainText('Buzz')
+    await page.locator('#mentions [role="option"]').first().dispatchEvent('pointerdown')
+    await expect(page.locator('#chatInput')).toHaveValue('@Bob ')
+    await page.locator('#chatInput').press('Enter')
+    await expect.poll(() => bob.chat.messages().find((m) => m.text === '@Bob')?.mentions).toEqual([bobPubkey])
+    const picked = page.locator('#chatLog .msg').filter({ hasText: '@Bob' }).last()
+    await expect(picked.locator('.mention')).toHaveCount(1)
   } finally {
     profiles.close()
     await bob.leave()

@@ -15,6 +15,12 @@ export interface ConversationDraft {
   job?: AbortController
   replyTo?: ChatMessage
   editing?: ChatMessage
+  /** Lowercased displayed name -> participant, for every name the `@`
+   *  picker has inserted into this draft since it was last discarded. Lets
+   *  a name shared by more than one participant still resolve to whoever
+   *  was actually picked when the draft is sent - see
+   *  `mention-candidates.ts`. */
+  pickedMentions?: Map<string, string>
 }
 
 export function draftHasWork(draft: ConversationDraft): boolean {
@@ -50,6 +56,7 @@ export class ConversationDrafts {
     draft.pendingFiles = []
     draft.panelOpen = false
     draft.replyTo = draft.editing = undefined
+    draft.pickedMentions = undefined
   }
 
   close(): void {

@@ -1,6 +1,7 @@
 import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
+import { buildMentionCandidates, resolveDraftMentions } from './mention-candidates.js'
 import { playZenChime, unlockZenChime } from './zen-chime.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
@@ -123,7 +124,6 @@ import {
   ringTier,
   resolveConversation,
   mentionedBy,
-  mentionsOf,
   sameRef,
   refKey,
   retractionText,
@@ -10935,9 +10935,15 @@ function growComposer(box: HTMLTextAreaElement): void {
 
 interface MentionChoice {
   name: string
+  /** Which participant this names, for the picker to record when it is
+   *  chosen - see `chooseMention`. Absent for `@all`/`@everyone` and for a
+   *  model completion. */
+  participant?: string
   agent: boolean
   room?: boolean
   model?: ComposerModel
+  /** The short npub, shown only when another candidate shares this name. */
+  npub?: string
 }
 
 /** Where the `@` being completed sits in the box, or -1 for closed. */
@@ -10980,27 +10986,16 @@ function modelClerkNames(): string[] {
 }
 
 /** Everybody in the room bar yourself, people and agents alike, ordered so
- *  that what you have typed so far leads the list. */
+ *  that what you have typed so far leads the list, and named as they are
+ *  actually shown on screen - not by the roster's announced joining name,
+ *  which can differ once a profile arrives. Two people shown under the
+ *  same name both appear, each with its own short npub so they can be
+ *  told apart before picking. See `mention-candidates.ts`. */
 function mentionCandidates(query: string): MentionChoice[] {
-  // A trailing space completes a mention; trimming it reopened the picker
-  // after selection and made Enter select the same name instead of sending.
-  const wanted = query.toLowerCase()
-  const seen = new Set<string>(['all', 'everyone'])
-  const all: MentionChoice[] = []
-  for (const view of session?.participants() ?? []) {
-    const name = view.name?.trim()
-    if (!name || view.participant === meParticipant) continue
-    if (seen.has(name.toLowerCase())) continue
-    seen.add(name.toLowerCase())
-    all.push({ name, agent: view.agent === true })
-  }
-  // The whole room, last, so a name still leads when one matches.
-  all.push({ name: 'all', agent: false, room: true })
-  if (wanted && 'everyone'.startsWith(wanted)) all.push({ name: 'everyone', agent: false, room: true })
-  if (!wanted) return all
-  const starts = all.filter((c) => c.name.toLowerCase().startsWith(wanted))
-  const contains = all.filter((c) => !c.name.toLowerCase().startsWith(wanted) && c.name.toLowerCase().includes(wanted))
-  return [...starts, ...contains]
+  const roster = (session?.participants() ?? [])
+    .filter((view) => view.participant !== meParticipant)
+    .map((view) => ({ participant: view.participant, name: shownAs(view.participant, view.name).name ?? '', agent: view.agent === true }))
+  return buildMentionCandidates(query, roster, (participant) => shortNpub(participant))
 }
 
 /**
@@ -11074,6 +11069,14 @@ function renderMentionPicker(): void {
       detail.textContent = `${choice.model.label} · ${choice.model.agent}`
       option.append(detail)
     }
+    // Two people shown under the same name: the npub is the only thing
+    // telling this entry apart from its name-mate before it is picked.
+    if (choice.npub) {
+      const detail = document.createElement('span')
+      detail.className = 'model-label'
+      detail.textContent = choice.npub
+      option.append(detail)
+    }
     // The same tag in the same colour as on the roster and on the bubbles,
     // so "this one is a program" is one idea told one way everywhere.
     if (choice.agent && !choice.model) {
@@ -11113,7 +11116,14 @@ function chooseMention(index: number): void {
   box.setSelectionRange(after, after)
   dismissedMention = { session, channel: currentChannel, value: box.value, start: after, end: after }
   growComposer(box)
-  captureDraft()
+  const draft = captureDraft()
+  // Remember which participant this name resolved to, so a name shared by
+  // more than one person still addresses the one actually picked - see
+  // `resolveDraftMentions` in mention-candidates.ts.
+  if (choice.participant) {
+    if (!draft.pickedMentions) draft.pickedMentions = new Map()
+    draft.pickedMentions.set(choice.name.trim().toLowerCase(), choice.participant)
+  }
 }
 
 function moveMentionCursor(by: number): void {
@@ -11233,8 +11243,11 @@ function renderComposerContext(): void {
  * include the entire room. The broadcast comes first so it survives the cap.
  */
 function mentionsInDraft(text: string): string[] {
-  return mentionsOf({ text }, (session?.participants() ?? []).filter(view => view.participant !== meParticipant))
-    .slice(0, MAX_MENTIONS)
+  const roster = (session?.participants() ?? [])
+    .filter((view) => view.participant !== meParticipant)
+    .map((view) => ({ participant: view.participant, name: shownAs(view.participant, view.name).name, agent: view.agent }))
+  const picked = drafts.get(currentChannel).pickedMentions ?? new Map<string, string>()
+  return resolveDraftMentions(text, roster, picked, MAX_MENTIONS)
 }
 
 async function retractMessage(original: ChatMessage): Promise<void> {
@@ -11288,6 +11301,7 @@ $('chatForm').addEventListener('submit', (event) => {
   input.value = ''
   showPasteSize()
   draft.text = ''
+  draft.pickedMentions = undefined
   draft.selectionStart = draft.selectionEnd = 0
   growComposer(input)
   closeMentionPicker()
