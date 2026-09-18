@@ -1123,16 +1123,22 @@ describe('fillMaskHoles performance', () => {
     const data = new Float32Array(pixels).fill(1)
     // Scattered isolated below-cut points, roughly the shape of the real
     // problem: small enclosed patches over a torso, not one giant blob.
+    const points: number[] = []
     for (let i = 0; i < 60; i += 1) {
       const cx = 10 + ((i * 37) % (width - 20))
       const cy = 10 + ((i * 53) % (height - 20))
-      data[cy * width + cx] = 0.3
+      points.push(cy * width + cx)
     }
     const visited = new Uint8Array(pixels)
     const stack = new Int32Array(pixels)
     const runs = 20
     const start = performance.now()
     for (let i = 0; i < runs; i += 1) {
+      // fillMaskHoles raises a filled point above the cut, so it has to be
+      // put back below it before every run - otherwise run one is the only
+      // one that does any real work and runs two to twenty time an empty
+      // pass over an already-filled mask.
+      for (const p of points) data[p] = 0.3
       fillMaskHoles(data, width, height, visited, stack, DEFAULT_MASK_THRESHOLD, HOLE_FILL_CONFIDENCE, 0.12)
     }
     const perFrameMs = (performance.now() - start) / runs
