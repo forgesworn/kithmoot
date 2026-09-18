@@ -2,7 +2,7 @@ import { updateAppBadge } from './app-badge.js'
 import { playZenChime, unlockZenChime } from './zen-chime.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
-import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, callPaneLive, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
+import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
 import { setProjectsRailUnread } from './desktop-projects-rail.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { EmojiPicker } from './emoji-picker.js'
@@ -3404,6 +3404,92 @@ async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
 }
 
 /**
+ * Which pane the window is drawing, and the clock that lets it shrink.
+ *
+ * The settler is the only thing that decides: `render` tells it what the
+ * room justifies, and it answers with what may actually be drawn - see
+ * app/src/call-stance.ts for why growing is immediate and shrinking waits.
+ */
+const paneSettler = new PaneSettler()
+let paneTimer: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * Whether the room has a picture in it.
+ *
+ * Adverts and this device's own tracks, never decoded frames. A tile whose
+ * video has stalled for a moment, or is re-binding after the mesh rebuilt a
+ * connection, still belongs to a room that has a picture; judging this on
+ * what is currently painting would collapse the whole layout under a
+ * hiccup and hand it back a second later.
+ */
+function roomHasPictures(views: ParticipantView[]): boolean {
+  if (cameraTrack || screenTrack) return true
+  if (localMediaEl.querySelector('video')) return true
+  // After Leave the pictures are parked on purpose - see `leftCall` - so
+  // there is nothing for the pane to hold, whatever the roster still says.
+  if (leftCall) return false
+  return views.some(view => view.tracks.some(track => track.role === 'camera' || track.role === 'screen'))
+}
+
+function applyCallPane(views: ParticipantView[], state: CallStanceInput): void {
+  const target = callPane({ ...state, pictures: roomHasPictures(views) })
+  const shown = paneSettler.settle(target, Date.now())
+  if (document.documentElement.dataset.callPane !== shown) document.documentElement.dataset.callPane = shown
+  if (paneTimer !== undefined) { clearTimeout(paneTimer); paneTimer = undefined }
+  const due = paneSettler.due
+  // Nobody else will ask. The last picture going is the last thing that
+  // happens in a quiet room, so without this the pane would stay expanded
+  // until something unrelated caused a render.
+  if (due !== undefined) {
+    paneTimer = setTimeout(() => {
+      paneTimer = undefined
+      if (session) applyCallPane(session.participants(), callStanceNow(session.participants()))
+    }, Math.max(0, due - Date.now()) + 20)
+  }
+}
+
+/**
+ * The call as a voice call: who is on it, by name.
+ *
+ * An empty video grid says nothing that this does not say in one row, so
+ * the controls-only pane shows these instead - see `CallPane`. The badges
+ * and the speaking class are the tiles' own, so the two cannot disagree
+ * about who is talking or who is muted, and `paintSpeaking` lights these
+ * from the same `data-devices` attribute twenty times a second without a
+ * render.
+ *
+ * Nothing here goes near the media. The remote `<audio>` elements stay in
+ * their tiles inside `#whoIsHere`, which the controls pane hides with CSS
+ * and never unmounts: a media element taken out of the document is paused
+ * by Chromium and does not reliably recover, and a chip row that cost the
+ * room its sound would be a worse bug than the one it fixes.
+ */
+function renderCallChips(views: ParticipantView[], callId: string | undefined): void {
+  const row = $('callChips')
+  row.replaceChildren()
+  if (!callId) return
+  for (const view of views) {
+    if (view.call?.id !== callId) continue
+    const mine = view.participant === meParticipant
+    const chip = document.createElement('span')
+    chip.className = 'callChip'
+    const devices = mine ? [LOCAL_SPEAKING_KEY] : view.devices
+    chip.dataset.devices = devices.join(' ')
+    if (devices.some((device) => speakingMonitor.isSpeaking(device))) chip.classList.add('speaking')
+    chip.append(identityRun(shownAs(view.participant, view.name), mine))
+    if (mine) {
+      if (!micTrack) chip.append(noMicBadge())
+      else if (!micTrack.enabled) chip.append(selfMuteBadge())
+    } else {
+      if (volumeLevel(view.participant) === 0) chip.append(volumeMuteBadge())
+      if (selfMutedMic(view)) chip.append(selfMuteBadge())
+      else if (!view.tracks.some((track) => track.role === 'mic')) chip.append(noMicBadge())
+    }
+    row.append(chip)
+  }
+}
+
+/**
  * The call button, the banner, and who is on it. Called from `render`, so
  * it follows presence: a call somebody else started shows up the moment
  * their heartbeat says so, and ends when the last of them stops saying so.
@@ -3435,13 +3521,10 @@ function renderCallState(views: ParticipantView[]): void {
   const mobile = mineOn ? 'Call · live' : stance === 'join' ? 'Call · join' : 'Call'
   if ($('mobileCall').textContent !== mobile) $('mobileCall').textContent = mobile
 
-  // A call pane with nothing in it costs the conversation its room. What it
-  // has to show is this device's own controls and the pictures in
-  // `#whoIsHere` - which `render` has just hidden, or not, immediately
-  // above this call. See `callPaneLive` and the resting strip in
-  // app/src/desktop.css.
-  const pane = callPaneLive({ ...state, showing: !$('whoIsHere').hidden }) ? 'live' : 'resting'
-  if (document.documentElement.dataset.callPane !== pane) document.documentElement.dataset.callPane = pane
+  // A call pane with nothing in it costs the conversation its room. See
+  // `applyCallPane`, and the two strips in app/src/desktop.css.
+  applyCallPane(views, state)
+  renderCallChips(views, current?.id)
   if ($('callStripAction').textContent !== label) {
     $('callStripAction').textContent = label
     $('callStripAction').setAttribute('aria-label', label)
@@ -7355,7 +7438,9 @@ const speakingMonitor = new SpeakingMonitor({
  *  Cheap enough to call on every change and on every render. */
 function paintSpeaking(): void {
   const speaking = speakingMonitor.speaking()
-  for (const box of document.querySelectorAll<HTMLElement>('.participant[data-devices]')) {
+  // Tiles and the controls pane's name chips alike: both carry the devices
+  // they speak for, and both light from this rather than from a render.
+  for (const box of document.querySelectorAll<HTMLElement>('[data-devices]')) {
     const devices = (box.dataset.devices ?? '').split(' ').filter(Boolean)
     box.classList.toggle('speaking', devices.some((d) => speaking.has(d)))
   }
@@ -7495,6 +7580,17 @@ function selfMuteBadge(): HTMLElement {
   badge.className = 'badge muted-self'
   badge.textContent = '\u{1F3A4} muted'
   badge.title = 'This person has muted their own microphone'
+  return badge
+}
+
+/** No microphone at all, which is a different thing again from a live one
+ *  its owner has muted: there is no advert, so nothing is being sent. Worth
+ *  saying on a name chip, where there is no track chip to read it from. */
+function noMicBadge(): HTMLElement {
+  const badge = document.createElement('span')
+  badge.className = 'badge mic-off'
+  badge.textContent = '\u{1F507} mic off'
+  badge.title = 'Not sending any sound'
   return badge
 }
 

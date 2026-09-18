@@ -106,21 +106,21 @@ html[data-desktop] #chatDrawerToggle { display: none; }
     padding-left: 1rem;
   }
 
-  /* Nobody on a call anywhere in the room.
-     "there's loads of free space in call (we aren't running a call)": the
-     empty pane was taking the whole row because the row had nothing else to
-     give the space to. Resting, it is one line - what the room is doing and
-     the way to start - and the conversation takes the width and the height
-     it was holding. A call, or somebody else's call, puts the row back. */
-  /* And the conversation stops being a drawer at all.
-     A drawer is right beside a call. Beside nothing it was a ~300px strip
-     against a window of empty black, wrapping messages at three or four
-     words a line while the room they could have used sat unused. So with
-     nothing to show beside it the conversation is the main column, capped
-     at a line worth reading and left-aligned - the same place the eye
-     starts in the narrow layout, rather than a column that moves to the
-     middle of the window when Shared Work closes. */
-  html[data-desktop][data-call-pane="resting"] .desktopRoomContent {
+  /* The two strips: nothing at all, and a voice call.
+     "there's loads of free space in call (we aren't running a call)" was
+     the first of them, and an empty video grid during a call with every
+     camera off was the last place the same complaint still showed. Neither
+     has a picture in it, so neither is worth a column: the pane is a strip
+     across the top and the conversation is the main column beneath it.
+
+     And in that column it stops being a drawer at all. A drawer is right
+     beside a call. Beside nothing it was a ~300px strip against a window of
+     empty black, wrapping messages at three or four words a line while the
+     room they could have used sat unused. So it is capped at a line worth
+     reading and left-aligned - the same place the eye starts in the narrow
+     layout, rather than a column that moves to the middle of the window
+     when Shared Work closes. */
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopRoomContent {
     flex-direction: column;
     max-width: var(--chat-read);
     margin-right: auto;
@@ -130,14 +130,14 @@ html[data-desktop] #chatDrawerToggle { display: none; }
      the top of something else entirely, with the conversation stopping
      halfway under them. The room's own bar is not in this list: it is the
      window's bar and it spans the window. */
-  html[data-desktop][data-call-pane="resting"] #roomArea > :is(#callBanner, #agentActivity, #workAttention, #presenceNotice, #sharerMarksNotice, .conversationNav) {
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) #roomArea > :is(#callBanner, #agentActivity, #workAttention, #presenceNotice, #sharerMarksNotice, .conversationNav) {
     max-width: var(--chat-read);
   }
-  html[data-desktop][data-call-pane="resting"] .desktopRoomContent #callStage {
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopRoomContent #callStage {
     flex: 0 0 auto;
     max-height: 30vh;
   }
-  html[data-desktop][data-call-pane="resting"] .desktopConversation[data-open="true"] {
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopConversation[data-open="true"] {
     width: auto;
     flex: 1 1 auto;
     min-height: var(--chat-min-height);
@@ -157,6 +157,31 @@ html[data-desktop] #chatDrawerToggle { display: none; }
 /* The resting strip itself. One row, whatever the window is doing, and
    short enough that the room it frees is worth freeing - the spec pins it
    under 80px. */
+/* A voice call, as a strip.
+   Two rows: who is on it and the way off it, then the four controls. The
+   video grid is hidden rather than unmounted, and that is not a detail -
+   the remote `<audio>` elements live inside those tiles, Chromium pauses a
+   media element that leaves the document and does not reliably resume it,
+   and `display: none` pauses nothing. So this hides, and `renderCallChips`
+   in app/src/main.ts draws names beside it instead of moving anything. */
+/* Written to out-specify the row layout's own `#callStage > #whoIsHere`
+   rule rather than to read nicely: desktop.css is imported before style.css,
+   so source order settles nothing here and the longer selector is the only
+   thing that wins. */
+html[data-desktop][data-call-pane="controls"] .desktopRoomContent #callStage > #whoIsHere:not([hidden]) { display: none; }
+html[data-desktop][data-call-pane="controls"] #callBay { margin: 0; padding: .4rem .55rem; }
+html[data-desktop][data-call-pane="controls"] #deviceControls { gap: .3rem .6rem; }
+html[data-desktop][data-call-pane="controls"] .callHead { margin-bottom: .2rem; }
+/* The sentence and the mic line are what the chips already say, in less
+   room and for everybody rather than for this device alone. `#local` holds
+   this device's own pictures, and in this pane there are none by
+   definition - but it is an element, not an absence, and an empty one still
+   costs a grid row. */
+html[data-desktop][data-call-pane="controls"] #callWho,
+html[data-desktop][data-call-pane="controls"] #deviceControls > #micIndicator,
+html[data-desktop][data-call-pane="controls"] #deviceControls > #local { display: none; }
+html[data-desktop][data-call-pane="controls"] #callChips { display: flex; }
+
 html[data-desktop][data-call-pane="resting"] .callStrip {
   display: flex;
   align-items: center;
