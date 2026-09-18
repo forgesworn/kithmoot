@@ -148,6 +148,12 @@
                  `micIndicator`; hidden whenever this tab holds it. -->
             <button id="claimMic" type="button" class="quiet" hidden>Use the microphone on this device instead</button>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
+            <!-- The background effect has failed and is covering or blurring
+                 the whole frame while it retries. Shown here, next to the
+                 self-view, rather than only inside the collapsed "Hide what
+                 is behind you" details - see `renderEffectState` in
+                 app/src/main.ts. -->
+            <p id="effectDegradedNotice" class="indicator broken" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
                  no audio track: Firefox, Safari, a window share, or the box
                  left unticked. The share still works; it is simply quiet. -->

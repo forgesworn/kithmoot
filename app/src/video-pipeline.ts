@@ -212,8 +212,8 @@ export class CameraPipeline {
   #fish = false
   #backgroundGeneration = 0
 
-  #counters: Record<FrameAction, number> = { passthrough: 0, 'blur-all': 0, composite: 0 }
-  #window: Record<FrameAction, number> = { passthrough: 0, 'blur-all': 0, composite: 0 }
+  #counters: Record<FrameAction, number> = { passthrough: 0, 'blur-all': 0, cover: 0, composite: 0 }
+  #window: Record<FrameAction, number> = { passthrough: 0, 'blur-all': 0, cover: 0, composite: 0 }
   #windowStartedAt = 0
   #fps = 0
   #costTotalMs = 0
@@ -267,6 +267,19 @@ export class CameraPipeline {
       strength: this.#effect.strength,
       error: this.#effect.lastError,
     }
+  }
+
+  /** What the effect actually painted last, and whether it has failed and
+   *  not yet earned its way back - see `VideoEffect.lastAction` and
+   *  `VideoEffect.untrustworthy`. The failure notice is driven off these,
+   *  not off `status`, because `status` flips to `loading` for every retry
+   *  attempt. */
+  get lastAction(): FrameAction {
+    return this.#effect.lastAction
+  }
+
+  get untrustworthy(): boolean {
+    return this.#effect.untrustworthy
   }
 
   get track(): MediaStreamTrack | undefined {
@@ -554,10 +567,11 @@ export class CameraPipeline {
 
     const elapsed = startedAt - this.#windowStartedAt
     if (elapsed >= 1000) {
-      const frames = this.#window.passthrough + this.#window['blur-all'] + this.#window.composite
+      const frames =
+        this.#window.passthrough + this.#window['blur-all'] + this.#window.cover + this.#window.composite
       this.#fps = Math.round((frames / elapsed) * 1000)
       this.#frameCostMs = this.#costFrames ? this.#costTotalMs / this.#costFrames : 0
-      this.#window = { passthrough: 0, 'blur-all': 0, composite: 0 }
+      this.#window = { passthrough: 0, 'blur-all': 0, cover: 0, composite: 0 }
       this.#costTotalMs = 0
       this.#costFrames = 0
       this.#windowStartedAt = startedAt

@@ -27,12 +27,18 @@
  *
  * ## The one rule
  *
- * While an effect is meant to be on and the segmenter is working, an
- * unmodified camera frame must never reach the output canvas - not while the
- * model is loading, and above all not during a camera flip, which is the
- * moment the naive implementation leaks. `decideFrameAction` is that rule
- * written down, and it has only one way to say "passthrough": the user
- * turned the effect off, or it broke and they were told.
+ * While an effect is meant to be on, an unmodified camera frame must never
+ * reach the output canvas - not while the model is loading, not during a
+ * camera flip, and not once the segmenter has degraded. `decideFrameAction`
+ * is that rule written down, and it has only one way to say "passthrough":
+ * the user turned the effect off. Nothing the person chose to hide is ever
+ * sent because something broke: when the effect cannot be trusted - the
+ * segmenter is degraded, missing, or its mask is absent or stale - a replace
+ * mode covers the whole frame with the chosen backdrop and no person, and a
+ * blur mode blurs the whole frame at maximum strength. Degraded is not for
+ * ever either: the segmenter is retried with backoff for as long as the
+ * mode stays on, and the failure is surfaced to the person outside the
+ * folded effect controls, not only inside them.
  */
 
 // ---------------------------------------------------------------------------
@@ -59,7 +65,12 @@ export interface Context2DLike {
   globalCompositeOperation: string
   imageSmoothingEnabled: boolean
   imageSmoothingQuality?: string
+  // `string | CanvasGradient | CanvasPattern`, matching the real DOM type,
+  // so a real `CanvasRenderingContext2D` satisfies this with no adapter.
+  // This module only ever assigns a string to it.
+  fillStyle: string | CanvasGradient | CanvasPattern
   clearRect(x: number, y: number, w: number, h: number): void
+  fillRect(x: number, y: number, w: number, h: number): void
   drawImage(image: FrameSourceLike, dx: number, dy: number, dw: number, dh: number): void
   putImageData(image: ImageDataLike, dx: number, dy: number): void
   createImageData(width: number, height: number): ImageDataLike
@@ -145,7 +156,7 @@ export const MAX_CONSECUTIVE_SEGMENT_FAILURES = 5
  * the person; `STENCIL_ERODE_PX` does the rest, and does the part that a
  * threshold cannot.
  */
-const DEFAULT_MASK_THRESHOLD = 0.55
+export const DEFAULT_MASK_THRESHOLD = 0.55
 /**
  * Width of the soft band, in confidence units.
  *
@@ -157,7 +168,7 @@ const DEFAULT_MASK_THRESHOLD = 0.55
  * edge still (`MaskSmoother`) a narrower band is affordable, and narrower is
  * what replacement wants.
  */
-const DEFAULT_MASK_FEATHER = 0.26
+export const DEFAULT_MASK_FEATHER = 0.26
 
 /**
  * How much of a new frame's confidence to believe where it agrees with the
@@ -218,6 +229,67 @@ export const MASK_ERODE_PX = 0
 export const STENCIL_ERODE_PX = 1.5
 
 /**
+ * How old a mask is allowed to be, in the timestamps `renderFrame` is
+ * called with, before it stops counting as "ready".
+ *
+ * The segmenter is allowed to say "nothing new" for a frame or two and the
+ * previous mask is still a good guess - a person does not teleport. Past
+ * this it is a guess about where somebody used to be, and showing it is how
+ * a moved person leaves a hole the room shows through. 500ms is fifteen
+ * frames at 30fps: generous enough that a normal skipped frame never trips
+ * it, short enough that nobody notices the fallback as anything but a
+ * slightly longer blur.
+ */
+export const MASK_MAX_AGE_MS = 500
+
+/**
+ * Backoff schedule for retrying the segmenter once it has degraded, in
+ * milliseconds. The last entry repeats for every attempt after it.
+ *
+ * Degraded used to be permanent, which turned one bad GPU context into a
+ * published room for the rest of the call. Retrying is safe precisely
+ * because degraded already fails closed: every attempt happens while the
+ * frame is being covered or blurred, so a retry that fails again costs
+ * nothing the viewer can see.
+ */
+export const SEGMENTER_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000]
+
+/**
+ * Consecutive successfully-segmented frames before the backoff level is
+ * allowed to reset to the top of `SEGMENTER_RETRY_DELAYS_MS`.
+ *
+ * A segmenter that loads fine but whose `segment()` always throws - a lost
+ * GPU context, say - looks like a *success* to the loader every time: load,
+ * five throws, degrade, retry, load, five throws, degrade... Resetting the
+ * backoff on load rather than on sustained use turns that into a 2-second
+ * loop forever, which is thirty pointless loads a minute for a segmenter
+ * that was never going to work. Thirty consecutive good frames is a second
+ * at 30fps: enough to call it actually recovered rather than about to throw
+ * again.
+ */
+export const SEGMENTER_BACKOFF_RESET_STREAK = 30
+
+/**
+ * Hole filling for the temporally-smoothed mask.
+ *
+ * selfie_segmenter hands back 0.4-0.7 over a flat, plain torso - genuinely
+ * unsure, not wrong - and `DEFAULT_MASK_THRESHOLD` (0.55) puts some of that
+ * on the room side of the cut. Lowering the threshold was tried and
+ * rejected: it reopens the hair-line fringe it was raised to close. Instead,
+ * any patch of below-cut confidence that is not reachable from the frame
+ * edge through other below-cut pixels cannot be room - the room is not
+ * enclosed by the person - so it is raised to person confidence instead of
+ * drawn as a window onto the background.
+ */
+export const HOLE_FILL_CUT = DEFAULT_MASK_THRESHOLD
+/** What an enclosed low-confidence pixel is raised to. Below the erosion and
+ *  feather bands, so the outline they draw is untouched. */
+export const HOLE_FILL_CONFIDENCE = 0.9
+/** An enclosed region larger than this fraction of the frame is left alone:
+ *  a person framing a doorway with their arms is a real hole, not a torso. */
+export const HOLE_FILL_MAX_FRACTION = 0.12
+
+/**
  * How far past each edge the blurred background is drawn.
  *
  * A blur samples pixels that are not there at the frame edge and returns
@@ -234,19 +306,25 @@ export type EffectStatus = 'idle' | 'loading' | 'ready' | 'degraded'
  * What to do with one frame.
  *
  * - `passthrough`: paint the camera frame as it is. Only ever correct when
- *   the effect is off or has failed loudly.
- * - `blur-all`: blur the entire frame, person included. Ugly, honest, and
- *   the right answer whenever an effect is wanted but no mask is available:
- *   while the model loads, and across a camera swap.
+ *   the effect is off - the person chose to show the room.
+ * - `blur-all`: blur the entire frame, person included, at maximum strength.
+ *   The right answer in blur mode whenever an effect is wanted but cannot be
+ *   trusted: while the model loads, across a camera swap, once degraded, or
+ *   once the mask has gone stale.
+ * - `cover`: paint the chosen backdrop over the whole frame with no person
+ *   cut into it. The `blur-all` equivalent for replace mode: showing the
+ *   real backdrop is possible without a mask, showing the person is not.
  * - `composite`: the real thing.
  */
-export type FrameAction = 'passthrough' | 'blur-all' | 'composite'
+export type FrameAction = 'passthrough' | 'blur-all' | 'cover' | 'composite'
 
 export interface FrameState {
   mode: EffectMode
   /** The segmenter failed hard and the user has been told. */
   degraded: boolean
-  /** A mask belonging to the *current* source is available. */
+  /** A mask belonging to the *current* source is available and fresh - see
+   *  `MASK_MAX_AGE_MS`. A present but stale mask counts as not ready: it
+   *  describes where somebody used to be. */
   maskReady: boolean
 }
 
@@ -324,6 +402,15 @@ export interface MaskSmootherOptions {
   motionDelta?: number
   /** Mask pixels to pull the person's edge in by. 0 leaves it alone. */
   erode?: number
+  /** `false` turns off hole filling, which is only ever wanted by a test
+   *  measuring what it costs on its own. */
+  holeFill?: false
+  /** Confidence below which a pixel is "maybe room" for hole filling. */
+  holeFillCut?: number
+  /** What an enclosed low-confidence pixel is raised to. */
+  holeFillConfidence?: number
+  /** Largest enclosed region, as a fraction of the frame, that is filled. */
+  holeFillMaxFraction?: number
 }
 
 /**
@@ -351,17 +438,31 @@ export class MaskSmoother {
   #state: Float32Array | null = null
   #scratch: Float32Array | null = null
   #out: Float32Array | null = null
+  /** A copy of `#state` that hole filling is applied to. `#state` itself is
+   *  the true temporal history and must never carry a filled value into the
+   *  next frame's blend - see `push`. */
+  #holeFilled: Float32Array | null = null
+  #holeVisited: Uint8Array | null = null
+  #holeStack: Int32Array | null = null
 
   readonly #calm: number
   readonly #moving: number
   readonly #delta: number
   readonly #erode: number
+  readonly #holeFill: boolean
+  readonly #holeFillCut: number
+  readonly #holeFillConfidence: number
+  readonly #holeFillMaxFraction: number
 
   constructor(opts: MaskSmootherOptions = {}) {
     this.#calm = clamp01(opts.calmAlpha ?? MASK_ALPHA_CALM)
     this.#moving = clamp01(opts.movingAlpha ?? MASK_ALPHA_MOVING)
     this.#delta = Math.max(1e-3, opts.motionDelta ?? MASK_MOTION_DELTA)
     this.#erode = Math.max(0, Math.round(opts.erode ?? MASK_ERODE_PX))
+    this.#holeFill = opts.holeFill !== false
+    this.#holeFillCut = opts.holeFillCut ?? HOLE_FILL_CUT
+    this.#holeFillConfidence = opts.holeFillConfidence ?? HOLE_FILL_CONFIDENCE
+    this.#holeFillMaxFraction = opts.holeFillMaxFraction ?? HOLE_FILL_MAX_FRACTION
   }
 
   /**
@@ -387,6 +488,9 @@ export class MaskSmoother {
       this.#state = new Float32Array(pixels)
       this.#scratch = new Float32Array(pixels)
       this.#out = new Float32Array(pixels)
+      this.#holeFilled = new Float32Array(pixels)
+      this.#holeVisited = new Uint8Array(pixels)
+      this.#holeStack = new Int32Array(pixels)
       // The first frame of a new source has nothing to average against, and
       // inventing a history for it would mean fading the person in.
       this.#state.set(data.subarray(0, pixels))
@@ -409,11 +513,154 @@ export class MaskSmoother {
       }
     }
 
-    if (this.#erode === 0) {
-      return { width, height, data: this.#state }
+    // Hole filling runs on a copy. `#state` is the true temporal history -
+    // what next frame's blend calls "previous" - and a filled pixel is a
+    // display decision, not evidence that the person really is there; the
+    // pixel it stands in for stays exactly what the model said.
+    let output = this.#state
+    if (this.#holeFill) {
+      const filled = this.#holeFilled!
+      filled.set(this.#state)
+      fillMaskHoles(
+        filled,
+        width,
+        height,
+        this.#holeVisited!,
+        this.#holeStack!,
+        this.#holeFillCut,
+        this.#holeFillConfidence,
+        this.#holeFillMaxFraction,
+      )
+      output = filled
     }
-    erode(this.#state, this.#scratch!, this.#out!, width, height, this.#erode)
+
+    if (this.#erode === 0) {
+      return { width, height, data: output }
+    }
+    erode(output, this.#scratch!, this.#out!, width, height, this.#erode)
     return { width, height, data: this.#out! }
+  }
+}
+
+/**
+ * Raise any below-cut region of `state` that is not reachable from the
+ * frame edge through other below-cut pixels to `fillConfidence`, in place.
+ *
+ * Two flood fills, both 4-connected, both over buffers the caller owns and
+ * reuses frame to frame so this allocates nothing:
+ *
+ * 1. From every border pixel, through every below-cut pixel reachable from
+ *    it. Whatever this reaches is real room: there is a path to the edge of
+ *    the picture made entirely of pixels that look like background.
+ * 2. Whatever below-cut pixel phase 1 did not reach is enclosed by
+ *    above-cut (person) pixels on every side, so it cannot be room - unless
+ *    the enclosed patch is implausibly big, in which case it is left alone
+ *    rather than guessed at.
+ *
+ * `stack` doubles as a plain array-backed queue in phase 2 by walking a
+ * separate read head over the same buffer, so one allocation-free buffer
+ * does both a DFS and a set of BFS's.
+ */
+export function fillMaskHoles(
+  state: Float32Array,
+  width: number,
+  height: number,
+  visited: Uint8Array,
+  stack: Int32Array,
+  cut: number,
+  fillConfidence: number,
+  maxFraction: number,
+): void {
+  const pixels = width * height
+  if (pixels === 0) return
+  visited.fill(0)
+
+  let sp = 0
+  const pushIfLow = (i: number): void => {
+    if (!visited[i] && state[i]! < cut) {
+      visited[i] = 1
+      stack[sp] = i
+      sp += 1
+    }
+  }
+
+  // Phase 1: seed from the whole border, then flood through it.
+  for (let x = 0; x < width; x += 1) {
+    pushIfLow(x)
+    if (height > 1) pushIfLow((height - 1) * width + x)
+  }
+  for (let y = 0; y < height; y += 1) {
+    pushIfLow(y * width)
+    if (width > 1) pushIfLow(y * width + width - 1)
+  }
+  while (sp > 0) {
+    sp -= 1
+    const i = stack[sp]!
+    const x = i % width
+    const y = (i / width) | 0
+    if (x > 0) pushIfLow(i - 1)
+    if (x < width - 1) pushIfLow(i + 1)
+    if (y > 0) pushIfLow(i - width)
+    if (y < height - 1) pushIfLow(i + width)
+  }
+
+  const cap = Math.floor(pixels * maxFraction)
+
+  // Phase 2: sweep every pixel; anything below cut and still unvisited is
+  // the start of an enclosed island. Collect it with the same buffer, used
+  // this time as a queue (a moving read head over a growing write tail),
+  // then fill it if it is not implausibly large.
+  for (let start = 0; start < pixels; start += 1) {
+    if (visited[start] || state[start]! >= cut) continue
+    let tail = 0
+    stack[tail] = start
+    tail += 1
+    visited[start] = 1
+    let head = 0
+    while (head < tail) {
+      const i = stack[head]!
+      head += 1
+      const x = i % width
+      const y = (i / width) | 0
+      if (x > 0) {
+        const n = i - 1
+        if (!visited[n] && state[n]! < cut) {
+          visited[n] = 1
+          stack[tail] = n
+          tail += 1
+        }
+      }
+      if (x < width - 1) {
+        const n = i + 1
+        if (!visited[n] && state[n]! < cut) {
+          visited[n] = 1
+          stack[tail] = n
+          tail += 1
+        }
+      }
+      if (y > 0) {
+        const n = i - width
+        if (!visited[n] && state[n]! < cut) {
+          visited[n] = 1
+          stack[tail] = n
+          tail += 1
+        }
+      }
+      if (y < height - 1) {
+        const n = i + width
+        if (!visited[n] && state[n]! < cut) {
+          visited[n] = 1
+          stack[tail] = n
+          tail += 1
+        }
+      }
+    }
+    if (tail <= cap) {
+      for (let k = 0; k < tail; k += 1) {
+        const idx = stack[k]!
+        if (state[idx]! < fillConfidence) state[idx] = fillConfidence
+      }
+    }
   }
 }
 
@@ -503,14 +750,18 @@ export function erode(
 /**
  * The rule, written down.
  *
- * There are exactly two routes to `passthrough` and both of them are things
- * the user knows about. Everything else blurs.
+ * There is exactly one route to `passthrough` and it is a thing the user
+ * chose: the effect is off. Everything else that cannot be trusted - broken,
+ * missing, or working from a mask too old to believe - falls closed onto
+ * whatever the current mode can show without the camera: the backdrop alone
+ * in replace mode, a maximum-strength blur otherwise. Nothing the person
+ * asked to hide is ever sent because something broke.
  */
 export function decideFrameAction(state: FrameState): FrameAction {
   if (state.mode === 'off') return 'passthrough'
-  if (state.degraded) return 'passthrough'
-  if (!state.maskReady) return 'blur-all'
-  return 'composite'
+  const trustworthy = !state.degraded && state.maskReady
+  if (trustworthy) return 'composite'
+  return state.mode === 'replace' ? 'cover' : 'blur-all'
 }
 
 export interface CoverRect {
@@ -613,8 +864,22 @@ export class VideoEffect {
 
   #lastMask: SegmentationMask | null = null
   #maskValid = false
+  #lastMaskAt: number | null = null
   #failures = 0
   readonly #smoother: MaskSmoother | null
+
+  #retryTimer: ReturnType<typeof setTimeout> | null = null
+  #retryIndex = 0
+  /** Consecutive frames segmented without throwing since the last time the
+   *  backoff level was reset - see `SEGMENTER_BACKOFF_RESET_STREAK`. */
+  #successStreak = 0
+  /** Has failed since the last explicit reset or sustained recovery - see
+   *  the `untrustworthy` getter. */
+  #untrustworthy = false
+  /** What `renderFrame` last actually painted - see the `lastAction`
+   *  getter. `blur-all` before any frame has been drawn: never a claim
+   *  that a camera frame or a composite has been shown. */
+  #lastAction: FrameAction = 'blur-all'
 
   #source: BackgroundSource | null = null
 
@@ -675,9 +940,27 @@ export class VideoEffect {
     return this.#loadPromise ?? Promise.resolve()
   }
 
+  /**
+   * A mode change is also the one deliberate way out of degraded: turning
+   * the effect off and on again is exactly what the failure notice tells
+   * somebody to do, so it must actually work rather than leaving the
+   * segmenter stuck on whatever backoff attempt it was on. Any transition
+   * away from a degraded state - to off, or straight to a different mode
+   * while still on - forgets the failure and, if the new mode wants a
+   * segmenter, starts loading one immediately rather than waiting for the
+   * next scheduled retry.
+   */
   setMode(mode: EffectMode): void {
     if (this.#mode === mode) return
     this.#mode = mode
+    this.#cancelRetry()
+    if (this.#status === 'degraded') {
+      this.#failures = 0
+      this.#successStreak = 0
+      this.#untrustworthy = false
+      this.#loadPromise = null
+      this.#setStatus('idle')
+    }
     if (mode !== 'off') this.#ensureSegmenter()
     this.#emit()
   }
@@ -718,9 +1001,28 @@ export class VideoEffect {
   invalidateSource(): void {
     this.#lastMask = null
     this.#maskValid = false
+    this.#lastMaskAt = null
     this.#failures = 0
     // A mask averaged across a swap is an average of two different rooms.
     this.#smoother?.reset()
+  }
+
+  /** What the last `renderFrame` call actually painted. Driving anything
+   *  visible to the person off this, rather than off `status`, is
+   *  deliberate: `status` flips to `loading` for every retry attempt,
+   *  which is exactly the moment a failure notice must not go quiet. */
+  get lastAction(): FrameAction {
+    return this.#lastAction
+  }
+
+  /** Has failed and not yet earned the backoff back with sustained good
+   *  use - see `SEGMENTER_BACKOFF_RESET_STREAK`. Unlike `status`, this
+   *  stays true across the `loading` blip of every retry attempt, which is
+   *  the whole point of it: a caller deciding whether to warn somebody
+   *  needs "has this actually recovered", not "is a load in flight right
+   *  now". */
+  get untrustworthy(): boolean {
+    return this.#untrustworthy
   }
 
   /** Draw one frame. Returns what it decided to do, which is what the tests
@@ -731,47 +1033,87 @@ export class VideoEffect {
     height: number,
     timestampMs: number,
   ): FrameAction {
-    if (this.#closed || width <= 0 || height <= 0) {
-      if (!this.#closed) this.#paintPassthrough(source, width, height)
-      return 'passthrough'
+    const action = this.#computeAction(source, width, height, timestampMs)
+    this.#lastAction = action
+    return action
+  }
+
+  #computeAction(
+    source: FrameSourceLike,
+    width: number,
+    height: number,
+    timestampMs: number,
+  ): FrameAction {
+    if (this.#closed) return 'passthrough'
+
+    // A zero-size frame is a canvas or track that is not ready yet, not a
+    // decision about what to show. Painting it was only ever safe because
+    // it happened to be a no-op; painting the same `drawImage` call with
+    // the effect *on* would be the exact leak this module exists to close
+    // the moment a real frame follows an invalid one into the same call.
+    // Nothing is painted here unless the person chose to show the camera.
+    if (width <= 0 || height <= 0) {
+      if (this.#mode === 'off') {
+        this.#paintPassthrough(source, width, height)
+        return 'passthrough'
+      }
+      return 'blur-all'
     }
 
     if (this.#output.width !== width) this.#output.width = width
     if (this.#output.height !== height) this.#output.height = height
 
-    if (this.#mode === 'off' || this.#status === 'degraded') {
+    if (this.#mode === 'off') {
       this.#paintPassthrough(source, width, height)
       return 'passthrough'
     }
 
-    if (!this.#segmenter) {
-      this.#paintBlurAll(source, width, height)
-      return 'blur-all'
+    if (this.#status === 'degraded' || !this.#segmenter) {
+      return this.#paintUntrusted(source, width, height, timestampMs)
     }
 
     try {
       const mask = this.#segmenter.segment(source, timestampMs)
       this.#failures = 0
+      // Only sustained use earns back the short retry delay - see
+      // `SEGMENTER_BACKOFF_RESET_STREAK`.
+      this.#successStreak += 1
+      if (this.#successStreak >= SEGMENTER_BACKOFF_RESET_STREAK) {
+        this.#retryIndex = 0
+        this.#untrustworthy = false
+      }
       if (mask) {
         this.#lastMask = this.#smoother ? this.#smoother.push(mask) : mask
         this.#maskValid = true
+        this.#lastMaskAt = timestampMs
       }
     } catch (err) {
       this.#failures += 1
+      this.#successStreak = 0
       this.#error = errorMessage(err)
       if (this.#failures >= MAX_CONSECUTIVE_SEGMENT_FAILURES) {
+        // The segmenter itself is what is broken, not just this frame, so it
+        // is dropped rather than asked again - `#scheduleRetry` is what asks
+        // again, on its own schedule, not the render loop.
+        this.#segmenter.close()
+        this.#segmenter = null
+        this.#untrustworthy = true
         this.#setStatus('degraded')
-        this.#paintPassthrough(source, width, height)
-        return 'passthrough'
+        this.#scheduleRetry()
       }
-      this.#paintBlurAll(source, width, height)
-      return 'blur-all'
+      return this.#paintUntrusted(source, width, height, timestampMs)
     }
+
+    const fresh =
+      this.#maskValid &&
+      this.#lastMask !== null &&
+      this.#lastMaskAt !== null &&
+      timestampMs - this.#lastMaskAt <= MASK_MAX_AGE_MS
 
     const action = decideFrameAction({
       mode: this.#mode,
       degraded: false,
-      maskReady: this.#maskValid && this.#lastMask !== null,
+      maskReady: fresh,
     })
 
     if (action === 'composite') {
@@ -780,33 +1122,79 @@ export class VideoEffect {
         return 'composite'
       } catch (err) {
         // A compositing failure is a canvas problem, not a segmentation one,
-        // and the safe answer is still a blurred frame rather than a raw one.
+        // and the safe answer is still the fail-closed one, not a raw frame.
         this.#error = errorMessage(err)
-        this.#paintBlurAll(source, width, height)
-        return 'blur-all'
+        return this.#paintUntrusted(source, width, height, timestampMs)
       }
     }
 
-    this.#paintBlurAll(source, width, height)
-    return 'blur-all'
+    return this.#paintUntrusted(source, width, height, timestampMs)
   }
 
   close(): void {
     if (this.#closed) return
     this.#closed = true
+    this.#cancelRetry()
     this.#segmenter?.close()
     this.#segmenter = null
     this.#source?.close?.()
     this.#source = null
     this.#lastMask = null
     this.#maskValid = false
+    this.#lastMaskAt = null
     this.#smoother?.reset()
   }
 
   // -- internals ------------------------------------------------------------
 
+  /** What to paint when the effect is on but cannot be trusted: no fresh
+   *  mask, no segmenter, or degraded. Never the camera frame. */
+  #paintUntrusted(
+    source: FrameSourceLike,
+    width: number,
+    height: number,
+    nowMs: number,
+  ): FrameAction {
+    if (this.#mode === 'replace') {
+      return this.#paintCover(source, width, height, nowMs)
+    }
+    this.#paintBlurAll(source, width, height, true)
+    return 'blur-all'
+  }
+
+  /**
+   * Degraded is retried, not permanent, for as long as the mode stays on.
+   * Backoff rather than every frame: a broken segmenter retried at 30fps is
+   * thirty failed loads a second for nothing, and the frame is already
+   * failing closed while it waits, so there is no rush.
+   */
+  #scheduleRetry(): void {
+    if (this.#closed || this.#mode === 'off' || this.#retryTimer) return
+    const delays = SEGMENTER_RETRY_DELAYS_MS
+    const delay = delays[Math.min(this.#retryIndex, delays.length - 1)]!
+    this.#retryIndex += 1
+    this.#retryTimer = setTimeout(() => {
+      this.#retryTimer = null
+      if (this.#closed || this.#mode === 'off') return
+      this.#failures = 0
+      this.#loadSegmenterNow()
+    }, delay)
+  }
+
+  #cancelRetry(): void {
+    if (this.#retryTimer) {
+      clearTimeout(this.#retryTimer)
+      this.#retryTimer = null
+    }
+    this.#retryIndex = 0
+  }
+
   #ensureSegmenter(): void {
     if (this.#closed || this.#segmenter || this.#loadPromise || this.#status === 'degraded') return
+    this.#loadSegmenterNow()
+  }
+
+  #loadSegmenterNow(): void {
     this.#setStatus('loading')
     this.#loadPromise = this.#loadSegmenter()
       .then((segmenter) => {
@@ -816,11 +1204,26 @@ export class VideoEffect {
         }
         this.#segmenter = segmenter
         this.#failures = 0
+        this.#successStreak = 0
+        // The timer that led here, if any, has already fired and cleared
+        // itself; this only matters for the case where loading was kicked
+        // off some other way. The backoff *level* is deliberately left
+        // alone - a segmenter that loads but immediately throws again
+        // should not get the same short delay every time. It resets only
+        // after `SEGMENTER_BACKOFF_RESET_STREAK` frames of real use, in
+        // `renderFrame`.
+        if (this.#retryTimer) {
+          clearTimeout(this.#retryTimer)
+          this.#retryTimer = null
+        }
         this.#setStatus('ready')
       })
       .catch((err: unknown) => {
+        if (this.#closed) return
         this.#error = errorMessage(err)
+        this.#untrustworthy = true
         this.#setStatus('degraded')
+        this.#scheduleRetry()
       })
   }
 
@@ -845,14 +1248,64 @@ export class VideoEffect {
     ctx.drawImage(source, 0, 0, width, height)
   }
 
-  #paintBlurAll(source: FrameSourceLike, width: number, height: number): void {
+  /** `forceMax`: ignore the user's chosen strength and blur as hard as
+   *  possible. Only ever passed when the effect cannot be trusted - a weak
+   *  blur the person picked for a good mask is not a safe blur for no mask
+   *  at all. */
+  #paintBlurAll(source: FrameSourceLike, width: number, height: number, forceMax = false): void {
     const ctx = this.#outCtx
-    const radius = blurRadiusPx(this.#strength, width)
+    const radius = blurRadiusPx(forceMax ? 1 : this.#strength, width)
     const pad = radius * OVERDRAW_RADII
     ctx.globalCompositeOperation = 'source-over'
     ctx.filter = `blur(${radius}px)`
     ctx.drawImage(source, -pad, -pad, width + pad * 2, height + pad * 2)
     ctx.filter = 'none'
+  }
+
+  /**
+   * `cover`: the backdrop alone, no person cut into it. Replace mode's
+   * answer to "the effect cannot be trusted" - there is no mask to composite
+   * with, but there is still a backdrop, and painting it over the whole
+   * frame is strictly safer than showing any of the room behind it.
+   *
+   * Cleared to opaque black before anything else is drawn. `drawImage` of a
+   * backdrop that is transparent, or not yet decoded, leaves whatever the
+   * canvas already held showing through or untouched - which, the one
+   * moment this path exists for, could be a frame from before the effect
+   * broke. Black first means the worst case is a black frame, never a
+   * stale one.
+   */
+  #paintCover(source: FrameSourceLike, width: number, height: number, nowMs: number): FrameAction {
+    let replacement: FrameSourceLike | null = null
+    let replacementSize: { width: number; height: number } | null = null
+    if (this.#source) {
+      try {
+        replacement = this.#source.frame(nowMs, width, height)
+        replacementSize = replacement ? this.#source.size() : null
+      } catch (err) {
+        this.#error = errorMessage(err)
+        replacement = null
+      }
+    }
+
+    if (!replacement) {
+      // No backdrop loaded yet either: the camera is still not an option,
+      // so a maximum-strength blur is the fallback, same as blur mode.
+      this.#paintBlurAll(source, width, height, true)
+      return 'blur-all'
+    }
+
+    const ctx = this.#outCtx
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.filter = 'none'
+    ctx.clearRect(0, 0, width, height)
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, width, height)
+    const rect = replacementSize
+      ? coverRect(replacementSize.width, replacementSize.height, width, height)
+      : { dx: 0, dy: 0, dw: width, dh: height }
+    ctx.drawImage(replacement, rect.dx, rect.dy, rect.dw, rect.dh)
+    return 'cover'
   }
 
   #paintComposite(

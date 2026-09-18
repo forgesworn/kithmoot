@@ -2,9 +2,14 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   BLUR_ON_BY_DEFAULT,
   DEFAULT_BLUR_STRENGTH,
+  DEFAULT_MASK_THRESHOLD,
   MAX_BLUR_RADIUS_FRACTION,
   MIN_BLUR_RADIUS_FRACTION,
+  MASK_MAX_AGE_MS,
   MAX_CONSECUTIVE_SEGMENT_FAILURES,
+  SEGMENTER_RETRY_DELAYS_MS,
+  SEGMENTER_BACKOFF_RESET_STREAK,
+  HOLE_FILL_CONFIDENCE,
   MaskSmoother,
   STENCIL_ERODE_PX,
   VideoEffect,
@@ -12,6 +17,7 @@ import {
   clampStrength,
   coverRect,
   decideFrameAction,
+  fillMaskHoles,
   maskToAlpha,
   type CanvasLike,
   type Context2DLike,
@@ -241,7 +247,7 @@ describe('mask to alpha', () => {
 })
 
 describe('decideFrameAction', () => {
-  it('passes the camera through untouched only when the effect is off or broken', () => {
+  it('passes the camera through untouched only when the effect is off - never because something broke', () => {
     const modes: EffectMode[] = ['off', 'blur', 'replace']
     const flags = [true, false]
     for (const mode of modes) {
@@ -249,19 +255,28 @@ describe('decideFrameAction', () => {
         for (const maskReady of flags) {
           const action = decideFrameAction({ mode, degraded, maskReady })
           if (action === 'passthrough') {
-            expect(mode === 'off' || degraded).toBe(true)
+            expect(mode).toBe('off')
           }
         }
       }
     }
   })
 
-  it('blurs the whole frame while an effect is on but no mask is ready', () => {
+  it('blurs the whole frame in blur mode whenever the mask cannot be trusted', () => {
     expect(decideFrameAction({ mode: 'blur', degraded: false, maskReady: false })).toBe('blur-all')
-    expect(decideFrameAction({ mode: 'replace', degraded: false, maskReady: false })).toBe('blur-all')
+    expect(decideFrameAction({ mode: 'blur', degraded: true, maskReady: false })).toBe('blur-all')
+    // Degraded outranks a leftover maskReady flag: a broken segmenter is not
+    // trusted just because the last mask it produced still looks recent.
+    expect(decideFrameAction({ mode: 'blur', degraded: true, maskReady: true })).toBe('blur-all')
   })
 
-  it('composites once a mask is ready', () => {
+  it('covers with the backdrop alone in replace mode whenever the mask cannot be trusted', () => {
+    expect(decideFrameAction({ mode: 'replace', degraded: false, maskReady: false })).toBe('cover')
+    expect(decideFrameAction({ mode: 'replace', degraded: true, maskReady: false })).toBe('cover')
+    expect(decideFrameAction({ mode: 'replace', degraded: true, maskReady: true })).toBe('cover')
+  })
+
+  it('composites once a mask is ready and nothing is degraded', () => {
     expect(decideFrameAction({ mode: 'blur', degraded: false, maskReady: true })).toBe('composite')
     expect(decideFrameAction({ mode: 'replace', degraded: false, maskReady: true })).toBe('composite')
   })
@@ -282,6 +297,22 @@ describe('VideoEffect defaults', () => {
     expect(loadCalls()).toBe(1)
     effect.setMode('replace')
     expect(loadCalls()).toBe(1)
+  })
+})
+
+describe('VideoEffect with an invalid frame size', () => {
+  it('paints nothing at all while the effect is on, rather than a passthrough no-op', async () => {
+    const { effect, out } = newEffect()
+    await effect.ready()
+    const action = effect.renderFrame(SOURCE, 0, 0, 0)
+    expect(action).not.toBe('passthrough')
+    expect(out.ctx.ops).toHaveLength(0)
+  })
+
+  it('still passes the frame through when the effect is off, size or not', () => {
+    const { effect, out } = newEffect({ mode: 'off' })
+    expect(effect.renderFrame(SOURCE, 0, 0, 0)).toBe('passthrough')
+    expect(rawSourcePaints(out.ctx)).toHaveLength(1)
   })
 })
 
@@ -362,13 +393,60 @@ describe('VideoEffect rendering', () => {
 })
 
 describe('VideoEffect failure behaviour', () => {
-  it('falls back to passthrough, never a black frame, when the segmenter will not load', async () => {
+  it('fails closed to a maximum-strength blur, never passthrough, when the segmenter will not load', async () => {
     const { effect, out } = newEffect({ loadError: new Error('wasm did not arrive') })
     await effect.ready()
     expect(effect.status).toBe('degraded')
     expect(effect.lastError).toMatch(/wasm did not arrive/)
-    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('passthrough')
-    expect(rawSourcePaints(out.ctx)).toHaveLength(1)
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('blur-all')
+    expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+    const draws = out.ctx.ops.filter((o) => o.op === 'drawImage')
+    expect(draws[0]!.filter).toMatch(/^blur\(/)
+    effect.close()
+  })
+
+  it('fails closed to a cover frame, never passthrough, in replace mode when the segmenter will not load', async () => {
+    const { effect, out } = newEffect({ loadError: new Error('wasm did not arrive'), mode: 'replace' })
+    await effect.ready()
+    const background = { background: true }
+    effect.setBackground(background)
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('cover')
+    const draws = out.ctx.ops.filter((o) => o.op === 'drawImage')
+    expect(draws).toHaveLength(1)
+    expect(draws[0]!.image).toBe(background)
+    expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+    effect.close()
+  })
+
+  it('clears the canvas to opaque black before drawing the backdrop, so a stale frame can never show through', async () => {
+    const { effect, out } = newEffect({ loadError: new Error('wasm did not arrive'), mode: 'replace' })
+    await effect.ready()
+    const background = { background: true }
+    effect.setBackground(background)
+    effect.renderFrame(SOURCE, 320, 240, 0)
+
+    const clear = out.ctx.ops.find((o) => o.op === 'clearRect')
+    const fill = out.ctx.ops.find((o) => o.op === 'fillRect')
+    const draw = out.ctx.ops.find((o) => o.op === 'drawImage' && o.image === background)
+    expect(clear).toBeDefined()
+    expect(clear!.args).toEqual([0, 0, 320, 240])
+    expect(fill).toBeDefined()
+    expect(fill!.args).toEqual([0, 0, 320, 240])
+    expect(out.ctx.fillStyle).toBe('#000')
+    // Opaque base, then the backdrop, in that order - never the other way
+    // round, and never skipped.
+    expect(out.ctx.ops.indexOf(clear!)).toBeLessThan(out.ctx.ops.indexOf(fill!))
+    expect(out.ctx.ops.indexOf(fill!)).toBeLessThan(out.ctx.ops.indexOf(draw!))
+  })
+
+  it('falls back to a maximum-strength blur in replace mode with no backdrop loaded either', async () => {
+    const { effect, out } = newEffect({ loadError: new Error('wasm did not arrive'), mode: 'replace' })
+    await effect.ready()
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('blur-all')
+    const draws = out.ctx.ops.filter((o) => o.op === 'drawImage')
+    expect(draws[0]!.filter).toMatch(/^blur\(/)
+    expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+    effect.close()
   })
 
   it('blurs everything while the segmenter is still loading', () => {
@@ -393,17 +471,272 @@ describe('VideoEffect failure behaviour', () => {
     expect(effect.status).toBe('ready')
   })
 
-  it('degrades to passthrough once the segmenter keeps throwing', async () => {
-    const { effect, seg } = newEffect()
+  it('degrades to a maximum-strength blur, never passthrough, once the segmenter keeps throwing', async () => {
+    const { effect, seg, out } = newEffect()
     await effect.ready()
     seg!.throws = new Error('lost the GPU context')
     let action: FrameAction = 'composite'
     for (let i = 0; i <= MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
       action = effect.renderFrame(SOURCE, 320, 240, i)
     }
-    expect(action).toBe('passthrough')
+    expect(action).toBe('blur-all')
     expect(effect.status).toBe('degraded')
     expect(effect.lastError).toMatch(/lost the GPU context/)
+    expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+    expect(seg!.closed).toBe(true)
+    effect.close()
+  })
+
+  it('degrades to a cover frame, never passthrough, in replace mode once the segmenter keeps throwing', async () => {
+    const { effect, seg, out } = newEffect({ mode: 'replace' })
+    await effect.ready()
+    const background = { background: true }
+    effect.setBackground(background)
+    seg!.throws = new Error('lost the GPU context')
+    let action: FrameAction = 'composite'
+    for (let i = 0; i <= MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+      action = effect.renderFrame(SOURCE, 320, 240, i)
+    }
+    expect(action).toBe('cover')
+    const draws = out.ctx.ops.filter((o) => o.op === 'drawImage')
+    expect(draws[draws.length - 1]!.image).toBe(background)
+    expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+    effect.close()
+  })
+
+  it('retries the segmenter with backoff and recovers once it succeeds', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let attempt = 0
+      let seg: FakeSegmenter | null = null
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          attempt += 1
+          if (attempt === 1) throw new Error('first attempt fails')
+          seg = new FakeSegmenter()
+          return seg
+        },
+      })
+      await effect.ready()
+      expect(effect.status).toBe('degraded')
+      expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('blur-all')
+      expect(attempt).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      await effect.ready()
+      expect(attempt).toBe(2)
+      expect(effect.status).toBe('ready')
+      expect(effect.renderFrame(SOURCE, 320, 240, 1)).toBe('composite')
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('backs off further on a second failed retry rather than hammering the loader', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let attempt = 0
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          attempt += 1
+          throw new Error(`attempt ${attempt} fails`)
+        },
+      })
+      await effect.ready()
+      expect(attempt).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      await effect.ready()
+      expect(attempt).toBe(2)
+
+      // Not yet due for the third attempt at the first delay again.
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]! - 1)
+      expect(attempt).toBe(2)
+
+      await vi.advanceTimersByTimeAsync(
+        SEGMENTER_RETRY_DELAYS_MS[1]! - (SEGMENTER_RETRY_DELAYS_MS[0]! - 1),
+      )
+      await effect.ready()
+      expect(attempt).toBe(3)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps escalating backoff when the segmenter loads fine but segment() always throws', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let loads = 0
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          loads += 1
+          const seg = new FakeSegmenter()
+          seg.throws = new Error('lost the GPU context')
+          return seg
+        },
+      })
+      await effect.ready()
+      expect(loads).toBe(1)
+      expect(effect.status).toBe('ready')
+
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, i)
+      }
+      expect(effect.status).toBe('degraded')
+
+      // First retry: the shortest delay, and it loads - but throws again at
+      // once, which is not the same thing as having recovered.
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      await effect.ready()
+      expect(loads).toBe(2)
+      expect(effect.status).toBe('ready')
+
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, 100 + i)
+      }
+      expect(effect.status).toBe('degraded')
+
+      // A load succeeding must not have reset the backoff: the second retry
+      // is due at the *second* delay, not the first one again.
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]! - 1)
+      expect(loads).toBe(2)
+
+      await vi.advanceTimersByTimeAsync(
+        SEGMENTER_RETRY_DELAYS_MS[1]! - (SEGMENTER_RETRY_DELAYS_MS[0]! - 1),
+      )
+      await effect.ready()
+      expect(loads).toBe(3)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('resets the backoff level after a sustained run of good frames', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let loads = 0
+      let seg: FakeSegmenter | null = null
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          loads += 1
+          seg = new FakeSegmenter()
+          if (loads === 1) seg.throws = new Error('first load is bad')
+          return seg
+        },
+      })
+      await effect.ready()
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, i)
+      }
+      expect(effect.status).toBe('degraded')
+
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      await effect.ready()
+      expect(loads).toBe(2)
+      expect(effect.status).toBe('ready')
+
+      // A long run of genuinely good frames - well past the reset streak.
+      for (let i = 0; i < SEGMENTER_BACKOFF_RESET_STREAK + 5; i += 1) {
+        expect(effect.renderFrame(SOURCE, 320, 240, 1000 + i)).toBe('composite')
+      }
+
+      // Degrades again, and this time the retry is due back at the first,
+      // shortest delay: sustained use earned the backoff level back.
+      seg!.throws = new Error('broke again')
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, 2000 + i)
+      }
+      expect(effect.status).toBe('degraded')
+
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]! - 1)
+      expect(loads).toBe(2)
+      await vi.advanceTimersByTimeAsync(1)
+      await effect.ready()
+      expect(loads).toBe(3)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops retrying once the effect is turned off, and does not retry once closed', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let attempt = 0
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          attempt += 1
+          throw new Error('always fails')
+        },
+      })
+      await effect.ready()
+      expect(attempt).toBe(1)
+      effect.setMode('off')
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(attempt).toBe(1)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('recovers immediately on turning the effect off and back on again, rather than staying degraded for the session', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let attempt = 0
+      let seg: FakeSegmenter | null = null
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          attempt += 1
+          if (attempt === 1) throw new Error('first attempt fails')
+          seg = new FakeSegmenter()
+          return seg
+        },
+      })
+      await effect.ready()
+      expect(effect.status).toBe('degraded')
+      expect(attempt).toBe(1)
+
+      // Off, then straight back on - the thing the failure notice itself
+      // tells somebody to do - with no time advanced at all: no waiting for
+      // whatever backoff attempt the timer was on.
+      effect.setMode('off')
+      effect.setMode('blur')
+      await effect.ready()
+      expect(attempt).toBe(2)
+      expect(effect.status).toBe('ready')
+      expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('composite')
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('recovers if a single frame throws and the next one works', async () => {
@@ -434,6 +767,9 @@ describe('VideoEffect failure behaviour', () => {
     const states = onStateChange.mock.calls.map((c) => (c[0] as { status: string }).status)
     expect(states).toContain('loading')
     expect(states).toContain('degraded')
+    // Cancels the retry backoff this schedules, so no real timer is left
+    // running past the end of the test.
+    effect.close()
   })
 })
 
@@ -476,6 +812,143 @@ describe('VideoEffect across a camera flip', () => {
     effect.setMode('replace')
     effect.renderFrame(SOURCE, 320, 240, 1)
     expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+  })
+})
+
+describe('VideoEffect failure visibility', () => {
+  it('lastAction reflects what was actually painted, not the status', async () => {
+    const { effect, seg } = newEffect({ mode: 'replace' })
+    expect(effect.lastAction).not.toBe('composite')
+    await effect.ready()
+    effect.setBackground({ background: true })
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('composite')
+    expect(effect.lastAction).toBe('composite')
+
+    seg!.throws = new Error('lost the GPU context')
+    for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+      effect.renderFrame(SOURCE, 320, 240, i)
+    }
+    expect(effect.lastAction).toBe('cover')
+  })
+
+  it('untrustworthy stays true through a retry, when status flips back to loading', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          throw new Error('will not load')
+        },
+      })
+      await effect.ready()
+      expect(effect.status).toBe('degraded')
+      expect(effect.untrustworthy).toBe(true)
+
+      // The retry timer fires and flips status to loading, synchronously,
+      // before the (also failing) load has had a chance to settle - the
+      // exact moment a status-driven notice would wrongly go quiet.
+      vi.advanceTimersByTime(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      expect(effect.status).toBe('loading')
+      expect(effect.untrustworthy).toBe(true)
+
+      await effect.ready()
+      expect(effect.status).toBe('degraded')
+      expect(effect.untrustworthy).toBe(true)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('untrustworthy clears once the segmenter has been genuinely reliable for a while', async () => {
+    vi.useFakeTimers()
+    try {
+      const out = new FakeCanvas(320, 240, 'out')
+      const factory = fakeCanvasFactory()
+      let loads = 0
+      const effect = new VideoEffect({
+        output: out,
+        createCanvas: factory.create,
+        loadSegmenter: async () => {
+          loads += 1
+          const seg = new FakeSegmenter()
+          if (loads === 1) seg.throws = new Error('first load is bad')
+          return seg
+        },
+      })
+      await effect.ready()
+      for (let i = 0; i < MAX_CONSECUTIVE_SEGMENT_FAILURES; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, i)
+      }
+      expect(effect.untrustworthy).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(SEGMENTER_RETRY_DELAYS_MS[0]!)
+      await effect.ready()
+      expect(effect.untrustworthy).toBe(true)
+
+      for (let i = 0; i < SEGMENTER_BACKOFF_RESET_STREAK - 1; i += 1) {
+        effect.renderFrame(SOURCE, 320, 240, 1000 + i)
+        expect(effect.untrustworthy).toBe(true)
+      }
+      effect.renderFrame(SOURCE, 320, 240, 2000)
+      expect(effect.untrustworthy).toBe(false)
+      effect.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('untrustworthy clears immediately on turning the effect off and on again', async () => {
+    const { effect } = newEffect({ loadError: new Error('will not load') })
+    await effect.ready()
+    expect(effect.untrustworthy).toBe(true)
+    effect.setMode('off')
+    expect(effect.untrustworthy).toBe(false)
+  })
+})
+
+describe('VideoEffect mask staleness', () => {
+  it('keeps compositing on a held mask within MASK_MAX_AGE_MS', async () => {
+    const { effect, seg } = newEffect()
+    await effect.ready()
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('composite')
+    seg!.mask = null
+    expect(effect.renderFrame(SOURCE, 320, 240, MASK_MAX_AGE_MS)).toBe('composite')
+  })
+
+  it('falls back to a maximum-strength blur once the held mask goes stale', async () => {
+    const { effect, seg, out } = newEffect()
+    await effect.ready()
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('composite')
+    seg!.mask = null
+    expect(effect.renderFrame(SOURCE, 320, 240, MASK_MAX_AGE_MS + 1)).toBe('blur-all')
+    expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+  })
+
+  it('covers with the backdrop, not the composite, once a held mask goes stale in replace mode', async () => {
+    const { effect, seg, out } = newEffect({ mode: 'replace' })
+    await effect.ready()
+    const background = { background: true }
+    effect.setBackground(background)
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('composite')
+    seg!.mask = null
+    expect(effect.renderFrame(SOURCE, 320, 240, MASK_MAX_AGE_MS + 1)).toBe('cover')
+    const draws = out.ctx.ops.filter((o) => o.op === 'drawImage')
+    expect(draws[draws.length - 1]!.image).toBe(background)
+    expect(rawSourcePaints(out.ctx)).toHaveLength(0)
+  })
+
+  it('is fresh again the moment a new mask arrives', async () => {
+    const { effect, seg } = newEffect()
+    await effect.ready()
+    expect(effect.renderFrame(SOURCE, 320, 240, 0)).toBe('composite')
+    seg!.mask = null
+    expect(effect.renderFrame(SOURCE, 320, 240, MASK_MAX_AGE_MS + 1)).toBe('blur-all')
+    seg!.mask = fullMask()
+    expect(effect.renderFrame(SOURCE, 320, 240, MASK_MAX_AGE_MS + 2)).toBe('composite')
   })
 })
 
@@ -603,6 +1076,171 @@ describe('MaskSmoother', () => {
     const smoother = new MaskSmoother({ erode: 1 })
     const out = smoother.push(mask([0, 0, 0, 0, 1, 0, 0, 0, 0], 3, 3))
     expect(Array.from(out.data)).toEqual(new Array(9).fill(0))
+  })
+})
+
+describe('MaskSmoother hole filling', () => {
+  const mask2d = (rows: number[][]): SegmentationMask => {
+    const height = rows.length
+    const width = rows[0]!.length
+    const data = new Float32Array(width * height)
+    rows.forEach((row, y) => row.forEach((v, x) => {
+      data[y * width + x] = v
+    }))
+    return { width, height, data }
+  }
+  const rows2d = (m: SegmentationMask): number[][] => {
+    const out: number[][] = []
+    for (let y = 0; y < m.height; y += 1) {
+      out.push(Array.from(m.data.subarray(y * m.width, y * m.width + m.width)))
+    }
+    return out
+  }
+
+  it('fills an enclosed low-confidence island, surrounded on every side by person', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    const out = smoother.push(
+      mask2d([
+        [1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1],
+        [1, 1, 0.2, 1, 1],
+        [1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1],
+      ]),
+    )
+    expect(out.data[2 * 5 + 2]).toBeCloseTo(HOLE_FILL_CONFIDENCE, 5)
+  })
+
+  it('leaves a low-confidence region alone once it reaches the frame edge', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    const rows = [
+      [0, 0, 0, 0, 0],
+      [1, 1, 0, 1, 1],
+      [1, 1, 0, 1, 1],
+      [1, 1, 0, 1, 1],
+      [1, 1, 1, 1, 1],
+    ]
+    const out = smoother.push(mask2d(rows))
+    expect(rows2d(out)).toEqual(rows)
+  })
+
+  it('leaves a feathered outline byte-identical, since it is connected to the edge', () => {
+    // A ramp from background (left, touching the frame edge) through the
+    // feather band up to person (right), repeated down every row: exactly
+    // what the true silhouette's edge looks like, and none of it should move.
+    const smoother = new MaskSmoother({ erode: 0 })
+    const row = [0.1, 0.3, 0.48, 0.6, 0.9]
+    const rows = [row, row, row, row, row]
+    const before = rows.map((r) => Array.from(new Float32Array(r)))
+    const out = smoother.push(mask2d(rows))
+    expect(rows2d(out)).toEqual(before)
+  })
+
+  it('does not fill an enclosed region larger than the 12% cap', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    const rows: number[][] = Array.from({ length: 10 }, () => Array(10).fill(1))
+    for (let y = 3; y < 7; y += 1) {
+      for (let x = 3; x < 7; x += 1) rows[y]![x] = 0.1
+    }
+    const before = rows.map((r) => Array.from(new Float32Array(r)))
+    const out = smoother.push(mask2d(rows))
+    expect(rows2d(out)).toEqual(before)
+  })
+
+  it('fills a ring-shaped enclosed region right at the 12% cap', () => {
+    const smoother = new MaskSmoother({ erode: 0 })
+    const rows: number[][] = Array.from({ length: 10 }, () => Array(10).fill(1))
+    // The perimeter of a 4x4 block: 12 cells, exactly floor(100 * 0.12).
+    const cells: Array<[number, number]> = [
+      [3, 3], [3, 4], [3, 5], [3, 6],
+      [4, 3], [4, 6],
+      [5, 3], [5, 6],
+      [6, 3], [6, 4], [6, 5], [6, 6],
+    ]
+    for (const [y, x] of cells) rows[y]![x] = 0.1
+    const out = smoother.push(mask2d(rows))
+    for (const [y, x] of cells) {
+      expect(out.data[y * 10 + x]).toBeCloseTo(HOLE_FILL_CONFIDENCE, 5)
+    }
+  })
+
+  it('can be turned off for a test measuring what it costs on its own', () => {
+    const smoother = new MaskSmoother({ erode: 0, holeFill: false })
+    const out = smoother.push(
+      mask2d([
+        [1, 1, 1],
+        [1, 0.2, 1],
+        [1, 1, 1],
+      ]),
+    )
+    expect(out.data[4]).toBeCloseTo(0.2, 5)
+  })
+
+  it('applies hole filling to the output only, never the stored temporal state', () => {
+    const withFill = new MaskSmoother({ erode: 0 })
+    const withoutFill = new MaskSmoother({ erode: 0, holeFill: false })
+
+    const enclosed = mask2d([
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1],
+      [1, 1, 0.2, 1, 1],
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1],
+    ])
+    withFill.push(enclosed)
+    withoutFill.push(enclosed)
+
+    // Frame two opens a path to the edge along the whole middle row, with a
+    // different value at the same pixel: the blend this frame produces
+    // depends on frame one's *true* confidence there, not on the 0.9 frame
+    // one's output displayed for it. If hole filling had corrupted the
+    // stored state, this frame's result would follow the filled 0.9
+    // instead and the two smoothers would disagree.
+    const opened = mask2d([
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1],
+      [0.5, 0.5, 0.5, 0.5, 0.5],
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1],
+    ])
+    const outWith = withFill.push(opened)
+    const outWithout = withoutFill.push(opened)
+
+    expect(outWith.data[2 * 5 + 2]).toBeCloseTo(outWithout.data[2 * 5 + 2]!, 4)
+  })
+})
+
+describe('fillMaskHoles performance', () => {
+  it('costs well under a frame budget at a 256x256 mask', () => {
+    const width = 256
+    const height = 256
+    const pixels = width * height
+    const data = new Float32Array(pixels).fill(1)
+    // Scattered isolated below-cut points, roughly the shape of the real
+    // problem: small enclosed patches over a torso, not one giant blob.
+    const points: number[] = []
+    for (let i = 0; i < 60; i += 1) {
+      const cx = 10 + ((i * 37) % (width - 20))
+      const cy = 10 + ((i * 53) % (height - 20))
+      points.push(cy * width + cx)
+    }
+    const visited = new Uint8Array(pixels)
+    const stack = new Int32Array(pixels)
+    const runs = 20
+    const start = performance.now()
+    for (let i = 0; i < runs; i += 1) {
+      // fillMaskHoles raises a filled point above the cut, so it has to be
+      // put back below it before every run - otherwise run one is the only
+      // one that does any real work and runs two to twenty time an empty
+      // pass over an already-filled mask.
+      for (const p of points) data[p] = 0.3
+      fillMaskHoles(data, width, height, visited, stack, DEFAULT_MASK_THRESHOLD, HOLE_FILL_CONFIDENCE, 0.12)
+    }
+    const perFrameMs = (performance.now() - start) / runs
+    // The module doc's target is "well under 1ms"; this asserts a generous
+    // multiple of that so it does not flake on a loaded machine, while still
+    // catching an accidental change from O(pixels) to something worse.
+    expect(perFrameMs).toBeLessThan(8)
   })
 })
 

@@ -456,19 +456,38 @@ test('the sea moves, and a still picture does not', async ({ page }) => {
   await expect(page.locator('#fishRow')).toBeHidden()
 })
 
-test('a segmenter that will not load falls back to passthrough and says so', async ({ page }) => {
+test('a segmenter that will not load fails closed to a blur and says so outside the folded panel', async ({ page }) => {
+  // The model never arrives, so the segmenter never loads and the effect
+  // degrades - the exact failure this whole feature exists to survive.
   await page.route('**/models/*.tflite', (route) => route.abort())
   await openCamera(page)
   await settle(page)
 
   await expect(page.locator('#effectStatus')).toHaveClass(/broken/)
-  await expect(page.locator('#effectStatus')).toContainText('showing the room')
+  await expect(page.locator('#effectStatus')).not.toContainText('showing the room')
 
-  // Passthrough, not a black frame and not a crash: there is still a picture
-  // and it still has detail in it.
+  // The notice next to the self-view, not only the one inside the folded
+  // "Hide what is behind you" details. Blur is the default mode this test
+  // never changes, so the wording is the blur variant.
+  const outerNotice = page.locator('#effectDegradedNotice')
+  await expect(outerNotice).toBeVisible()
+  await expect(outerNotice).toHaveAttribute('role', 'status')
+  await expect(outerNotice).toContainText('Others see a full blur, not you')
+
   await page.waitForTimeout(800)
+
+  // The definitive check: every frame published so far took a route other
+  // than passthrough. The canvas capture stream is the exact track the room
+  // gets, so a zero here is the same guarantee `measure` would be reaching
+  // for pixel by pixel, without needing to know what the scene looks like.
+  const taken = await routes(page)
+  expect(taken.passthrough).toBe(0)
+  expect(taken.blurAll + taken.composite).toBeGreaterThan(0)
+
+  // And still genuinely blurred rather than merely not-passthrough - the
+  // same threshold the camera-swap test above holds a working blur to.
   const sharpness = await measure(page)
-  expect(sharpness.background).toBeGreaterThan(50)
+  expect(sharpness.background).toBeLessThan(60)
 })
 
 test('voice masking states what it is, and offers the four presets', async ({ page }) => {
