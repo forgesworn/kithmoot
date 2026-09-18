@@ -43,6 +43,17 @@ descriptions read off both ends:
    the same offer a second time - now saying `a=sendrecv`.
 5. Ada is already `stable`. That second answer was dropped as a duplicate.
 
+There is a second route to the same place, measured after the first repair
+went in. The last joiner offers before its microphone has reached that
+connection, so the audio m-line is `a=recvonly` and the answerer settles at
+`sendonly`. The microphone arrives, that side offers - and its own offer goes
+unanswered long enough for the wedge breaker (`WEDGE_BREAK_MS`) to roll it
+back. The answer to it turns up afterwards, at a connection that is `stable`
+again, and is dropped. The far end applied that answer when it made it, so
+it has moved and this side has not. The important difference is that there
+is no answer of this side's own to compare the late one against: the last
+exchange it completed is one where it answered.
+
 Nothing renegotiates afterwards, because from each end's own point of view
 nothing has changed. Cara sends audio for the rest of the call and Ada's
 transceiver says she is not receiving it. Chromium goes on counting the
@@ -55,13 +66,16 @@ never decoded, which is why the measured audio energy was exactly zero.
 
 Three changes, in `src/peer.ts` and the app's tile mapping.
 
-**A second, different answer to the same offer is a disagreement, not a
-duplicate.** It cannot be applied - `setRemoteDescription` of an answer at
-`stable` throws - so the offerer answers it with one ordinary renegotiation
-from `stable`, which settles both ends on one description and touches neither
-ICE nor DTLS. Only when we were the offerer of the completed exchange, and
-only once per distinct answer, so a far end repeating a stale copy cannot
-make this side offer once per copy.
+**An answer at `stable` that is not the one we are negotiated with is a
+disagreement, not a duplicate.** It cannot be applied -
+`setRemoteDescription` of an answer at `stable` throws - so this side answers
+it with one ordinary renegotiation from `stable`, which settles both ends on
+one description and touches neither ICE nor DTLS. That covers both routes
+above: the second, different answer to the same offer, and the answer that
+arrives after our own offer was rolled back. Once per distinct answer, so a
+far end repeating a stale copy cannot make this side offer once per copy, and
+never on a connection that has negotiated nothing, where an offer would
+describe nothing.
 
 **The answering side says so too.** A side that answers the same remote offer
 twice, differently, knows the far end may have applied either, and offers
