@@ -23,6 +23,7 @@ export type TimelineKind =
   | 'signal-publish-failed'
   | 'signal-handling-failed'
   | 'renegotiation-stalled'
+  | 'pair-ladder'
   | 'ice-restart'
   | 'connection-state-change'
   | 'route-tier-change'

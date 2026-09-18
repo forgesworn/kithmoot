@@ -194,6 +194,7 @@ export { Peer } from './peer.js'
 export type { RTCPeerConnectionLike, PeerFactory, PeerOptions, PeerContext, RouteTier } from './peer.js'
 export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS, DEFAULT_ROUTE_TIMEOUT_MS, DEFAULT_TURN_ROUTE_TIMEOUT_MS, DEFAULT_RENEGOTIATION_TIMEOUT_MS, EXHAUSTED_RETRY_MS, MAX_EXHAUSTED_RETRY_MS } from './mesh.js'
 export type { MeshOptions, MeshSession, MeshDiagnostic, RemoteAnnotation, RemoteTrack, ForwarderMediaPipeline, ForwardingState, RouteView } from './mesh.js'
+export type { LadderState, PairDiagnostics } from './pair-controller.js'
 export {
   ReachabilityProbe,
   classifyReachability,
