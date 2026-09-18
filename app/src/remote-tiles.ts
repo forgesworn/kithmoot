@@ -130,22 +130,39 @@ export function bindRoles({ kind, adverts, receivers, bound, prefer }: BindInput
     if (!advertFor.has(advert.role)) advertFor.set(advert.role, advert)
   }
 
-  const eligible: TrackLike[] = []
+  /**
+   * The direction decides, and packets are the last resort.
+   *
+   * Two failures, a day apart, and the rule has to answer both. A pair can
+   * settle with one end at `sendonly` while the other goes on sending: then
+   * the only receiver of its kind says it is not receiving, its packets
+   * arrive anyway, and a tile that believed the direction gave that person's
+   * microphone no element at all - never decoded, never heard, no way back.
+   * But a far end that toggles its camera leaves a receiver behind, and for
+   * the grace window after the toggle that stale receiver still reports RTP
+   * moving; admitted beside the live one it took the second video slot, and
+   * Firefox - whose receiver ids match no advert, ever - put two elements on
+   * that person's tile, both showing nothing.
+   *
+   * So a receiver whose direction does not say it is receiving is admitted
+   * ONLY when no receiver of its kind says it is. Not scored against the
+   * live one, not ranked below it: rejected outright while a live one
+   * exists, because a stale receiver has no business holding any slot. The
+   * lying-direction case is exactly the case where there is nothing else.
+   */
+  const receiving: TrackLike[] = []
+  const arrivingOnly: TrackLike[] = []
   for (const facts of receivers) {
     if (kindOf(facts.track.kind) !== kind) continue
     if (facts.track === prefer) continue
     if (facts.track.readyState === 'ended') continue
-    // The direction is what the two ends last agreed on. Arriving packets
-    // are what is actually happening, and when they disagree the packets
-    // win: measured on 18 September 2026, a pair could settle with one end
-    // at `sendonly` while the other went on sending, and a tile that
-    // believed the direction left that person's microphone with no element
-    // at all - never decoded, never heard, and no way back. This does not
-    // let the stale receiver above into a live slot: a sender the far end
-    // removed stops arriving, so it is never progressing.
-    if (!isReceiving(facts.direction) && facts.progressing !== true) continue
-    eligible.push(facts.track)
+    if (isReceiving(facts.direction)) receiving.push(facts.track)
+    else if (facts.progressing === true) arrivingOnly.push(facts.track)
   }
+  const eligible = receiving.length > 0 ? receiving : arrivingOnly
+  // `ontrack` is proof in itself: the browser has just handed this track
+  // over, so it is receiving whatever a transceiver the app cannot find yet
+  // would have said.
   if (prefer && kindOf(prefer.kind) === kind) eligible.unshift(prefer)
 
   const progressing = new Set<TrackLike>()

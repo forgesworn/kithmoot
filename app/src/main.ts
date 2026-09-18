@@ -8022,6 +8022,49 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
  * are already retained for diagnostics, so reconcile their live receivers
  * with the UI as a recovery path. Re-attaching the same object is skipped.
  */
+/**
+ * Take down a tile showing a receiver the mapping no longer binds.
+ *
+ * The liveness rule is about a far end that stopped: no advert, no packets,
+ * so the tile goes. It cannot answer the other case, and a far end toggling
+ * its camera makes that case every time. The receiver it leaves behind is
+ * not gone - its transceiver stays, `getSynchronizationSources` reports its
+ * last sources, its counters stand - so the advert half never agrees and the
+ * tile stays for ever. Measured in Firefox, where a receiver's id matches no
+ * advert: three video receivers for one camera, two of them stale, two
+ * elements on that person's tile and neither of them the live one.
+ *
+ * `bindRoles` already knows which receivers this device should be showing.
+ * Anything else is a tile nothing is claiming, whatever its counters say.
+ */
+function dropUnboundTiles(device: string, kind: MediaKind, binding: ReadonlyMap<TrackAdvert['role'], { readonly id: string }>): void {
+  const keep = new Set<unknown>(binding.values())
+  const tiles = kind === 'video' ? remoteVideos : remoteAudios
+  for (const [key, entry] of tiles) {
+    if (tileDevice(key) !== device) continue
+    if (keep.has(entry.track)) continue
+    if (kind === 'video') {
+      const video = entry as RemoteVideo
+      if (onScreen(video)) changedTiles = true
+      video.el.remove()
+      remoteVideos.delete(key)
+      callTimeline.record('tile-orphaned', short(device), 'video')
+    } else {
+      entry.el.remove()
+      remoteAudios.delete(key)
+      remoteVolume.detach(key)
+      speakingMonitor.unwatch(device)
+      changedTiles = true
+      callTimeline.record('track-removed', short(device), 'audio')
+    }
+    tileLiveness.forget(key)
+  }
+}
+
+/** Set by a tile coming down outside `syncRemoteVideos`, so the grid is
+ *  repainted once rather than per tile. */
+let changedTiles = false
+
 function recoverRemoteTracks(): void {
   if (!session) return
   const now = performance.now()
@@ -8038,7 +8081,9 @@ function recoverRemoteTracks(): void {
       // The same decision `attachRemoteTrack` makes, made for the whole
       // device at once: who should hold each slot, given what the roster
       // advertises, what the tiles show now, and whose packets are moving.
-      for (const [role, chosen] of bindRoles({ kind, adverts, receivers, bound: boundTracks(device, kind) })) {
+      const binding = bindRoles({ kind, adverts, receivers, bound: boundTracks(device, kind) })
+      dropUnboundTiles(device, kind, binding)
+      for (const [role, chosen] of binding) {
         const track = chosen as MediaStreamTrack
         if (track.readyState !== 'live') continue
         const key = tileKey(device, role)
@@ -8055,6 +8100,10 @@ function recoverRemoteTracks(): void {
         if (entry?.track !== track || !entry.el.isConnected || entry.el.paused) attachRemoteTrack(device, track, key)
       }
     }
+  }
+  if (changedTiles) {
+    changedTiles = false
+    if (session) render(session.participants(), meParticipant)
   }
 }
 

@@ -110,17 +110,51 @@ describe('bindRoles', () => {
     expect(binding.get('mic')).toBe(sounding)
   })
 
-  it('still prefers the receiver that is actually receiving over one that only says it is', () => {
-    const arriving = track('arriving', 'audio'), quiet = track('quiet', 'audio')
+  /**
+   * BUG: two video elements on one person's tile, both showing nothing -
+   * `Firefox receiver keeps seeing and hearing through camera and mic
+   * toggles`, deterministic on that browser.
+   *
+   * A camera toggle leaves the old receiver behind, and for the grace window
+   * after it the stale receiver still reports RTP moving. Admitted beside
+   * the live one it took the second video slot of the device - and in
+   * Firefox, where a receiver's id matches no advert ever, nothing outranked
+   * it. So the rule is not a ranking: a receiver whose direction does not
+   * say it is receiving is not admitted at all while one of its kind says it
+   * is.
+   */
+  it('rejects a receiver that says it is not receiving while one of its kind says it is', () => {
+    const stale = track('stale-after-toggle', 'video'), live = track('firefox-minted', 'video')
     const binding = bindRoles({
-      kind: 'audio',
-      adverts: [advert('mic', 'quiet')],
-      receivers: [{ track: quiet, direction: 'recvonly' }, { track: arriving, direction: 'sendonly', progressing: true }],
+      kind: 'video',
+      // Firefox: the advert names the sender's id, which matches neither.
+      adverts: [advert('camera', 'the-senders-own-id')],
+      receivers: [
+        { track: stale, direction: 'inactive', progressing: true },
+        { track: live, direction: 'recvonly', progressing: true },
+      ],
+      bound: new Map([['camera', stale]]),
     })
-    // The advert names the quiet one, which is the strongest hint there is,
-    // so it keeps the microphone; the arriving one is not thrown away.
-    expect(binding.get('mic')).toBe(quiet)
-    expect(binding.get('screen-audio')).toBe(arriving)
+    expect(binding.get('camera'), 'the stale receiver kept the slot').toBe(live)
+    expect([...binding.values()], 'the stale receiver opened a second tile').toEqual([live])
+  })
+
+  it('admits one whose packets are arriving only when nothing of its kind is receiving', () => {
+    const lying = track('lying', 'audio')
+    const alone = bindRoles({
+      kind: 'audio',
+      adverts: [advert('mic', 'mic-id')],
+      receivers: [{ track: lying, direction: 'sendonly', progressing: true }],
+    })
+    expect(alone.get('mic'), 'the only receiver there is was refused its slot').toBe(lying)
+
+    const live = track('live', 'audio')
+    const beside = bindRoles({
+      kind: 'audio',
+      adverts: [advert('mic', 'mic-id')],
+      receivers: [{ track: lying, direction: 'sendonly', progressing: true }, { track: live, direction: 'recvonly' }],
+    })
+    expect([...beside.values()]).toEqual([live])
   })
 
   it('ignores a stopped, inactive or null transceiver even when it is the only one', () => {
