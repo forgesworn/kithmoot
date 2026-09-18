@@ -7933,7 +7933,7 @@ async function collectDiagnostics(): Promise<string> {
       participant: short(v.participant),
       agent: v.agent === true,
       devices: v.devices.map(short),
-      tracks: v.tracks.map((t) => `${t.role}@${short(t.device)}`),
+      tracks: v.tracks.map((t) => `${t.role}@${short(t.device)}${t.muted ? '(muted)' : ''}`),
       mic: short(v.mic),
     })),
     routes: s ? [...s.routes].map(([d, r]) => ({ device: short(d), tier: r.tier, endpoint: short(r.endpoint), connected: r.connected, exhausted: r.exhausted })) : [],

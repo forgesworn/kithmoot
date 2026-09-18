@@ -6,6 +6,8 @@ import { defineConfig, devices } from '@playwright/test'
 // and it must stay out of `npm test` for the same reason test/live.test.ts
 // does - real network, real relay weather, not something every `npm test`
 // run should pay for or be flaky because of.
+const appPort = Number(process.env.E2E_PORT ?? 4173)
+
 export default defineConfig({
   testDir: './test',
   // Three specs, and they are very different animals. e2e.spec.ts drives real
@@ -65,7 +67,7 @@ export default defineConfig({
   use: {
     // Carries the `/j/` sub-path the app is published under (see the `base`
     // in app/vite.config.ts) - `vite preview` serves nothing at the root.
-    baseURL: process.env.E2E_BASE_URL ?? 'https://localhost:4173/j/',
+    baseURL: process.env.E2E_BASE_URL ?? `https://localhost:${appPort}/j/`,
     // app/vite.config.ts's basicSsl() plugin runs under `vite preview` too,
     // so the app is only ever reachable here over a self-signed cert.
     // Irrelevant to getUserMedia's secure-context check either way -
@@ -135,10 +137,16 @@ export default defineConfig({
         // A quiet room's slot is five minutes in a real build; the suite's
         // browsers cannot wait that long for a message, so the acceptance
         // build shortens it. The variable can only shorten, see main.ts.
-        command: 'VITE_QUIET_SLOT_SECONDS=8 npm run build && npx vite preview --config app/vite.config.ts --port 4173 --strictPort',
-        url: 'https://localhost:4173/j/',
+        command: `VITE_QUIET_SLOT_SECONDS=8 npm run build && npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
+        url: `https://localhost:${appPort}/j/`,
         ignoreHTTPSErrors: true,
-        reuseExistingServer: !process.env.CI,
+        // Never reused unless asked. Several checkouts of this repo run the
+        // suite on one machine, and a run that finds the port taken would
+        // otherwise test whichever checkout got there first, passing or
+        // failing on code it never built. E2E_REUSE=1 is for a developer
+        // pointing the suite at their own `npm run demo`; E2E_PORT moves a
+        // run beside another one.
+        reuseExistingServer: process.env.E2E_REUSE === '1',
         timeout: 120_000,
       },
     ]),
@@ -148,7 +156,12 @@ export default defineConfig({
       // when E2E_RELAYS=live even though its WebSocket side is not.
       command: 'node test/ws-relay.mjs',
       url: 'http://127.0.0.1:7777/',
-      reuseExistingServer: !process.env.CI,
+      // Same rule as the app server. A relay borrowed from another run
+      // dies when that run ends, mid-room for this one. Its port is still
+      // fixed here and in the specs, so two runs cannot yet share a machine
+      // at all; the one that finds it taken now fails at startup, which is
+      // the honest outcome.
+      reuseExistingServer: process.env.E2E_REUSE === '1',
       timeout: 30_000,
     },
   ],
