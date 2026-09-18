@@ -1374,6 +1374,141 @@ describe('Peer', () => {
   })
 
   /**
+   * BUG: a repair is for a description that disagrees, not for one that was
+   * written twice.
+   *
+   * Three replays that propose exactly what this side is already negotiated
+   * with, and each of them used to start a renegotiation because the bytes
+   * were compared rather than the proposal.
+   *
+   *   - a far end that answers a repeated offer from scratch rather than
+   *     replaying what it sent. `createAnswer()` bumps the `o=` version on
+   *     every call, so its second answer differs in one number and nothing
+   *     else. The Android client has no replay shortcut and does exactly
+   *     this.
+   *   - an offer or answer re-sent from `localDescription`, which by then
+   *     carries every candidate gathered since the first copy went out.
+   *   - a replay that arrives after the far end has offered something in
+   *     between, which used to clear the one slot this side compared
+   *     against, so every later answer read as a disagreement.
+   *
+   * On a room of any size that is a renegotiation per pair per stray copy,
+   * for ever.
+   */
+  describe('a replay that proposes the same session is not a disagreement', () => {
+    async function negotiated() {
+      const structured = { structuredSdp: true }
+      const fromOfferer: SignalBody[] = []
+      const fromAnswerer: SignalBody[] = []
+      const offererFactory = createFakeFactory(structured)
+      const offerer = new Peer({
+        factory: offererFactory,
+        localDevice: HIGH,
+        remoteDevice: LOW,
+        onSignal: (b) => fromOfferer.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 60_000 },
+      })
+      const answerer = new Peer({
+        factory: createFakeFactory(structured),
+        localDevice: LOW,
+        remoteDevice: HIGH,
+        onSignal: (b) => fromAnswerer.push(b),
+        onTrack: () => {},
+        offerRetry: { intervalMs: 60_000 },
+      })
+      await offerer.start([fakeAudioTrack()])
+      await settle()
+      await answerer.handleSignal(fromOfferer.filter((s) => s.type === 'offer')[0]!)
+      await settle()
+      const answer = fromAnswerer.filter((s) => s.type === 'answer')[0]!
+      await offerer.handleSignal(answer)
+      await settle()
+      const offers = () => fromOfferer.filter((s) => s.type === 'offer').length
+      return { offerer, answerer, offererFactory, fromOfferer, fromAnswerer, answer, offers, before: offers() }
+    }
+
+    it('when it differs only in the o= version a fresh createAnswer would bump', async () => {
+      const { offerer, answer, offers, before } = await negotiated()
+      const rewritten = answer.sdp!.replace(/^(o=\S+ \S+) (\d+)/m, (_m, head: string, version: string) => `${head} ${Number(version) + 1}`)
+      expect(rewritten, 'the fixture wrote no o= line to bump').not.toBe(answer.sdp)
+
+      await offerer.handleSignal({ ...answer, sdp: rewritten })
+      await settle()
+
+      expect(offers(), 'the same answer, written again, renegotiated the pair').toBe(before)
+      offerer.close()
+    })
+
+    it('when it carries the candidates gathered since the first copy', async () => {
+      const { offerer, answer, offers, before } = await negotiated()
+      const withCandidates = `${answer.sdp!}\na=candidate:1 1 udp 2113937151 192.0.2.1 50000 typ host\na=end-of-candidates\n`
+
+      await offerer.handleSignal({ ...answer, sdp: withCandidates })
+      await settle()
+
+      expect(offers(), 'a re-sent description renegotiated the pair over its candidates').toBe(before)
+      offerer.close()
+    })
+
+    it('when the far end has offered something in between', async () => {
+      const { offerer, answerer, fromAnswerer, answer, offers } = await negotiated()
+      // The far end adds a track of its own, offers, and is answered.
+      await answerer.start([fakeAudioTrack()])
+      await settle()
+      const theirs = fromAnswerer.filter((s) => s.type === 'offer')[0]!
+      await offerer.handleSignal(theirs)
+      await settle()
+      const before = offers()
+
+      // And only now does a copy of the first answer turn up.
+      await offerer.handleSignal(answer)
+      await settle()
+
+      expect(offers(), 'an answer we are still negotiated with renegotiated the pair').toBe(before)
+      offerer.close()
+      answerer.close()
+    })
+
+    it('and a far end alternating two stale answers earns one repair each, not one per alternation', async () => {
+      const { offerer, answerer, offererFactory, fromOfferer, fromAnswerer, answer, offers, before } = await negotiated()
+      const state = () => offererFactory.instances[0]!.signalingState
+      const stale = (direction: string) => ({ ...answer, sdp: answer.sdp!.replace(/a=(sendrecv|recvonly|sendonly|inactive)/, `a=${direction}`) })
+      // Two descriptions that really do disagree with ours, and with each
+      // other. Each earns one repair; the copies after that earn none.
+      const copies = [stale('inactive'), stale('sendonly')]
+      // A repair leaves this side waiting for an answer, so the far end is
+      // given each repair offer and its answer handed back - otherwise the
+      // next copy would arrive at a connection that is not `stable` and the
+      // rule under test would never be reached again.
+      for (let round = 0; round < 5; round++) {
+        for (const copy of copies) {
+          const offersBefore = offers()
+          expect(state(), 'a copy arrived at a connection that was not stable').toBe('stable')
+          await offerer.handleSignal(copy)
+          await settle()
+          if (offers() === offersBefore) continue
+          // A repair leaves this side waiting for an answer. The far end is
+          // given the offer and its answer handed back, or the next copy
+          // would arrive at a connection that is not `stable` and the rule
+          // under test would never be reached again.
+          const answersBefore = fromAnswerer.filter((s) => s.type === 'answer').length
+          await answerer.handleSignal(fromOfferer.filter((s) => s.type === 'offer').slice(-1)[0]!)
+          await settle()
+          const reply = fromAnswerer.filter((s) => s.type === 'answer')[answersBefore]
+          expect(reply, 'the repair offer went unanswered').toBeDefined()
+          await offerer.handleSignal(reply!)
+          await settle()
+        }
+      }
+
+      expect(offers() - before, 'a stale copy earned a repair every time it came round again').toBe(copies.length)
+      offerer.close()
+      answerer.close()
+    })
+  })
+
+  /**
    * BUG: the same one-way audio, reached the other way round - measured in a
    * four-person join on 18 September 2026, with both ends' descriptions read
    * off the pages.

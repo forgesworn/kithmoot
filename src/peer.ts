@@ -1,4 +1,5 @@
 import { normaliseHex } from './hex.js'
+import { sameShape, sdpShape } from './sdp-shape.js'
 import type { SignalBody } from './signal.js'
 import type { TrackRole } from './types.js'
 
@@ -158,6 +159,16 @@ export interface PeerFactory {
  * a dual-stack host with a handful of interfaces gathers a few dozen.
  */
 export const MAX_PENDING_CANDIDATES = 64
+
+/**
+ * How many answer shapes one connection remembers as accounted for.
+ *
+ * Enough that a far end cycling stale copies runs out of new ones long
+ * before this does, and small enough that a connection fed nonsense from the
+ * network grows by nothing that matters. Forgetting one costs a single
+ * renegotiation that changes nothing.
+ */
+export const MAX_KNOWN_ANSWERS = 8
 
 /**
  * How long a connected peer is given to heal a `disconnected` on its own
@@ -407,16 +418,22 @@ export class Peer implements NegotiatingPeer {
    *  makes that ask answerable without touching the connection at all. */
   #lastRemoteOfferSdp?: string
   #lastAnswerSdp?: string
-  /** The answer this connection is currently negotiated with, as it was
-   *  applied - not as the connection reads it back, which a browser is free
-   *  to reformat. Cleared whenever a remote OFFER is applied, because this
-   *  side is then the one that answered and has no answer of its own to
-   *  compare against. See `#answerDisagrees`. */
-  #appliedAnswerSdp?: string
-  /** The answer this side has already reacted to by re-offering, so a far
-   *  end re-sending the same stale one cannot start an offer per copy. See
-   *  `#answerDisagrees`. */
-  #repairedAnswerSdp?: string
+  /**
+   * Every answer shape this connection has accounted for - applied, or
+   * already repaired against. See `#answerDisagrees`.
+   *
+   * A set rather than the two slots this started as, for three reasons, all
+   * of them measured. It is not cleared when a remote offer is applied, so a
+   * legitimate replay of the answer we are negotiated with is still
+   * recognised after the far end has offered something in between. It holds
+   * more than one, so a far end alternating two stale copies cannot earn a
+   * repair per alternation for ever. And it holds shapes rather than bytes,
+   * so the same proposal written twice is one entry - see `sdpShape`.
+   *
+   * Bounded, because it is fed from the network: the oldest goes, and the
+   * cost of forgetting one is a single needless renegotiation.
+   */
+  readonly #knownAnswerShapes = new Set<string>()
   /** A media-security hook rejected a newly-added sender. This connection
    * must never race ahead and offer an unprotected m-line. */
   #senderRefused = false
@@ -874,13 +891,13 @@ export class Peer implements NegotiatingPeer {
         // duplicate at all but the two sides disagreeing about what was
         // negotiated - see `#answerDisagrees`.
         if (this.#answerDisagrees(body.sdp)) {
-          this.#repairedAnswerSdp = body.sdp
+          this.#accountForAnswer(body.sdp)
           await this.#offer()
         }
         return
       }
       await this.#pc.setRemoteDescription({ type: 'answer', sdp: body.sdp })
-      this.#appliedAnswerSdp = body.sdp
+      this.#accountForAnswer(body.sdp)
       // The offer has been answered, so it is no longer anything to re-send.
       this.#clearNegotiationTimers()
       this.#hasRemoteDescription = true
@@ -926,13 +943,36 @@ export class Peer implements NegotiatingPeer {
    * test: not the duplicate, and not on a connection that has never
    * negotiated anything, where an offer would describe nothing.
    *
-   * Only once per distinct answer, so a far end repeating a stale copy
-   * cannot make this side offer once per copy.
+   * Compared by shape, not by bytes. `createAnswer()` bumps the `o=` version
+   * every time it is called, and a far end with no replay shortcut - Android
+   * is one - answers a repeated offer from scratch, so the same proposal
+   * arrives twice looking different. Repairing against that is a
+   * renegotiation nobody needed, on every pair, for ever. See `sdpShape`.
+   *
+   * Once per distinct shape, and the set of accounted-for shapes is not
+   * cleared when a remote offer is applied: a replay of the answer we are
+   * negotiated with is still a replay after the far end has said something
+   * else in between.
    */
   #answerDisagrees(sdp: string | undefined): boolean {
     if (sdp === undefined || this.#closed || this.#makingOffer || this.#senderRefused) return false
-    if (this.#remoteOffersApplied === 0 && this.#appliedAnswerSdp === undefined) return false
-    return this.#appliedAnswerSdp !== sdp && this.#repairedAnswerSdp !== sdp
+    // A connection that has never negotiated anything has nothing to offer:
+    // see `#start`, where an offer with no m-lines is the thing to avoid.
+    if (this.#remoteOffersApplied === 0 && this.#knownAnswerShapes.size === 0) return false
+    const shape = sdpShape(sdp)
+    return shape !== undefined && !this.#knownAnswerShapes.has(shape)
+  }
+
+  /** Remember that this answer needs no repair, now or again. */
+  #accountForAnswer(sdp: string | undefined): void {
+    const shape = sdpShape(sdp)
+    if (shape === undefined) return
+    this.#knownAnswerShapes.add(shape)
+    while (this.#knownAnswerShapes.size > MAX_KNOWN_ANSWERS) {
+      const oldest = this.#knownAnswerShapes.values().next().value
+      if (oldest === undefined) break
+      this.#knownAnswerShapes.delete(oldest)
+    }
   }
 
   async #handleOffer(sdp: string | undefined): Promise<void> {
@@ -948,7 +988,7 @@ export class Peer implements NegotiatingPeer {
     // out of `setRemoteDescription`, and vanish into the mesh's `catch`.
     if (
       sdp !== undefined &&
-      sdp === this.#lastRemoteOfferSdp &&
+      sameShape(sdp, this.#lastRemoteOfferSdp) &&
       this.#lastAnswerSdp !== undefined &&
       !this.#makingOffer &&
       this.#pc.signalingState === 'stable'
@@ -981,13 +1021,12 @@ export class Peer implements NegotiatingPeer {
     await this.#pc.setRemoteDescription({ type: 'offer', sdp })
     this.#hasRemoteDescription = true
     this.#remoteOffersApplied += 1
-    // We are the side that answers this exchange, so there is no answer of
-    // our own for `#answerDisagrees` to compare a late one against.
-    this.#appliedAnswerSdp = undefined
     // Whether this is an offer this side has answered before, held now
     // because the field it is read from is about to be overwritten. What it
-    // is for is at the foot of this method.
-    const reanswered = sdp !== undefined && sdp === this.#lastRemoteOfferSdp
+    // is for is at the foot of this method. By shape, so the copy carrying
+    // every candidate gathered since the first one still reads as the same
+    // offer - which is the copy that arrives during the race.
+    const reanswered = sameShape(sdp, this.#lastRemoteOfferSdp)
     const answeredBefore = this.#lastAnswerSdp
     this.#lastRemoteOfferSdp = sdp
 
@@ -1019,7 +1058,7 @@ export class Peer implements NegotiatingPeer {
      * and neither end has anything left to say about it. So say something:
      * one offer from `stable` settles both ends on one description.
      */
-    if (reanswered && answeredBefore !== undefined && answeredBefore !== answer.sdp) {
+    if (reanswered && answeredBefore !== undefined && !sameShape(answeredBefore, answer.sdp)) {
       if (this.#closed || this.#makingOffer || this.#senderRefused) return
       if (this.#pc.signalingState !== 'stable') return
       await this.#offer()
