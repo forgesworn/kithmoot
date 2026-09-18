@@ -85,6 +85,15 @@ export interface SlotHealth {
   inbound: SlotVerdict
   /** What RTCP says the far end is receiving from us in this slot. */
   rtcp: SlotVerdict
+  /**
+   * Whether this slot's inbound counter moved in this sample window.
+   *
+   * Not the same as `inbound === 'ok'`, and the difference matters: `ok`
+   * means "not silent for long enough to be called dead yet", which a slot
+   * that has never delivered anything also satisfies for the whole of its
+   * first dead window. Only this says something actually arrived.
+   */
+  progressed: boolean
   /** The inbound counter this verdict was reached on - `packetsReceived` for
    *  audio, `framesDecoded` for video. Diagnostics only. */
   counter?: number
@@ -98,7 +107,8 @@ export interface PairHealthSample {
    *  least one other slot on the pair is. §3.4's "transport is fine, one
    *  slot is dead" row, and the only thing the `health` signal reports. */
   deadSlots: TrackRole[]
-  /** Whether anything at all is arriving on this connection. */
+  /** Whether anything at all is actually arriving on this connection - a
+   *  counter that moved, not a clock that has not run out. */
   transportOk: boolean
   /** Every slot the far end advertises is dead - there is at least one, and
    *  none of them is delivering. The transport, not a slot. */
@@ -299,6 +309,7 @@ export class PairHealth {
         if (memory.counter === undefined ? counter > 0 : counter > memory.counter) memory.progressAt = now
         memory.counter = counter
       }
+      const progressed = memory.progressAt === now
 
       const inbound = this.#verdict(live, now, memory.progressAt, memory.liveSince, this.#deadMs)
 
@@ -328,13 +339,13 @@ export class PairHealth {
 
       const rtcp = this.#verdict(sending, now, memory.rtcpAt, memory.sendingSince, this.#rtcpDeadMs)
 
-      const slot: SlotHealth = { role, mid, advertised: live, inbound, rtcp }
+      const slot: SlotHealth = { role, mid, advertised: live, inbound, rtcp, progressed }
       if (counter !== undefined) slot.counter = counter
       health.push(slot)
     }
 
     const deadSlots = health.filter((s) => s.inbound === 'dead').map((s) => s.role)
-    const transportOk = health.some((s) => s.inbound === 'ok')
+    const transportOk = health.some((s) => s.progressed)
     const advertisedSlots = health.filter((s) => s.advertised)
     const sample: PairHealthSample = {
       at: now,
@@ -521,14 +532,35 @@ export class PairLadder {
     this.#reported = undefined
   }
 
+  /**
+   * The pair has run out of rungs, as judged by somebody who can see the
+   * route table - which this cannot.
+   *
+   * The ladder reaches `changing-tier` by asking for the next rung; when the
+   * answer is "there is no next rung" it has not moved anywhere, and leaving
+   * it believing it had would spend the TURN deadline waiting to take a step
+   * it has already been refused. No action comes out of this: the controller
+   * is already resting, and it says when the pair starts again.
+   */
+  rest(): void {
+    this.#state = 'resting'
+  }
+
   /** One sample. At most one action comes out of it. */
   observe(sample: PairHealthSample): void {
     const now = sample.at
     const broken = sample.allDead || this.#outboundLost(sample)
 
     if (!broken) {
-      if (this.#state !== 'healthy') {
-        // Whatever was wrong is not wrong now.
+      // "Not broken" is not the same as "better", and the difference is the
+      // whole of step 2. A connection this side has just rebuilt spends its
+      // grace with every slot `idle`, which is not `allDead` - so a ladder
+      // that went healthy here would forget it was mid-rebuild, and when the
+      // grace ended it would start again at step 1. That is a pair that
+      // restarts and rebuilds for the length of a call and never changes
+      // rung. So the way back to healthy is positive evidence: something is
+      // actually arriving.
+      if (sample.transportOk && this.#state !== 'healthy') {
         this.#state = 'healthy'
         this.#steppedAt = 0
       }
