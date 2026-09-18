@@ -3556,8 +3556,13 @@ button.primary:hover:not(:disabled) {
     max-height: 60dvh;
   }
   /* The "This device" / "Device 2" caption, over the top-left corner of the
-     row rather than squeezed into it as a narrow column of wrapped text. */
-  #room.sharing .participant:has(video.screenPreview) .media[data-camera-label]:not([data-camera-label=""])::before {
+     row rather than squeezed into it as a narrow column of wrapped text.
+     Only over a CAMERA: the caption and the name stand-in below are the
+     same `::before`, so without the `:has` a share with no camera beside it
+     and a label (anybody on two devices, or your own tile) got both rules at
+     once - the stand-in's size and dashed border with the caption's
+     absolute position and grey fill, floated over the shared picture. */
+  #room.sharing .participant:has(video.screenPreview) .media[data-camera-label]:not([data-camera-label=""]):has(video:not(.screenPreview))::before {
     position: absolute;
     top: .3rem;
     left: .3rem;
@@ -3572,9 +3577,13 @@ button.primary:hover:not(:disabled) {
      that would sit under a camera sits in its place instead, at the camera's
      size and shape so the row does not change width when somebody turns
      their camera off. See `mediaEl.dataset.ownerName`, set beside
-     `dataset.cameraLabel` in `render()`. */
-  #room.sharing .participant:has(video.screenPreview) .media:not(:has(video:not(.screenPreview)))::before {
+     `dataset.cameraLabel` in `render()`. Only in a holder with a share in
+     it: a second device on the call with just a microphone has nothing to
+     stand beside. Beside the picture, never on it, so `static` whatever
+     else matches. */
+  #room.sharing .participant:has(video.screenPreview) .media:has(video.screenPreview):not(:has(video:not(.screenPreview)))::before {
     content: attr(data-owner-name);
+    position: static;
     order: 1;
     flex: 0 0 var(--tile-cam);
     width: var(--tile-cam);

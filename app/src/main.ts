@@ -55,6 +55,7 @@ import { readAgentRequestStatuses, type RequestAgent } from './agent-request-sta
 import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
+import { describeShareError } from './share-error.js'
 import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
@@ -483,6 +484,9 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/** The share error the status line is showing, if any; see `showShareError`. */
+let shownShareError: string | undefined
+
 /**
  * The one line the page uses to say something went wrong, or that something
  * is happening.
@@ -501,6 +505,7 @@ function describeError(err: unknown): string {
 function setStatus(message: string, tone: 'problem' | 'progress' | 'done' = 'problem'): void {
   const el = $('status')
   el.textContent = message
+  el.title = ''
   el.classList.toggle('progress', tone === 'progress')
   el.classList.toggle('done', tone === 'done')
   if (message && tone === 'problem') console.error(message)
@@ -3381,6 +3386,7 @@ function stopLocalMedia(): void {
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
+  clearShareError()
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
   for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
@@ -4299,6 +4305,7 @@ async function toggleScreen(): Promise<void> {
     // any notice about drawing on a share that no longer exists.
     floatingSharePreview.close()
     hideDrawingNotice()
+    clearShareError()
     // Same as the camera, and worse if it is missed: a screen share nobody
     // was told had stopped stays frozen on everybody else's display.
     publishActiveTracks()
@@ -4339,6 +4346,7 @@ async function toggleScreen(): Promise<void> {
         localPreviewEls.delete('screen')
         floatingSharePreview.close()
         hideDrawingNotice()
+        clearShareError()
         publishActiveTracks()
         updateUi()
       })
@@ -4352,6 +4360,7 @@ async function toggleScreen(): Promise<void> {
         updateUi()
       })
       addLocalPreview('screen', screenTrack)
+      clearShareError()
       publishActiveTracks()
     } else {
       // No picture came back at all: nothing to show, so stop whatever the
@@ -4361,6 +4370,31 @@ async function toggleScreen(): Promise<void> {
     }
   }
   updateUi()
+}
+
+/**
+ * A screen share that failed, said once and taken back.
+ *
+ * The status line outlives what it is about: a share that failed and was
+ * then retried successfully left "Invalid capture constraints" in red under
+ * a screen that was plainly being shared. So the line remembers it is
+ * showing a share error, and a successful share, a stop or leaving the call
+ * clears it - only if nothing else has been said on that line since.
+ * `shownShareError` is declared beside `setStatus`, above anything that can
+ * run at start-up.
+ */
+function showShareError(err: unknown): void {
+  const text = describeShareError(err)
+  setStatus(text.plain)
+  // The browser's own words, for a bug report, kept off the page itself.
+  if (text.raw) $('status').title = `Details: ${text.raw}`
+  if (text.raw) console.error(`Screen share failed: ${text.raw}`)
+  shownShareError = text.plain
+}
+
+function clearShareError(): void {
+  if (shownShareError !== undefined && $('status').textContent === shownShareError) setStatus('')
+  shownShareError = undefined
 }
 
 function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): void {
@@ -10656,7 +10690,7 @@ $('toggleCamera').addEventListener('click', () => {
   toggleCamera().catch((err) => setStatus(describeError(err)))
 })
 $('toggleScreen').addEventListener('click', () => {
-  toggleScreen().catch((err) => setStatus(describeError(err)))
+  toggleScreen().catch(showShareError)
 })
 $('toggleCompanion').addEventListener('click', toggleCompanionMode)
 $('toggleAssist').addEventListener('click', () => {

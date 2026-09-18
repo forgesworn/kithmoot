@@ -215,7 +215,8 @@ export function fitShares(room: HTMLElement, bottom: number): void {
       if (natural === 0) continue
 
       const camera = media.querySelector('video:not(.screenPreview)') as HTMLVideoElement | null
-      const cameraWidth = camera ? camera.getBoundingClientRect().width : CAMERA_TILE_PX
+      // No camera: the name stand-in sits there instead, at `--tile-cam`.
+      const cameraWidth = camera ? camera.getBoundingClientRect().width : parseFloat(tileCam)
       const innerGap = gapOf(getComputedStyle(media).columnGap)
       const maxWidth = media.clientWidth - cameraWidth - innerGap
 
