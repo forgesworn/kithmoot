@@ -4124,7 +4124,7 @@ function renderEffectState(state: VideoEffectState): void {
     line.textContent = 'The room behind you is going out as it is.'
     line.classList.add('working')
   } else if (state.status === 'degraded') {
-    line.textContent = `Background effects are off: ${state.error ?? 'the model would not load'}. Your camera is showing the room.`
+    line.textContent = `Background effects have stopped working: ${state.error ?? 'the model would not load'}. Your camera is not being shown - only your backdrop or a full blur is, while it keeps retrying.`
     line.classList.add('broken')
   } else if (state.status === 'loading' || state.status === 'idle') {
     line.textContent = 'Loading the background model. Everything is blurred until it arrives.'
@@ -4132,6 +4132,20 @@ function renderEffectState(state: VideoEffectState): void {
   } else {
     line.textContent = 'Running.'
     line.classList.add('working')
+  }
+
+  // Degraded is the one state where the camera is not showing what it looks
+  // like it is showing: the details above are folded shut by default, so
+  // this is the copy that is actually seen, next to the self-view rather
+  // than inside a summary somebody has to open.
+  const outer = $('effectDegradedNotice')
+  if (state.mode !== 'off' && state.status === 'degraded') {
+    outer.hidden = false
+    outer.textContent =
+      'Background effect has stopped working. Others see only your backdrop, not you. Turn the effect off to show your camera, or wait while it retries.'
+  } else {
+    outer.hidden = true
+    outer.textContent = ''
   }
 }
 
@@ -4233,6 +4247,7 @@ function publishEffectStats(): void {
   panel.dataset.mask = stats.mask
   panel.dataset.passthrough = String(totals.passthrough)
   panel.dataset.blurAll = String(totals['blur-all'])
+  panel.dataset.cover = String(totals.cover)
   panel.dataset.composite = String(totals.composite)
 }
 
