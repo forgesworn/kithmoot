@@ -193,6 +193,50 @@ describe('RoomSession', () => {
     expect(observer.calls()).toEqual([])
   })
 
+  it('breaks a tie between equal-size, equal-since calls on id, regardless of insertion order', async () => {
+    const makeIn = (relay: SimRelay) => new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    const idLow = 'a'.repeat(32)
+    const idHigh = 'b'.repeat(32)
+
+    // First order: the higher id is published before the lower one.
+    const relayFirst = new SimRelay()
+    const ada = makeIn(relayFirst)
+    const bob = makeIn(relayFirst)
+    const observerFirst = makeIn(relayFirst)
+    await ada.join([], {})
+    await bob.join([], {})
+    await observerFirst.join([], {})
+    await settle()
+    await ada.setCall({ id: idHigh, since: NOW })
+    await settle()
+    await bob.setCall({ id: idLow, since: NOW })
+    await settle()
+    expect(observerFirst.calls().map((c) => c.id)).toEqual([idLow, idHigh])
+
+    // Second order: the lower id is published before the higher one, on a
+    // fresh relay so nothing carries over from the first.
+    const relaySecond = new SimRelay()
+    const carol = makeIn(relaySecond)
+    const dave = makeIn(relaySecond)
+    const observerSecond = makeIn(relaySecond)
+    await carol.join([], {})
+    await dave.join([], {})
+    await observerSecond.join([], {})
+    await settle()
+    await carol.setCall({ id: idLow, since: NOW })
+    await settle()
+    await dave.setCall({ id: idHigh, since: NOW })
+    await settle()
+    expect(observerSecond.calls().map((c) => c.id)).toEqual([idLow, idHigh])
+  })
+
   it('notifies subscribers when the roster changes', async () => {
     const relay = new SimRelay()
     const observer = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })

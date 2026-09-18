@@ -1543,6 +1543,15 @@ export class RoomSession {
    * everybody who has a device on it. Usually zero or one. Two means two
    * people pressed Start at once, and a client should offer the bigger or
    * the older one and let the other wither.
+   *
+   * Ordering: participant count descending, then `since` ascending, then
+   * call `id` ascending as a plain lower-case hex string comparison. The
+   * first two keys can still tie - two calls started by the same number of
+   * people at the same second - and insertion order is not the same across
+   * two devices reading the same presence, so the id is the final,
+   * deterministic tiebreak. Android's roster reader orders calls the same
+   * way, key for key, so two clients looking at one room's presence always
+   * agree on which call is "the" current one.
    */
   calls(): CallView[] {
     const byId = new Map<string, CallView>()
@@ -1553,7 +1562,9 @@ export class RoomSession {
       call.since = Math.min(call.since, view.call.since)
       call.participants.push(view.participant)
     }
-    return [...byId.values()].sort((a, b) => b.participants.length - a.participants.length || a.since - b.since)
+    return [...byId.values()].sort(
+      (a, b) => b.participants.length - a.participants.length || a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    )
   }
 
   /**
