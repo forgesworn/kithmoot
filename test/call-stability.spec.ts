@@ -225,10 +225,10 @@ function dead(people: Person[], matrix: Matrix, want: Want): string[] {
 /**
  * The whole report, exactly as the button puts it on somebody's clipboard.
  *
- * Not JSON: it is a JSON object, then the redacted call timeline, then one
- * line per pair. The tail is the part a person actually reads, so a helper
- * that only returned the JSON would be throwing away the half of the report
- * that names the fault.
+ * One JSON object, `callTimeline` and `pairSummary` included - the per-pair
+ * lines are the part that names a fault rather than describing a symptom, so
+ * a helper that stopped at the counters would be throwing away the half worth
+ * reading.
  */
 async function diagnosticsText(person: Person): Promise<string | undefined> {
   if (person.cdp) {
@@ -243,21 +243,19 @@ async function diagnosticsText(person: Person): Promise<string | undefined> {
   return page.locator('#diagnosticsOut').inputValue()
 }
 
-/** The report's JSON head. Everything from the timeline marker on is prose
- *  and would make `JSON.parse` throw - which it did, silently, turning every
- *  printed bug report into "report failed". */
-function reportJson(text: string): Record<string, unknown> {
-  const end = text.indexOf('\n\nCall timeline')
-  return JSON.parse(end === -1 ? text : text.slice(0, end)) as Record<string, unknown>
-}
-
 async function diagnostics(person: Person): Promise<Record<string, unknown> | undefined> {
   try {
     const text = await diagnosticsText(person)
-    return text === undefined ? undefined : reportJson(text)
+    return text === undefined ? undefined : (JSON.parse(text) as Record<string, unknown>)
   } catch (err) {
     return { error: String(err) }
   }
+}
+
+/** The report's per-pair lines, as one block of text. */
+function pairSummary(report: Record<string, unknown> | undefined): string {
+  const lines = report?.pairSummary
+  return Array.isArray(lines) ? lines.join('\n') : '(no per-pair summary)'
 }
 
 /** The part of a report that says why a direction is dead. */
@@ -558,10 +556,10 @@ test.describe('call stability', () => {
 
       // A test that quietly ran on profile 1 either way would prove nothing
       // about the profile it is named after.
-      const report = await diagnosticsText(A)
-      expect(reportJson(report!).me, `Ada is not on call profile ${callProfile}`).toMatchObject({ callProfile })
+      const report = await diagnostics(A)
+      expect(report?.me, `Ada is not on call profile ${callProfile}`).toMatchObject({ callProfile })
       if (callProfile === 2) {
-        expect(report, 'no pair reached profile 2, so the far ends never agreed to it').toContain('profile2(')
+        expect(pairSummary(report), 'no pair reached profile 2, so the far ends never agreed to it').toContain('profile2(')
       }
 
       const since = Date.now()
@@ -583,8 +581,11 @@ test.describe('call stability', () => {
       // evidence a fix has to change, and on a green run it is what proves
       // the pair lines say something worth reading.
       const after = await diagnosticsText(A)
-      if (after) await test.info().attach(`report-profile${callProfile}-after-window.txt`, { body: after, contentType: 'text/plain' })
-      console.log(`[profile ${callProfile}] Ada's per-pair summary after the window:\n${after?.slice(after.indexOf('Per-pair summary:')) ?? 'none'}`)
+      if (after) await test.info().attach(`report-profile${callProfile}-after-window.json`, { body: after, contentType: 'application/json' })
+      console.log(
+        `[profile ${callProfile}] Ada's per-pair summary after the window:\n` +
+          pairSummary(after === undefined ? undefined : (JSON.parse(after) as Record<string, unknown>)),
+      )
 
       verdict([cp])
     } finally {
