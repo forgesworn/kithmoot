@@ -8,3 +8,4 @@ const run = (cmd, args, env = {}) => {
 }
 run('npm', ['run', 'build:context'])
 run(resolve(root, 'node_modules/.bin/vite'), ['build', '--config', 'app/vite.config.ts'], { VITE_DESKTOP: 'true' })
+run(process.execPath, [resolve(root, 'scripts/check-no-telemetry.mjs'), resolve(root, 'desktop/web')])

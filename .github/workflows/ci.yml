@@ -50,6 +50,12 @@ jobs:
       - name: Build app
         run: npm run build
 
+      # npm run build already runs this as its last step; kept as its own
+      # step too so a telemetry regression shows up by name in CI rather
+      # than as an opaque build failure.
+      - name: Check for third-party telemetry in the built app
+        run: node scripts/check-no-telemetry.mjs app/dist
+
       - name: Check independent context packages
         run: npm run test:context-packages
 
