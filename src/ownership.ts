@@ -1,7 +1,8 @@
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { sha256 } from '@noble/hashes/sha2'
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
-import { getPublicKey } from 'nostr-tools/pure'
+import { hexToBytes } from '@noble/hashes/utils'
+import { getPublicKey, finalizeEvent } from 'nostr-tools/pure'
+import { buildBotOwnership, readBotOwnershipSync, type NostrEvent, type UnsignedEvent } from 'signet-protocol'
 import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
 import type { AgentOwnership } from './types.js'
@@ -20,8 +21,9 @@ import type { AgentOwnership } from './types.js'
  * is an admission grant, and a grant that worked everywhere would be a
  * bearer token. Ownership is a fact about two keys, not about a room, and
  * a principal should be able to attest to it once and have every room the
- * agent walks into read it. The cost, stated plainly: it cannot be revoked
- * except by expiry, so a principal that may change its mind sets one.
+ * agent walks into read it. New attestations can be revoked
+ * by a signed replacement, which a consumer must obtain independently.
+ * Carrying an event alone does not prove it is the latest ownership statement.
  *
  * Verification is the whole of the trust here. A client renders "agent of"
  * only for a proof it has verified itself, and the codecs drop a proof that
@@ -54,33 +56,41 @@ export interface IssueAgentOwnershipOptions {
   agent: string
   /** Unix seconds. */
   issuedAt: number
-  /** Unix seconds. Omit for a proof that stands until the principal makes
-   *  a new agent key; set one if you may want it to stop standing. */
+  /** Unix seconds. Defaults to 30 days; permitted lifetime is 1–90 days. */
   expiresAt?: number
   /** What the principal calls the agent. Sanitised like a display name. */
   label?: string
 }
 
-/** Say, as a principal, that an agent is yours. */
-export function issueAgentOwnership(opts: IssueAgentOwnershipOptions): AgentOwnership {
-  if (opts.principalSk.length !== 32) throw new Error('principal secret key must be 32 bytes')
+/** Ordinary event template: sign through a local, NIP-46 or hardware signer.
+ * The caller obtains consent and selects the owner's persona, never its root. */
+export function buildAgentOwnership(opts: Omit<IssueAgentOwnershipOptions, 'principalSk'> & { principal: string }): UnsignedEvent {
   const agent = requireHex32(opts.agent, 'agent pubkey')
-  const principal = getPublicKey(opts.principalSk)
+  const principal = requireHex32(opts.principal, 'principal pubkey')
   if (hexEquals(agent, principal)) throw new Error('an agent cannot be its own principal')
   if (!Number.isSafeInteger(opts.issuedAt) || opts.issuedAt <= 0) throw new Error('issuedAt must be unix seconds')
-  if (opts.expiresAt !== undefined) {
-    if (!Number.isSafeInteger(opts.expiresAt) || opts.expiresAt <= opts.issuedAt) throw new Error('expiresAt must be unix seconds after issuedAt')
-  }
-  const label = sanitiseDisplayName(opts.label)
-  const sig = bytesToHex(schnorr.sign(message(agent, principal, opts.issuedAt, opts.expiresAt, label), opts.principalSk))
-  return {
-    agent,
-    principal,
-    issuedAt: opts.issuedAt,
-    ...(opts.expiresAt !== undefined ? { expiresAt: opts.expiresAt } : {}),
-    ...(label !== undefined ? { label } : {}),
-    sig,
-  }
+  return buildBotOwnership({ ownerPubkey: principal, botPubkey: agent, now: opts.issuedAt,
+    label: sanitiseDisplayName(opts.label) ?? 'Agent', expiresAt: opts.expiresAt })
+}
+
+/** Local convenience; all new issuance uses the same ordinary event template. */
+export function issueAgentOwnership(opts: IssueAgentOwnershipOptions): AgentOwnership {
+  if (opts.principalSk.length !== 32) throw new Error('principal secret key must be 32 bytes')
+  const event = finalizeEvent(buildAgentOwnership({ ...opts, principal: getPublicKey(opts.principalSk) }), opts.principalSk)
+  return agentOwnershipFromEvent(event)!
+}
+
+/** Import Signet's portable event, including signed revocations. Never publish. */
+export function agentOwnershipFromEvent(event: NostrEvent): AgentOwnership | null {
+  if (!event || !Array.isArray(event.tags)) return null
+  const agent = event.tags.find(t => Array.isArray(t) && t[0] === 'p')?.[1]
+  if (typeof agent !== 'string') return null
+  const result = readBotOwnershipSync(event, { ownerPubkey: event.pubkey, botPubkey: agent, now: event.created_at })
+  if (result.status === 'invalid') return null
+  const attestation: NostrEvent = { id: event.id, pubkey: event.pubkey, created_at: event.created_at,
+    kind: event.kind, tags: event.tags.map(tag => [...tag]), content: event.content, sig: event.sig }
+  return { agent, principal: event.pubkey, issuedAt: event.created_at, sig: event.sig, attestation,
+    ...('claim' in result ? { expiresAt: Number(event.tags.find(t => t[0] === 'valid_to')![1]), label: result.claim.label } : {}) }
 }
 
 /**
@@ -91,6 +101,7 @@ export function issueAgentOwnership(opts: IssueAgentOwnershipOptions): AgentOwne
 export function normaliseAgentOwnership(raw: unknown): AgentOwnership | null {
   if (typeof raw !== 'object' || raw === null) return null
   const o = raw as Record<string, unknown>
+  if (o.kind === 31000) return agentOwnershipFromEvent(raw as NostrEvent)
   if (typeof o.agent !== 'string' || !HEX64.test(o.agent)) return null
   if (typeof o.principal !== 'string' || !HEX64.test(o.principal)) return null
   if (typeof o.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(o.sig)) return null
@@ -111,6 +122,11 @@ export function normaliseAgentOwnership(raw: unknown): AgentOwnership | null {
     if (typeof o.label !== 'string') return null
     out.label = o.label
   }
+  if (o.attestation !== undefined) {
+    const event = agentOwnershipFromEvent(o.attestation as NostrEvent)
+    if (!event) return null
+    out.attestation = event.attestation
+  }
   return out
 }
 
@@ -123,6 +139,8 @@ export interface VerifyAgentOwnershipOptions {
   agent: string
   /** Unix seconds. */
   now: number
+  /** Optional stricter ceiling for event attestations, from one to ninety days. */
+  maxLifetimeDays?: number
 }
 
 /**
@@ -137,12 +155,24 @@ export function verifyAgentOwnership(raw: AgentOwnership, opts: VerifyAgentOwner
   if (!proof) return { ok: false, reason: 'malformed' }
   if (!hexEquals(proof.agent, opts.agent)) return { ok: false, reason: 'names another agent' }
   if (hexEquals(proof.agent, proof.principal)) return { ok: false, reason: 'an agent cannot be its own principal' }
+  if (!Number.isSafeInteger(opts.now) || opts.now < 0) return { ok: false, reason: 'malformed time' }
   if (proof.issuedAt > opts.now + MAX_ISSUED_AHEAD_SECONDS) return { ok: false, reason: 'issued in the future' }
+  if (proof.label !== undefined && sanitiseDisplayName(proof.label) !== proof.label) return { ok: false, reason: 'label is not as signed' }
+  if (proof.attestation) {
+    const eventProof = agentOwnershipFromEvent(proof.attestation)
+    if (!eventProof || eventProof.agent !== proof.agent || eventProof.principal !== proof.principal
+      || eventProof.issuedAt !== proof.issuedAt || eventProof.expiresAt !== proof.expiresAt
+      || eventProof.label !== proof.label || eventProof.sig !== proof.sig) return { ok: false, reason: 'bad signature' }
+    const result = readBotOwnershipSync(proof.attestation, { ownerPubkey: proof.principal, botPubkey: proof.agent, now: opts.now,
+      ...(opts.maxLifetimeDays !== undefined ? { maxLifetimeDays: opts.maxLifetimeDays } : {}) })
+    if (result.status !== 'valid') return { ok: false, reason: result.status === 'lapsed' ? 'expired' : result.status }
+    return { ok: true, principal: proof.principal, label: result.claim.label }
+  }
+  // Legacy raw-hash proofs are read-only compatibility, never newly issued.
   if (proof.expiresAt !== undefined) {
     if (proof.expiresAt <= proof.issuedAt) return { ok: false, reason: 'expires before issued' }
     if (proof.expiresAt <= opts.now) return { ok: false, reason: 'expired' }
   }
-  if (proof.label !== undefined && sanitiseDisplayName(proof.label) !== proof.label) return { ok: false, reason: 'label is not as signed' }
   try {
     const ok = schnorr.verify(
       hexToBytes(proof.sig),

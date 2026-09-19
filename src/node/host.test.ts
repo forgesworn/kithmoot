@@ -61,8 +61,8 @@ async function room(opts: { owned?: boolean; ownerExpiresIn?: number } = {}) {
       : issueAgentOwnership({
           principalSk: personSk,
           agent: getPublicKey(hostSk),
-          issuedAt,
-          ...(opts.ownerExpiresIn !== undefined ? { expiresAt: issuedAt + opts.ownerExpiresIn } : {}),
+          issuedAt: opts.ownerExpiresIn === undefined ? issuedAt : issuedAt - 86400 - 300 + opts.ownerExpiresIn,
+          ...(opts.ownerExpiresIn !== undefined ? { expiresAt: issuedAt - 300 + opts.ownerExpiresIn } : {}),
           label: 'Laptop',
         })
   const hostAgent = await RoomAgent.join({ link: person.url, name: 'Laptop', transport, announceJitterMs: 0, identity: localIdentity(hostSk), owner })
@@ -283,8 +283,8 @@ describe('AgentHost', () => {
     const { spawn, calls } = fakeSpawn()
     // Nine seconds ahead: past the proof's expiry, and still inside the ten
     // seconds of slack `#handle` allows, so live messages are still live.
-    // A proof cannot be revoked any other way, which is why the expiry has
-    // to be read at the moment it is relied on rather than once at boot.
+    // This exercises expiry including the five-minute clock tolerance. The
+    // proof must be checked when relied on, rather than only at boot.
     const host = new AgentHost({
       agent: hostAgent,
       catalogue: [{ id: 'ada', name: 'Ada', brain: 'none' }],

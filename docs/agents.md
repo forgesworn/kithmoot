@@ -173,9 +173,9 @@ three transcribed voices and one silence, which is exactly right.
 The agent flag says what a participant claims to be. It says nothing about
 who it acts for, and an agent cannot say that about itself in any way worth
 believing. So the statement comes from the principal: an **ownership
-proof** (`AgentOwnership`, `src/ownership.ts`) is the principal's schnorr
-signature over the agent's key, the principal's own, when it was issued,
-until when, and what the principal calls the agent.
+proof** (`AgentOwnership`, `src/ownership.ts`) now carries a Signet kind-31000
+`bot-ownership` attestation signed by the owner's persona. It names the agent,
+owner, issue time, expiry and label. Ownership does not inherit the owner's trust.
 
 ```bash
 # once, as the principal, with the key you sign in with
@@ -241,11 +241,48 @@ somebody's gets the plain `agent` badge.
 
 The proof is room independent on purpose. A kindred proof binds to a room
 because it is an admission grant; ownership is a fact about two keys,
-attested once and read in every room the agent walks into. The cost is
-that it cannot be revoked except by expiry, so a principal who may change
-their mind sets `--expires`. Tonight the principal signs with a key file or
-an nsec; signing with a NIP-07 or NIP-46 signer is a follow-up, because the
-proof is a schnorr signature over a digest rather than a Nostr event.
+attested once and read in every room the agent walks into. New attestations
+expire after 30 days by default; `--expires` must be 1–90 days ahead. Readers
+apply a 90-day ceiling and five minutes of clock tolerance. The library also
+accepts an optional stricter `maxLifetimeDays` when checking an event.
+
+`attest` writes the ordinary Nostr event JSON without publishing it. Signet's
+exported event can be supplied directly as `--owner-proof`; existing wrapped
+proofs also work. `buildAgentOwnership` returns an unsigned event for NIP-07 or
+NIP-46 signing, and `agentOwnershipFromEvent` imports the result. The CLI still
+signs locally; a hardware interaction has not been tested here.
+
+Legacy raw-hash proofs remain readable with their original expiry semantics,
+including old proofs with no expiry. New issuance never produces that format.
+This compatibility is not a renewal: owners should replace old proofs with
+bounded event attestations. Original legacy vectors remain unchanged.
+
+A signed revocation is rejected as ownership immediately when presented. Live room sessions retain the newest observed event per owner and bot;
+the browser persists that evidence across rooms and restarts. Newer events
+supersede older claims, and a same-time revocation wins. The bounded store never
+evicts this evidence; storage errors prevent accepting unremembered authority.
+An older raw-hash proof cannot replace a known event for the same owner and bot.
+
+`RoomSession.observeOwnershipEvent` accepts an explicitly received signed event
+and immediately updates live views and owned-agent admission. It neither fetches
+nor publishes. The same registry checks carried live claims; historical chat
+attribution still means the claim held at send time. There is no automatic relay
+lookup or revocation delivery yet, so remembered evidence does not prove that a
+relay or peer disclosed its latest statement. CLI sessions share persistent event
+files in `~/.kithmoot/ownership`, configurable with `--ownership-store` or
+`KITHMOOT_OWNERSHIP_STORE`. Keep this directory across restarts. Private room
+invitations, assignment claims, host commands and approvals consult current
+ownership. Storage errors refuse ownership authority. There is still no automatic
+relay delivery. An operator can import an ordinary signed event offline with:
+
+```sh
+kithmoot-agent remember-ownership revocation.json --ownership-store /path/to/ownership
+```
+
+This reads no identity key and publishes nothing. Running processes sharing that
+directory consult the new evidence at their next authority check; it does not
+cancel work already running. In-process integrations can also supply received
+events through `RoomSession.observeOwnershipEvent`. This remains a draft migration pending that integration.
 
 A room can require it. The link's policy takes `agents: 'owned-by-members'`
 (`RoomPolicy.agents`), under which an agent's roster entry is admitted only

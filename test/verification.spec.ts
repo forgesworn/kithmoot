@@ -23,8 +23,8 @@ async function openVerification(page: Page, tileText: string): Promise<{ mine: s
   await expect(dialog).toBeVisible()
   const mine = ((await page.locator('#verifyMine').textContent()) ?? '').trim()
   const theirs = ((await page.locator('#verifyTheirs').textContent()) ?? '').trim()
-  expect(mine, 'no words shown to say').toBeTruthy()
-  expect(theirs, 'no words shown to expect').toBeTruthy()
+  expect(mine, 'no words shown to say').not.toBe('—')
+  expect(theirs, 'no words shown to expect').not.toBe('—')
   return { mine, theirs }
 }
 
@@ -33,6 +33,15 @@ test('both sides are shown the same words, and verifying is remembered', async (
 
   const contextA = await newDeviceContext(browser, baseURL!)
   const contextB = await newDeviceContext(browser, baseURL!)
+  // This acceptance never connects to public relays or third-party HTTP.
+  for (const context of [contextA, contextB]) {
+    await context.routeWebSocket('**', socket => {
+      if (['localhost', '127.0.0.1', '[::1]'].includes(new URL(socket.url()).hostname)) socket.connectToServer()
+      else socket.close()
+    })
+    await context.route('**/*', route => ['localhost', '127.0.0.1', '[::1]'].includes(new URL(route.request().url()).hostname)
+      ? route.continue() : route.abort())
+  }
   try {
     const pageA = await contextA.newPage()
     const pageB = await contextB.newPage()
@@ -53,8 +62,17 @@ test('both sides are shown the same words, and verifying is remembered', async (
     await expect(bobOnAda.locator('.verifyChip')).toHaveText('not checked')
     await expect(adaOnBob.locator('.verifyChip')).toHaveText('not checked')
 
-    const panelA = await openVerification(pageA, 'Bob')
-    const panelB = await openVerification(pageB, 'Ada')
+    await bobOnAda.locator('.verifyChip').click()
+    await expect(pageA.locator('#verifyConfirm')).toBeDisabled()
+    await pageA.locator('#verifyStart').click()
+    await expect(adaOnBob.locator('.verifyChip')).toHaveText('check requested', { timeout: 30000 })
+    await adaOnBob.locator('.verifyChip').click()
+    await expect(pageB.locator('#verifyConfirm')).toBeDisabled()
+    await pageB.locator('#verifyAccept').click()
+    await expect(pageA.locator('#verifyConfirm')).toBeEnabled({ timeout: 30000 })
+    await expect(pageB.locator('#verifyConfirm')).toBeEnabled({ timeout: 30000 })
+    const panelA = { mine: (await pageA.locator('#verifyMine').textContent())!.trim(), theirs: (await pageA.locator('#verifyTheirs').textContent())!.trim() }
+    const panelB = { mine: (await pageB.locator('#verifyMine').textContent())!.trim(), theirs: (await pageB.locator('#verifyTheirs').textContent())!.trim() }
 
     const { mine: adaSays, theirs: adaExpects } = panelA
     const { mine: bobSays, theirs: bobExpects } = panelB
@@ -78,9 +96,9 @@ test('both sides are shown the same words, and verifying is remembered', async (
     expect(adaSays.split(' ')).toHaveLength(3)
 
     // Now actually verify, and check it sticks.
-    await bobOnAda.locator('.verifyChip').click()
+    expect(await openVerification(pageA, 'Bob')).toEqual(panelA)
     await pageA.locator('#verifyConfirm').click()
-    await expect(bobOnAda.locator('.verifyChip'), 'verifying Bob did not stick').toHaveText('checked', {
+    await expect(bobOnAda.locator('.verifyChip'), 'verifying Bob did not stick').toHaveText('checked here', {
       timeout: 10_000,
     })
 

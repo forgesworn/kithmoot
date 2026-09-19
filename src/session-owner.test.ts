@@ -100,3 +100,29 @@ describe('whose agent, in a room', () => {
     expect(observer.participants().map((v) => v.name).sort()).toEqual(['Observer', 'Stray'])
   })
 })
+
+it.each([false, true])('removes remembered revoked ownership from live views (gated=%s)', async gated => {
+  const { finalizeEvent } = await import('nostr-tools/pure')
+  const { buildBotOwnershipRevocation } = await import('signet-protocol')
+  const relay = new SimRelay(), principalSk = generateSecretKey(), agentSk = generateSecretKey()
+  const agent = getPublicKey(agentSk), principal = getPublicKey(principalSk)
+  const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, label: 'Tally' })
+  const extra = gated ? { policy: OWNED } : {}
+  const person = session(relay, principalSk, 'Ada', extra)
+  const tally = session(relay, agentSk, 'Tally', { ...extra, agent: true, owner: proof })
+  try {
+    await person.join([], {}); await tally.join([], {}); await settle()
+    expect(person.participants().find(v => v.participant === agent)?.owner).toBeDefined()
+    await tally.chat.send('before revocation'); await settle()
+    const revocation = finalizeEvent(buildBotOwnershipRevocation({ ownerPubkey: principal, botPubkey: agent, now: NOW }), principalSk)
+    expect(person.observeOwnershipEvent(revocation)).toBe(true)
+    const view = person.participants().find(v => v.participant === agent)
+    if (gated) expect(view).toBeUndefined()
+    else { expect(view?.agent).toBe(true); expect(view?.owner).toBeUndefined() }
+    expect(person.agentOwnership(agent)).toBeUndefined()
+    // Historical attribution still describes the statement at send time.
+    expect(person.chat.messages()[0]?.owner).toEqual(proof)
+    expect(person.observeOwnershipEvent(proof.attestation!)).toBe(true)
+    expect(person.agentOwnership(agent)).toBeUndefined()
+  } finally { await tally.leave(); await person.leave() }
+})

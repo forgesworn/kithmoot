@@ -11,7 +11,9 @@ import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid 
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
 import { evaluateAccess, evaluateAgentAccess } from './access.js'
-import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
+import { normaliseAgentOwnership } from './ownership.js'
+import { OwnershipRegistry, type OwnershipEventStore } from './ownership-registry.js'
+import type { NostrEvent } from 'signet-protocol'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
 import type { ForwardingState, MeshDiagnostic, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
@@ -126,6 +128,9 @@ export interface CallView {
 }
 
 export interface RoomSessionBaseOptions {
+  /** Fresh local safety decision. Does not remove a participant from anybody
+   * else's room or revoke their room key. Exceptions refuse the remote peer. */
+  isBlocked?: (participant: string) => boolean
   transport: RelayTransport
   secret: Uint8Array
   /** This endpoint's own key. Never the participant's. */
@@ -177,6 +182,8 @@ export interface RoomSessionBaseOptions {
    *  message. Checked here against the participant; a proof that names
    *  somebody else is a setup mistake and is refused at construction. */
   owner?: AgentOwnership
+  /** Persistent local evidence shared across rooms; defaults to session memory. */
+  ownershipStore?: OwnershipEventStore
   /** Upper bound on the random delay before answering a new arrival, in
    *  milliseconds. Jitter is what stops twenty devices answering the
    *  twenty-first in the same instant. Zero makes it deterministic, which
@@ -442,6 +449,7 @@ export class RoomSession {
   /** This participant's own name, sanitised once at construction. */
   readonly #name?: string
   /** This agent's verified ownership proof, when it has one. */
+  readonly #ownershipRegistry: OwnershipRegistry
   readonly #owner?: AgentOwnership
   /** Where the current assist offer comes from. Starts as whatever the
    *  caller passed, and is replaced wholesale by `setAssist`. */
@@ -502,6 +510,7 @@ export class RoomSession {
     this.roomId = roomId
     this.#roomKey = roomKey
     this.#opts = opts
+    this.#ownershipRegistry = new OwnershipRegistry(opts.ownershipStore)
     this.#epochSecret = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : { epoch: 0, secret: opts.secret }
     this.#epoch = deriveEpoch(this.#epochSecret)
     if (opts.forwarderMediaPipeline && !opts.forwarderMediaPipeline.rekey(this.#epoch.key.slice())) {
@@ -521,7 +530,7 @@ export class RoomSession {
       const proof = normaliseAgentOwnership(opts.owner)
       const agent = participant ?? verifyDeviceCredential(opts.credential!, { roomId, now: this.#now() })
       const named = typeof agent === 'string' ? agent : agent.ok ? agent.participant : ''
-      const verdict = proof ? verifyAgentOwnership(proof, { agent: named, now: this.#now() }) : { ok: false as const, reason: 'malformed' }
+      const verdict = proof ? this.#ownershipRegistry.verify(proof, { agent: named, now: this.#now() }) : { ok: false as const, reason: 'malformed' }
       if (!proof || !verdict.ok) throw new Error(`ownership proof rejected: ${verdict.ok ? 'malformed' : verdict.reason}`)
       this.#owner = proof
     }
@@ -727,6 +736,7 @@ export class RoomSession {
     }
 
     this.#chat = new ChatLog({
+      isBlocked: participant => this.#blocked(participant),
       transport: this.#opts.transport,
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -770,6 +780,7 @@ export class RoomSession {
    *  asks. This session's own participant is, whatever the roster says. */
   #isMember(participant: string): boolean {
     if (participant === this.participant) return true
+    if (this.#blocked(participant)) return false
     for (const entry of this.#entries.values()) if (entry.participant === participant) return true
     return false
   }
@@ -1337,6 +1348,10 @@ export class RoomSession {
     let changed = false
 
     for (const [key, entry] of this.#entries) {
+      if (entry.owner && !this.#ownershipRegistry.verify(entry.owner, { agent: entry.participant, now }).ok) {
+        delete entry.owner
+        changed = true
+      }
       if (key === this.#selfKey()) continue
       let lapsed = (this.#seenAt.get(key) ?? entry.updatedAt) < cutoff
       // Media still flowing from a device is stronger evidence that it is
@@ -1647,6 +1662,7 @@ export class RoomSession {
     const existing = this.#channels.get(name)
     if (existing) return existing
     const log = new ChatLog({
+      isBlocked: participant => this.#blocked(participant),
       transport: this.#opts.transport,
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -1671,7 +1687,8 @@ export class RoomSession {
       now: this.#now(),
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
     })
-    if (!entry) return
+    if (!entry || this.#blocked(entry.participant)) return
+    if (entry.owner && !this.#ownershipRegistry.verify(entry.owner, { agent: entry.participant, now: this.#now() }).ok) delete entry.owner
     // Removed is removed, whatever key an entry arrived under.
     if (this.#removed.has(entry.participant)) return
 
@@ -1764,8 +1781,38 @@ export class RoomSession {
     }
   }
 
+  #blocked(participant: string): boolean {
+    if (participant === this.participant) return false
+    try { return this.#opts.isBlocked?.(participant) === true } catch { return true }
+  }
+
+  /** Re-evaluate live media peers and retained chat after a local block change.
+   * The mesh subscribes to this same roster notification and closes the peer. */
+  refreshContactPolicy(): void {
+    if (this.#left) return
+    this.#chat?.refreshPolicy()
+    for (const log of this.#channels.values()) log.refreshPolicy()
+    this.#notify()
+  }
+
+  /** Current authority for this agent, rechecked against expiry and remembered events. */
+  currentOwnershipProof(now = this.#now()): AgentOwnership | undefined {
+    if (!this.#owner || !this.#ownershipRegistry.verify(this.#owner, { agent: this.#owner.agent, now }).ok) return undefined
+    return structuredClone(this.#owner)
+  }
+
+  /** Remember an explicitly received signed ownership/revocation event locally.
+   * This never fetches or publishes anything. Live views update immediately. */
+  observeOwnershipEvent(event: NostrEvent): boolean {
+    const observed = this.#ownershipRegistry.observe(event, this.#now())
+    if (observed) this.#notify()
+    return observed
+  }
+
   /** The verified proof carried by an agent, for explicit context grants. */
   agentOwnership(participant: string): AgentOwnership | undefined {
+    if (this.#blocked(participant)) return undefined
+    this.#evictLapsed()
     const proof = [...this.#entries.values()].find(e => e.participant === participant && e.agent && e.owner)?.owner
     return proof ? structuredClone(proof) : undefined
   }
@@ -1775,7 +1822,7 @@ export class RoomSession {
     // never sees a device that lapsed since the last sweep. No notification
     // from here: the caller is reading the fresh answer already.
     this.#evictLapsed()
-    const entries = [...this.#entries.values()]
+    const entries = [...this.#entries.values()].filter(entry => !this.#blocked(entry.participant))
     const roles = resolveSingularRoles(entries)
     const byParticipant = new Map<string, ParticipantView>()
     /** When the name currently held for a participant was last restated. */

@@ -643,6 +643,13 @@
           Say your words out loud on the call, where you can see them and hear
           their voice. They should answer with theirs.
         </p>
+        <p id="verifyState" role="status"></p>
+        <div class="verifyButtons">
+          <button type="button" id="verifyStart">Start word check</button>
+          <button type="button" id="verifyAccept" hidden>Accept word check</button>
+          <button type="button" id="verifyDecline" hidden>Decline check</button>
+          <button type="button" id="verifyRetry" hidden>Retry delivery</button>
+        </div>
         <dl class="verifyWords">
           <dt>You say</dt>
           <dd id="verifyMine"></dd>
@@ -652,12 +659,12 @@
         <p class="note">
           Matching words mean you are both looking at the same two keys, so
           nothing carrying the room has swapped one for another. It does not
-          stop somebody already in the room from working the words out for
-          themselves: they hold the room's key too.
+          prove a legal identity. Check through a voice, video or other channel
+          where you recognise the person. These words are a check, not a secret.
         </p>
         <div class="verifyButtons">
           <button type="submit" value="cancel">Cancel</button>
-          <button type="submit" value="verify" id="verifyConfirm" class="primary">
+          <button type="button" id="verifyConfirm" disabled class="primary">
             They match, mark them checked
           </button>
         </div>
@@ -922,6 +929,21 @@
         <div id="sendingIdentity" class="sendingIdentity" hidden></div>
         <p id="sheetHow" class="note"></p>
 
+        <h3 class="sheetHead">Signet contacts</h3>
+        <p class="note">Link one identity's contact list. Names, keys and blocks are requested; you choose any extra fields in Signet. Contact cards below keep the details used to reach people.</p>
+        <label><input type="checkbox" id="signetContactsTiers" /> Request Kin, Kith and Ken tiers</label>
+        <label><input type="checkbox" id="signetContactsChecks" /> Request check status, methods and dates</label>
+        <div class="toolRow">
+          <button type="button" id="signetContactsConnect">Link Signet contacts</button>
+          <button type="button" id="signetContactsRefresh">Refresh contacts</button>
+        </div>
+        <p id="signetContactsState" class="note" role="status"></p>
+        <div id="signetContactsPairing" hidden>
+          <canvas id="signetContactsQr" aria-label="Signet contacts pairing code"></canvas>
+          <input id="signetContactsUri" readonly aria-label="Signet contacts pairing link" />
+          <button type="button" id="signetContactsCancel">Cancel pairing</button>
+        </div>
+        <ul id="signetGrantedContacts"></ul>
         <h3 class="sheetHead">Contact cards</h3>
         <!-- The contact book. A card is read here, on this device, from
              nothing but its own bytes; see app/src/contact-store.ts. A box

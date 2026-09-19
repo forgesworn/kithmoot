@@ -188,7 +188,7 @@ export type { RelayTransport, RelayConfig, RelayHealth, NostrRelayPoolOptions } 
 export { evaluateAccess, evaluateAgentAccess, issueKindredProof } from './access.js'
 export type { IssueKindredProofOptions } from './access.js'
 export type { AccessTier, AgentRule, RoomPolicy, KindredProof, AgentOwnership } from './types.js'
-export { issueAgentOwnership, verifyAgentOwnership, normaliseAgentOwnership } from './ownership.js'
+export { buildAgentOwnership, agentOwnershipFromEvent, issueAgentOwnership, verifyAgentOwnership, normaliseAgentOwnership } from './ownership.js'
 export type { IssueAgentOwnershipOptions, VerifyAgentOwnershipOptions, OwnershipVerdict } from './ownership.js'
 export { Peer } from './peer.js'
 export type { RTCPeerConnectionLike, PeerFactory, PeerOptions, PeerContext, RouteTier } from './peer.js'
@@ -497,3 +497,6 @@ export { PROJECT_APP, PROJECT_KIND, PROJECT_WRAP_KIND, projectKey, projectId, pr
 export type { ProjectIdentity, ProjectMember, ProjectRoom, ProjectDefinition, ProjectReference, ProjectRevision, ProjectRecord } from './projects.js'
 
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
+
+export { OwnershipRegistry } from './ownership-registry.js'
+export type { OwnershipEventStore } from './ownership-registry.js'

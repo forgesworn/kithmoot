@@ -168,3 +168,21 @@ describe('box discovery lifecycle', () => {
     expect(f.pools).toHaveLength(2); f.book.close()
   })
 })
+
+it('stops a blocked contact without erasing saved replay evidence or restarting on late events', () => {
+  const f = setup()
+  let allowed = true
+  const book = new BoxDiscovery({ ...f.options, allowed: () => allowed })
+  book.setEnabled(f.master, f.p, true)
+  const pool = f.pools.at(-1)!; f.verify(pool)
+  expect(book.circleRelays().size).toBe(1)
+  const held = f.store.keys().filter(key => key.startsWith('kithmoot.box-discovery.')).map(key => [key, f.store.get(key)])
+  allowed = false; book.reconcile()
+  expect(pool.closed).toBe(true); expect(book.circleRelays().size).toBe(0)
+  expect(book.migrationBoxes(f.master)).toEqual([])
+  expect(book.enabled(f.master, f.p)).toBe(false)
+  expect(() => book.setEnabled(f.master, f.p, true)).toThrow('blocked')
+  pool.send(f.status())
+  expect(f.store.keys().filter(key => key.startsWith('kithmoot.box-discovery.')).map(key => [key, f.store.get(key)])).toEqual(held)
+  book.close(); f.book.close()
+})

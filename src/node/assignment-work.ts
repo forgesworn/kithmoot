@@ -48,8 +48,9 @@ export class AgentAssignmentWork {
       const action = this.actions.find(a => a.id === s.action)
       if (!action || !validateActionInputs(action, s.inputs ?? {})) throw new Error('This agent does not offer that action with those inputs')
     }
-    if (!held && s.creator !== this.agent.owner?.principal && !this.agent.announcedAdmins.has(s.creator)) {
-      if (!this.agent.owner && this.agent.announcedAdmins.size === 0) throw new Error('An attested principal or room admin must authorise this agent before it can take assignments')
+    const principal = this.agent.session.currentOwnershipProof()?.principal
+    if (!held && s.creator !== principal && !this.agent.announcedAdmins.has(s.creator)) {
+      if (!principal && this.agent.announcedAdmins.size === 0) throw new Error('An attested principal or room admin must authorise this agent before it can take assignments')
       const approval = await this.agent.requestApproval({
         text: `Take assignment ${s.id} (${s.head})? ${s.objective.slice(0, 180)}. Ordinary work only; further side effects retain their own approval requirements.`,
         options: ['approve', 'decline'],
@@ -102,7 +103,7 @@ export class AgentAssignmentWork {
     if (!existing.record || existing.record.executor !== s.executor || existing.process !== 'missing') {
       throw new Error('Recovery requires the original execution record and an absent original process; inspect live or unknown work first')
     }
-    if (!this.agent.owner && this.agent.announcedAdmins.size === 0) throw new Error('A principal or room admin must confirm stopped-execution recovery')
+    if (!this.agent.session.currentOwnershipProof() && this.agent.announcedAdmins.size === 0) throw new Error('A principal or room admin must confirm stopped-execution recovery')
     const approval = await this.agent.requestApproval({
       text: `Confirm stopped execution for assignment ${s.id}, attempt ${s.attempt}, executor ${s.executor}, state ${s.head}? The original process is absent. Confirm ALL external jobs have stopped. Evidence: ${evidence}`,
       options: ['confirm-stopped', 'decline'],

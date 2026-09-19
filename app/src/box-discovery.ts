@@ -40,8 +40,11 @@ export class BoxDiscovery {
   #watches = new Map<string, Watch>()
   #stopped = new Set<string>()
   #timer?: ReturnType<typeof setInterval>
-  constructor(private opts: { store: DeviceStore; transport: (unavailable: () => void) => RelayTransport; changed: () => void; now?: () => number; ticking?: boolean }) {
+  constructor(private opts: { allowed?: (contact: string) => boolean; store: DeviceStore; transport: (unavailable: () => void) => RelayTransport; changed: () => void; now?: () => number; ticking?: boolean }) {
     if (opts.ticking !== false) this.#timer = setInterval(() => this.tick(), 30_000)
+  }
+  #allowed(contact: string): boolean {
+    try { return this.opts.allowed?.(contact) !== false } catch { return false }
   }
   #now(): number { return this.opts.now?.() ?? Math.floor(Date.now() / 1000) }
   #saved(key: string): Saved | undefined {
@@ -52,7 +55,7 @@ export class BoxDiscovery {
     return undefined
   }
   #current(w: Watch): { contact: Contact; box: ContactBox; saved: Saved } | undefined {
-    if (this.#watches.get(w.key) !== w) return
+    if (this.#watches.get(w.key) !== w || !this.#allowed(w.contact)) return
     const contact = contactFor(this.opts.store, w.contact)
     const box = contact?.boxes.find(b => b.p === w.box)
     const saved = this.#saved(w.key)
@@ -66,13 +69,14 @@ export class BoxDiscovery {
     return true
   }
   enabled(contact: string, box: string): boolean {
-    if (this.#stopped.has(keyOf(contact, box))) return false
+    if (this.#stopped.has(keyOf(contact, box)) || !this.#allowed(contact)) return false
     const c = contactFor(this.opts.store, contact), b = c?.boxes.find(b => b.p === box)
     const saved = this.#saved(keyOf(contact, box))
     return !!c && !!b && saved?.enabled === true && saved.revision === revision(c, b)
   }
   setEnabled(contact: string, box: string, enabled: boolean, expectedRevision?: string): void {
     const key = keyOf(contact, box)
+    if (enabled && !this.#allowed(contact)) throw new Error('This contact is blocked.')
     if (!enabled) {
       this.#stopped.add(key)
       const watch = this.#watches.get(key)
@@ -101,6 +105,7 @@ export class BoxDiscovery {
       const key = keyOf(c.p, b.p); held.add(key)
       const saved = this.#saved(key)
       const w = this.#watches.get(key)
+      if (!this.#allowed(c.p)) { if (w) this.#stop(w); continue }
       if (w && (!saved?.enabled || saved.revision !== revision(c, b) || c.expires <= this.#now())) this.#stop(w)
       if (saved?.enabled && !this.#stopped.has(key) && saved.revision === revision(c, b) && c.expires > this.#now() && !this.#watches.has(key) && this.#watches.size < LIMIT) this.#start(c, b, saved)
     }

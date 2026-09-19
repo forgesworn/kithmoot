@@ -8,7 +8,6 @@ import type { RoomAgent } from '../agent.js'
 import type { ChatMessage } from '../chat.js'
 import { CONTROL_CHANNEL, decodeControl, encodeControl, mayCommandHost } from '../control.js'
 import type { CatalogueEntry, ControlMessage, HostCommand, RunningAgent } from '../control.js'
-import { verifyAgentOwnership } from '../ownership.js'
 import { validateAssignmentActions } from '../assignments.js'
 
 /**
@@ -129,16 +128,12 @@ export class AgentHost {
    * Whose host this is, when its proof still says so, and undefined when
    * it has none or it has lapsed.
    *
-   * Verified at every use rather than once at start. An ownership proof
-   * cannot be revoked except by expiring, so the expiry is the only lever
-   * a principal has, and a host that checked it once at boot and then ran
-   * for a month would have taken that lever away.
+   * Verified at every use rather than once at start, so a long-running host
+   * stops accepting authority when its carried proof expires. This host does
+   * not yet fetch newer ownership or revocation events.
    */
   #principal(): string | undefined {
-    const proof = this.#agent.owner
-    if (!proof) return undefined
-    const verdict = verifyAgentOwnership(proof, { agent: this.host, now: this.#now() })
-    return verdict.ok ? verdict.principal : undefined
+    return this.#agent.session.currentOwnershipProof(this.#now())?.principal
   }
 
   async start(): Promise<void> {

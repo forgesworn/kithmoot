@@ -27,7 +27,7 @@ describe('agent ownership', () => {
   })
 
   it('refuses a tampered proof: label, expiry, principal, agent', () => {
-    const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW + 3600, label: 'Tally' })
+    const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW + 86400, label: 'Tally' })
     expect(verifyAgentOwnership({ ...proof, label: 'Tally the Great' }, { agent, now: NOW })).toEqual({ ok: false, reason: 'bad signature' })
     expect(verifyAgentOwnership({ ...proof, expiresAt: NOW + 999_999 }, { agent, now: NOW })).toEqual({ ok: false, reason: 'bad signature' })
     const { expiresAt: _dropped, ...noExpiry } = proof
@@ -41,18 +41,18 @@ describe('agent ownership', () => {
   })
 
   it('expires when it says, and is never from the future', () => {
-    const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW + 3600 })
-    expect(verifyAgentOwnership(proof, { agent, now: NOW + 3599 }).ok).toBe(true)
-    expect(verifyAgentOwnership(proof, { agent, now: NOW + 3600 })).toEqual({ ok: false, reason: 'expired' })
-    const forever = issueAgentOwnership({ principalSk, agent, issuedAt: NOW })
-    expect(verifyAgentOwnership(forever, { agent, now: NOW + 10 * 365 * 86_400 }).ok).toBe(true)
+    const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW + 86400 })
+    expect(verifyAgentOwnership(proof, { agent, now: NOW + 86400 + 300 }).ok).toBe(true)
+    expect(verifyAgentOwnership(proof, { agent, now: NOW + 86400 + 301 })).toEqual({ ok: false, reason: 'expired' })
+    const defaultProof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW })
+    expect(verifyAgentOwnership(defaultProof, { agent, now: NOW + 30 * 86_400 + 301 }).ok).toBe(false)
     const ahead = issueAgentOwnership({ principalSk, agent, issuedAt: NOW + 3600 })
     expect(verifyAgentOwnership(ahead, { agent, now: NOW })).toEqual({ ok: false, reason: 'issued in the future' })
   })
 
   it('an agent cannot be its own principal, and a label is shown only as signed', () => {
     expect(() => issueAgentOwnership({ principalSk, agent: principal, issuedAt: NOW })).toThrow(/own principal/)
-    expect(() => issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW })).toThrow(/after/)
+    expect(() => issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW })).toThrow(/one to ninety days/)
     // A label somebody signed with a control character in it would have to
     // be changed to be shown, so it is not shown.
     const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW })
@@ -70,7 +70,7 @@ describe('whose agent, on the wire', () => {
   async function entryFor(sk: Uint8Array, deviceSk: Uint8Array, extra: Partial<RosterEntry> = {}): Promise<RosterEntry> {
     const identity = localIdentity(sk)
     const device = getPublicKey(deviceSk)
-    const credential = await createDeviceCredential({ identity, devicePubkey: device, roomId, expiresAt: NOW + 3600 })
+    const credential = await createDeviceCredential({ identity, devicePubkey: device, roomId, expiresAt: NOW + 86400 })
     return { participant: identity.pubkey, device, credential, tracks: [], claims: {}, updatedAt: NOW, ...extra }
   }
 
@@ -105,14 +105,14 @@ describe('whose agent, on the wire', () => {
   it('rides a chat message and is judged as at its send time', async () => {
     const deviceSk = generateSecretKey()
     const entry = await entryFor(agentSk, deviceSk)
-    const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW + 100 })
+    const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW - 86400, expiresAt: NOW })
     const msg = { id: 'm1', participant: entry.participant, device: entry.device, credential: entry.credential, text: 'hello', sentAt: NOW + 10, owner: proof }
     const event = encodeChatEvent(msg, { roomId, roomKey, deviceSk })
     // Read long after the proof expired: it held when the line was written.
     expect(decodeChatEvent(event, { roomId, roomKey, now: NOW + 10_000 })!.owner).toEqual(proof)
     // Written after it expired: the claim goes, the words stay.
-    const late = encodeChatEvent({ ...msg, id: 'm2', sentAt: NOW + 200, credential: entry.credential }, { roomId, roomKey, deviceSk })
-    const decoded = decodeChatEvent(late, { roomId, roomKey, now: NOW + 300 })!
+    const late = encodeChatEvent({ ...msg, id: 'm2', sentAt: NOW + 301, credential: entry.credential }, { roomId, roomKey, deviceSk })
+    const decoded = decodeChatEvent(late, { roomId, roomKey, now: NOW + 302 })!
     expect(decoded.text).toBe('hello')
     expect(decoded.owner).toBeUndefined()
   })

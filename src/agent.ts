@@ -1,3 +1,4 @@
+import type { OwnershipEventStore } from './ownership-registry.js'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { RoomSession } from './session.js'
 import type { ParticipantView, PublishOptions, SessionTiming } from './session.js'
@@ -142,6 +143,7 @@ interface CommonAgentOptions {
    *  theirs, carried on every roster entry and message. See
    *  `docs/agents.md`, "Whose agent is this". */
   owner?: AgentOwnership
+  ownershipStore?: OwnershipEventStore
 }
 
 /** What an agent asks a person to decide. */
@@ -492,6 +494,7 @@ export class RoomAgent {
       agent: opts.agent ?? true,
       requestReceipts: opts.requestReceipts,
       owner: opts.owner,
+      ownershipStore: opts.ownershipStore,
       now: opts.now,
       timing: opts.timing,
       announceJitterMs: opts.announceJitterMs,
@@ -749,7 +752,7 @@ export class RoomAgent {
   /** Whether a participant's answer counts: on the announced admin list,
    *  or this agent's own verified principal. */
   #isApprover(participant: string): boolean {
-    return this.#announcedAdmins.has(participant) || (this.owner !== undefined && this.owner.principal === participant)
+    return this.#announcedAdmins.has(participant) || (this.session.currentOwnershipProof()?.principal === participant)
   }
 
   /**

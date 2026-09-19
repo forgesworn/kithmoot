@@ -1,3 +1,7 @@
+import { GrantedContactsPanel } from './granted-contacts-panel.js'
+import type { GrantedContactsView } from './granted-contacts.js'
+import { ChannelChecks, CHECK_CHANNEL } from './channel-checks.js'
+import { showChannelCheckDialog } from './channel-check-dialog.js'
 import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
@@ -63,7 +67,8 @@ import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
 import { AdvertTracker, CallTimeline, PairHealthSampler, type PairSample } from './call-timeline.js'
 import { readCallProfile } from './call-profile.js'
 import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
-import { participantVerification, rememberVerified } from './verified-store.js'
+import { contactCheckView } from './contact-check-view.js'
+import { participantVerification, rememberVerified, scopedVerificationStore } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
   RoomSession,
@@ -1349,6 +1354,7 @@ function knockLabel(knock: InvitationRequest): string {
 }
 
 function askToLetIn(request: InvitationRequest): Promise<boolean> {
+  if (request.participant && contactIsBlocked(request.participant)) return Promise.resolve(false)
   // Somebody this device invited is not asked about: inviting them was
   // the answer. Anybody else with the link gets the card.
   const roomId = currentRoomId()
@@ -1370,6 +1376,7 @@ function askToLetIn(request: InvitationRequest): Promise<boolean> {
 }
 
 function answerKnock(knock: Knock, yes: boolean): void {
+  if (knock.participant && contactIsBlocked(knock.participant)) yes = false
   if (!knocks.delete(knock.request)) return
   knock.resolve(yes)
   addSystemLine(yes ? `You let ${knockLabel(knock)} in.` : `You declined ${knockLabel(knock)}.`)
@@ -1423,7 +1430,7 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
   const s = session
   const peer = invitingPeer
   const dialog = $('inviteToRoom') as HTMLDialogElement
-  if (!s || !peer) return
+  if (!s || !peer || contactIsBlocked(peer.participant)) return
   const who = peer.name ?? shortKey(peer.participant)
   const crypt = peerCrypt()
   if (!crypt) {
@@ -1435,7 +1442,12 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
   try {
     const invite = await sealInvite(room.link, { to: peer.participant, room: room.roomId, crypt })
     const text = 'Invited you to a room.'
-    outbox.send(text, 'Chat', s.chat.prepareSend(text, { invite }))
+    if (session !== s || contactIsBlocked(peer.participant)) throw new Error('The room or contact permission changed.')
+    const send = s.chat.prepareSend(text, { invite })
+    outbox.send(text, 'Chat', async () => {
+      if (session !== s || contactIsBlocked(peer.participant)) throw new Error('This room invitation is no longer allowed.')
+      await send()
+    })
     noteInvited(room.roomId, peer.participant)
     addSystemLine(`You invited ${who} to ${knownRoomLabel(room)}.`)
     setStatus(`${who} is invited to ${knownRoomLabel(room)}. They will find it in their rooms.`, 'done')
@@ -1500,6 +1512,7 @@ function serveCurrentInvitation(): void {
   const invitation = roomInvitationCapability
   if (!invitation || !invitationAuthoritySk || invitation.persistent) return
   invitationTransport = configuredPool(relays)
+  const admissionRoom = deriveRoom(roomSecret).roomId
   try {
     invitationHost = hostRoomInvitation({
       transport: invitationTransport,
@@ -1511,7 +1524,10 @@ function serveCurrentInvitation(): void {
       // joined; before that, what this browser was itself told, or 0 for a
       // room this browser made.
       epoch: () => session?.epoch ?? expectedEpoch ?? 0,
-      ...(knockOn(deriveRoom(roomSecret).roomId) ? { admit: askToLetIn } : {}),
+      admit: request => {
+        if (currentRoomId() !== admissionRoom || (request.participant && contactIsBlocked(request.participant))) return false
+        return knockOn(admissionRoom) ? askToLetIn(request) : true
+      },
       // A delegated responder may receive recent requests replayed by a
       // lenient relay, including requests for people already admitted on a
       // different delegation branch. Serving those again is harmless, but it
@@ -1958,7 +1974,18 @@ function renderHowIn(): void {
  * The identity line above the room: who this device would join as, shown
  * before anything is committed to.
  */
+let grantedContactsPanel: GrantedContactsPanel | undefined
+let grantedContactView: GrantedContactsView | undefined
+function contactIsBlocked(participant: string): boolean {
+  return grantedContactView?.status === 'unavailable' || grantedContactView?.blocked.has(participant) === true
+}
 function renderIdentity(): void {
+  grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
+    relay: () => relayConnections.configuration('default').find(relay => relay.read && relay.write)?.url,
+    store: deviceStore, qr: renderQr,
+    changed: view => { grantedContactView = view; session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals() },
+  })
+  grantedContactsPanel.reconcile()
   const input = $('displayName') as HTMLInputElement
   if (document.activeElement !== input) input.value = typedName
 
@@ -3618,6 +3645,7 @@ function renderContacts(): void {
   const list = $('contactList')
   list.replaceChildren()
   for (const c of contacts(deviceStore)) {
+    if (grantedContactView?.status === 'unavailable' || grantedContactView?.blocked.has(c.p)) continue
     const row = document.createElement('div')
     row.className = 'contactRow'
     const who = document.createElement('span')
@@ -5193,7 +5221,7 @@ let startingDm = false
 async function startDirectMessage(peer: string, peerName: string | undefined, quiet: boolean): Promise<void> {
   const s = session
   const me = meParticipant
-  if (!s || !me || startingDm) return
+  if (!s || !me || startingDm || contactIsBlocked(peer)) return
   const who = peerName ?? shortKey(peer)
   // One conversation per pair, and one quiet one: a quiet room and a plain
   // one are different rooms, since the plain one's chat is on the relay in
@@ -5227,7 +5255,12 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
     const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays, iceUrls, policy })
     const invite = await sealInvite(link, { to: peer, room: roomId, crypt })
     const text = inviteText()
-    outbox.send(text, 'Chat', s.chat.prepareSend(text, { invite }))
+    if (session !== s || contactIsBlocked(peer)) throw new Error('The room or contact permission changed.')
+    const send = s.chat.prepareSend(text, { invite })
+    outbox.send(text, 'Chat', async () => {
+      if (session !== s || contactIsBlocked(peer)) throw new Error('This room invitation is no longer allowed.')
+      await send()
+    })
     const room = rememberRoom(roomStore(), { roomId, link, openedAt: nowSeconds(), ...(peerName ? { name: peerName } : {}) })
     bookmarks?.save(room)
     addSystemLine(`You started a ${quiet ? 'quiet' : 'private'} conversation with ${who}.`, nowSeconds(), room)
@@ -5594,6 +5627,7 @@ let approvalTimer: ReturnType<typeof setTimeout> | undefined
 
 /** Whether `participant` is somebody the agent `requester` will listen to. */
 function canApprove(participant: string, requester: string): boolean {
+  if (contactIsBlocked(requester) || contactIsBlocked(participant)) return false
   if (admins.has(participant)) return true
   const owner = session?.participants().find((v) => v.participant === requester)?.owner
   return owner !== undefined && owner.principal === participant
@@ -5633,6 +5667,7 @@ function renderApprovals(): void {
       button.type = 'button'
       button.textContent = option
       button.addEventListener('click', () => {
+        if (!canApprove(meParticipant, request.from)) { renderApprovals(); return }
         for (const b of options.querySelectorAll('button')) (b as HTMLButtonElement).disabled = true
         sendHostControl({ op: 'approval', id: request.id, verdict: option }, `Answered ${option}.`)
       })
@@ -5642,6 +5677,7 @@ function renderApprovals(): void {
     box.append(card)
   }
   for (const knock of knocks.values()) {
+    if (knock.participant && contactIsBlocked(knock.participant)) continue
     const card = document.createElement('div')
     card.className = 'approvalCard knock'
     const who = document.createElement('span')
@@ -7437,22 +7473,19 @@ function verifyChip(view: ParticipantView, name: string): HTMLElement {
   const chip = document.createElement('button')
   chip.type = 'button'
   chip.className = 'verifyChip'
-  const seen = participantVerification(deviceStore, view.participant, name)
-  chip.classList.add(seen.status)
+  const observer = meParticipant
+  const seen = participantVerification(scopedVerificationStore(deviceStore, observer), view.participant, name)
+  const shown = contactCheckView(grantedContactView, view.participant, seen)
+  chip.classList.add(shown.status)
+  chip.textContent = shown.label
+  chip.title = shown.title
 
-  if (seen.status === 'verified') {
-    chip.textContent = 'checked'
-    chip.title = `You checked this was really them on ${new Date((seen.verifiedAt ?? 0) * 1000).toLocaleDateString()}`
-  } else if (seen.status === 'key-changed') {
-    chip.textContent = 'code changed'
-    chip.title =
-      `Last time, this name had a DIFFERENT code (${short(seen.expected ?? '')}). ` +
-      'Either they have a new device, or this is somebody else. Check before you trust it.'
-  } else {
-    chip.textContent = 'not checked'
-    chip.title = 'You have not checked yet that this is really them. Tap to see the words to say out loud.'
-  }
-
+  try {
+    if (channelChecks?.list(view.participant).some(row => !row.state && !row.declined && row.request.expiresAt > Math.floor(Date.now() / 1000))) {
+      chip.textContent = 'check requested'
+      chip.title = 'They asked to compare words. Open to accept or decline.'
+    }
+  } catch { /* Saved protocol failure is explained when the dialog opens. */ }
   chip.addEventListener('click', () => showVerification(view, name, seen.status))
   return chip
 }
@@ -7465,45 +7498,17 @@ function verifyChip(view: ParticipantView, name: string): HTMLElement {
  * furniture for the one security ritual this app has. `showModal` brings the
  * focus trap and Escape with it.
  */
+let channelChecks: ChannelChecks | undefined
 function showVerification(view: ParticipantView, name: string, status: string): void {
-  if (!session) return
-  let words: { mine: string; theirs: string }
-  try {
-    words = session.verificationWords(view.participant)
-  } catch {
-    // A participant with no words - ourselves, or a malformed key - has
-    // nothing honest to show, and a plausible-looking panel would be worse
-    // than none.
-    return
-  }
-
-  const shownName = name || short(view.participant)
-  const dialog = $('verifyDialog') as HTMLDialogElement
-  $('verifyTitle').textContent = `Is this really ${shownName}?`
-  $('verifyMine').textContent = words.mine
-  $('verifyTheirs').textContent = words.theirs
-
-  const warning = $('verifyWarning')
-  if (status === 'key-changed') {
-    warning.textContent =
-      `You have verified a different key under the name "${shownName}" before. ` +
-      'Either they are on a new key, or this is not them. Do not mark this verified ' +
-      'unless the words match and you know the voice.'
-    warning.hidden = false
-  } else {
-    warning.textContent = ''
-    warning.hidden = true
-  }
-
-  const onClose = () => {
-    dialog.removeEventListener('close', onClose)
-    if (dialog.returnValue !== 'verify') return
-    rememberVerified(deviceStore, view.participant, name, Date.now())
-    if (session) render(session.participants(), meParticipant)
-  }
-  dialog.addEventListener('close', onClose)
-  dialog.returnValue = ''
-  dialog.showModal()
+  const current = session, checks = channelChecks
+  if (!current || !checks || contactIsBlocked(view.participant)) return
+  showChannelCheckDialog({ checks, peer: view.participant, name: name || short(view.participant) || view.participant, changed: status === 'key-changed',
+    current: () => session === current && channelChecks === checks && !contactIsBlocked(view.participant),
+    onCompared: () => {
+      rememberVerified(scopedVerificationStore(deviceStore, current.participant), view.participant, name, Date.now())
+      render(current.participants(), meParticipant)
+    },
+  })
 }
 
 const LOCAL_SPEAKING_KEY = 'self'
@@ -8632,6 +8637,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     sessionAuthority = roomAuthority()
     const s = credential
       ? new RoomSession({
+          ownershipStore: deviceStore,
+          isBlocked: contactIsBlocked,
           transport,
           secret: roomSecret,
           credential,
@@ -8665,6 +8672,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
       : new RoomSession({
+          ownershipStore: deviceStore,
+          isBlocked: contactIsBlocked,
           transport,
           secret: roomSecret,
           // A local key or an external signer - the session cannot tell,
@@ -8810,6 +8819,34 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // Agent hosts say what they can run on the control channel; a person
     // asks on it. Asked once on arrival, so a host that has been quiet for
     // an hour says again.
+    const checksLog = s.channel(CHECK_CHANNEL)
+    const checks = new ChannelChecks({ local: s.participant, context: s.roomId, store: deviceStore,
+      current: () => session === s, allowed: peer => !contactIsBlocked(peer), send: text => checksLog.send(text) })
+    channelChecks = checks
+    const seenChecks = new Set<string>()
+    let checkingMessages = false, checksDirty = false
+    const ingestChecks = async () => {
+      if (checkingMessages) { checksDirty = true; return }
+      checkingMessages = true
+      try {
+        do {
+          checksDirty = false
+          for (const message of checksLog.messages()) {
+            if (session !== s) return
+            if (seenChecks.has(message.id)) continue
+            // ChatLog has already authenticated the device credential and
+            // participant. Shared room encryption alone is not that proof.
+            try { await checks.receive(message.participant, message.text) }
+            catch { /* A malformed message or failed storage must not grant trust. */ }
+            seenChecks.add(message.id)
+            if (seenChecks.size > 1000) seenChecks.delete(seenChecks.values().next().value!)
+          }
+        } while (checksDirty && session === s)
+        if (session === s) render(s.participants(), meParticipant)
+      } finally { checkingMessages = false }
+    }
+    checksLog.onChange(() => { void ingestChecks() })
+    void ingestChecks()
     const control = s.channel(CONTROL_CHANNEL)
     control.onChange((messages) => { if (session === s) ingestControl(messages) })
     ingestControl(control.messages())
@@ -12242,6 +12279,7 @@ if (known) profiles.want([known])
 
 // Restore only explicit discovery preferences after all screen state exists.
 boxDiscovery = new BoxDiscovery({
+  allowed: contact => !contactIsBlocked(contact),
   store: deviceStore,
   transport: unavailable => new BoxRelayReader(relayConnections.configuration('default'), unavailable),
   changed: () => { renderContacts(); renderLaneNote(); renderHistoryRecovery() },

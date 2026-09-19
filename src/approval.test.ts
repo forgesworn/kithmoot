@@ -58,6 +58,25 @@ describe('approvals in the room', () => {
     return { relay, keeper, tally, ada, bob, host, principal, admin }
   }
 
+  it('stops accepting principal approvals after a remembered signed revocation', async () => {
+    const { buildBotOwnershipRevocation } = await import('signet-protocol')
+    const { keeper, tally, ada, bob, host, principal } = await scene()
+    const ignored: IgnoredApproval[] = [], outcomes: ApprovalOutcome[] = []
+    tally.onApprovalIgnored(value => ignored.push(value))
+    tally.onApproval(value => outcomes.push(value))
+    try {
+      void tally.requestApproval({ id: 'revoked-owner', text: 'Proceed?', ttlSeconds: 60 })
+      await settle()
+      const revocation = await principal.signEvent(buildBotOwnershipRevocation({ ownerPubkey: principal.pubkey,
+        botPubkey: tally.participant, now: Math.floor(Date.now() / 1000) }))
+      expect(tally.session.observeOwnershipEvent(revocation)).toBe(true)
+      await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'approval', id: 'revoked-owner', verdict: 'approve' }))
+      await settle()
+      expect(ignored.at(-1)).toMatchObject({ by: ada.participant, reason: 'not an approver' })
+      expect(outcomes).toEqual([])
+    } finally { for (const member of [tally, ada, bob, host, keeper]) member.leave() }
+  })
+
   it('the owner answers, a stranger is ignored and said so, and the answer names who gave it', async () => {
     const { keeper, tally, ada, bob, host } = await scene()
     const ignored: IgnoredApproval[] = []

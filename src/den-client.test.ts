@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { generateSecretKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { bytesToHex } from '@noble/hashes/utils'
 import { hkdf } from '@noble/hashes/hkdf'
 import { sha256 } from '@noble/hashes/sha2'
+import { buildBotOwnershipRevocation } from 'signet-protocol'
 import { RoomAgent } from './agent.js'
 import { DenAssignmentClient, type DenWorkStore } from './den-client.js'
 import { localIdentity } from './identity.js'
@@ -45,6 +46,17 @@ async function fixture() {
 }
 
 describe('Den to KithMoot shared-work journey', () => {
+  it('refuses a formerly attested principal’s assignment after observed revocation', async () => {
+    const f = await fixture()
+    const assignment = await f.den.submit(f.creator.roomId, undefined, { op: 'create', objective: 'Revoked authority', criteria: 'Refuse execution', owner: f.worker.participant, ownerDevice: f.worker.device }, 'den_revoked_request_01')
+    await vi.waitFor(() => expect(f.work.log.snapshot().assignments).toHaveLength(1))
+    const principalSk = hkdf(sha256, f.secret, new TextEncoder().encode(f.creator.roomId), 'den/kithmoot/v1/participant', 32)
+    const event = finalizeEvent(buildBotOwnershipRevocation({ ownerPubkey: f.worker.owner!.principal, botPubkey: f.worker.participant, now: Math.floor(Date.now() / 1000) + 1 }), principalSk)
+    expect(f.worker.session.observeOwnershipEvent(event)).toBe(true)
+    await expect(f.work.claim(assignment.id, 'Do work')).rejects.toThrow('must authorise')
+    expect(await f.work.journal.records()).toEqual([])
+  })
+
   it('requires execution inspection and an authenticated principal decision before recovering a crashed attempt', { timeout: 20_000 }, async () => {
     const f = await fixture()
     const room = f.creator.roomId

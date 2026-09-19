@@ -1,3 +1,4 @@
+import type { NostrEvent } from 'signet-protocol'
 import type { Event } from 'nostr-tools/pure'
 import type { Reachability } from './reachability.js'
 
@@ -67,12 +68,14 @@ export interface AgentOwnership {
   principal: string
   /** Unix seconds. */
   issuedAt: number
-  /** Unix seconds. Absent means it stands until the keys change. */
+  /** Unix seconds. Required for new attestations; absent only in legacy proofs. */
   expiresAt?: number
   /** What the principal calls the agent, sanitised like a display name. */
   label?: string
   /** Schnorr by the principal. */
   sig: string
+  /** Ordinary Signet bot-ownership event; absent only for legacy raw-hash proofs. */
+  attestation?: NostrEvent
 }
 
 /**

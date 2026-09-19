@@ -1624,3 +1624,54 @@ for as long as the ungated version was installed. No behaviour of the
 segmenter itself changed - same confidence masks, same VIDEO running mode,
 same GPU-then-CPU delegate fallback in `app/src/mediapipe-segmenter.ts` -
 only the version pinned and the two checks added.
+
+### 19 September 2026 — draft Signet channel checks
+
+The browser's word check now uses the contacts SDK's authenticated-channel
+commit/reveal profile, over `signet-checks-v1` ChatLog messages. Device credential
+verification authenticates each participant; possession of the room encryption
+key does not suffice. The request binds the room ID. Starting, accepting and
+confirming a human comparison are separate actions. Closing the dialog never
+records a check. Saved transcripts survive reopening and cannot change the first
+acceptance after a nonce has been revealed.
+
+Whole transitions use a Web Lock, persist before sending and read back the
+stored bytes. The local history is bounded at 256 transcripts / 1 MiB per
+account and room, with 16 active requests and two per peer. No silent eviction.
+Corruption or storage failure refuses to proceed. Unsupported browsers cannot
+start checks. The legacy pure `verificationWords` export remains for callers,
+but the browser does not silently fall back to it. This draft protocol and the
+local `file:../signet-contacts` dependency need review before release. Granted
+contact caches and return proposals remain separate work.
+
+### 19 September 2026 — granted contacts and local blocks
+
+Signet pairing is explicit and account-bound. Directory and block access are
+required; tiers and check records are optional. The consumer validates relay
+signatures before identity decryption, serialises complete refreshes with Web
+Locks, and reloads persisted replay floors before each fetch. Expiry and
+revocation remove granted names and trust fields. Storage faults refuse granted
+authority and preserve previously known blocks. Ephemeral pairing replies use a
+live listener and bounded identity decryptions in the contacts SDK.
+
+A fresh local block filters RoomSession roster views and ChatLog history and
+incoming messages, including named channels. Refresh closes active mesh peers.
+Check actions, box discovery and private invitations consult the current policy;
+box replay evidence is retained while blocked. Existing room-key possession is
+not revoked by this filter, and another participant's room view is unchanged.
+Known blocked requesters cannot use this browser's invitation responder. This is
+not an identity oracle: an anonymous or newly generated key cannot be linked to
+a blocked identity. Authenticated creator/keeper tier admission and returning
+check proposals remain separate protocol work.
+
+### 19 September 2026 — source-labelled check memory
+
+Local word comparisons are now stored under the observing participant key.
+Unscoped legacy records remain on disk but are not silently attributed to a
+signed-in identity. A tile distinguishes `checked here` from `Signet check` (a
+dated shared method) or `Signet checked` (only a shared verification summary).
+The tooltip names the method; a NIP-05 check is never described as an in-person
+or spoken comparison. Only a ready scoped grant supplies these Signet labels.
+Withdrawing its check scope, expiry or revocation removes that source's claim.
+Local comparisons do not publish a proposal or upgrade tiers, and a successful
+word exchange still requires explicit human confirmation before being recorded.

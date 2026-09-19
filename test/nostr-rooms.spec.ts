@@ -1,3 +1,4 @@
+import { parsePairingRequestV2, buildPairingAckV2, ackEventTemplate, projectionTag, proposalTag, sealVaultPayload, projectionEventTemplate, type ContactProjectionV2 } from '@forgesworn/signet-contacts'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { npubEncode } from 'nostr-tools/nip19'
@@ -622,4 +623,88 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
     expect(await a.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
     expect(errors).toEqual([])
   } finally { for (const keeper of keepers) keeper.leave(); await Promise.all(contexts.map(context => context.close())) }
+})
+
+
+test('granted contacts pair with explicit fields, persist and disappear on revocation', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey(), account = getPublicKey(secret)
+  const context = await device(browser, baseURL!, secret)
+  const peerSecret = generateSecretKey(), peer = getPublicKey(peerSecret)
+  const peerContext = await device(browser, baseURL!, peerSecret)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  try {
+    const page = await context.newPage()
+    await signIn(page, baseURL!)
+    await page.locator('#roomName').fill('Granted contacts acceptance')
+    await page.locator('#create').click()
+    await expect(page.locator('#join')).toBeEnabled()
+    await page.locator('#join').click()
+    await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
+      content: JSON.stringify({ name: 'Granted Ada' }) }, peerSecret))
+    const peerPage = await peerContext.newPage()
+    await signIn(peerPage, baseURL!)
+    await peerPage.goto(page.url())
+    await peerPage.reload()
+    await expect(peerPage.locator('#join')).toBeVisible()
+    await peerPage.locator('#join').click()
+    await expect(peerPage.locator('#roomArea')).toBeVisible()
+    const peerTile = page.locator('#room .participant', { hasText: 'Granted Ada' })
+    await expect(peerTile).toHaveCount(1, { timeout: 30000 })
+    await openRoomDetails(page)
+    await expect(page.locator('#signetContactsTiers')).not.toBeChecked()
+    await expect(page.locator('#signetContactsChecks')).not.toBeChecked()
+    await page.locator('#signetContactsTiers').check()
+    await page.locator('#signetContactsChecks').check()
+    await page.locator('#signetContactsConnect').click()
+    await expect(page.locator('#signetContactsUri')).not.toHaveValue('')
+    const request = parsePairingRequestV2(await page.locator('#signetContactsUri').inputValue()).request!
+    expect(request.capabilities).toContain('signet.contacts.read:tier')
+    expect(request.capabilities).toContain('signet.contacts.read:checks')
+    const railKey = generateSecretKey(), rail = getPublicKey(railKey), ephemeral = generateSecretKey()
+    const grantId = 'a'.repeat(32), now = Math.floor(Date.now() / 1000)
+    const ack = buildPairingAckV2({ v: 2, grantId, railPubkey: rail, projectionTag: projectionTag(grantId), proposalTag: proposalTag(grantId, account),
+      relay: request.rendezvousRelay, grantedCapabilities: request.capabilities, maxStalenessSeconds: 21600, challenge: request.challenge })
+    await publisher.publish(finalizeEvent(ackEventTemplate(getPublicKey(ephemeral), account, now,
+      encrypt(ack, getConversationKey(ephemeral, account))), ephemeral))
+    const projection: ContactProjectionV2 = { v: 2, grantId, scopes: request.capabilities, issuedAt: now, expiresAt: now + 600,
+      frontier: { maxClock: 1, opCount: 0, publishedAt: now, deviceId: 'b'.repeat(32) },
+      contacts: [{ contactId: 'c'.repeat(32), displayName: 'Granted Ada', identities: [{ pubkey: peer }], effectiveTier: 'kith',
+        checks: [{ pubkey: peer, method: 'words', checkedAt: now * 1000 }] }] }
+    const publish = async (value: ContactProjectionV2, at: number) => {
+      await expect.poll(() => Math.floor(Date.now() / 1000)).toBeGreaterThanOrEqual(at)
+      const content = await sealVaultPayload(JSON.stringify(value), { nip44Encrypt: async (to, text) => encrypt(text, getConversationKey(railKey, to)) }, account)
+      await publisher.publish(finalizeEvent(projectionEventTemplate(rail, grantId, at, content!), railKey))
+    }
+    await publish(projection, now)
+    await expect(page.locator('#signetContactsPairing')).toBeHidden({ timeout: 30000 })
+    await page.locator('#signetContactsRefresh').click()
+    await expect(page.locator('#signetGrantedContacts')).toContainText('Granted Ada')
+    await expect(page.locator('#signetGrantedContacts')).toContainText('kith')
+    await expect(peerTile.locator('.verifyChip')).toHaveText('Signet check')
+    await page.reload()
+    await expect(page.locator('#join')).toBeEnabled()
+    await page.locator('#join').click()
+    await openRoomDetails(page)
+    await expect(page.locator('#signetGrantedContacts')).toContainText('Granted Ada', { timeout: 30000 })
+    await expect(peerTile.locator('.verifyChip')).toHaveText('Signet check')
+    const noChecks = { ...projection, scopes: projection.scopes.filter(scope => !scope.includes('read:check')),
+      frontier: { ...projection.frontier, maxClock: 2 }, contacts: projection.contacts.map(({ checks, ...contact }) => contact) }
+    await publish(noChecks, now + 1)
+    await page.locator('#signetContactsRefresh').click()
+    await expect(peerTile.locator('.verifyChip')).toHaveText('not checked')
+    const blocked = { ...projection, frontier: { ...projection.frontier, maxClock: 3 },
+      contacts: [{ ...projection.contacts[0], blocked: true }] }
+    await publish(blocked, now + 2)
+    await page.locator('#signetContactsRefresh').click()
+    await expect(page.locator('#signetGrantedContacts li')).toHaveCount(0)
+    await page.locator('#roomSheetClose').click()
+    await expect(peerTile).toHaveCount(0)
+    await openRoomDetails(page)
+    await publish({ ...blocked, revoked: true, contacts: [] }, now + 3)
+    await page.locator('#signetContactsRefresh').click()
+    await expect(page.locator('#signetContactsState')).toContainText('revoked')
+    await expect(page.locator('#signetGrantedContacts li')).toHaveCount(0)
+    await page.locator('#roomSheetClose').click()
+    await expect(peerTile).toHaveCount(0)
+  } finally { await context.close(); await peerContext.close(); publisher.close() }
 })

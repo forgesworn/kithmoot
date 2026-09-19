@@ -15,6 +15,7 @@ import type { AgentOwnership } from '../types.js'
 import { localIdentity } from '../identity.js'
 import { localPeerCrypt, openInvite } from '../dm.js'
 import { ContextFileStore } from './context-store.js'
+import { OwnershipFileStore, rememberOwnershipFile } from './ownership-store.js'
 import { checkIdentity, npubOrHex } from './identity-guard.js'
 import { parseRoomLink } from '../link.js'
 import { AgentRuntime } from './runtime.js'
@@ -74,10 +75,15 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
       none, the default here, writes the transcript grouped by speaker instead,
       so it works with no model at all.
 
-  kithmoot-agent attest --agent <pubkey|npub> (--nsec <key> | --identity <file>) [--label <text>] [--expires <30d|12h|unix>]
+  kithmoot-agent attest --agent <pubkey|npub> (--nsec <key> | --identity <file>) [--label <text>] [--expires <30d|unix>]
       As a principal, say that an agent is yours: prints an ownership proof
       (JSON) signed by your key, to give the agent as --owner-proof. Room
-      independent, attested once; set --expires if you may change your mind.
+      independent; defaults to 30 days. --expires must be 1–90 days ahead.
+
+  kithmoot-agent remember-ownership <event.json> [--ownership-store <dir>]
+      Validate and remember a signed ownership event or revocation locally.
+      Running agents sharing this directory use it on their next authority check.
+      Reads no identity key and does not connect to relays.
 
 Options
   --context <file>         Encrypted room context cache; private collections excluded
@@ -85,6 +91,8 @@ Options
   --name <name>            What the room calls this agent (required)
   --owner-proof <file>     This agent's ownership proof, from attest; carried on
                            every roster entry and message so people see whose it is
+  --ownership-store <dir>  Remember signed ownership/revocations across restarts;
+                           default ~/.kithmoot/ownership (KITHMOOT_OWNERSHIP_STORE)
   --forwarder <json|file>  (create) A forwarder the room may promote to: the line
                            kithmoot-forwarder prints, {"url","pubkey","label"}, or a
                            file holding one or a list. Repeatable. The keeper
@@ -237,6 +245,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       'room-name': { type: 'string' },
       nudge: { type: 'boolean', default: false },
       'owner-proof': { type: 'string' },
+      'ownership-store': { type: 'string' },
       'expect-pubkey': { type: 'string' },
       'forbid-pubkey': { type: 'string', multiple: true },
       agent: { type: 'string' },
@@ -247,9 +256,16 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     },
   })
   const command = positionals[0]
-  if (values.help || !command || !['create', 'join', 'mcp', 'host', 'scribe', 'attest'].includes(command)) {
+  if (values.help || !command || !['create', 'join', 'mcp', 'host', 'scribe', 'attest', 'remember-ownership'].includes(command)) {
     process.stderr.write(USAGE)
     process.exitCode = command ? 2 : 0
+    return
+  }
+  if (command === 'remember-ownership') {
+    if (positionals.length !== 2) fail('remember-ownership needs one signed event file')
+    const store = new OwnershipFileStore(values['ownership-store'] ?? env('OWNERSHIP_STORE') ?? join(homedir(), '.kithmoot', 'ownership'))
+    rememberOwnershipFile(positionals[1], store)
+    process.stdout.write('Ownership event processed. Newer remembered evidence takes precedence.\n')
     return
   }
   if (command === 'attest') {
@@ -315,6 +331,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     fail((err as Error).message)
   }
   const owner = common.ownerProof ? await loadOwnerProof(common.ownerProof, identity.pubkey) : undefined
+  const ownershipStore = new OwnershipFileStore(values['ownership-store'] ?? env('OWNERSHIP_STORE') ?? join(homedir(), '.kithmoot', 'ownership'))
   const persona = await loadPersona(common)
   const turn = common.turnCredential ? splitCredential(common.turnCredential) : undefined
 
@@ -336,6 +353,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       factory,
       state,
       owner,
+      ownershipStore,
       admins,
       forwarders,
       onState: statePath ? (next) => saveKeeperState(statePath, next) : undefined,
@@ -376,6 +394,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       relays: common.relays.length ? common.relays : undefined,
       factory,
       owner,
+      ownershipStore,
     })
     log(`joined room ${agent.roomId.slice(0, 8)} as ${agent.participant.slice(0, 8)}${agent.hosting ? ', answering the link' : ''}${agent.session.epoch ? `, epoch ${agent.session.epoch}` : ''}`)
     agent.onEpoch((notice) => {
@@ -448,7 +467,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       // key to tell one conversation from another - never who it is with.
       const openPrivateRoom = async (room: string, link: string, from: string): Promise<void> => {
         if (privateRooms.has(room)) return
-        const dm = await RoomAgent.join({ link, name: common.name, identity, relays: common.relays.length ? common.relays : undefined, owner })
+        const dm = await RoomAgent.join({ link, name: common.name, identity, relays: common.relays.length ? common.relays : undefined, owner, ownershipStore })
         const dmRuntime = new AgentRuntime(dm, { persona, memoryDir: common.memory }).start()
         privateRooms.set(room, dmRuntime)
         const brain = makeBrain({ ...common, respond: 'always' }, log)
@@ -469,7 +488,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       agent.onInvite((invitation) => {
         void (async () => {
           const from = invitation.from
-          const allowed = dmMode === 'anyone' || (owner !== undefined && owner.principal === from) || agent.admins.includes(from)
+          const allowed = dmMode === 'anyone' || (agent.session.currentOwnershipProof()?.principal === from) || agent.admins.includes(from)
           if (!allowed) { log(`private conversation from ${from.slice(0, 8)} declined: not the owner or an admin (--dm anyone to accept)`); return }
           if (privateRooms.has(invitation.room)) return
           const link = await openInvite(invitation.invite, { self: agent.participant, sender: from, crypt })
@@ -748,8 +767,10 @@ async function attest(opts: { agent?: string; nsec?: string; identity?: string; 
   }
   const issuedAt = Math.floor(Date.now() / 1000)
   const expiresAt = opts.expires === undefined ? undefined : expiryArg(opts.expires, issuedAt)
-  const proof = issueAgentOwnership({ principalSk, agent, issuedAt, expiresAt, label: opts.label })
-  process.stdout.write(JSON.stringify(proof, null, 2) + '\n')
+  try {
+    const proof = issueAgentOwnership({ principalSk, agent, issuedAt, expiresAt, label: opts.label })
+    process.stdout.write(JSON.stringify(proof.attestation, null, 2) + '\n')
+  } finally { principalSk.fill(0) }
 }
 
 /** `30d`, `12h`, `90m`, or unix seconds. */
