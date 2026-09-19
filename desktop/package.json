@@ -20,6 +20,7 @@
     "prepackage:linux": "npm run build"
   },
   "devDependencies": {
+    "@electron/osx-sign": "2.7.0",
     "@electron/packager": "20.3.0",
     "electron": "44.4.1"
   },

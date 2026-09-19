@@ -185,36 +185,45 @@ describe('Mesh', () => {
   })
 
   it('sends annotations between our devices alongside their media connection', () => {
-    const sessionA = new FakeSession()
-    const sessionB = new FakeSession()
-    const factoryA = createFakeFactory()
-    const factoryB = createFakeFactory()
-    const relay = new SimRelay()
-    const participant = device().pub
-    const a = device()
-    const b = device()
-    const meshA = new Mesh({ session: sessionA, factory: factoryA, localDevice: a.pub, localParticipant: participant, deviceSk: a.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
-    const meshB = new Mesh({ session: sessionB, factory: factoryB, localDevice: b.pub, localParticipant: participant, deviceSk: b.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
-    const received: RemoteAnnotation[] = []
-    meshA.onAnnotation((annotation) => received.push(annotation))
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+    try {
+      const sessionA = new FakeSession()
+      const sessionB = new FakeSession()
+      const factoryA = createFakeFactory()
+      const factoryB = createFakeFactory()
+      const relay = new SimRelay()
+      const participant = device().pub
+      const a = device()
+      const b = device()
+      const meshA = new Mesh({ session: sessionA, factory: factoryA, localDevice: a.pub, localParticipant: participant, deviceSk: a.sk, transport: new SimTransport(relay), roomId: ROOM_ID, now: () => 1_800_000_000 })
+      const meshB = new Mesh({ session: sessionB, factory: factoryB, localDevice: b.pub, localParticipant: participant, deviceSk: b.sk, transport: new SimTransport(relay), roomId: ROOM_ID, now: () => 1_800_000_000 })
+      const received: RemoteAnnotation[] = []
+      meshA.onAnnotation((annotation) => received.push(annotation))
 
-    const roster = [view(participant, [a.pub, b.pub])]
-    sessionA.setViews(roster)
-    sessionB.setViews(roster)
-    const annotation: signals.ScreenAnnotation = {
-      op: 'stroke',
-      shareId: 'desktop-screen',
-      strokeId: 'phone-stroke',
-      points: [{ x: .2, y: .3 }, { x: .7, y: .8 }],
-    }
-    meshB.publishAnnotation(annotation)
+      const roster = [view(participant, [a.pub, b.pub])]
+      sessionA.setViews(roster)
+      sessionB.setViews(roster)
+      const annotation: signals.ScreenAnnotation = {
+        op: 'stroke',
+        shareId: 'desktop-screen',
+        strokeId: 'phone-stroke',
+        points: [{ x: .2, y: .3 }, { x: .7, y: .8 }],
+      }
+      meshB.publishAnnotation(annotation)
 
-    expect(factoryA.instances).toHaveLength(1)
-    expect(factoryB.instances).toHaveLength(1)
-    expect(received).toEqual([{ participant, device: b.pub, annotation }])
-    meshA.close()
-    meshB.close()
-  })
+      expect(factoryA.instances).toHaveLength(1)
+      expect(factoryB.instances).toHaveLength(1)
+      expect(received).toEqual([{ participant, device: b.pub, annotation }])
+      // A sustained 20 Hz gesture outlives the ordinary signalling allowance.
+      for (let i = 0; i < 399; i++) meshB.publishAnnotation({ ...annotation, strokeId: `segment-${i}` })
+      expect(received).toHaveLength(400)
+      // Annotation flooding remains bounded independently of negotiation.
+      for (let i = 0; i < 100; i++) meshB.publishAnnotation({ ...annotation, strokeId: `extra-${i}` })
+      expect(received).toHaveLength(480)
+      meshA.close()
+      meshB.close()
+    } finally { clock.mockRestore() }
+  }, 20_000)
 
   it('connects our other device before our own roster entry arrives', () => {
     // The other camera remains reachable while our own presence is in flight.

@@ -1,9 +1,12 @@
 import { packager } from '@electron/packager'
+import { signAsync } from '@electron/osx-sign'
+import { macSigningConfig } from './mac-signing.mjs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 const root = fileURLToPath(new URL('../', import.meta.url))
+const signing = macSigningConfig()
 const { version } = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 const assets = resolve(root, 'artifacts')
 await mkdir(assets, { recursive: true })
@@ -33,10 +36,30 @@ const paths = await packager({
 })
 for (const path of paths) {
   const bundle = resolve(path, 'KithMoot.app')
-  // Local Apple Silicon preview only. Public distribution requires Developer ID + notarisation.
-  const signed = spawnSync('codesign', ['--force', '--deep', '--sign', '-', bundle], { stdio: 'inherit' })
-  if (signed.status) throw new Error('Ad-hoc signing failed')
-  const zip = resolve(root, `out/KithMoot-${version}-mac-arm64.zip`)
+  if (signing.localPreview) {
+    const signed = spawnSync('codesign', ['--force', '--deep', '--sign', '-', bundle], { stdio: 'inherit' })
+    if (signed.status) throw new Error('Local signing failed')
+  } else {
+    await signAsync({ app: bundle, identity: signing.identity, keychain: signing.keychain,
+      platform: 'darwin', type: 'distribution',
+      optionsForFile: () => ({ hardenedRuntime: true, entitlements: [
+        'com.apple.security.cs.allow-jit', 'com.apple.security.device.audio-input', 'com.apple.security.device.camera',
+      ] }),
+    })
+    if (spawnSync('codesign', ['--verify', '--deep', '--strict', bundle], { stdio: 'inherit' }).status) throw new Error('Signature verification failed')
+  }
+  const archive = resolve(root, `out/KithMoot-${version}-mac-arm64${signing.localPreview ? '-local-preview' : ''}.zip`)
+  const zip = signing.localPreview ? archive : resolve(root, `out/.KithMoot-${version}-pending-notarisation.zip`)
   if (spawnSync('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', bundle, zip], { stdio: 'inherit' }).status) throw new Error('ZIP failed')
-  console.log(`Packaged: ${bundle}\nArchive: ${zip}`)
+  if (!signing.localPreview) {
+    const submitted = spawnSync('xcrun', ['notarytool', 'submit', zip, '--keychain-profile', signing.profile, '--wait', '--output-format', 'json'], { encoding: 'utf8' })
+    if (submitted.status || JSON.parse(submitted.stdout).status !== 'Accepted') throw new Error('Apple did not accept notarisation. The archive must not be published.')
+    for (const args of [['stapler', 'staple', bundle], ['stapler', 'validate', bundle]]) {
+      if (spawnSync('xcrun', args, { stdio: 'inherit' }).status) throw new Error('Notarisation ticket verification failed')
+    }
+    if (spawnSync('spctl', ['--assess', '--type', 'execute', '--verbose=2', bundle], { stdio: 'inherit' }).status) throw new Error('Gatekeeper refused the signed app')
+    if (spawnSync('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', bundle, archive], { stdio: 'inherit' }).status) throw new Error('Stapled ZIP failed')
+    await rm(zip)
+  }
+  console.log(`Packaged: ${bundle}\nArchive: ${archive}`)
 }
