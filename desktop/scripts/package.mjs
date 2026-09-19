@@ -24,6 +24,7 @@ const paths = await packager({
   appVersion: version, buildVersion: '5', icon, overwrite: true, asar: true,
   ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {
+    NSAudioCaptureUsageDescription: 'KithMoot shares system sound when you choose to include audio with your screen share.',
     NSMicrophoneUsageDescription: 'KithMoot uses your microphone when you turn it on in a call.',
     NSCameraUsageDescription: 'KithMoot uses your camera when you turn it on in a call.',
     NSLocalNetworkUsageDescription: 'KithMoot connects to devices and relays on your network for calls and messages.',

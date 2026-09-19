@@ -329,6 +329,23 @@ test('one person on two devices delivers two live pictures to everybody else', a
       return Number(laptopLive) + Number(phoneLive)
     }).toBe(1)
 
+    // Explicitly choose the phone, then stop and restart the laptop share.
+    // Sharing must not take the listening role, including with no local mic.
+    await pagePhone.evaluate(() => (document.getElementById('listenHere') as HTMLButtonElement).click())
+    await expect(pagePhone.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    await pageLaptop.locator('#toggleScreen').click()
+    await pageLaptop.locator('#toggleScreen').click()
+    await expect(pageLaptop.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await expect(pagePhone.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    await expect(pageLaptop.locator('#monitorIndicator')).toContainText('other device')
+
+    // A listening-only device retains its explicit choice without a local track.
+    await pageLaptop.locator('#toggleScreen').click()
+    await pageLaptop.locator('#listenHere').click()
+    await expect(pageLaptop.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    await pageLaptop.locator('#toggleScreen').click()
+    await expect(pageLaptop.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+
     // And the part nothing checked before: TWO live pictures, in that one
     // tile, from that one person.
     await expect
