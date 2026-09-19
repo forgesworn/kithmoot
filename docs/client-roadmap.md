@@ -13,6 +13,34 @@ platform?
 
 ## New physical-test feedback
 
+### Desktop space usage — 19 September 2026
+
+Open: the installed Mac 0.1.9 chat view leaves roughly half a wide window
+empty while the message list and composer remain in a narrow left column.
+The submitted screenshot shows this in a private room with the call inactive.
+
+- Let the conversation workspace use the available width and height while
+  keeping individual message lines readable.
+- Make chat width adjustable; place the composer with the conversation and
+  use spare space deliberately when call, people or work panes are open.
+- Check wide monitors, ordinary laptop windows and live resizing, including
+  chat-only rooms and transitions into and out of calls. Accept on the actual
+  Mac and Linux clients with screenshots; a CSS change alone is not closure.
+
+### Mac screen-recording permission after upgrades — 19 September 2026
+
+Open release defect: after installing 0.1.9 over 0.1.7, screen capture was
+refused. Both bundles use ad-hoc signatures whose designated requirements are
+different code hashes. That prevents relying on macOS retaining permission
+across rebuilds. Removing and re-adding the app in Screen Recording is a
+recovery step, not an acceptable recurring update flow.
+
+Package with a stable Developer ID identity and notarisation, then prove an
+in-place upgrade preserves screen-capture consent on a real Mac. Neither this
+Mac nor M4 currently has a Developer ID Application identity in its signing
+keychain. Keep this gate separate from signature verification and build smoke
+tests, and include whole-screen, window and floating-area capture in acceptance.
+
 The [15 September feedback register](2026-09-15-testing-feedback.md) tracks
 notification interruption recovery, readable laptop video, clipboard files,
 attachment viewing, project/room notification preferences, upside-down iPhone

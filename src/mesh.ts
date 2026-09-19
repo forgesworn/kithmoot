@@ -559,6 +559,7 @@ export class Mesh {
   /** Staleness, deduplication and rate limiting - the three rules §3 of the
    *  design says signalling reuses from NIP-AC. */
   readonly #guard = new SignalGuard()
+  readonly #annotationGuard = new SignalGuard(480)
   readonly #now: () => number
   #tracks: MediaStreamTrack[] = []
   /** Who the tracks are for. Absent means everybody. See `publish`. */
@@ -2029,7 +2030,9 @@ export class Mesh {
     // Rate limiting last, and against the *sending device* rather than the
     // wrap's pubkey: every wrap is signed by a fresh ephemeral key, so the
     // only stable identity a budget can be held against is the one inside.
-    if (!this.#guard.admitSender(unwrapped.from, now)) return
+    if (unwrapped.body.type === 'annotation') {
+      if (!this.#annotationDevices.has(unwrapped.from) || !this.#annotationGuard.admitSender(unwrapped.from, now)) return
+    } else if (!this.#guard.admitSender(unwrapped.from, now)) return
 
     this.#diagnose({ kind: 'signal-received', device: unwrapped.from, detail: unwrapped.body.type })
 

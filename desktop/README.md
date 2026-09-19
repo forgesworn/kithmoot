@@ -102,3 +102,23 @@ Final archives:
 - macOS app ASAR SHA-256: `2deb459115f129fbbde6e8b0f8ba3151b2ff315f92a35f7d0f22208ef979cb59`.
 
 0.1.2 delivery: installed and signature/hash verified on both M1 and M4. M1 installation completed after the user confirmed the app was closed; its bundle version is 0.1.2 and its ASAR matches the tested candidate above. The checked installer and ZIP are retained on both Macs at `~/kithmoot-desktop-notifications-20260916`. The installer preserves 0.1.1 and refuses running or unexpected apps. The macOS and both Linux 0.1.2 archives were subsequently published as desktop previews at https://kithmoot.forgesworn.dev/downloads/ on 16 September 2026. Marketing source and release evidence live in the `kithmoot-desktop-downloads` worktree, branch `docs/desktop-downloads`. Versioned binaries are served from `/apk/desktop/0.1.2/`. The marketing-only release preserves the deployed PWA and Android APK. No commits or pushes were performed.
+
+
+## Mac signing and permission continuity
+
+Normal `npm run package:mac` now requires a Developer ID Application identity
+and a `notarytool` keychain profile. There is no silent ad-hoc fallback:
+ad-hoc designated requirements change between builds and macOS cannot rely on
+them to retain screen-recording consent across upgrades.
+
+Set `KITHMOOT_MAC_SIGNING_IDENTITY` to the full `Developer ID Application: ...`
+name, `KITHMOOT_MAC_NOTARY_PROFILE` to the existing notarytool credential profile,
+and, if needed, `KITHMOOT_MAC_SIGNING_KEYCHAIN` to its keychain path. The packager
+signs Electron's nested code with hardened runtime, submits the ZIP to Apple,
+requires Accepted status, staples and validates the ticket, and checks Gatekeeper
+before creating the public archive filename.
+
+For a disposable local build only, `KITHMOOT_MAC_LOCAL_PREVIEW=1 npm run package:mac`
+produces an explicitly named `-local-preview.zip`. Do not publish it as a normal
+Mac update. Developer ID signing still needs physical upgrade/capture acceptance;
+it cannot silently transfer a permission previously granted to an ad-hoc build.
