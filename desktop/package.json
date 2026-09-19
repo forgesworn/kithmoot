@@ -1,7 +1,7 @@
 {
   "name": "kithmoot-desktop",
   "productName": "KithMoot",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "KithMoot desktop preview",
   "author": "ForgeSworn",
@@ -20,8 +20,8 @@
     "prepackage:linux": "npm run build"
   },
   "devDependencies": {
-    "electron": "44.4.1",
-    "@electron/packager": "20.3.0"
+    "@electron/packager": "20.3.0",
+    "electron": "44.4.1"
   },
   "desktopName": "dev.forgesworn.kithmoot.desktop"
 }

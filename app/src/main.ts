@@ -1,3 +1,4 @@
+import { DesktopShareArea } from './share-area.js'
 import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
@@ -24,6 +25,7 @@ import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
+import { AttachmentViewer } from './attachment-viewer.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
@@ -256,9 +258,14 @@ const floatingSharePreview = new FloatingSharePreview({
   overlay: (video, shareId) => shareViewer.overlay(video, shareId),
   source: () => screenTrack ? screenSource(meParticipant, myDeviceId) : undefined,
 })
+const desktopShareArea = new DesktopShareArea({
+  overlay: (canvas, id) => shareViewer.areaOverlay(canvas, id),
+  draw: annotation => shareViewer.draw(annotation),
+  ended: () => screenTrack?.dispatchEvent(new Event('ended')),
+})
 const drawingNoticeGate = new DrawingNoticeGate()
 const emojiPicker = new EmojiPicker()
-window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close() })
+window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop() })
 let drafts = new ConversationDrafts()
 // Only this tab holds draft text and file keys. Switching rooms retains the
 // originating collection; closing the tab still discards it.
@@ -3360,6 +3367,7 @@ async function joinCall(): Promise<void> {
   const existing = s.calls()[0]
   leftCall = false
   await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
+  publishActiveTracks()
   setCallOpen(true)
   void callWakeLock.acquire()
   // Claiming the call for this device's key sends every other tab of this
@@ -3377,6 +3385,7 @@ async function joinCall(): Promise<void> {
 /** Everything of this device's that was live, off, and the previews with it.
  *  Shared by leaving a call and closing the room. */
 function stopLocalMedia(): void {
+  desktopShareArea.stop()
   micTrack?.removeEventListener('ended', onMicEnded)
   for (const track of activeTracks()) track.stop()
   mic?.stop()
@@ -4287,14 +4296,18 @@ setInterval(publishEffectStats, 500)
  */
 interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
   systemAudio?: 'include' | 'exclude'
+  windowAudio?: 'window' | 'system' | 'exclude'
   selfBrowserSurface?: 'include' | 'exclude'
   surfaceSwitching?: 'include' | 'exclude'
 }
 
-async function toggleScreen(): Promise<void> {
+let screenStarting = false
+async function toggleScreen(area = false): Promise<void> {
   const generation = roomGeneration
   if (switchingRoom) return
+  if (screenStarting) return
   if (screenTrack) {
+    desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
     screenAudioTrack?.stop()
@@ -4325,13 +4338,17 @@ async function toggleScreen(): Promise<void> {
     // the share still goes ahead, silently; see `updateScreenAudioNote`.
     const options: ScreenCaptureOptions = {
       video: true,
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true } as MediaTrackConstraints & { restrictOwnAudio: boolean },
       systemAudio: 'include',
+      windowAudio: 'window',
       selfBrowserSurface: 'exclude',
       surfaceSwitching: 'include',
     }
-    const stream = await navigator.mediaDevices.getDisplayMedia(options)
-    if (generation !== roomGeneration) { for (const track of stream.getTracks()) track.stop(); return }
+    screenStarting = true
+    let stream: MediaStream
+    try { stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options) }
+    finally { screenStarting = false }
+    if (generation !== roomGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
     if (screenTrack) {
@@ -4339,6 +4356,7 @@ async function toggleScreen(): Promise<void> {
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
         if (generation !== roomGeneration) return
+        desktopShareArea.stop()
         screenTrack = undefined
         screenAudioTrack?.stop()
         screenAudioTrack = undefined
@@ -4519,8 +4537,8 @@ function setAgentsMayHear(on: boolean): void {
  *  Stamped when the mic comes on, so a device that has held it since the
  *  start is not outranked by its owner's other device toggling later. */
 let micClaimedAt: number | undefined
-/** The linked device that most recently brought call media becomes the one
- * speaker. One open speaker per person breaks the nearby-device echo loop. */
+/** Listening is independent of capture. Only Listen here takes an existing
+ * speaker role away from another device. */
 let monitorClaimedAt: number | undefined
 /** Explicit escape hatch when a phone entered through the ordinary room link.
  * There is no safe way to infer physical proximity from room or network data,
@@ -4551,9 +4569,10 @@ function currentClaims(): Partial<Record<SingularRole, number>> {
     micClaimedAt ??= nowSeconds()
     claims.mic = micClaimedAt
   }
-  if (!besideAnotherDevice && (micTrack || cameraTrack || screenTrack)) {
-    monitorClaimedAt ??= nowSeconds()
-    claims.monitor = monitorClaimedAt
+  if (!besideAnotherDevice && (onCall() || micTrack || cameraTrack || screenTrack)) {
+    const owner = session?.participants().find(view => view.participant === meParticipant)?.monitor
+    if (monitorClaimedAt === undefined && (!owner || owner === myDeviceId)) monitorClaimedAt = nowSeconds()
+    if (monitorClaimedAt !== undefined) claims.monitor = monitorClaimedAt
   }
   return claims
 }
@@ -4576,7 +4595,6 @@ function toggleCompanionMode(): void {
  *  everybody else's tile reads to say "camera" or "connecting". */
 function publishActiveTracks(): void {
   if (!micTrack) micClaimedAt = undefined
-  if (!micTrack && !cameraTrack && !screenTrack) monitorClaimedAt = undefined
   session?.publishTracks(activeTracks(), { audience })
   session?.advertise(currentAdverts(), currentClaims()).catch(() => {})
   const s = session
@@ -4598,6 +4616,9 @@ function setToggle(id: string, on: boolean): void {
  *  moment the share ends, so it never outlives the share it is about. */
 function updateScreenAudioNote(): void {
   $('screenAudioNote').hidden = !screenTrack || !!screenAudioTrack
+  $('screenAudioNote').textContent = window.kithmootDesktop
+    ? 'No sound was captured. Check screen and system audio recording permissions, then restart sharing.'
+    : 'No sound is shared. To share sound, share a browser tab and tick Share tab audio.'
 }
 
 function updateUi(): void {
@@ -4605,6 +4626,8 @@ function updateUi(): void {
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  const areaButton = document.getElementById('shareArea') as HTMLButtonElement | null
+  if (areaButton) areaButton.disabled = !!screenTrack
   const share = $('toggleScreen')
   const sharing = !!screenTrack
   share.setAttribute('aria-label', sharing ? 'Stop screen sharing' : 'Screen share')
@@ -5546,6 +5569,7 @@ function muteRequested(by: string): void {
     stopped.push('camera')
   }
   if (screenTrack) {
+    desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
     screenAudioTrack?.stop()
@@ -5936,6 +5960,8 @@ type OpenedAttachment = { url: string; name: string; type: string; size: number;
  *  An object URL is revoked when its message leaves the log and never
  *  before, so a re-render costs nothing and never fetches twice. */
 const openedAttachments = new Map<string, OpenedAttachment>()
+const attachmentViewer = new AttachmentViewer()
+window.addEventListener('pagehide', () => attachmentViewer.close())
 
 function attachmentKey(logId: string, messageId: string, index: number): string {
   return `${logId}/${messageId}/${index}`
@@ -5953,7 +5979,7 @@ function pruneOpenedAttachments(logId: string, messages: ChatMessage[]): void {
   for (const m of messages) (m.attachments ?? []).forEach((_, i) => live.add(attachmentKey(logId, m.id, i)))
   for (const [key, opened] of openedAttachments) {
     if (!key.startsWith(`${logId}/`) || live.has(key)) continue
-    if ('url' in opened) URL.revokeObjectURL(opened.url)
+    if ('url' in opened) { attachmentViewer.closeUrl(opened.url); URL.revokeObjectURL(opened.url) }
     openedAttachments.delete(key)
   }
 }
@@ -5983,7 +6009,13 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
         const img = document.createElement('img')
         img.src = opened.url
         img.alt = opened.name
-        card.append(img)
+        const expand = document.createElement('button')
+        expand.type = 'button'
+        expand.className = 'attachmentImage'
+        expand.setAttribute('aria-label', `Expand ${opened.name}`)
+        expand.append(img)
+        expand.onclick = () => attachmentViewer.open(opened, expand)
+        card.append(expand)
       } else if (opened.type.startsWith('audio/') || opened.type.startsWith('video/')) {
         const player = document.createElement(opened.type.startsWith('audio/') ? 'audio' : 'video')
         player.controls = true
@@ -9657,6 +9689,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
 
 function resetRoomState(): void {
   for (const opened of openedAttachments.values()) if ('url' in opened) URL.revokeObjectURL(opened.url)
+  attachmentViewer.close()
   openedAttachments.clear()
   catalogues.clear()
   controlSeen.clear()
@@ -10305,8 +10338,9 @@ $('leaveCall').addEventListener('click', () => {
   leaveCall().catch((err) => setStatus(describeError(err)))
 })
 $('listenHere').addEventListener('click', () => {
+  try { monitorClaimedAt = session?.nextRoleClaim('monitor') ?? nowSeconds() }
+  catch (error) { setStatus(describeError(error)); return }
   besideAnotherDevice = false
-  monitorClaimedAt = nowSeconds()
   publishActiveTracks()
   updateUi()
 })
@@ -10689,6 +10723,14 @@ $('toggleMic').addEventListener('click', () => {
 $('toggleCamera').addEventListener('click', () => {
   toggleCamera().catch((err) => setStatus(describeError(err)))
 })
+if (window.kithmootDesktop?.supportsShareArea) {
+  const area = document.createElement('button')
+  area.id = 'shareArea'
+  area.className = 'toggle'
+  area.textContent = 'Share an area'
+  area.onclick = () => { toggleScreen(true).catch(showShareError) }
+  $('toggleScreen').after(area)
+}
 $('toggleScreen').addEventListener('click', () => {
   toggleScreen().catch(showShareError)
 })

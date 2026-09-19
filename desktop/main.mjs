@@ -1,3 +1,4 @@
+import { ShareArea, AREA_URL } from './share-area.mjs'
 import { app, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { extname, join, isAbsolute } from 'node:path'
@@ -22,6 +23,8 @@ const notices = new DesktopNotices({
   open: roomId => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); win.webContents.send('desktop:open-room', roomId) } },
 })
 let win
+const shareArea = new ShareArea(() => win)
+let configureDisplayCapture
 let callActive = false
 let powerBlock
 let localNetworkAllowed = false
@@ -30,6 +33,7 @@ const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 const trusted = (contents) => contents && contents === win?.webContents && isAppUrl(contents.getURL())
 
 function releaseCall() {
+  shareArea.close()
   callActive = false
   if (powerBlock !== undefined) powerSaveBlocker.stop(powerBlock)
   powerBlock = undefined
@@ -67,6 +71,7 @@ async function createWindow() {
       } catch { return new Response('Not found', { status: 404 }) }
     })
     ses.setPermissionCheckHandler((contents, permission, origin, details) => {
+      if (contents === shareArea.window?.webContents && ['media', 'display-capture'].includes(permission) && details.isMainFrame !== false) return true
       try { origin = new URL(origin).origin } catch { return false }
       if (permission === 'notifications') return origin === ORIGIN && (!contents || trusted(contents))
       if (origin !== ORIGIN || !trusted(contents) || details.isMainFrame === false) return false
@@ -75,6 +80,7 @@ async function createWindow() {
       return allowedPermissions.has(permission)
     })
     ses.setPermissionRequestHandler(async (contents, permission, callback, details) => {
+      if (contents === shareArea.window?.webContents && ['media', 'display-capture'].includes(permission) && details.isMainFrame !== false) return callback(true)
       if (!trusted(contents) || !isAppUrl(details.requestingUrl) || details.isMainFrame === false || (!allowedPermissions.has(permission) && !networkPermissions.has(permission))) return callback(false)
       try {
         if (permission === 'media' && process.platform === 'darwin' && !testProfile) {
@@ -96,20 +102,28 @@ async function createWindow() {
         callback(true)
       } catch { callback(false) }
     })
-    ses.setDisplayMediaRequestHandler(async (request, callback) => {
-      if (!request.frame || request.frame !== win?.webContents.mainFrame || !isAppUrl(request.frame.url) || !request.userGesture) return callback({})
+    configureDisplayCapture = (area = false) => ses.setDisplayMediaRequestHandler(async (request, callback) => {
+      const areaFrame = area && request.frame === shareArea.window?.webContents.mainFrame
+      const mainFrame = request.frame === win?.webContents.mainFrame && isAppUrl(request.frame?.url ?? '')
+      if (!request.frame || !(areaFrame || mainFrame) || !request.userGesture) return callback({})
+      if (area) {
+        configureDisplayCapture()
+        try { await shareArea.capture(request, callback) } catch { callback({}) }
+        return
+      }
       try {
         const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 120, height: 75 } })
         let answered = false
         const finish = (selection) => { if (!answered) { answered = true; callback(selection) } }
         const menu = Menu.buildFromTemplate([
           { label: 'Choose what to share', enabled: false },
-          ...sources.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => finish({ video: source }) })),
+          ...sources.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => finish({ video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) }) })),
           { type: 'separator' }, { label: 'Cancel', click: () => finish({}) },
         ])
         menu.popup({ window: win, callback: () => finish({}) })
       } catch { callback({}) }
-    }, { useSystemPicker: true })
+    }, { useSystemPicker: !area })
+    configureDisplayCapture()
     ses.on('will-download', (_event, item) => {
       // Chromium's save dialog provides a destination for attachments.
       item.setSaveDialogOptions({ title: 'Save attachment' })
@@ -132,11 +146,12 @@ async function createWindow() {
   // in the packaged app while it worked in a tab. An empty window inherits
   // this window's own sandbox and preload, and carries no remote content.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (windowOpenAction(url) === 'own-window') {
+    if (url === AREA_URL || windowOpenAction(url) === 'own-window') {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
           title: 'KithMoot', backgroundColor: '#101114', autoHideMenuBar: true,
+          ...(url === AREA_URL ? { transparent: true, backgroundColor: '#00000000', frame: false, alwaysOnTop: true, hasShadow: false, resizable: false, minWidth: 320, minHeight: 200 } : {}),
           webPreferences: {
             session: ses, preload: join(here, 'preload.cjs'),
             nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
@@ -148,6 +163,7 @@ async function createWindow() {
     void external(url)
     return { action: 'deny' }
   })
+  win.webContents.on('did-create-window', (child, details) => { if (details.url === AREA_URL) shareArea.attach(child) })
   win.webContents.on('will-navigate', (event, url) => {
     if (!isAppUrl(url)) { event.preventDefault(); void external(url) }
   })
@@ -173,6 +189,9 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', () => { if (win) { win.restore(); win.show(); win.focus() } })
   app.whenReady().then(async () => {
+    ipcMain.handle('desktop:area-arm', event => { if (!trusted(event.sender) || !shareArea.window) return false; configureDisplayCapture(true); return true })
+    ipcMain.handle('desktop:area-state', event => trusted(event.sender) ? shareArea.state() : null)
+    ipcMain.on('desktop:area-action', (event, action, value) => { if (trusted(event.sender)) { shareArea.action(action, value); if (action === 'close') configureDisplayCapture() } })
     ipcMain.on('desktop:unread', (event, count) => {
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || !Number.isSafeInteger(count) || count < 0 || count > 1_000_000) return
       unreadCount = count

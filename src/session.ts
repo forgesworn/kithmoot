@@ -7,7 +7,7 @@ import { hexEquals, normaliseHex } from './hex.js'
 import type { ParticipantIdentity } from './identity.js'
 import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
 import { sanitiseDisplayName } from './display-name.js'
-import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid } from './roster.js'
+import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
 import { evaluateAccess, evaluateAgentAccess } from './access.js'
@@ -1426,6 +1426,20 @@ export class RoomSession {
     if (!this.#self || this.#left) return
     this.#self = { ...this.#self, tracks, claims }
     await this.#publishEntry(true)
+  }
+
+  /** A deliberate role handover must beat an observed claim even when both
+   * clicks happen within one protocol-clock second. Keep the value inside
+   * the same skew limit receivers enforce. */
+  nextRoleClaim(role: SingularRole): number {
+    this.#evictLapsed()
+    const now = this.#now()
+    let latest = this.#self?.claims[role] ?? 0
+    for (const entry of this.#entries.values()) {
+      if (entry.participant === this.participant) latest = Math.max(latest, entry.claims[role] ?? 0)
+    }
+    if (latest >= now + MAX_FUTURE_SKEW_SECONDS) throw new Error('Device clocks disagree. Wait a moment and try the handover again.')
+    return Math.max(now, Math.floor(latest) + 1)
   }
 
   get requestReceipts(): boolean { return this.#opts.agent === true && this.#opts.requestReceipts === true }

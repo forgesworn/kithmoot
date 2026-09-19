@@ -102,6 +102,26 @@ export class ShareViewer {
     this.#marks.remember(annotation, author)
   }
 
+  draw(annotation: ScreenAnnotation): void {
+    this.#marks.remember(annotation, this.#myAuthor())
+    this.#opts.onAnnotation?.(annotation)
+  }
+
+  areaOverlay(canvas: HTMLCanvasElement, shareId: () => string | undefined): () => void {
+    const paint = () => {
+      const id = shareId()
+      const rect = canvas.getBoundingClientRect()
+      canvas.width = Math.max(1, Math.round(rect.width))
+      canvas.height = Math.max(1, Math.round(rect.height))
+      paintMarks(canvas, id ? this.#marks.alive(id) : [])
+    }
+    const observer = new ResizeObserver(paint)
+    observer.observe(canvas)
+    const unsubscribe = this.#marks.subscribe(paint)
+    paint()
+    return () => { observer.disconnect(); unsubscribe() }
+  }
+
   /**
    * Paint the marks for a share over a preview of it, wherever that preview
    * is: the sharer's own tile above all, because a mark is drawn for the
@@ -213,6 +233,16 @@ export class ShareViewer {
     let dragging: { id: number; x: number; y: number } | undefined
     let drawing = false
     let stroke: AnnotationPoint[] | undefined
+    let lastStrokeSent = 0
+    const flushStroke = () => {
+      const shareId = this.#source?.()?.id
+      if (!shareId || !stroke || stroke.length < 2) return
+      const annotation: ScreenAnnotation = { op: 'stroke', shareId, strokeId: crypto.randomUUID(), points: [...stroke] }
+      this.#marks.remember(annotation, this.#myAuthor())
+      this.#opts.onAnnotation?.(annotation)
+      stroke = [stroke.at(-1)!]
+      lastStrokeSent = performance.now()
+    }
     const fingers = new Map<number, { x: number; y: number }>()
     let pinchDistance = 0
     const makeButton = (label: string, action: () => void) => {
@@ -227,7 +257,7 @@ export class ShareViewer {
       drawing = !drawing
       draw.setAttribute('aria-pressed', String(drawing))
       viewport.classList.toggle('drawing', drawing)
-      notice.textContent = drawing ? 'Draw on the shared screen. The person sharing sees each line when you lift your finger, and it fades after a couple of seconds.' : 'Scroll or use + and − to zoom. Drag to move around.'
+      notice.textContent = drawing ? 'Draw on the shared screen. Everyone sees your drawing as you move. Marks fade after a couple of seconds.' : 'Scroll or use + and − to zoom. Drag to move around.'
     })
     draw.setAttribute('aria-pressed', 'false')
     const clear = makeButton('Clear marks', () => {
@@ -283,6 +313,7 @@ export class ShareViewer {
       if (drawing && track) {
         const rect = stage.getBoundingClientRect()
         stroke = [{ x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) }]
+        lastStrokeSent = 0
         dragging = { id: event.pointerId, x: 0, y: 0 }
         viewport.setPointerCapture(event.pointerId); event.preventDefault(); viewport.focus(); renderAnnotations(); return
       }
@@ -299,6 +330,7 @@ export class ShareViewer {
         const point = { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) }
         const last = stroke.at(-1)!
         if (stroke.length < 128 && Math.hypot(point.x - last.x, point.y - last.y) > 0.002) stroke.push(point)
+        if (performance.now() - lastStrokeSent >= 50 || stroke.length >= 128) flushStroke()
         renderAnnotations(); return
       }
       if (fingers.has(event.pointerId)) fingers.set(event.pointerId, { x: event.clientX, y: event.clientY })
@@ -313,12 +345,8 @@ export class ShareViewer {
     })
     const finishStroke = () => {
       if (drawing && stroke) {
-        const points = stroke; stroke = undefined
-        const shareId = this.#source?.()?.id
-        if (shareId && points.length > 1) {
-          const annotation: ScreenAnnotation = { op: 'stroke', shareId, strokeId: crypto.randomUUID(), points }
-          this.#marks.remember(annotation, this.#myAuthor()); this.#opts.onAnnotation?.(annotation)
-        }
+        flushStroke()
+        stroke = undefined
         renderAnnotations()
       }
       fingers.clear(); dragging = undefined; pinchDistance = 0

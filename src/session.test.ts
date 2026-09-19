@@ -1923,3 +1923,24 @@ describe('two page sessions of one device key', () => {
     observer.leave()
   })
 })
+
+
+describe('explicit listening handover', () => {
+  it('takes the role back without local tracks or advancing the wall clock', async () => {
+    const relay = new SimRelay()
+    const participantSk = generateSecretKey()
+    const create = () => new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(participantSk), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    const phone = create(), laptop = create()
+    try {
+      await phone.join([], { monitor: NOW })
+      await laptop.join([], {})
+      await settle()
+      await laptop.advertise([], { monitor: laptop.nextRoleClaim('monitor') })
+      await settle()
+      expect(phone.participants().find(view => view.participant === phone.participant)?.monitor).toBe(laptop.device)
+      await phone.advertise([], { monitor: phone.nextRoleClaim('monitor') })
+      await settle()
+      expect(laptop.participants().find(view => view.participant === phone.participant)?.monitor).toBe(phone.device)
+    } finally { await phone.leave(); await laptop.leave() }
+  })
+})
