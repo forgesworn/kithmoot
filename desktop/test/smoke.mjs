@@ -40,8 +40,8 @@ try {
   expect(state.notifications).not.toBe('denied')
   expect(await page.evaluate(() => window.kithmootDesktop.updateState())).toEqual({ phase: packaged ? 'idle' : 'disabled' })
   expect(await page.evaluate(() => window.kithmootDesktop.installUpdate())).toBe(false)
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('desktop:update-state', { phase: 'ready', version: '0.1.12' }))
-  await expect(page.locator('#updateNotice')).toContainText('KithMoot 0.1.12 is ready')
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('desktop:update-state', { phase: 'ready', version: '0.1.13' }))
+  await expect(page.locator('#updateNotice')).toContainText('KithMoot 0.1.13 is ready')
   await page.locator('#updateApp').click()
   await expect(page.locator('#updateApp')).toHaveText('Try updating again')
   // Exercise the real native frame without capturing the user's desktop.
