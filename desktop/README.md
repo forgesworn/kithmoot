@@ -124,3 +124,17 @@ For a disposable local build only, `KITHMOOT_MAC_LOCAL_PREVIEW=1 npm run package
 produces an explicitly named `-local-preview.zip`. Do not publish it as a normal
 Mac update. Developer ID signing still needs physical upgrade/capture acceptance;
 it cannot silently transfer a permission previously granted to an ad-hoc build.
+
+## Automatic Mac updates
+
+Signed Apple Silicon builds check the static Squirrel.Mac feed at
+`/downloads/updates/darwin/arm64/RELEASES.json`. Electron downloads the ZIP in
+the background, verifies its declared SHA-256 and size, and requires the new app
+to satisfy the running app's code-signing requirement. KithMoot asks before
+restarting and uses the same unfinished-work and active-call gates as PWA
+updates. Development builds and Linux builds keep the updater disabled.
+
+Every Mac release must update `site/downloads/release.json`, its archive and the
+static feed together. `npm test` in this directory refuses version, URL, size or
+digest drift. The first updater-capable release still needs a manual install;
+automatic delivery starts with the following signed release.

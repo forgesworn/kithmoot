@@ -21,4 +21,11 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
   setCallActive(active) {
     if (typeof active === 'boolean') ipcRenderer.send('desktop:call-state', active)
   },
+  updateState() { return ipcRenderer.invoke('desktop:update-state') },
+  installUpdate() { return ipcRenderer.invoke('desktop:update-install') },
+  onUpdateState(listener) {
+    const handler = (_event, state) => listener(state)
+    ipcRenderer.on('desktop:update-state', handler)
+    return () => ipcRenderer.removeListener('desktop:update-state', handler)
+  },
 }))

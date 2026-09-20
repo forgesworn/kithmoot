@@ -1,5 +1,6 @@
 import { ShareArea, AREA_URL } from './share-area.mjs'
-import { app, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification } from 'electron'
+import { createDesktopUpdater } from './updater.mjs'
+import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,6 +24,11 @@ const notices = new DesktopNotices({
   open: roomId => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); win.webContents.send('desktop:open-room', roomId) } },
 })
 let win
+const updates = createDesktopUpdater({
+  autoUpdater, platform: process.platform, arch: process.arch, packaged: app.isPackaged,
+  notify: state => win?.webContents.send('desktop:update-state', state),
+  log: error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error'),
+})
 const shareArea = new ShareArea(() => win)
 let configureDisplayCapture
 let callActive = false
@@ -191,6 +197,8 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     ipcMain.handle('desktop:area-arm', event => { if (!trusted(event.sender) || !shareArea.window) return false; configureDisplayCapture(true); return true })
     ipcMain.handle('desktop:area-state', event => trusted(event.sender) ? shareArea.state() : null)
+    ipcMain.handle('desktop:update-state', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame ? updates.state() : { phase: 'disabled' })
+    ipcMain.handle('desktop:update-install', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame && !callActive ? updates.install() : false)
     ipcMain.on('desktop:area-action', (event, action, value) => { if (trusted(event.sender)) { shareArea.action(action, value); if (action === 'close') configureDisplayCapture() } })
     ipcMain.on('desktop:unread', (event, count) => {
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || !Number.isSafeInteger(count) || count < 0 || count > 1_000_000) return
@@ -215,7 +223,7 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
       { role: 'windowMenu' },
       { label: 'Help', submenu: [{ label: 'About this preview', click: () => dialog.showMessageBox(win, {
-        message: `KithMoot desktop ${app.getVersion()}`, detail: 'Desktop preview. Updates are installed manually. Sign in here using your Nostr account or remote signer; browser extensions are not available. Calls, messages and room sync use the same KithMoot protocol.',
+        message: `KithMoot desktop ${app.getVersion()}`, detail: 'Desktop preview. Signed Mac updates download quietly and wait for you to approve a safe restart; Linux updates remain manual. Sign in here using your Nostr account or remote signer; browser extensions are not available. Calls, messages and room sync use the same KithMoot protocol.',
       }) }] },
     ]))
     // The share pop-out is a window of ours the app writes into, so it never
@@ -232,6 +240,7 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       contents.on('will-attach-webview', event => event.preventDefault())
     })
     await createWindow()
+    updates.start()
     app.on('activate', () => { if (!win) void createWindow() })
   }).catch(error => { console.error('Desktop startup failed:', error.message); app.exit(1) })
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
