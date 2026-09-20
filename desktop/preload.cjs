@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
-  supportsShareArea: process.platform === 'darwin',
+  supportsShareArea: ['darwin', 'win32'].includes(process.platform),
   armShareArea() { return ipcRenderer.invoke('desktop:area-arm') },
   shareAreaState() { return ipcRenderer.invoke('desktop:area-state') },
   shareAreaAction(action, value) { ipcRenderer.send('desktop:area-action', action, value) },

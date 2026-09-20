@@ -17,7 +17,9 @@
     "setup": "install-electron",
     "prepackage:mac": "npm run build",
     "package:linux": "node scripts/package-linux.mjs",
-    "prepackage:linux": "npm run build"
+    "prepackage:linux": "npm run build",
+    "package:windows": "node scripts/package-windows.mjs",
+    "prepackage:windows": "npm run build"
   },
   "devDependencies": {
     "@electron/osx-sign": "2.7.0",

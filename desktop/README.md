@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.12.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.12.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -16,9 +16,12 @@ npm run test:smoke --prefix desktop
 npx playwright test --config desktop/playwright.config.ts
 npm run package:mac --prefix desktop
 npm run package:linux --prefix desktop
+npm run package:windows --prefix desktop
 ```
 
 Open `desktop/out/KithMoot-darwin-arm64/KithMoot.app`, or copy it to `~/Applications`.
+
+The Windows build is a portable `KithMoot-<version>-windows-x64.zip`. Extract the whole archive and open `KithMoot.exe`. It is currently unsigned, has manual updates and may be reported as an unknown publisher or refused by local Windows security policy. Building the archive on macOS verifies the x64 PE executable and packaged ASAR; it is not clean-machine Windows acceptance.
 The ZIP alongside it is the same app for another Apple Silicon Mac.
 
 ## Behaviour
