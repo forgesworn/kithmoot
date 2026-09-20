@@ -6,10 +6,14 @@ import { areaRect } from './share-area-geometry.mjs'
 export class ShareArea {
   window
   display
+  releaseOwnerFront
   constructor(owner) { this.owner = owner }
   attach(window) {
     this.close()
     this.window = window
+    // A window opened by the renderer is otherwise a native child of the main
+    // window on macOS. Detach it so either window can be deliberately raised.
+    window.setParentWindow(null)
     window.setAlwaysOnTop(true, 'screen-saver')
     if (process.platform === 'darwin') window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     const report = () => this.owner()?.webContents.send('desktop:area-state', this.state())
@@ -41,6 +45,7 @@ export class ShareArea {
     const window = this.window
     if (!window || window.isDestroyed()) return
     if (action === 'close') return this.close()
+    if (action === 'owner') return this.showOwner()
     if (action === 'passthrough' && typeof value === 'boolean') window.setIgnoreMouseEvents(value, { forward: true })
     if (action === 'bounds' && value && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))) {
       window.setBounds({ x: Math.max(-32000, Math.min(32000, Math.round(value.x))), y: Math.max(-32000, Math.min(32000, Math.round(value.y))), width: Math.max(460, Math.min(8000, Math.round(value.width))), height: Math.max(200, Math.min(8000, Math.round(value.height))) })
@@ -49,5 +54,39 @@ export class ShareArea {
       window.setSize(Math.max(460, Math.min(8000, Math.round(value.width))), Math.max(200, Math.min(8000, Math.round(value.height))))
     }
   }
-  close() { const window = this.window; this.window = undefined; this.display = undefined; if (window && !window.isDestroyed()) window.close() }
+  showOwner() {
+    const window = this.window
+    const owner = this.owner()
+    if (!window || window.isDestroyed() || !owner || owner.isDestroyed()) return
+    this.releaseOwnerFront?.()
+    if (owner.isMinimized()) owner.restore()
+    owner.show()
+    // Give the call window the same native level briefly so it can sit above
+    // the capture frame while the person uses it. The frame retakes the front
+    // as soon as they return to another app.
+    owner.setAlwaysOnTop(true, 'screen-saver')
+    owner.moveTop()
+    owner.focus()
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      owner.removeListener('blur', release)
+      this.releaseOwnerFront = undefined
+      if (!owner.isDestroyed()) owner.setAlwaysOnTop(false)
+      if (this.window === window && !window.isDestroyed()) {
+        window.setAlwaysOnTop(true, 'screen-saver')
+        window.moveTop()
+      }
+    }
+    this.releaseOwnerFront = release
+    owner.once('blur', release)
+  }
+  close() {
+    this.releaseOwnerFront?.()
+    const window = this.window
+    this.window = undefined
+    this.display = undefined
+    if (window && !window.isDestroyed()) window.close()
+  }
 }
