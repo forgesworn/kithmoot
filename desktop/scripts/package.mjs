@@ -3,7 +3,7 @@ import { sign } from '@electron/osx-sign'
 import { macSigningConfig } from './mac-signing.mjs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const signing = macSigningConfig()
@@ -53,6 +53,7 @@ for (const path of paths) {
   if (spawnSync('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', bundle, zip], { stdio: 'inherit' }).status) throw new Error('ZIP failed')
   if (!signing.localPreview) {
     const submitted = spawnSync('xcrun', ['notarytool', 'submit', zip, '--keychain-profile', signing.profile, '--wait', '--output-format', 'json'], { encoding: 'utf8' })
+    await writeFile(resolve(assets, `notarisation-${version}.json`), submitted.stdout || JSON.stringify({ error: submitted.stderr, status: submitted.status }))
     if (submitted.status || JSON.parse(submitted.stdout).status !== 'Accepted') throw new Error('Apple did not accept notarisation. The archive must not be published.')
     for (const args of [['stapler', 'staple', bundle], ['stapler', 'validate', bundle]]) {
       if (spawnSync('xcrun', args, { stdio: 'inherit' }).status) throw new Error('Notarisation ticket verification failed')

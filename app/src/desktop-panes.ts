@@ -64,20 +64,6 @@ export const ROOM_GUTTER_PX = 48
  *  plenty. Mirrored by the `32%` in `--chat-w`. */
 export const CHAT_PREFERRED_FRACTION = 0.32
 
-/**
- * A line of text worth reading, and the widest the conversation is ever
- * drawn as one column. Mirrored by `--chat-read` in desktop.css.
- *
- * The drawer had one job too many. With a call beside it, a column at the
- * right of the window is exactly right. With nothing beside it - no call,
- * no faces - it stayed a 300px strip against 1150px of empty window, and
- * messages wrapped at three or four words a line while the room they could
- * have used sat black. So the drawer is a drawer only while something is
- * actually showing beside it, and otherwise it is the main column, capped
- * here rather than run out to a 1500px line nobody can read either.
- */
-export const CHAT_READING_WIDTH_PX = 860
-
 /** CSS `clamp()`, exactly - including that the floor wins outright when it
  *  is above the ceiling, which is how a minimum that cannot be met still
  *  produces a number rather than a negative box. */
@@ -116,11 +102,11 @@ export function chatDrawerWidth(roomWidth: number): number {
  * The conversation's width when it is the main column - nothing showing
  * beside it - inside a room area of `roomWidth`.
  *
- * Whichever is smaller, so a narrow window gives it everything and a wide
- * one gives it a readable line and leaves the rest alone.
+ * Use the available room width. Individual messages have their own reading
+ * width limit; the scroll area and composer must resize with the window.
  */
 export function chatColumnWidth(roomWidth: number): number {
-  return Math.max(0, Math.min(roomWidth, CHAT_READING_WIDTH_PX))
+  return Math.max(0, roomWidth)
 }
 
 /** Whether the conversation is a drawer at the side or the main column.

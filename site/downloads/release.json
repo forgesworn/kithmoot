@@ -5,18 +5,18 @@
   "files": [
     {
       "filename": "KithMoot-0.1.10-mac-arm64.zip",
-      "sha256": "67167987f53eda6d94e78248c2fd20d708574f8bbe20be8cdd4795abda3674ee",
-      "bytes": 138890456
+      "sha256": "741853e43a1b12a48895a5518a29a5b2b4efcd99019fa196542b9b7e64d671a3",
+      "bytes": 138893653
     },
     {
       "filename": "KithMoot-0.1.10-linux-x64.tar.gz",
-      "sha256": "7c1be1f24676a09b9449457b94ab750b684ffb4eaa4ae893d63724375d9b07d6",
-      "bytes": 131343335
+      "sha256": "1a40fc528d136a5f2d64c13eb96b3998831ebfd1e3aea5e45ea4e590271565a2",
+      "bytes": 131349195
     },
     {
       "filename": "KithMoot-0.1.10-linux-arm64.tar.gz",
-      "sha256": "8696abe27cf134a665a7ba5a2ae8b6f00f1181a07e7bb5359762c78a22735cad",
-      "bytes": 132461080
+      "sha256": "6307919c1d35519924244e20138435de23b50a47d62cf717f597bb16ce9cc16a",
+      "bytes": 132467526
     }
   ]
 }

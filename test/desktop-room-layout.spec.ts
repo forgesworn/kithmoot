@@ -431,8 +431,8 @@ test('an empty call pane costs nothing, the call control says what it does, and 
  * below the drawer's breakpoint the conversation is simply the page.
  *
  * So a drawer is a drawer only while something is showing beside it. With
- * nothing beside it, it is the main column - capped at a line worth
- * reading, and starting where the eye already starts.
+ * nothing beside it, it is the main column and fills the available room.
+ * Individual messages retain their reading-width limit.
  */
 
 /** How many lines a piece of text actually occupies, which is the thing
@@ -471,13 +471,17 @@ test('with nothing beside it the conversation is the main column, not a strip', 
     await expect(rows).toHaveCount(24, { timeout: 60_000 })
 
     const log = page.locator('#chatLog')
-    for (const size of [{ width: 1744, height: 850 }, { width: 1320, height: 880 }]) {
+    for (const size of [{ width: 1920, height: 1120 }, { width: 1744, height: 850 }, { width: 1320, height: 880 }, { width: 1100, height: 700 }]) {
       await page.setViewportSize(size)
       await page.waitForTimeout(200)
       const label = `${size.width}x${size.height}, Chat only`
       const room = await boxOf(page.locator('#roomArea'))
       const column = await boxOf(log)
       expect(column.width, `${label}: the message column is ${column.width.toFixed(0)}px wide`).toBeGreaterThanOrEqual(600)
+      expect(column.width, `${label}: chat must use the available room width`).toBeGreaterThanOrEqual(room.width - 4)
+      const composer = await boxOf(page.locator('#chatInput'))
+      expect(composer.x + composer.width, `${label}: composer must reach the room edge`).toBeGreaterThanOrEqual(room.x + room.width - 4)
+      expect(composer.y + composer.height, `${label}: composer must stay in the window`).toBeLessThanOrEqual(size.height)
       // Left-aligned, so the window is not a column adrift in empty black.
       const gap = column.x - room.x
       expect(gap, `${label}: ${gap.toFixed(0)}px of empty room to the left of the conversation, of ${room.width.toFixed(0)}px`).toBeLessThan(room.width * 0.15)
@@ -495,14 +499,23 @@ test('with nothing beside it the conversation is the main column, not a strip', 
     await log.evaluate(el => { el.scrollTop = Math.round(el.scrollHeight / 3) })
     const before = await log.evaluate(el => el.scrollTop)
     expect(before, 'the log never scrolled, so keeping its position proves nothing').toBeGreaterThan(10)
+    const readingAnchor = await log.evaluate(el => {
+      const edge = el.getBoundingClientRect().top
+      const row = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(row => row.getBoundingClientRect().bottom > edge)!
+      return { id: row.dataset.messageId!, offset: row.getBoundingClientRect().top - edge }
+    })
+    const readingOffset = () => log.evaluate((el, id) => {
+      const row = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]')).find(row => row.dataset.messageId === id)!
+      return row.getBoundingClientRect().top - el.getBoundingClientRect().top
+    }, readingAnchor.id)
     await page.locator('#openAssignments').click()
     await expect(page.locator('#assignmentPanel')).toBeVisible()
     await page.waitForTimeout(300)
-    expect(Math.abs(await log.evaluate(el => el.scrollTop) - before), 'opening Shared Work moved the reader').toBeLessThanOrEqual(2)
+    expect(Math.abs(await readingOffset() - readingAnchor.offset), 'opening Shared Work moved the visible reading anchor').toBeLessThanOrEqual(2)
     await page.locator('#assignmentClose').click()
     await expect(page.locator('#assignmentPanel')).toBeHidden()
     await page.waitForTimeout(300)
-    expect(Math.abs(await log.evaluate(el => el.scrollTop) - before), 'closing Shared Work moved the reader').toBeLessThanOrEqual(2)
+    expect(Math.abs(await readingOffset() - readingAnchor.offset), 'closing Shared Work moved the visible reading anchor').toBeLessThanOrEqual(2)
     await expect(page.locator('#chatInput')).toHaveValue('Half a thought, still being written')
 
     // A picture puts something beside it, and the drawer is right again.

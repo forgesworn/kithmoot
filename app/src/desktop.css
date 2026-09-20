@@ -12,7 +12,6 @@ html[data-desktop] {
   --call-min: 240px;          /* CALL_MIN_WIDTH_PX */
   --work-max: 28rem;          /* WORK_MAX_PX */
   --work-min: 20rem;          /* WORK_MIN_PX */
-  --chat-read: 860px;         /* CHAT_READING_WIDTH_PX */
   --rail-w: 13rem;            /* RAIL_WIDTH_PX */
   --room-gutter: 3rem;        /* ROOM_GUTTER_PX: the window's own padding, both sides, plus the grid gap */
   /* Shared Work is the panel that gives way. It asks for 28rem and gets
@@ -118,25 +117,14 @@ html[data-desktop] #chatDrawerToggle { display: none; }
      has a picture in it, so neither is worth a column: the pane is a strip
      across the top and the conversation is the main column beneath it.
 
-     And in that column it stops being a drawer at all. A drawer is right
-     beside a call. Beside nothing it was a ~300px strip against a window of
-     empty black, wrapping messages at three or four words a line while the
-     room they could have used sat unused. So it is capped at a line worth
-     reading and left-aligned - the same place the eye starts in the narrow
-     layout, rather than a column that moves to the middle of the window
-     when Shared Work closes. */
+     With no pictures beside it, the conversation uses the available room
+     width. Message bubbles already have their own readable maximum in
+     style.css; capping this whole panel left the composer and scroll area
+     stranded in half of a wide desktop window. */
   html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopRoomContent {
     flex-direction: column;
-    max-width: var(--chat-read);
-    margin-right: auto;
-  }
-  /* The notices that sit directly above the conversation belong to the same
-     column. Left at the window's full width they read as a banner across
-     the top of something else entirely, with the conversation stopping
-     halfway under them. The room's own bar is not in this list: it is the
-     window's bar and it spans the window. */
-  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) #roomArea > :is(#callBanner, #agentActivity, #workAttention, #presenceNotice, #sharerMarksNotice, .conversationNav) {
-    max-width: var(--chat-read);
+    width: 100%;
+    max-width: none;
   }
   html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopRoomContent #callStage {
     flex: 0 0 auto;

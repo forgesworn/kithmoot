@@ -4,7 +4,7 @@
 // test/desktop-room-layout.spec.ts; this pins the arithmetic they mirror.
 import { expect, test } from 'vitest'
 import {
-  CALL_MIN_WIDTH_PX, CHAT_MIN_WIDTH_PX, CHAT_READING_WIDTH_PX, RAIL_COLLAPSED_PX, WORK_MAX_PX, WORK_MIN_PX,
+  CALL_MIN_WIDTH_PX, CHAT_MIN_WIDTH_PX, RAIL_COLLAPSED_PX, WORK_MAX_PX, WORK_MIN_PX,
   callPaneWidth, chatColumnWidth, chatDrawerWidth, chatIsDrawer, roomAreaWidth, workPanelWidth,
 } from './desktop-panes.js'
 
@@ -59,10 +59,10 @@ test('with nothing beside it the conversation is the main column, not a strip', 
   // drawer at about 300px and the middle 1150px black.
   const wide = roomAreaWidth(1744, { work: false })
   expect(chatIsDrawer(false)).toBe(false)
-  expect(chatColumnWidth(wide)).toBe(CHAT_READING_WIDTH_PX)
+  expect(chatColumnWidth(wide)).toBe(wide)
   expect(chatColumnWidth(wide)).toBeGreaterThan(600)
-  // And it is not allowed to become a 1500px line either.
-  expect(chatColumnWidth(wide)).toBeLessThanOrEqual(CHAT_READING_WIDTH_PX)
+  // The screenshot regression: growing the window must grow the panel.
+  expect(chatColumnWidth(roomAreaWidth(1920, { work: false }))).toBeGreaterThan(chatColumnWidth(wide))
 })
 
 test('a narrow room gives the main column everything it has', () => {

@@ -10,6 +10,8 @@ export class ShareArea {
   attach(window) {
     this.close()
     this.window = window
+    window.setAlwaysOnTop(true, 'screen-saver')
+    if (process.platform === 'darwin') window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     const report = () => this.owner()?.webContents.send('desktop:area-state', this.state())
     window.on('move', report)
     window.on('resize', report)
@@ -25,11 +27,13 @@ export class ShareArea {
   }
   async capture(request, callback) {
     if (!this.window || this.window.isDestroyed()) return callback({})
-    this.display = screen.getDisplayMatching(this.window.getBounds())
+    const window = this.window
+    this.display = screen.getDisplayMatching(window.getBounds())
+    const display = this.display
     if (!this.state()) return callback({})
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
-    const source = sources.find(item => item.display_id === String(this.display.id))
-    if (!source || !this.window || this.window.isDestroyed()) return callback({})
+    const source = sources.find(item => item.display_id === String(display.id))
+    if (!source || this.window !== window || window.isDestroyed() || this.display !== display || !this.state()) return callback({})
     this.owner()?.webContents.send('desktop:area-state', this.state())
     callback({ video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) })
   }
@@ -38,8 +42,11 @@ export class ShareArea {
     if (!window || window.isDestroyed()) return
     if (action === 'close') return this.close()
     if (action === 'passthrough' && typeof value === 'boolean') window.setIgnoreMouseEvents(value, { forward: true })
+    if (action === 'bounds' && value && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))) {
+      window.setBounds({ x: Math.max(-32000, Math.min(32000, Math.round(value.x))), y: Math.max(-32000, Math.min(32000, Math.round(value.y))), width: Math.max(460, Math.min(8000, Math.round(value.width))), height: Math.max(200, Math.min(8000, Math.round(value.height))) })
+    }
     if (action === 'resize' && value && Number.isFinite(value.width) && Number.isFinite(value.height)) {
-      window.setSize(Math.max(320, Math.min(8000, Math.round(value.width))), Math.max(200, Math.min(8000, Math.round(value.height))))
+      window.setSize(Math.max(460, Math.min(8000, Math.round(value.width))), Math.max(200, Math.min(8000, Math.round(value.height))))
     }
   }
   close() { const window = this.window; this.window = undefined; this.display = undefined; if (window && !window.isDestroyed()) window.close() }

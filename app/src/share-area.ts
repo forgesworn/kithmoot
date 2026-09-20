@@ -28,11 +28,31 @@ export class DesktopShareArea {
     const doc = popup.document
     doc.title = 'Sharing area'
     const style = doc.createElement('style')
-    style.textContent = `html,body{margin:0;width:100%;height:100%;background:transparent!important;overflow:hidden;color:white;font:13px sans-serif}body{box-sizing:border-box;border:6px solid #4ecbff}header{height:36px;display:flex;align-items:center;gap:8px;padding-right:24px;background:#101114;-webkit-app-region:drag}button{padding:4px 10px;-webkit-app-region:no-drag}header span{flex:1}canvas{position:absolute;left:6px;top:42px;width:calc(100% - 12px);height:calc(100% - 48px);touch-action:none}#resize{position:absolute;top:6px;right:6px;width:22px;height:36px;cursor:nwse-resize;background:#4ecbff}`
+    style.textContent = `
+      html,body{margin:0;width:100%;height:100%;background:transparent!important;overflow:hidden;color:white;font:13px sans-serif}
+      body{box-sizing:border-box;border:8px solid #4ecbff}
+      header{height:44px;display:flex;align-items:center;gap:8px;padding:0 24px;background:#101114;-webkit-app-region:drag}
+      button{padding:8px 12px;white-space:nowrap;-webkit-app-region:no-drag}
+      header span{flex:1;min-width:70px;font-weight:bold;cursor:move}
+      canvas{position:absolute;left:8px;top:52px;width:calc(100% - 16px);height:calc(100% - 92px);touch-action:none}
+      footer{position:absolute;left:8px;right:8px;bottom:8px;height:32px;display:flex;align-items:center;justify-content:center;background:#101114;font-size:12px;padding:0 24px;white-space:nowrap;overflow:hidden}
+      .resize{position:absolute;width:28px;height:28px;padding:0;border:0;background:#4ecbff;color:#101114;font-size:20px;touch-action:none}
+      .nw{top:0;left:0;cursor:nwse-resize}.ne{top:0;right:0;cursor:nesw-resize}
+      .sw{bottom:0;left:0;cursor:nesw-resize}.se{bottom:0;right:0;cursor:nwse-resize}
+    `
     doc.head.append(style)
     const bar = doc.createElement('header')
     const label = doc.createElement('span')
-    label.textContent = 'Drag this bar to move the sharing area'
+    label.textContent = '⠿ Move'
+    label.title = 'Drag this bar to move the sharing area'
+    label.tabIndex = 0
+    label.setAttribute('aria-label', 'Move sharing area with arrow keys')
+    label.onkeydown = event => {
+      const delta = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] }[event.key]
+      if (!delta) return
+      event.preventDefault()
+      bridge.shareAreaAction('bounds', { x: popup.screenX + delta[0]!, y: popup.screenY + delta[1]!, width: popup.outerWidth, height: popup.outerHeight })
+    }
     const draw = doc.createElement('button')
     draw.textContent = 'Draw'
     draw.setAttribute('aria-pressed', 'false')
@@ -45,10 +65,18 @@ export class DesktopShareArea {
     bar.append(label, start, draw, stop)
     const marks = doc.createElement('canvas')
     marks.setAttribute('aria-label', 'Draw on the sharing area')
-    const resize = doc.createElement('div')
-    resize.id = 'resize'
-    resize.title = 'Drag to resize the sharing area'
-    doc.body.replaceChildren(bar, marks, resize)
+    const status = doc.createElement('footer')
+    status.textContent = 'Drag the bar to move · Drag a corner to resize'
+    const handles = ['nw', 'ne', 'sw', 'se'].map(corner => {
+      const handle = doc.createElement('button')
+      handle.className = `resize ${corner}`
+      handle.textContent = corner === 'nw' || corner === 'se' ? '⤢' : '⤡'
+      const name = { nw: 'top left', ne: 'top right', sw: 'bottom left', se: 'bottom right' }[corner]
+      handle.setAttribute('aria-label', `Resize sharing area from ${name}`)
+      handle.title = `Drag to resize from ${name}; arrow keys also resize`
+      return handle
+    })
+    doc.body.replaceChildren(bar, marks, status, ...handles)
     let drawing = false
     let pointer: number | undefined
     let points: AnnotationPoint[] = []
@@ -65,7 +93,7 @@ export class DesktopShareArea {
     }
     draw.onclick = () => { flush(); points = []; drawing = !drawing; draw.setAttribute('aria-pressed', String(drawing)); bridge.shareAreaAction('passthrough', false) }
     doc.addEventListener('mousemove', event => {
-      bridge.shareAreaAction('passthrough', !drawing && event.target === marks)
+      bridge.shareAreaAction('passthrough', !drawing && !resizing && event.target === marks)
     })
     marks.onpointerdown = event => {
       if (!drawing || event.button !== 0) return
@@ -78,15 +106,32 @@ export class DesktopShareArea {
       if (performance.now() - sent >= 50 || points.length >= 128) flush()
     }
     marks.onpointerup = marks.onpointercancel = () => { flush(); points = []; pointer = undefined }
-    let resizing: { x: number; y: number; width: number; height: number } | undefined
-    resize.onpointerdown = event => {
-      resizing = { x: event.screenX, y: event.screenY, width: popup.innerWidth, height: popup.innerHeight }
-      resize.setPointerCapture(event.pointerId)
+    let resizing: { screenX: number; screenY: number; x: number; y: number; width: number; height: number } | undefined
+    const resizeFrom = (corner: string, bounds: { x: number; y: number; width: number; height: number }, dx: number, dy: number) => {
+      const west = corner.includes('w'), north = corner.includes('n')
+      const width = Math.max(460, Math.min(8000, bounds.width + (west ? -dx : dx)))
+      const height = Math.max(200, Math.min(8000, bounds.height + (north ? -dy : dy)))
+      bridge.shareAreaAction('bounds', { x: bounds.x + (west ? bounds.width - width : 0), y: bounds.y + (north ? bounds.height - height : 0), width, height })
     }
-    resize.onpointermove = event => {
-      if (resizing) bridge.shareAreaAction('resize', { width: resizing.width + event.screenX - resizing.x, height: resizing.height + event.screenY - resizing.y })
+    for (const handle of handles) {
+      const corner = handle.classList[1]!
+      handle.onpointerdown = event => {
+        if (event.button !== 0) return
+        bridge.shareAreaAction('passthrough', false)
+        resizing = { screenX: event.screenX, screenY: event.screenY, x: popup.screenX, y: popup.screenY, width: popup.outerWidth, height: popup.outerHeight }
+        handle.setPointerCapture(event.pointerId)
+      }
+      handle.onpointermove = event => {
+        if (resizing && handle.hasPointerCapture(event.pointerId)) resizeFrom(corner, resizing, event.screenX - resizing.screenX, event.screenY - resizing.screenY)
+      }
+      handle.onpointerup = handle.onpointercancel = handle.onlostpointercapture = () => { resizing = undefined }
+      handle.onkeydown = event => {
+        const delta = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] }[event.key]
+        if (!delta) return
+        event.preventDefault()
+        resizeFrom(corner, { x: popup.screenX, y: popup.screenY, width: popup.outerWidth, height: popup.outerHeight }, delta[0]!, delta[1]!)
+      }
     }
-    resize.onpointerup = resize.onpointercancel = () => { resizing = undefined }
     const gone = () => { this.stop(); this.opts.ended() }
     popup.addEventListener('pagehide', gone)
     const unsubState = bridge.onShareAreaState(rect => { this.#rect = rect })
@@ -135,7 +180,7 @@ export class DesktopShareArea {
         const rect = this.#rect
         // Invalid bounds (including crossing monitors) produce black, never
         // the whole display or an unclamped drawImage fallback.
-        label.textContent = rect ? 'Sharing inside this frame' : 'Keep the frame on its original monitor'
+        status.textContent = rect ? 'Sharing inside this frame · Drag corners to resize' : 'Keep the frame on its original monitor'
         if (!rect || !video!.videoWidth) { context.fillStyle = '#000'; context.fillRect(0, 0, canvas.width, canvas.height); return }
         const width = Math.max(2, Math.round(rect.width * video!.videoWidth / 2) * 2)
         const height = Math.max(2, Math.round(rect.height * video!.videoHeight / 2) * 2)
