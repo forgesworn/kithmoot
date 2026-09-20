@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.10.
+Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.11.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -36,7 +36,7 @@ The ZIP alongside it is the same app for another Apple Silicon Mac.
 
 ## Distribution and acceptance boundaries
 
-The 0.1.10 Mac preview is **Developer ID signed and notarised**, with hardened runtime and a stapled Apple ticket. It remains a preview: physical capture/audio acceptance and a verified automatic update path are still outstanding. Updates are manual. Earlier published previews were ad-hoc signed.
+The 0.1.11 Mac preview is **Developer ID signed and notarised**, with hardened runtime and a stapled Apple ticket. It remains a preview: physical capture/audio acceptance and the first update from 0.1.11 to a later signed build are still outstanding. Earlier published previews were ad-hoc signed.
 
 Linux x64 and ARM64 tarballs include a user-level Python installer and a matching applications-menu desktop entry. Windows packaging and iOS remain future work. Linux preview archives are not repository-signed.
 

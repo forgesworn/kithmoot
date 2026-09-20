@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 const desktop = fileURLToPath(new URL('../', import.meta.url))
 const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-smoke-'))
+const packaged = Boolean(process.env.DESKTOP_EXECUTABLE)
 let app
 const launch = () => electron.launch({
   executablePath: process.env.DESKTOP_EXECUTABLE ?? process.env.ELECTRON_EXECUTABLE ?? join(desktop, process.platform === 'linux' ? 'node_modules/electron/dist/electron' : 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
@@ -33,7 +34,7 @@ try {
   expect(state.workerStatus).toBe(404); expect(state.traversalStatus).toBe(404)
   expect(state.csp).toContain("object-src 'none'")
   expect(state.notifications).not.toBe('denied')
-  expect(await page.evaluate(() => window.kithmootDesktop.updateState())).toEqual({ phase: 'disabled' })
+  expect(await page.evaluate(() => window.kithmootDesktop.updateState())).toEqual({ phase: packaged ? 'idle' : 'disabled' })
   expect(await page.evaluate(() => window.kithmootDesktop.installUpdate())).toBe(false)
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('desktop:update-state', { phase: 'ready', version: '0.1.11' }))
   await expect(page.locator('#updateNotice')).toContainText('KithMoot 0.1.11 is ready')

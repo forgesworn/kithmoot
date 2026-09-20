@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.10",
+  "currentRelease": "0.1.11",
   "releases": [
     {
-      "version": "0.1.10",
+      "version": "0.1.11",
       "updateTo": {
-        "version": "0.1.10",
-        "pub_date": "2026-09-20T09:31:44Z",
-        "notes": "Signed desktop preview with improved sharing controls, drawing legend, chat layout and relay recovery.",
-        "name": "0.1.10",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.10/KithMoot-0.1.10-mac-arm64.zip",
-        "sha256": "b5a2e98b81270801c7f951c151f12aad3cd2c72d5416d30f4cf33b614cb3cbb7",
-        "size": 138893879
+        "version": "0.1.11",
+        "pub_date": "2026-09-20T12:27:00Z",
+        "notes": "Signed Mac updates now download quietly and wait until you approve a safe restart.",
+        "name": "0.1.11",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.11/KithMoot-0.1.11-mac-arm64.zip",
+        "sha256": "146a90d7835dd758bb31309e550dfacb0ca647a5cfb10e6740c673b49992c276",
+        "size": 138895547
       }
     }
   ]
