@@ -7947,7 +7947,13 @@ function syncRemoteVideos(): void {
     const clock = entry.el.currentTime
     const moving = clock > entry.last + 0.001
     entry.last = clock
-    if (moving) noteProgress(entry.track, now)
+    if (moving) {
+      noteProgress(entry.track, now)
+      // Keep a newly negotiated sink connected so it can decode, but do not
+      // let its empty black rectangle take half of a grouped person's card.
+      // The first painted frame makes it a picture and earns its place.
+      if (entry.el.hidden) { entry.el.hidden = false; changed = true }
+    }
     const progressedAt = trackProgressAt.get(entry.track)
     if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
     if (entry.track.readyState === 'ended' || tileLiveness.gone(key, advertised(key), now)) {
@@ -8079,6 +8085,9 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       el.autoplay = true
       el.playsInline = true
       el.muted = true
+      // `ontrack` precedes the first decoded frame. Hidden media continues
+      // to be a connected sink, while contributing no empty pane to layout.
+      el.hidden = true
       el.dataset.track = track.id
       remoteVideos.set(key, { el, container, track, last: -1, stalled: 0, played: false })
       container.append(el)
@@ -8101,6 +8110,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       existing!.last = -1
       existing!.stalled = 0
       existing!.played = false
+      el.hidden = true
     }
     track.addEventListener('ended', () => {
       // Only the track currently on this element may take it down. The
