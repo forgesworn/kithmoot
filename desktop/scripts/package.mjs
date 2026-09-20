@@ -1,5 +1,5 @@
 import { packager } from '@electron/packager'
-import { signAsync } from '@electron/osx-sign'
+import { sign } from '@electron/osx-sign'
 import { macSigningConfig } from './mac-signing.mjs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -40,7 +40,7 @@ for (const path of paths) {
     const signed = spawnSync('codesign', ['--force', '--deep', '--sign', '-', bundle], { stdio: 'inherit' })
     if (signed.status) throw new Error('Local signing failed')
   } else {
-    await signAsync({ app: bundle, identity: signing.identity, keychain: signing.keychain,
+    await sign({ app: bundle, identity: signing.identity, keychain: signing.keychain,
       platform: 'darwin', type: 'distribution',
       optionsForFile: () => ({ hardenedRuntime: true, entitlements: [
         'com.apple.security.cs.allow-jit', 'com.apple.security.device.audio-input', 'com.apple.security.device.camera',
