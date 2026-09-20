@@ -103,7 +103,17 @@ export class DesktopShareArea {
         start.onclick = () => {
           start.disabled = true
           // Capture is requested by the focused frame's own user gesture.
-          popup.navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true } as MediaTrackConstraints & { restrictOwnAudio: boolean } }).then(resolve, reject)
+          popup.navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true } as MediaTrackConstraints & { restrictOwnAudio: boolean } }).then(stream => {
+            // Cancelling rejects the waiting promise immediately. A chooser
+            // can still return afterwards, so dispose its tracks here before
+            // resolving a promise whose caller may already have left.
+            if (this.#cancelled || this.#popup !== popup || popup.closed) {
+              stream.getTracks().forEach(track => track.stop())
+              reject(new Error('Sharing cancelled.'))
+              return
+            }
+            resolve(stream)
+          }, reject)
         }
       })
       this.#rejectStart = undefined
