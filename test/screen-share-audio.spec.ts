@@ -219,3 +219,50 @@ test('a desktop sharing area sends only its crop and blanks invalid bounds', asy
     expect(await page.evaluate(() => (window as any).__rawAreaTrack.readyState)).toBe('ended')
   } finally { await context.close() }
 })
+
+test('cancelling an area chooser stops screen and audio returned afterwards', async ({ browser, baseURL }) => {
+  const context = await newDeviceContext(browser, baseURL!)
+  await context.addInitScript(() => {
+    const w = window as any
+    w.kithmootDesktop = {
+      supportsShareArea: true,
+      armShareArea: async () => true,
+      shareAreaState: async () => ({ x: .25, y: .25, width: .5, height: .5 }),
+      shareAreaAction: () => {}, onShareAreaState: () => () => {},
+      setCallActive: () => {}, setUnread: () => {}, notify: () => {}, onOpenRoom: () => () => {},
+    }
+    navigator.mediaDevices.getDisplayMedia = () => new Promise(resolve => {
+      // Keep the synthetic sources in the owner: closing the popup must not
+      // itself end them and hide a leak in the application's cancellation.
+      const owner = window.opener as any
+      const canvas = owner.document.createElement('canvas')
+      canvas.width = 32; canvas.height = 32
+      canvas.getContext('2d').fillRect(0, 0, 32, 32)
+      const audio = new owner.AudioContext()
+      const destination = audio.createMediaStreamDestination()
+      const stream = canvas.captureStream(1)
+      stream.addTrack(destination.stream.getAudioTracks()[0])
+      owner.__lateAreaTracks = stream.getTracks()
+      owner.__lateAreaAudio = audio
+      owner.__resolveAreaCapture = () => resolve(stream)
+    })
+  })
+  try {
+    const page = await context.newPage()
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openCall(page)
+    const popped = page.waitForEvent('popup')
+    await page.locator('#shareArea').click()
+    const popup = await popped
+    await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => (window as any).__lateAreaTracks?.map((t: MediaStreamTrack) => t.readyState))).toEqual(['live', 'live'])
+    await popup.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect.poll(() => popup.isClosed()).toBe(true)
+    await page.evaluate(() => (window as any).__resolveAreaCapture())
+    await expect.poll(() => page.evaluate(() => (window as any).__lateAreaTracks.map((t: MediaStreamTrack) => t.readyState))).toEqual(['ended', 'ended'])
+    await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    await page.evaluate(() => (window as any).__lateAreaAudio.close())
+  } finally { await context.close() }
+})
