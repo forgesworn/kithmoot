@@ -4,7 +4,7 @@ import type { Event } from 'nostr-tools/pure'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { KINDS } from '../src/kinds.js'
-import { openRoomDetails, allowTestFileStorage } from './browser.js'
+import { openRoomDetails, allowTestFileStorage, TEST_RELAY_WS } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 /**
@@ -35,7 +35,7 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
   // into the past, which is the point of it, so wraps are not asked for
   // by time; the relay is fresh for the run and holds nobody else's.
   const seen: Event[] = []
-  const watcher = await Relay.connect('ws://127.0.0.1:7777')
+  const watcher = await Relay.connect(TEST_RELAY_WS)
   const since = Math.floor(Date.now() / 1000) - 5
   watcher.subscribe([{ kinds: [KINDS.CHAT], since }, { kinds: [1059] }], { onevent: (e) => seen.push(e) })
   try {
@@ -136,7 +136,7 @@ test('a quiet room shares a file with no kind-1063 announcement, and the other p
   // file announcement there has ever been reason to expect - watched from
   // outside the browsers, exactly like the text case above.
   const seen: Event[] = []
-  const watcher = await Relay.connect('ws://127.0.0.1:7777')
+  const watcher = await Relay.connect(TEST_RELAY_WS)
   const since = Math.floor(Date.now() / 1000) - 5
   watcher.subscribe([{ kinds: [KINDS.CHAT, 1063], since }, { kinds: [1059] }], { onevent: (e) => seen.push(e) })
   try {
@@ -234,7 +234,7 @@ test('a quiet room does not leak a file announcement if this device leaves while
     return context.newPage()
   }
   const seen: Event[] = []
-  const watcher = await Relay.connect('ws://127.0.0.1:7777')
+  const watcher = await Relay.connect(TEST_RELAY_WS)
   const since = Math.floor(Date.now() / 1000) - 5
   watcher.subscribe([{ kinds: [KINDS.CHAT, 1063], since }, { kinds: [1059] }], { onevent: (e) => seen.push(e) })
   try {

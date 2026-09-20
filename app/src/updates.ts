@@ -45,7 +45,6 @@ export interface UpdateBlock {
  * lets a phone leave a live call and update without sending somebody off to
  * find controls which may be below a large update notice. */
 export function installUpdates(blockedReason: () => string | UpdateBlock | undefined, reload: () => void = () => location.reload()): void {
-  if (import.meta.env.VITE_DESKTOP === 'true') return
   const notice = document.getElementById('updateNotice')!
   const button = document.getElementById('updateApp') as HTMLButtonElement
   const defaultMessage = notice.querySelector('span')!.textContent ?? 'Update when you are ready. Your room will reopen.'
@@ -85,6 +84,55 @@ export function installUpdates(blockedReason: () => string | UpdateBlock | undef
     approved = false
     reload()
   }
+  const prepare = async (): Promise<boolean> => {
+    const current = block()
+    if (!current) return true
+    if (!current.action) { defer(current); return false }
+    // Reveal a destructive action before the same button can run it.
+    if (button.textContent !== current.action.label) { defer(current); return false }
+    preparing = true
+    button.disabled = true
+    button.textContent = current.action.pendingLabel ?? 'Getting ready…'
+    try { await current.action.run() }
+    catch {
+      preparing = false
+      defer({ ...current, reason: 'Could not leave the call. Try again.' })
+      return false
+    }
+    const remaining = block()
+    if (remaining) { preparing = false; defer(remaining); return false }
+    preparing = false
+    return true
+  }
+  const desktop = window.kithmootDesktop
+  if (import.meta.env.VITE_DESKTOP === 'true' && desktop?.updateState && desktop.installUpdate && desktop.onUpdateState) {
+    const receive = (state: { phase: string; version?: string }) => {
+      if (state.phase !== 'ready') return
+      const current = block()
+      if (current) defer(current)
+      else {
+        show()
+        notice.querySelector('span')!.textContent = state.version
+          ? `KithMoot ${state.version} is ready. Restart when you are ready.`
+          : 'A signed KithMoot update is ready. Restart when you are ready.'
+      }
+    }
+    desktop.onUpdateState(receive)
+    void desktop.updateState().then(receive).catch(() => {})
+    button.addEventListener('click', async () => {
+      if (preparing || reloading) return
+      if (!await prepare()) return
+      button.disabled = true
+      button.textContent = 'Restarting…'
+      const installing = await desktop.installUpdate().catch(() => false)
+      if (installing) { reloading = true; return }
+      button.disabled = false
+      button.textContent = 'Try updating again'
+      notice.querySelector('span')!.textContent = 'The update could not restart KithMoot. Try again.'
+    })
+    return
+  }
+  if (import.meta.env.VITE_DESKTOP === 'true') return
   registerSW({
     immediate: true,
     onNeedRefresh: show,
@@ -123,32 +171,8 @@ export function installUpdates(blockedReason: () => string | UpdateBlock | undef
   })
   button.addEventListener('click', async () => {
     if (approved || preparing || reloading) return
-    const current = block()
-    if (current) {
-      if (!current.action) { defer(current); return }
-      // If the blocker changed since the notice was painted, reveal the
-      // action first. A button must not leave a call while still labelled
-      // merely "Update now".
-      if (button.textContent !== current.action.label) { defer(current); return }
-      preparing = true
-      button.disabled = true
-      button.textContent = current.action.pendingLabel ?? 'Getting ready…'
-      try {
-        await current.action.run()
-      } catch {
-        preparing = false
-        defer({ ...current, reason: 'Could not leave the call. Try again.' })
-        return
-      }
-      const remaining = block()
-      if (remaining) {
-        preparing = false
-        defer(remaining)
-        return
-      }
-    }
+    if (!await prepare()) return
     approved = true
-    preparing = false
     button.disabled = true
     button.textContent = 'Updating…'
     try {

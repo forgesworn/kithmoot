@@ -60,6 +60,54 @@ describe('ReadPositionSync', () => {
     vi.useRealTimers()
   })
 
+  it('lets go of a record already being signed when the room is forgotten', async () => {
+    vi.useFakeTimers()
+    const { relay, published } = fakeRelay()
+    const crypt = localSelfCrypt(sk)
+    let signing: (() => void) | undefined
+    const slow = { encrypt: async (text: string) => { await new Promise<void>(resolve => { signing = resolve }); return crypt.encrypt(text) }, decrypt: crypt.decrypt }
+    const sync = new ReadPositionSync(localIdentity(sk), slow, relay, () => {}, () => NOW)
+    sync.follow(roomId, roomKey, { '': { at: 10 } })
+    sync.note(roomId, { '': { at: 20, id: 'm2' } })
+    await vi.advanceTimersByTimeAsync(5_000)
+    // The signer has the record and the room is tidied up underneath it.
+    expect(signing).toBeDefined()
+    expect(published).toHaveLength(0)
+    sync.forget(roomId)
+    signing!()
+    await sync.settle()
+    expect(published).toEqual([])
+    // Nothing more is scheduled for a room this browser no longer keeps.
+    sync.note(roomId, { '': { at: 30, id: 'm3' } })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(published).toEqual([])
+    sync.close()
+    vi.useRealTimers()
+  })
+
+  it('waits for a record already on its way, and does not wait for ever', async () => {
+    vi.useFakeTimers()
+    const { relay, published } = fakeRelay()
+    let landed: (() => void) | undefined
+    const slow = { ...relay, publish: async (event: Event) => { published.push(event); await new Promise<void>(resolve => { landed = resolve }) } } as unknown as RelayTransport
+    const sync = new ReadPositionSync(localIdentity(sk), localSelfCrypt(sk), slow, () => {}, () => NOW)
+    sync.follow(roomId, roomKey, { '': { at: 10 } })
+    sync.note(roomId, { '': { at: 20, id: 'm2' } })
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(published).toHaveLength(1)
+    sync.forget(roomId)
+    // A relay that never answers must not hold the room's tidy-up open.
+    let settled = false
+    void sync.settle(2_000).then(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1_500)
+    expect(settled).toBe(true)
+    landed!()
+    sync.close()
+    vi.useRealTimers()
+  })
+
   it('ignores a record from somebody else', async () => {
     vi.useFakeTimers()
     const { relay, deliver } = fakeRelay()

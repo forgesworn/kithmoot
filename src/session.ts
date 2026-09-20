@@ -7,15 +7,17 @@ import { hexEquals, normaliseHex } from './hex.js'
 import type { ParticipantIdentity } from './identity.js'
 import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
 import { sanitiseDisplayName } from './display-name.js'
-import { encodeRosterEvent, decodeRosterEvent } from './roster.js'
+import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
 import { evaluateAccess, evaluateAgentAccess } from './access.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
-import type { ForwardingState, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
+import type { RoleResolver } from './peer-slots.js'
+import type { ForwardingState, MeshDiagnostic, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
 import type { ForwarderMediaPipeline } from './mesh.js'
+import type { PairDiagnostics } from './pair-controller.js'
 import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
@@ -61,6 +63,27 @@ export interface ParticipantView {
    */
   name?: string
   devices: string[]
+  /**
+   * The page session each of those devices is currently to be dealt with
+   * as, for the devices that said - see `RosterEntry.sid`. A connection is
+   * to a page session, not to a device key: when this changes for a device,
+   * the far end is a physically different endpoint and whatever was open to
+   * the old one is finished, whatever the roster still says about the
+   * device itself.
+   *
+   * Absent for a device that publishes no `sid`, which is every client from
+   * before the field existed.
+   */
+  sids?: Record<string, string>
+  /**
+   * The call signalling profile each of this person's devices claims - see
+   * `RosterEntry.callProfile`. Only the exact number `2` means the device
+   * speaks fixed media slots, reliable signalling and pair generations.
+   *
+   * Absent for a device that says nothing, which is every client from before
+   * the field existed and is read as profile 1.
+   */
+  callProfiles?: Record<string, number>
   tracks: Array<TrackAdvert & { device: string }>
   /**
    * Offers this person's devices have made to relay for the room.
@@ -110,6 +133,15 @@ export interface RoomSessionBaseOptions {
   deviceSk: Uint8Array
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
+  /**
+   * This page session's id, published on every entry - see `RosterEntry.sid`.
+   *
+   * One is minted per session if none is given, which is the right default:
+   * a session object is a page session, and two of them for one device key
+   * are two endpoints whatever made them. Injectable so tests can name it,
+   * and so a host that already has a stable per-process id can use that.
+   */
+  sid?: string
   /** Builds an `RTCPeerConnectionLike` for each remote device. Omit to run
    *  the session with no media - roster, access and chat still work, but
    *  `publishTracks`/`onRemoteTrack` become no-ops. */
@@ -127,6 +159,18 @@ export interface RoomSessionBaseOptions {
    * wire looked like before names existed.
    */
   name?: string
+  /**
+   * Which call signalling profile this device speaks, published on every
+   * roster entry it writes and honoured per pair.
+   *
+   * Defaults to profile 1 - every client from before today - and the default
+   * is the point: profile 2's fixed slots, reliable channel and pair health
+   * are turned on by an embedding that has shipped the rest of it, and a bad
+   * day is one reload away from today's behaviour. See `MeshOptions.callProfile`.
+   */
+  callProfile?: 1 | 2
+  /** Maps this app's local tracks into profile-2 fixed media slots. */
+  trackRole?: RoleResolver
   /** Declare this device an automated participant on every entry it
    *  publishes. See `RosterEntry.agent`. */
   agent?: boolean
@@ -200,6 +244,9 @@ export interface RoomSessionBaseOptions {
   onRelayStop?: (pair: RelayPair) => void
   /** Called when a remote device's route changes rung. */
   onRoute?: (device: string, route: RouteView) => void
+  /** Something in signalling worth a line in a call's timeline, failure or
+   *  not. Handed straight to the mesh - see `MeshOptions.onDiagnostic`. */
+  onDiagnostic?: (event: MeshDiagnostic) => void
   /**
    * The epoch to join in. Omit for epoch 0: the room as the link gives it.
    * A keeper reopening a room it has rekeyed passes the epoch it holds; a
@@ -356,6 +403,15 @@ export class RoomSession {
    *  identity's pubkey; on a secondary it is read off the credential,
    *  which is the only thing that could have told us. */
   readonly participant: string
+  /** This page session's id, published on every entry and the second half
+   *  of this session's presence identity. See `RosterEntry.sid`. */
+  readonly sid: string
+  /** The key this session's own entry is held under - see `presenceKey`.
+   *  Another page session of the same device is a different key, and is
+   *  swept, answered and remembered like any other endpoint. */
+  #selfKey(): string {
+    return `${this.device}|${this.sid}`
+  }
   #roomKey: Uint8Array
   #opts: RoomSessionOptions
   #now: () => number
@@ -459,6 +515,7 @@ export class RoomSession {
     opts.transport.rekey?.(this.#epoch.key.slice())
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.device = getPublicKey(opts.deviceSk)
+    this.sid = sanitiseSid(opts.sid) ?? newSid()
     this.#name = sanitiseDisplayName(opts.name)
     this.#assist = opts.assist
 
@@ -584,6 +641,11 @@ export class RoomSession {
     if (this.#opts.factory) {
       this.#mesh = new Mesh({
         session: this,
+        // Profile 2 is off unless the embedding turns it on, and a pair only
+        // speaks it when the far end's roster entry says so too. See
+        // `RoomSessionBaseOptions.callProfile`.
+        callProfile: this.#opts.callProfile,
+        trackRole: this.#opts.trackRole,
         factory: this.#opts.factory,
         localDevice: device,
         localParticipant: this.participant,
@@ -613,6 +675,7 @@ export class RoomSession {
         onRelayStart: this.#opts.onRelayStart,
         onRelayStop: this.#opts.onRelayStop,
         onRoute: this.#opts.onRoute,
+        onDiagnostic: this.#opts.onDiagnostic,
       })
 
       // One subscription on the mesh, fanned out to whoever asked - including
@@ -994,9 +1057,13 @@ export class RoomSession {
     if (this.#opts.authority && !hexEquals(authority, this.#opts.authority)) throw new Error('only the room authority can rekey it')
     const removed = [...new Set((opts.removed ?? []).map(normaliseHex))].sort()
     const next: RoomEpoch = { epoch: this.#epoch.epoch + 1, secret: generateEpochSecret() }
-    const recipients = [...this.#entries.values()]
-      .filter((e) => e.device !== this.device && !removed.includes(e.participant) && !this.#removed.has(e.participant))
-      .map((e) => e.device)
+    // Deduplicated: a device with two tabs of this room open is two roster
+    // entries and still exactly one key to seal the epoch to.
+    const recipients = [...new Set(
+      [...this.#entries.values()]
+        .filter((e) => e.device !== this.device && !removed.includes(e.participant) && !this.#removed.has(e.participant))
+        .map((e) => e.device),
+    )]
     const now = this.#now()
     const event = encodeRekeyEvent({
       roomId: this.roomId,
@@ -1104,6 +1171,18 @@ export class RoomSession {
    *  never set up. */
   get routes(): Map<string, RouteView> {
     return this.#mesh?.routes ?? new Map()
+  }
+
+  /**
+   * What each profile-2 pair's own controller says about itself: generation,
+   * where it is on the health ladder, per-slot verdicts and how much
+   * signalling is still unacknowledged.
+   *
+   * Empty on a build or a room where no pair speaks profile 2, which is the
+   * default. Meant for the bug report - see `collectDiagnostics` in the app.
+   */
+  get pairs(): PairDiagnostics[] {
+    return this.#mesh?.pairDiagnostics() ?? []
   }
 
   /** How many pairs this device is carrying for other people. */
@@ -1217,11 +1296,13 @@ export class RoomSession {
     const entry: RosterEntry = {
       participant: this.participant,
       device: this.device,
+      sid: this.sid,
       credential: self.credential,
       tracks: self.tracks,
       claims: self.claims,
       updatedAt: this.#now(),
       ...(this.#name !== undefined ? { name: this.#name } : {}),
+      ...(this.#opts.callProfile === 2 ? { callProfile: 2 as const } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
@@ -1259,9 +1340,9 @@ export class RoomSession {
     const cutoff = now - (this.#opts.timing?.presenceTtlSeconds ?? PRESENCE_TTL_SECONDS)
     let changed = false
 
-    for (const [device, entry] of this.#entries) {
-      if (device === this.device) continue
-      let lapsed = (this.#seenAt.get(device) ?? entry.updatedAt) < cutoff
+    for (const [key, entry] of this.#entries) {
+      if (key === this.#selfKey()) continue
+      let lapsed = (this.#seenAt.get(key) ?? entry.updatedAt) < cutoff
       // Media still flowing from a device is stronger evidence that it is
       // here than a heartbeat carried by a third party's relay. A tab in the
       // background has its timers throttled; a relay drops a socket and
@@ -1273,14 +1354,18 @@ export class RoomSession {
       // authority on its own health: when it really goes, ICE says so within
       // a few tens of seconds, the route stops reading connected, and the
       // ordinary timeout takes over from there.
-      if (lapsed && this.#mesh?.routes.get(device)?.connected) {
-        this.#seenAt.set(device, now)
+      // The reprieve belongs to the page session the connection is actually
+      // with, which is the freshest entry that device has published. A tab
+      // that was closed without a farewell would otherwise be held here for
+      // ever by the media its successor tab is sending.
+      if (lapsed && this.#isCurrentSession(entry) && this.#mesh?.routes.get(entry.device)?.connected) {
+        this.#seenAt.set(key, now)
         lapsed = false
       }
       const credentialExpired = !verifyDeviceCredential(entry.credential, { roomId: this.roomId, now }).ok
       if (!lapsed && !credentialExpired) continue
-      this.#entries.delete(device)
-      this.#seenAt.delete(device)
+      this.#entries.delete(key)
+      this.#seenAt.delete(key)
       // Forgetting a departed device is what lets a genuine rejoin be
       // answered again later without reopening the announce loop: they are
       // gone, so the next thing we hear from them really is an arrival.
@@ -1289,21 +1374,32 @@ export class RoomSession {
     // Under the agent rule, an agent goes with its principal: the proof
     // said whose it was, and that person is not here any more.
     if (this.#opts.policy?.agents === 'owned-by-members') {
-      for (const [device, entry] of this.#entries) {
-        if (device === this.device) continue
+      for (const [key, entry] of this.#entries) {
+        if (key === this.#selfKey()) continue
         if (evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p)).admitted) continue
-        this.#entries.delete(device)
-        this.#seenAt.delete(device)
+        this.#entries.delete(key)
+        this.#seenAt.delete(key)
         changed = true
       }
     }
     // A farewell only needs remembering for as long as an entry from before
     // it could still be delivered and still be fresh.
-    for (const [device, leftAt] of this.#departed) {
-      if (leftAt < cutoff) this.#departed.delete(device)
+    for (const [key, leftAt] of this.#departed) {
+      if (leftAt < cutoff) this.#departed.delete(key)
     }
 
     return changed
+  }
+
+  /** Whether this entry is the freshest one its device has published: the
+   *  page session another member is currently dealing with. Trivially true
+   *  for a device with one tab open, which is nearly all of them. */
+  #isCurrentSession(entry: RosterEntry): boolean {
+    for (const other of this.#entries.values()) {
+      if (other === entry || other.device !== entry.device) continue
+      if (other.updatedAt > entry.updatedAt) return false
+    }
+    return true
   }
 
   /** Schedule one answer to a new arrival, jittered. Coalesced: an answer
@@ -1334,6 +1430,20 @@ export class RoomSession {
     if (!this.#self || this.#left) return
     this.#self = { ...this.#self, tracks, claims }
     await this.#publishEntry(true)
+  }
+
+  /** A deliberate role handover must beat an observed claim even when both
+   * clicks happen within one protocol-clock second. Keep the value inside
+   * the same skew limit receivers enforce. */
+  nextRoleClaim(role: SingularRole): number {
+    this.#evictLapsed()
+    const now = this.#now()
+    let latest = this.#self?.claims[role] ?? 0
+    for (const entry of this.#entries.values()) {
+      if (entry.participant === this.participant) latest = Math.max(latest, entry.claims[role] ?? 0)
+    }
+    if (latest >= now + MAX_FUTURE_SKEW_SECONDS) throw new Error('Device clocks disagree. Wait a moment and try the handover again.')
+    return Math.max(now, Math.floor(latest) + 1)
   }
 
   get requestReceipts(): boolean { return this.#opts.agent === true && this.#opts.requestReceipts === true }
@@ -1368,10 +1478,98 @@ export class RoomSession {
   }
 
   /**
+   * Stop restating presence on the heartbeat, without leaving the room or
+   * its chat.
+   *
+   * Two tabs of the same browser sign with the same device key, so two
+   * `Session`s can exist for one device at once. Ordinary presence merge
+   * keeps whichever entry was stamped later, which works when a second
+   * device is a genuinely different one - see the mic and monitor
+   * arbitration in the app. It does not work for two `Session`s of the
+   * *same* device: both go on heartbeating their own view forever, and
+   * whichever one last happened to land is "the truth" until the other's
+   * next tick overwrites it. One tab correctly saying it carries no tracks
+   * is enough to make every listener believe the device's real, live call
+   * media has gone, and orphan it - see `advertised` in the app. Pausing
+   * here is how the app keeps a second tab open on the same room without
+   * that tab's silence contradicting the tab that is actually on the call.
+   *
+   * The device's last-published entry is left standing; nothing here says
+   * it has gone. Safe to call repeatedly.
+   *
+   * Signalling goes quiet with the heartbeat, and for the same reason. Two
+   * tabs share a device key on the wire as well as in the roster: both
+   * unwrap every offer addressed to it and both can answer, and the far end
+   * has one connection per device key to give. A quiet tab that wins that
+   * race answers with a connection carrying nothing, and the person talking
+   * in the other tab is audible to nobody until somebody rejoins. So a
+   * session that has stopped speaking for this device stops speaking for it
+   * altogether - see `Mesh.standDown`.
+   */
+  pausePresence(): void {
+    this.#mesh?.standDown()
+    if (this.#heartbeatTimer === undefined) return
+    clearInterval(this.#heartbeatTimer)
+    this.#heartbeatTimer = undefined
+  }
+
+  /** Restart the heartbeat `pausePresence` stopped, and take the device's
+   *  signalling back with it. A no-op once the session has left. Safe to
+   *  call repeatedly. */
+  resumePresence(): void {
+    this.#mesh?.standUp()
+    if (this.#heartbeatTimer !== undefined || this.#left || !this.#self) return
+    this.#heartbeatTimer = this.#every(
+      this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
+      () => {
+        this.#publishEntry(false).catch(() => {})
+      },
+    )
+  }
+
+  /**
+   * A temporary goodbye for this device's call footprint - the room and its
+   * chat stay open, unlike `leave()`, which this borrows its shape from.
+   *
+   * Every peer's mesh keeps exactly one connection per remote device for as
+   * long as that device is on the roster at all, camera and microphone
+   * aside - see `Mesh#reconcile`. Handing an active call from one tab to
+   * another of the same device is not that: it is a second, physically
+   * different endpoint that needs the FIRST one's connection gone, not
+   * renegotiated, because it has no way to take over a transport it was
+   * never party to. This is the same signal a real departure sends -
+   * `left`, tracks cleared - so every peer drops its connection to this
+   * device cleanly through its own reconciliation, the way it already does
+   * for a device that actually left. The device then looks freshly
+   * arrived the moment any tab of it - this one taking the call back, or
+   * the one that just claimed it - next publishes, which is what makes the
+   * peer open a new connection rather than reuse the one just dropped.
+   *
+   * Unlike `leave()`, nothing here is torn down: the heartbeat this call
+   * leaves paused is the caller's to resume, and `#self` is left set so
+   * `setCall`, `advertise` and the rest keep working normally.
+   */
+  async farewellCall(): Promise<void> {
+    if (!this.#self || this.#left) return
+    const { call: _off, ...rest } = this.#self
+    this.#self = { ...rest, tracks: [], claims: {} }
+    await this.#publishEntry(true, true)
+  }
+
+  /**
    * The calls in progress, read off presence: one entry per call id, with
    * everybody who has a device on it. Usually zero or one. Two means two
    * people pressed Start at once, and a client should offer the bigger or
    * the older one and let the other wither.
+   *
+   * Ordering: participant count descending, then `since` ascending, then
+   * call `id` ascending as a plain lower-case hex string comparison. The
+   * first two keys can still tie - two calls started by the same number of
+   * people at the same second - and insertion order is not the same across
+   * two devices reading the same presence, so the id is the final,
+   * deterministic tiebreak. Android's roster reader orders calls the same
+   * way, key for key, so two clients looking at one room's presence always
+   * agree on which call is "the" current one.
    */
   calls(): CallView[] {
     const byId = new Map<string, CallView>()
@@ -1382,7 +1580,9 @@ export class RoomSession {
       call.since = Math.min(call.since, view.call.since)
       call.participants.push(view.participant)
     }
-    return [...byId.values()].sort((a, b) => b.participants.length - a.participants.length || a.since - b.since)
+    return [...byId.values()].sort(
+      (a, b) => b.participants.length - a.participants.length || a.since - b.since || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    )
   }
 
   /**
@@ -1518,7 +1718,12 @@ export class RoomSession {
       if (entry.device !== this.device && !evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p)).admitted) return
     }
 
-    const existing = this.#entries.get(entry.device)
+    // The presence identity, which is the device key only for an entry that
+    // names no page session - see `presenceKey`. Two tabs of one browser
+    // sign as one device, and holding them under one key is what let the
+    // tab that is only looking overwrite the tab that is on the call.
+    const key = presenceKey(entry)
+    const existing = this.#entries.get(key)
     if (existing && existing.updatedAt > entry.updatedAt) return
 
     // Stamped before the presence window opened: not presence, whoever
@@ -1540,26 +1745,29 @@ export class RoomSession {
     if (entry.left) {
       // A farewell. The device goes now, not when its presence lapses, and
       // the moment it left is kept so a slower relay delivering something it
-      // said earlier cannot put it back in the room.
-      if (entry.device === this.device) return
-      this.#departed.set(entry.device, entry.updatedAt)
+      // said earlier cannot put it back in the room. Per page session, not
+      // per device: one tab handing a live call to another tab says goodbye
+      // for itself, and that must not suppress the entries the tab taking
+      // the call is publishing in the same second under the same device key.
+      if (key === this.#selfKey()) return
+      this.#departed.set(key, entry.updatedAt)
       if (!existing) return
-      this.#entries.delete(entry.device)
-      this.#seenAt.delete(entry.device)
+      this.#entries.delete(key)
+      this.#seenAt.delete(key)
       this.#notify()
       return
     }
 
-    const leftAt = this.#departed.get(entry.device)
+    const leftAt = this.#departed.get(key)
     if (leftAt !== undefined) {
       // Stamped at or before the farewell: delivered late, not come back.
       if (entry.updatedAt <= leftAt) return
       // Stamped after it: they really are back, and this is an arrival.
-      this.#departed.delete(entry.device)
+      this.#departed.delete(key)
     }
 
-    this.#entries.set(entry.device, entry)
-    if (entry.device !== this.device) this.#seenAt.set(entry.device, this.#now())
+    this.#entries.set(key, entry)
+    if (key !== this.#selfKey()) this.#seenAt.set(key, this.#now())
 
     // A device we had not seen before has arrived, so tell it we are here.
     // Never for our own entry echoing back, never for a device we already
@@ -1603,6 +1811,9 @@ export class RoomSession {
     const nameStamp = new Map<string, number>()
     /** Which call a participant is held to be on, and when that was last restated. */
     const callStamp = new Map<string, { id: string; at: number }>()
+    /** The page session each device is currently to be dealt with as, and
+     *  how good a claim the entry that named it had - see `#sessionOf`. */
+    const sessions = new Map<string, { sid: string; rank: number; at: number }>()
 
     for (const entry of entries) {
       let view = byParticipant.get(entry.participant)
@@ -1619,7 +1830,28 @@ export class RoomSession {
         view.name = entry.name
         nameStamp.set(entry.participant, entry.updatedAt)
       }
-      view.devices.push(entry.device)
+      // One entry per device until two tabs of one browser are in the same
+      // room; the device is still one device, so it appears once.
+      if (!view.devices.includes(entry.device)) view.devices.push(entry.device)
+      if (entry.sid !== undefined) {
+        // Which of a device's page sessions a peer connection belongs to.
+        // The one on the call, ahead of the one that is only looking: the
+        // second tab publishes an entry simply to be in the room, and a
+        // connection rebuilt onto that tab would be rebuilt onto a tab with
+        // nothing to send. Between two of equal standing, the fresher.
+        const rank = entry.call ? 2 : entry.tracks.length > 0 ? 1 : 0
+        const held = sessions.get(entry.device)
+        if (!held || rank > held.rank || (rank === held.rank && entry.updatedAt >= held.at)) {
+          sessions.set(entry.device, { sid: entry.sid, rank, at: entry.updatedAt })
+        }
+      }
+      // Per device: a person's laptop can speak the new call profile while
+      // their phone, on an older build, cannot, and a pair is negotiated
+      // device to device.
+      if (entry.callProfile !== undefined) {
+        view.callProfiles = view.callProfiles ?? {}
+        view.callProfiles[entry.device] = entry.callProfile
+      }
       if (entry.agent === true) view.agent = true
       if (entry.agent === true && entry.requestReceipts === true) view.requestReceipts = true
       // Verified at decode, or not here at all. One proof per person is
@@ -1643,7 +1875,7 @@ export class RoomSession {
           callStamp.set(entry.participant, { id: entry.call.id, at: entry.updatedAt })
         } else if (entry.call.id === view.call.id) {
           view.call.since = Math.min(view.call.since, entry.call.since)
-          view.call.devices.push(entry.device)
+          if (!view.call.devices.includes(entry.device)) view.call.devices.push(entry.device)
           if (entry.updatedAt > held.at) callStamp.set(entry.participant, { id: held.id, at: entry.updatedAt })
         }
       }
@@ -1654,6 +1886,15 @@ export class RoomSession {
       if (!view) continue
       view.mic = assigned.mic
       view.monitor = assigned.monitor
+    }
+
+    for (const view of byParticipant.values()) {
+      for (const device of view.devices) {
+        const session = sessions.get(device)
+        if (!session) continue
+        view.sids = view.sids ?? {}
+        view.sids[device] = session.sid
+      }
     }
 
     return [...byParticipant.values()]

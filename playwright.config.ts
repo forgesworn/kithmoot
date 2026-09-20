@@ -6,6 +6,14 @@ import { defineConfig, devices } from '@playwright/test'
 // and it must stay out of `npm test` for the same reason test/live.test.ts
 // does - real network, real relay weather, not something every `npm test`
 // run should pay for or be flaky because of.
+const appPort = Number(process.env.E2E_PORT ?? 4173)
+// The companion relay/Blossom server's port. `E2E_RELAY_PORT` names it
+// directly; failing that, when `E2E_PORT` moves the app it carries the
+// relay with it at `E2E_PORT + 100`, so moving a whole run beside another
+// checkout's needs setting only one variable. Neither set, and this is 7777 -
+// today's fixed value, which is what CI still gets.
+const relayPort = Number(process.env.E2E_RELAY_PORT ?? (process.env.E2E_PORT ? appPort + 100 : 7777))
+
 export default defineConfig({
   testDir: './test',
   // Three specs, and they are very different animals. e2e.spec.ts drives real
@@ -39,7 +47,7 @@ export default defineConfig({
   // importantly, goes dark again on mute - an analyser that is never pulled
   // reports silence for ever with nothing in the console, so this feature
   // can fail by simply never happening.
-  testMatch: ['notification-settings.spec.ts', 'knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'workspace.spec.ts', 'share-viewer.spec.ts', 'screen-share-audio.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'phone-message-links.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'e2e.spec.ts', 'media.spec.ts', 'no-google-ice.spec.ts', 'safari-ice.spec.ts', 'volume.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts', 'rooms.spec.ts', 'speaking.spec.ts', 'verification.spec.ts', 'channels.spec.ts', 'chat-reliability.spec.ts', 'updates.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'site.spec.ts', 'forget-this-browser.spec.ts', 'sign-out-clears-bunker-key.spec.ts', 'wake-lock.spec.ts'],
+  testMatch: ['notification-settings.spec.ts', 'knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'workspace.spec.ts', 'share-viewer.spec.ts', 'screen-share-audio.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'phone-message-links.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'e2e.spec.ts', 'media.spec.ts', 'no-google-ice.spec.ts', 'safari-ice.spec.ts', 'volume.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'camera-effects-no-phone-home.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts', 'rooms.spec.ts', 'speaking.spec.ts', 'verification.spec.ts', 'channels.spec.ts', 'chat-reliability.spec.ts', 'updates.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'site.spec.ts', 'forget-this-browser.spec.ts', 'sign-out-clears-bunker-key.spec.ts', 'wake-lock.spec.ts', 'call-stability.spec.ts', 'mute-badge.spec.ts', 'desktop-room-layout.spec.ts', 'portrait-share.spec.ts'],
   // Public relays take a few seconds to round-trip a roster event, and the
   // join-last case waits on three of those in sequence: A's entry, B's, and
   // then A and B answering C's arrival. The stage-1 live test used similar
@@ -65,7 +73,7 @@ export default defineConfig({
   use: {
     // Carries the `/j/` sub-path the app is published under (see the `base`
     // in app/vite.config.ts) - `vite preview` serves nothing at the root.
-    baseURL: process.env.E2E_BASE_URL ?? 'https://localhost:4173/j/',
+    baseURL: process.env.E2E_BASE_URL ?? `https://localhost:${appPort}/j/`,
     // app/vite.config.ts's basicSsl() plugin runs under `vite preview` too,
     // so the app is only ever reachable here over a self-signed cert.
     // Irrelevant to getUserMedia's secure-context check either way -
@@ -87,6 +95,9 @@ export default defineConfig({
     },
     {
       name: 'chromium',
+      // Everything but the desktop shell's own spec, which needs the other
+      // build and runs in `chromium-desktop` below.
+      testIgnore: ['desktop-room-layout.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
@@ -118,6 +129,33 @@ export default defineConfig({
         },
       },
     },
+    {
+      // The installed desktop window, in a browser.
+      //
+      // `desktop-room-layout.spec.ts` is about the shell that only exists in
+      // a VITE_DESKTOP build: the chat drawer, and a room whose height is
+      // fixed by the window instead of running off the bottom of a scrolling
+      // page. Neither is in the ordinary build, so this project points at a
+      // second preview server serving `desktop/web` (see `webServer` below)
+      // rather than quietly skipping - a layout spec that skips is exactly
+      // how the last two attempts at this "passed".
+      name: 'chromium-desktop',
+      testMatch: ['desktop-room-layout.spec.ts', 'portrait-share.spec.ts'],
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.E2E_DESKTOP_BASE_URL ?? `https://localhost:${appPort + 1}/j/`,
+        launchOptions: {
+          args: [
+            '--use-fake-device-for-media-stream',
+            '--disable-audio-output',
+            '--use-fake-ui-for-media-stream',
+            '--autoplay-policy=no-user-gesture-required',
+            '--auto-accept-this-tab-capture',
+            '--auto-select-desktop-capture-source=Entire screen',
+          ],
+        },
+      },
+    },
   ],
   // Builds the app and serves app/dist on localhost via `vite preview`,
   // which - like `npm run demo` - runs under app/vite.config.ts's basicSsl
@@ -135,20 +173,48 @@ export default defineConfig({
         // A quiet room's slot is five minutes in a real build; the suite's
         // browsers cannot wait that long for a message, so the acceptance
         // build shortens it. The variable can only shorten, see main.ts.
-        command: 'VITE_QUIET_SLOT_SECONDS=8 npm run build && npx vite preview --config app/vite.config.ts --port 4173 --strictPort',
-        url: 'https://localhost:4173/j/',
+        command: `VITE_QUIET_SLOT_SECONDS=8 npm run build && E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
+        url: `https://localhost:${appPort}/j/`,
         ignoreHTTPSErrors: true,
-        reuseExistingServer: !process.env.CI,
+        // Never reused unless asked. Several checkouts of this repo run the
+        // suite on one machine, and a run that finds the port taken would
+        // otherwise test whichever checkout got there first, passing or
+        // failing on code it never built. E2E_REUSE=1 is for a developer
+        // pointing the suite at their own `npm run demo`; E2E_PORT moves a
+        // run beside another one.
+        reuseExistingServer: process.env.E2E_REUSE === '1',
         timeout: 120_000,
+      },
+    ]),
+    ...(process.env.E2E_DESKTOP_BASE_URL ? [] : [
+      {
+        // The same app built as the installed desktop window. `VITE_DESKTOP`
+        // gates both the chat drawer's wiring in desktop-layout.ts and every
+        // rule in desktop.css, and app/vite.config.ts sends that build to
+        // `desktop/web` rather than `app/dist`, so the two can be served side
+        // by side without either clobbering the other. Costs one extra build
+        // per fresh run; E2E_REUSE=1 means you pay it once locally. Sits one
+        // port above the app server so E2E_PORT moves both together.
+        command: `VITE_DESKTOP=true VITE_QUIET_SLOT_SECONDS=8 npm run build && VITE_DESKTOP=true E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort + 1} --strictPort`,
+        url: `https://localhost:${appPort + 1}/j/`,
+        ignoreHTTPSErrors: true,
+        reuseExistingServer: process.env.E2E_REUSE === '1',
+        timeout: 180_000,
       },
     ]),
     {
       // Besides the deterministic relay, this companion supplies the
       // test-only Blossom endpoint proxied by Vite. It is still needed
       // when E2E_RELAYS=live even though its WebSocket side is not.
-      command: 'node test/ws-relay.mjs',
-      url: 'http://127.0.0.1:7777/',
-      reuseExistingServer: !process.env.CI,
+      command: `RELAY_PORT=${relayPort} node test/ws-relay.mjs`,
+      url: `http://127.0.0.1:${relayPort}/`,
+      // Same rule as the app server. A relay borrowed from another run
+      // dies when that run ends, mid-room for this one. Its port moves with
+      // `relayPort` above, so two checkouts can each set E2E_PORT (or
+      // E2E_RELAY_PORT directly) and run at the same time; the one that
+      // still finds its chosen port taken fails at startup, which is the
+      // honest outcome.
+      reuseExistingServer: process.env.E2E_REUSE === '1',
       timeout: 30_000,
     },
   ],

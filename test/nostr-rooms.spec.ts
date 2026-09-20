@@ -10,6 +10,25 @@ import { createDeviceCredential } from '../src/credential.js'
 import { localIdentity } from '../src/identity.js'
 import { deriveRoom } from '../src/room.js'
 import { memoryDeviceStore, deviceKeyFor, storeCredentialFor } from '../app/src/device-store.js'
+import WebSocket from 'ws'
+import { hexToBytes } from '@noble/hashes/utils'
+import type { Event } from 'nostr-tools/pure'
+import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
+
+/** Everything the local test relay holds for a filter, read straight off it. */
+function relayHolds(filter: Record<string, unknown>): Promise<Event[]> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(TEST_RELAY_WS)
+    const events: Event[] = []
+    socket.on('open', () => socket.send(JSON.stringify(['REQ', 'held', filter])))
+    socket.on('message', raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1] === 'held') events.push(frame[2])
+      if (frame[0] === 'EOSE' && frame[1] === 'held') { socket.close(); resolve(events) }
+    })
+    socket.on('error', reject)
+  })
+}
 
 /** A test NIP-07 provider: signing keys stay in Node, never in the app. */
 async function device(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {}): Promise<BrowserContext> {
@@ -59,8 +78,8 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
   const context = await device(browser, baseURL!, secret)
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Account choice', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
-  const profiles = new NostrRelayPool(['ws://127.0.0.1:7777'])
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
+  const profiles = new NostrRelayPool([TEST_RELAY_WS])
   try {
     await profiles.publish(finalizeEvent({ kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Account Alice', picture: 'https://profile.example/alice.svg', nip05: 'alice@profile.example' }) }, secret))
     await context.route('https://profile.example/.well-known/nostr.json?name=alice', route => route.fulfill({ json: { names: { alice: pubkey } } }))
@@ -97,7 +116,7 @@ test('a saved paired credential cannot override a different signed-in Nostr acco
   const roomSecret = generateRoomSecret()
   const roomId = deriveRoom(roomSecret).roomId
   const link = encodeRoomLink(baseURL!, { secret: roomSecret, name: 'Paired identity check', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
@@ -126,7 +145,7 @@ test('joining waits for the saved Nostr identity before sending to a clerk', asy
   const context = await device(browser, baseURL!, secret, true, async () => { restoring = true; await gate })
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Clerk identity check', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
   try {
     const signedInPage = await context.newPage()
     await signIn(signedInPage, baseURL!)
@@ -301,7 +320,7 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
   const context = await device(browser, baseURL!, secret, true, async () => { if (unavailable) throw new Error('Signer offline') })
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Reconnect account', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
@@ -331,11 +350,141 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
   } finally { await context.close(); await clerk.leave() }
 })
 
+test('a disconnected signer offers Reconnect before forgetting an account room, and names the signer', async ({ browser, baseURL }) => {
+  let unavailable = false
+  const secret = generateSecretKey()
+  const context = await device(browser, baseURL!, secret, true, async () => { if (unavailable) throw new Error('Signer offline') })
+  try {
+    const page = await context.newPage()
+    await signIn(page, baseURL!)
+    await page.locator('#roomName').fill('Kept on the account')
+    await page.locator('#create').click()
+    await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
+
+    unavailable = true
+    await page.goto(baseURL!)
+    await page.reload()
+    const notice = page.locator('#accountReconnect')
+    await expect(notice).toBeVisible()
+    await expect(notice).toContainText(npubEncode(getPublicKey(secret)))
+    await expect(notice).toContainText('One room saved to it is not shown')
+    await expect(notice).toContainText('browser extension')
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+
+    // The same room in this browser's own list, as a visit in a tab without
+    // the signer leaves it: the case where a local Forget used to look done.
+    await page.evaluate(pubkey => {
+      const prefix = `kithmoot.account.${pubkey}.`
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith(prefix + 'kithmoot.room.')) localStorage.setItem(key.slice(prefix.length), localStorage.getItem(key)!)
+      }
+    }, getPublicKey(secret))
+    await page.reload()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
+    await expect(notice).toContainText('Rooms saved to it are not shown')
+
+    await page.locator('#roomList').getByRole('button', { name: 'Forget Kept on the account', exact: true }).click()
+    const dialog = page.getByRole('alertdialog')
+    await expect(dialog).toContainText('Reconnect before forgetting')
+    await expect(dialog).toContainText('your Nostr browser extension is not connected in this tab')
+    await expect(page.locator('#actionAlternative')).toHaveText('Forget in this browser only')
+    await page.locator('#actionCancel').click()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
+
+    unavailable = false
+    await page.locator('#roomList').getByRole('button', { name: 'Forget Kept on the account', exact: true }).click()
+    await page.locator('#actionConfirm').click()
+    await page.getByRole('button', { name: /Browser extension/ }).click()
+    await expect(page.getByRole('alertdialog')).toContainText('from your Nostr room bookmarks on all devices')
+    await page.locator('#actionConfirm').click()
+    await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
+    await expect(notice).toBeHidden()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.room.')))).toEqual([])
+    await page.reload()
+    await expect(page.locator('#signOut')).toBeVisible()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+  } finally { await context.close() }
+})
+
+test('leave and tidy up deletes in order while the keys exist, takes a second tab out, and leaves nothing of the person for the room', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const account = getPublicKey(secret)
+  const context = await device(browser, baseURL!, secret)
+  try {
+    const page = await context.newPage()
+    await signIn(page, baseURL!)
+    await page.locator('#roomName').fill('Tidy me')
+    await page.locator('#create').click()
+    await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
+    const link = await page.locator('#shareUrl').inputValue()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#chatInput').fill('Something to tidy')
+    await page.locator('#chatInput').press('Enter')
+    await expect(page.locator('#chatLog')).toContainText('Something to tidy')
+
+    const second = await context.newPage()
+    await second.goto(link)
+    await second.locator('#join').click()
+    await expect(second.locator('#roomArea')).toBeVisible()
+
+    const held = await page.evaluate(() => {
+      const device = Object.keys(localStorage).find(key => key.startsWith('kithmoot.device.'))!
+      const owner = Object.keys(localStorage).find(key => key.startsWith('kithmoot.invitation-owner.v1.'))!
+      return { roomId: device.slice('kithmoot.device.'.length), deviceSk: JSON.parse(localStorage.getItem(device)!).sk as string,
+        invitationId: owner.slice('kithmoot.invitation-owner.v1.'.length), inviterSk: JSON.parse(localStorage.getItem(owner)!).inviterSk as string }
+    })
+    const devicePub = getPublicKey(hexToBytes(held.deviceSk)), inviterPub = getPublicKey(hexToBytes(held.inviterSk))
+    expect((await relayHolds({ authors: [devicePub] })).length).toBeGreaterThan(0)
+    expect((await relayHolds({ authors: [inviterPub], kinds: [1463] })).length).toBe(1)
+
+    await openRoomDetails(page)
+    await page.locator('#tidyUpRoom').click()
+    const dialog = page.locator('#tidyUpDialog')
+    await expect(dialog).toBeVisible()
+    await expect(page.locator('#tidyUpSteps li')).toHaveCount(8)
+    await expect(page.locator('#tidyUpLimits')).toContainText('Other members’ messages')
+    await page.locator('#tidyUpTombstone').check()
+    await expect(page.locator('#tidyUpSteps')).toContainText('and the tombstone')
+    await page.locator('#tidyUpRun').click()
+    await expect(page.locator('#tidyUpDone')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#tidyUpResults')).toContainText('Tidied up')
+    await expect(page.locator('#roomArea')).toBeHidden()
+
+    await expect(second.locator('#roomArea')).toBeHidden()
+    await expect(second.locator('#status')).toContainText('tidied this room up in another tab')
+    // A read position is published a few seconds after the chat was read, so
+    // the one this room earned is due about now. Wait past it: without the
+    // wait, a fast machine asks the relay before the record was ever due and
+    // a slow one fails instead, which is how this was a CI-only bug.
+    await page.waitForTimeout(6_000)
+
+    const deletions = (await relayHolds({ kinds: [5], authors: [inviterPub, devicePub, account] }))
+    // The room was never retired, so there is no retirement notice to delete.
+    await expect(page.locator('#tidyUpSteps li[data-step="retirement"]')).toContainText('Nothing found to delete')
+    expect(deletions.map(event => event.pubkey)).toEqual([inviterPub, devicePub, account])
+    expect(deletions.map(event => event.tags.filter(t => t[0] === 'k').map(t => t[1]))).toEqual([['1463'], expect.arrayContaining(['1460']), ['30078']])
+    for (const event of deletions) expect(event.tags.some(t => t[0] === 'e')).toBe(true)
+    expect(deletions[2]!.tags.filter(t => t[0] === 'a').map(t => t[1])).toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^30078:${account}:kithmoot\\.rooms\\.v1\\.`))]))
+    expect((await relayHolds({ authors: [devicePub] })).filter(event => event.kind !== 5)).toEqual([])
+    expect((await relayHolds({ authors: [inviterPub] })).filter(event => event.kind !== 5)).toEqual([])
+    expect((await relayHolds({ authors: [account], kinds: [30078] }))).toEqual([])
+
+    for (const who of [page, second]) {
+      const keys = await who.evaluate(() => [...Object.keys(localStorage), ...Object.keys(sessionStorage)])
+      expect(keys.filter(key => key.includes(held.roomId) || key.includes(held.invitationId))).toEqual([])
+    }
+    await page.locator('#tidyUpDone').click()
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+  } finally { await context.close() }
+})
+
 test('choosing a visitor after sign-out requires an explicit decision and labels the composer', async ({ browser, baseURL }) => {
   const context = await device(browser, baseURL!)
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Visitor choice', relays: [relay.href], iceUrls: [] })
-  const clerk = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Tally' })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
@@ -369,7 +518,7 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
   const aliceSk = generateSecretKey(), bobSk = generateSecretKey(), carolSk = generateSecretKey(), agentSk = generateSecretKey()
   const aliceKey = getPublicKey(aliceSk), bobKey = getPublicKey(bobSk), carolKey = getPublicKey(carolSk), agentKey = getPublicKey(agentSk)
   const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
-  const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, relays: ['ws://127.0.0.1:7777'] })))
+  const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, relays: [TEST_RELAY_WS] })))
   const roomLinks = keepers.map(k => ({ roomId: k.roomId, name: k.link.name!, link: encodeRoomLink(baseURL!, { ...k.link, relays: [relay.href] }), openedAt: 1, readAt: 0 }))
   const aContext = await device(browser, baseURL!, aliceSk), bContext = await device(browser, baseURL!, bobSk), cContext = await device(browser, baseURL!, carolSk)
   const contexts = [aContext, bContext, cContext]

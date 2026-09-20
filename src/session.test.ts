@@ -9,7 +9,7 @@ import { createDeviceCredential } from './credential.js'
 import { localIdentity } from './identity.js'
 import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
-import { decodeRosterEvent } from './roster.js'
+import { decodeRosterEvent, encodeRosterEvent } from './roster.js'
 import { PRESENCE_TTL_SECONDS } from './session.js'
 import type { RelayTransport } from './relay-pool.js'
 
@@ -191,6 +191,50 @@ describe('RoomSession', () => {
     await bob.leave()
     await settle()
     expect(observer.calls()).toEqual([])
+  })
+
+  it('breaks a tie between equal-size, equal-since calls on id, regardless of insertion order', async () => {
+    const makeIn = (relay: SimRelay) => new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    const idLow = 'a'.repeat(32)
+    const idHigh = 'b'.repeat(32)
+
+    // First order: the higher id is published before the lower one.
+    const relayFirst = new SimRelay()
+    const ada = makeIn(relayFirst)
+    const bob = makeIn(relayFirst)
+    const observerFirst = makeIn(relayFirst)
+    await ada.join([], {})
+    await bob.join([], {})
+    await observerFirst.join([], {})
+    await settle()
+    await ada.setCall({ id: idHigh, since: NOW })
+    await settle()
+    await bob.setCall({ id: idLow, since: NOW })
+    await settle()
+    expect(observerFirst.calls().map((c) => c.id)).toEqual([idLow, idHigh])
+
+    // Second order: the lower id is published before the higher one, on a
+    // fresh relay so nothing carries over from the first.
+    const relaySecond = new SimRelay()
+    const carol = makeIn(relaySecond)
+    const dave = makeIn(relaySecond)
+    const observerSecond = makeIn(relaySecond)
+    await carol.join([], {})
+    await dave.join([], {})
+    await observerSecond.join([], {})
+    await settle()
+    await carol.setCall({ id: idLow, since: NOW })
+    await settle()
+    await dave.setCall({ id: idHigh, since: NOW })
+    await settle()
+    expect(observerSecond.calls().map((c) => c.id)).toEqual([idLow, idHigh])
   })
 
   it('notifies subscribers when the roster changes', async () => {
@@ -952,6 +996,28 @@ describe('RoomSession presence lifetime', () => {
     mine.leave()
   })
 
+  it('pausePresence stops the heartbeat without leaving; resumePresence restarts it', async () => {
+    const relay = new SimRelay()
+    const mine = room(now, relay, { heartbeatIntervalMs: 5, sweepIntervalMs: 5 })
+
+    await mine.join([], {})
+    mine.pausePresence()
+    const afterPause = relay.published.filter((e) => e.kind === KINDS.ROSTER).length
+
+    // Long enough that a live heartbeat would certainly have fired again.
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(relay.published.filter((e) => e.kind === KINDS.ROSTER).length).toBe(afterPause)
+
+    // Calling it again is harmless.
+    mine.pausePresence()
+
+    mine.resumePresence()
+    await vi.waitFor(() => {
+      expect(relay.published.filter((e) => e.kind === KINDS.ROSTER).length).toBeGreaterThan(afterPause)
+    })
+    mine.leave()
+  })
+
   it('BUG (M3): says goodbye on leave, so the microphone is released at once', async () => {
     // The wire format has no departure message, so the last thing a device
     // says is an entry claiming nothing - which frees a singular role without
@@ -1618,6 +1684,43 @@ describe('RoomSession.advertise', () => {
     mine.leave()
     theirs.leave()
   })
+
+  it('carries a muted mic advert through to the far side, so a remote tile can tell a self-mute from a slider mute', async () => {
+    const relay = new SimRelay()
+    const mine = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    const theirs = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    await mine.join([], {})
+    await theirs.join([], {})
+    await settle()
+    const view = () => theirs.participants().find((v) => v.participant === mine.participant)
+
+    await mine.advertise([{ trackId: 'mic1', role: 'mic', muted: true }], { mic: NOW })
+    await settle()
+    expect(view()?.tracks).toEqual([{ trackId: 'mic1', role: 'mic', muted: true, device: mine.device }])
+
+    // Unmuting re-advertises with the flag gone, not `muted: false`.
+    await mine.advertise([{ trackId: 'mic1', role: 'mic' }], { mic: NOW })
+    await settle()
+    expect(view()?.tracks).toEqual([{ trackId: 'mic1', role: 'mic', device: mine.device }])
+    expect(view()?.tracks[0]).not.toHaveProperty('muted')
+
+    mine.leave()
+    theirs.leave()
+  })
 })
 
 describe('agents in the roster', () => {
@@ -1701,5 +1804,143 @@ describe('agents in the roster', () => {
     person.leave()
     a.leave()
     b.leave()
+  })
+})
+
+describe('two page sessions of one device key', () => {
+  // A device key belongs to a browser profile, not to a tab: open the same
+  // room twice and both tabs sign as the same device. Readers tell them
+  // apart by the page-session id on each entry - see `RosterEntry.sid`.
+  function tab(deviceSk: Uint8Array, participantSk: Uint8Array, relay: SimRelay) {
+    return new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(participantSk),
+      deviceSk,
+      now,
+      announceJitterMs: 0,
+    })
+  }
+
+  function stranger(relay: SimRelay) {
+    return new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+  }
+
+  it('holds two entries for one device key, so the tab that is only looking cannot silence the tab on the call', async () => {
+    const relay = new SimRelay()
+    const participantSk = generateSecretKey()
+    const deviceSk = generateSecretKey()
+    const device = getPublicKey(deviceSk)
+    const onCall = tab(deviceSk, participantSk, relay)
+    const looking = tab(deviceSk, participantSk, relay)
+    const observer = stranger(relay)
+    await observer.join([], {})
+    await onCall.join([{ trackId: 'mic', role: 'mic' }, { trackId: 'cam', role: 'camera' }], { mic: NOW })
+    await onCall.setCall({ id: 'c'.repeat(32), since: NOW })
+    // The second tab enters the room stamped later and carrying nothing,
+    // which under one entry per device was the whole bug: live media
+    // orphaned by a tab that had none.
+    await looking.join([], {})
+    await settle()
+
+    expect(onCall.sid).not.toBe(looking.sid)
+    const mine = observer.participants().find((v) => v.participant === getPublicKey(participantSk))!
+    expect(mine.tracks.map((t) => t.role).sort()).toEqual(['camera', 'mic'])
+    // Still one device, however many tabs of it are open.
+    expect(mine.devices).toEqual([device])
+    // And the page session a connection belongs to is the one on the call,
+    // not the newer entry from the tab with nothing to send.
+    expect(mine.sids?.[device]).toBe(onCall.sid)
+
+    onCall.leave(); looking.leave(); observer.leave()
+  })
+
+  it('lets one tab hand the call to another in the same second: a farewell is per page session, not per device', async () => {
+    // Roster stamps are unix seconds, and a handover happens inside one.
+    // Keyed by device alone, the first tab's farewell suppressed every
+    // entry the second tab published in that second, and the room waited
+    // out a whole heartbeat to hear a live person.
+    const relay = new SimRelay()
+    const participantSk = generateSecretKey()
+    const deviceSk = generateSecretKey()
+    const device = getPublicKey(deviceSk)
+    const first = tab(deviceSk, participantSk, relay)
+    const second = tab(deviceSk, participantSk, relay)
+    const observer = stranger(relay)
+    await observer.join([], {})
+    await first.join([{ trackId: 'mic1', role: 'mic' }], { mic: NOW })
+    await second.join([], {})
+    await settle()
+
+    // The handover: the first tab says goodbye for its call footprint, the
+    // second says it is on the call with the microphone, both at `NOW`.
+    await first.farewellCall()
+    await second.setCall({ id: 'd'.repeat(32), since: NOW })
+    await second.advertise([{ trackId: 'mic2', role: 'mic' }], { mic: NOW })
+    await settle()
+
+    const mine = observer.participants().find((v) => v.participant === getPublicKey(participantSk))!
+    expect(mine.tracks.map((t) => t.trackId)).toEqual(['mic2'])
+    expect(mine.call?.id).toBe('d'.repeat(32))
+    expect(mine.sids?.[device]).toBe(second.sid)
+
+    first.leave(); second.leave(); observer.leave()
+  })
+
+  it('still keeps one entry per device for a client that publishes no page-session id', async () => {
+    // The wire is additive: an entry without `sid` is held under the device
+    // key alone, so an older client is one identity and the last writer
+    // wins, exactly as before the field existed.
+    const relay = new SimRelay()
+    const participantSk = generateSecretKey()
+    const deviceSk = generateSecretKey()
+    const device = getPublicKey(deviceSk)
+    const { roomId, roomKey } = deriveRoom(secret())
+    const credential = await createDeviceCredential({
+      identity: localIdentity(participantSk), devicePubkey: device, roomId, expiresAt: NOW + 3600,
+    })
+    const observer = stranger(relay)
+    await observer.join([], {})
+    const older = (trackId: string, at: number) => encodeRosterEvent(
+      { participant: getPublicKey(participantSk), device, credential, tracks: [{ trackId, role: 'mic' }], claims: {}, updatedAt: at },
+      { roomId, roomKey, deviceSk },
+    )
+    relay.publish(older('first', NOW))
+    relay.publish(older('second', NOW + 1))
+    await settle()
+
+    const mine = observer.participants().find((v) => v.participant === getPublicKey(participantSk))!
+    expect(mine.devices).toEqual([device])
+    expect(mine.tracks.map((t) => t.trackId)).toEqual(['second'])
+    expect(mine.sids?.[device]).toBeUndefined()
+    observer.leave()
+  })
+})
+
+
+describe('explicit listening handover', () => {
+  it('takes the role back without local tracks or advancing the wall clock', async () => {
+    const relay = new SimRelay()
+    const participantSk = generateSecretKey()
+    const create = () => new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(participantSk), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    const phone = create(), laptop = create()
+    try {
+      await phone.join([], { monitor: NOW })
+      await laptop.join([], {})
+      await settle()
+      await laptop.advertise([], { monitor: laptop.nextRoleClaim('monitor') })
+      await settle()
+      expect(phone.participants().find(view => view.participant === phone.participant)?.monitor).toBe(laptop.device)
+      await phone.advertise([], { monitor: phone.nextRoleClaim('monitor') })
+      await settle()
+      expect(laptop.participants().find(view => view.participant === phone.participant)?.monitor).toBe(phone.device)
+    } finally { await phone.leave(); await laptop.leave() }
   })
 })

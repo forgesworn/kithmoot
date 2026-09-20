@@ -50,6 +50,9 @@ export const MAX_REMEMBERED_SIGNALS = 4096
 export const MAX_UNWRAPS_PER_WINDOW = 4096
 
 export class SignalGuard {
+  readonly #senderLimit: number
+  constructor(senderLimit = MAX_SIGNALS_PER_WINDOW) { this.#senderLimit = senderLimit }
+
   #unwrapWindow: { start: number; count: number } | undefined
 
   /** A per-room budget before any crypto, independent of attacker-chosen
@@ -96,7 +99,7 @@ export class SignalGuard {
       this.#evictSenders()
       return true
     }
-    if (entry.count >= MAX_SIGNALS_PER_WINDOW) return false
+    if (entry.count >= this.#senderLimit) return false
     entry.count++
     return true
   }

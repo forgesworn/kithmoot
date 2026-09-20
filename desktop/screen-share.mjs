@@ -38,6 +38,6 @@ export async function answerDisplayRequest(request, callback, deps) {
     if (!await deps.screenAccessGranted()) return finish()
     const sources = await deps.listSources()
     if (sources.length === 0) return finish()
-    deps.choose(sources, source => finish(source ? { video: source } : undefined))
+    deps.choose(sources, source => finish(source ? (deps.selection?.(source, request) ?? { video: source }) : undefined))
   } catch { finish() }
 }

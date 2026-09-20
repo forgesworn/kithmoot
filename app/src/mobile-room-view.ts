@@ -18,7 +18,9 @@ showMobileRoomView('chat')
 chat.addEventListener('click', () => showMobileRoomView('chat'))
 call.addEventListener('click', () => {
   showMobileRoomView('call')
-  document.getElementById('callToggle')!.click()
+  // This is navigation, including when returning from Chat during a call.
+  // Join is idempotent; the header toggle would leave an existing call.
+  document.getElementById('joinCall')!.click()
 })
 document.getElementById('mobileWork')!.addEventListener('click', () => document.getElementById('openAssignments')!.click())
 

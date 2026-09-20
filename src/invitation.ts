@@ -463,7 +463,13 @@ export interface EncodeInvitationRetirementOptions {
    * key, which stops one room member disabling admission for everybody. */
   inviterSk: Uint8Array
   now: number
+  /** The room itself was ended, not just this link replaced. Additive: a
+   * reader that predates it still sees an ordinary retirement. */
+  ended?: boolean
 }
+
+/** What a joiner is told when a link was retired because its room ended. */
+export const ROOM_ENDED_MESSAGE = 'this room was ended by the person who started it'
 
 /** Make a permanent tombstone for one invitation rendezvous. */
 export function encodeInvitationRetirement(opts: EncodeInvitationRetirementOptions): Event {
@@ -476,7 +482,7 @@ export function encodeInvitationRetirement(opts: EncodeInvitationRetirementOptio
       kind: KINDS.INVITATION_RETIREMENT,
       created_at: opts.now,
       tags: [['d', deriveInvitationId(opts.invitation)]],
-      content: JSON.stringify({ v: 1 }),
+      content: JSON.stringify(opts.ended ? { v: 1, ended: true } : { v: 1 }),
     },
     opts.inviterSk,
   )
@@ -485,16 +491,27 @@ export function encodeInvitationRetirement(opts: EncodeInvitationRetirementOptio
 /** A valid tombstone never expires: invitation ids are random and unique,
  * and a retired bearer must not become usable again after a timeout. */
 export function decodeInvitationRetirement(event: Event, invitation: RoomInvitation): boolean {
+  return decodeInvitationRetirementNotice(event, invitation) !== undefined
+}
+
+/** A valid retirement, and whether it says the room was ended. Undefined
+ * for anything that is not a valid retirement of this invitation. */
+export function decodeInvitationRetirementNotice(event: Event, invitation: RoomInvitation): { ended: boolean } | undefined {
   try {
-    if (event.kind !== KINDS.INVITATION_RETIREMENT) return false
-    if (!verifyEventUncached(event)) return false
-    if (!hexEquals(event.pubkey, invitation.inviter)) return false
-    if (event.tags.find((tag) => tag[0] === 'd')?.[1] !== deriveInvitationId(invitation)) return false
-    const body = JSON.parse(event.content) as { v?: unknown }
-    return body.v === 1
+    if (event.kind !== KINDS.INVITATION_RETIREMENT) return undefined
+    if (!verifyEventUncached(event)) return undefined
+    if (!hexEquals(event.pubkey, invitation.inviter)) return undefined
+    if (event.tags.find((tag) => tag[0] === 'd')?.[1] !== deriveInvitationId(invitation)) return undefined
+    const body = JSON.parse(event.content) as { v?: unknown; ended?: unknown }
+    return body.v === 1 ? { ended: body.ended === true } : undefined
   } catch {
-    return false
+    return undefined
   }
+}
+
+/** The error a joiner rejects with on a retirement. */
+export function retirementError(notice: { ended: boolean }): Error {
+  return new Error(notice.ended ? ROOM_ENDED_MESSAGE : 'this room invitation has been retired')
 }
 
 /**
@@ -630,8 +647,9 @@ export function requestRoomAdmissionCapability(opts: RequestRoomAdmissionOptions
         { kinds: [KINDS.INVITATION_RETIREMENT], '#d': [invitationId], authors: [opts.invitation.inviter] },
       ],
       (event) => {
-        if (decodeInvitationRetirement(event, opts.invitation)) {
-          finish(() => reject(new Error('this room invitation has been retired')))
+        const retired = decodeInvitationRetirementNotice(event, opts.invitation)
+        if (retired) {
+          finish(() => reject(retirementError(retired)))
           return
         }
         const admission = decodeRoomAdmissionGrant(event, {

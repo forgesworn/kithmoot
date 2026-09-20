@@ -1,0 +1,17 @@
+{
+  "currentRelease": "0.1.12",
+  "releases": [
+    {
+      "version": "0.1.12",
+      "updateTo": {
+        "version": "0.1.12",
+        "pub_date": "2026-09-20T15:15:00Z",
+        "notes": "The sharing frame can now bring KithMoot back to the front without losing the always-visible capture boundary.",
+        "name": "0.1.12",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.12/KithMoot-0.1.12-mac-arm64.zip",
+        "sha256": "4f0f323c5d69bc62b6b15eb0da4ca6593cf422b8023f3846909de6ab0441ce88",
+        "size": 138895835
+      }
+    }
+  ]
+}

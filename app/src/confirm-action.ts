@@ -8,18 +8,36 @@ export interface ConfirmActionOptions {
   isCurrent?: () => boolean
 }
 
+export interface ChooseActionOptions extends ConfirmActionOptions {
+  /** A lesser choice shown between Cancel and the main action. */
+  alternativeLabel: string
+  alternativeDanger?: boolean
+}
+
+export type ActionChoice = 'confirm' | 'alternative' | 'cancel'
+
 let pending = Promise.resolve()
 
 /** App-owned confirmations keep the room running and never block incoming
  * messages or media. Only one confirmation is shown at a time. */
 export function confirmAction(options: ConfirmActionOptions): Promise<boolean> {
+  return queue(options).then(choice => choice === 'confirm')
+}
+
+/** A confirmation with a second, lesser way forward. Escape, a click outside
+ * and a change of room or account all still mean cancel. */
+export function chooseAction(options: ChooseActionOptions): Promise<ActionChoice> {
+  return queue(options)
+}
+
+function queue(options: ConfirmActionOptions | ChooseActionOptions): Promise<ActionChoice> {
   const result = pending.then(() => showConfirmation(options))
   pending = result.then(() => {}, () => {})
   return result
 }
 
-function showConfirmation(options: ConfirmActionOptions): Promise<boolean> {
-  if (options.isCurrent?.() === false) return Promise.resolve(false)
+function showConfirmation(options: ConfirmActionOptions | ChooseActionOptions): Promise<ActionChoice> {
+  if (options.isCurrent?.() === false) return Promise.resolve('cancel')
   const opener = document.activeElement as HTMLElement | null
   const message = opener?.closest<HTMLElement>('[data-message-id]')
   const dialog = document.createElement('dialog')
@@ -46,14 +64,23 @@ function showConfirmation(options: ConfirmActionOptions): Promise<boolean> {
   confirm.type = 'submit'
   confirm.className = options.danger ? 'danger' : 'primary'
   confirm.textContent = options.confirmLabel
-  actions.append(cancel, confirm)
+  const alternative = 'alternativeLabel' in options ? document.createElement('button') : undefined
+  if (alternative && 'alternativeLabel' in options) {
+    alternative.id = 'actionAlternative'
+    alternative.type = 'button'
+    alternative.className = options.alternativeDanger ? 'danger quiet' : 'quiet'
+    alternative.textContent = options.alternativeLabel
+  }
+  const buttons = alternative ? [cancel, alternative, confirm] : [cancel, confirm]
+  actions.append(...buttons)
   dialog.append(title, description, actions)
   document.body.append(dialog)
   return new Promise(resolve => {
     const cancelForDeparture = () => dialog.close('cancel')
     window.addEventListener('pagehide', cancelForDeparture, { once: true })
     dialog.addEventListener('close', () => {
-      const approved = dialog.returnValue === 'confirm' && options.isCurrent?.() !== false
+      const choice: ActionChoice = options.isCurrent?.() === false ? 'cancel'
+        : dialog.returnValue === 'confirm' || dialog.returnValue === 'alternative' ? dialog.returnValue : 'cancel'
       window.removeEventListener('pagehide', cancelForDeparture)
       dialog.remove()
       const replacementMessage = message && Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'))
@@ -65,16 +92,19 @@ function showConfirmation(options: ConfirmActionOptions): Promise<boolean> {
         ?? Array.from(document.querySelectorAll<HTMLElement>('#roomMenu, #homeRoomQuery')).find(element => element.getClientRects().length)
       target?.focus({ preventScroll: true })
       document.dispatchEvent(new Event('kithmoot:confirmation-closed'))
-      resolve(approved)
+      resolve(choice)
     }, { once: true })
     cancel.addEventListener('click', () => dialog.close('cancel'))
+    alternative?.addEventListener('click', () => dialog.close('alternative'))
     actions.addEventListener('submit', event => { event.preventDefault(); dialog.close('confirm') })
     // Some browser keyboard settings skip buttons in the default tab order.
-    // Keep both decisions reachable inside this two-action dialog.
+    // Keep every decision reachable inside this dialog.
     dialog.addEventListener('keydown', event => {
       if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return
       event.preventDefault()
-      ;(document.activeElement === cancel ? confirm : cancel).focus({ preventScroll: true })
+      const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
+      const next = (at + (event.shiftKey ? buttons.length - 1 : 1)) % buttons.length
+      buttons[at < 0 ? 0 : next].focus({ preventScroll: true })
     })
     dialog.addEventListener('click', event => {
       if (event.target !== dialog) return

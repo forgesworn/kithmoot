@@ -1,7 +1,13 @@
+import { DesktopShareArea } from './share-area.js'
 import { updateAppBadge } from './app-badge.js'
+import { resolveShownName, LastKnownNames } from './profile-name.js'
+import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
+import { buildMentionCandidates, resolveDraftMentions } from './mention-candidates.js'
 import { playZenChime, unlockZenChime } from './zen-chime.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
+import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
+import { setProjectsRailUnread } from './desktop-projects-rail.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { EmojiPicker } from './emoji-picker.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
@@ -10,7 +16,8 @@ import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
-import { confirmAction, type ConfirmActionOptions } from './confirm-action.js'
+import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
+import { signerLabel } from './signer-label.js'
 import { ChatScroll } from './chat-scroll.js'
 import { installReactionHold } from './reaction-hold.js'
 import { splitLinks } from './linkify.js'
@@ -18,6 +25,7 @@ import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
+import { AttachmentViewer } from './attachment-viewer.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
@@ -25,6 +33,7 @@ import type { ScreenAnnotation } from '../../src/signal.js'
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
+  DEVICE_PREFIX,
   browserDeviceStore,
   deviceKeyFor,
   forgetCredentialFor,
@@ -39,16 +48,22 @@ import {
   memoryDeviceStore,
 } from './device-store.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
-import { forgetRoom, knownRoom, knownRooms, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { forgetRoom, knownRoom, knownRooms, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
 import { RoomWatch } from './room-watch.js'
 import { PresenceAnnouncements } from './presence-announcements.js'
 import { readAgentRequestStatuses, type RequestAgent } from './agent-request-status.js'
-import { RoomBookmarks } from './room-bookmarks.js'
+import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
+import { describeShareError } from './share-error.js'
+import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
+import { AutoplayBannerState } from './autoplay-banner.js'
+import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
+import { AdvertTracker, CallTimeline, PairHealthSampler, type PairSample } from './call-timeline.js'
+import { readCallProfile } from './call-profile.js'
 import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
 import { participantVerification, rememberVerified } from './verified-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
@@ -66,6 +81,7 @@ import {
   requestPersistentRoomAdmission,
   encodePersistentInvitation,
   encodeInvitationRetirement,
+  ROOM_ENDED_MESSAGE,
   createPairingCode,
   hostPairing,
   requestPairing,
@@ -111,8 +127,6 @@ import {
   ringTier,
   resolveConversation,
   mentionedBy,
-  mentionsOf,
-  ROOM_MENTION_PATTERN,
   sameRef,
   refKey,
   retractionText,
@@ -147,6 +161,9 @@ import { deleteImportedHistory, recordPrivateHistoryTombstone } from './private-
 import { indexAccessibleNip17GiftWraps, indexAccountAuthoredTextNotes } from './private-history-index.js'
 import { recoverHistoryWindows, retainRecoveredHistory } from './private-history-recovery.js'
 import { NostrPublicDeletionRelayWriter } from './public-deletion-relay-writer.js'
+import { runTidyUp, tidyUpSteps, TIDY_UP_LIMITS, type TidyStepReport, type TidyUpReport } from './room-tidy-up.js'
+import { RoomTabs } from './room-tabs.js'
+import { readPositionId } from '../../src/read-position.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
 import { buildCardWith, cardLink } from 'nostr-contact-card'
 import { schnorr } from '@noble/curves/secp256k1.js'
@@ -208,7 +225,10 @@ for (const target of [$('chatLog'), window]) target.addEventListener('scroll', (
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
-  if (!$('callBay').hidden && !callIsLive() && !document.querySelector('dialog[open]')) setCallOpen(false)
+  // Not while on the call: the room bar's control now leaves a call rather
+  // than reopening its panel, so a bay folded away by Escape would be a
+  // call with no controls and no way back to them.
+  if (!$('callBay').hidden && !callIsLive() && !onCall() && !document.querySelector('dialog[open]')) setCallOpen(false)
 })
 
 function positionReactionDetails(details: HTMLElement): void {
@@ -238,9 +258,14 @@ const floatingSharePreview = new FloatingSharePreview({
   overlay: (video, shareId) => shareViewer.overlay(video, shareId),
   source: () => screenTrack ? screenSource(meParticipant, myDeviceId) : undefined,
 })
+const desktopShareArea = new DesktopShareArea({
+  overlay: (canvas, id) => shareViewer.areaOverlay(canvas, id),
+  draw: annotation => shareViewer.draw(annotation),
+  ended: () => screenTrack?.dispatchEvent(new Event('ended')),
+})
 const drawingNoticeGate = new DrawingNoticeGate()
 const emojiPicker = new EmojiPicker()
-window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close() })
+window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop() })
 let drafts = new ConversationDrafts()
 // Only this tab holds draft text and file keys. Switching rooms retains the
 // originating collection; closing the tab still discards it.
@@ -314,15 +339,17 @@ function hasUnsentWork(): boolean {
 }
 
 // Relays confirmed live for this room kind: two third-party public relays,
-// and deliberately none of the project's own. A client that ships its
-// maker's relay as a default makes that relay load-bearing for everybody
-// who never changes the list, which is exactly the central dependency this
-// project exists to avoid; a person who wants their own or their circle's
-// box in the list adds it in relay settings, or reads it off a contact
-// card. relay.damus.io returned 503 during the stage 2 acceptance run and
-// was dropped for that reason. Change this list, not code elsewhere, if a
-// relay in it goes down again.
-const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net']
+// plus relay.trotters.cc third and last. A publish succeeds when any
+// writable relay in the list acknowledges it (see RelayConnections/publish
+// in relay-pool.ts), so this third relay only ever adds redundancy - it is
+// never the only relay a room has, and a person who wants their own or
+// their circle's box in the list still adds it in relay settings, or reads
+// it off a contact card. Reinstated 17 September 2026 after a real joiner
+// on an iPhone failed to join when both nos.lol and relay.primal.net timed
+// out on publish; see docs/decisions.md. relay.damus.io returned 503 during
+// the stage 2 acceptance run and was dropped for that reason. Change this
+// list, not code elsewhere, if a relay in it goes down again.
+const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://relay.trotters.cc']
 const relayStorage = {
   getItem: (key: string) => localStorage.getItem(key),
   setItem: (key: string, value: string) => localStorage.setItem(key, value),
@@ -337,6 +364,25 @@ let roomRelayScope = 'default'
 function configuredPool(urls: string[]): NostrRelayPool {
   return relayConnections.pool(urls === RELAYS ? 'default' : roomRelayScope, urls === RELAYS ? [] : urls === relays ? roomRelayConfig : urls)
 }
+
+// A socket opened while the tab was in the background - or while it still
+// showed the door, before a link brought someone here from another app -
+// can go half-open without either end saying so: `send()` keeps succeeding
+// into the void. `visibilitychange` back to visible, `pageshow` from the
+// back-forward cache, and the network returning are this app's own "we
+// might have missed something" signals, so every live pool gets a cheap
+// liveness check on each of them. `lastHiddenAt` lets a caller about to
+// publish - the join flow, in particular - ask whether the page went to the
+// background at any point after a specific pool connected, which a global
+// probe on the visibility event alone cannot answer for a pool created
+// while still hidden.
+let lastHiddenAt = 0
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void relayConnections.probeAll()
+  else lastHiddenAt = Date.now()
+})
+window.addEventListener('pageshow', event => { if (event.persisted) void relayConnections.probeAll() })
+window.addEventListener('online', () => { void relayConnections.probeAll() })
 
 // The room names its own STUN/TURN, carried in the join URL like the relay
 // hints already are - hardcoding an operator's server here is exactly the
@@ -445,6 +491,9 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/** The share error the status line is showing, if any; see `showShareError`. */
+let shownShareError: string | undefined
+
 /**
  * The one line the page uses to say something went wrong, or that something
  * is happening.
@@ -463,6 +512,7 @@ function describeError(err: unknown): string {
 function setStatus(message: string, tone: 'problem' | 'progress' | 'done' = 'problem'): void {
   const el = $('status')
   el.textContent = message
+  el.title = ''
   el.classList.toggle('progress', tone === 'progress')
   el.classList.toggle('done', tone === 'done')
   if (message && tone === 'problem') console.error(message)
@@ -517,17 +567,35 @@ const NAME_STORAGE_KEY = 'kithmoot.name'
 const ACCOUNT_STORAGE_KEY = 'kithmoot.last-nostr-account'
 // Read only the SDK's public identity hint before restore can clear it.
 // This is a reminder to reconnect, never proof of identity or permission.
+const ACCOUNT_METHOD_STORAGE_KEY = 'kithmoot.last-nostr-method'
 let expectedAccount: string | undefined
+let expectedMethod: string | undefined
 try {
   const saved = localStorage.getItem(ACCOUNT_STORAGE_KEY) ?? localStorage.getItem('signet:login.pubkey')
   if (saved && /^[0-9a-f]{64}$/.test(saved)) expectedAccount = saved
+  expectedMethod = localStorage.getItem(ACCOUNT_METHOD_STORAGE_KEY) ?? localStorage.getItem('signet:login.method') ?? undefined
 } catch { /* The active session still identifies this visit. */ }
-function rememberAccount(pubkey: string): void {
-  expectedAccount = pubkey
-  try { localStorage.setItem(ACCOUNT_STORAGE_KEY, pubkey) } catch { /* Optional persistence. */ }
+function rememberAccount(account: SignetSession): void {
+  expectedAccount = account.pubkey
+  expectedMethod = account.signer.method
+  try {
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, account.pubkey)
+    localStorage.setItem(ACCOUNT_METHOD_STORAGE_KEY, account.signer.method)
+  } catch { /* Optional persistence. */ }
 }
 function needsAccountReconnect(): boolean {
   return !!expectedAccount && !nostrSession && !loadCredential()
+}
+/** A Nostr account was used in this browser and is not connected in this
+ *  tab, once restoring has had its chance. Account-scoped actions must ask
+ *  to reconnect rather than fall back to this browser or a visitor. */
+function accountDisconnected(): boolean {
+  return !!expectedAccount && !nostrSession && !identityRestoring
+}
+/** Rooms this browser last saw under the disconnected account. A cache from
+ *  an earlier sign-in, used only to warn, never to act for the account. */
+function disconnectedAccountRooms(): KnownRoom[] {
+  return accountDisconnected() ? knownRooms(accountRoomStore(deviceStore, expectedAccount!)) : []
 }
 
 
@@ -798,7 +866,7 @@ async function signInWithNostr(): Promise<void> {
   const previous = expectedAccount
   relayConnections.clearAuthentication()
   nostrSession = account
-  rememberAccount(account.pubkey)
+  rememberAccount(account)
   startRoomBookmarks(account)
   profiles.want([account.pubkey])
   renderIdentity()
@@ -921,6 +989,21 @@ let readSync: ReadPositionSync | undefined
 
 function followReadPositions(roomId: string, roomKey: Uint8Array): void {
   readSync?.follow(roomId, roomKey, { '': { at: knownRoom(roomStore(), roomId)?.readAt ?? 0 } })
+}
+
+/**
+ * Stop keeping a read position for a room, and wait for anything already on
+ * its way to a relay.
+ *
+ * A read position is published on a delay, so a room read a moment ago has a
+ * record still to come. For a room this browser is only leaving that is
+ * right. For one whose records are being deleted it is not: the late marker
+ * is newer than the deletion, and NIP-09 does not reach past a request's own
+ * time. Every tab whose room is going does this before the deletion.
+ */
+async function stopReadPositions(roomId: string): Promise<void> {
+  readSync?.forget(roomId)
+  await readSync?.settle()
 }
 
 function refreshAccountRooms(): void {
@@ -1450,7 +1533,11 @@ function serveCurrentInvitation(): void {
         invitationDelegation = []
         const rotate = document.getElementById('rotateShare') as HTMLButtonElement | null
         if (rotate) rotate.hidden = true
-        setStatus('Whoever made this link has replaced it, so it no longer lets anybody new in. The room itself carries on as it was.')
+        renderEndRoom()
+        const roomId = currentRoomId()
+        const ended = roomId !== undefined && (knownRoom(deviceStore, roomId)?.endedAt ?? knownRoom(roomStore(), roomId)?.endedAt) !== undefined
+        setStatus(ended ? 'This room has ended. Its invite link no longer works.'
+          : 'Whoever made this link has replaced it, so it no longer lets anybody new in. The room itself carries on as it was.')
       },
     })
   } catch {
@@ -1657,6 +1744,29 @@ function nameCollides(pubkey: string, name: string | undefined): boolean {
   return keys !== undefined && (keys.size > 1 || !keys.has(pubkey))
 }
 
+/**
+ * The last name a kind-0 profile actually carried for a key, kept across
+ * reloads so the join flash - the announced name showing for a second or
+ * two before the real profile arrives - happens once per key, not on
+ * every single visit. See `profile-name.ts` for the store itself and for
+ * `resolveShownName`, which decides what `shownAs` below actually shows.
+ */
+const LAST_KNOWN_PROFILE_NAME_KEY = 'kithmoot.profiles.lastKnownName.v1'
+const lastKnownProfileNames = new LastKnownNames(500, (() => {
+  try {
+    const raw = deviceStore.get(LAST_KNOWN_PROFILE_NAME_KEY)
+    const parsed = raw ? (JSON.parse(raw) as unknown) : {}
+    if (!parsed || typeof parsed !== 'object') return []
+    return Object.entries(parsed as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string')
+  } catch {
+    return []
+  }
+})())
+function rememberProfileName(pubkey: string, name: string): void {
+  if (!lastKnownProfileNames.remember(pubkey, name)) return
+  try { deviceStore.set(LAST_KNOWN_PROFILE_NAME_KEY, JSON.stringify(lastKnownProfileNames.toRecord())) } catch { /* Still applies to this visit. */ }
+}
+
 /** The full npub, for a title attribute - somewhere the whole key is
  *  available without it taking a row of its own. */
 function npubOf(pubkey: string): string {
@@ -1692,7 +1802,13 @@ function shownAs(pubkey: string, asserted?: string): Shown {
   // every render by design - it does nothing for a total that is still
   // fresh, and nothing at all when the feature is off.
   if (profile !== undefined) donations.want([pubkey])
-  const name = profile?.name ?? asserted
+  if (profile?.name) rememberProfileName(pubkey, profile.name)
+  const name = resolveShownName({
+    profileName: profile?.name,
+    rememberedName: lastKnownProfileNames.get(pubkey),
+    assertedName: asserted,
+    profilesEnabled,
+  })
   noteName(pubkey, name)
   return {
     pubkey,
@@ -2258,6 +2374,14 @@ let camera: CameraPipeline | undefined
 let mic: MicPipeline | undefined
 const pendingMedia = new Set<CameraPipeline | MicPipeline>()
 let backgroundId = BACKGROUNDS[0]?.id ?? ''
+
+/** Whether the shoal swims over the chosen sea. Off to start with - motion
+ *  behind a talking head is a thing you opt into - and remembered on this
+ *  device, because nobody wants to tick it again every call. */
+const FISH_STORAGE_KEY = 'kithmoot.fish.enabled'
+let fishEnabled = (() => {
+  try { return localStorage.getItem(FISH_STORAGE_KEY) === 'true' } catch { return false }
+})()
 let videoInputs: MediaDeviceInfo[] = []
 
 const localPreviewEls = new Map<'camera' | 'screen', HTMLVideoElement>()
@@ -2309,6 +2433,14 @@ function joinLinkBase(): string {
 
 function activeTracks(): MediaStreamTrack[] {
   return [micTrack, cameraTrack, screenTrack, screenAudioTrack].filter((t): t is MediaStreamTrack => t !== undefined)
+}
+
+function activeTrackRole(track: MediaStreamTrack): TrackAdvert['role'] | undefined {
+  if (track === micTrack) return 'mic'
+  if (track === cameraTrack) return 'camera'
+  if (track === screenTrack) return 'screen'
+  if (track === screenAudioTrack) return 'screen-audio'
+  return undefined
 }
 
 function fragmentPayload(url: string): Partial<RoomUrlPayload> {
@@ -2378,6 +2510,11 @@ async function roomFromLocation(): Promise<boolean> {
         cacheAdmission(invitation, cached)
         serveCurrentInvitation()
       } else {
+        $('arrivalTitle').textContent = invitation.persistent ? 'Opening this room' : 'Waiting to be admitted'
+        $('arrivalLead').textContent = invitation.persistent
+          ? 'Checking the room invitation…'
+          : 'Your request has been sent. Someone already in the room needs to let you in.'
+        $('arrivalLead').hidden = false
         setStatus(invitation.persistent ? 'Getting you in…' : 'Asking to be let in…', 'progress')
         const transport = configuredPool(relays)
         try {
@@ -2433,6 +2570,11 @@ async function roomFromLocation(): Promise<boolean> {
     history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
     pairWithPrimary(code).catch((err) => setStatus(describeError(err)))
   }
+
+  // An older saved invitation may predate names in room links. The rooms
+  // list still knows the human name, so keep it when opening that bookmark
+  // instead of replacing it with `Room deadbeef` on desktop.
+  if (!roomName) roomName = knownRooms(roomStore()).find((room) => room.roomId === currentRoomId())?.name
 
   // Admitted, one way or another: this is now a room this device has been
   // in, and the list on the front page will offer it again - and, if the
@@ -2999,6 +3141,7 @@ function showRoomUi(): void {
   // Only the browser that opened the room has that button, so everybody
   // else was reading about a control that was not on their page.
   $('rotateNote').hidden = ($('rotateShare') as HTMLButtonElement).hidden
+  renderEndRoom()
   $('makePersistent').hidden = Boolean(roomInvitationCapability?.persistent) || $('rotateNote').hidden
   $('invitationAvailability').textContent = roomInvitationCapability?.persistent
     ? 'This group stays available when everyone closes the app. Anyone with this invitation can join and read its shared history.'
@@ -3103,9 +3246,132 @@ function renderWakeLockNote(): void {
  */
 let leftCall = false
 
+/**
+ * Leave was pressed and has not finished.
+ *
+ * Set before anything is torn down and cleared only once the panes have
+ * been repainted, so every call control reads "on the way out" for the
+ * whole of it. Without this, the moment between "this device stopped saying
+ * it is on the call" and "the roster agrees" painted the join door - see
+ * app/src/call-stance.ts for why that is our own shadow and not a race.
+ */
+let leavingCall = false
+
+/**
+ * What every call control is looking at: this device's own membership, how
+ * many OTHER devices are on the room's current call, and whether a leave is
+ * in flight. Other devices, never the roster's count of people, because
+ * this device's own entry outlives its leave by a beat.
+ */
+function callStanceNow(views: ParticipantView[]): CallStanceInput {
+  const current = (session?.calls() ?? [])[0]
+  let otherDevicesOn = 0
+  if (current) {
+    for (const view of views) {
+      if (view.call?.id !== current.id) continue
+      // Own other devices count. A call taken on the laptop is one this
+      // window may join, and the notice about it says so.
+      otherDevicesOn += view.call.devices.filter(device => device !== myDeviceId).length
+    }
+  }
+  return { mineOn: onCall(), otherDevicesOn, leaving: leavingCall }
+}
+
 function newCallId(): string {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(16)))
 }
+
+// ---------------------------------------------------------------------------
+// One call per device, across this browser's tabs
+//
+// Two tabs signed in as the same account share one device key - see
+// room-tabs.ts, which coordinates the same fact for leaving a room outright.
+// This is the narrower, more damaging case: both tabs open on the same
+// room, and the one not on the call keeps heartbeating "no tracks" under
+// the identical device key - see Session.pausePresence for why that orphans
+// the other tab's live media. call-tab-lock.ts is the wire protocol; this is
+// how the app answers it: whichever tab is not the call holder for this
+// room's device key goes quiet and says so.
+// ---------------------------------------------------------------------------
+
+/** The call-tab-lock key for this device's call on the current room, or
+ *  undefined outside a room. */
+function callLockKey(): string | undefined {
+  const roomId = currentRoomId()
+  return roomId && myDeviceId ? `${roomId}|${myDeviceId}` : undefined
+}
+
+/** The call-tab-lock key another tab currently holds for this device, if
+ *  this tab knows of one - cleared the moment it is freed or this tab takes
+ *  it back. */
+let heldElsewhereKey: string | undefined
+
+function renderCallTabNotice(): void {
+  const held = heldElsewhereKey !== undefined && heldElsewhereKey === callLockKey()
+  const notice = $('callTabNotice')
+  notice.hidden = !held
+  if (held) $('callTabNoticeText').textContent = "This room's call is open in another tab."
+}
+
+// A rolling, redacted record of what happened during this call, and a
+// per-pair health sampler that turns single-snapshot stats into "is it
+// actually moving". Both feed `collectDiagnostics` below; see
+// app/src/call-timeline.ts for what they will and will not record.
+const callTimeline = new CallTimeline()
+const pairHealthSampler = new PairHealthSampler()
+
+/**
+ * Which call signalling profile this device advertises, decided once per page
+ * load and off unless somebody turned it on.
+ *
+ * Read here rather than at each room join so a person cannot end up with one
+ * room on each profile in the same tab, and so the answer is in the bug
+ * report whatever they do next. Turning it on lasts this page session;
+ * turning it off is remembered for good. See app/src/call-profile.ts.
+ */
+const callProfile = readCallProfile(location.search, localStorage, sessionStorage)
+const advertTracker = new AdvertTracker()
+
+const callTabLock = new CallTabLock({
+  onPreempted: (key) => {
+    if (key !== callLockKey()) return
+    heldElsewhereKey = key
+    callTimeline.record('call-tab-lock', undefined, 'preempted')
+    leaveCall('preempted').then(() => {
+      session?.pausePresence()
+      renderCallTabNotice()
+    }).catch(() => {})
+  },
+  onHeldElsewhere: (key) => {
+    if (key !== callLockKey() || onCall()) return
+    heldElsewhereKey = key
+    callTimeline.record('call-tab-lock', undefined, 'held-elsewhere')
+    session?.pausePresence()
+    renderCallTabNotice()
+  },
+  onFreed: (key) => {
+    if (key !== heldElsewhereKey) return
+    heldElsewhereKey = undefined
+    callTimeline.record('call-tab-lock', undefined, 'freed')
+    session?.resumePresence()
+    renderCallTabNotice()
+  },
+  // A fresh tab has just probed and been told this tab holds the call. Its
+  // own join() is about to publish (or has just published) one trackless
+  // entry under the identical device key, simply to enter the room - see
+  // call-tab-lock.ts. Republishing now, rather than waiting for the next
+  // heartbeat, keeps that contradiction down to one round trip instead of
+  // up to a full heartbeat interval.
+  onProbeAnswered: (key) => {
+    if (key !== callLockKey()) return
+    callTimeline.record('call-tab-lock', undefined, 'probe-answered')
+    publishActiveTracks()
+  },
+})
+
+$('callTabNoticeTake').addEventListener('click', () => {
+  joinCall().catch((err) => setStatus(describeError(err)))
+})
 
 /** Start a call, or join the one that is on. The same act: say which call
  *  this device is on. Nothing is switched on by joining; the controls are. */
@@ -3119,14 +3385,25 @@ async function joinCall(): Promise<void> {
   const existing = s.calls()[0]
   leftCall = false
   await s.setCall({ id: existing?.id ?? newCallId(), since: nowSeconds() })
+  publishActiveTracks()
   setCallOpen(true)
   void callWakeLock.acquire()
+  // Claiming the call for this device's key sends every other tab of this
+  // device in this room quiet on it - see the CallTabLock handlers above.
+  const key = callLockKey()
+  if (key) {
+    heldElsewhereKey = undefined
+    s.resumePresence()
+    callTabLock.claim(key)
+  }
+  renderCallTabNotice()
   updateUi()
 }
 
 /** Everything of this device's that was live, off, and the previews with it.
  *  Shared by leaving a call and closing the room. */
 function stopLocalMedia(): void {
+  desktopShareArea.stop()
   micTrack?.removeEventListener('ended', onMicEnded)
   for (const track of activeTracks()) track.stop()
   mic?.stop()
@@ -3136,25 +3413,143 @@ function stopLocalMedia(): void {
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
+  clearShareError()
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
   for (const video of localPreviewEls.values()) { video.srcObject = null; video.remove() }
   localPreviewEls.clear()
 }
 
-/** Off the call. The room, and everybody else's call, carry on. */
-async function leaveCall(): Promise<void> {
+/** Off the call. The room, and everybody else's call, carry on.
+ *
+ *  `reason: 'preempted'` is another tab of this device taking the call.
+ *  Everything here still applies - stop media, say we are off - and one
+ *  thing more: this device sends a farewell for its call footprint rather
+ *  than an ordinary "no tracks" update, so every peer's mesh drops its
+ *  connection to this device cleanly instead of trying to renegotiate it -
+ *  see `Session.farewellCall` for why an ordinary update cannot hand a live
+ *  connection to a different physical tab. Never done for `'user'`: a
+ *  normal Leave keeps the connection warm on purpose, for an instant Join
+ *  back. */
+async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
   const s = session
-  stopLocalMedia()
-  speakingMonitor.retain([...remoteAudios.keys()])
-  remoteVolume.retain([...remoteAudios.keys()])
-  publishActiveTracks()
-  leftCall = true
-  if (s) await s.setCall(null)
-  setCallOpen(false)
-  void callWakeLock.release()
+  // Before a single thing is torn down. Everything between here and the
+  // repaint at the end reads this and paints the resting state, so the
+  // person sees the call go and never sees a door asking them back in.
+  leavingCall = true
+  try {
+    stopLocalMedia()
+    speakingMonitor.retain([...remoteAudios.keys()])
+    remoteVolume.retain([...remoteAudios.keys()])
+    leftCall = true
+    if (reason === 'preempted') {
+      if (s) await s.farewellCall()
+    } else {
+      publishActiveTracks()
+      if (s) await s.setCall(null)
+    }
+    setCallOpen(false)
+    void callWakeLock.release()
+    autoplayBanner.hide()
+    renderAutoplayBanner()
+    if (reason === 'user') {
+      const key = callLockKey()
+      if (key) callTabLock.release(key)
+    }
+  } finally {
+    // Cleared before the last repaint, not after: this is where the resting
+    // state becomes the honest answer rather than a held one, and the
+    // repaint below is the one that draws it.
+    leavingCall = false
+  }
   updateUi()
   if (session) render(session.participants(), meParticipant)
+}
+
+/**
+ * Which pane the window is drawing, and the clock that lets it shrink.
+ *
+ * The settler is the only thing that decides: `render` tells it what the
+ * room justifies, and it answers with what may actually be drawn - see
+ * app/src/call-stance.ts for why growing is immediate and shrinking waits.
+ */
+const paneSettler = new PaneSettler()
+let paneTimer: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * Whether the room has a picture in it.
+ *
+ * Adverts and this device's own tracks, never decoded frames. A tile whose
+ * video has stalled for a moment, or is re-binding after the mesh rebuilt a
+ * connection, still belongs to a room that has a picture; judging this on
+ * what is currently painting would collapse the whole layout under a
+ * hiccup and hand it back a second later.
+ */
+function roomHasPictures(views: ParticipantView[]): boolean {
+  if (cameraTrack || screenTrack) return true
+  if (localMediaEl.querySelector('video')) return true
+  // After Leave the pictures are parked on purpose - see `leftCall` - so
+  // there is nothing for the pane to hold, whatever the roster still says.
+  if (leftCall) return false
+  return views.some(view => view.tracks.some(track => track.role === 'camera' || track.role === 'screen'))
+}
+
+function applyCallPane(views: ParticipantView[], state: CallStanceInput): void {
+  const target = callPane({ ...state, pictures: roomHasPictures(views) })
+  const shown = paneSettler.settle(target, Date.now())
+  if (document.documentElement.dataset.callPane !== shown) document.documentElement.dataset.callPane = shown
+  if (paneTimer !== undefined) { clearTimeout(paneTimer); paneTimer = undefined }
+  const due = paneSettler.due
+  // Nobody else will ask. The last picture going is the last thing that
+  // happens in a quiet room, so without this the pane would stay expanded
+  // until something unrelated caused a render.
+  if (due !== undefined) {
+    paneTimer = setTimeout(() => {
+      paneTimer = undefined
+      if (session) applyCallPane(session.participants(), callStanceNow(session.participants()))
+    }, Math.max(0, due - Date.now()) + 20)
+  }
+}
+
+/**
+ * The call as a voice call: who is on it, by name.
+ *
+ * An empty video grid says nothing that this does not say in one row, so
+ * the controls-only pane shows these instead - see `CallPane`. The badges
+ * and the speaking class are the tiles' own, so the two cannot disagree
+ * about who is talking or who is muted, and `paintSpeaking` lights these
+ * from the same `data-devices` attribute twenty times a second without a
+ * render.
+ *
+ * Nothing here goes near the media. The remote `<audio>` elements stay in
+ * their tiles inside `#whoIsHere`, which the controls pane hides with CSS
+ * and never unmounts: a media element taken out of the document is paused
+ * by Chromium and does not reliably recover, and a chip row that cost the
+ * room its sound would be a worse bug than the one it fixes.
+ */
+function renderCallChips(views: ParticipantView[], callId: string | undefined): void {
+  const row = $('callChips')
+  row.replaceChildren()
+  if (!callId) return
+  for (const view of views) {
+    if (view.call?.id !== callId) continue
+    const mine = view.participant === meParticipant
+    const chip = document.createElement('span')
+    chip.className = 'callChip'
+    const devices = mine ? [LOCAL_SPEAKING_KEY] : view.devices
+    chip.dataset.devices = devices.join(' ')
+    if (devices.some((device) => speakingMonitor.isSpeaking(device))) chip.classList.add('speaking')
+    chip.append(identityRun(shownAs(view.participant, view.name), mine))
+    if (mine) {
+      if (!micTrack) chip.append(noMicBadge())
+      else if (!micTrack.enabled) chip.append(selfMuteBadge())
+    } else {
+      if (volumeLevel(view.participant) === 0) chip.append(volumeMuteBadge())
+      if (selfMutedMic(view)) chip.append(selfMuteBadge())
+      else if (!view.tracks.some((track) => track.role === 'mic')) chip.append(noMicBadge())
+    }
+    row.append(chip)
+  }
 }
 
 /**
@@ -3164,18 +3559,46 @@ async function leaveCall(): Promise<void> {
  */
 function renderCallState(views: ParticipantView[]): void {
   const calls = session?.calls() ?? []
-  const mineOn = onCall()
+  const state = callStanceNow(views)
+  const stance = callStance(state)
+  const mineOn = stance === 'leave'
   window.kithmootDesktop?.setCallActive(mineOn)
   const button = $('callToggle')
   const current = calls[0]
-  button.textContent = mineOn ? 'On call' : current ? 'Join call' : 'Call'
-  button.dataset.live = String(mineOn)
-  $('mobileCall').textContent = mineOn ? 'Call · live' : current ? 'Call · join' : 'Call'
-  button.title = mineOn ? 'Your call controls' : current ? 'A call is on in this room' : 'Start a call in this room'
+  // One control, three things it can do, and it says which. "Call" told a
+  // person nothing, and "On call" was a state where they expected an act.
+  //
+  // Written only when it changes, here and below. This runs on every
+  // heartbeat of every device in the room, and the pane's state lives on
+  // the root element: restating it would throw the whole document's style
+  // away several times a second, during a call, which is the one moment
+  // the machine has something better to do.
+  const label = CALL_STANCE_LABELS[stance]
+  if (button.textContent !== label) {
+    button.textContent = label
+    button.setAttribute('aria-label', label)
+    button.title = CALL_STANCE_TITLES[stance]
+    button.dataset.stance = stance
+  }
+  if (button.dataset.live !== String(mineOn)) button.dataset.live = String(mineOn)
+  const mobile = mineOn ? 'Call · live' : stance === 'join' ? 'Call · join' : 'Call'
+  if ($('mobileCall').textContent !== mobile) $('mobileCall').textContent = mobile
+
+  // A call pane with nothing in it costs the conversation its room. See
+  // `applyCallPane`, and the two strips in app/src/desktop.css.
+  applyCallPane(views, state)
+  renderCallChips(views, current?.id)
+  if ($('callStripAction').textContent !== label) {
+    $('callStripAction').textContent = label
+    $('callStripAction').setAttribute('aria-label', label)
+  }
+  const strip = stance === 'join' ? 'A call is on in this room.' : 'Nobody is on a call.'
+  if ($('callStripText').textContent !== strip) $('callStripText').textContent = strip
 
   const banner = $('callBanner')
-  banner.hidden = mineOn || !current
-  if (current && !mineOn) {
+  const doorShut = !joinDoorOpen(state)
+  if (banner.hidden !== doorShut) banner.hidden = doorShut
+  if (current && !banner.hidden) {
     const on = views.filter(view => view.call?.id === current.id).sort((a, b) => (a.call?.since ?? 0) - (b.call?.since ?? 0))
     const starter = on[0]
     const who = starter ? (shownAs(starter.participant, starter.name).name ?? 'Somebody') : 'Somebody'
@@ -3634,8 +4057,10 @@ async function toggleMic(): Promise<void> {
       besideAnotherDevice = false
       micClaimedAt = nowSeconds()
       monitorClaimedAt ??= WEAK_MONITOR_CLAIM
-      publishActiveTracks()
     }
+    // Either way the roster's mute flag has to follow, so the far end's
+    // tile stops guessing from audio energy - see `currentAdverts`.
+    publishActiveTracks()
   }
   updateUi()
 }
@@ -3721,6 +4146,10 @@ function renderEffectState(state: VideoEffectState): void {
   // Strength is a blur radius, so it belongs to blur and to nothing else.
   $('strengthRow').hidden = state.mode !== 'blur'
   $('backgroundChoices').hidden = state.mode !== 'replace'
+  // Only over a sea. Offering fish over Slate would be a question with no
+  // sensible answer.
+  $('fishRow').hidden =
+    state.mode !== 'replace' || !BACKGROUNDS.find((b) => b.id === backgroundId)?.sea
 
   const line = $('effectStatus')
   line.classList.remove('broken', 'working')
@@ -3728,15 +4157,48 @@ function renderEffectState(state: VideoEffectState): void {
     line.textContent = 'The room behind you is going out as it is.'
     line.classList.add('working')
   } else if (state.status === 'degraded') {
-    line.textContent = `Background effects are off: ${state.error ?? 'the model would not load'}. Your camera is showing the room.`
+    line.textContent = `Background effects have stopped working: ${state.error ?? 'the model would not load'}. Your camera is not being shown - only your backdrop or a full blur is, while it keeps retrying.`
     line.classList.add('broken')
   } else if (state.status === 'loading' || state.status === 'idle') {
-    line.textContent = 'Loading the background model. Everything is blurred until it arrives.'
+    line.textContent =
+      state.mode === 'replace'
+        ? 'Loading the background model. Your backdrop is covering the frame until it arrives.'
+        : 'Loading the background model. Everything is blurred until it arrives.'
     line.classList.add('working')
   } else {
     line.textContent = 'Running.'
     line.classList.add('working')
   }
+
+  renderEffectFailureNotice()
+}
+
+/**
+ * The notice next to the self-view, seen without opening the folded "Hide
+ * what is behind you" details.
+ *
+ * Driven off what the effect actually just painted (`lastAction`) and
+ * whether it has failed and not yet earned its way back (`untrustworthy`),
+ * not off `status`: `status` flips to `loading` for every retry attempt,
+ * which is exactly the moment this must not go quiet. Runs on the same
+ * 500ms tick as `publishEffectStats` so a retry's outcome shows up promptly
+ * either way, and once more from `renderEffectState` so a mode change is
+ * not left showing stale wording for up to that long.
+ */
+function renderEffectFailureNotice(): void {
+  const outer = $('effectDegradedNotice')
+  const action = camera?.lastAction
+  const failing = !!camera?.untrustworthy && (action === 'cover' || action === 'blur-all')
+  if (!failing) {
+    outer.hidden = true
+    outer.textContent = ''
+    return
+  }
+  outer.hidden = false
+  outer.textContent =
+    camera!.mode === 'replace'
+      ? 'Background effect has stopped working. Others see only your backdrop, not you. Turn the effect off to show your camera, or wait while it retries.'
+      : 'Background effect has stopped working. Others see a full blur, not you. Turn the effect off to show your camera, or wait while it retries.'
 }
 
 function renderVoiceState(state: MicState): void {
@@ -3797,6 +4259,7 @@ function renderBackgroundChoices(): void {
 async function chooseBackground(choice: BackgroundChoice): Promise<void> {
   backgroundId = choice.id
   markSegmented('backgroundChoices', 'background', backgroundId)
+  if (camera) renderEffectState(camera.status)
   await camera?.setBackground(choice)
 }
 
@@ -3804,6 +4267,9 @@ async function setEffectMode(mode: EffectMode): Promise<void> {
   const pipeline = camera
   if (!pipeline) return
   if (mode === 'replace') {
+    // Told before the picture is loaded, so the first composited frame
+    // already has whatever this device asked for last time.
+    await pipeline.setFish(fishEnabled)
     const choice = BACKGROUNDS.find((b) => b.id === backgroundId) ?? BACKGROUNDS[0]
     // Loaded before the mode changes, so there is no frame where replace is
     // selected with nothing to replace with. If it fails the effect stays on
@@ -3824,15 +4290,19 @@ function publishEffectStats(): void {
   const panel = $('effects')
   if (!camera) {
     panel.removeAttribute('data-fps')
+    renderEffectFailureNotice()
     return
   }
   const totals = camera.totals
   const stats = camera.stats
   panel.dataset.fps = String(stats.fps)
   panel.dataset.frameCostMs = stats.frameCostMs.toFixed(2)
+  panel.dataset.mask = stats.mask
   panel.dataset.passthrough = String(totals.passthrough)
   panel.dataset.blurAll = String(totals['blur-all'])
+  panel.dataset.cover = String(totals.cover)
   panel.dataset.composite = String(totals.composite)
+  renderEffectFailureNotice()
 }
 
 setInterval(publishEffectStats, 500)
@@ -3844,14 +4314,18 @@ setInterval(publishEffectStats, 500)
  */
 interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
   systemAudio?: 'include' | 'exclude'
+  windowAudio?: 'window' | 'system' | 'exclude'
   selfBrowserSurface?: 'include' | 'exclude'
   surfaceSwitching?: 'include' | 'exclude'
 }
 
-async function toggleScreen(): Promise<void> {
+let screenStarting = false
+async function toggleScreen(area = false): Promise<void> {
   const generation = roomGeneration
   if (switchingRoom) return
+  if (screenStarting) return
   if (screenTrack) {
+    desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
     screenAudioTrack?.stop()
@@ -3862,6 +4336,7 @@ async function toggleScreen(): Promise<void> {
     // any notice about drawing on a share that no longer exists.
     floatingSharePreview.close()
     hideDrawingNotice()
+    clearShareError()
     // Same as the camera, and worse if it is missed: a screen share nobody
     // was told had stopped stays frozen on everybody else's display.
     publishActiveTracks()
@@ -3881,13 +4356,17 @@ async function toggleScreen(): Promise<void> {
     // the share still goes ahead, silently; see `updateScreenAudioNote`.
     const options: ScreenCaptureOptions = {
       video: true,
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true } as MediaTrackConstraints & { restrictOwnAudio: boolean },
       systemAudio: 'include',
+      windowAudio: 'window',
       selfBrowserSurface: 'exclude',
       surfaceSwitching: 'include',
     }
-    const stream = await navigator.mediaDevices.getDisplayMedia(options)
-    if (generation !== roomGeneration) { for (const track of stream.getTracks()) track.stop(); return }
+    screenStarting = true
+    let stream: MediaStream
+    try { stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options) }
+    finally { screenStarting = false }
+    if (generation !== roomGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
     if (screenTrack) {
@@ -3895,6 +4374,7 @@ async function toggleScreen(): Promise<void> {
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
         if (generation !== roomGeneration) return
+        desktopShareArea.stop()
         screenTrack = undefined
         screenAudioTrack?.stop()
         screenAudioTrack = undefined
@@ -3902,6 +4382,7 @@ async function toggleScreen(): Promise<void> {
         localPreviewEls.delete('screen')
         floatingSharePreview.close()
         hideDrawingNotice()
+        clearShareError()
         publishActiveTracks()
         updateUi()
       })
@@ -3915,6 +4396,7 @@ async function toggleScreen(): Promise<void> {
         updateUi()
       })
       addLocalPreview('screen', screenTrack)
+      clearShareError()
       publishActiveTracks()
     } else {
       // No picture came back at all: nothing to show, so stop whatever the
@@ -3926,8 +4408,34 @@ async function toggleScreen(): Promise<void> {
   updateUi()
 }
 
+/**
+ * A screen share that failed, said once and taken back.
+ *
+ * The status line outlives what it is about: a share that failed and was
+ * then retried successfully left "Invalid capture constraints" in red under
+ * a screen that was plainly being shared. So the line remembers it is
+ * showing a share error, and a successful share, a stop or leaving the call
+ * clears it - only if nothing else has been said on that line since.
+ * `shownShareError` is declared beside `setStatus`, above anything that can
+ * run at start-up.
+ */
+function showShareError(err: unknown): void {
+  const text = describeShareError(err)
+  setStatus(text.plain)
+  // The browser's own words, for a bug report, kept off the page itself.
+  if (text.raw) $('status').title = `Details: ${text.raw}`
+  if (text.raw) console.error(`Screen share failed: ${text.raw}`)
+  shownShareError = text.plain
+}
+
+function clearShareError(): void {
+  if (shownShareError !== undefined && $('status').textContent === shownShareError) setStatus('')
+  shownShareError = undefined
+}
+
 function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): void {
   const video = document.createElement('video')
+  if (kind === 'camera') video.classList.add('localCameraPreview')
   video.srcObject = new MediaStream([track])
   video.autoplay = true
   video.muted = true
@@ -4048,8 +4556,8 @@ function setAgentsMayHear(on: boolean): void {
  *  Stamped when the mic comes on, so a device that has held it since the
  *  start is not outranked by its owner's other device toggling later. */
 let micClaimedAt: number | undefined
-/** The linked device that most recently brought call media becomes the one
- * speaker. One open speaker per person breaks the nearby-device echo loop. */
+/** Listening is independent of capture. Only Listen here takes an existing
+ * speaker role away from another device. */
 let monitorClaimedAt: number | undefined
 /** Explicit escape hatch when a phone entered through the ordinary room link.
  * There is no safe way to infer physical proximity from room or network data,
@@ -4068,7 +4576,7 @@ const WEAK_MONITOR_CLAIM = 1
 function currentAdverts(): TrackAdvert[] {
   const adverts: TrackAdvert[] = []
   if (cameraTrack) adverts.push({ trackId: cameraTrack.id, role: 'camera' })
-  if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic' })
+  if (micTrack) adverts.push({ trackId: micTrack.id, role: 'mic', ...(micTrack.enabled === false ? { muted: true } : {}) })
   if (screenTrack) adverts.push({ trackId: screenTrack.id, role: 'screen' })
   if (screenAudioTrack) adverts.push({ trackId: screenAudioTrack.id, role: 'screen-audio' })
   return adverts
@@ -4080,9 +4588,10 @@ function currentClaims(): Partial<Record<SingularRole, number>> {
     micClaimedAt ??= nowSeconds()
     claims.mic = micClaimedAt
   }
-  if (!besideAnotherDevice && (micTrack || cameraTrack || screenTrack)) {
-    monitorClaimedAt ??= nowSeconds()
-    claims.monitor = monitorClaimedAt
+  if (!besideAnotherDevice && (onCall() || micTrack || cameraTrack || screenTrack)) {
+    const owner = session?.participants().find(view => view.participant === meParticipant)?.monitor
+    if (monitorClaimedAt === undefined && (!owner || owner === myDeviceId)) monitorClaimedAt = nowSeconds()
+    if (monitorClaimedAt !== undefined) claims.monitor = monitorClaimedAt
   }
   return claims
 }
@@ -4105,7 +4614,6 @@ function toggleCompanionMode(): void {
  *  everybody else's tile reads to say "camera" or "connecting". */
 function publishActiveTracks(): void {
   if (!micTrack) micClaimedAt = undefined
-  if (!micTrack && !cameraTrack && !screenTrack) monitorClaimedAt = undefined
   session?.publishTracks(activeTracks(), { audience })
   session?.advertise(currentAdverts(), currentClaims()).catch(() => {})
   const s = session
@@ -4127,6 +4635,9 @@ function setToggle(id: string, on: boolean): void {
  *  moment the share ends, so it never outlives the share it is about. */
 function updateScreenAudioNote(): void {
   $('screenAudioNote').hidden = !screenTrack || !!screenAudioTrack
+  $('screenAudioNote').textContent = window.kithmootDesktop
+    ? 'No sound was captured. Check screen and system audio recording permissions, then restart sharing.'
+    : 'No sound is shared. To share sound, share a browser tab and tick Share tab audio.'
 }
 
 function updateUi(): void {
@@ -4134,6 +4645,8 @@ function updateUi(): void {
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  const areaButton = document.getElementById('shareArea') as HTMLButtonElement | null
+  if (areaButton) areaButton.disabled = !!screenTrack
   const share = $('toggleScreen')
   const sharing = !!screenTrack
   share.setAttribute('aria-label', sharing ? 'Stop screen sharing' : 'Screen share')
@@ -4245,15 +4758,17 @@ function render(views: ParticipantView[], me: string): void {
     ;($('listenHere') as HTMLButtonElement).hidden = !twoDevices || monitorHere
   }
   const micEl = $('micIndicator')
+  const micElsewhere = mine?.mic !== undefined && mine.mic !== myDeviceId
   if (mine?.mic) {
     micEl.textContent = mine.mic === myDeviceId
       ? (micTrack?.enabled ? 'Mic: this device' : 'Mic: this device (muted)')
-      : 'Mic: your other device'
+      : 'Your microphone is on your other device.'
     micEl.classList.toggle('mine', mine.mic === myDeviceId)
   } else {
     micEl.textContent = micTrack ? 'Mic: on, not yet claimed' : 'Mic: off'
     micEl.classList.remove('mine')
   }
+  ;($('claimMic') as HTMLButtonElement).hidden = !micElsewhere
 
   renderAssist()
 
@@ -4353,11 +4868,15 @@ function render(views: ParticipantView[], me: string): void {
     if (view.participant !== me) {
       heading.append(verifyChip(view, shown.name ?? ''))
       if (volumeLevel(view.participant) === 0) heading.append(volumeMuteBadge())
+      if (selfMutedMic(view)) heading.append(selfMuteBadge())
     }
     box.prepend(heading)
     const place = (mediaEl: HTMLDivElement | undefined, label = ''): void => {
       if (!mediaEl || mediaEl.childElementCount === 0) { if (mediaEl?.parentElement === box) mediaEl.remove(); return }
       mediaEl.dataset.cameraLabel = label
+      // Read by the "person beside their screen" layout in style.css: a
+      // share with no camera live beside it still shows whose it is.
+      mediaEl.dataset.ownerName = shown.name ?? shown.short
       if (mediaEl.parentElement !== box) box.append(mediaEl)
     }
 
@@ -4417,7 +4936,7 @@ function render(views: ParticipantView[], me: string): void {
       expand.addEventListener('click', () => shareViewer.open(source, expand))
       box.append(expand)
       if (!available) continue
-      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(`${device}|${available.id}`)?.el
+      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(tileKey(device, 'screen'))?.el
         ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el
       if (preview) {
         preview.classList.add('screenPreview')
@@ -5069,6 +5588,7 @@ function muteRequested(by: string): void {
     stopped.push('camera')
   }
   if (screenTrack) {
+    desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
     screenAudioTrack?.stop()
@@ -5193,6 +5713,7 @@ function renderApprovals(): void {
 
 /** The Host panel: shown only to a participant on the announced list. */
 function renderHost(): void {
+  renderEndRoom()
   const panel = $('hostPanel') as HTMLDetailsElement
   const isAdmin = session !== undefined && admins.has(meParticipant)
   panel.hidden = !isAdmin
@@ -5458,6 +5979,8 @@ type OpenedAttachment = { url: string; name: string; type: string; size: number;
  *  An object URL is revoked when its message leaves the log and never
  *  before, so a re-render costs nothing and never fetches twice. */
 const openedAttachments = new Map<string, OpenedAttachment>()
+const attachmentViewer = new AttachmentViewer()
+window.addEventListener('pagehide', () => attachmentViewer.close())
 
 function attachmentKey(logId: string, messageId: string, index: number): string {
   return `${logId}/${messageId}/${index}`
@@ -5475,7 +5998,7 @@ function pruneOpenedAttachments(logId: string, messages: ChatMessage[]): void {
   for (const m of messages) (m.attachments ?? []).forEach((_, i) => live.add(attachmentKey(logId, m.id, i)))
   for (const [key, opened] of openedAttachments) {
     if (!key.startsWith(`${logId}/`) || live.has(key)) continue
-    if ('url' in opened) URL.revokeObjectURL(opened.url)
+    if ('url' in opened) { attachmentViewer.closeUrl(opened.url); URL.revokeObjectURL(opened.url) }
     openedAttachments.delete(key)
   }
 }
@@ -5505,7 +6028,13 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
         const img = document.createElement('img')
         img.src = opened.url
         img.alt = opened.name
-        card.append(img)
+        const expand = document.createElement('button')
+        expand.type = 'button'
+        expand.className = 'attachmentImage'
+        expand.setAttribute('aria-label', `Expand ${opened.name}`)
+        expand.append(img)
+        expand.onclick = () => attachmentViewer.open(opened, expand)
+        card.append(expand)
       } else if (opened.type.startsWith('audio/') || opened.type.startsWith('video/')) {
         const player = document.createElement(opened.type.startsWith('audio/') ? 'audio' : 'video')
         player.controls = true
@@ -6062,14 +6591,16 @@ function renderAgentActivity(): void {
   const agents = (session?.participants() ?? []).filter(view => view.agent)
   const watching = currentChannel === AGENT_CHANNEL
   const activity = $('agentActivity')
-  activity.hidden = !watching && agents.length === 0
+  // Inviting the first agent must not require an Agents conversation that
+  // does not exist until a host advertises one or an agent has already joined.
+  activity.hidden = !session
   $('agentActivityTitle').textContent = agents.length ? `${agents.length} agent${agents.length === 1 ? '' : 's'} in this room` : 'No agents here yet'
   const names = agents.slice(0, 3).map(view => shownAs(view.participant, view.name).name ?? shortKey(view.participant)).join(', ')
   $('agentActivityNote').textContent = watching
     ? agents.length ? `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''}` : 'Invite an agent, or read earlier messages here.'
     : `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''} · Read what they say to each other.`
   $('watchAgents').hidden = watching
-  $('manageAgents').hidden = !watching
+  $('manageAgents').hidden = !session
 }
 
 function renderChannels(): void {
@@ -6345,9 +6876,12 @@ setInterval(() => {
 // easy rather than to make the old one fail.
 // ---------------------------------------------------------------------------
 
-/** The names this room knows: everybody on the roster right now. */
+/** The names this room knows: everybody on the roster right now, as they
+ *  are actually shown - a profile name once one has arrived, not the
+ *  announced name that got them in the door. Matches `myNames` below,
+ *  which already prefers the shown name over the typed one. */
 function rosterNames(): string[] {
-  return (session?.participants() ?? []).map((v) => v.name?.trim() ?? '').filter((n) => n.length > 0)
+  return (session?.participants() ?? []).map((v) => shownAs(v.participant, v.name).name?.trim() ?? '').filter((n) => n.length > 0)
 }
 
 /** What a message calls ME, so a mention of the reader can be marked as
@@ -6361,24 +6895,6 @@ function myNames(): Set<string> {
     if (shown) mine.add(shown.toLowerCase())
   }
   return mine
-}
-
-/** One pattern for every name in the room, longest first so "The moot"
- *  wins over a shorter name inside it. Word boundaries by letter-or-digit
- *  rather than \b, exactly as the agent side does them, so a name that is
- *  not ASCII still gets the boundary it needs and a name with a space in it
- *  still works. */
-function mentionPattern(names: string[]): RegExp | undefined {
-  const wanted = [...new Set(names)].sort((a, b) => b.length - a.length)
-  const alternatives = wanted.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-  try {
-    const named = alternatives ? `|(?<![\\p{L}\\p{N}_])@?(?:${alternatives})(?![\\p{L}\\p{N}_])` : ''
-    return new RegExp(`${ROOM_MENTION_PATTERN.source}${named}`, 'giu')
-  } catch {
-    // A name that will not compile is a name nobody gets highlighted for,
-    // which is better than a log that fails to draw.
-    return undefined
-  }
 }
 
 /**
@@ -6415,23 +6931,14 @@ function linkElement(url: string): HTMLAnchorElement {
 }
 
 function appendMentions(into: HTMLElement, text: string, pattern: RegExp | undefined, mine: Set<string>): void {
-  if (!pattern) {
-    into.append(text)
-    return
-  }
-  let at = 0
-  for (const match of text.matchAll(pattern)) {
-    const token = match[0]
-    const start = match.index ?? 0
-    if (start > at) into.append(text.slice(at, start))
+  for (const segment of segmentMentions(text, pattern, mine)) {
+    if (!segment.mention) { into.append(segment.text); continue }
     const span = document.createElement('span')
     span.className = 'mention'
-    if (ROOM_MENTION_PATTERN.test(token) || mine.has(token.replace(/^@/, '').toLowerCase())) span.classList.add('me')
-    span.textContent = token
+    if (segment.me) span.classList.add('me')
+    span.textContent = segment.text
     into.append(span)
-    at = start + token.length
   }
-  if (at < text.length) into.append(text.slice(at))
 }
 
 /** Copy a message's exact text to the clipboard, for a phone where a
@@ -6484,12 +6991,19 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   pruneOpenedAttachments(logId, messages)
   profiles.want(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
 
-  // Built once for the whole log rather than once per message: it is one
-  // pattern over the whole roster and rebuilding it per line is the sort of
-  // thing that only shows up in a room with a thousand messages in it.
-  const mentions = mentionPattern(rosterNames())
   const namesOfMine = myNames()
   const roster = session?.participants() ?? []
+  // Cached by the exact set of names each pattern covers, because most
+  // messages in a log share the same handful of participants: the whole
+  // point of the comment this replaced still holds, just per message
+  // rather than per log.
+  const mentionPatterns = new Map<string, RegExp | undefined>()
+  const mentionsFor = (message: Pick<ChatMessage, 'text' | 'mentions'>): RegExp | undefined => {
+    const names = mentionedNames(message, roster, (p) => shownAs(p).name)
+    const key = [...new Set(names)].sort().join(' ')
+    if (!mentionPatterns.has(key)) mentionPatterns.set(key, mentionPattern(names))
+    return mentionPatterns.get(key)
+  }
   // The log as a person reads it rather than as the relay holds it: the
   // latest edit's words on each message, a retracted one shown as such,
   // replies under the message they answer. See `resolveConversation` and
@@ -6566,7 +7080,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       by.append(' · heard by ')
       by.append(identityRun(shownAs(m.participant, m.name), false))
       p.append(timeChip(original.sentAt, true), who)
-      appendWithMentions(p, m.text, mentions, namesOfMine)
+      appendWithMentions(p, m.text, mentionsFor(m), namesOfMine)
       p.append(by)
       for (const [i, a] of (m.attachments ?? []).entries()) p.append(attachmentCard(logId, m, i, a))
       into.append(p)
@@ -6661,7 +7175,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     const paintText = () => {
       text.replaceChildren()
       const shown = long && !expandedMessages.has(expansionKey) ? m.text.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + '…' : m.text
-      appendWithMentions(text, shown, mentions, mine ? new Set<string>() : namesOfMine)
+      appendWithMentions(text, shown, mentionsFor(m), mine ? new Set<string>() : namesOfMine)
     }
     paintText()
     bubble.append(text)
@@ -6908,9 +7422,15 @@ interface RemoteVideo {
    * everything negotiated perfectly ended up with nobody visible in it.
    */
   played: boolean
+  /** When this picture was first seen frozen while its packets kept
+   *  arriving, so the wait for it to come back on its own is bounded. See
+   *  `FROZEN_REBIND_MS`. */
+  frozenSince?: number
 }
 
 const remoteVideos = new Map<string, RemoteVideo>()
+/** Fixed profile-2 role learned from ontrack; receiver ids are not role identity. */
+const fixedRemoteRoles = new WeakMap<MediaStreamTrack, TrackAdvert['role']>()
 
 /** Follow the advertised screen role across a track replacement or reconnect. */
 function screenSource(participant: string, device: string): ShareSource | undefined {
@@ -6918,17 +7438,16 @@ function screenSource(participant: string, device: string): ShareSource | undefi
   if (!person) return undefined
   const advert = person.tracks.find(track => track.device === device && track.role === 'screen')
   let track = participant === meParticipant && device === myDeviceId
-    ? screenTrack : advert ? remoteVideos.get(`${device}|${advert.trackId}`)?.track : undefined
+    ? screenTrack : advert ? remoteVideos.get(tileKey(device, 'screen'))?.track : undefined
   // The advert says a screen is on and a picture from that device is
-  // playing under some other name: a receiver id the browser minted on a
-  // rebuilt connection, before the slot logic caught up. Any live video
-  // from the device that is not its camera is the share, and "Expand"
-  // must not be missing while the picture is plainly there.
+  // playing in another slot: the binding had not caught up when the tile
+  // was built. Any live video from the device that is not its camera is
+  // the share, and "Expand" must not be missing while the picture is
+  // plainly there.
   if (!track && advert && device !== myDeviceId) {
-    const cameraId = person.tracks.find(t => t.device === device && t.role === 'camera')?.trackId
     for (const [key, entry] of remoteVideos) {
-      if (!key.startsWith(`${device}|`) || entry.track.readyState !== 'live') continue
-      if (cameraId !== undefined && key === `${device}|${cameraId}`) continue
+      if (tileDevice(key) !== device || entry.track.readyState !== 'live') continue
+      if (tileRole(key) === 'camera') continue
       track = entry.track
       break
     }
@@ -6937,7 +7456,11 @@ function screenSource(participant: string, device: string): ShareSource | undefi
   const name = participant === meParticipant ? 'Your screen' : `${shownAs(participant, person.name).name ?? shortKey(participant)}’s screen`
   return { id: advert?.trackId ?? track.id, track, title: name }
 }
-const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamTrack }>()
+/** `last` is the element's clock at the previous poll, exactly as a picture's
+ *  is: a sound that is decoding is a sound whose packets are arriving, which
+ *  is the RTP half of the liveness rule where the browser will not tell us
+ *  about synchronisation sources. */
+const remoteAudios = new Map<string, { el: HTMLAudioElement; track: MediaStreamTrack; last: number }>()
 
 /**
  * The key our own microphone is tapped under.
@@ -7057,7 +7580,9 @@ const speakingMonitor = new SpeakingMonitor({
  *  Cheap enough to call on every change and on every render. */
 function paintSpeaking(): void {
   const speaking = speakingMonitor.speaking()
-  for (const box of document.querySelectorAll<HTMLElement>('.participant[data-devices]')) {
+  // Tiles and the controls pane's name chips alike: both carry the devices
+  // they speak for, and both light from this rather than from a render.
+  for (const box of document.querySelectorAll<HTMLElement>('[data-devices]')) {
     const devices = (box.dataset.devices ?? '').split(' ').filter(Boolean)
     box.classList.toggle('speaking', devices.some((d) => speaking.has(d)))
   }
@@ -7076,6 +7601,58 @@ function paintSpeaking(): void {
 // ---------------------------------------------------------------------------
 
 const remoteVolume = new RemoteVolume()
+
+// ---------------------------------------------------------------------------
+// The browser has paused the sound
+//
+// A device that has never had a gesture on this page - the update-and-rejoin
+// path is the one that matters, but any future one counts too - gets muted
+// video, which the autoplay policy allows, and remote audio that silently
+// does not play. See app/src/autoplay-banner.ts for the decision; this is
+// the browser half - the banner, and one tap resuming everything blocked.
+// ---------------------------------------------------------------------------
+
+const autoplayBanner = new AutoplayBannerState()
+
+function renderAutoplayBanner(): void {
+  $('autoplayBanner').hidden = !autoplayBanner.visible
+}
+
+function reportAutoplayBlock(error: unknown): void {
+  const activation = (navigator as Navigator & { userActivation?: UserActivation }).userActivation
+  // Not `onCall()`: that is whether this device pressed Join call, and a
+  // person who has only walked into a room where a call is already on -
+  // the auto-join path this banner exists for - never presses anything.
+  // `session` here is "in the room at all"; `leftCall` is the one thing
+  // that actually excuses this device from hearing it - see
+  // shouldShowAutoplayBanner.
+  const shown = autoplayBanner.blocked(error, { inRoom: session !== undefined, audioDeliberatelyMuted: !cachedMonitorHere || leftCall }, activation)
+  if (shown) { callTimeline.record('autoplay-blocked'); renderAutoplayBanner() }
+}
+
+/** One tap resumes every remote `<audio>` this page has paused, and the two
+ *  AudioContexts that can also be caught by the same policy: the gain path
+ *  a loud slider opens in `RemoteVolume`, and the analyser behind the
+ *  speaking indicator. Never the thing that leaves the banner up for a
+ *  reason it cannot explain: a play() that still fails here shows the
+ *  banner again, via the same `reportAutoplayBlock` path. */
+function resumeBlockedAudio(): void {
+  remoteVolume.resume()
+  speakingMonitor.resume()
+  for (const { el } of remoteAudios.values()) {
+    if (!el.paused) continue
+    void el.play().then(
+      () => { autoplayBanner.resumed(); callTimeline.record('autoplay-resumed'); renderAutoplayBanner() },
+      (err) => reportAutoplayBlock(err),
+    )
+  }
+  // Nothing was paused - a track arriving just as this was pressed, say.
+  // The tap still counts as a gesture and the banner still has no reason
+  // left to be up.
+  if ([...remoteAudios.values()].every(({ el }) => !el.paused)) { autoplayBanner.resumed(); callTimeline.record('autoplay-resumed'); renderAutoplayBanner() }
+}
+
+$('autoplayBannerButton').addEventListener('click', resumeBlockedAudio)
 
 /** This device's own opinion of how loud each other participant is, from 0
  *  (silenced for this device) to 2 (200%). 1 is the untouched default and
@@ -7131,6 +7708,34 @@ function volumeMuteBadge(): HTMLElement {
   return badge
 }
 
+/** Whether the device currently holding this person's mic has muted itself
+ *  - `TrackAdvert.muted`, not our own volume slider. Distinct state, distinct
+ *  badge: this one is what THEY did, `volumeMuteBadge` is what WE did. */
+function selfMutedMic(view: ParticipantView): boolean {
+  const micDevice = view.mic
+  if (!micDevice) return false
+  return view.tracks.some((t) => t.role === 'mic' && t.device === micDevice && t.muted === true)
+}
+
+function selfMuteBadge(): HTMLElement {
+  const badge = document.createElement('span')
+  badge.className = 'badge muted-self'
+  badge.textContent = '\u{1F3A4} muted'
+  badge.title = 'This person has muted their own microphone'
+  return badge
+}
+
+/** No microphone at all, which is a different thing again from a live one
+ *  its owner has muted: there is no advert, so nothing is being sent. Worth
+ *  saying on a name chip, where there is no track chip to read it from. */
+function noMicBadge(): HTMLElement {
+  const badge = document.createElement('span')
+  badge.className = 'badge mic-off'
+  badge.textContent = '\u{1F507} mic off'
+  badge.title = 'Not sending any sound'
+  return badge
+}
+
 /** Keeps a tile's "silenced for you" tag in step with the slider while it
  *  is being dragged, without waiting for the next full render. */
 function paintVolumeMute(participant: string, silenced: boolean): void {
@@ -7140,11 +7745,6 @@ function paintVolumeMute(participant: string, silenced: boolean): void {
   if (silenced && !existing) heading.append(volumeMuteBadge())
   else if (!silenced && existing) existing.remove()
 }
-
-/** How many checks a picture may go without a new frame before it comes off
- *  screen. Two at a one-second interval: long enough not to flicker on a
- *  dropped frame or a slow moment, short enough that "off" looks off. */
-const STALLED_CHECKS = 2
 
 /**
  * Where a picture waits while it is off screen.
@@ -7158,9 +7758,16 @@ const STALLED_CHECKS = 2
  * screen was what stopped the clock it was being judged by, and a picture
  * that went off once was off for the rest of the call.
  *
- * Parked here it keeps decoding and keeps advancing, so "is it moving again"
- * remains a question with an answer. The holder is `display:none`, which
- * pauses nothing: it is out of the room's layout and - the part that
+ * Parked here it is at least still in the document, so nothing runs the
+ * pause steps on it and the element survives to be put back. What it does
+ * NOT reliably do is keep advancing: `display:none` takes it out of the
+ * rendering tree, and a browser is free to stop feeding it there - measured
+ * on 18 September 2026, a parked picture's clock stopped and never started
+ * again. So the clock is not the way back. Arriving packets are, which is
+ * read off the receiver and does not care where the element is - see
+ * `trackReceivingRtp`.
+ *
+ * The holder is `display:none`: out of the room's layout and - the part that
  * matters - out of `#room .participant`, which is what "off everybody else's
  * screen" has to mean.
  */
@@ -7168,13 +7775,20 @@ function parkPicture(el: HTMLVideoElement): void {
   $('parked').append(el)
 }
 
-/** Removing a media element can run the browser's pause steps. Reattaching
- * the same receiver does not reliably restart autoplay; resume only when
- * recovering an element that actually left the document. */
+/**
+ * Put a media element back where people can see or hear it, playing.
+ *
+ * Removing an element from the document runs the browser's pause steps, so
+ * one that actually left has to be resumed. One that was only parked -
+ * `display:none`, still in the document - was assumed not to need it, and
+ * that assumption is not free: a paused element with packets arriving is
+ * silent or still for as long as nobody asks it to play, and nothing else
+ * here asks. `play()` on an element that is already playing is a no-op, so
+ * the question to ask is simply whether it is paused.
+ */
 function restoreRemoteElement(el: HTMLMediaElement, container: HTMLElement): void {
-  const detached = !el.isConnected
   container.append(el)
-  if (detached) void el.play().catch(() => { /* A later user gesture can resume blocked playback. */ })
+  if (el.paused) void el.play().catch((err) => { if (el instanceof HTMLAudioElement) reportAutoplayBlock(err) })
 }
 
 /** Whether this picture is currently on screen, in its own device's tile. */
@@ -7202,18 +7816,13 @@ function onScreen(entry: RemoteVideo): boolean {
  * only for one that has started at all, which is why `played` gates the
  * stall count rather than the clock doing it alone.
  */
-/**
- * Checks a picture or a sound may go without the roster naming its track
- * before it is taken down. Three, at the one-second poll: a track that
- * lands ahead of its own advert is given a slow relay's worth of time for
- * the advert to arrive, and one whose advert has gone is off inside three
- * seconds.
- */
-const ORPHAN_CHECKS = 3
-const orphanChecks = new Map<string, number>()
+/** The advert half of the liveness rule, and the counter behind it - see
+ *  app/src/remote-tiles.ts, which owns both halves and is tested without a
+ *  browser. */
+const tileLiveness = new TileLiveness()
 
 /**
- * Whether the roster still says this remote track exists.
+ * Whether the roster still says this device is sending this role.
  *
  * The far end stopping a share or a camera removes the sender, and a
  * removed sender does NOT end the receiver's track in any browser - it
@@ -7221,114 +7830,232 @@ const orphanChecks = new Map<string, number>()
  * muted screen share decodes nothing, so the element sat on everybody's
  * screen as a black box for the rest of the call. What the far end does
  * say, and says promptly, is its roster advert: `publishActiveTracks`
- * republishes the full set on every toggle. So the advert is the truth
- * about whether a track is on, and a track the roster has stopped
- * naming is over. Undefined while the roster has nothing to say about
- * the device at all: a device between heartbeats is not a device that
- * has turned everything off.
+ * republishes the full set on every toggle.
+ *
+ * It is no longer the whole truth, though. A second tab of the same device
+ * key publishes presence with no tracks at all, overwrites the entry, and
+ * everybody took A's pictures down while A's packets were still arriving.
+ * So this is one half of the rule and inbound RTP is the other, and a tile
+ * comes down only when both agree. Undefined while the roster has nothing
+ * to say about the device at all: a device between heartbeats is not a
+ * device that has turned everything off.
  */
 function advertised(key: string): boolean | undefined {
-  const bar = key.indexOf('|')
-  const device = key.slice(0, bar), id = key.slice(bar + 1)
+  const device = tileDevice(key), role = tileRole(key)
   const person = session?.participants().find(view => view.devices.includes(device))
   if (!person) return undefined
-  return person.tracks.some(track => track.device === device && track.trackId === id)
+  if (!role) return false
+  return person.tracks.some(track => track.device === device && track.role === role)
 }
 
-/** Count a check against an unadvertised track; true once it has had its
- *  grace. Any check that finds it advertised again forgives it. */
-function orphanedFor(key: string): boolean {
-  const named = advertised(key)
-  if (named !== false) { orphanChecks.delete(key); return false }
-  const checks = (orphanChecks.get(key) ?? 0) + 1
-  orphanChecks.set(key, checks)
-  if (checks < ORPHAN_CHECKS) return false
-  orphanChecks.delete(key)
-  return true
+/** Everything this device is advertising right now. */
+function advertsFor(device: string): TrackAdvert[] {
+  const person = session?.participants().find(view => view.devices.includes(device))
+  return person?.tracks.filter(track => track.device === device) ?? []
+}
+
+/** The remote device an `openConnections` key belongs to. */
+function connectionDevice(key: string): string | undefined {
+  return /^[^:]+:([0-9a-f]{64}):\d+$/.exec(key)?.[1]
+}
+
+/** When RTP was last seen moving on a track, on `performance.now()`'s clock. */
+const trackProgressAt = new WeakMap<MediaStreamTrack, number>()
+/** When RTP alone was last seen arriving, never written by a painted frame.
+ *  See `trackReceivingRtp`. */
+const rtpAt = new WeakMap<MediaStreamTrack, number>()
+/** The newest synchronisation-source timestamp seen for a track, so the next
+ *  look can tell "still arriving" from "the same packets as before". */
+const rtpTimestamps = new WeakMap<MediaStreamTrack, number>()
+
+/**
+ * Note whether anything has arrived on this receiver since the last look.
+ *
+ * `getSynchronizationSources()` is synchronous, needs no `await` in a
+ * one-second poll, and reports only sources heard from recently - so a
+ * receiver whose sender the far end removed falls silent here within its
+ * window while a live one keeps handing back a rising timestamp. Where a
+ * browser does not fill it in for this kind, a playing element's own clock
+ * says the same thing and `syncRemoteVideos` feeds that in instead.
+ */
+function noteRtp(receiver: RTCRtpReceiver, track: MediaStreamTrack, now: number): void {
+  let latest = 0
+  for (const source of receiver.getSynchronizationSources?.() ?? []) if (source.timestamp > latest) latest = source.timestamp
+  if (latest === 0) return
+  if (latest > (rtpTimestamps.get(track) ?? 0)) {
+    trackProgressAt.set(track, now)
+    // RTP only, kept apart from the store above, which a painted frame also
+    // writes to. "Packets are arriving" and "a frame was painted recently"
+    // are different questions, and the park rule needs the first one: read
+    // off the second, a picture that had just stopped answered "yes" for the
+    // whole grace window afterwards, and a decoder wedged with packets still
+    // coming in answered "yes" for ever.
+    rtpAt.set(track, now)
+  }
+  rtpTimestamps.set(track, latest)
+}
+
+/** Note that this track's media moved, however we came to know it. */
+function noteProgress(track: MediaStreamTrack, now: number): void {
+  trackProgressAt.set(track, now)
+}
+
+/** Whether media has moved on this track inside the liveness window. */
+function trackProgressing(track: MediaStreamTrack, now: number): boolean {
+  const at = trackProgressAt.get(track)
+  return at !== undefined && now - at < RTP_GRACE_MS
+}
+
+/** Whether PACKETS have arrived on this track inside the liveness window,
+ *  whatever the element on it has painted. */
+function trackReceivingRtp(track: MediaStreamTrack, now: number): boolean {
+  const at = rtpAt.get(track)
+  return at !== undefined && now - at < RTP_GRACE_MS
+}
+
+/**
+ * What this page is receiving from `device`, with the two facts the tile
+ * mapping needs about each receiver: the transceiver direction, which is how
+ * a stale receiver is told from a live one, and whether its packets are
+ * moving, which is how two live-looking ones are told apart.
+ */
+function deviceReceivers(device: string, now: number): ReceiverFacts[] {
+  const facts: ReceiverFacts[] = []
+  for (const [key, pc] of openConnections) {
+    if (pc.connectionState !== 'connected') continue
+    if (connectionDevice(key) !== device) continue
+    for (const transceiver of pc.getTransceivers()) {
+      const track = transceiver.receiver?.track
+      if (!track) continue
+      noteRtp(transceiver.receiver, track, now)
+      facts.push({ track, direction: transceiver.currentDirection, progressing: trackProgressing(track, now), role: fixedRemoteRoles.get(track) })
+    }
+  }
+  return facts
+}
+
+/** What each tile of this kind is showing now, so a picture that is playing
+ *  is never moved to another slot behind the viewer's back. */
+function boundTracks(device: string, kind: MediaKind): Map<TrackAdvert['role'], MediaStreamTrack> {
+  const bound = new Map<TrackAdvert['role'], MediaStreamTrack>()
+  for (const role of ROLES_BY_KIND[kind]) {
+    const entry = kind === 'video' ? remoteVideos.get(tileKey(device, role)) : remoteAudios.get(tileKey(device, role))
+    if (entry) bound.set(role, entry.track)
+  }
+  return bound
+}
+
+/** Which tile this track belongs on, or nothing if every slot of its kind is
+ *  already held by a receiver with a better claim. */
+function tileKeyFor(device: string, track: MediaStreamTrack): string | undefined {
+  const kind = kindOf(track.kind)
+  const binding = bindRoles({
+    kind,
+    adverts: advertsFor(device),
+    receivers: deviceReceivers(device, performance.now()),
+    bound: boundTracks(device, kind),
+    prefer: track,
+  })
+  for (const [role, chosen] of binding) if (chosen === track) return tileKey(device, role)
+  return undefined
 }
 
 function syncRemoteVideos(): void {
   let changed = false
+  const now = performance.now()
+  // One look at every receiver first, so the RTP half of the liveness rule
+  // is up to date for every tile before any of them is judged by it.
+  for (const device of new Set([...remoteVideos.keys(), ...remoteAudios.keys()].map(tileDevice))) deviceReceivers(device, now)
   for (const [key, entry] of remoteVideos) {
-    if (entry.track.readyState === 'ended' || orphanedFor(key)) {
+    const clock = entry.el.currentTime
+    const moving = clock > entry.last + 0.001
+    entry.last = clock
+    if (moving) {
+      noteProgress(entry.track, now)
+      // Keep a newly negotiated sink connected so it can decode, but do not
+      // let its empty black rectangle take half of a grouped person's card.
+      // The first painted frame makes it a picture and earns its place.
+      if (entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
+    }
+    const progressedAt = trackProgressAt.get(entry.track)
+    if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
+    if (entry.track.readyState === 'ended' || tileLiveness.gone(key, advertised(key), now)) {
       if (onScreen(entry)) changed = true
       entry.el.remove()
       remoteVideos.delete(key)
+      callTimeline.record('tile-orphaned', short(key.split('|')[0]), 'video')
       continue
     }
-    const now = entry.el.currentTime
-    const moving = now > entry.last + 0.001
-    entry.last = now
-    if (moving) {
-      entry.stalled = 0
-      entry.played = true
-      if (!onScreen(entry) && !leftCall) {
-        restoreRemoteElement(entry.el, entry.container)
-        changed = true
-      }
-      continue
+    // What to do about this picture is decided in app/src/remote-tiles.ts,
+    // which owns the rule and is tested without a browser. Packets are read
+    // off the receiver rather than off the element: a parked element's clock
+    // stops, and so does a wedged decoder's while the packets keep coming.
+    const { action, state } = judgePicture(
+      { stalled: entry.stalled, played: entry.played, onScreen: onScreen(entry), frozenSince: entry.frozenSince },
+      { moving, arriving: trackReceivingRtp(entry.track, now), visible: $('callStage').checkVisibility(), at: now },
+    )
+    entry.stalled = state.stalled
+    entry.played = state.played
+    entry.frozenSince = state.frozenSince
+    if (action === 'restore' && !leftCall) {
+      restoreRemoteElement(entry.el, entry.container)
+      changed = true
     }
-    // Safari can pause off-screen video during Chat. That is not evidence
-    // that the sender stopped; the Call gesture resumes the existing player.
-    if (!$('callStage').checkVisibility()) { entry.stalled = 0; continue }
-    // Not moving yet is not the same as no longer moving. A picture that has
-    // never had a frame is still arriving, and it is given as long as it
-    // needs: the tile says so meanwhile, and nothing about it is a lie. Only
-    // a picture that ran and stopped is taken off screen.
-    if (!entry.played) continue
-    if (++entry.stalled >= STALLED_CHECKS && onScreen(entry)) {
+    if (action === 'park') {
       parkPicture(entry.el)
       changed = true
     }
+    if (action === 'rebind') {
+      // The same track, a new decoder. Cheap, and at worst it repeats every
+      // fifteen seconds for as long as the picture stays frozen.
+      entry.el.srcObject = new MediaStream([entry.track])
+      entry.last = -1
+      if (!leftCall && entry.el.paused) void entry.el.play().catch(() => { /* the next pass tries again */ })
+      callTimeline.record('tile-bound', short(tileDevice(key)), 'video')
+    }
   }
-  // Sound, by the same roster rule. A screen share's audio, or a
-  // microphone switched off, leaves a silent element behind otherwise,
-  // and the tile keeps a "mic" chip for a mic that is off.
+  // Sound, by the same liveness rule. A screen share that ends, or a
+  // microphone whose sender the far end removed, leaves a silent element
+  // behind otherwise. A mic muted with `track.enabled = false` keeps
+  // sending packets, so its element is kept on purpose: it stays silent,
+  // nothing about the tile claims otherwise, and the sound is there the
+  // instant the mic comes back.
   for (const [key, entry] of remoteAudios) {
-    if (entry.track.readyState !== 'ended' && !orphanedFor(key)) continue
+    const clock = entry.el.currentTime
+    if (clock > entry.last + 0.001) noteProgress(entry.track, now)
+    entry.last = clock
+    const progressedAt = trackProgressAt.get(entry.track)
+    if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
+    if (entry.track.readyState !== 'ended' && !tileLiveness.gone(key, advertised(key), now)) continue
     entry.el.remove()
     remoteAudios.delete(key)
     remoteVolume.detach(key)
-    const device = key.slice(0, key.indexOf('|'))
+    const device = tileDevice(key)
     const remaining = [...remoteAudios].find(([other]) => other.startsWith(`${device}|`))
     if (remaining) speakingMonitor.watch(device, remaining[1].track)
     else speakingMonitor.unwatch(device)
     changed = true
   }
-  for (const key of orphanChecks.keys()) if (!remoteVideos.has(key) && !remoteAudios.has(key)) orphanChecks.delete(key)
+  tileLiveness.retain([...remoteVideos.keys(), ...remoteAudios.keys()])
   if (changed && session) render(session.participants(), meParticipant)
 }
 
 setInterval(syncRemoteVideos, 1000)
 
 /**
- * The roster's track id is the stable name of a camera, microphone or share.
- * Chromium normally preserves it on the receiver, but may mint a different
- * receiver id when the peer connection is rebuilt on another route. Keep the
- * received object in the advertised slot so screen expansion and annotations
- * survive a move to TURN.
+ * Put a remote track on its device's tile.
+ *
+ * `slot` is which of the device's four slots this is - see
+ * app/src/remote-tiles.ts. Nothing here goes on the receiver's own id: it is
+ * the sender's id in Chromium, a locally minted one in Firefox, and neither
+ * of them follows a `replaceTrack`. The `ontrack` path works the slot out
+ * for itself; the recovery poll has already worked out the whole device's
+ * binding and passes the answer in, so the two cannot disagree and put the
+ * same track on two tiles in turn.
  */
-function advertisedTrackId(device: string, track: MediaStreamTrack): string {
-  const person = session?.participants().find(view => view.devices.includes(device))
-  const compatible = person?.tracks.filter(advert =>
-    advert.device === device &&
-    (track.kind === 'audio' ? advert.role === 'mic' || advert.role === 'screen-audio' : advert.role === 'camera' || advert.role === 'screen'),
-  ) ?? []
-  if (compatible.some(advert => advert.trackId === track.id)) return track.id
-  const collection = track.kind === 'audio' ? remoteAudios : remoteVideos
-  // Once this receiver has been placed in an advertised slot, retain that
-  // binding. Its browser-issued id may differ from the sender's track id;
-  // falling back to it on the next poll makes a live receiver look orphaned.
-  const bound = compatible.find(advert => collection.get(`${device}|${advert.trackId}`)?.track === track)
-  if (bound) return bound.trackId
-  const available = compatible.find(advert => {
-    const current = collection.get(`${device}|${advert.trackId}`)
-    return current === undefined || current.track.readyState === 'ended'
-  })
-  return available?.trackId ?? track.id
-}
-
-function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
+function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: string): void {
+  const key = slot ?? tileKeyFor(device, track)
+  if (!key) return
   let mediaEl = deviceMediaEls.get(device)
   if (!mediaEl) {
     mediaEl = document.createElement('div')
@@ -7336,22 +8063,21 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
     deviceMediaEls.set(device, mediaEl)
   }
   const container = mediaEl
-  const key = `${device}|${advertisedTrackId(device, track)}`
 
-  // A track can arrive before its roster advert and initially be stored by
-  // the browser's receiver id. Once the advert arrives, move the existing
-  // element into its stable slot rather than displaying the same receiver
-  // twice under two names.
+  // A track can arrive before its roster advert and be guessed into the
+  // everyday slot for its kind. Once the advert says otherwise, move the
+  // existing element rather than displaying the same receiver twice under
+  // two names.
   if (track.kind === 'video' && !remoteVideos.has(key)) {
     const alias = [...remoteVideos].find(([, entry]) => entry.track === track)
-    if (alias) { remoteVideos.delete(alias[0]); remoteVideos.set(key, alias[1]) }
+    if (alias) { remoteVideos.delete(alias[0]); remoteVideos.set(key, alias[1]); callTimeline.record('tile-bound', short(device)) }
   }
   if (track.kind === 'audio' && !remoteAudios.has(key)) {
     const alias = [...remoteAudios].find(([, entry]) => entry.track === track)
     // Any route the old key held is torn down rather than left dangling
     // under a name `remoteAudios` no longer has; `render()` opens a fresh
     // one under the new key on its next pass.
-    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]); remoteVolume.detach(alias[0]) }
+    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]); remoteVolume.detach(alias[0]); callTimeline.record('tile-bound', short(device)) }
   }
 
   // One element PER TRACK, not per kind. A device sharing its screen while
@@ -7382,9 +8108,16 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.autoplay = true
       el.playsInline = true
       el.muted = true
+      // `ontrack` precedes the first decoded frame. Keep a tiny transparent
+      // sink in the rendering tree so Chromium continues decoding; the HTML
+      // `hidden` attribute maps to display:none and can suspend the decoder,
+      // leaving videoHeight at zero forever. The first moving frame removes
+      // this class in syncRemoteVideos above.
+      el.classList.add('awaitingFrame')
       el.dataset.track = track.id
       remoteVideos.set(key, { el, container, track, last: -1, stalled: 0, played: false })
       container.append(el)
+      callTimeline.record('track-added', short(device), 'video')
     } else if (!onScreen(existing)) {
       // Parked, and the far end is publishing this track again - a
       // renegotiation hands the same track over and `ontrack` fires afresh.
@@ -7403,6 +8136,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       existing!.last = -1
       existing!.stalled = 0
       existing!.played = false
+      el.classList.add('awaitingFrame')
     }
     track.addEventListener('ended', () => {
       // Only the track currently on this element may take it down. The
@@ -7411,6 +8145,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       if (remoteVideos.get(key)?.track !== track) return
       el.remove()
       remoteVideos.delete(key)
+      callTimeline.record('track-removed', short(device), 'video')
       if (session) render(session.participants(), meParticipant)
     })
   } else {
@@ -7425,8 +8160,9 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
     if (!existing) {
       el.autoplay = true
       el.dataset.track = track.id
-      remoteAudios.set(key, { el, track })
+      remoteAudios.set(key, { el, track, last: -1 })
       container.append(el)
+      callTimeline.record('track-added', short(device), 'audio')
     } else if (!el.isConnected) {
       restoreRemoteElement(el, container)
     }
@@ -7438,7 +8174,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       el.srcObject = new MediaStream([track])
       if (existing) existing.track = track
     }
-    if (!leftCall && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
+    if (!leftCall && el.paused) void el.play().catch((err) => reportAutoplayBlock(err))
     // Tap it for the speaking indicator. Keyed by device rather than by
     // track, so a device sending both a microphone and its screen's audio
     // lights its tile from whichever is making noise - which is what a
@@ -7451,6 +8187,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
       remoteVolume.detach(key)
       speakingMonitor.unwatch(device)
       paintSpeaking()
+      callTimeline.record('track-removed', short(device), 'audio')
       if (session) render(session.participants(), meParticipant)
     })
   }
@@ -7465,28 +8202,88 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack): void {
  * are already retained for diagnostics, so reconcile their live receivers
  * with the UI as a recovery path. Re-attaching the same object is skipped.
  */
+/**
+ * Take down a tile showing a receiver the mapping no longer binds.
+ *
+ * The liveness rule is about a far end that stopped: no advert, no packets,
+ * so the tile goes. It cannot answer the other case, and a far end toggling
+ * its camera makes that case every time. The receiver it leaves behind is
+ * not gone - its transceiver stays, `getSynchronizationSources` reports its
+ * last sources, its counters stand - so the advert half never agrees and the
+ * tile stays for ever. Measured in Firefox, where a receiver's id matches no
+ * advert: three video receivers for one camera, two of them stale, two
+ * elements on that person's tile and neither of them the live one.
+ *
+ * `bindRoles` already knows which receivers this device should be showing.
+ * Anything else is a tile nothing is claiming, whatever its counters say.
+ */
+function dropUnboundTiles(device: string, kind: MediaKind, binding: ReadonlyMap<TrackAdvert['role'], { readonly id: string }>): void {
+  const keep = new Set<unknown>(binding.values())
+  const tiles = kind === 'video' ? remoteVideos : remoteAudios
+  for (const [key, entry] of tiles) {
+    if (tileDevice(key) !== device) continue
+    if (keep.has(entry.track)) continue
+    if (kind === 'video') {
+      const video = entry as RemoteVideo
+      if (onScreen(video)) changedTiles = true
+      video.el.remove()
+      remoteVideos.delete(key)
+      callTimeline.record('tile-orphaned', short(device), 'video')
+    } else {
+      entry.el.remove()
+      remoteAudios.delete(key)
+      remoteVolume.detach(key)
+      speakingMonitor.unwatch(device)
+      changedTiles = true
+      callTimeline.record('track-removed', short(device), 'audio')
+    }
+    tileLiveness.forget(key)
+  }
+}
+
+/** Set by a tile coming down outside `syncRemoteVideos`, so the grid is
+ *  repainted once rather than per tile. */
+let changedTiles = false
+
 function recoverRemoteTracks(): void {
   if (!session) return
+  const now = performance.now()
+  const devices = new Set<string>()
   for (const [key, pc] of openConnections) {
     if (pc.connectionState !== 'connected') continue
-    const match = /^[^:]+:([0-9a-f]{64}):\d+$/.exec(key)
-    const device = match?.[1]
-    if (!device || !session.participants().some(view => view.devices.includes(device))) continue
-    for (const receiver of pc.getReceivers()) {
-      const track = receiver.track
-      if (!track || track.readyState !== 'live') continue
-      const stableKey = `${device}|${advertisedTrackId(device, track)}`
-      // A sender the far end removed leaves a receiver whose track is
-      // still `live` and forever muted. `syncRemoteVideos` took its
-      // element down on the roster's word; putting it back here every two
-      // seconds would be the black box again, on a timer.
-      if (advertised(stableKey) === false) continue
-      const entry = track.kind === 'video' ? remoteVideos.get(stableKey) : remoteAudios.get(stableKey)
-      // Safari can keep the sink connected but pause it when a rebuilt peer
-      // swaps in a new MediaStream. A connected element is not necessarily a
-      // playing one; make the recovery path repair both states.
-      if (entry?.track !== track || !entry.el.isConnected || entry.el.paused) attachRemoteTrack(device, track)
+    const device = connectionDevice(key)
+    if (device && session.participants().some(view => view.devices.includes(device))) devices.add(device)
+  }
+  for (const device of devices) {
+    const receivers = deviceReceivers(device, now)
+    const adverts = advertsFor(device)
+    for (const kind of ['video', 'audio'] as const) {
+      // The same decision `attachRemoteTrack` makes, made for the whole
+      // device at once: who should hold each slot, given what the roster
+      // advertises, what the tiles show now, and whose packets are moving.
+      const binding = bindRoles({ kind, adverts, receivers, bound: boundTracks(device, kind) })
+      dropUnboundTiles(device, kind, binding)
+      for (const [role, chosen] of binding) {
+        const track = chosen as MediaStreamTrack
+        if (track.readyState !== 'live') continue
+        const key = tileKey(device, role)
+        const entry = kind === 'video' ? remoteVideos.get(key) : remoteAudios.get(key)
+        // Nothing on screen, no advert and no packets: the far end really
+        // did stop. `syncRemoteVideos` took the element down; opening a new
+        // one here every two seconds would be the black box again, on a
+        // timer. A slot that is advertised, or whose packets are moving, is
+        // a slot somebody should be seeing.
+        if (!entry && advertised(key) === false && !trackProgressing(track, now)) continue
+        // Safari can keep the sink connected but pause it when a rebuilt peer
+        // swaps in a new MediaStream. A connected element is not necessarily a
+        // playing one; make the recovery path repair both states.
+        if (entry?.track !== track || !entry.el.isConnected || entry.el.paused) attachRemoteTrack(device, track, key)
+      }
     }
+  }
+  if (changedTiles) {
+    changedTiles = false
+    if (session) render(session.participants(), meParticipant)
   }
 }
 
@@ -7525,6 +8322,11 @@ async function collectDiagnostics(): Promise<string> {
             case 'outbound-rtp':
               stats.push(pick(r, ['type', 'kind', 'bytesReceived', 'bytesSent', 'packetsReceived', 'packetsSent', 'packetsLost', 'framesDecoded', 'framesEncoded', 'framesReceived', 'framesSent', 'frameWidth', 'frameHeight', 'codecId', 'pliCount', 'nackCount', 'jitterBufferDelay']))
               break
+            // Tells this device whether the far end is actually receiving
+            // what it sends - see PairSample.outboundAcknowledged.
+            case 'remote-inbound-rtp':
+              stats.push(pick(r, ['type', 'kind', 'packetsLost', 'roundTripTime']))
+              break
             case 'candidate-pair':
               if (r.nominated === true || r.selected === true) stats.push(pick(r, ['type', 'state', 'localCandidateId', 'remoteCandidateId', 'bytesSent', 'bytesReceived', 'currentRoundTripTime', 'availableOutgoingBitrate']))
               break
@@ -7547,7 +8349,17 @@ async function collectDiagnostics(): Promise<string> {
         iceGatheringState: pc.iceGatheringState,
         signalingState: pc.signalingState,
         senders: pc.getSenders().map((sn) => (sn.track ? `${sn.track.kind}:${sn.track.readyState}${sn.track.muted ? ':muted' : ''}${sn.track.enabled ? '' : ':disabled'}` : 'none')),
-        receivers: pc.getReceivers().map((rc) => `${rc.track.kind}:${rc.track.readyState}${rc.track.muted ? ':muted' : ''}`),
+        // The transceiver's direction belongs on this line, not just the
+        // track's state: a receiver whose `currentDirection` no longer says
+        // `recv` is one the tile mapping will not bind, and a report that
+        // says only `live:muted` cannot tell that apart from a tile that is
+        // simply quiet. `mid` names the m-line, so two transceivers of the
+        // same kind on one connection are told apart at a glance.
+        receivers: pc.getTransceivers().map((tr) => {
+          const track = tr.receiver?.track
+          const where = `${tr.mid ?? '-'}:${tr.currentDirection ?? 'unnegotiated'}`
+          return track ? `${track.kind}:${track.readyState}${track.muted ? ':muted' : ''}@${where}` : `none@${where}`
+        }),
         stats,
       }
     }),
@@ -7561,6 +8373,7 @@ async function collectDiagnostics(): Promise<string> {
       participant: short(meParticipant),
       device: short(myDeviceId),
       publishing: currentAdverts().map((a) => a.role),
+      callProfile,
       agentsMayHear,
       effect: $('effectMode').textContent,
       screenAudio: screenAudioTrack
@@ -7573,13 +8386,14 @@ async function collectDiagnostics(): Promise<string> {
       participant: short(v.participant),
       agent: v.agent === true,
       devices: v.devices.map(short),
-      tracks: v.tracks.map((t) => `${t.role}@${short(t.device)}`),
+      tracks: v.tracks.map((t) => `${t.role}@${short(t.device)}${t.muted ? '(muted)' : ''}`),
       mic: short(v.mic),
     })),
     routes: s ? [...s.routes].map(([d, r]) => ({ device: short(d), tier: r.tier, endpoint: short(r.endpoint), connected: r.connected, exhausted: r.exhausted })) : [],
     connections,
     pictures: [...remoteVideos].map(([key, v]) => ({
-      device: short(key.split('|')[0]),
+      device: short(tileDevice(key)),
+      role: tileRole(key),
       onScreen: onScreen(v),
       played: v.played,
       stalled: v.stalled,
@@ -7589,7 +8403,8 @@ async function collectDiagnostics(): Promise<string> {
       track: `${v.track.readyState}${v.track.muted ? ':muted' : ''}`,
     })),
     sounds: [...remoteAudios].map(([key, a]) => ({
-      device: short(key.split('|')[0]),
+      device: short(tileDevice(key)),
+      role: tileRole(key),
       inDocument: a.el.isConnected,
       paused: a.el.paused,
       currentTime: Number(a.el.currentTime.toFixed(2)),
@@ -7599,7 +8414,59 @@ async function collectDiagnostics(): Promise<string> {
     // been turned up or down is nobody's business but this browser's.
     volume: { customLevels: volumeLevelCount(deviceStore), gainAvailable: remoteVolume.gainAvailable },
   }
-  return JSON.stringify(out, null, 1)
+  // Per-pair health: one line per connection, built from the same stats
+  // pass above. `label` counts inbound-rtp entries of the same kind
+  // (camera plus screen video, say) rather than trying to name them.
+  const routeTiers = new Map((s ? [...s.routes] : []).map(([d, r]) => [short(d), r.tier]))
+  // Only profile-2 pairs have one of these, and by default no pair does.
+  // What it adds is the pair's own account of itself - which generation,
+  // where on the health ladder, which slot it has judged dead in each
+  // direction, and how much signalling the far end never acknowledged.
+  const pairProfiles = new Map((s?.pairs ?? []).map((p) => [short(p.device), p]))
+  const kindCounts = new Map<string, number>()
+  const pairSamples: PairSample[] = connections.map((c) => {
+    const device = /:([0-9a-f]{8}):/.exec(c.key)?.[1]
+    kindCounts.clear()
+    const slots = c.stats
+      .filter((r) => r.type === 'inbound-rtp')
+      .map((r) => {
+        const kind = String(r.kind ?? 'unknown')
+        const n = (kindCounts.get(kind) ?? 0) + 1
+        kindCounts.set(kind, n)
+        const label = n === 1 ? kind : `${kind}#${n}`
+        const counter = Number(r.kind === 'audio' ? r.packetsReceived ?? 0 : r.framesDecoded ?? r.packetsReceived ?? 0)
+        return { label, counter }
+      })
+    const pair = device ? pairProfiles.get(device) : undefined
+    return {
+      device: device ?? 'unknown',
+      tier: device ? routeTiers.get(device) : undefined,
+      connectionState: c.connectionState,
+      signalingState: c.signalingState,
+      slots,
+      outboundAcknowledged: c.stats.some((r) => r.type === 'remote-inbound-rtp'),
+      ...(pair
+        ? {
+            profile: {
+              generation: pair.generation,
+              ladder: pair.ladder,
+              unacked: pair.unacked,
+              ...(pair.inbound ? { inbound: pair.inbound as Record<string, string> } : {}),
+              ...(pair.rtcp ? { rtcp: pair.rtcp as Record<string, string> } : {}),
+              unexpectedNegotiations: pair.unexpectedNegotiations,
+            },
+          }
+        : {}),
+    }
+  })
+  // Inside the JSON, not appended after it: the report is pasted into bug
+  // threads by people and parsed by the acceptance suite, and text after a
+  // closing brace serves neither.
+  return JSON.stringify({
+    ...out,
+    callTimeline: callTimeline.format(),
+    pairSummary: pairHealthSampler.snapshot(pairSamples),
+  }, null, 1)
 }
 
 $('diagnostics').addEventListener('click', () => {
@@ -7665,16 +8532,31 @@ async function enableEntryMedia(choice: EntryMediaChoice): Promise<void> {
   setStatus(`You joined with your ${enabled} on.`, 'done')
 }
 
-async function startSession(asVisitor = false): Promise<void> {
+/** Whether a join failed only because its relays could not be reached in
+ *  time - never because a relay looked at the event and refused it. Kept in
+ *  one place because both the retry loop below and the final status message
+ *  need to agree on what counts as "the relays refused" versus "we could
+ *  not reach them", and `relay-pool.ts` is the only thing that actually
+ *  knows which happened. */
+function isUnreachableRelayFailure(error: unknown): boolean {
+  return error instanceof Error && /no relay could be reached in time/.test(error.message)
+}
+
+async function startSession(asVisitor = false, retry?: { deadline: number }): Promise<void> {
   const generation = roomGeneration
-  if (joining || session || loginBusy) return
+  if (!retry && (joining || session || loginBusy)) return
   const requestedMedia = entryMediaChoice()
   joining = true
-  setStatus('Joining the room…', 'progress')
+  const deadline = retry?.deadline ?? Date.now() + 20_000
+  if (!retry) setStatus('Joining the room…', 'progress')
   const joinBtn = $('join') as HTMLButtonElement
   joinBtn.disabled = true
   joinBtn.textContent = 'Joining…'
   $('joinRoomForm').setAttribute('aria-busy', 'true')
+  // Set once this attempt hands off to a retried one, so the `finally`
+  // below leaves the busy state in place instead of re-enabling the form
+  // between attempts the person never asked to see.
+  let retrying = false
 
   try {
     // A restored signer can arrive after the invitation. Joining first
@@ -7787,6 +8669,7 @@ async function startSession(asVisitor = false): Promise<void> {
     // `shareDroppedFile`.
     const pool = configuredPool(relays)
     sessionTransport = pool
+    const poolCreatedAt = Date.now()
     // A quiet room's chat rides in drops: wrap the pool, and the session
     // hands the wrapper the epoch key. The device holding the identity is
     // slot 0, the device it paired slot 1; each draws from its own half of
@@ -7814,6 +8697,7 @@ async function startSession(asVisitor = false): Promise<void> {
     const forwarderMediaOptions = forwarderMedia.available
       ? { forwarderMedia: () => forwarderMedia.ready, forwarderMediaPipeline: forwarderMedia }
       : {}
+    sessionAuthority = roomAuthority()
     const s = credential
       ? new RoomSession({
           transport,
@@ -7823,6 +8707,10 @@ async function startSession(asVisitor = false): Promise<void> {
           factory,
           policy: roomPolicy,
           name,
+          // Off unless the kill switch says otherwise, and a pair uses it
+          // only when the far end's roster entry says 2 as well.
+          callProfile,
+          trackRole: activeTrackRole,
           assist: currentAssistOffer,
           relay: peerRelay,
           ...forwarderMediaOptions,
@@ -7833,15 +8721,17 @@ async function startSession(asVisitor = false): Promise<void> {
           expectedEpoch,
           onEpoch: notice => { if (generation === roomGeneration) onEpochChange(notice) },
           onRemoved: (notice) => { if (generation === roomGeneration) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
-          onClosed: (notice) => { if (generation === roomGeneration) leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
+          onClosed: (notice) => { if (generation === roomGeneration) roomWasClosed(notice) },
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
           onRelayStop: () => renderAssist(),
           // The chips say which rung a connection is on, so they move when it does.
-          onRoute: () => {
+          onRoute: (device, route) => {
+            callTimeline.record('route-tier-change', short(device), route.tier)
             if (session) render(session.participants(), meParticipant)
           },
+          onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
       : new RoomSession({
           transport,
@@ -7853,6 +8743,10 @@ async function startSession(asVisitor = false): Promise<void> {
           factory,
           policy: roomPolicy,
           name,
+          // Off unless the kill switch says otherwise, and a pair uses it
+          // only when the far end's roster entry says 2 as well.
+          callProfile,
+          trackRole: activeTrackRole,
           assist: currentAssistOffer,
           relay: peerRelay,
           ...forwarderMediaOptions,
@@ -7863,21 +8757,29 @@ async function startSession(asVisitor = false): Promise<void> {
           expectedEpoch,
           onEpoch: notice => { if (generation === roomGeneration) onEpochChange(notice) },
           onRemoved: (notice) => { if (generation === roomGeneration) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
-          onClosed: (notice) => { if (generation === roomGeneration) leaveWithNotice(`This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
+          onClosed: (notice) => { if (generation === roomGeneration) roomWasClosed(notice) },
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
           onRelayStop: () => renderAssist(),
           // The chips say which rung a connection is on, so they move when it does.
-          onRoute: () => {
+          onRoute: (device, route) => {
+            callTimeline.record('route-tier-change', short(device), route.tier)
             if (session) render(session.participants(), meParticipant)
           },
+          onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
     session = s
     meParticipant = s.participant
 
     s.onChange((views) => {
       if (session !== s) return
+      const byDevice = new Map<string, string[]>()
+      for (const view of views) for (const t of view.tracks) byDevice.set(t.device, [...(byDevice.get(t.device) ?? []), t.role])
+      for (const change of advertTracker.update([...byDevice].map(([device, roles]) => ({ device, roles })))) {
+        if (change.added.length > 0) callTimeline.record('advert-change', short(change.device), `+${change.added.join(',')}`)
+        if (change.removed.length > 0) callTimeline.record('advert-change', short(change.device), `-${change.removed.join(',')}`)
+      }
       announceComings(views, meParticipant)
       assignmentPanel.refreshPeople()
       render(views, meParticipant)
@@ -7886,15 +8788,44 @@ async function startSession(asVisitor = false): Promise<void> {
       // The owner of an agent that asked may only now be known.
       renderApprovals()
     })
-    s.onRemoteTrack(({ device, track }) => { if (session === s) attachRemoteTrack(device, track); else track.stop() })
+    s.onRemoteTrack(({ device, track, role }) => {
+      // Profile 2's fixed slot is authoritative. Discarding it here made the
+      // UI guess from browser-local receiver ids and arrival order, so an
+      // idle camera receiver could take the screen slot and the real share
+      // remained attached to a decoder that never received its frames.
+      if (role) fixedRemoteRoles.set(track, role)
+      if (session === s) attachRemoteTrack(device, track, role ? tileKey(device, role) : undefined)
+      else track.stop()
+    })
     s.onAnnotation(({ participant, annotation }) => {
       if (session !== s) return
       shareViewer.receive(annotation, markAuthor(participant))
       notifyDrawingOnMyShare(participant, annotation)
     })
 
+    // A half-open socket from before this pool even connected would not be
+    // this pool's problem, but the tab going to the background any time
+    // after it did is: a cheap round trip here catches it before the join
+    // event is the thing that discovers it, the slow and public way.
+    if (lastHiddenAt >= poolCreatedAt) await pool.probe().catch((err) => callTimeline.record('probe-failed', undefined, describeError(err)))
     await s.join(currentAdverts(), currentClaims())
     if (session !== s) return
+    // Another tab of this browser, same account, may already be on this
+    // room's call under the identical device key - see call-tab-lock.ts.
+    // Asked once, now, because a fresh tab's own heartbeat asserting no
+    // tracks is exactly the contradiction that orphans that tab's live
+    // media a few seconds later.
+    {
+      const lockKey = callLockKey()
+      if (lockKey) {
+        callTabLock.askHeldElsewhere(lockKey).then((held) => {
+          if (!held || session !== s || callLockKey() !== lockKey || onCall()) return
+          heldElsewhereKey = lockKey
+          s.pausePresence()
+          renderCallTabNotice()
+        }).catch(() => {})
+      }
+    }
     requeueQuiet(s)
     // A reply draft reads its original message from the new session. Its
     // logs must exist before restoring that context.
@@ -8002,18 +8933,35 @@ async function startSession(asVisitor = false): Promise<void> {
     failedTransport?.close()
     if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
     iceRefreshTimer = undefined
+    // A relay that timed out never looked at the event; a phone whose
+    // socket went half-open in the background is not a room that said no.
+    // `relay-pool.ts` retries the timeout itself first, so seeing one here
+    // at all means every relay stayed unreachable through those retries -
+    // worth trying the whole join again, not handing back an error that
+    // reads like a refusal.
+    if (isUnreachableRelayFailure(err) && Date.now() < deadline) {
+      retrying = true
+      setStatus("Still reaching the room's relays\u2026", 'progress')
+      await new Promise(resolve => setTimeout(resolve, 1_000))
+      if (generation === roomGeneration) { await startSession(asVisitor, { deadline }); return }
+      return
+    }
     const message = describeError(err)
     if (message.includes('expired')) {
       forgetCredential()
       setStatus('This device\u2019s pass for this room has run out. Ask your other device for a new one.')
+    } else if (isUnreachableRelayFailure(err)) {
+      setStatus(`Could not reach the room's relays. ${message}. Check your connection, then try again.`)
     } else {
       setStatus(`Could not join the room. ${message}. Check your connection or sign-in, then try again.`)
     }
   } finally {
-    joining = false
-    joinBtn.disabled = false
-    $('joinRoomForm').removeAttribute('aria-busy')
-    renderIdentity()
+    if (!retrying) {
+      joining = false
+      joinBtn.disabled = false
+      $('joinRoomForm').removeAttribute('aria-busy')
+      renderIdentity()
+    }
   }
 }
 
@@ -8096,7 +9044,7 @@ function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
 }
 
 function watchKnownRoom(room: KnownRoom): void {
-  if (roomWatches.has(room.roomId)) return
+  if (roomWatches.has(room.roomId) || room.endedAt !== undefined) return
   let link: RoomLink
   try {
     link = parseRoomLink(room.link)
@@ -8188,7 +9136,17 @@ function renderRooms(): void {
   const project = ($('homeProject') as HTMLSelectElement).value
   const filtered = rooms.filter(room => matchesRoom(room, query, project))
   $('homeProjectFilter').hidden = !rooms.some(room => projectOf(room))
-  $('rooms').hidden = rooms.length === 0 && !nostrSession
+  const hidden = disconnectedAccountRooms()
+  $('rooms').hidden = rooms.length === 0 && !nostrSession && !accountDisconnected()
+  $('accountReconnect').hidden = !accountDisconnected()
+  if (accountDisconnected()) {
+    const signer = signerLabel(expectedMethod)
+    const kept = hidden.filter(room => !knownRoom(deviceStore, room.roomId)).length
+    $('accountReconnectText').textContent = `Your Nostr account (${npubEncode(expectedAccount!)}) is not connected in this tab. `
+      + (kept ? `${kept === 1 ? 'One room' : `${kept} rooms`} saved to it ${kept === 1 ? 'is' : 'are'} not shown until you reconnect ${signer}.`
+        : `Rooms saved to it are not shown until you reconnect ${signer}.`)
+    $('accountReconnectButton').textContent = expectedMethod === 'nip07' ? 'Reconnect extension' : 'Reconnect'
+  }
   $('homeNotifications').hidden = false
   $('notify').hidden = rooms.length === 0
   $('homeHeading').textContent = rooms.length ? 'Pick up the conversation.' : 'Make room for a conversation.'
@@ -8225,6 +9183,13 @@ function confirmRoomAction(options: ConfirmActionOptions): Promise<boolean> {
   const account = nostrSession?.pubkey
   const generation = roomGeneration
   return confirmAction({ ...options, isCurrent: () => room === session && account === nostrSession?.pubkey && generation === roomGeneration })
+}
+
+function chooseRoomAction(options: ChooseActionOptions): ReturnType<typeof chooseAction> {
+  const room = session
+  const account = nostrSession?.pubkey
+  const generation = roomGeneration
+  return chooseAction({ ...options, isCurrent: () => room === session && account === nostrSession?.pubkey && generation === roomGeneration })
 }
 
 function confirmDiscardAndLeave(): Promise<boolean> {
@@ -8287,6 +9252,13 @@ function roomRow(room: KnownRoom): HTMLLIElement {
 function roomMeta(room: KnownRoom): HTMLDivElement {
   const meta = document.createElement('div')
   meta.className = 'roomMeta'
+  if (room.endedAt !== undefined) {
+    const note = document.createElement('span')
+    note.className = 'ended'
+    note.textContent = 'Ended. Its invite link no longer works.'
+    meta.append(note)
+    return meta
+  }
   const watched = roomWatches.get(room.roomId)
   if (!watched) {
     const note = document.createElement('span')
@@ -8684,6 +9656,11 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   chatScroll.suspend()
   ++roomGeneration
   const old = session
+  {
+    const key = callLockKey()
+    if (key) callTabLock.release(key)
+    if (heldElsewhereKey !== undefined) { heldElsewhereKey = undefined; renderCallTabNotice() }
+  }
   const transport = sessionTransport
   persistQuiet()
   session = undefined
@@ -8699,7 +9676,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   hideDrawingNotice()
   closeMentionPicker()
   closeRoomSheet()
-  for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]')) dialog.close()
+  for (const dialog of document.querySelectorAll<HTMLDialogElement>('dialog[open]:not([data-keep-open])')) dialog.close()
   stopInvitationHost()
   pairingHost?.close()
   pairingTransport?.close()
@@ -8733,7 +9710,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   $('presenceNotice').hidden = true
   $('presenceNotice').textContent = ''
   forgetKnocks()
-  orphanChecks.clear()
+  tileLiveness.retain([])
   $('agentsRow').replaceChildren()
   const preview = $('voicePreviewAudio') as HTMLAudioElement
   preview.pause()
@@ -8758,6 +9735,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
 
 function resetRoomState(): void {
   for (const opened of openedAttachments.values()) if ('url' in opened) URL.revokeObjectURL(opened.url)
+  attachmentViewer.close()
   openedAttachments.clear()
   catalogues.clear()
   controlSeen.clear()
@@ -8809,13 +9787,45 @@ function resetRoomState(): void {
 }
 
 async function forgetKnownRoom(room: KnownRoom): Promise<void> {
+  // Saved under an account whose signer is not here: a local forget would
+  // look done and the bookmark would come back at the next sign-in.
+  if (disconnectedAccountRooms().some(saved => saved.roomId === room.roomId)) {
+    const signer = signerLabel(expectedMethod)
+    const choice = await chooseRoomAction({
+      title: `Reconnect before forgetting ${knownRoomLabel(room)}?`,
+      message: `This room is also saved to your Nostr account (${npubEncode(expectedAccount!)}), and ${signer} is not connected in this tab. `
+        + 'Forgetting it here removes it from this browser only; it comes back the next time you sign in. '
+        + `Reconnect ${signer} first to remove it from your account on every device.`,
+      confirmLabel: 'Reconnect first',
+      alternativeLabel: 'Forget in this browser only',
+      alternativeDanger: true,
+    })
+    if (choice === 'cancel') return
+    if (choice === 'confirm') {
+      await signInWithNostr().catch(e => setStatus(describeError(e)))
+      const saved = nostrSession && knownRoom(roomStore(), room.roomId)
+      if (!saved) { if (nostrSession) setStatus('Signed in, and this room is not saved to that account. Nothing was forgotten.'); return }
+      return forgetKnownRoom(saved)
+    }
+    forgetLocally(room.roomId)
+    return
+  }
   if (!await confirmRoomAction({ title: `Forget ${knownRoomLabel(room)}?`, message: `Remove it ${nostrSession ? 'from your Nostr room bookmarks on all devices' : 'on this device'}. You will need its invitation link to come back. This does not revoke access or erase relay history.`, confirmLabel: 'Forget room', danger: true })) return
-  stopWatching(room.roomId)
-  forgetRoomAccess(deviceStore, room.roomId)
-  forgetRoomAccess(browserDeviceStore(sessionStorage), room.roomId)
-  forgetQuietState(deviceStore, room.roomId)
   if (bookmarks) bookmarks.remove(room.roomId)
-  else forgetRoom(deviceStore, room.roomId)
+  forgetLocally(room.roomId)
+}
+
+/** The room forgotten here only; an account bookmark is the caller's job.
+ *  The browser's own list entry goes too, or it would be offered straight
+ *  back as a room "already here" to add to the account. */
+function forgetLocally(roomId: string): void {
+  stopWatching(roomId)
+  // The room is not this browser's any more: no more read positions for it.
+  readSync?.forget(roomId)
+  forgetRoomAccess(deviceStore, roomId)
+  forgetRoomAccess(browserDeviceStore(sessionStorage), roomId)
+  forgetQuietState(deviceStore, roomId)
+  forgetRoom(deviceStore, roomId)
   renderRooms()
 }
 
@@ -8929,6 +9939,9 @@ function updateDesktopUnread(): void {
       !message.retracted && message.original.participant !== self && message.original.sentAt > (room.readAt ?? 0)).length
   }
   if (session) for (const [name] of conversationTabs()) count += conversationUnread(name)
+  // The same total the badge carries, on the collapsed rooms rail: putting
+  // the rail away must not mean losing sight of a room that is talking.
+  setProjectsRailUnread(count)
   window.kithmootDesktop?.setUnread(count)
   if (!window.kithmootDesktop) updateAppBadge(count)
   document.title = titleWithCount('KithMoot', count)
@@ -9171,6 +10184,13 @@ $('manageAgents').addEventListener('click', () => {
   $('inviteAgents').scrollIntoView({ block: 'start' })
   $('inviteAgents').querySelector('summary')?.focus()
 })
+$('copyAgentInvite').addEventListener('click', async () => {
+  await copyInput('shareUrl')
+  const copied = $('inviteStatus').textContent?.startsWith('Link copied') === true
+  $('agentInviteStatus').textContent = copied
+    ? 'Room link copied. Paste it into kithmoot-agent join on the computer running your bot.'
+    : 'Automatic copy was unavailable. Copy the invite link under Invite people and give it to kithmoot-agent join.'
+})
 $('chatLog').addEventListener('scroll', () => { if (markConversationRead()) renderConversationNav() }, { passive: true })
 document.addEventListener('visibilitychange', () => { if (markConversationRead()) renderConversationNav() })
 document.addEventListener('kithmoot:confirmation-closed', () => { if (markConversationRead()) renderConversationNav() })
@@ -9347,30 +10367,38 @@ $('profileSettings').addEventListener('close', () => profileReturnFocus.focus({ 
 $('roomSheet').addEventListener('click', (event) => {
   if (event.target === $('roomSheet')) closeRoomSheet()
 })
+// The button does what it says. It said "On call" and did neither of the
+// two things a person on a call might want; now it reads Start call, Join
+// call or Leave call - see app/src/call-stance.ts - and pressing it does
+// that. The Leave inside the call pane stays: it is where the hand already
+// is once the controls are open.
 $('callToggle').addEventListener('click', () => {
-  if (!onCall()) {
-    joinCall().catch((err) => setStatus(describeError(err)))
+  if (onCall()) {
+    if (!leavingCall) leaveCall().catch((err) => setStatus(describeError(err)))
     return
   }
-  // On a call the controls stay up. Pressing "On call" used to fold them
-  // away, so the one button a person had just pressed to get the mic and
-  // camera hid the mic and camera; now it brings them back into view if
-  // the page has scrolled past them, and that is all.
-  setCallOpen(true)
-  showMobileRoomView('call')
-  $('deviceControls').scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  joinCall().catch((err) => setStatus(describeError(err)))
 })
 $('joinCall').addEventListener('click', () => {
+  joinCall().catch((err) => setStatus(describeError(err)))
+})
+// The resting strip's own control. Only ever on screen when this device is
+// off the call, so it starts or joins one; it never has to leave.
+$('callStripAction').addEventListener('click', () => {
   joinCall().catch((err) => setStatus(describeError(err)))
 })
 $('leaveCall').addEventListener('click', () => {
   leaveCall().catch((err) => setStatus(describeError(err)))
 })
 $('listenHere').addEventListener('click', () => {
+  try { monitorClaimedAt = session?.nextRoleClaim('monitor') ?? nowSeconds() }
+  catch (error) { setStatus(describeError(error)); return }
   besideAnotherDevice = false
-  monitorClaimedAt = nowSeconds()
   publishActiveTracks()
   updateUi()
+})
+$('claimMic').addEventListener('click', () => {
+  toggleMic().catch((err) => setStatus(describeError(err)))
 })
 
 // The way back into the room this tab just left. A fragment-only change is
@@ -9456,6 +10484,9 @@ $('displayName').addEventListener('input', (event) => {
   renderIdentity()
 })
 
+$('accountReconnectButton').addEventListener('click', () => {
+  signInWithNostr().catch((err) => setStatus(describeError(err)))
+})
 $('joinNostr').addEventListener('click', () => {
   signInWithNostr().catch((err) => setStatus(describeError(err)))
 })
@@ -9624,6 +10655,98 @@ $('copyPair').addEventListener('click', () => copyInput('pairUrl'))
 $('shareRoom').addEventListener('click', () => {
   shareRoomLink().catch((err) => { $('inviteStatus').textContent = describeError(err) })
 })
+/**
+ * Ending a browser room, from the browser that holds its authority.
+ *
+ * A browser room has no keeper, so its creator's browser is the only one
+ * that can announce for it: exactly what a keeper's closeRoom does, from
+ * here. The link is retired first, saying the room ended, so a newcomer is
+ * told that rather than only that the link is stale; then the final epoch
+ * is published with nobody kept, and every member's session leaves on it.
+ * A room with a keeper keeps using the keeper, and a browser whose link
+ * was replaced no longer holds the key its members follow.
+ */
+let sessionAuthority: string | undefined
+let endingRoom = false
+
+function canEndRoom(): boolean {
+  if (!session || session.closed || keeperParticipant !== undefined) return false
+  if (!roomInvitationCapability || !invitationAuthoritySk || invitationDelegation.length !== 0 || !sessionAuthority) return false
+  return getPublicKey(invitationAuthoritySk) === sessionAuthority
+}
+
+function renderEndRoom(): void {
+  const hidden = !canEndRoom()
+  $('endRoom').hidden = hidden
+  $('endRoomNote').hidden = hidden
+}
+
+async function endRoomForEveryone(): Promise<void> {
+  if (!canEndRoom()) throw new Error('Only the browser that started this room can end it.')
+  const s = session!, invitation = roomInvitationCapability!, authoritySk = invitationAuthoritySk!
+  const retirement = configuredPool(relays)
+  try {
+    await retirement.publish(encodeInvitationRetirement({ invitation, inviterSk: authoritySk, now: nowSeconds(), ended: true }))
+  } finally {
+    retirement.close()
+  }
+  stopInvitationHost()
+  endingRoom = true
+  try { await s.rekey({ authoritySk, closed: true, by: meParticipant }) }
+  catch (err) { endingRoom = false; throw err }
+}
+
+/** A saved room whose link turned out to be retired because the room ended:
+ *  the list should say so rather than go on offering to open it. */
+function markLinkEnded(href: string): void {
+  let id: string
+  try {
+    const invitation = parseRoomLink(href).invitation
+    if (!invitation) return
+    id = deriveInvitationId(invitation)
+  } catch { return }
+  for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) {
+    for (const room of knownRooms(store)) {
+      try {
+        const saved = parseRoomLink(room.link).invitation
+        if (saved && deriveInvitationId(saved) === id) markEnded(store, room.roomId, nowSeconds())
+      } catch { /* A link that does not parse names no room. */ }
+    }
+  }
+}
+
+/** The room's authority closed it: this browser, a keeper, or the browser
+ *  that started it. Written down either way, so the list says so. */
+function roomWasClosed(notice: { by?: string }): void {
+  const s = session
+  if (s) {
+    markEnded(deviceStore, s.roomId, nowSeconds())
+    if (bookmarks) markEnded(bookmarks.rooms, s.roomId, nowSeconds())
+  }
+  // The closing rekey can be heard more than once: from the call that made
+  // it and again off the relay. A tidy-up leaves by itself, for its report.
+  if (tidyUpRunning) return
+  if (endingRoom) {
+    leaveWithNotice('You ended this room for everyone. Its invite link no longer works.')
+    return
+  }
+  leaveWithNotice(keeperParticipant === undefined
+    ? 'This room was ended by the person who started it.'
+    : `This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+}
+
+$('endRoom').addEventListener('click', async () => {
+  if (!await confirmRoomAction({
+    title: 'End this room for everyone?',
+    message: 'Everyone is taken out of the room and off the call, and every invite link to it stops working. '
+      + 'People keep what they already received, and relays keep the encrypted history. This cannot be undone.',
+    confirmLabel: 'End room',
+    danger: true,
+  })) return
+  ++roomOperation
+  try { await endRoomForEveryone() } catch (err) { setStatus(describeError(err)) }
+  finally { --roomOperation; refreshRoomNavigation() }
+})
 $('rotateShare').addEventListener('click', async () => {
   if (!await confirmRoomAction({ title: 'Replace the room link?', message: 'The old link will stop admitting new people in current KithMoot clients. Existing members stay in the room.', confirmLabel: 'Replace link', danger: true })) return
   ++roomOperation
@@ -9653,14 +10776,16 @@ $('toggleMic').addEventListener('click', () => {
 $('toggleCamera').addEventListener('click', () => {
   toggleCamera().catch((err) => setStatus(describeError(err)))
 })
+if (window.kithmootDesktop?.supportsShareArea) {
+  const area = document.createElement('button')
+  area.id = 'shareArea'
+  area.className = 'toggle'
+  area.textContent = 'Share an area'
+  area.onclick = () => { toggleScreen(true).catch(showShareError) }
+  $('toggleScreen').after(area)
+}
 $('toggleScreen').addEventListener('click', () => {
-  toggleScreen().catch((err) => {
-    // The desktop app refuses with an AbortError reading "Invalid capture
-    // constraints" when the picker is dismissed or macOS has not allowed
-    // screen recording, and has already explained the second in a dialog.
-    if (window.kithmootDesktop && err instanceof DOMException && err.name === 'AbortError') return
-    setStatus(describeError(err))
-  })
+  toggleScreen().catch(showShareError)
 })
 $('toggleCompanion').addEventListener('click', toggleCompanionMode)
 $('toggleAssist').addEventListener('click', () => {
@@ -9675,6 +10800,13 @@ $('effectModes').addEventListener('click', (event) => {
 
 $('blurStrength').addEventListener('input', (event) => {
   camera?.setStrength(Number((event.target as HTMLInputElement).value) / 100)
+})
+
+;($('fishToggle') as HTMLInputElement).checked = fishEnabled
+$('fishToggle').addEventListener('change', () => {
+  fishEnabled = ($('fishToggle') as HTMLInputElement).checked
+  try { localStorage.setItem(FISH_STORAGE_KEY, String(fishEnabled)) } catch { /* Still applies to this visit. */ }
+  camera?.setFish(fishEnabled).catch((err) => setStatus(describeError(err)))
 })
 
 $('switchCamera').addEventListener('click', () => {
@@ -9757,6 +10889,243 @@ async function leaveRoom(): Promise<void> {
   approvedReload()
 }
 
+// ---------------------------------------------------------------------------
+// Leave and tidy up. The steps and their order live in room-tidy-up.ts; this
+// is where the keys, relays, tabs and storage they act on come from.
+// ---------------------------------------------------------------------------
+
+const roomTabs = typeof BroadcastChannel === 'undefined' ? undefined : new RoomTabs(
+  () => session ? currentRoomId() : undefined,
+  async roomId => { if (session && currentRoomId() === roomId) await leaveForTidyUp() },
+)
+
+interface TidyUpContext {
+  roomId: string
+  roomKey: Uint8Array
+  roomRelays: string[]
+  invitation?: RoomInvitation
+  inviterSk?: Uint8Array
+  deviceSk: Uint8Array
+  account?: SignetSession
+  canEnd: boolean
+}
+
+let tidyUpContext: TidyUpContext | undefined
+let tidyUpRunning = false
+
+function tidyUpAccount(roomId: string): SignetSession | undefined {
+  return nostrSession && bookmarks && knownRoom(bookmarks.rooms, roomId) ? nostrSession : undefined
+}
+
+async function openTidyUp(): Promise<void> {
+  const s = session
+  const roomId = currentRoomId()
+  if (!s || !roomId) return
+  // Saved to an account whose signer is not here: tidying would clear this
+  // browser and leave the account's records behind. See C10.
+  if (accountDisconnected() && disconnectedAccountRooms().some(room => room.roomId === roomId)) {
+    const signer = signerLabel(expectedMethod)
+    setStatus(`This room is saved to your Nostr account, and ${signer} is not connected in this tab. Leave the room, reconnect ${signer}, then tidy up so your account’s records go too.`)
+    return
+  }
+  const owner = invitationDelegation.length === 0 && invitationAuthoritySk && roomInvitationCapability ? roomInvitationCapability : undefined
+  tidyUpContext = {
+    roomId,
+    roomKey: deriveRoom(roomSecret).roomKey,
+    roomRelays: [...relays],
+    invitation: owner,
+    inviterSk: owner ? invitationAuthoritySk : undefined,
+    deviceSk: deviceKey(),
+    account: tidyUpAccount(roomId),
+    canEnd: canEndRoom(),
+  }
+  closeRoomSheet()
+  renderTidyUpPlan()
+  $('tidyUpResults').replaceChildren()
+  ;($('tidyUpRun') as HTMLButtonElement).hidden = false
+  ;($('tidyUpCancel') as HTMLButtonElement).hidden = false
+  ;($('tidyUpDone') as HTMLButtonElement).hidden = true
+  ;($('tidyUpTombstone') as HTMLInputElement).disabled = false
+  ;($('tidyUpEnd') as HTMLInputElement).disabled = false
+  const dialog = $('tidyUpDialog') as HTMLDialogElement
+  if (!dialog.open) dialog.showModal()
+  ;($('tidyUpCancel') as HTMLButtonElement).focus()
+}
+
+function renderTidyUpPlan(): void {
+  const context = tidyUpContext
+  if (!context) return
+  const deleteTombstone = ($('tidyUpTombstone') as HTMLInputElement).checked
+  const end = context.canEnd && ($('tidyUpEnd') as HTMLInputElement).checked
+  $('tidyUpTombstoneRow').hidden = !context.account
+  $('tidyUpEndRow').hidden = !context.canEnd
+  const list = $('tidyUpSteps')
+  const results = new Map([...list.querySelectorAll<HTMLElement>('li')].map(li => [li.dataset.step, li.querySelector('.tidyResult')]))
+  list.replaceChildren(...tidyUpSteps({ creator: !!context.inviterSk, account: !!context.account, deleteTombstone, end }).map(step => {
+    const li = document.createElement('li')
+    li.dataset.step = step.id
+    li.textContent = step.label
+    const kept = results.get(step.id)
+    if (kept) li.append(kept)
+    return li
+  }))
+  $('tidyUpLimits').replaceChildren(...TIDY_UP_LIMITS.map(text => { const li = document.createElement('li'); li.textContent = text; return li }))
+}
+
+function describeTidyStep(report: TidyStepReport): string {
+  if (report.skipped) return report.skipped
+  const parts: string[] = []
+  if (['invitations', 'retirement', 'device', 'account'].includes(report.id)) parts.push(report.found === 0 ? 'Nothing found to delete.' : `Found ${report.found}.`)
+  for (const answer of report.answers) parts.push(`${answer.relay}: ${answer.status}${answer.detail ? ` (${answer.detail})` : ''}.`)
+  if (report.unread.length) parts.push(`Did not answer the query: ${report.unread.join(', ')}.`)
+  if (report.id === 'check') parts.push(report.found === 0 ? 'The relays that answered hold nothing more of yours for this room.' : `${report.found} still found.`)
+  return parts.join(' ') || 'Done.'
+}
+
+function showTidyStep(report: TidyStepReport): void {
+  const li = $('tidyUpSteps').querySelector<HTMLElement>(`li[data-step="${report.id}"]`)
+  if (!li) return
+  li.querySelector('.tidyResult')?.remove()
+  const result = document.createElement('span')
+  result.className = 'tidyResult'
+  result.dataset.status = report.skipped ? 'skipped' : report.answers.some(a => a.status !== 'accepted') ? 'partial' : 'done'
+  result.textContent = describeTidyStep(report)
+  li.append(result)
+}
+
+function showTidyReport(report: TidyUpReport): void {
+  const results = $('tidyUpResults')
+  results.replaceChildren()
+  const heading = document.createElement('h3')
+  heading.textContent = report.refused ? 'Nothing was deleted' : report.remaining.length ? 'What a fresh query still finds' : 'Tidied up'
+  const lead = document.createElement('p')
+  lead.textContent = report.refused ?? (report.remaining.length ? 'These relays still return records of yours for this room:' : 'Every relay that answered returned nothing more of yours for this room.')
+  results.append(heading, lead)
+  if (report.remaining.length) {
+    const list = document.createElement('ul')
+    list.id = 'tidyUpRemaining'
+    for (const left of report.remaining) {
+      const li = document.createElement('li')
+      li.textContent = left.count < 0 ? `${left.what}: ${left.relay}` : `${left.what}: ${left.count} on ${left.relay}`
+      list.append(li)
+    }
+    results.append(list)
+  }
+}
+
+function clearRoomLocally(context: TidyUpContext): void {
+  forgetLocally(context.roomId)
+  bookmarks?.dropLocalRecord(context.roomId)
+  if (bookmarks) forgetRoom(bookmarks.rooms, context.roomId)
+  forgetRoom(deviceStore, context.roomId)
+  if (context.invitation) forgetInvitationOwner(context.invitation)
+  const names = [context.roomId, ...(context.invitation ? [deriveInvitationId(context.invitation)] : [])]
+  for (const storage of [localStorage, sessionStorage]) {
+    try {
+      for (const key of Object.keys(storage)) if (names.some(name => key.includes(name))) storage.removeItem(key)
+    } catch { /* Storage unavailable: nothing more is held there. */ }
+  }
+}
+
+async function runRoomTidyUp(): Promise<void> {
+  const context = tidyUpContext
+  if (!context || tidyUpRunning) return
+  tidyUpRunning = true
+  const deleteTombstone = ($('tidyUpTombstone') as HTMLInputElement).checked
+  const end = context.canEnd && ($('tidyUpEnd') as HTMLInputElement).checked
+  ;($('tidyUpEnd') as HTMLInputElement).disabled = true
+  ;($('tidyUpRun') as HTMLButtonElement).hidden = true
+  ;($('tidyUpCancel') as HTMLButtonElement).hidden = true
+  ;($('tidyUpTombstone') as HTMLInputElement).disabled = true
+  const reader = new NostrHistoryRelayReader()
+  const writer = new NostrPublicDeletionRelayWriter()
+  const account = context.account
+  let tabsLeft: boolean | undefined
+  ++roomOperation
+  try {
+    const report = await runTidyUp({
+      now: nowSeconds,
+      roomRelays: context.roomRelays,
+      accountRelays: [...new Set([...RELAYS, ...context.roomRelays])],
+      read: reader.read,
+      publish: (to, event) => writer.publish(to, event),
+      ...(context.invitation && context.inviterSk ? { inviter: { sk: context.inviterSk, invitationId: deriveInvitationId(context.invitation) } } : {}),
+      device: { sk: context.deviceSk },
+      ...(end ? { endRoom: endRoomForEveryone } : {}),
+      ...(account ? { account: {
+        pubkey: account.pubkey,
+        sign: template => account.signer.signEvent(template),
+        readPositionD: readPositionId(context.roomKey),
+        forgetBookmark: async () => {
+          stopWatching(context.roomId)
+          return bookmarks ? bookmarks.removeAndConfirm(context.roomId) : undefined
+        },
+        deleteTombstone,
+      } } : {}),
+      otherTabsAnswer: async () => { tabsLeft = roomTabs ? await roomTabs.leaveOthers(context.roomId) : true; return tabsLeft },
+      leaveOtherTabs: async () => tabsLeft !== false && (roomTabs ? await roomTabs.leaveOthers(context.roomId) : true),
+      stopReadPositions: () => stopReadPositions(context.roomId),
+      leaveHere: async () => {
+        closeAllDrafts()
+        await closeRoomSession()
+      },
+      clearLocal: () => clearRoomLocally(context),
+      progress: showTidyStep,
+    })
+    showTidyReport(report)
+    if (report.refused) {
+      ;($('tidyUpCancel') as HTMLButtonElement).hidden = false
+      ;($('tidyUpCancel') as HTMLButtonElement).textContent = 'Close'
+      return
+    }
+    tidyUpContext = undefined
+    ;($('tidyUpDone') as HTMLButtonElement).hidden = false
+    ;($('tidyUpDone') as HTMLButtonElement).focus()
+  } catch (err) {
+    const problem = document.createElement('p')
+    problem.textContent = `The tidy-up stopped: ${describeError(err)}. Steps marked above ran; the rest did not.`
+    $('tidyUpResults').append(problem)
+    ;($('tidyUpDone') as HTMLButtonElement).hidden = false
+  } finally {
+    --roomOperation
+    tidyUpRunning = false
+  }
+}
+
+$('tidyUpRoom').addEventListener('click', () => { void openTidyUp() })
+$('tidyUpTombstone').addEventListener('change', renderTidyUpPlan)
+$('tidyUpEnd').addEventListener('change', renderTidyUpPlan)
+$('tidyUpCancel').addEventListener('click', () => { if (!tidyUpRunning) ($('tidyUpDialog') as HTMLDialogElement).close() })
+$('tidyUpDialog').addEventListener('cancel', event => { if (tidyUpRunning) event.preventDefault() })
+$('tidyUpDialog').addEventListener('close', () => { ($('tidyUpCancel') as HTMLButtonElement).textContent = 'Cancel' })
+$('tidyUpRun').addEventListener('click', () => { void runRoomTidyUp() })
+$('tidyUpDone').addEventListener('click', () => {
+  ;($('tidyUpDialog') as HTMLDialogElement).close()
+  if (session) return
+  history.replaceState(null, '', joinLinkBase())
+  approvedReload()
+})
+
+/** Taken out by a tidy-up elsewhere: back to the rooms list, not the room's
+ *  own link, whose keys are about to go. The read position goes quiet before
+ *  this tab says it left, or its delayed record would land on a relay after
+ *  the other tab had deleted what it found. */
+async function leaveForTidyUp(): Promise<void> {
+  const roomId = currentRoomId()
+  history.replaceState(null, '', joinLinkBase())
+  if (roomId) await stopReadPositions(roomId)
+  leaveWithNotice('You tidied this room up in another tab, so this tab left it.')
+}
+
+// A tab frozen while another tidied the room up could not answer. When it
+// wakes, the room's device key is gone from storage: leave rather than go on
+// publishing under a key nothing here holds any more.
+window.addEventListener('storage', event => {
+  const roomId = session ? currentRoomId() : undefined
+  if (!roomId || event.key !== DEVICE_PREFIX + roomId || event.newValue !== null) return
+  void leaveForTidyUp()
+})
+
 $('leave').addEventListener('click', async () => {
   if (hasUnsentWork() && !await confirmDiscardAndLeave()) return
   void leaveRoom()
@@ -9828,9 +11197,15 @@ function growComposer(box: HTMLTextAreaElement): void {
 
 interface MentionChoice {
   name: string
+  /** Which participant this names, for the picker to record when it is
+   *  chosen - see `chooseMention`. Absent for `@all`/`@everyone` and for a
+   *  model completion. */
+  participant?: string
   agent: boolean
   room?: boolean
   model?: ComposerModel
+  /** The short npub, shown only when another candidate shares this name. */
+  npub?: string
 }
 
 /** Where the `@` being completed sits in the box, or -1 for closed. */
@@ -9873,27 +11248,16 @@ function modelClerkNames(): string[] {
 }
 
 /** Everybody in the room bar yourself, people and agents alike, ordered so
- *  that what you have typed so far leads the list. */
+ *  that what you have typed so far leads the list, and named as they are
+ *  actually shown on screen - not by the roster's announced joining name,
+ *  which can differ once a profile arrives. Two people shown under the
+ *  same name both appear, each with its own short npub so they can be
+ *  told apart before picking. See `mention-candidates.ts`. */
 function mentionCandidates(query: string): MentionChoice[] {
-  // A trailing space completes a mention; trimming it reopened the picker
-  // after selection and made Enter select the same name instead of sending.
-  const wanted = query.toLowerCase()
-  const seen = new Set<string>(['all', 'everyone'])
-  const all: MentionChoice[] = []
-  for (const view of session?.participants() ?? []) {
-    const name = view.name?.trim()
-    if (!name || view.participant === meParticipant) continue
-    if (seen.has(name.toLowerCase())) continue
-    seen.add(name.toLowerCase())
-    all.push({ name, agent: view.agent === true })
-  }
-  // The whole room, last, so a name still leads when one matches.
-  all.push({ name: 'all', agent: false, room: true })
-  if (wanted && 'everyone'.startsWith(wanted)) all.push({ name: 'everyone', agent: false, room: true })
-  if (!wanted) return all
-  const starts = all.filter((c) => c.name.toLowerCase().startsWith(wanted))
-  const contains = all.filter((c) => !c.name.toLowerCase().startsWith(wanted) && c.name.toLowerCase().includes(wanted))
-  return [...starts, ...contains]
+  const roster = (session?.participants() ?? [])
+    .filter((view) => view.participant !== meParticipant)
+    .map((view) => ({ participant: view.participant, name: shownAs(view.participant, view.name).name ?? '', agent: view.agent === true }))
+  return buildMentionCandidates(query, roster, (participant) => shortNpub(participant))
 }
 
 /**
@@ -9967,6 +11331,14 @@ function renderMentionPicker(): void {
       detail.textContent = `${choice.model.label} · ${choice.model.agent}`
       option.append(detail)
     }
+    // Two people shown under the same name: the npub is the only thing
+    // telling this entry apart from its name-mate before it is picked.
+    if (choice.npub) {
+      const detail = document.createElement('span')
+      detail.className = 'model-label'
+      detail.textContent = choice.npub
+      option.append(detail)
+    }
     // The same tag in the same colour as on the roster and on the bubbles,
     // so "this one is a program" is one idea told one way everywhere.
     if (choice.agent && !choice.model) {
@@ -10006,7 +11378,14 @@ function chooseMention(index: number): void {
   box.setSelectionRange(after, after)
   dismissedMention = { session, channel: currentChannel, value: box.value, start: after, end: after }
   growComposer(box)
-  captureDraft()
+  const draft = captureDraft()
+  // Remember which participant this name resolved to, so a name shared by
+  // more than one person still addresses the one actually picked - see
+  // `resolveDraftMentions` in mention-candidates.ts.
+  if (choice.participant) {
+    if (!draft.pickedMentions) draft.pickedMentions = new Map()
+    draft.pickedMentions.set(choice.name.trim().toLowerCase(), choice.participant)
+  }
 }
 
 function moveMentionCursor(by: number): void {
@@ -10126,8 +11505,11 @@ function renderComposerContext(): void {
  * include the entire room. The broadcast comes first so it survives the cap.
  */
 function mentionsInDraft(text: string): string[] {
-  return mentionsOf({ text }, (session?.participants() ?? []).filter(view => view.participant !== meParticipant))
-    .slice(0, MAX_MENTIONS)
+  const roster = (session?.participants() ?? [])
+    .filter((view) => view.participant !== meParticipant)
+    .map((view) => ({ participant: view.participant, name: shownAs(view.participant, view.name).name, agent: view.agent }))
+  const picked = drafts.get(currentChannel).pickedMentions ?? new Map<string, string>()
+  return resolveDraftMentions(text, roster, picked, MAX_MENTIONS)
 }
 
 async function retractMessage(original: ChatMessage): Promise<void> {
@@ -10181,6 +11563,7 @@ $('chatForm').addEventListener('submit', (event) => {
   input.value = ''
   showPasteSize()
   draft.text = ''
+  draft.pickedMentions = undefined
   draft.selectionStart = draft.selectionEnd = 0
   growComposer(input)
   closeMentionPicker()
@@ -10811,11 +12194,12 @@ roomArrival
       // No link: the front page, with the rooms this device has been in.
       $('setup').hidden = false
       showRoomsList()
-      return
+    } else {
+      showRoomUi()
+      renderIdentity()
     }
-    showRoomUi()
-    renderIdentity()
-    // Why the last page left, if the room told it to.
+    // Why the last page left, if the room told it to. A tab taken out by a
+    // tidy-up elsewhere comes back to the front page, not the room.
     try {
       const notice = sessionStorage.getItem(NOTICE_STORAGE_KEY)
       if (notice) {
@@ -10849,10 +12233,14 @@ function showArrivalFailure(err: unknown): void {
     return
   }
   $('addCardArrival').hidden = true
-  const retired = reason.includes('retired')
+  const ended = reason === ROOM_ENDED_MESSAGE
+  const retired = ended || reason.includes('retired')
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
-  $('arrivalTitle').textContent = retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
-  $('arrivalLead').textContent = retired
+  if (ended) markLinkEnded(location.href)
+  $('arrivalTitle').textContent = ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
+  $('arrivalLead').textContent = ended
+    ? 'It was ended by the person who started it, so nobody can join it any more.'
+    : retired
     ? 'Ask somebody in the room for its current invite link.'
     : valid
       ? persistent
@@ -10911,7 +12299,7 @@ const identityReady = restoreSessionWithExtensionGrace()
       return
     }
     nostrSession = session
-    rememberAccount(session.pubkey)
+    rememberAccount(session)
     startRoomBookmarks(session)
     profiles.want([session.pubkey])
     renderIdentity()

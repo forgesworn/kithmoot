@@ -1,4 +1,5 @@
 import type { AnnotationPoint, ScreenAnnotation } from '../../src/signal.js'
+import { markLegendEntries } from './share-mark-legend.js'
 import { ShareMarks, type LiveMark, type MarkAuthor } from './share-marks.js'
 
 /** A stroke still being drawn on this device: not yet a `LiveMark` - it has
@@ -8,11 +9,7 @@ import { ShareMarks, type LiveMark, type MarkAuthor } from './share-marks.js'
  *  `ShareMarks.colourFor`. */
 interface PendingMark { points: AnnotationPoint[]; author: MarkAuthor; color: string }
 
-/** Paint strokes in normalised coordinates onto a canvas of any size, each
- *  as strongly as its age allows and in the colour of whoever drew it - see
- *  `share-marks.ts`. A name chip rides the live end of each stroke, fading
- *  with it, so a mark left on someone's screen still says whose it was once
- *  the person who drew it has moved on to something else. */
+/** Paint live strokes and one fading colour legend entry per author. */
 function paintMarks(canvas: HTMLCanvasElement, marks: LiveMark[], pending?: PendingMark): void {
   const ctx = canvas.getContext('2d')
   if (!ctx) return
@@ -26,30 +23,32 @@ function paintMarks(canvas: HTMLCanvasElement, marks: LiveMark[], pending?: Pend
     for (const point of points.slice(1)) ctx.lineTo(point.x * canvas.width, point.y * canvas.height)
     ctx.stroke(); ctx.shadowBlur = 0
   }
-  // A label drawn straight onto the canvas, never through the DOM, so there
-  // is no innerHTML anywhere near somebody else's chosen name - only
-  // `fillText`, which paints characters and cannot execute markup.
-  const paintChip = (end: AnnotationPoint, label: string, alpha: number) => {
-    if (!label || alpha <= 0) return
-    const x = end.x * canvas.width, y = end.y * canvas.height
-    const fontSize = Math.max(11, Math.round(canvas.width / 90))
-    ctx.globalAlpha = alpha
-    ctx.font = `${fontSize}px sans-serif`
-    ctx.textBaseline = 'middle'
-    const padX = 6, padY = 3, width = ctx.measureText(label).width
-    ctx.fillStyle = 'rgb(0 0 0 / 65%)'
-    ctx.fillRect(x + 8, y - fontSize / 2 - padY, width + padX * 2, fontSize + padY * 2)
+  for (const mark of marks) paintStroke(mark.annotation.points ?? [], mark.alpha, mark.color)
+  if (pending) paintStroke(pending.points, 1, pending.color)
+  const legend = markLegendEntries(marks, pending)
+  canvas.dataset.legend = JSON.stringify(legend)
+  const fontSize = Math.max(11, Math.min(16, Math.round(canvas.width / 70)))
+  ctx.font = `${fontSize}px sans-serif`
+  ctx.textBaseline = 'middle'
+  const rowHeight = fontSize + 14
+  let x = 8, y = canvas.height - rowHeight - 8
+  for (const entry of legend) {
+    let label = entry.label || 'Guest'
+    const maxWidth = Math.max(20, Math.min(260, canvas.width - 40))
+    if (ctx.measureText(label).width > maxWidth) {
+      while (label.length > 1 && ctx.measureText(label + '…').width > maxWidth) label = label.slice(0, -1)
+      label += '…'
+    }
+    const width = ctx.measureText(label).width + 32
+    if (x > 8 && x + width > canvas.width - 8) { x = 8; y -= rowHeight + 4 }
+    ctx.globalAlpha = entry.alpha
+    ctx.fillStyle = 'rgb(0 0 0 / 75%)'
+    ctx.fillRect(x, y, width, rowHeight)
+    ctx.fillStyle = entry.color
+    ctx.fillRect(x + 8, y + rowHeight / 2 - 4, 8, 8)
     ctx.fillStyle = '#fff'
-    ctx.fillText(label, x + 8 + padX, y + 1)
-  }
-  for (const mark of marks) {
-    const points = mark.annotation.points ?? []
-    paintStroke(points, mark.alpha, mark.color)
-    if (points.length > 0) paintChip(points[points.length - 1]!, mark.author.label, mark.alpha)
-  }
-  if (pending && pending.points.length > 0) {
-    paintStroke(pending.points, 1, pending.color)
-    paintChip(pending.points[pending.points.length - 1]!, pending.author.label, 1)
+    ctx.fillText(label, x + 24, y + rowHeight / 2)
+    x += width + 6
   }
   ctx.globalAlpha = 1
 }
@@ -102,6 +101,26 @@ export class ShareViewer {
     this.#marks.remember(annotation, author)
   }
 
+  draw(annotation: ScreenAnnotation): void {
+    this.#marks.remember(annotation, this.#myAuthor())
+    this.#opts.onAnnotation?.(annotation)
+  }
+
+  areaOverlay(canvas: HTMLCanvasElement, shareId: () => string | undefined): () => void {
+    const paint = () => {
+      const id = shareId()
+      const rect = canvas.getBoundingClientRect()
+      canvas.width = Math.max(1, Math.round(rect.width))
+      canvas.height = Math.max(1, Math.round(rect.height))
+      paintMarks(canvas, id ? this.#marks.alive(id) : [])
+    }
+    const observer = new ResizeObserver(paint)
+    observer.observe(canvas)
+    const unsubscribe = this.#marks.subscribe(paint)
+    paint()
+    return () => { observer.disconnect(); unsubscribe() }
+  }
+
   /**
    * Paint the marks for a share over a preview of it, wherever that preview
    * is: the sharer's own tile above all, because a mark is drawn for the
@@ -124,7 +143,7 @@ export class ShareViewer {
       const marks = id ? this.#marks.alive(id) : []
       canvas.dataset.strokes = String(marks.length)
       canvas.dataset.authors = authorsData(marks)
-      if (marks.length === 0) { canvas.hidden = true; return }
+      if (marks.length === 0) { canvas.dataset.legend = '[]'; canvas.hidden = true; return }
       if (doc.defaultView?.getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
       // The picture inside the element, under object-fit: contain.
       const box = video.getBoundingClientRect(), outer = parent.getBoundingClientRect()
@@ -213,6 +232,16 @@ export class ShareViewer {
     let dragging: { id: number; x: number; y: number } | undefined
     let drawing = false
     let stroke: AnnotationPoint[] | undefined
+    let lastStrokeSent = 0
+    const flushStroke = () => {
+      const shareId = this.#source?.()?.id
+      if (!shareId || !stroke || stroke.length < 2) return
+      const annotation: ScreenAnnotation = { op: 'stroke', shareId, strokeId: crypto.randomUUID(), points: [...stroke] }
+      this.#marks.remember(annotation, this.#myAuthor())
+      this.#opts.onAnnotation?.(annotation)
+      stroke = [stroke.at(-1)!]
+      lastStrokeSent = performance.now()
+    }
     const fingers = new Map<number, { x: number; y: number }>()
     let pinchDistance = 0
     const makeButton = (label: string, action: () => void) => {
@@ -227,7 +256,7 @@ export class ShareViewer {
       drawing = !drawing
       draw.setAttribute('aria-pressed', String(drawing))
       viewport.classList.toggle('drawing', drawing)
-      notice.textContent = drawing ? 'Draw on the shared screen. The person sharing sees each line when you lift your finger, and it fades after a couple of seconds.' : 'Scroll or use + and − to zoom. Drag to move around.'
+      notice.textContent = drawing ? 'Draw on the shared screen. Everyone sees your drawing as you move. Marks fade after a couple of seconds.' : 'Scroll or use + and − to zoom. Drag to move around.'
     })
     draw.setAttribute('aria-pressed', 'false')
     const clear = makeButton('Clear marks', () => {
@@ -283,6 +312,7 @@ export class ShareViewer {
       if (drawing && track) {
         const rect = stage.getBoundingClientRect()
         stroke = [{ x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) }]
+        lastStrokeSent = 0
         dragging = { id: event.pointerId, x: 0, y: 0 }
         viewport.setPointerCapture(event.pointerId); event.preventDefault(); viewport.focus(); renderAnnotations(); return
       }
@@ -299,6 +329,7 @@ export class ShareViewer {
         const point = { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) }
         const last = stroke.at(-1)!
         if (stroke.length < 128 && Math.hypot(point.x - last.x, point.y - last.y) > 0.002) stroke.push(point)
+        if (performance.now() - lastStrokeSent >= 50 || stroke.length >= 128) flushStroke()
         renderAnnotations(); return
       }
       if (fingers.has(event.pointerId)) fingers.set(event.pointerId, { x: event.clientX, y: event.clientY })
@@ -313,12 +344,8 @@ export class ShareViewer {
     })
     const finishStroke = () => {
       if (drawing && stroke) {
-        const points = stroke; stroke = undefined
-        const shareId = this.#source?.()?.id
-        if (shareId && points.length > 1) {
-          const annotation: ScreenAnnotation = { op: 'stroke', shareId, strokeId: crypto.randomUUID(), points }
-          this.#marks.remember(annotation, this.#myAuthor()); this.#opts.onAnnotation?.(annotation)
-        }
+        flushStroke()
+        stroke = undefined
         renderAnnotations()
       }
       fingers.clear(); dragging = undefined; pinchDistance = 0

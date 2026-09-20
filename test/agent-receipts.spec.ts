@@ -4,14 +4,14 @@ import { AgentRuntime } from '../src/node/runtime.js'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
-import { goToConversation, open, openRoomDetails } from './browser.js'
+import { goToConversation, open, openRoomDetails, TEST_RELAY_WS } from './browser.js'
 
 test('an agent acknowledges a mention in a named conversation with a visible received time', async ({ browser, baseURL }, testInfo) => {
   test.setTimeout(45000)
   // WebKit refuses a cleartext WebSocket from this HTTPS page. Both sides
   // use the same local relay through the browser's existing secure proxy.
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
-  const tally = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: ['ws://127.0.0.1:7777'] })
+  const tally = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: [TEST_RELAY_WS] })
   const browserLink = encodeRoomLink(baseURL!, { ...parseRoomLink(tally.url), relays: [relay.href] })
   const runtime = new AgentRuntime(tally, { persona: { name: 'Tally', system: '' }, automaticReceipts: true }).start()
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
@@ -43,7 +43,7 @@ test('an agent acknowledges a mention in a named conversation with a visible rec
 test('a brief agent reconnect leaves the live roster but does not add a leave and arrival pair to chat', async ({ browser, baseURL }, testInfo) => {
   test.setTimeout(60_000)
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
-  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', relays: ['ws://127.0.0.1:7777'] })
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', relays: [TEST_RELAY_WS] })
   const browserLink = encodeRoomLink(baseURL!, { ...parseRoomLink(keeper.url), relays: [relay.href] })
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
   const identity = localIdentity(generateSecretKey())
@@ -81,7 +81,7 @@ test('a brief agent reconnect leaves the live roster but does not add a leave an
 test('ordinary replies from an external agent do not produce unsupported receipt warnings', async ({ browser, baseURL }, testInfo) => {
   test.setTimeout(60_000)
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
-  const chip = await RoomAgent.create({ base: baseURL!, name: 'Chip', relays: ['ws://127.0.0.1:7777'] })
+  const chip = await RoomAgent.create({ base: baseURL!, name: 'Chip', relays: [TEST_RELAY_WS] })
   const browserLink = encodeRoomLink(baseURL!, { ...parseRoomLink(chip.url), relays: [relay.href] })
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
   try {
@@ -116,7 +116,7 @@ test('ordinary replies from an external agent do not produce unsupported receipt
 test('Chip completes by name and @all receives acknowledgements from both agents in the same conversation', async ({ browser, baseURL }) => {
   test.setTimeout(60000)
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
-  const tally = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: ['ws://127.0.0.1:7777'] })
+  const tally = await RoomAgent.create({ base: baseURL!, name: 'Tally', relays: [TEST_RELAY_WS] })
   const chip = await RoomAgent.join({ link: tally.url, name: 'Chip' })
   const browserLink = encodeRoomLink(baseURL!, { ...parseRoomLink(tally.url), relays: [relay.href] })
   const runtimes = [tally, chip].map(agent => new AgentRuntime(agent, { persona: { name: agent === chip ? 'Chip' : 'Tally', system: '' } }).start())

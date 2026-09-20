@@ -7,7 +7,7 @@ import { generateSecretKey, finalizeEvent } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { reactionText, toggleReaction } from '../src/reactions.js'
-import { openRoomDetails } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
 
 test('timestamps, avatars, direct search, emoji insertion and encrypted reaction toggles work together', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -17,13 +17,13 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
   const profileKey = generateSecretKey()
   const identity = localIdentity(profileKey)
-  const publisher = new NostrRelayPool(['ws://127.0.0.1:7777'])
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
   const pictureURL = 'https://profiles.example/rowan.svg'
   await context.route('https://profiles.example/.well-known/nostr.json?name=rowan', route => route.fulfill({ json: { names: { rowan: identity.pubkey } } }))
   let pictureRequests = 0
   await context.route(pictureURL, route => { pictureRequests++; return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="teal"/></svg>' }) })
   await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify({ name: 'Rowan', picture: pictureURL, nip05: 'rowan@profiles.example' }) }, profileKey))
-  const writer = await RoomAgent.join({ link, identity, relays: ['ws://127.0.0.1:7777'], name: 'Rowan' })
+  const writer = await RoomAgent.join({ link, identity, relays: [TEST_RELAY_WS], name: 'Rowan' })
   try {
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
@@ -113,8 +113,8 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
   let sentAt = Math.floor(Date.now() / 1000) - 700
-  const writer = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Rowan', agent: false, now: () => sentAt })
-  const other = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Rowan', agent: false, now: () => sentAt })
+  const writer = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false, now: () => sentAt })
+  const other = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false, now: () => sentAt })
   try {
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
@@ -156,7 +156,10 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
     await page.keyboard.press('Shift+Tab')
     await expect(reply).toBeFocused()
     await expect(panel.getByRole('button', { name: 'Edit this message', exact: true })).toHaveCount(0)
-    await expect(panel.getByRole('group', { name: 'React to this message' }).getByRole('button')).toHaveCount(8)
+    await expect(panel.getByRole('group', { name: 'React to this message' }).getByRole('button')).toHaveCount(9)
+    // A hundred per cent, as a reaction and not only as something the emoji
+    // picker can find - the owner asked for it on the quick choices.
+    await expect(panel.getByRole('button', { name: 'Add 💯 reaction', exact: true })).toBeVisible()
     sentAt++; await writer.chat.send('The conversation continues while actions are open.')
     await expect(rows).toHaveCount(10)
     await expect(reply).toBeFocused()
@@ -229,7 +232,7 @@ test('holding an older message opens emoji choices without losing the reading po
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
   let sentAt = Math.floor(Date.now() / 1000) - 300
-  const writer = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Rowan', agent: false, now: () => sentAt })
+  const writer = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false, now: () => sentAt })
   try {
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
@@ -259,7 +262,7 @@ test('holding an older message opens emoji choices without losing the reading po
     await page.mouse.up()
     await expect(panel).toBeVisible()
     await expect(panel.getByRole('button', { name: 'Add 👍 reaction', exact: true })).toBeFocused()
-    await expect(panel.getByRole('button')).toHaveCount(8)
+    await expect(panel.getByRole('button')).toHaveCount(9)
     expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
     sentAt++; await writer.chat.send('A new arrival while choosing an emoji.')
     sentAt++; await writer.chat.send('Workshop note 5: updated while choosing an emoji.', { replaces: original.id })

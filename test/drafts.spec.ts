@@ -4,7 +4,7 @@ import { buildFileEvent } from '../src/attachment.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { withRelays } from './relays.js'
-import { goToConversation, openRoomDetails, allowTestFileStorage } from './browser.js'
+import { goToConversation, openRoomDetails, allowTestFileStorage, TEST_RELAY_WS } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: BrowserContext, relay: string) => Promise<void>) {
@@ -327,7 +327,7 @@ test('stopping during a stalled relay announcement releases the draft and ignore
 })
 
 test('closing a conversation keeps its draft reachable and prevents sending it into another conversation', async ({ browser, baseURL }) => {
-  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', relays: ['ws://127.0.0.1:7777'] })
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', relays: [TEST_RELAY_WS] })
   await keeper.setChannel('workshop', true)
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
@@ -511,8 +511,10 @@ test('clipboard screenshot waits locally for storage consent, uploads once and s
   })
   try {
     await page.evaluate(() => {
-      const canvas = document.createElement('canvas'); canvas.width = 16; canvas.height = 16
-      canvas.getContext('2d')!.fillRect(0, 0, 16, 16)
+      const canvas = document.createElement('canvas'); canvas.width = 1600; canvas.height = 900
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = '#153f52'; ctx.fillRect(0, 0, 1600, 900)
+      ctx.fillStyle = '#4ecbff'; ctx.font = '64px sans-serif'; ctx.fillText('Shared reference image', 100, 180)
       const bytes = Uint8Array.from(atob(canvas.toDataURL().split(',')[1]!), c => c.charCodeAt(0))
       const clipboard = new DataTransfer()
       clipboard.items.add(new File([bytes], 'screenshot.png', { type: 'image/png' }))
@@ -537,6 +539,20 @@ test('clipboard screenshot waits locally for storage consent, uploads once and s
     const attachment = page.locator('#chatLog .attachment').first()
     await attachment.getByRole('button', { name: 'Show', exact: true }).click()
     await expect(attachment.locator('img')).toBeVisible()
+    await attachment.getByRole('button', { name: 'Expand screenshot.png' }).click()
+    const viewer = page.getByRole('dialog', { name: 'screenshot.png' })
+    await expect(viewer).toBeVisible()
+    await page.screenshot({ path: '/tmp/kithmoot-attachment-expanded.png' })
+    await viewer.getByRole('button', { name: 'Actual size', exact: true }).click()
+    await expect(viewer.locator('.attachmentViewerSurface')).toHaveClass(/actualSize/)
+    const popped = page.waitForEvent('popup')
+    await viewer.getByRole('button', { name: 'Pop out', exact: true }).click()
+    const popup = await popped
+    await expect(popup.getByRole('img', { name: 'screenshot.png' })).toBeVisible()
+    await viewer.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(viewer).toHaveCount(0)
+    await expect(attachment.getByRole('button', { name: 'Expand screenshot.png' })).toBeFocused()
+    await popup.close()
     await expect(page.locator('#chatLog .lane').first()).toContainText('Encrypted · public relay')
     await page.screenshot({ path: '/tmp/kithmoot-pasted-screenshot.png' })
   } finally { await context.close() }

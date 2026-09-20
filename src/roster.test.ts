@@ -3,7 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, verifiedSymbol, type Ev
 import { nip44 } from 'nostr-tools'
 import { deriveRoom } from './room.js'
 import { createDeviceCredential } from './credential.js'
-import { encodeRosterEvent, decodeRosterEvent, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
+import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import type { RosterEntry } from './types.js'
 import { localIdentity } from './identity.js'
 import { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from './display-name.js'
@@ -273,6 +273,151 @@ describe('roster display names', () => {
     // The credential still decides who this is. A name is a label on it.
     expect(decoded.participant).toBe(entry.participant)
     expect(decoded.device).toBe(entry.device)
+  })
+})
+
+describe('the page-session id', () => {
+  it('round-trips, and is lower-cased on the way in like every other hex field', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const decoded = decodeRosterEvent(
+      encodeRosterEvent({ ...entry, sid: '0A1B2C3D' }, { roomId, roomKey, deviceSk }),
+      { roomId, roomKey, now: NOW },
+    )
+    expect(decoded?.sid).toBe('0a1b2c3d')
+    expect(presenceKey(decoded!)).toBe(`${entry.device}|0a1b2c3d`)
+  })
+
+  it('is absent when nobody set one, so the wire is unchanged for a client that has never heard of it', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+    expect(JSON.parse(nip44.v2.decrypt(event.content, roomKey))).not.toHaveProperty('sid')
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded).not.toHaveProperty('sid')
+    // And such an entry is held under the device key alone: exactly one
+    // entry per device, last writer wins, as it always was.
+    expect(presenceKey(decoded!)).toBe(entry.device)
+  })
+
+  it('drops a malformed one and keeps the entry: it is a map key at every reader', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    for (const hostile of ['', 'zzzzzzzz', 'a'.repeat(9), 'abc', 42, {}, ['0a1b2c3d'], 'a'.repeat(4096)]) {
+      const event = encodeRosterEvent({ ...entry, sid: hostile } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+      const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+      expect(decoded, `sid=${JSON.stringify(hostile)}`).not.toBeNull()
+      expect(decoded, `sid=${JSON.stringify(hostile)}`).not.toHaveProperty('sid')
+    }
+  })
+
+  it('mints eight lower-case hex characters, differently every time', () => {
+    const minted = new Set(Array.from({ length: 64 }, () => newSid()))
+    for (const sid of minted) expect(sid).toMatch(/^[0-9a-f]{8}$/)
+    // A repeat inside sixty-four draws of 2^32 would be a broken generator,
+    // not bad luck.
+    expect(minted.size).toBe(64)
+  })
+})
+
+describe('callProfile', () => {
+  it('round-trips the exact number 2', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const decoded = decodeRosterEvent(
+      encodeRosterEvent({ ...entry, callProfile: 2 }, { roomId, roomKey, deviceSk }),
+      { roomId, roomKey, now: NOW },
+    )
+    expect(decoded?.callProfile).toBe(2)
+  })
+
+  it('is absent when nobody set one, so the wire is unchanged for a client that has never heard of it', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+    expect(JSON.parse(nip44.v2.decrypt(event.content, roomKey))).not.toHaveProperty('callProfile')
+    expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })).not.toHaveProperty('callProfile')
+  })
+
+  it('only the exact number 2 counts; anything else drops the claim and keeps the entry', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    for (const hostile of ['2', 2.0001, 3, 1, 0, -2, true, null, {}, [2], '2.0']) {
+      const event = encodeRosterEvent({ ...entry, callProfile: hostile } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+      const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+      expect(decoded, `callProfile=${JSON.stringify(hostile)}`).not.toBeNull()
+      expect(decoded, `callProfile=${JSON.stringify(hostile)}`).not.toHaveProperty('callProfile')
+    }
+  })
+})
+
+describe('at most one track advert per role', () => {
+  it('keeps the first advert for a role and drops a later duplicate, keeping the entry', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const tracks = [
+      { trackId: 'cam-1', role: 'camera' as const },
+      { trackId: 'cam-2', role: 'camera' as const },
+      { trackId: 'screen-1', role: 'screen' as const },
+    ]
+    const event = encodeRosterEvent({ ...entry, tracks }, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded).not.toBeNull()
+    expect(decoded!.tracks).toEqual([{ trackId: 'cam-1', role: 'camera' }, { trackId: 'screen-1', role: 'screen' }])
+  })
+
+  it('drops adverts of the wrong shape without dropping the well-formed ones', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const tracks = [
+      { trackId: 'mic-1', role: 'mic' as const },
+      { role: 'camera' }, // no trackId
+      { trackId: 42, role: 'screen' },
+      { trackId: 'x', role: 'not-a-role' },
+      null,
+      'nonsense',
+    ]
+    const event = encodeRosterEvent({ ...entry, tracks } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded).not.toBeNull()
+    expect(decoded!.tracks).toEqual([{ trackId: 'mic-1', role: 'mic' }])
+  })
+
+  it('treats a non-array tracks field as no tracks at all, rather than losing the entry', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const event = encodeRosterEvent({ ...entry, tracks: 'not-an-array' } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded).not.toBeNull()
+    expect(decoded!.tracks).toEqual([])
+  })
+})
+
+describe('a track advert\'s muted flag', () => {
+  it('round-trips the exact literal true', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const tracks = [{ trackId: 'mic-1', role: 'mic' as const, muted: true as const }]
+    const event = encodeRosterEvent({ ...entry, tracks }, { roomId, roomKey, deviceSk })
+    const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+    expect(decoded).not.toBeNull()
+    expect(decoded!.tracks).toEqual([{ trackId: 'mic-1', role: 'mic', muted: true }])
+  })
+
+  it('only the exact literal true counts; anything else drops the flag and keeps the advert', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    for (const hostile of [false, 1, 'true', null, {}, [true], 0]) {
+      const tracks = [{ trackId: 'mic-1', role: 'mic', muted: hostile }]
+      const event = encodeRosterEvent({ ...entry, tracks } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+      const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
+      expect(decoded, `muted=${JSON.stringify(hostile)}`).not.toBeNull()
+      expect(decoded!.tracks, `muted=${JSON.stringify(hostile)}`).toEqual([{ trackId: 'mic-1', role: 'mic' }])
+    }
+  })
+
+  it('is absent when nobody set it, so an entry without it is byte-identical to one from before it existed', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const without = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+    const plaintext = JSON.parse(nip44.v2.decrypt(without.content, roomKey))
+    expect(plaintext.tracks).toEqual([{ trackId: 't1', role: 'screen' }])
+    expect(plaintext.tracks[0]).not.toHaveProperty('muted')
+    const decodedWithout = decodeRosterEvent(without, { roomId, roomKey, now: NOW })
+    expect(decodedWithout!.tracks).toEqual([{ trackId: 't1', role: 'screen' }])
+    expect(decodedWithout!.tracks[0]).not.toHaveProperty('muted')
+
+    const withMute = encodeRosterEvent({ ...entry, tracks: [{ trackId: 't1', role: 'screen', muted: true }] }, { roomId, roomKey, deviceSk })
+    const decodedWith = decodeRosterEvent(withMute, { roomId, roomKey, now: NOW })
+    expect(decodedWith!.tracks).toEqual([{ trackId: 't1', role: 'screen', muted: true }])
   })
 })
 

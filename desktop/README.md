@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.4.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.13.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -16,9 +16,12 @@ npm run test:smoke --prefix desktop
 npx playwright test --config desktop/playwright.config.ts
 npm run package:mac --prefix desktop
 npm run package:linux --prefix desktop
+npm run package:windows --prefix desktop
 ```
 
 Open `desktop/out/KithMoot-darwin-arm64/KithMoot.app`, or copy it to `~/Applications`.
+
+The Windows build is a portable `KithMoot-<version>-windows-x64.zip`. Extract the whole archive and open `KithMoot.exe`. It is currently unsigned, has manual updates and may be reported as an unknown publisher or refused by local Windows security policy. Building the archive on macOS verifies the x64 PE executable and packaged ASAR; it is not clean-machine Windows acceptance.
 The ZIP alongside it is the same app for another Apple Silicon Mac.
 
 ## Behaviour
@@ -27,6 +30,8 @@ The ZIP alongside it is the same app for another Apple Silicon Mac.
 - Sign in with the same Nostr account using an existing supported remote signer or account option. Browser signer extensions are not installed in Electron. Project/room sync follows the existing account policies; installing the app does not copy browser keys or local history.
 - Microphone and camera start only through existing call controls and macOS consent. Screen sharing uses the native macOS 15+ picker when available and an explicit screen/window menu otherwise. Without macOS Screen Recording permission the app says so and offers to open System Settings rather than failing with "Invalid capture constraints". Because the preview is ad-hoc signed, macOS may forget that permission when the app bundle is replaced. Closing during a call asks first. Leaving a call keeps the room chat available.
 - Calls disable app suspension while joined. Closing the window ends its call; the macOS Dock app remains available to reopen. There is no incoming-call background daemon.
+- Chat and its composer fill the available width when there is no media beside them.
+- Share an area has four large corner resize handles and a draggable Move bar; focused controls support arrow keys. The pane stays above normal windows and across Mac fullscreen spaces. Its KithMoot control restores and raises the call window, then the sharing frame retakes the front when focus moves away. Drawing colours appear in a bottom legend once per author, fading with their last mark.
 - Wide windows show call video beside the conversation. Smaller windows stack bounded panels while keeping the composer and red Leave call control visible.
 - Native Edit, zoom, fullscreen and window menus are available. External links require confirmation and open in the browser. Downloads use a save dialog.
 - The renderer is sandboxed, has no Node APIs and receives a narrow IPC bridge for call state, unread counts, bounded notifications and notification room clicks. Main-frame sender checks, navigation restrictions, CSP, asset traversal guards and a permission allowlist protect that boundary. Clipboard reading, USB, serial and location permissions are denied.
@@ -34,9 +39,9 @@ The ZIP alongside it is the same app for another Apple Silicon Mac.
 
 ## Distribution and acceptance boundaries
 
-This is an **ad-hoc signed local preview**, not a Developer ID signed/notarised public release. Do not advertise it as a production download. Public releases still need Developer ID signing, hardened runtime/entitlements, notarisation, an update feed and update verification.
+The published 0.1.12 Mac preview is **Developer ID signed and notarised**, with hardened runtime and a stapled Apple ticket. Mac 0.1.13 remains unpublished until its notarisation profile is available. It remains a preview: physical capture/audio acceptance and the first automatic update from 0.1.11 still require a completed installed-app check. Earlier published previews were ad-hoc signed.
 
-Linux x64 and ARM64 tarballs include a user-level Python installer and a matching applications-menu desktop entry. Windows packaging and iOS remain future work. Linux preview archives are not repository-signed.
+Linux x64 and ARM64 tarballs include a user-level Python installer and a matching applications-menu desktop entry. Windows x64 is a portable unsigned preview with manual updates. iOS remains future work. Linux preview archives are not repository-signed.
 
 Automated media checks use disposable accounts, a local relay, a fake camera, a synthetic oscillator microphone and a separate browser. They never capture the user's camera, microphone or screen. Real M1/M4 permission prompts, device switching, Bluetooth audio, screen picker, screen audio, notifications, sleep/reconnect, remote signer login and account sync still need physical acceptance. Screen/system audio support must not be inferred from camera/microphone tests.
 
@@ -102,3 +107,37 @@ Final archives:
 - macOS app ASAR SHA-256: `2deb459115f129fbbde6e8b0f8ba3151b2ff315f92a35f7d0f22208ef979cb59`.
 
 0.1.2 delivery: installed and signature/hash verified on both M1 and M4. M1 installation completed after the user confirmed the app was closed; its bundle version is 0.1.2 and its ASAR matches the tested candidate above. The checked installer and ZIP are retained on both Macs at `~/kithmoot-desktop-notifications-20260916`. The installer preserves 0.1.1 and refuses running or unexpected apps. The macOS and both Linux 0.1.2 archives were subsequently published as desktop previews at https://kithmoot.forgesworn.dev/downloads/ on 16 September 2026. Marketing source and release evidence live in the `kithmoot-desktop-downloads` worktree, branch `docs/desktop-downloads`. Versioned binaries are served from `/apk/desktop/0.1.2/`. The marketing-only release preserves the deployed PWA and Android APK. No commits or pushes were performed.
+
+
+## Mac signing and permission continuity
+
+Normal `npm run package:mac` now requires a Developer ID Application identity
+and a `notarytool` keychain profile. There is no silent ad-hoc fallback:
+ad-hoc designated requirements change between builds and macOS cannot rely on
+them to retain screen-recording consent across upgrades.
+
+Set `KITHMOOT_MAC_SIGNING_IDENTITY` to the full `Developer ID Application: ...`
+name, `KITHMOOT_MAC_NOTARY_PROFILE` to the existing notarytool credential profile,
+and, if needed, `KITHMOOT_MAC_SIGNING_KEYCHAIN` to its keychain path. The packager
+signs Electron's nested code with hardened runtime, submits the ZIP to Apple,
+requires Accepted status, staples and validates the ticket, and checks Gatekeeper
+before creating the public archive filename.
+
+For a disposable local build only, `KITHMOOT_MAC_LOCAL_PREVIEW=1 npm run package:mac`
+produces an explicitly named `-local-preview.zip`. Do not publish it as a normal
+Mac update. Developer ID signing still needs physical upgrade/capture acceptance;
+it cannot silently transfer a permission previously granted to an ad-hoc build.
+
+## Automatic Mac updates
+
+Signed Apple Silicon builds check the static Squirrel.Mac feed at
+`/downloads/updates/darwin/arm64/RELEASES.json`. Electron downloads the ZIP in
+the background, verifies its declared SHA-256 and size, and requires the new app
+to satisfy the running app's code-signing requirement. KithMoot asks before
+restarting and uses the same unfinished-work and active-call gates as PWA
+updates. Development builds and Linux builds keep the updater disabled.
+
+Every Mac release must update `site/downloads/release.json`, its archive and the
+static feed together. `npm test` in this directory refuses version, URL, size or
+digest drift. The first updater-capable release still needs a manual install;
+automatic delivery starts with the following signed release.

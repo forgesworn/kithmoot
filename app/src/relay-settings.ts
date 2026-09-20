@@ -8,8 +8,20 @@ const STORAGE_KEY = 'kithmoot.relays.v1'
  *  than read off a card. Saved on the device; the contact book's boxes join
  *  it without being saved. */
 const CIRCLE_KEY = 'kithmoot.circle.v1'
+const LEGACY_PUBLIC_RELAYS = new Set(['wss://nos.lol/', 'wss://relay.primal.net/'])
+const PUBLIC_FALLBACK_RELAY = 'wss://relay.trotters.cc/'
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 type RelayHints = (string | RelayConfig)[]
+
+/** Rooms made before the third public fallback joined the defaults carry only this exact
+ * pair in their invitation. Give those rooms the current third route at use
+ * time without changing arbitrary, private or permissioned relay choices. */
+export function currentRoomRelayHints(hints: RelayHints): RelayHints {
+  let relays: RelayConfig[]
+  try { relays = normaliseRelayConfig(hints) } catch { return hints }
+  if (relays.length !== LEGACY_PUBLIC_RELAYS.size || !relays.every(relay => relay.read && relay.write && LEGACY_PUBLIC_RELAYS.has(relay.url))) return hints
+  return [...relays, { url: PUBLIC_FALLBACK_RELAY, read: true, write: true }]
+}
 
 /** Device preferences, separate from relay hints shared in an invitation. */
 export class RelayConnections {
@@ -17,13 +29,21 @@ export class RelayConnections {
   #marks = new Set<string>()
   #authentication = new Map<string, Map<string, ParticipantIdentity | null>>()
   #authenticationHints = new Map<string, RelayHints>()
-  #pools = new Map<NostrRelayPool, { scope: string; hints: RelayHints }>()
+  #pools = new Map<NostrRelayPool, { scope: string; hints: RelayHints; probeTimer?: ReturnType<typeof setTimeout> }>()
+  readonly #probeIntervalMs: number
+  readonly #visible: () => boolean
   /** `circle` says whether a relay URL is a box of the person's own circle,
    *  verified from current signed box status; such a relay is marked on every
    *  configuration handed out, which is what lets a message to it show as
    *  sheltered (`src/lane.ts`). The mark is a fact about the relay, not a
    *  preference, so it is not saved and cannot be edited into place. */
-  constructor(private storage: StorageLike, private defaults: string[], private circle: (url: string) => boolean = () => false) {
+  constructor(private storage: StorageLike, private defaults: string[], private circle: (url: string) => boolean = () => false, probing: { intervalMs?: number; visible?: () => boolean } = {}) {
+    this.#probeIntervalMs = probing.intervalMs ?? 30_000
+    // `document` is absent outside a browser tab (a Node test, an agent
+    // host); nothing there is ever hidden, so a probe is never skipped for
+    // it. Injectable so a test can pretend the tab just went to the
+    // background without touching a real `document`.
+    this.#visible = probing.visible ?? (() => typeof document === 'undefined' || document.visibilityState === 'visible')
     try {
       const saved: unknown = JSON.parse(storage.getItem(STORAGE_KEY) ?? '{}')
       if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
@@ -87,7 +107,7 @@ export class RelayConnections {
   #configuration(scope: string, hints: RelayHints): RelayConfig[] {
     if (this.#saved[scope]) return normaliseRelayConfig(this.#saved[scope])
     const inherited = this.#saved[scope.replace(/^room:/, 'inherited:')]
-    if (hints.length) return normaliseRelayConfig(hints).map(relay => inherited?.find(saved => saved.url === relay.url) ?? relay)
+    if (hints.length) return normaliseRelayConfig(currentRoomRelayHints(hints)).map(relay => inherited?.find(saved => saved.url === relay.url) ?? relay)
     return normaliseRelayConfig(inherited ?? this.#saved.default ?? this.defaults)
   }
   #marked(relays: RelayConfig[]): RelayConfig[] {
@@ -109,8 +129,27 @@ export class RelayConnections {
     // Recheck at use time: a suspended tab can miss an expiry timer.
     const configuration = this.configuration(scope, hints)
     const pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration) })
-    this.#pools.set(pool, { scope, hints })
+    const owner: { scope: string; hints: RelayHints; probeTimer?: ReturnType<typeof setTimeout> } = { scope, hints }
+    this.#pools.set(pool, owner)
+    this.#scheduleProbe(pool, owner)
     return pool
+  }
+  /** `enablePing` is off in `NostrRelayPool` (see relay-pool.ts): this is
+   *  what replaces it, on a schedule of our own rather than the library's.
+   *  Each pool reschedules itself with a fresh jitter after every run, so
+   *  several pools started together - every room a person has open at
+   *  once - drift apart instead of probing their relays in lockstep. A
+   *  probe is skipped while the tab is hidden (nothing is listening to miss
+   *  an event) or while that pool has a publish in flight (no reason to
+   *  race a liveness round trip against the thing the caller is waiting on). */
+  #scheduleProbe(pool: NostrRelayPool, owner: { probeTimer?: ReturnType<typeof setTimeout> }): void {
+    const jitter = Math.random() * this.#probeIntervalMs * 0.5
+    owner.probeTimer = setTimeout(() => {
+      if (pool.closed) return
+      if (this.#visible() && !pool.publishing) void pool.probe().catch(() => {})
+      this.#scheduleProbe(pool, owner)
+    }, this.#probeIntervalMs + jitter)
+    ;(owner.probeTimer as unknown as { unref?: () => void }).unref?.()
   }
   save(scope: string, entries: RelayConfig[]): void {
     if (!this.#validScope(scope)) throw new Error('No room is selected')
@@ -134,6 +173,16 @@ export class RelayConnections {
     this.#prune()
     for (const [pool, owner] of this.#pools) if (owner.scope === scope) pool.reconnect()
   }
+  /** A cheap liveness check on every pool this device currently holds open,
+   *  reconnecting any relay whose socket has gone quiet without saying so -
+   *  a phone backgrounded mid-handshake, or one that lost the network
+   *  underneath a WebKit tab the OS never told the page about. Called on
+   *  the app's own "we might be back" signals: tab foregrounded, `pageshow`
+   *  from the back-forward cache, and the network coming back. */
+  async probeAll(timeoutMs?: number): Promise<void> {
+    this.#prune()
+    await Promise.all([...this.#pools.keys()].map(pool => pool.probe(timeoutMs).catch(() => {})))
+  }
   health(scope: string, hints: RelayHints = []): RelayHealth[] {
     this.#prune()
     return this.configuration(scope, hints).map(relay => {
@@ -147,7 +196,9 @@ export class RelayConnections {
           : matches.some(health => health.state === 'disconnected') ? 'disconnected' : 'idle' }
     })
   }
-  #prune(): void { for (const pool of this.#pools.keys()) if (pool.closed) this.#pools.delete(pool) }
+  #prune(): void {
+    for (const [pool, owner] of this.#pools) if (pool.closed) { clearTimeout(owner.probeTimer); this.#pools.delete(pool) }
+  }
 }
 
 export function profilePreference(storage: Pick<Storage, 'getItem'>): boolean {

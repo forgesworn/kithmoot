@@ -1,3 +1,4 @@
-790d64f6f6b583b4e70d001a406ebd983d16f8afe4e11af5538d5f2ff36214e5  KithMoot-0.1.4-mac-arm64.zip
-c542cbb4f15d5efb81537c98c5c4f662f8e02ef4d6be05b700dba7aa4cbee153  KithMoot-0.1.4-linux-x64.tar.gz
-0440da64dd44e5c0cb315fe07c356d6603b1f7dc2819fc87c923c0ef30e2f163  KithMoot-0.1.4-linux-arm64.tar.gz
+4f0f323c5d69bc62b6b15eb0da4ca6593cf422b8023f3846909de6ab0441ce88  KithMoot-0.1.12-mac-arm64.zip
+7db09620917c686f3b9b08b2aa328b8285faebd0c035b8ba52093f60bd499a6f  KithMoot-0.1.13-linux-x64.tar.gz
+30c7358520be73c38a0bbe3bdebb4badc0f827832b3453103504ddf66098d62f  KithMoot-0.1.13-linux-arm64.tar.gz
+faefb79f32bb3a2a699929f04ade46a76caa71c80b7e93232a75bf0e68a7b64b  KithMoot-0.1.13-windows-x64.zip

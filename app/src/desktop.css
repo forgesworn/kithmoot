@@ -1,3 +1,25 @@
+/* What the installed window's three panels are worth, in one place.
+   Constant for constant, this is app/src/desktop-panes.ts - the arithmetic
+   is unit-tested there and measured through these properties in
+   test/desktop-room-layout.spec.ts, so the two cannot drift quietly.
+
+   Declared on the root rather than inside a media query: `--work-panel`
+   reads the others, and a property that exists at only some widths is a
+   property that resolves to nothing at the rest. */
+html[data-desktop] {
+  --chat-min: 360px;          /* CHAT_MIN_WIDTH_PX */
+  --chat-min-height: 60svh;   /* CHAT_MIN_HEIGHT_FRACTION */
+  --call-min: 240px;          /* CALL_MIN_WIDTH_PX */
+  --work-max: 28rem;          /* WORK_MAX_PX */
+  --work-min: 20rem;          /* WORK_MIN_PX */
+  --rail-w: 13rem;            /* RAIL_WIDTH_PX */
+  --room-gutter: 3rem;        /* ROOM_GUTTER_PX: the window's own padding, both sides, plus the grid gap */
+  /* Shared Work is the panel that gives way. It asks for 28rem and gets
+     whatever is left once the conversation and the call pane have their
+     floors - see `workPanelWidth`. */
+  --work-panel: clamp(var(--work-min), calc(100vw - (var(--rail-w) + var(--chat-min) + var(--call-min) + var(--room-gutter))), var(--work-max));
+}
+
 /* An installed desktop window has a fixed working area. Scroll its panels,
    not the whole room, so the composer and Leave call remain reachable. */
 @media (min-width: 701px) and (min-height: 541px) {
@@ -21,17 +43,186 @@
   html[data-desktop] #attachStaged { max-height: 20vh; overflow: auto; }
   html[data-desktop] #leaveCall { background: #b3261e; color: white; border-color: #b3261e; }
   html[data-desktop] #leaveCall:hover { background: #8f1e18; }
+  /* The top-bar toggle reads "Leave call" in this state too, and a leave
+     action is never green - see style.css for the non-desktop rule this
+     matches pixel for pixel. */
+  html[data-desktop] #callToggle[data-live="true"] { background: #b3261e; color: white; border-color: #b3261e; }
+  html[data-desktop] #callToggle[data-live="true"]:hover { background: #8f1e18; }
 }
+/* Below the width the drawer needs, the conversation is back to a plain
+   stacked panel (see the 701px block above) and there is nothing to toggle.
+   Ahead of the 1100px block below in source order, on purpose: same
+   specificity either way, so whichever rule is read second would always
+   win regardless of which media query actually matched. */
+html[data-desktop] #chatDrawerToggle { display: none; }
 @media (min-width: 1100px) and (min-height: 541px) {
   html[data-desktop] main:has(#roomArea:not([hidden])) { grid-template-columns: 13rem minmax(0, 1fr); gap: 1rem; }
-  html[data-desktop] .desktopRoomContent:has(#callBay:not([hidden])) {
-    display: grid; grid-template-columns: minmax(0, 1fr) minmax(350px, .9fr);
-  }
   html[data-desktop] .desktopRoomContent:has(#callBay:not([hidden])) #callStage { max-height: none; }
-  html[data-desktop] .desktopRoomContent:has(#callBay:not([hidden])) .desktopConversation { border-left: 1px solid var(--border); padding-left: 1rem; }
   html[data-desktop] .desktopConversation .attachWord { display: none; }
   html[data-desktop] .desktopConversation .attachIcon { display: inline; }
   html[data-desktop] #room { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+  /* The conversation used to be a permanent column, taking width from the
+     stage whether anybody wanted to read it or not. Now it is a drawer: the
+     stage takes the whole row while it is closed, and the conversation
+     slides in from the right edge and takes its share back, remembering on
+     this device (see desktop-chat-drawer.ts) whether it was left open. A
+     width transition rather than a transform, so the stage genuinely gets
+     its room back when the drawer is shut, not just the appearance of it. */
+  html[data-desktop] .desktopRoomContent { flex-direction: row; align-items: stretch; }
+  html[data-desktop] .desktopRoomContent #callStage {
+    flex: 1 1 auto;
+    min-width: 0;
+    /* Column, and stretched by the row above: without this, `#callStage`
+       stayed a plain block sized to its own content, so a shared screen
+       sat in the top third of the window with the rest of it empty. Now
+       the call area itself is the height of the stage, and `#whoIsHere`
+       (then `#room`) is told to fill whatever `#callBay`'s controls
+       leave behind. */
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  html[data-desktop] .desktopRoomContent #callStage > #whoIsHere:not([hidden]) {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  html[data-desktop] .desktopRoomContent #whoIsHere #room {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  html[data-desktop] .desktopConversation {
+    flex: 0 0 auto;
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
+    transition: width .18s ease;
+  }
+  /* The conversation's floor comes before the call pane's share. 32% of a
+     room area with Shared Work open is 197px, which is what the owner
+     called unusable; `--chat-min` is the answer and the call pane pays for
+     it, never the other way round. */
+  html[data-desktop] .desktopConversation[data-open="true"] {
+    width: clamp(var(--chat-min), 32%, var(--work-max));
+    border-left: 1px solid var(--border);
+    padding-left: 1rem;
+  }
+
+  /* The two strips: nothing at all, and a voice call.
+     "there's loads of free space in call (we aren't running a call)" was
+     the first of them, and an empty video grid during a call with every
+     camera off was the last place the same complaint still showed. Neither
+     has a picture in it, so neither is worth a column: the pane is a strip
+     across the top and the conversation is the main column beneath it.
+
+     With no pictures beside it, the conversation uses the available room
+     width. Message bubbles already have their own readable maximum in
+     style.css; capping this whole panel left the composer and scroll area
+     stranded in half of a wide desktop window. */
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopRoomContent {
+    flex-direction: column;
+    width: 100%;
+    max-width: none;
+  }
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopRoomContent #callStage {
+    flex: 0 0 auto;
+    max-height: 30vh;
+  }
+  html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopConversation[data-open="true"] {
+    width: auto;
+    flex: 1 1 auto;
+    min-height: var(--chat-min-height);
+    border-left: 0;
+    padding-left: 0;
+    /* A width transition across a change of flex direction animates from a
+       pixel width to `auto`, which browsers draw as a jump anyway. */
+    transition: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html[data-desktop] .desktopConversation { transition: none; }
+  }
+  html[data-desktop] #chatDrawerToggle { display: inline-flex; }
+}
+#chatDrawerToggle[aria-expanded="true"] { background: var(--accent-dim); border-color: var(--accent); }
+
+/* The resting strip itself. One row, whatever the window is doing, and
+   short enough that the room it frees is worth freeing - the spec pins it
+   under 80px. */
+/* A voice call, as a strip.
+   Two rows: who is on it and the way off it, then the four controls. The
+   video grid is hidden rather than unmounted, and that is not a detail -
+   the remote `<audio>` elements live inside those tiles, Chromium pauses a
+   media element that leaves the document and does not reliably resume it,
+   and `display: none` pauses nothing. So this hides, and `renderCallChips`
+   in app/src/main.ts draws names beside it instead of moving anything. */
+/* Written to out-specify the row layout's own `#callStage > #whoIsHere`
+   rule rather than to read nicely: desktop.css is imported before style.css,
+   so source order settles nothing here and the longer selector is the only
+   thing that wins. */
+html[data-desktop][data-call-pane="controls"] .desktopRoomContent #callStage > #whoIsHere:not([hidden]) { display: none; }
+html[data-desktop][data-call-pane="controls"] #callBay { margin: 0; padding: .4rem .55rem; }
+html[data-desktop][data-call-pane="controls"] #deviceControls { gap: .3rem .6rem; }
+html[data-desktop][data-call-pane="controls"] .callHead { margin-bottom: .2rem; }
+/* The sentence and the mic line are what the chips already say, in less
+   room and for everybody rather than for this device alone. `#local` holds
+   this device's own pictures, and in this pane there are none by
+   definition - but it is an element, not an absence, and an empty one still
+   costs a grid row. */
+html[data-desktop][data-call-pane="controls"] #callWho,
+html[data-desktop][data-call-pane="controls"] #deviceControls > #micIndicator,
+html[data-desktop][data-call-pane="controls"] #deviceControls > #local { display: none; }
+html[data-desktop][data-call-pane="controls"] #callChips { display: flex; }
+
+html[data-desktop][data-call-pane="resting"] .callStrip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: .75rem;
+  margin: 0;
+  padding: .35rem .6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+html[data-desktop][data-call-pane="resting"] .callStripText { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+html[data-desktop][data-call-pane="resting"] .callStrip button { margin: 0; white-space: nowrap; }
+/* The banner above already says a call is on and offers the way into it.
+   The strip beneath it would be the same offer twice on one screen. */
+html[data-desktop][data-call-pane="resting"] #roomArea:has(#callBanner:not([hidden])) .callStrip { display: none; }
+
+/* The rooms rail, and the control that puts it away.
+   Collapsed, the grid column comes down to the control's own width and the
+   room takes the rest; `--rail-w` comes down with it, so the width the rail
+   gave up is width Shared Work and the conversation can actually have
+   rather than width nobody is using. */
+html[data-desktop] .railBar { display: flex; align-items: center; justify-content: space-between; gap: .35rem; margin: 0 0 .5rem; }
+html[data-desktop] #projectsRailToggle { margin: 0; padding: .3rem .55rem; line-height: 1; font-size: 1.1rem; }
+html[data-desktop] .railUnread {
+  min-width: 1.35rem;
+  padding: .1rem .3rem;
+  border-radius: 1rem;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: .72rem;
+  font-weight: 650;
+  text-align: center;
+}
+@media (min-width: 1100px) and (min-height: 541px) {
+  html[data-desktop][data-rail="collapsed"] { --rail-w: 3.5rem; }
+  html[data-desktop][data-rail="collapsed"] main:has(#roomArea:not([hidden])) { grid-template-columns: 3.5rem minmax(0, 1fr); }
+  html[data-desktop][data-rail="collapsed"] #workspaceRailBody { display: none; }
+  html[data-desktop][data-rail="collapsed"] #workspaceNav:not([hidden]) { padding-right: .35rem; }
+  html[data-desktop][data-rail="collapsed"] .railBar { flex-direction: column; gap: .5rem; }
+}
+
+/* Shared Work narrows before the conversation does. The web client keeps
+   its fixed 28rem panel; this window is the one where all three are open at
+   once and the arithmetic has to hold. */
+@media (min-width: 1280px) and (min-height: 541px) {
+  html[data-desktop] #assignmentPanel[open] { width: var(--work-panel); }
+  html[data-desktop] body:has(#assignmentPanel[open]) > main { padding-right: var(--work-panel); }
 }
 
 html[data-desktop] #roomArea { position: relative; }

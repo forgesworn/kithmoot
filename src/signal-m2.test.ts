@@ -57,6 +57,24 @@ describe('M2 signalling compatibility', () => {
     expect(unwrapSignal(wrap, { recipientSk, roomId, now })).toEqual({ from: getPublicKey(senderSk), body })
   })
 
+  it('an old-shaped reader still reads the fields it knows from a profile-2 body', () => {
+    // Simulates an old reader: it never heard of gen/conn/seq/slots/etc, so it
+    // reads a profile-2 offer exactly as it would an ordinary one, ignoring
+    // the extra JSON keys entirely - old readers ignore unknown fields per
+    // docs/protocol.md "Profile 2 additions".
+    const profile2Body = {
+      type: 'offer' as const, roomId, sdp: 'v=0\r\n',
+      gen: 4, conn: 'a1b2c3d4e5f60718', seq: 1,
+      slots: { '0': 'mic', '1': 'camera', '2': 'screen', '3': 'screen-audio' } as const,
+    }
+    const wrap = wrapSignal(profile2Body, { senderSk, recipientPubkey: recipient })
+    const result = unwrapSignal(wrap, { recipientSk, roomId }) as { from: string; body: Record<string, unknown> } | null
+    expect(result).not.toBeNull()
+    // The "old reader" projection: only the fields it has always known.
+    const oldView = { type: result!.body.type, roomId: result!.body.roomId, sdp: result!.body.sdp }
+    expect(oldView).toEqual({ type: 'offer', roomId, sdp: 'v=0\r\n' })
+  })
+
   it('bounds anonymous unwrap work independently of fresh sender identities and recovers', () => {
     const guard = new SignalGuard()
     let admitted = 0

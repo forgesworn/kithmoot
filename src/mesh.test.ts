@@ -10,6 +10,8 @@ import { MAX_SIGNALS_PER_WINDOW } from './signal-guard.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import type { ParticipantView } from './session.js'
+import type { RelayTransport } from './relay-pool.js'
+import type { Event } from 'nostr-tools/pure'
 
 function device(): { sk: Uint8Array; pub: string } {
   const sk = generateSecretKey()
@@ -91,6 +93,82 @@ describe('Mesh', () => {
     mesh.close()
   })
 
+  it('rebuilds a peer at once when the far end is a different page session under the same device key', async () => {
+    // Two tabs of one browser sign as the same device, so the endpoint key
+    // is unchanged while the endpoint itself is a physically different
+    // connection that cannot take over a transport it was never party to.
+    // Left to the route ladder, this pair waited out its timers while a
+    // live person was audible to nobody - see `RosterEntry.sid`.
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const remoteParticipant = device().pub
+    const remote = device()
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+
+    session.setViews([{ ...view(remoteParticipant, [remote.pub]), sids: { [remote.pub]: 'aaaaaaaa' } }])
+    await settle()
+    const first = factory.instances.at(-1)!
+    expect(factory.instances).toHaveLength(1)
+
+    // The same device restating the same page session changes nothing: a
+    // working connection is not rebuilt on every heartbeat.
+    session.setViews([{ ...view(remoteParticipant, [remote.pub]), sids: { [remote.pub]: 'aaaaaaaa' } }])
+    await settle()
+    expect(factory.instances).toHaveLength(1)
+    expect(first.closed).toBe(false)
+
+    // A different page session of the same device: closed and rebuilt now.
+    session.setViews([{ ...view(remoteParticipant, [remote.pub]), sids: { [remote.pub]: 'bbbbbbbb' } }])
+    await settle()
+    expect(first.closed).toBe(true)
+    expect(factory.instances).toHaveLength(2)
+    expect(factory.instances.at(-1)!.closed).toBe(false)
+    expect(mesh.directPeers).toBe(1)
+
+    // A far end that never names a page session is no news at all, and one
+    // that starts naming one mid-room is not a reason to churn a working
+    // connection either.
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    await settle()
+    expect(factory.instances).toHaveLength(2)
+    expect(factory.instances.at(-1)!.closed).toBe(false)
+    mesh.close()
+  })
+
+  it('stands down for another page session of this device, and takes the mesh back when it stands up', async () => {
+    // Both tabs unwrap every signal addressed to the shared device key, and
+    // the far end has one connection per device key to give. A tab that is
+    // not the one speaking for this device answers nothing.
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const remoteParticipant = device().pub
+    const remote = device()
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
+
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    await settle()
+    const first = factory.instances.at(-1)!
+    expect(mesh.directPeers).toBe(1)
+
+    mesh.standDown()
+    await settle()
+    expect(first.closed).toBe(true)
+    expect(mesh.directPeers).toBe(0)
+    // And no new one while it stays quiet, however the roster moves.
+    session.setViews([view(remoteParticipant, [remote.pub, device().pub])])
+    await settle()
+    expect(mesh.directPeers).toBe(0)
+
+    mesh.standUp()
+    await settle()
+    expect(mesh.directPeers).toBe(2)
+    mesh.close()
+  })
+
   it('connects our other device without connecting this device to itself', () => {
     const session = new FakeSession()
     const factory = createFakeFactory()
@@ -107,36 +185,45 @@ describe('Mesh', () => {
   })
 
   it('sends annotations between our devices alongside their media connection', () => {
-    const sessionA = new FakeSession()
-    const sessionB = new FakeSession()
-    const factoryA = createFakeFactory()
-    const factoryB = createFakeFactory()
-    const relay = new SimRelay()
-    const participant = device().pub
-    const a = device()
-    const b = device()
-    const meshA = new Mesh({ session: sessionA, factory: factoryA, localDevice: a.pub, localParticipant: participant, deviceSk: a.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
-    const meshB = new Mesh({ session: sessionB, factory: factoryB, localDevice: b.pub, localParticipant: participant, deviceSk: b.sk, transport: new SimTransport(relay), roomId: ROOM_ID })
-    const received: RemoteAnnotation[] = []
-    meshA.onAnnotation((annotation) => received.push(annotation))
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+    try {
+      const sessionA = new FakeSession()
+      const sessionB = new FakeSession()
+      const factoryA = createFakeFactory()
+      const factoryB = createFakeFactory()
+      const relay = new SimRelay()
+      const participant = device().pub
+      const a = device()
+      const b = device()
+      const meshA = new Mesh({ session: sessionA, factory: factoryA, localDevice: a.pub, localParticipant: participant, deviceSk: a.sk, transport: new SimTransport(relay), roomId: ROOM_ID, now: () => 1_800_000_000 })
+      const meshB = new Mesh({ session: sessionB, factory: factoryB, localDevice: b.pub, localParticipant: participant, deviceSk: b.sk, transport: new SimTransport(relay), roomId: ROOM_ID, now: () => 1_800_000_000 })
+      const received: RemoteAnnotation[] = []
+      meshA.onAnnotation((annotation) => received.push(annotation))
 
-    const roster = [view(participant, [a.pub, b.pub])]
-    sessionA.setViews(roster)
-    sessionB.setViews(roster)
-    const annotation: signals.ScreenAnnotation = {
-      op: 'stroke',
-      shareId: 'desktop-screen',
-      strokeId: 'phone-stroke',
-      points: [{ x: .2, y: .3 }, { x: .7, y: .8 }],
-    }
-    meshB.publishAnnotation(annotation)
+      const roster = [view(participant, [a.pub, b.pub])]
+      sessionA.setViews(roster)
+      sessionB.setViews(roster)
+      const annotation: signals.ScreenAnnotation = {
+        op: 'stroke',
+        shareId: 'desktop-screen',
+        strokeId: 'phone-stroke',
+        points: [{ x: .2, y: .3 }, { x: .7, y: .8 }],
+      }
+      meshB.publishAnnotation(annotation)
 
-    expect(factoryA.instances).toHaveLength(1)
-    expect(factoryB.instances).toHaveLength(1)
-    expect(received).toEqual([{ participant, device: b.pub, annotation }])
-    meshA.close()
-    meshB.close()
-  })
+      expect(factoryA.instances).toHaveLength(1)
+      expect(factoryB.instances).toHaveLength(1)
+      expect(received).toEqual([{ participant, device: b.pub, annotation }])
+      // A sustained 20 Hz gesture outlives the ordinary signalling allowance.
+      for (let i = 0; i < 399; i++) meshB.publishAnnotation({ ...annotation, strokeId: `segment-${i}` })
+      expect(received).toHaveLength(400)
+      // Annotation flooding remains bounded independently of negotiation.
+      for (let i = 0; i < 100; i++) meshB.publishAnnotation({ ...annotation, strokeId: `extra-${i}` })
+      expect(received).toHaveLength(480)
+      meshA.close()
+      meshB.close()
+    } finally { clock.mockRestore() }
+  }, 20_000)
 
   it('connects our other device before our own roster entry arrives', () => {
     // The other camera remains reachable while our own presence is in flight.
@@ -1043,4 +1130,267 @@ it('budgets unique anonymous wraps before invoking the codec, then recovers', ()
     relay.publish({ ...event, id: 'f'.repeat(64) })
     expect(decode).toHaveBeenCalledTimes(4097)
   } finally { mesh.close(); decode.mockRestore() }
+})
+
+/**
+ * The route ladder stops watching a pair the moment it connects, and a
+ * connected pair renegotiates constantly: every camera toggle, every share,
+ * every mic pipeline swap is an offer. A renegotiation whose answer is lost
+ * therefore had no watchdog at all - measured on a fault-injecting relay,
+ * three runs out of three, the others could not see that person again for the
+ * rest of the call.
+ */
+describe('a renegotiation that goes unanswered on a pair that is already up', () => {
+  function connectedPair(opts: { renegotiationTimeoutMs?: number; wrap?: (t: RelayTransport) => RelayTransport; onDiagnostic?: (e: unknown) => void } = {}) {
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const relay = new SimRelay()
+    const local = device()
+    const remote = device()
+    const remoteParticipant = device().pub
+    const base = new SimTransport(relay)
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: device().pub,
+      deviceSk: local.sk,
+      transport: opts.wrap ? opts.wrap(base) : base,
+      roomId: ROOM_ID,
+      renegotiationTimeoutMs: opts.renegotiationTimeoutMs,
+      // A minute, so anything re-sent inside these tests was re-sent because
+      // something asked for it rather than because a backoff step elapsed.
+      offerRetry: { intervalMs: 60_000, wedgeMs: 60_000 },
+      onDiagnostic: opts.onDiagnostic as never,
+    })
+    const first = { id: 'cam', kind: 'video' } as unknown as MediaStreamTrack
+    session.setViews([view(remoteParticipant, [remote.pub])])
+    mesh.publish([first])
+    /** The far end answers the opening offer, so the pair is negotiated and
+     *  what follows is a renegotiation rather than the first one. */
+    const answerOpeningOffer = (sdp = 'their-answer'): void => {
+      relay.publish(wrapSignal({ type: 'answer', roomId: ROOM_ID, sdp }, { senderSk: remote.sk, recipientPubkey: local.pub }))
+    }
+    return { mesh, session, factory, relay, local, remote, remoteParticipant, first, answerOpeningOffer }
+  }
+
+  /** Report the connection up, exactly as a browser does. */
+  function bringUp(pc: { connectionState: RTCPeerConnectionState; onconnectionstatechange: (() => void) | null }): void {
+    pc.connectionState = 'connected'
+    pc.onconnectionstatechange?.()
+  }
+
+  const toggle = (mesh: Mesh) => mesh.publish([{ id: 'screen', kind: 'video' } as unknown as MediaStreamTrack])
+
+  it('BUG: is noticed at all, and healed by restarting ICE on the connection that exists', async () => {
+    vi.useFakeTimers()
+    try {
+      const seen: unknown[] = []
+      const { mesh, factory, remote, answerOpeningOffer } = connectedPair({ renegotiationTimeoutMs: 5_000, onDiagnostic: (e) => seen.push(e) })
+      await vi.advanceTimersByTimeAsync(0)
+      const pc = factory.to(remote.pub)!
+      answerOpeningOffer()
+      await vi.advanceTimersByTimeAsync(0)
+      bringUp(pc)
+      expect(pc.signalingState).toBe('stable')
+
+      // A camera toggle on a pair that is carrying media: an offer goes out
+      // and nothing ever answers it.
+      toggle(mesh)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(pc.signalingState).toBe('have-local-offer')
+
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(pc.calls.some((c) => c.method === 'restartIce'), 'gave up on the renegotiation early').toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+
+      expect(pc.calls.some((c) => c.method === 'restartIce')).toBe(true)
+      // Never a replacement connection: an old far end handed a fresh
+      // connection's m-line order for a session it already has rejects it.
+      expect(pc.closed).toBe(false)
+      expect(factory.instances.filter((i) => i.context?.remoteDevice === remote.pub)).toHaveLength(1)
+      expect(seen).toContainEqual(expect.objectContaining({ kind: 'renegotiation-stalled', device: remote.pub }))
+      mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves an answered renegotiation alone', async () => {
+    vi.useFakeTimers()
+    try {
+      const { mesh, factory, remote, answerOpeningOffer } = connectedPair({ renegotiationTimeoutMs: 5_000 })
+      await vi.advanceTimersByTimeAsync(0)
+      const pc = factory.to(remote.pub)!
+      answerOpeningOffer()
+      await vi.advanceTimersByTimeAsync(0)
+      bringUp(pc)
+
+      toggle(mesh)
+      await vi.advanceTimersByTimeAsync(0)
+      answerOpeningOffer('their-answer-2')
+      await vi.advanceTimersByTimeAsync(0)
+
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(pc.calls.some((c) => c.method === 'restartIce'), 'a healthy renegotiation was disturbed').toBe(false)
+      mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops watching a pair whose device has left the roster, and the peer stops asking', async () => {
+    vi.useFakeTimers()
+    try {
+      const { mesh, session, factory, remote, answerOpeningOffer } = connectedPair({ renegotiationTimeoutMs: 5_000 })
+      await vi.advanceTimersByTimeAsync(0)
+      const pc = factory.to(remote.pub)!
+      answerOpeningOffer()
+      await vi.advanceTimersByTimeAsync(0)
+      bringUp(pc)
+      toggle(mesh)
+      await vi.advanceTimersByTimeAsync(0)
+
+      // Gone. Whether a peer is worth asking again is the roster's call and
+      // nothing else's - which is what makes unbounded retransmission safe.
+      session.setViews([])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(pc.closed).toBe(true)
+
+      const callsWhenClosed = pc.calls.length
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(pc.calls).toHaveLength(callsWhenClosed)
+      mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('BUG: a rejected publish is reported and the signal is sent again, rather than vanishing', async () => {
+    const published: Event[] = []
+    let rejecting = false
+    const seen: unknown[] = []
+    const { mesh, factory, remote, answerOpeningOffer } = connectedPair({
+      wrap: (inner) => ({
+        publish: async (event) => {
+          published.push(event)
+          if (rejecting) throw new Error('relay said no')
+          await inner.publish(event)
+        },
+        subscribe: (filters, onEvent, onEose) => inner.subscribe(filters, onEvent, onEose),
+        close: () => inner.close(),
+      }),
+      onDiagnostic: (e) => seen.push(e),
+    })
+    await flush()
+    const pc = factory.to(remote.pub)!
+    answerOpeningOffer()
+    await flush()
+    bringUp(pc)
+
+    rejecting = true
+    const before = published.length
+    toggle(mesh)
+    await flush()
+
+    // The offer that was rejected, and the one that went straight back out
+    // after it - not a backoff step later, which for this peer is a minute.
+    expect(published.length - before, 'a rejected signal was left to the backoff').toBeGreaterThanOrEqual(2)
+    expect(seen).toContainEqual(expect.objectContaining({ kind: 'signal-publish-failed', device: remote.pub }))
+    mesh.close()
+  })
+
+  it('BUG: a signal the connection would not take is reported rather than dropped', async () => {
+    const seen: unknown[] = []
+    const { mesh, factory, relay, local, remote, answerOpeningOffer } = connectedPair({ onDiagnostic: (e) => seen.push(e) })
+    await flush()
+    const pc = factory.to(remote.pub)!
+    answerOpeningOffer()
+    await flush()
+    bringUp(pc)
+    toggle(mesh)
+    await flush()
+    pc.failNextSetRemoteDescription = true
+
+    relay.publish(
+      wrapSignal({ type: 'answer', roomId: ROOM_ID, sdp: 'a description this session cannot have' }, { senderSk: remote.sk, recipientPubkey: local.pub }),
+    )
+    await flush()
+
+    expect(seen).toContainEqual(expect.objectContaining({ kind: 'signal-handling-failed', device: remote.pub }))
+    mesh.close()
+  })
+})
+
+/**
+ * The minimum capability gate S4 and S5 needed to reach a real connection.
+ *
+ * The roster reading here is deliberately the whole of it. §2.3's other half -
+ * admitting a pair on the strength of a signature-valid signal carrying `gen`,
+ * which covers the window where the roster is behind a far end's reload -
+ * belongs to S6, along with the route-timer bypass.
+ */
+describe('call profile gate', () => {
+  function profileView(participant: string, deviceKey: string, callProfile?: number): ParticipantView {
+    const v: ParticipantView = { participant, devices: [deviceKey], tracks: [] }
+    if (callProfile !== undefined) v.callProfiles = { [deviceKey]: callProfile }
+    return v
+  }
+
+  it('stays on profile 1 unless this build and the far end both say profile 2', async () => {
+    for (const [mine, theirs, wantSlots] of [
+      [1, 2, false],
+      [2, undefined, false],
+      [2, 1, false],
+      [2, 2, true],
+    ] as const) {
+      const session = new FakeSession()
+      const factory = createFakeFactory()
+      const local = device()
+      const remote = device()
+      const mesh = new Mesh({
+        session,
+        factory,
+        localDevice: local.pub,
+        localParticipant: device().pub,
+        deviceSk: local.sk,
+        transport: new SimTransport(new SimRelay()),
+        roomId: ROOM_ID,
+        callProfile: mine,
+      })
+      session.setViews([profileView(device().pub, remote.pub, theirs)])
+      mesh.publish([{ kind: 'audio', id: 'mic-1' } as MediaStreamTrack])
+      await settle()
+
+      // Four fixed slots, or none at all: the whole of the difference between
+      // the two profiles is visible in the first thing a connection does.
+      const opened = factory.instances[0]!
+      expect(opened.calls.some((c) => c.method === 'addTransceiver'), `${mine} -> ${theirs}`).toBe(wantSlots)
+      mesh.close()
+    }
+  })
+
+  it('says nothing about a slot for a profile-1 peer', async () => {
+    const seen: { role?: string }[] = []
+    const session = new FakeSession()
+    const factory = createFakeFactory()
+    const local = device()
+    const remote = device()
+    const mesh = new Mesh({
+      session,
+      factory,
+      localDevice: local.pub,
+      localParticipant: device().pub,
+      deviceSk: local.sk,
+      transport: new SimTransport(new SimRelay()),
+      roomId: ROOM_ID,
+    })
+    mesh.onRemoteTrack((t) => seen.push({ role: t.role }))
+    session.setViews([view(device().pub, [remote.pub])])
+    await settle()
+
+    factory.instances[0]!.ontrack?.({ track: { id: 'x' } as MediaStreamTrack })
+    expect(seen).toEqual([{ role: undefined }])
+    mesh.close()
+  })
 })

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HOME, ORIGIN, isAppUrl, isExternalUrl, localAsset, allowedPermissions } from '../policy.mjs'
+import { HOME, ORIGIN, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from '../policy.mjs'
 test('only the bundled top-level page may navigate inside the app', () => {
   assert.equal(isAppUrl(HOME + '#invite'), true)
   for (const url of ['file:///etc/passwd', 'javascript:alert(1)', ORIGIN + '/evil', 'https://kithmoot.forgesworn.dev.evil/j/', 'https://user@kithmoot.forgesworn.dev/j/']) assert.equal(isAppUrl(url), false)
@@ -15,4 +15,9 @@ test('external schemes and ambient sensitive permissions are denied', () => {
   for (const url of ['javascript:alert(1)', 'file:///tmp/a', 'smb://server', 'https://user:pass@example.org']) assert.equal(isExternalUrl(url), false)
   assert.equal(isExternalUrl('https://example.org'), true)
   for (const permission of ['clipboard-read', 'geolocation', 'usb', 'serial', 'openExternal']) assert.equal(allowedPermissions.has(permission), false)
+})
+
+test('only a window the app writes into itself may open here', () => {
+  for (const blank of ['', 'about:blank']) assert.equal(windowOpenAction(blank), 'own-window')
+  for (const url of [HOME, ORIGIN + '/evil', 'https://example.org', 'javascript:alert(1)', 'file:///etc/passwd', 'about:blank#x']) assert.equal(windowOpenAction(url), 'external')
 })

@@ -11,7 +11,7 @@ import { localIdentity } from '../src/identity.js'
 import { issueAgentOwnership } from '../src/ownership.js'
 import { AgentAssignmentWork } from '../src/node/assignment-work.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
-import { open } from './browser.js'
+import { open, TEST_RELAY_WS } from './browser.js'
 
 // Build apps/den from the companion Vitark checkout and serve build/web on a
 // loopback origin. No production service, personal profile or physical device.
@@ -19,7 +19,7 @@ test('compiled Den shares, receives an agent artifact, and accepts the exact res
   test.skip(!process.env.DEN_BASE_URL, 'DEN_BASE_URL must point to the compiled Den web client')
   test.setTimeout(90_000)
   const directory = await mkdtemp(join(tmpdir(), 'den-real-journey-'))
-  const room = await RoomAgent.create({ base: baseURL!, name: 'Workshop owner', agent: false, relays: ['ws://127.0.0.1:7777'] })
+  const room = await RoomAgent.create({ base: baseURL!, name: 'Workshop owner', agent: false, relays: [TEST_RELAY_WS] })
   const secret = generateSecretKey()
   const principalKey = hkdf(sha256, secret, new TextEncoder().encode(room.roomId), 'den/kithmoot/v1/participant', 32)
   const identity = localIdentity(generateSecretKey())

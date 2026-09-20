@@ -37,12 +37,19 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
       await viewer.mouse.up()
     }
     await drawStroke()
-    await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '1')
+    await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/)
     const presenterMarks = presenter.locator('canvas.shareMarks')
-    await expect(presenterMarks).toHaveAttribute('data-strokes', '1', { timeout: 10_000 })
+    await expect(presenterMarks).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/, { timeout: 10_000 })
     await expect(presenterMarks).toBeVisible()
+    const legend = JSON.parse((await presenterMarks.getAttribute('data-legend')) ?? '[]')
+    expect(legend).toHaveLength(1)
+    expect(legend[0].label).toContain('Rowan')
+    expect(legend[0].color).toMatch(/^#[0-9a-f]{6}$/i)
+    await dialog.screenshot({ path: '/tmp/kithmoot-share-legend.png' })
     await expect(presenterMarks).toHaveAttribute('data-strokes', '0', { timeout: 10_000 })
     await expect(presenterMarks).toBeHidden()
+    await expect(presenterMarks).toHaveAttribute('data-legend', '[]')
+    await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-legend', '[]')
     await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '0')
     // The presenter's own expanded view paints the same marks, and a clear
     // removes them from both ends before they would have faded.
@@ -51,8 +58,8 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
     const presenterDialog = presenter.getByRole('dialog', { name: 'Screen-share viewer' })
     await expect.poll(() => presenterDialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     await drawStroke()
-    await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '1')
-    await expect(presenterDialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '1', { timeout: 2_000 })
+    await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/)
+    await expect(presenterDialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/, { timeout: 2_000 })
     await dialog.getByRole('button', { name: 'Clear marks', exact: true }).click()
     await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '0')
     await expect(presenterDialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '0', { timeout: 10_000 })
@@ -143,6 +150,8 @@ test('the sharer is told when somebody draws on their screen, and the notice bri
       await viewer.mouse.move(drawRect.x + drawRect.width * .3, drawRect.y + drawRect.height * .35)
       await viewer.mouse.down()
       await viewer.mouse.move(drawRect.x + drawRect.width * .7, drawRect.y + drawRect.height * .65, { steps: 12 })
+      // Other devices must see ink while the pointer is still held down.
+      await expect(presenter.locator('canvas.shareMarks').first()).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/)
       await viewer.mouse.up()
     }
     await drawStroke()
@@ -245,7 +254,7 @@ test('a floating preview window carries the same marks overlay, exercised with a
     await expect.poll(() => presenter.evaluate(() => {
       const win = (window as unknown as { __pipStub: { wins: { document: Document }[] } }).__pipStub.wins.at(-1)!
       return win.document.querySelector('canvas.shareMarks')?.getAttribute('data-strokes')
-    })).toBe('1')
+    })).toMatch(/^[1-9][0-9]*$/)
 
     // With the floating window open, the ordinary notice does not also fire.
     await expect(presenter.locator('#sharerMarksNotice')).toBeHidden()
@@ -310,7 +319,7 @@ test('a drawer gets the same colour on every screen, two different drawers get t
     const presenterOverlay = presenter.locator('canvas.shareMarks')
 
     await drawStroke(rowan, rowanDialog)
-    await expect(presenterOverlay).toHaveAttribute('data-strokes', '1', { timeout: 5_000 })
+    await expect(presenterOverlay).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/, { timeout: 5_000 })
     const rowanOnSharer = (await markAuthors(presenterOverlay)).find(m => m.label.startsWith('Rowan'))
     expect(rowanOnSharer, 'the sharer never saw a mark labelled for Rowan').toBeDefined()
 

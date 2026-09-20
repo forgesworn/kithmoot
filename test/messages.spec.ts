@@ -2,9 +2,10 @@ import { test, expect, type BrowserContext } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { generateSecretKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
-import { openRoomDetails } from './browser.js'
+import { NostrRelayPool } from '../src/relay-pool.js'
+import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
 
 /**
  * The message layer, as a person meets it: a reply that sits under the
@@ -24,7 +25,7 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
   await device(context)
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
-  const rowan = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: ['ws://127.0.0.1:7777'], name: 'Rowan' })
+  const rowan = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: [TEST_RELAY_WS], name: 'Rowan' })
   try {
     const page = await context.newPage(); await page.goto(link)
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
@@ -91,6 +92,74 @@ test('replies nest, edits show the latest, retractions leave a marked gap, and a
     await expect.poll(() => rowan.chat.messages().find(m => m.text === '@Rowan thanks')?.mentions).toEqual([rowan.participant])
   } finally {
     await rowan.leave()
+    await context.close()
+  }
+})
+
+test('a bare word that only echoes an announced name does not light up, and a real mention of the shown name does', async ({ browser, baseURL }) => {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
+  await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
+  await device(context)
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
+
+  // Bob announces "Buzz" joining the room, but his kind-0 profile - seeded
+  // straight onto the room's own relay, as the door would find it - calls
+  // him Bob. That mismatch is the whole bug: the announced name should
+  // never outlive the profile that corrects it.
+  const bobSecret = generateSecretKey()
+  const bobPubkey = getPublicKey(bobSecret)
+  const profiles = new NostrRelayPool([TEST_RELAY_WS])
+  const bob = await RoomAgent.join({ link, identity: localIdentity(bobSecret), relays: [TEST_RELAY_WS], name: 'Buzz' })
+  try {
+    await profiles.publish(finalizeEvent(
+      { kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Bob' }) },
+      bobSecret,
+    ))
+
+    const page = await context.newPage(); await page.goto(link)
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+
+    // Wait for the profile to actually land: the roster shows Bob by his
+    // profile name, not the one he announced joining under.
+    await openRoomDetails(page)
+    await expect(page.locator('#sheetRoster .rosterRow', { hasText: 'Bob' })).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('#sheetRoster .rosterRow', { hasText: 'Buzz' })).toHaveCount(0)
+    await page.locator('#roomSheetClose').click()
+
+    // Ada types the plain word "Buzz" - Bob's announced name, and nothing
+    // she means as an address - and it is not addressed to anybody.
+    await page.locator('#chatInput').fill('a buzz went round the room')
+    await page.locator('#chatInput').press('Enter')
+    const bare = page.locator('#chatLog .msg').filter({ hasText: 'a buzz went round the room' })
+    await expect(bare).toBeVisible()
+    await expect(bare.locator('.mention')).toHaveCount(0)
+
+    // Bob genuinely names himself on the wire, by the name Ada is actually
+    // shown for him - "Bob", not "Buzz" - and that word lights up.
+    await bob.chat.send('Bob will chair the meeting', { mentions: [bobPubkey] })
+    const named = page.locator('#chatLog .msg').filter({ hasText: 'Bob will chair the meeting' })
+    await expect(named).toBeVisible()
+    await expect(named.locator('.mention')).toHaveCount(1)
+    await expect(named.locator('.mention')).toHaveText('Bob')
+
+    // Ada's own `@` picker offers and inserts the same shown name, "Bob" -
+    // not the announced "Buzz" underneath it - and the message she sends
+    // through it carries Bob's participant key on the wire, exactly as if
+    // she had typed the hex herself.
+    await page.locator('#chatInput').fill('@Bo')
+    await expect(page.locator('#mentions [role="option"]').first()).toContainText('Bob')
+    await expect(page.locator('#mentions [role="option"]').first()).not.toContainText('Buzz')
+    await page.locator('#mentions [role="option"]').first().dispatchEvent('pointerdown')
+    await expect(page.locator('#chatInput')).toHaveValue('@Bob ')
+    await page.locator('#chatInput').press('Enter')
+    await expect.poll(() => bob.chat.messages().find((m) => m.text === '@Bob')?.mentions).toEqual([bobPubkey])
+    const picked = page.locator('#chatLog .msg').filter({ hasText: '@Bob' }).last()
+    await expect(picked.locator('.mention')).toHaveCount(1)
+  } finally {
+    profiles.close()
+    await bob.leave()
     await context.close()
   }
 })

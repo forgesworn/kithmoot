@@ -428,6 +428,240 @@ vectors.rosterEvent.push({
   })
 }
 
+{
+  // --- `call` malformed and edge-case shapes -------------------------------
+  //
+  // `sanitiseCallMembership` (src/roster.ts) holds a call membership to: an
+  // object; `id` exactly 32 hex characters (either case, lower-cased on the
+  // way in); `since` a finite number that is not negative (floored on the
+  // way in). Anything short of that costs the claim, never the entry - the
+  // same rule every other optional field on a roster entry follows.
+  const CALL_ID = 'c0ffee'.repeat(5) + 'c0'
+
+  const callCases = [
+    {
+      name: 'call-id-upper-case',
+      kind: 'positive',
+      call: { id: CALL_ID.toUpperCase(), since: fx.NOW - 60 },
+      note: '`call.id` in upper-case hex: accepted, and lower-cased on decode - the same case-folding every other hex field on a roster entry gets, so a case-insensitive comparison is never needed downstream.',
+    },
+    {
+      name: 'call-id-wrong-length',
+      kind: 'negative',
+      call: { id: CALL_ID.slice(0, 30), since: fx.NOW - 60 },
+      note: '`call.id` one byte short of 32 hex characters: not a call id, so `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-id-non-hex',
+      kind: 'negative',
+      call: { id: 'z'.repeat(32), since: fx.NOW - 60 },
+      note: '`call.id` the right length but not hex (`z` is not a hex digit): `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-since-string',
+      kind: 'negative',
+      call: { id: CALL_ID, since: String(fx.NOW - 60) },
+      note: '`call.since` as a JSON string rather than a number: not the claim `sanitiseCallMembership` requires, so `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-since-missing',
+      kind: 'negative',
+      call: { id: CALL_ID },
+      note: '`call` with no `since` at all: `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-since-negative',
+      kind: 'negative',
+      call: { id: CALL_ID, since: -1 },
+      note: '`call.since` negative: not a Unix timestamp anybody could have meant, so `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-not-an-object',
+      kind: 'negative',
+      call: CALL_ID,
+      note: '`call` as a bare string rather than an `{ id, since }` object: `call` is dropped and the rest of the entry decodes unchanged.',
+    },
+    {
+      name: 'call-since-fractional',
+      kind: 'positive',
+      call: { id: CALL_ID, since: fx.NOW - 60.75 },
+      note: '`call.since` with a fractional part: kept, floored to a whole second - a call joined at a fraction of a second is still a Unix-second claim once decoded.',
+    },
+    {
+      name: 'call-extra-keys',
+      kind: 'positive',
+      call: { id: CALL_ID, since: fx.NOW - 60, profile: 'video', note: 'ignored' },
+      note: 'A `call` object carrying extra keys a future client might add: kept, but only `id` and `since` survive decode - `sanitiseCallMembership` reads exactly those two fields and nothing else, so an unrecognised extra is silently dropped rather than carried through.',
+    },
+  ]
+
+  for (const { name, kind, call, note } of callCases) {
+    const entry = { ...rosterEntry, call }
+    const roster = buildRoster({
+      entry,
+      roomId: ROOM_1.roomId,
+      roomKey: ROOM_1.roomKey,
+      deviceSk: fx.DEVICE_A_SK,
+      nonceLabel: `roster-${name}-nonce`,
+      auxRandLabel: `roster-${name}-auxrand`,
+    })
+    vectors.rosterEvent.push({
+      name,
+      kind,
+      note,
+      input: {
+        entry,
+        roomId: ROOM_1.roomId,
+        roomKeyHex: bytesToHex(ROOM_1.roomKey),
+        deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+        nonceHex: roster.nonceHex,
+        auxRandHex: roster.auxRandHex,
+      },
+      output: { event: roster.event },
+      expected: {
+        decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+        result: decodeRosterEvent(roster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+      },
+    })
+  }
+
+  // A farewell entry that also carries a valid `call`: the decoder applies
+  // `sanitiseCallMembership` the same way regardless of `left`, so both
+  // survive decode together. Publishing `call` alongside a farewell is a
+  // rule for a well-behaved SENDER (farewell payloads are emptied - see
+  // the `farewell` vector below), not something a reader enforces; a reader
+  // that gets both from a looser implementation decodes both.
+  const farewellOnCallEntry = { ...rosterEntry, tracks: [], claims: {}, reply: true, left: true, call: { id: CALL_ID, since: fx.NOW - 60 } }
+  const farewellOnCallRoster = buildRoster({
+    entry: farewellOnCallEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-farewell-on-call-nonce',
+    auxRandLabel: 'roster-farewell-on-call-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'farewell-on-call',
+    kind: 'positive',
+    note: 'A farewell entry (`left: true`) that also carries a valid `call`: the decoder applies `sanitiseCallMembership` regardless of `left`, so `left` and `call` both survive decode. Never publishing `call` on a farewell is a sender-side rule, not a decode-side one - this vector pins what a reader does when a looser implementation sends both.',
+    input: {
+      entry: farewellOnCallEntry,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: farewellOnCallRoster.nonceHex,
+      auxRandHex: farewellOnCallRoster.auxRandHex,
+    },
+    output: { event: farewellOnCallRoster.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeRosterEvent(farewellOnCallRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
+  // A profile-2 device on a second page session: `callProfile: 2` and `sid`
+  // together, so a second implementation can decode both new roster fields
+  // from one event. Decode-only in spirit like the other optional-field
+  // groups above: an implementation that knows neither field still decodes
+  // this event and matches the recorded entry on everything it does model.
+  const profile2Entry = { ...rosterEntry, callProfile: 2, sid: '0a1b2c3d' }
+  const profile2Roster = buildRoster({
+    entry: profile2Entry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-profile2-nonce',
+    auxRandLabel: 'roster-profile2-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'profile-2-and-page-session',
+    kind: 'positive',
+    note: "A roster entry declaring `callProfile: 2` (this device speaks fixed slots, reliable signalling and pair health - docs/protocol.md \"Profile 2 additions\") alongside `sid` (its page session, see H3 and the 'sid' vector group). Both are inside the room-key ciphertext with everything else. A reader that knows neither field decodes this event unchanged on everything it does model; only the exact number `2` is the profile claim, and only 8 lower-case hex is the session id.",
+    input: {
+      entry: profile2Entry,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: profile2Roster.nonceHex,
+      auxRandHex: profile2Roster.auxRandHex,
+    },
+    output: { event: profile2Roster.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeRosterEvent(profile2Roster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
+  // A device that has muted its own mic - `track.enabled = false` at the
+  // source, not a peer's own volume choice. Only the exact literal `true`
+  // is the claim; absence (every client from before the field existed)
+  // reads as not-muted.
+  const mutedEntry = { ...rosterEntry, tracks: [{ trackId: 't1', role: 'screen' }, { trackId: 'm1', role: 'mic', muted: true }] }
+  const mutedRoster = buildRoster({
+    entry: mutedEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-muted-mic-nonce',
+    auxRandLabel: 'roster-muted-mic-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'muted-mic-track',
+    kind: 'positive',
+    note: "A roster entry whose mic advert carries `muted: true`: this device turned its own microphone off, distinct from and additive to a listener's own volume choice, which is never on the wire. Only the exact literal `true` counts - docs/protocol.md's 'muted' paragraph. A reader that has never heard of the field decodes this event unchanged on everything it does model.",
+    input: {
+      entry: mutedEntry,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: mutedRoster.nonceHex,
+      auxRandHex: mutedRoster.auxRandHex,
+    },
+    output: { event: mutedRoster.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeRosterEvent(mutedRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
+{
+  // A looser implementation's `muted: false` on the wire: not the honest
+  // `true` the claim requires, so it is dropped and the advert decodes
+  // exactly as if the field had never been written.
+  const looseMutedEntry = { ...rosterEntry, tracks: [{ trackId: 'm1', role: 'mic', muted: false }] }
+  const looseMutedRoster = buildRoster({
+    entry: looseMutedEntry,
+    roomId: ROOM_1.roomId,
+    roomKey: ROOM_1.roomKey,
+    deviceSk: fx.DEVICE_A_SK,
+    nonceLabel: 'roster-muted-false-nonce',
+    auxRandLabel: 'roster-muted-false-auxrand',
+  })
+  vectors.rosterEvent.push({
+    name: 'muted-false-drops-to-absent',
+    kind: 'negative',
+    note: "A mic advert with `muted: false` on the wire: only the literal `true` is the mute claim, so this is not one, and the field is dropped - the advert decodes as `{ trackId, role }` with no `muted` key at all, the same as an advert that never carried the field.",
+    input: {
+      entry: looseMutedEntry,
+      roomId: ROOM_1.roomId,
+      roomKeyHex: bytesToHex(ROOM_1.roomKey),
+      deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+      nonceHex: looseMutedRoster.nonceHex,
+      auxRandHex: looseMutedRoster.auxRandHex,
+    },
+    output: { event: looseMutedRoster.event },
+    expected: {
+      decode: { roomId: ROOM_1.roomId, now: fx.NOW },
+      result: decodeRosterEvent(looseMutedRoster.event, { roomId: ROOM_1.roomId, roomKey: ROOM_1.roomKey, now: fx.NOW }),
+    },
+  })
+}
+
 vectors.rosterEvent.push({
   name: 'wrong-room-key',
   kind: 'negative',
@@ -956,6 +1190,78 @@ vectors.signalWrap.push({
     output: { result: unwrapSignal(tamperedOuter, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT }) },
   })
 }
+
+// ===========================================================================
+// 5a. Profile 2 signal bodies (docs/protocol.md "Profile 2 additions") - the
+//     same signalWrap machinery, carrying the new optional fields. Old
+//     readers ignore every one of them via plain JSON.parse; a new reader
+//     validates their shapes strictly - see `validSignalExtensions` in
+//     src/signal.ts. Not a new profile tag: `kithmoot` stays `'1'` on every
+//     one of these, because capability lives in the roster, not the tag.
+// ===========================================================================
+
+function profile2SignalVector(name, note, body, ephemeralSk, auxLabel) {
+  const wrap = buildSignalWrap({
+    body, senderSk: fx.SENDER_SK, recipientPubkey: fx.RECIPIENT, ephemeralSk,
+    createdAt: fx.SIGNAL_CREATED_AT,
+    innerAuxLabel: `signal-${auxLabel}-inner`, outerAuxLabel: `signal-${auxLabel}-outer-aux`, nonceLabel: `signal-${auxLabel}-outer-nonce`,
+  })
+  vectors.signalWrap.push({
+    name,
+    kind: 'positive',
+    note,
+    input: {
+      body, senderSkHex: bytesToHex(fx.SENDER_SK), recipientPubkey: fx.RECIPIENT,
+      ephemeralSkHex: bytesToHex(ephemeralSk), createdAt: fx.SIGNAL_CREATED_AT,
+      innerAuxRandHex: wrap.innerAuxHex, outerAuxRandHex: wrap.outerAuxHex, nip44NonceHex: wrap.nonceHex,
+    },
+    output: { inner: wrap.inner, outer: wrap.outer },
+    expected: {
+      unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_1.roomId },
+      result: unwrapSignal(wrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT }),
+    },
+  })
+}
+
+profile2SignalVector(
+  'profile-2-generation-opening-offer',
+  'A generation-opening offer under profile 2: `gen`/`conn`/`seq` identify the pair generation and connection, and `slots` binds all four fixed media slots (mic, camera, screen, screen-audio) to their m-line mids, exactly once each. An old reader ignores every one of these fields and still decodes `type`, `roomId` and `sdp` exactly as before.',
+  { type: 'offer', roomId: ROOM_1.roomId, sdp: fx.SDP_FIXTURE, gen: 1, conn: fx.CONN_A, seq: 1, slots: { ...fx.SLOTS_FIXTURE } },
+  fx.EPHEMERAL_SK_P2_OFFER,
+  'p2-offer',
+)
+
+profile2SignalVector(
+  'profile-2-batched-ice',
+  'A batched `ice` signal: one wire message carrying every candidate gathered since the last acknowledged seq, `first` naming the lowest seq in the batch. This is what a retransmission of trickled candidates looks like under profile 2 - see A2 in the design amendments - rather than one signal per candidate.',
+  { type: 'ice', roomId: ROOM_1.roomId, gen: 1, conn: fx.CONN_A, first: 2, seq: 4, candidates: [...fx.BATCHED_ICE_FIXTURE] },
+  fx.EPHEMERAL_SK_P2_ICE,
+  'p2-ice',
+)
+
+profile2SignalVector(
+  'profile-2-ack',
+  'A standalone `ack`: the highest contiguous seq received from `peerConn`, sent on its own rather than piggybacked, exactly as the reliable channel emits one after its coalescing delay.',
+  { type: 'ack', roomId: ROOM_1.roomId, gen: 1, conn: fx.CONN_A, peerConn: fx.CONN_B, ack: 4 },
+  fx.EPHEMERAL_SK_P2_ACK,
+  'p2-ack',
+)
+
+profile2SignalVector(
+  'profile-2-health',
+  "A `health` signal naming one dead slot on an otherwise healthy transport: the pairwise feedback path RTCP cannot express on its own - see A3 in the design amendments. `rx` names only the slots the sender has a verdict on; a healthy slot need not be listed.",
+  { type: 'health', roomId: ROOM_1.roomId, gen: 1, conn: fx.CONN_A, rx: { camera: 'dead' } },
+  fx.EPHEMERAL_SK_P2_HEALTH,
+  'p2-health',
+)
+
+profile2SignalVector(
+  'profile-2-sync',
+  "A `sync` signal: \"my current generation is this\", sent when a signal from an older generation arrives. It carries `gen` and nothing else the protocol requires.",
+  { type: 'sync', roomId: ROOM_1.roomId, gen: 9 },
+  fx.EPHEMERAL_SK_P2_SYNC,
+  'p2-sync',
+)
 
 // M2 receive vectors include legacy and sealed forms, author binding and
 // timestamp/id rejection. Expected results are explicit, not copied from the

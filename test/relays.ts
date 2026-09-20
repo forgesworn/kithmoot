@@ -16,8 +16,25 @@ import { base64urlnopad } from '@scure/base'
  * the live check, with real relay weather. Worth running deliberately, and
  * worth never believing on a single red run. A comma-separated list names
  * any other relays.
+ *
+ * The port this relay listens on is `E2E_RELAY_PORT` if set, else `E2E_PORT
+ * + 100` if that is set, else 7777 - see the comment above `webServer` in
+ * playwright.config.ts, which starts it there. Read once at module load, the
+ * same as playwright.config.ts reads it, so a spec and the config it runs
+ * under never disagree about which port is "the" relay.
  */
-export const LOCAL_TEST_RELAY = 'ws://127.0.0.1:7777'
+function testRelayPort(): number {
+  const explicit = process.env.E2E_RELAY_PORT
+  if (explicit) return Number(explicit)
+  const appPort = process.env.E2E_PORT
+  if (appPort) return Number(appPort) + 100
+  return 7777
+}
+
+export const TEST_RELAY_PORT = testRelayPort()
+export const TEST_RELAY_WS = `ws://127.0.0.1:${TEST_RELAY_PORT}`
+export const TEST_RELAY_HTTP = `http://127.0.0.1:${TEST_RELAY_PORT}`
+export const LOCAL_TEST_RELAY = TEST_RELAY_WS
 
 export function testRelays(): string[] | undefined {
   const env = process.env.E2E_RELAYS
@@ -31,7 +48,7 @@ export function testRelays(): string[] | undefined {
  *
  * WebKit treats a plain `ws://` socket opened from an `https://` page as
  * mixed content and blocks it, loopback included, so a spec that hands a
- * WebKit page `ws://127.0.0.1:7777` watches every relay reject the join.
+ * WebKit page `LOCAL_TEST_RELAY` directly watches every relay reject the join.
  * The app's preview server proxies the local relay at `/__test-relay` over
  * the page's own origin, and a spec that runs in every browser names that.
  * Any other relay in the list is passed through as it is.

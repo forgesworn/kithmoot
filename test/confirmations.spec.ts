@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
-import { openRoomDetails } from './browser.js'
+import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
 
 test('app confirmations keep messages flowing, preserve drafts on cancel and work with keyboard and large text', async ({ browser, baseURL }, testInfo) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -10,7 +10,7 @@ test('app confirmations keep messages flowing, preserve drafts on cancel and wor
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
-  const writer = await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Rowan' })
+  const writer = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan' })
   const page = await context.newPage()
   const nativeDialogs: string[] = []
   page.on('dialog', dialog => { nativeDialogs.push(dialog.type()); void dialog.dismiss() })

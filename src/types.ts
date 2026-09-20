@@ -13,6 +13,11 @@ export type SingularRole = 'mic' | 'monitor'
 export interface TrackAdvert {
   trackId: string
   role: TrackRole
+  /** The device muted this track itself - `track.enabled = false` at the
+   *  source, not a listener's own volume choice. Absent means not muted,
+   *  which keeps the wire byte-identical for a client that has never heard
+   *  of the field. Only the literal `true` counts - see `dedupeTrackAdverts`. */
+  muted?: true
 }
 
 /** Kindred tiers, closest first: family, mutual verified bond, one-way
@@ -183,6 +188,40 @@ export interface RosterEntry {
   name?: string
   /** This endpoint. */
   device: string
+  /**
+   * This device speaks fixed media slots, reliable signalling and pair
+   * health - see `docs/protocol.md` "Profile 2 additions". Only the exact
+   * number `2` counts; anything else, including a decode of the wrong
+   * type, is treated as absent. Absent means profile 1, which is every
+   * client before this field existed and is also the safe fallback for a
+   * malformed value - a device that cannot prove it speaks profile 2 is
+   * assumed not to, never assumed to regardless.
+   *
+   * This is why the wire profile tag (`kithmoot: '1'`, `SIGNAL_PROFILE`)
+   * is not bumped for any of this: an unknown profile tag must not enable
+   * new semantics, so the capability lives here, on the one thing each
+   * device already publishes about itself, instead.
+   */
+  callProfile?: number
+  /**
+   * Which page session of `device` published this, when it said.
+   *
+   * Eight lower-case hex characters, minted once per page session and never
+   * reused. A device key is per browser profile, not per tab: two tabs of
+   * one room sign as the same device, so without this they are one identity
+   * on the wire and the later heartbeat silently replaces the earlier one -
+   * including the one carrying live media. Readers therefore treat
+   * `device|sid` as the presence identity: two tabs are two entries, a
+   * farewell removes only the tab that sent it, and a peer connection is
+   * bound to the page session it was negotiated with rather than to the
+   * device key, because a new page session is a physically different
+   * endpoint that cannot take over a transport it was never party to.
+   *
+   * Absent means unknown, and is treated exactly as this field never
+   * existed - one entry per device, last writer wins. So the wire stays
+   * byte-identical for a client that has never heard of it.
+   */
+  sid?: string
   /** Proof that `device` speaks for `participant` in this room. */
   credential: DeviceCredential
   /** This participant's kindred proof, so every other member can evaluate

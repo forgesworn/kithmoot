@@ -136,6 +136,10 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     // above the toggles. The preview strip is for before you join.
     const ownTile = pageA.locator('#room .participant', { hasText: '(you)' })
     await expect(ownTile.locator('video'), "Ada's own picture is not in her tile").toHaveCount(1)
+    await expect(ownTile.locator('video')).toHaveClass(/localCameraPreview/)
+    await expect.poll(() => ownTile.locator('video').evaluate(video => getComputedStyle(video).transform))
+      .toMatch(/^matrix\(-1, 0, 0, 1,/)
+    await expect(pageA.locator('#room .participant:not(:has-text("(you)")) video').first()).not.toHaveClass(/localCameraPreview/)
     await expect(pageA.locator('#local video')).toHaveCount(0)
   } finally {
     await contextA.close()
@@ -328,6 +332,23 @@ test('one person on two devices delivers two live pictures to everybody else', a
       ])
       return Number(laptopLive) + Number(phoneLive)
     }).toBe(1)
+
+    // Explicitly choose the phone, then stop and restart the laptop share.
+    // Sharing must not take the listening role, including with no local mic.
+    await pagePhone.evaluate(() => (document.getElementById('listenHere') as HTMLButtonElement).click())
+    await expect(pagePhone.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    await pageLaptop.locator('#toggleScreen').click()
+    await pageLaptop.locator('#toggleScreen').click()
+    await expect(pageLaptop.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await expect(pagePhone.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    await expect(pageLaptop.locator('#monitorIndicator')).toContainText('other device')
+
+    // A listening-only device retains its explicit choice without a local track.
+    await pageLaptop.locator('#toggleScreen').click()
+    await pageLaptop.locator('#listenHere').click()
+    await expect(pageLaptop.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    await pageLaptop.locator('#toggleScreen').click()
+    await expect(pageLaptop.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
 
     // And the part nothing checked before: TWO live pictures, in that one
     // tile, from that one person.

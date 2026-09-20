@@ -107,6 +107,17 @@
              they can share one bounded area and never push the conversation
              off the screen. See "Phone reading pass" in style.css. -->
         <div id="callStage">
+        <!-- Nobody is on a call, so the call area is one line: what the room
+             is doing, and the way to start. Shown only by the installed
+             desktop window, whose height is fixed and whose empty call panel
+             was taking that height from the conversation - see
+             `[data-call-pane="resting"]` in app/src/desktop.css. Filled in
+             by `renderCallState` in app/src/main.ts for every build, so the
+             words cannot drift from the room bar's own control. -->
+        <div id="callStrip" class="callStrip">
+          <span id="callStripText" class="callStripText">Nobody is on a call.</span>
+          <button id="callStripAction" type="button" class="primary">Start call</button>
+        </div>
         <!-- The call. Absent until there is one, the way a phone shows call
              controls only during a call. Revealed by the Call button above,
              and kept open for as long as anything of yours is live. -->
@@ -114,6 +125,14 @@
           <section id="deviceControls" hidden>
             <div class="callHead">
               <p id="callWho" class="callWho">On the call.</p>
+              <!-- The same call with nobody on camera: who is on it, as
+                   names rather than as empty video tiles, with whoever is
+                   speaking lit and the mute badges they would have carried.
+                   Shown in place of the line above only by the installed
+                   window's controls-only pane - see `[data-call-pane]` in
+                   app/src/desktop.css. Filled by `renderCallChips` in
+                   app/src/main.ts. -->
+              <div id="callChips" class="callChips" aria-label="On the call"></div>
               <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
             </div>
             <div class="toggles">
@@ -124,7 +143,17 @@
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share"><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
             </div>
             <p id="micIndicator" class="indicator"></p>
+            <!-- Another of this device's own tabs holds the microphone.
+                 Filled in by `render` in app/src/main.ts alongside
+                 `micIndicator`; hidden whenever this tab holds it. -->
+            <button id="claimMic" type="button" class="quiet" hidden>Use the microphone on this device instead</button>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
+            <!-- The background effect has failed and is covering or blurring
+                 the whole frame while it retries. Shown here, next to the
+                 self-view, rather than only inside the collapsed "Hide what
+                 is behind you" details - see `renderEffectState` in
+                 app/src/main.ts. -->
+            <p id="effectDegradedNotice" class="indicator broken" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
                  no audio track: Firefox, Safari, a window share, or the box
                  left unticked. The share still works; it is simply quiet. -->
@@ -170,6 +199,12 @@
                   <input id="blurStrength" type="range" min="0" max="100" step="1" value="60" />
                 </div>
                 <div class="segmented" id="backgroundChoices" role="radiogroup" aria-label="Picture" hidden></div>
+                <div class="effectRow" id="fishRow" hidden>
+                  <label for="fishToggle">
+                    <input id="fishToggle" type="checkbox" />
+                    Fish swimming past
+                  </label>
+                </div>
                 <div class="effectRow">
                   <button id="switchCamera" type="button" hidden>Switch camera</button>
                 </div>
@@ -223,6 +258,21 @@
              screen it costs and an empty box is not. See `#whoIsHere` in
              style.css. -->
         <div id="whoIsHere">
+          <!-- The browser blocked remote sound because nobody has tapped
+               this page yet - the update-and-rejoin path is the one that
+               matters. Muted video still plays, so this is the only sign a
+               person gets that they can see faces and hear nobody. Filled
+               in by `renderAutoplayBanner` in app/src/main.ts. -->
+          <div id="autoplayBanner" class="autoplayBanner" role="status" aria-live="polite" hidden>
+            <button id="autoplayBannerButton" type="button">Your browser has paused the sound. Tap to hear everyone.</button>
+          </div>
+          <!-- This room's call is open in another tab of this browser, on
+               the same account. Filled in by `renderCallTabNotice` in
+               app/src/main.ts. -->
+          <div id="callTabNotice" class="callTabNotice" role="status" hidden>
+            <span id="callTabNoticeText"></span>
+            <button id="callTabNoticeTake" type="button">Take the call here</button>
+          </div>
           <div id="agentsRow" class="agentsRow" hidden aria-label="Agents in the room"></div>
           <div id="room"></div>
         </div>
@@ -420,6 +470,13 @@
 
       <section id="rooms" hidden>
         <h2 id="roomsHeading">Your rooms</h2>
+        <!-- A Nostr account used here whose signer is not in this tab. Its
+             rooms are not listed, and nothing may act for it until it is
+             reconnected. -->
+        <div id="accountReconnect" class="accountReconnect" role="status" hidden>
+          <p id="accountReconnectText" class="note"></p>
+          <button id="accountReconnectButton" type="button" class="primary">Reconnect</button>
+        </div>
         <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
         <div id="homeRoomSearch" class="roomSearchRow" hidden>
           <label for="homeRoomQuery" class="sr-only">Search saved rooms</label>
@@ -779,6 +836,28 @@
       <div class="sheetBar"><h2 id="mobileCallSettingsTitle">Call settings</h2><button id="mobileCallSettingsClose" type="button">Done</button></div>
       <div class="sheetBody"></div>
     </dialog>
+    <!-- Stays open while the room is left, so the report can be read. -->
+    <dialog id="tidyUpDialog" class="actionDialog tidyUp" aria-labelledby="tidyUpTitle" data-keep-open>
+      <h2 id="tidyUpTitle">Leave and tidy up</h2>
+      <p id="tidyUpLead">Leave this room and ask its relays to delete what you left there. These steps run in this order:</p>
+      <ol id="tidyUpSteps"></ol>
+      <label id="tidyUpEndRow" class="checkRow" hidden>
+        <input id="tidyUpEnd" type="checkbox" />
+        End the room for everyone first. Everyone is taken out and every invite link stops working.
+      </label>
+      <label id="tidyUpTombstoneRow" class="checkRow" hidden>
+        <input id="tidyUpTombstone" type="checkbox" />
+        Also delete the tombstone that marks the room forgotten on your account. A relay that kept an older bookmark could then bring the room back to your list.
+      </label>
+      <h3>What nobody can delete</h3>
+      <ul id="tidyUpLimits" class="note"></ul>
+      <div id="tidyUpResults" role="status" aria-live="polite"></div>
+      <div class="actionDialogButtons">
+        <button id="tidyUpCancel" type="button">Cancel</button>
+        <button id="tidyUpRun" type="button" class="danger">Leave and tidy up</button>
+        <button id="tidyUpDone" type="button" class="primary" hidden>Done</button>
+      </div>
+    </dialog>
     <dialog id="roomSheet" aria-labelledby="roomSheetTitle">
       <div class="sheetBar">
         <h2 id="roomSheetTitle">Room details</h2>
@@ -821,6 +900,11 @@
             computers. One click asks for one, and it comes in as a member
             like anybody else.
           </p>
+          <div class="toolRow">
+            <button id="copyAgentInvite" type="button">Copy room link for your agent</button>
+          </div>
+          <p class="note">For a bot already running elsewhere, copy the room link and give it to <code>kithmoot-agent join</code>. The link grants room access, so handle it like any other invitation.</p>
+          <p id="agentInviteStatus" class="note" role="status"></p>
           <div id="inviteList"></div>
         </details>
 
@@ -889,6 +973,13 @@
           </div>
           <button id="rotateShare" type="button" hidden>New link</button>
           <button id="makePersistent" type="button" hidden>Keep this room open</button>
+          <!-- Only in the browser holding a browser room's authority. A room
+               with a keeper is closed through the keeper instead. -->
+          <button id="endRoom" type="button" class="danger" hidden>End room for everyone</button>
+          <p id="endRoomNote" class="note" hidden>
+            Ending takes everyone out and stops every invite link working.
+            People keep what they already received.
+          </p>
           <!-- Hidden with the button it describes. Only the browser that
                opened the room can make a new link, and everybody else was
                reading a sentence about a control that was not on their
@@ -1022,6 +1113,7 @@
 
         <div class="sheetRow">
           <button id="leave" type="button" class="danger">Leave this room</button>
+          <button id="tidyUpRoom" type="button" class="danger quiet">Leave and tidy up</button>
           <button id="forgetBrowserRoom" type="button" class="danger">Forget this browser</button>
         </div>
       </div>

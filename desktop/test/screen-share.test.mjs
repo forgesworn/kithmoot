@@ -20,6 +20,15 @@ test('a chosen source is shared', async () => {
   assert.deepEqual(calls, [[{ video: source }]])
 })
 
+test('a successful share can add loopback audio to the final selection', async () => {
+  const { calls, callback } = recorder()
+  await answerDisplayRequest({ audioRequested: true }, callback, {
+    ...deps(),
+    selection: selected => ({ video: selected, audio: 'loopback' }),
+  })
+  assert.deepEqual(calls, [[{ video: source, audio: 'loopback' }]])
+})
+
 test('every refusal answers once, without an empty selection', async () => {
   for (const override of [
     { allowed: () => false },

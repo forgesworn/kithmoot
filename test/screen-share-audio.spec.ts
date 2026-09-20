@@ -162,3 +162,107 @@ test('a screen share with no captured audio still shares video, with a note by t
     await a.close(); await b.close()
   }
 })
+
+test('a desktop sharing area sends only its crop and blanks invalid bounds', async ({ browser, baseURL }) => {
+  const context = await newDeviceContext(browser, baseURL!)
+  await context.addInitScript(() => {
+    const w = window as any
+    let rect: any = { x: .25, y: .25, width: .5, height: .5 }
+    let listener: ((rect: any) => void) | undefined
+    w.kithmootDesktop = {
+      supportsShareArea: true,
+      armShareArea: async () => true,
+      shareAreaState: async () => rect,
+      shareAreaAction: () => {},
+      onShareAreaState: (fn: (rect: any) => void) => { listener = fn; return () => { listener = undefined } },
+      setCallActive: () => {}, setUnread: () => {}, notify: () => {}, onOpenRoom: () => () => {},
+    }
+    w.__areaBounds = (next: any) => { rect = next; listener?.(next) }
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480
+      const ctx = canvas.getContext('2d')!
+      const paint = () => { ctx.fillStyle = 'red'; ctx.fillRect(0, 0, 640, 480); ctx.fillStyle = '#00ff00'; ctx.fillRect(160, 120, 320, 240) }
+      paint()
+      const timer = setInterval(paint, 33)
+      const stream = canvas.captureStream(30)
+      w.__rawAreaTrack = stream.getVideoTracks()[0]
+      w.__rawAreaTrack.addEventListener('ended', () => clearInterval(timer))
+      return stream
+    }
+  })
+  try {
+    const page = await context.newPage()
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openCall(page)
+    const popped = page.waitForEvent('popup')
+    await page.locator('#shareArea').click()
+    const popup = await popped
+    await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
+    await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    const preview = page.locator('video.screenPreview')
+    await expect.poll(() => preview.evaluate((video: HTMLVideoElement) => [video.videoWidth, video.videoHeight])).toEqual([320, 240])
+    const pixels = () => preview.evaluate((video: HTMLVideoElement) => {
+      const canvas = document.createElement('canvas'); canvas.width = 3; canvas.height = 3
+      const ctx = canvas.getContext('2d')!; ctx.drawImage(video, 0, 0, 3, 3)
+      return Array.from(ctx.getImageData(0, 0, 3, 3).data).filter((_, i) => i % 4 !== 3)
+    })
+    await expect.poll(pixels).toEqual(Array.from({ length: 9 }, () => [0, 255, 0]).flat())
+    await page.evaluate(() => (window as any).__areaBounds(null))
+    await expect.poll(pixels).toEqual(new Array(27).fill(0))
+    await page.evaluate(() => (window as any).__areaBounds({ x: .25, y: .25, width: .5, height: .5 }))
+    await expect.poll(pixels).toEqual(Array.from({ length: 9 }, () => [0, 255, 0]).flat())
+    await popup.evaluate(() => { (window.opener as any).__rawAreaTrack = (window as any).__rawAreaTrack })
+    await popup.getByRole('button', { name: 'Stop sharing' }).click()
+    await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    expect(await page.evaluate(() => (window as any).__rawAreaTrack.readyState)).toBe('ended')
+  } finally { await context.close() }
+})
+
+test('cancelling an area chooser stops screen and audio returned afterwards', async ({ browser, baseURL }) => {
+  const context = await newDeviceContext(browser, baseURL!)
+  await context.addInitScript(() => {
+    const w = window as any
+    w.kithmootDesktop = {
+      supportsShareArea: true,
+      armShareArea: async () => true,
+      shareAreaState: async () => ({ x: .25, y: .25, width: .5, height: .5 }),
+      shareAreaAction: () => {}, onShareAreaState: () => () => {},
+      setCallActive: () => {}, setUnread: () => {}, notify: () => {}, onOpenRoom: () => () => {},
+    }
+    navigator.mediaDevices.getDisplayMedia = () => new Promise(resolve => {
+      // Keep the synthetic sources in the owner: closing the popup must not
+      // itself end them and hide a leak in the application's cancellation.
+      const owner = window.opener as any
+      const canvas = owner.document.createElement('canvas')
+      canvas.width = 32; canvas.height = 32
+      canvas.getContext('2d').fillRect(0, 0, 32, 32)
+      const audio = new owner.AudioContext()
+      const destination = audio.createMediaStreamDestination()
+      const stream = canvas.captureStream(1)
+      stream.addTrack(destination.stream.getAudioTracks()[0])
+      owner.__lateAreaTracks = stream.getTracks()
+      owner.__lateAreaAudio = audio
+      owner.__resolveAreaCapture = () => resolve(stream)
+    })
+  })
+  try {
+    const page = await context.newPage()
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openCall(page)
+    const popped = page.waitForEvent('popup')
+    await page.locator('#shareArea').click()
+    const popup = await popped
+    await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => (window as any).__lateAreaTracks?.map((t: MediaStreamTrack) => t.readyState))).toEqual(['live', 'live'])
+    await popup.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect.poll(() => popup.isClosed()).toBe(true)
+    await page.evaluate(() => (window as any).__resolveAreaCapture())
+    await expect.poll(() => page.evaluate(() => (window as any).__lateAreaTracks.map((t: MediaStreamTrack) => t.readyState))).toEqual(['ended', 'ended'])
+    await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    await page.evaluate(() => (window as any).__lateAreaAudio.close())
+  } finally { await context.close() }
+})

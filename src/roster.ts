@@ -7,7 +7,7 @@ import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { sanitiseAssistOffer } from './peer-assist.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
-import type { RosterEntry, CallMembership } from './types.js'
+import type { RosterEntry, CallMembership, TrackAdvert, TrackRole } from './types.js'
 
 export interface EncodeRosterOptions {
   roomId: string
@@ -47,6 +47,12 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
   const plaintext = JSON.stringify({
     ...entry,
     name: sanitiseDisplayName(entry.name),
+    // Same rule as the name and the assist offer, and for the same reason:
+    // never publish something another client has to defuse. `undefined` is
+    // dropped by JSON.stringify, so an entry without a page-session id is
+    // byte-identical to one written before the field existed.
+    sid: sanitiseSid(entry.sid),
+    callProfile: sanitiseCallProfile(entry.callProfile),
     assist: sanitiseAssistOffer(entry.assist),
     left: entry.left === true ? true : undefined,
     agent: entry.agent === true ? true : undefined,
@@ -137,6 +143,26 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     const assist = sanitiseAssistOffer(entry.assist)
     if (assist === undefined) delete entry.assist
     else entry.assist = assist
+    // The page session that published this, if it said which. Bounded hex
+    // or nothing: it is a map key at every reader - see `presenceKey` - so
+    // an unbounded string from another implementation would be a key of
+    // whatever length that implementation chose. A malformed one costs the
+    // claim and leaves the entry, which then reads exactly as an entry from
+    // a client that has never heard of the field.
+    const sid = sanitiseSid(entry.sid)
+    if (sid === undefined) delete entry.sid
+    else entry.sid = sid
+    // The call-profile capability claim: only an honest `2` counts, for the
+    // same reason only an honest `true` is a farewell or an agent flag - it
+    // decides what wire fields and negotiation shape a peer expects, so a
+    // looser reader's `"2"` or `2.0`-that-parsed-oddly must not pass as it.
+    const callProfile = sanitiseCallProfile(entry.callProfile)
+    if (callProfile === undefined) delete entry.callProfile
+    else entry.callProfile = callProfile
+    // At most one advert per role, and every advert kept must at least look
+    // like one - see `dedupeTrackAdverts`. A malformed or repeated advert
+    // costs itself, never the entry.
+    entry.tracks = dedupeTrackAdverts(entry.tracks)
     // A call membership is a claim like the rest: a bounded id and a time,
     // or nothing. A malformed one costs the claim, never the entry.
     const call = sanitiseCallMembership(entry.call)
@@ -212,6 +238,77 @@ export function sanitiseCallMembership(value: unknown): CallMembership | undefin
   if (typeof id !== 'string' || !/^[0-9a-f]{32}$/i.test(id)) return undefined
   if (typeof since !== 'number' || !Number.isFinite(since) || since < 0) return undefined
   return { id: id.toLowerCase(), since: Math.floor(since) }
+}
+
+/** A page-session id is opaque, and it is also a string another
+ *  implementation chose, so it is held to 8 hex characters and nothing
+ *  else. See `RosterEntry.sid`. */
+export function sanitiseSid(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}$/i.test(value)) return undefined
+  return value.toLowerCase()
+}
+
+/** A fresh page-session id: 8 lower-case hex characters. */
+export function newSid(): string {
+  const bytes = new Uint8Array(4)
+  crypto.getRandomValues(bytes)
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Only the exact number `2` is the profile-2 claim. See `RosterEntry.callProfile`. */
+export function sanitiseCallProfile(value: unknown): number | undefined {
+  return value === 2 ? 2 : undefined
+}
+
+const TRACK_ROLES: readonly TrackRole[] = ['camera', 'mic', 'screen', 'screen-audio']
+
+/**
+ * At most one advert per role per device.
+ *
+ * Already true in practice - a device only ever runs one camera, one mic,
+ * one share and one screen-audio track at a time - so this is a decode
+ * rule rather than a new constraint: an extra advert for a role already
+ * seen is dropped, the first one for that role (in wire order) survives,
+ * and the entry itself is always kept. Anything that does not even look
+ * like an advert - the wrong shape, an unrecognised role - is dropped the
+ * same way a hostile display name costs only the name.
+ */
+export function dedupeTrackAdverts(value: unknown): TrackAdvert[] {
+  if (!Array.isArray(value)) return []
+  const seenRoles = new Set<TrackRole>()
+  const result: TrackAdvert[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const { trackId, role } = item as Partial<TrackAdvert>
+    if (typeof trackId !== 'string' || typeof role !== 'string') continue
+    if (!TRACK_ROLES.includes(role as TrackRole)) continue
+    if (seenRoles.has(role as TrackRole)) continue
+    seenRoles.add(role as TrackRole)
+    const muted = sanitiseTrackMuted((item as Partial<TrackAdvert>).muted)
+    result.push(muted === undefined ? { trackId, role: role as TrackRole } : { trackId, role: role as TrackRole, muted })
+  }
+  return result
+}
+
+/** Only the exact literal `true` is a mute claim - see `TrackAdvert.muted`.
+ *  Anything else (`false`, `1`, `"true"`, `null`) is dropped so the key is
+ *  absent, the same rule `sanitiseCallProfile` applies to the profile-2
+ *  claim. */
+export function sanitiseTrackMuted(value: unknown): true | undefined {
+  return value === true ? true : undefined
+}
+
+/**
+ * The identity a reader holds a roster entry under.
+ *
+ * `device` alone while the entry names no page session, so an entry from a
+ * client that has never heard of `sid` behaves exactly as it always did:
+ * one entry per device, last writer wins. `device|sid` once it does, which
+ * is what lets two tabs of one browser - one on the call, one just looking -
+ * hold two entries instead of overwriting each other. See `RosterEntry.sid`.
+ */
+export function presenceKey(entry: Pick<RosterEntry, 'device' | 'sid'>): string {
+  return entry.sid ? `${entry.device}|${entry.sid}` : entry.device
 }
 
 /** Convenience for callers that hold a device secret key rather than a pubkey. */

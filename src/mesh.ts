@@ -1,6 +1,10 @@
 import type { Event } from 'nostr-tools/pure'
 import { Peer } from './peer.js'
-import type { PeerFactory } from './peer.js'
+import type { NegotiatingPeer, PeerFactory } from './peer.js'
+import { SlotPeer } from './slot-peer.js'
+import { PairController } from './pair-controller.js'
+import type { PairDiagnostics } from './pair-controller.js'
+import type { RoleResolver } from './peer-slots.js'
 import { wrapSignal, unwrapSignalEvent, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import type { ScreenAnnotation, SignalBody } from './signal.js'
 import { SignalGuard } from './signal-guard.js'
@@ -13,7 +17,7 @@ import { selectAssistant } from './peer-assist.js'
 import type { AssistVolunteer } from './peer-assist.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import type { RouteTier } from './peer.js'
-import type { AssistOffer } from './types.js'
+import type { AssistOffer, TrackRole } from './types.js'
 import { normaliseHex } from './hex.js'
 
 /**
@@ -56,6 +60,47 @@ export interface RemoteAnnotation {
   annotation: ScreenAnnotation
 }
 
+/** Something that went wrong in signalling and was survived, or something
+ *  ordinary worth a line in a call's timeline. See `MeshOptions.onDiagnostic`. */
+export interface MeshDiagnostic {
+  kind:
+    /** A relay rejected a signal outright, so it never left this device. */
+    | 'signal-publish-failed'
+    /** A signal reached the peer and the peer would not have it - a
+     *  description that does not match the session, most often. */
+    | 'signal-handling-failed'
+    /** A renegotiation on a connected pair went unanswered for long enough
+     *  that ICE was restarted on it. */
+    | 'renegotiation-stalled'
+    /** An ordinary signal was handed to the transport for publishing. */
+    | 'signal-sent'
+    /** An ordinary signal was received, decrypted and admitted. */
+    | 'signal-received'
+    /** A signal was retransmitted after its publish failed. */
+    | 'signal-retransmitted'
+    /** A signal held for a peer that did not exist yet was dropped as too
+     *  old once that peer was finally created. */
+    | 'signal-dropped-as-stale'
+    /** This endpoint's connection changed state. */
+    | 'connection-state-change'
+    /** A profile-2 pair's health ladder moved: a restart, a rebuild, a
+     *  change of rung, or a rest between walks of it. See §3.4. */
+    | 'pair-ladder'
+  /** The remote device the signal was to or from. */
+  device: string
+  /** Free text, for a bug report. Signal types, states and error messages
+   *  only - never a description, a candidate or anything from the SDP. */
+  detail: string
+}
+
+/** A rejection reduced to something a bug report can carry: never an object
+ *  a caller could walk back to a key or a room. */
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  return 'rejected'
+}
+
 export interface MeshOptions {
   session: MeshSession
   factory: PeerFactory
@@ -90,8 +135,8 @@ export interface MeshOptions {
    *  come back before it is believed failed. See `PeerOptions.iceRestart`. */
   iceRestart?: { graceMs?: number; timeoutMs?: number }
   /** Passed to every peer: how long an offer waits for its answer before it
-   *  is sent again, and how many times. See `PeerOptions.offerRetry`. */
-  offerRetry?: { intervalMs?: number; max?: number }
+   *  is sent again. See `PeerOptions.offerRetry`. */
+  offerRetry?: { intervalMs?: number; maxIntervalMs?: number; jitter?: number; wedgeMs?: number }
   /** Forwarders the room descriptor names. Swappable at runtime; see
    *  `setForwarders`. */
   forwarders?: ForwarderRef[]
@@ -126,6 +171,25 @@ export interface MeshOptions {
   routeTimeoutMs?: number
   /** How long the TURN rung gets. See `DEFAULT_TURN_ROUTE_TIMEOUT_MS`. */
   turnRouteTimeoutMs?: number
+  /**
+   * How long a renegotiation on an already connected pair gets before ICE is
+   * restarted on it. See `DEFAULT_RENEGOTIATION_TIMEOUT_MS`.
+   */
+  renegotiationTimeoutMs?: number
+  /**
+   * Where things that went wrong and were survived are reported.
+   *
+   * Signalling is full of failures that must not take the room down and must
+   * not be silent either: a relay that rejected a publish, a description the
+   * far end would not apply. Both used to vanish into an empty `catch`, which
+   * is how a pair could be wedged for a whole call with nothing anywhere
+   * saying so. Never called with anything secret - a signal's type and a
+   * device pubkey, both already on the wire.
+   *
+   * Optional, and a throw from it is swallowed: a caller's logger is not
+   * allowed to be the thing that breaks a call.
+   */
+  onDiagnostic?: (event: MeshDiagnostic) => void
   /** How long an exhausted route rests before the ladder is retried from
    *  the top. See `EXHAUSTED_RETRY_MS`. */
   exhaustedRetryMs?: number
@@ -176,6 +240,58 @@ export interface MeshOptions {
    *  say "connected through Priya" honestly, and to say "we could not connect"
    *  when the ladder runs out. */
   onRoute?: (device: string, route: RouteView) => void
+  /**
+   * Which call signalling profile this build speaks.
+   *
+   * `1` is every client from before today: negotiation per track, no
+   * generations, healing by ICE restart. `2` adds the fixed media slots, the
+   * reliable signal channel and pair generations of the call reliability
+   * design - and only ever for a pair where the far end's roster entry says
+   * `callProfile: 2` as well, because a profile-2 offer is meaningless to a
+   * far end that cannot read `slots`.
+   *
+   * Defaults to `1`, deliberately: the published library must behave exactly
+   * as it did, and an embedding turns this on when it has shipped the rest of
+   * the profile. A bad day is then one flag away from today's behaviour.
+   */
+  callProfile?: 1 | 2
+  /**
+   * Which fixed slot each published track belongs in.
+   *
+   * Only read on a profile-2 pair, where a track has to land in the right one
+   * of four m-lines. The app knows - it publishes a `TrackAdvert` carrying
+   * exactly this role - so asking is honest where guessing from kind and
+   * order is not. Omitted, the slots fall back to inference, which two
+   * cameras or a share with no camera would get wrong.
+   */
+  trackRole?: RoleResolver
+  /**
+   * A profile-2 far end reports a slot of ours dead and the local track for
+   * it has ended - a camera another application took, a microphone that was
+   * unplugged.
+   *
+   * Nothing this library owns can repair that: replacing the track means
+   * asking for a device, which is the embedding app's business and nobody
+   * else's. Absent, the slot simply stays empty and the far end keeps saying
+   * so, which is exactly what happened before this existed.
+   */
+  onSlotRecovery?: (device: string, role: TrackRole) => void
+  /**
+   * The pair-health thresholds of §3.4, for a caller that has to drive them
+   * in milliseconds rather than wait them out. Defaults are the constants in
+   * `src/pair-health.ts`; nothing in the app overrides them.
+   */
+  pairHealth?: {
+    sampleMs?: number
+    deadMs?: number
+    graceMs?: number
+    rtcpDeadMs?: number
+    restartMs?: { direct: number; turn: number }
+    rebuildMs?: { direct: number; turn: number }
+    healthMs?: number
+    rebuildWindowMs?: number
+    maxRebuilds?: number
+  }
 }
 
 /** How one remote device is currently being reached. */
@@ -226,6 +342,20 @@ export interface RemoteTrack {
    * produces frames that will not decrypt.
    */
   via: 'direct' | 'assist' | 'forwarder'
+  /**
+   * Which fixed slot this track arrived in, on a profile-2 pair.
+   *
+   * Resolved from the transceiver mid against the generation-opening offer's
+   * `slots` map, which is the one identity both ends agree on: measured in
+   * Chromium and Firefox, a receiver's track id never matches the sender's in
+   * a slot, and `muted` never becomes true when the far end stops sending. So
+   * the app is told the role rather than left to infer it from an advert that
+   * may be a moment stale.
+   *
+   * Absent for a profile-1 peer, and for a forwarded or assisted track, where
+   * the roster advert remains the only hint there is.
+   */
+  role?: TrackRole
 }
 
 /** Whether this room is routing through a forwarder, and how confidently. */
@@ -281,6 +411,37 @@ export const DEFAULT_ROUTE_TIMEOUT_MS = 10_000
 export const DEFAULT_TURN_ROUTE_TIMEOUT_MS = 20_000
 
 /**
+ * How long a renegotiation on an already connected pair gets before the pair
+ * is treated as stuck.
+ *
+ * The route ladder deliberately stops watching a pair the moment it connects:
+ * its job is finding a rung that works, and one has. But a connected pair
+ * renegotiates constantly - every camera toggle, every share, every mic
+ * pipeline swap is an offer - and a renegotiation that loses its answer
+ * leaves the connection up, carrying what it was already carrying, and blind
+ * to whatever the offer was about. Nothing noticed, because nothing was
+ * watching: measured on a fault-injecting relay, the others could not see
+ * that person again for the rest of the call.
+ *
+ * Longer than several retransmissions of the offer, because the cheap repair
+ * is the offer arriving on the second or third ask and this is only for when
+ * it does not. What happens at the end of it is an ICE restart on the
+ * connection that exists - never a replacement connection, see
+ * `Peer.healStalledNegotiation`.
+ */
+export const DEFAULT_RENEGOTIATION_TIMEOUT_MS = 20_000
+
+/**
+ * The shortest gap between two retransmissions prompted by a rejected
+ * publish.
+ *
+ * A relay that is rejecting is likely to reject the retry too, and the retry
+ * is itself a publish: without a floor the rejection handler would call
+ * itself for as long as the relay stayed unhappy.
+ */
+export const PUBLISH_RETRY_MIN_MS = 1_000
+
+/**
  * How long a device whose every rung has failed is left alone before the
  * ladder is tried again from the top.
  *
@@ -333,7 +494,57 @@ export const MAX_HELD_SIGNAL_DEVICES = 16
  */
 export class Mesh {
   readonly #opts: MeshOptions
-  readonly #peers = new Map<string, Peer>()
+  readonly #peers = new Map<string, NegotiatingPeer>()
+  /**
+   * The page session each open peer was built for - see `RosterEntry.sid`.
+   *
+   * A connection is to a page session, not to a device key. Two tabs of one
+   * browser sign as the same device, so a second tab taking over a call
+   * used to collide with the first tab's still-open connection under the
+   * identical key: the endpoint looked unchanged, the peer was reused, and
+   * the pair waited out the route ladder while a live person was audible to
+   * nobody. A changed `sid` is a physically different endpoint that cannot
+   * take over a transport it was never party to, so the peer is closed and
+   * rebuilt at once rather than waited out.
+   */
+  readonly #peerSids = new Map<string, string>()
+  /** The page session the roster currently names for each device. */
+  readonly #deviceSids = new Map<string, string>()
+  /** The call signalling profile each device's roster entry claims. See
+   *  `RosterEntry.callProfile`; absent means profile 1. */
+  readonly #deviceProfiles = new Map<string, number>()
+  /**
+   * Devices whose roster entry claims profile 2 but whose signalling says
+   * otherwise - a far end that reloaded into an old build mid-call (§2.3).
+   * Held for the life of the room rather than the roster snapshot, because
+   * the roster entry that lied will keep arriving and would otherwise flip
+   * the pair back on every heartbeat.
+   */
+  readonly #downgraded = new Set<string>()
+  /**
+   * Devices a signature-valid signal carrying `gen` has arrived from.
+   *
+   * §2.3's second half of the capability rule, and it exists for one window:
+   * a far end that has just reloaded into a profile-2 build is speaking it
+   * before its roster entry says so, and its offer would otherwise be
+   * answered by a profile-1 peer that cannot read `slots`. Evidence is
+   * weaker than the roster entry only in that `#downgraded` beats it, which
+   * is what stops a pair flapping between the two profiles.
+   */
+  readonly #profile2Evidence = new Set<string>()
+  /**
+   * The per-pair controller for each profile-2 pair - §3.4's replacement for
+   * the route and exhausted-retry timers on the `direct` and `turn` rungs.
+   *
+   * Keyed by device rather than by endpoint and held for the life of the
+   * pair rather than of any one connection, because carrying the rest
+   * ladder's position across a rebuild is the whole reason it is not simply
+   * part of `SlotPeer`.
+   */
+  readonly #controllers = new Map<string, PairController>()
+  /** Another page session of this device is speaking for it. See
+   *  `standDown`. */
+  #quiet = false
   /** Every other admitted room device, including another device belonging
    *  to our own participant. Room signalling such as screen annotations
    *  reaches these devices even before their media connects. */
@@ -348,6 +559,7 @@ export class Mesh {
   /** Staleness, deduplication and rate limiting - the three rules §3 of the
    *  design says signalling reuses from NIP-AC. */
   readonly #guard = new SignalGuard()
+  readonly #annotationGuard = new SignalGuard(480)
   readonly #now: () => number
   #tracks: MediaStreamTrack[] = []
   /** Who the tracks are for. Absent means everybody. See `publish`. */
@@ -370,6 +582,14 @@ export class Mesh {
   readonly #routeTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** One timer per exhausted device, after which its ladder is retried. */
   readonly #retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** One timer per endpoint with a negotiation outstanding on a connection
+   *  that is already up. The route timers deliberately stop at `connected`;
+   *  this is what watches what happens after. See
+   *  `DEFAULT_RENEGOTIATION_TIMEOUT_MS`. */
+  readonly #renegotiationTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** When each device last had a retransmission forced by a rejected
+   *  publish. See `PUBLISH_RETRY_MIN_MS`. */
+  readonly #publishRetryAt = new Map<string, number>()
   /** Endpoints being closed deliberately, so their own `closed` state change
    *  is not mistaken for the rung failing. Same guard as
    *  `#tearingDownForwarder`, for the same reason. */
@@ -431,6 +651,40 @@ export class Mesh {
   /** What this device is carrying for other people, if it volunteered. */
   get relaying(): number {
     return this.#opts.relay?.relaying ?? 0
+  }
+
+  /**
+   * Stop being this device on the wire: close every connection, open none,
+   * and answer nothing addressed to this device key.
+   *
+   * For the one case where a device key is not one endpoint: another page
+   * session of this browser, in this room, is on the call. Both tabs sign
+   * as the same device, so both unwrap and both can answer the same offer,
+   * and the far end has exactly one connection per device key to give. The
+   * tab that is only looking wins that race often enough to matter, and
+   * when it does it answers with a connection carrying no media at all: the
+   * others reach "Ada", hear silence, and their ladder walks itself to TURN
+   * against a tab that has nothing to send, while the tab the person is
+   * actually talking into cannot get a connection of its own.
+   *
+   * So the quiet tab goes quiet on signalling too, not only on presence.
+   * See `RoomSession.pausePresence`, which is the same fact said about the
+   * roster, and `RosterEntry.sid`, which is how everybody else tells the
+   * two page sessions apart.
+   */
+  standDown(): void {
+    if (this.#quiet) return
+    this.#quiet = true
+    this.#teardownForwarder()
+    this.#reconcile(this.#opts.session.participants())
+  }
+
+  /** This page session speaks for the device again: rebuild the mesh from
+   *  the roster as it stands. Safe to call when it never stood down. */
+  standUp(): void {
+    if (!this.#quiet) return
+    this.#quiet = false
+    this.#reconcile(this.#opts.session.participants())
   }
 
   /**
@@ -520,13 +774,21 @@ export class Mesh {
     this.#unsubSignal()
     this.#teardownForwarder()
     for (const endpoint of [...this.#routeTimers.keys()]) this.#clearRouteTimer(endpoint)
+    for (const endpoint of [...this.#renegotiationTimers.keys()]) this.#clearRenegotiationTimer(endpoint)
     for (const device of [...this.#retryTimers.keys()]) this.#clearRetryTimer(device)
+    this.#publishRetryAt.clear()
     this.#opts.relay?.close()
     this.#routes.clear()
     this.#volunteers.clear()
     this.#pendingSignals.clear()
     for (const peer of this.#peers.values()) peer.close()
     this.#peers.clear()
+    this.#peerSids.clear()
+    this.#deviceProfiles.clear()
+    this.#downgraded.clear()
+    this.#profile2Evidence.clear()
+    for (const controller of this.#controllers.values()) controller.close()
+    this.#controllers.clear()
     this.#annotationDevices.clear()
     this.#deviceToParticipant.clear()
     this.#trackOwner.clear()
@@ -550,7 +812,11 @@ export class Mesh {
     const wantedDevices = new Map<string, string>() // device -> participant
     const annotationDevices = new Map<string, string>() // every other admitted room device
     this.#trackOwner.clear()
+    this.#deviceSids.clear()
+    this.#deviceProfiles.clear()
     for (const view of views) {
+      for (const [device, sid] of Object.entries(view.sids ?? {})) this.#deviceSids.set(device, sid)
+      for (const [device, profile] of Object.entries(view.callProfiles ?? {})) this.#deviceProfiles.set(device, profile)
       for (const device of view.devices) {
         if (device !== this.#opts.localDevice) annotationDevices.set(device, view.participant)
       }
@@ -584,9 +850,14 @@ export class Mesh {
     // Decided before any peer is opened or closed, because the answer governs
     // both. `wantedDevices.size` is the `(N-1)` in `(N-1) x bitrate`: the
     // devices this one would have to send its own media to.
-    this.#evaluatePromotion(wantedDevices.size)
+    // Never while stood down: a tab that is carrying nothing must not go
+    // looking for a forwarder to carry it.
+    if (!this.#quiet) this.#evaluatePromotion(wantedDevices.size)
 
-    const direct = this.#forwarding !== 'up'
+    // A tab that has stood down holds no connections and opens none: the
+    // empty endpoint set below closes what it had, and the early return
+    // after it stops anything being opened. See `standDown`.
+    const direct = this.#forwarding !== 'up' && !this.#quiet
 
     // The endpoints, not the devices. Usually the same set: most people are
     // reached at their own address. A device being carried by a volunteer is
@@ -601,8 +872,36 @@ export class Mesh {
     }
 
     for (const [endpoint, peer] of [...this.#peers]) {
-      if (endpoints.has(endpoint)) continue
+      // Not the endpoint we built this for any more, even though the key is
+      // the same one: another page session of that device is answering now,
+      // and it has no way to take over a transport it was never party to.
+      // Closed here rather than left to the route ladder, because the
+      // ladder's own timers are what made this cost half a minute.
+      const swapped = endpoints.has(endpoint) && this.#sessionChanged(endpoint)
+      if (endpoints.has(endpoint) && !swapped) continue
       this.#closePeer(endpoint, peer)
+      // The rung did not fail - there is nothing wrong with this route - so
+      // it keeps its tier and its budget. What it loses is the claim to be
+      // connected, which was true of a connection that no longer exists and
+      // which would otherwise stop the rebuilt one from being given a
+      // watchdog at all.
+      if (!swapped) continue
+      for (const [device, route] of this.#routes) {
+        if (route.endpoint !== endpoint || !route.connected) continue
+        route.connected = false
+        this.#announceRoute(device, route)
+      }
+    }
+
+    // Nothing is negotiating, so nothing is connected: a route left saying
+    // it was would deny the rebuilt connection a watchdog when this page
+    // session speaks for the device again.
+    if (this.#quiet) {
+      for (const [device, route] of this.#routes) {
+        if (!route.connected) continue
+        route.connected = false
+        this.#announceRoute(device, route)
+      }
     }
 
     if (!direct) return
@@ -616,8 +915,11 @@ export class Mesh {
         this.#armRouteTimerIfNeeded(endpoint)
         continue
       }
-      const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
+      const peer = this.#createEndpointPeer(endpoint)
       this.#peers.set(endpoint, peer)
+      const sid = this.#deviceSids.get(endpoint)
+      if (sid === undefined) this.#peerSids.delete(endpoint)
+      else this.#peerSids.set(endpoint, sid)
       this.#armRouteTimerIfNeeded(endpoint)
       peer.start(this.#tracksFor(endpoint)).catch(() => {})
       // After `start`, never before: the offer waiting here is answered by
@@ -653,6 +955,11 @@ export class Mesh {
 
   #armRouteTimerIfNeeded(endpoint: string): void {
     if (this.#routeTimers.has(endpoint)) return
+    // A profile-2 pair is watched by its controller, which judges the pair on
+    // whether media is arriving rather than on a stopwatch started when the
+    // connection was opened. Two watchdogs on one pair would race to decide
+    // what to do about it, and the loser's decision would be a teardown.
+    if (this.#controlled(endpoint)) return
     if (this.#routes.get(endpoint)?.connected) return
     if (!this.#needsMedia(endpoint)) return
     this.#armRouteTimer(endpoint)
@@ -662,6 +969,7 @@ export class Mesh {
    *  side has to send, and the rung gets its budget from here. */
   #armRouteTimerForOffer(endpoint: string): void {
     if (this.#routeTimers.has(endpoint)) return
+    if (this.#controlled(endpoint)) return
     if (!this.#peers.has(endpoint)) return
     if (this.#routes.get(endpoint)?.connected) return
     this.#armRouteTimer(endpoint)
@@ -689,6 +997,12 @@ export class Mesh {
       if (!wantedDevices.has(device)) {
         this.#routes.delete(device)
         this.#clearRetryTimer(device)
+        // The pair itself has gone, which is the one thing that ends a
+        // profile-2 pair's controller: §3.4's "while both devices are in the
+        // roster" is exactly this check.
+        this.#controllers.get(device)?.close()
+        this.#controllers.delete(device)
+        this.#profile2Evidence.delete(device)
         // We may have been carrying this device for somebody. Holding the
         // slot open would cost a slot we could give somebody else.
         this.#stopRelayingFor(device)
@@ -717,9 +1031,30 @@ export class Mesh {
     return this.#routes.get(endpoint)?.tier === 'turn' ? 'turn' : 'direct'
   }
 
-  #closePeer(endpoint: string, peer: Peer): void {
+  /**
+   * Whether the page session behind this endpoint is not the one its open
+   * peer was built for.
+   *
+   * Only a swap between two *named* page sessions counts. A far end that
+   * has never published one, and one that publishes for the first time
+   * mid-room, both read as "no news": rebuilding a working connection on
+   * that would churn every pair the first time a peer upgraded.
+   */
+  #sessionChanged(endpoint: string): boolean {
+    const built = this.#peerSids.get(endpoint)
+    const current = this.#deviceSids.get(endpoint)
+    return built !== undefined && current !== undefined && built !== current
+  }
+
+  #closePeer(endpoint: string, peer: NegotiatingPeer): void {
     this.#peers.delete(endpoint)
+    this.#peerSids.delete(endpoint)
+    // Detached, not closed: the controller outlives any one connection, and
+    // a rebuild's peer is attached to the same one a moment later.
+    if (this.#controllers.get(endpoint)?.peer === peer) this.#controllers.get(endpoint)!.detach()
     this.#clearRouteTimer(endpoint)
+    this.#clearRenegotiationTimer(endpoint)
+    this.#publishRetryAt.delete(endpoint)
     this.#closingEndpoints.add(endpoint)
     try {
       peer.close()
@@ -748,9 +1083,95 @@ export class Mesh {
     this.#routeTimers.delete(endpoint)
   }
 
+  /**
+   * A negotiation has started on a pair that is already carrying media.
+   *
+   * Only for a connected pair: everything before that belongs to the route
+   * ladder, which is watching already, and two watchdogs on one negotiation
+   * would race to decide what to do about it.
+   */
+  #armRenegotiationTimer(endpoint: string): void {
+    if (this.#closed) return
+    if (this.#renegotiationTimers.has(endpoint)) return
+    if (!this.#peers.has(endpoint)) return
+    if (!this.#routes.get(endpoint)?.connected) return
+    const timer = setTimeout(() => {
+      this.#renegotiationTimers.delete(endpoint)
+      this.#renegotiationStalled(endpoint)
+    }, this.#opts.renegotiationTimeoutMs ?? DEFAULT_RENEGOTIATION_TIMEOUT_MS)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    this.#renegotiationTimers.set(endpoint, timer)
+  }
+
+  #clearRenegotiationTimer(endpoint: string): void {
+    const timer = this.#renegotiationTimers.get(endpoint)
+    if (timer !== undefined) clearTimeout(timer)
+    this.#renegotiationTimers.delete(endpoint)
+  }
+
+  /**
+   * A renegotiation on a connected pair never got its answer.
+   *
+   * The pair is not torn down and no new connection is made. A far end on the
+   * old profile would be handed a fresh connection's m-line order to apply to
+   * a session it already has, reject it, and be left worse off than the wedge
+   * - which is the whole reason the healing step here is an ICE restart on
+   * the connection that exists. A genuine rebuild waits for the connection
+   * itself to report `failed`.
+   */
+  #renegotiationStalled(endpoint: string): void {
+    if (this.#closed) return
+    const peer = this.#peers.get(endpoint)
+    if (!peer) return
+    this.#diagnose({
+      kind: 'renegotiation-stalled',
+      device: endpoint,
+      detail: 'a renegotiation on a connected pair went unanswered; restarting ICE on the existing connection',
+    })
+    peer.healStalledNegotiation()
+  }
+
+  /** What a signal this device just sent, or just received, says about
+   *  whether a negotiation on a connected pair is outstanding. */
+  #watchNegotiation(endpoint: string, body: SignalBody): void {
+    if (body.type === 'offer') this.#armRenegotiationTimer(endpoint)
+    else if (body.type === 'answer') this.#clearRenegotiationTimer(endpoint)
+  }
+
+  /**
+   * A relay rejected a signal, so it never left this device.
+   *
+   * Two things follow. The failure is reported, because it used to be
+   * swallowed whole and a pair that silently stopped negotiating was
+   * indistinguishable from one that never had anything to say. And the
+   * signal is sent again at once rather than waiting out a backoff step for
+   * an attempt that did not happen.
+   */
+  #signalPublishFailed(device: string, body: SignalBody, error: unknown): void {
+    this.#diagnose({ kind: 'signal-publish-failed', device, detail: `${body.type}: ${describeError(error)}` })
+    if (this.#closed) return
+    if (body.type !== 'offer' && body.type !== 'answer') return
+    const now = Date.now()
+    if (now - (this.#publishRetryAt.get(device) ?? 0) < PUBLISH_RETRY_MIN_MS) return
+    this.#publishRetryAt.set(device, now)
+    const peer = this.#peerFor(device)
+    if (!peer) return
+    peer.retransmitNow()
+    this.#diagnose({ kind: 'signal-retransmitted', device, detail: body.type })
+  }
+
+  #diagnose(event: MeshDiagnostic): void {
+    try {
+      this.#opts.onDiagnostic?.(event)
+    } catch {
+      // A caller's logger is not allowed to be what breaks a call.
+    }
+  }
+
   /** A rung worked. */
   #endpointConnected(endpoint: string): void {
     this.#clearRouteTimer(endpoint)
+    this.#controllers.get(endpoint)?.connected()
     for (const [device, route] of this.#routes) {
       if (route.endpoint !== endpoint || route.connected) continue
       route.connected = true
@@ -846,6 +1267,15 @@ export class Mesh {
 
   #armRetryTimer(device: string): void {
     this.#clearRetryTimer(device)
+    // §3.4: for a profile-2 pair the controller owns the rest between walks
+    // of the ladder, jittered and without a terminal state - both devices are
+    // in the roster, so the pair should be on a call and the client keeps
+    // saying so.
+    const controller = this.#controllers.get(device)
+    if (controller?.active) {
+      controller.exhausted()
+      return
+    }
     const base = this.#opts.exhaustedRetryMs ?? EXHAUSTED_RETRY_MS
     const retries = this.#routes.get(device)?.retries ?? 0
     const rest = Math.min(base * 2 ** retries, Math.max(base, this.#opts.maxExhaustedRetryMs ?? MAX_EXHAUSTED_RETRY_MS))
@@ -926,7 +1356,9 @@ export class Mesh {
       { ...body, roomId: this.#opts.roomId } as SignalBody,
       { senderSk: this.#opts.deviceSk, recipientPubkey: to },
     )
-    this.#opts.transport.publish(wrap).catch(() => {})
+    this.#opts.transport.publish(wrap).catch((error) =>
+      this.#diagnose({ kind: 'signal-publish-failed', device: to, detail: `${body.type}: ${describeError(error)}` }),
+    )
   }
 
   #requestAssist(device: string, assistant: string): void {
@@ -1022,6 +1454,7 @@ export class Mesh {
       if (this.#forwarding !== 'off') {
         this.#teardownForwarder()
         this.#forwarding = 'off'
+        for (const controller of this.#controllers.values()) controller.resume()
       }
       return
     }
@@ -1152,6 +1585,11 @@ export class Mesh {
     this.#clearForwarderTimer()
     for (const peer of this.#peers.values()) peer.close()
     this.#peers.clear()
+    this.#peerSids.clear()
+    // §3.4: the per-pair controller suspends while a forwarder carries the
+    // room. There is no direct connection left to measure, and a rest that
+    // fired under a forwarder would ask for a peer the promotion just closed.
+    for (const controller of this.#controllers.values()) controller.suspend()
   }
 
   /** The forwarder never came up, or dropped after it had. Back to a direct
@@ -1161,6 +1599,8 @@ export class Mesh {
     if (this.#forwarderDevice) this.#failedForwarders.add(this.#forwarderDevice)
     this.#teardownForwarder()
     this.#forwarding = 'failed'
+    // Back to a direct mesh, so each profile-2 pair is its own watchdog again.
+    for (const controller of this.#controllers.values()) controller.resume()
     // Anybody who was on the forwarder rung because their own connection had
     // failed drops to the last one. Everybody else is back to a direct mesh,
     // which is what `#reconcile` below restores.
@@ -1194,6 +1634,253 @@ export class Mesh {
     this.#forwarderTimer = undefined
   }
 
+  /**
+   * Whether this pair speaks profile 2.
+   *
+   * Both ends, and both by their own account: this build has to have it
+   * turned on, and the far end's roster entry - signed by that device and
+   * encrypted to the room key - has to claim it. One end guessing is exactly
+   * what the capability field exists to prevent, because a profile-2 offer
+   * reaching a far end that cannot read `slots` is four m-lines it will bind
+   * by kind and order and then never be able to explain.
+   *
+   * The roster is the ordinary answer and a signal carrying `gen` is the
+   * other half of §2.3: a far end that has just reloaded into a profile-2
+   * build speaks it before the room's next heartbeat says so, and answering
+   * its offer with a profile-1 peer would lose the slot map. A pair that has
+   * been caught speaking profile 1 (`#downgraded`) beats both, because that
+   * is the direction that cannot be guessed wrong safely.
+   */
+  #speaksProfile2(device: string): boolean {
+    if (this.#opts.callProfile !== 2) return false
+    if (this.#downgraded.has(device)) return false
+    return this.#deviceProfiles.get(device) === 2 || this.#profile2Evidence.has(device)
+  }
+
+  /**
+   * A signal from this device carried a generation, so it speaks profile 2
+   * whatever its roster entry has caught up to saying.
+   *
+   * If a profile-1 peer is already open for it, that peer is replaced at
+   * once and handed the signal, exactly as `#downgradePeer` does in the other
+   * direction: waiting for the roster would mean answering a slotted offer
+   * from a connection that cannot bind it, and then being downgraded by the
+   * far end in turn.
+   */
+  #noteProfile2Evidence(device: string, body: SignalBody): void {
+    if (this.#closed || this.#quiet) return
+    if (this.#opts.callProfile !== 2 || this.#downgraded.has(device)) return
+    if (this.#deviceProfiles.get(device) === 2) return
+    if (this.#profile2Evidence.has(device)) return
+    if (!this.#deviceToParticipant.has(device)) return
+    this.#profile2Evidence.add(device)
+    this.#diagnose({ kind: 'signal-received', device, detail: `${body.type}: far end is on call profile 2; upgrading` })
+    const existing = this.#peers.get(device)
+    if (!existing || existing instanceof SlotPeer) return
+    this.#closePeer(device, existing)
+    const peer = this.#createEndpointPeer(device)
+    this.#peers.set(device, peer)
+    const sid = this.#deviceSids.get(device)
+    if (sid === undefined) this.#peerSids.delete(device)
+    else this.#peerSids.set(device, sid)
+    this.#armRouteTimerIfNeeded(device)
+    peer.start(this.#tracksFor(device)).catch(() => {})
+  }
+
+  /** The controller that owns this pair's lifecycle, made on first need.
+   *  Only ever for a device the room actually holds a profile-2 pair with. */
+  #controllerFor(device: string): PairController {
+    const existing = this.#controllers.get(device)
+    if (existing) return existing
+    const controller = new PairController({
+      device,
+      advertised: () => this.#advertisedRoles(device),
+      onNextTier: () => this.#nextRungForPair(device),
+      onRestOver: () => this.#restartPair(device),
+      onDiagnostic: (detail) => this.#diagnose({ kind: 'pair-ladder', device, detail }),
+      rest: {
+        baseMs: this.#opts.exhaustedRetryMs,
+        maxMs: this.#opts.maxExhaustedRetryMs,
+      },
+      health: this.#opts.pairHealth,
+    })
+    if (this.#forwarding === 'up') controller.suspend()
+    this.#controllers.set(device, controller)
+    return controller
+  }
+
+  /** Whether this endpoint's own watchdog is the per-pair controller rather
+   *  than a route timer. False while a forwarder carries the room, which is
+   *  what puts the route ladder back in charge of the rungs it still owns. */
+  #controlled(endpoint: string): boolean {
+    return this.#controllers.get(endpoint)?.active === true
+  }
+
+  /**
+   * Which slots this device's roster advert says are live.
+   *
+   * The advert is what turns "nothing is arriving in this slot" into a fault
+   * rather than a fact: a camera that is off is an idle slot. It is up to
+   * twenty seconds stale, which is exactly why it is only ever half of the
+   * rule - the other half is the counters, and §4's liveness is the two of
+   * them together.
+   */
+  #advertisedRoles(device: string): TrackRole[] {
+    const roles: TrackRole[] = []
+    for (const view of this.#views) {
+      for (const advert of view.tracks) {
+        if (advert.device !== device) continue
+        // §2.1's decode rule: at most one advert per role per device.
+        if (!roles.includes(advert.role)) roles.push(advert.role)
+      }
+    }
+    return roles
+  }
+
+  /**
+   * §3.4's step 3 for a profile-2 pair: direct to TURN, at a new generation.
+   *
+   * Only those two rungs. Assist and forwarder keep the route ladder's own
+   * behaviour, and a pair already on TURN has nowhere left to go - which is
+   * what `false` says, and what the controller answers with a rest.
+   */
+  #nextRungForPair(device: string): boolean {
+    if (this.#closed) return false
+    const route = this.#routes.get(device)
+    if (!route || route.tier !== 'direct') return false
+    route.tier = 'turn'
+    route.endpoint = device
+    route.connected = false
+    this.#announceRoute(device, route)
+    const peer = this.#peers.get(device)
+    if (peer) this.#closePeer(device, peer)
+    this.#reconcile(this.#opts.session.participants())
+    return true
+  }
+
+  /**
+   * A rest is over: this pair starts again from the top rung.
+   *
+   * The peer is closed explicitly rather than left to `#reconcile`, because
+   * the device is still wanted and the endpoint set is unchanged - so nothing
+   * else would replace a connection that has been failing for a minute.
+   */
+  #restartPair(device: string): void {
+    if (this.#closed) return
+    const route = this.#routes.get(device)
+    if (!route) return
+    route.tier = 'direct'
+    route.endpoint = device
+    route.connected = false
+    route.exhausted = false
+    route.failed = []
+    route.retries += 1
+    this.#announceRoute(device, route)
+    const peer = this.#peers.get(device)
+    if (peer) this.#closePeer(device, peer)
+    this.#reconcile(this.#opts.session.participants())
+  }
+
+  /**
+   * A slot's own track has ended, so re-attaching it would only make the slot
+   * look busy. The application is the only thing that can replace it.
+   *
+   * Reported rather than repaired here for the same reason `Mesh` does not
+   * own `getUserMedia`: the media pipeline, the device choice and the
+   * permission prompt are all the app's, and a protocol library that reached
+   * for a camera would be a protocol library nobody could embed.
+   */
+  #recoverSlot(device: string, role: TrackRole): void {
+    this.#diagnose({ kind: 'pair-ladder', device, detail: `the local ${role} track has ended; media recovery is the app's` })
+    try {
+      this.#opts.onSlotRecovery?.(device, role)
+    } catch {
+      // A caller's media pipeline is not allowed to take the room down.
+    }
+  }
+
+  /** Every profile-2 pair's state, for the bug report. See §8, step S12. */
+  pairDiagnostics(): PairDiagnostics[] {
+    return [...this.#controllers.values()].map((controller) => controller.summary())
+  }
+
+  /** The peer for an ordinary room device, on whichever profile the pair
+   *  speaks. Never a forwarder: that path stays profile 1 in phase 1. */
+  #createEndpointPeer(endpoint: string): NegotiatingPeer {
+    const tier = this.#tierOfEndpoint(endpoint)
+    if (!this.#speaksProfile2(endpoint)) return this.#createPeer(endpoint, false, tier)
+    const controller = this.#controllerFor(endpoint)
+    const peer = new SlotPeer({
+      factory: this.#opts.factory,
+      localDevice: this.#opts.localDevice,
+      remoteDevice: endpoint,
+      context: { tier, remoteDevice: endpoint },
+      iceRestart: this.#opts.iceRestart,
+      trackRole: this.#opts.trackRole,
+      onSignal: (body) => {
+        // The tier rides on the offer already - `SlotPeer` knows which rung
+        // its connection was built on, and adopts the far end's when it
+        // adopts a generation - so nothing is added here.
+        const wrap = wrapSignal({ ...body, roomId: this.#opts.roomId }, { senderSk: this.#opts.deviceSk, recipientPubkey: endpoint })
+        this.#opts.transport.publish(wrap).catch((error) => this.#signalPublishFailed(endpoint, body, error))
+        this.#watchNegotiation(endpoint, body)
+        this.#diagnose({ kind: 'signal-sent', device: endpoint, detail: body.type })
+      },
+      onTrack: (track, _receiver, role) => this.#onEndpointTrack(endpoint, track, role),
+      onConnectionState: (state) => {
+        this.#diagnose({ kind: 'connection-state-change', device: endpoint, detail: state })
+        if (state === 'connected') this.#endpointConnected(endpoint)
+        else if (state === 'failed' || state === 'closed') this.#endpointFailed(endpoint)
+      },
+      onDowngrade: (body) => this.#downgradePeer(endpoint, body),
+      // The far end says a slot of ours is dead. Believed only where this
+      // side cannot contradict it - see `SlotPeerOptions.outboundReceived`.
+      outboundReceived: (role) => controller.outboundReceived(role),
+      // And where the repair is impossible because the local track has
+      // ended, only the application can answer: it owns the camera, the
+      // microphone and the permission prompt.
+      onSlotRecovery: (role) => this.#recoverSlot(endpoint, role),
+    })
+    controller.attach(peer)
+    return peer
+  }
+
+  /**
+   * The far end has stopped speaking profile 2 - it reloaded into an old
+   * build, which on the wire is a signal with no `gen` on it.
+   *
+   * Rebuilt legacy-style at once rather than waited out: everything the
+   * profile-2 peer would say from here is addressed to a connection and a
+   * generation the far end has never heard of, so the pair would sit blind
+   * until the route ladder gave up on it. The signal that gave the game away
+   * is handed straight to the replacement, because it is an offer far more
+   * often than not and it is the only thing either side has to work with.
+   */
+  #downgradePeer(endpoint: string, body: SignalBody): void {
+    if (this.#closed) return
+    this.#downgraded.add(endpoint)
+    this.#profile2Evidence.delete(endpoint)
+    // The pair is profile 1 from here, so the route ladder is its watchdog
+    // again and the controller has nothing left to own.
+    this.#controllers.get(endpoint)?.close()
+    this.#controllers.delete(endpoint)
+    const existing = this.#peers.get(endpoint)
+    if (!existing) return
+    this.#closePeer(endpoint, existing)
+    this.#diagnose({ kind: 'signal-handling-failed', device: endpoint, detail: `${body.type}: far end is on call profile 1; rebuilding` })
+    const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
+    this.#peers.set(endpoint, peer)
+    const sid = this.#deviceSids.get(endpoint)
+    if (sid === undefined) this.#peerSids.delete(endpoint)
+    else this.#peerSids.set(endpoint, sid)
+    this.#armRouteTimerIfNeeded(endpoint)
+    peer.start(this.#tracksFor(endpoint)).catch(() => {})
+    peer.handleSignal(body).catch((error) =>
+      this.#diagnose({ kind: 'signal-handling-failed', device: endpoint, detail: `${body.type}: ${describeError(error)}` }),
+    )
+    if (body.type === 'offer') this.#armRouteTimerForOffer(endpoint)
+  }
+
   #createPeer(remoteDevice: string, forwarder = false, tier: RouteTier = 'direct'): Peer {
     return new Peer({
       factory: this.#opts.factory,
@@ -1210,7 +1897,15 @@ export class Mesh {
           { ...body, ...rung, roomId: this.#opts.roomId },
           { senderSk: this.#opts.deviceSk, recipientPubkey: remoteDevice },
         )
-        this.#opts.transport.publish(wrap).catch(() => {})
+        // Not fire and forget any more. A relay that rejects a publish has
+        // taken this device's only copy of a signal the far end will never
+        // know to ask for, and the empty `catch` that used to be here is why
+        // that looked exactly like a pair with nothing to say.
+        this.#opts.transport.publish(wrap).catch((error) => this.#signalPublishFailed(remoteDevice, body as SignalBody, error))
+        if (!forwarder) {
+          this.#watchNegotiation(remoteDevice, body as SignalBody)
+          this.#diagnose({ kind: 'signal-sent', device: remoteDevice, detail: (body as SignalBody).type })
+        }
       },
       onTrack: (track, receiver) => {
         if (forwarder) this.#onForwardedTrack(track, receiver)
@@ -1235,6 +1930,7 @@ export class Mesh {
             else if (state === 'failed' || state === 'closed') this.#forwarderFailed()
           }
         : (state: RTCPeerConnectionState) => {
+            this.#diagnose({ kind: 'connection-state-change', device: remoteDevice, detail: state })
             if (state === 'connected') this.#endpointConnected(remoteDevice)
             else if (state === 'failed' || state === 'closed') this.#endpointFailed(remoteDevice)
           },
@@ -1252,16 +1948,19 @@ export class Mesh {
    * Both have to agree before a track is attributed to anybody but the
    * endpoint it arrived on.
    */
-  #onEndpointTrack(endpoint: string, track: MediaStreamTrack): void {
+  #onEndpointTrack(endpoint: string, track: MediaStreamTrack, role?: TrackRole): void {
     const owner = this.#trackOwner.get(track.id)
     if (owner !== undefined && owner !== endpoint) {
       const route = this.#routes.get(owner)
       if (route?.tier === 'assist' && route.endpoint === endpoint) {
+        // A volunteer's connection carries somebody else's media, so its
+        // slots are the volunteer's and say nothing about whose track this
+        // is. The advert is the only hint there is on that path.
         this.#emitTrack(owner, track, 'assist')
         return
       }
     }
-    this.#emitTrack(endpoint, track, 'direct')
+    this.#emitTrack(endpoint, track, 'direct', role)
   }
 
   /**
@@ -1300,10 +1999,12 @@ export class Mesh {
     }
   }
 
-  #emitTrack(device: string, track: MediaStreamTrack, via: 'direct' | 'assist' | 'forwarder'): void {
+  #emitTrack(device: string, track: MediaStreamTrack, via: 'direct' | 'assist' | 'forwarder', role?: TrackRole): void {
     const participant = this.#deviceToParticipant.get(device)
     if (!participant) return
-    for (const listener of this.#trackListeners) listener({ participant, device, track, via })
+    const remote: RemoteTrack = { participant, device, track, via }
+    if (role !== undefined) remote.role = role
+    for (const listener of this.#trackListeners) listener(remote)
   }
 
   /** Never throws - this runs inside a relay subscription handler where a
@@ -1329,7 +2030,11 @@ export class Mesh {
     // Rate limiting last, and against the *sending device* rather than the
     // wrap's pubkey: every wrap is signed by a fresh ephemeral key, so the
     // only stable identity a budget can be held against is the one inside.
-    if (!this.#guard.admitSender(unwrapped.from, now)) return
+    if (unwrapped.body.type === 'annotation') {
+      if (!this.#annotationDevices.has(unwrapped.from) || !this.#annotationGuard.admitSender(unwrapped.from, now)) return
+    } else if (!this.#guard.admitSender(unwrapped.from, now)) return
+
+    this.#diagnose({ kind: 'signal-received', device: unwrapped.from, detail: unwrapped.body.type })
 
     if (unwrapped.body.type === 'assist') {
       // Assist requests act immediately rather than waiting for a Peer, so
@@ -1360,13 +2065,33 @@ export class Mesh {
 
     if (unwrapped.body.type === 'offer' && unwrapped.body.tier === 'turn') this.#followRung(unwrapped.from)
 
+    // §2.3's roster-lag rule, and it has to run before the peer is looked up:
+    // the whole point is that the peer this signal reaches may be the wrong
+    // kind for the far end that sent it.
+    if (unwrapped.body.gen !== undefined) this.#noteProfile2Evidence(unwrapped.from, unwrapped.body)
+
     const peer = this.#peerFor(unwrapped.from)
     if (!peer) {
-      this.#holdSignal(unwrapped.from, unwrapped.body, now)
+      // Stood down: this page session is not the one the far end is
+      // negotiating with, so it neither answers nor keeps the signal to
+      // answer later - see `standDown`. Held, it would be drained into a
+      // fresh connection as a description of one that is already gone.
+      if (!this.#quiet) this.#holdSignal(unwrapped.from, unwrapped.body, now)
       return
     }
-    peer.handleSignal(unwrapped.body).catch(() => {})
+    // A rejection here is a description the connection would not take, which
+    // is the one failure mode that produces no answer and no error anywhere.
+    // It stays out of the subscription handler's way and goes to diagnostics
+    // instead of nowhere.
+    peer.handleSignal(unwrapped.body).catch((error) =>
+      this.#diagnose({
+        kind: 'signal-handling-failed',
+        device: unwrapped.from,
+        detail: `${unwrapped.body.type}: ${describeError(error)}`,
+      }),
+    )
     if (unwrapped.body.type === 'offer') this.#armRouteTimerForOffer(unwrapped.from)
+    this.#watchNegotiation(unwrapped.from, unwrapped.body)
   }
 
   /**
@@ -1404,7 +2129,7 @@ export class Mesh {
    * offers ("only an offer is an arrival"), that answer was the whole
    * negotiation.
    */
-  #peerFor(device: string): Peer | undefined {
+  #peerFor(device: string): NegotiatingPeer | undefined {
     if (this.#forwarderPeer && this.#forwarderDevice === device) return this.#forwarderPeer
     return this.#peers.get(device)
   }
@@ -1448,15 +2173,20 @@ export class Mesh {
   /** Hand a new peer whatever arrived for it before it existed, oldest
    *  first, dropping anything that has since gone stale by the same rule
    *  `unwrapSignal` applies on the way in. */
-  #drainSignals(device: string, peer: Peer): void {
+  #drainSignals(device: string, peer: NegotiatingPeer): void {
     const held = this.#pendingSignals.get(device)
     if (!held) return
     this.#pendingSignals.delete(device)
     const cutoff = this.#now() - SIGNAL_MAX_AGE_SECONDS
     let offered = false
     for (const { body, at } of held) {
-      if (at < cutoff) continue
-      peer.handleSignal(body).catch(() => {})
+      if (at < cutoff) {
+        this.#diagnose({ kind: 'signal-dropped-as-stale', device, detail: body.type })
+        continue
+      }
+      peer.handleSignal(body).catch((error) =>
+        this.#diagnose({ kind: 'signal-handling-failed', device, detail: `${body.type}: ${describeError(error)}` }),
+      )
       if (body.type === 'offer') offered = true
     }
     if (offered) this.#armRouteTimerForOffer(device)

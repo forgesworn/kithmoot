@@ -14,7 +14,7 @@ try {
   assert.equal(state.node, 'undefined')
   assert.equal(state.process, 'undefined')
   assert.deepEqual(state.bridge, ['setUnread', 'notify', 'onOpenRoom', 'setCallActive'])
-  assert.equal(await app.evaluate(({ app }) => app.getVersion()), '0.1.4')
+  assert.equal(await app.evaluate(({ app }) => app.getVersion()), '0.1.8')
   await page.evaluate(() => {
     window.kithmootDesktop.onOpenRoom(roomId => { window.testOpenedRoom = roomId })
     window.kithmootDesktop.setUnread(7)

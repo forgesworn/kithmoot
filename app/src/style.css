@@ -960,6 +960,25 @@ dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100
 .shareStage { position: relative; flex: none; transform-origin: center; }
 .shareStage video, .shareStage canvas { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; border: 0; border-radius: 0; }
 .shareStage video { object-fit: contain; pointer-events: none; }
+
+/* A self-view behaves like a mirror. Remote cameras and every screen share
+   retain their true orientation. */
+video.localCameraPreview { transform: scaleX(-1); }
+
+/* A remote receiver needs a rendered sink before Chromium will reliably
+   decode its first frame. Keep that sink out of the tile layout without
+   using display:none; syncRemoteVideos reveals it as soon as its clock moves. */
+video.awaitingFrame {
+  position: fixed !important;
+  left: -2px !important;
+  top: -2px !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
 .shareAnnotations { pointer-events: none; }
 /* Marks over a preview tile of a share: the same strokes the viewer paints,
    sized to the picture inside the video element. Hidden when there are none. */
@@ -1439,6 +1458,15 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--muted);
 }
 
+/* Self-asserted, like `.badge.agent`: this is what the person did to their
+   own microphone, on the wire, not a fact this browser worked out. Coexists
+   with `.badge.muted` above - one is what THEY did, the other what WE did. */
+.badge.muted-self {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--muted);
+}
+
 /* Identity
  *
  * A name is a claim and a pubkey is not, so they never look the same: the
@@ -1693,6 +1721,23 @@ button.primary:hover:not(:disabled) {
 #effectStatus.working,
 #voiceStatus.working {
   color: var(--muted);
+}
+
+/* The failure notice next to the self-view, outside the folded effect
+   panel - see `renderEffectFailureNotice` in app/src/main.ts. `.broken`
+   above is deliberately muted grey there: it sits beside other quiet
+   indicator lines inside a details element somebody already opened. This
+   one is read at a glance from a call in progress, so it needs its own,
+   louder styling rather than inheriting that. */
+#effectDegradedNotice.broken {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--panel);
+  border: 2px solid var(--danger-border);
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  margin: 0.4rem 0;
 }
 
 .note.warn {
@@ -2798,6 +2843,9 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #home #rooms { margin-bottom: 1.5rem; }
 #home #roomsHeading { margin-top: 0; }
 .roomSearchRow { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
+.accountReconnect { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin: 0 0 .75rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
+.accountReconnect[hidden] { display: none; }
+.accountReconnect .note { flex: 1 1 16rem; margin: 0; }
 .roomSearchRow input { min-width: 0; }
 .roomSearchRow button { margin: 0; }
 #roomList .roomMain { flex-basis: 12rem; }
@@ -3266,10 +3314,45 @@ button.primary:hover:not(:disabled) {
   background: var(--accent-dim);
 }
 .callBanner button.primary { margin: 0; white-space: nowrap; }
+/* Who is on the call, by name, for the pane that has no pictures in it.
+   Hidden until the installed window's controls-only pane asks for it - see
+   `[data-call-pane="controls"]` in desktop.css - because everywhere else
+   there is a tile or a scrolling page to carry the same facts. */
+.callChips { display: none; align-items: center; flex-wrap: wrap; gap: .4rem; min-width: 0; }
+.callChip {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  max-width: 100%;
+  min-width: 0;
+  padding: .15rem .5rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  font-size: .9rem;
+  white-space: nowrap;
+}
+/* The same ring the tiles use, so "who is talking" reads the same whether
+   the room is showing faces or names. */
+.callChip.speaking { border-color: var(--live); box-shadow: 0 0 0 2px var(--live); }
+.callChip .name { overflow: hidden; text-overflow: ellipsis; }
+.callChip .avatar, .callChip .donorRing { width: 20px; height: 20px; }
+.callChip .badge { font-size: .7rem; }
+
+/* The resting call strip belongs to the installed desktop window alone -
+   see `[data-call-pane="resting"]` in desktop.css. A browser tab's call
+   area already costs nothing when it is empty, because the page scrolls;
+   the installed window's does not, which is what the strip is for. */
+.callStrip { display: none; }
+/* On a call, this button's only job left is to leave it - the same act
+   #leaveCall offers in the pane - so it takes the same danger treatment,
+   not the accent-like "live" colour a leave should never wear. "On the
+   call" itself is still said clearly: by #callWho beside the pane's
+   controls, and by the green ring on this device's own tile below
+   (#room .participant.onCall) - both of which stay green on purpose. */
 #callToggle[data-live="true"] {
-  background: var(--live);
-  border-color: var(--live);
-  color: var(--on-live);
+  background: var(--danger);
+  border-color: var(--danger-border);
+  color: var(--on-danger);
 }
 .callHead { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .4rem; }
 .callHead p { margin: 0; }
@@ -3342,6 +3425,198 @@ button.primary:hover:not(:disabled) {
   #room.sharing .participant:has(video.screenPreview) {
     grid-column: 1 / -1;
     width: 100%;
+  }
+}
+
+/* Person beside their screen, September 2026.
+
+   A shared screen used to force its owner's whole tile across the row and
+   spotlight it, so two people sharing at once stacked full-width and the
+   second one was off the bottom of the window. Above this width the room
+   becomes rows instead of a grid, and one sharer is one row: their camera
+   at the left of it, at a fixed `--tile-cam` width, and their own screen
+   beside it taking the rest.
+
+   Two things that sound like details and are not. The camera is the same
+   size in every tile in the room, sharing or not - two faces the same size
+   as each other is the whole point of a room, and a camera that grows to
+   whatever space is going is how the last attempt at this ended up with a
+   130px full-height portrait strip of somebody's chin. And the screen's
+   box is the shape of the picture in it, never a 16:9 frame with the
+   picture letterboxed inside black bands, because those bands were a
+   hundred pixels top and bottom of every share.
+
+   The shape part is finished in `desktop-layout-fit.ts`: flexbox settles a
+   row item's width before its height, so `max-height` here would clamp the
+   height and leave the width alone, which IS the letterboxing. The rules
+   below are the fallback that holds until it runs - and the whole of it in
+   a browser tab, which has no fixed height to divide up.
+
+   Below this width the room falls back to the stacked behaviour above. */
+@media (min-width: 900px) {
+  #room.sharing {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: flex-start;
+    gap: .6rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    /* One width for every camera in the room. Mirrored by `CAMERA_TILE_PX`
+       in desktop-layout-fit.ts, which measures the real element before it
+       trusts the number. Big enough to read a face on, small enough that
+       the screen beside it is always the wider of the two. */
+    --tile-cam: 288px;
+  }
+
+  /* Somebody with a camera and no screen: the same camera, packed into a
+     row with anybody else in the same position. `0 0 auto` with an explicit
+     width on the picture rather than a width on the tile, so the tile's own
+     padding comes off the outside and the picture itself is exactly
+     `--tile-cam` - the same number of pixels as a sharer's camera, which is
+     what "the same size as each other" has to mean to be worth asserting. */
+  #room.sharing .participant:not(:has(video.screenPreview)) {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    min-width: 0;
+    max-width: calc(var(--tile-cam) + 2rem);
+  }
+  #room.sharing .participant:not(:has(video.screenPreview)) .media video {
+    width: var(--tile-cam);
+    max-width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+  }
+
+  /* A sharer is a row of their own. `0 0 100%` rather than a wrap hint: at
+     100% plus the gap nothing else can share the line, so the break is a
+     fact of the box rather than a hope about widths.
+
+     Inside it, everything that is not a picture goes on ONE line above the
+     pictures: the name, the track chips, and the button that opens the
+     share full size. Stacked, those three cost about 135px of every row,
+     and with two rows to fit in the window that came straight off the top
+     and bottom of both screens. `order` rather than DOM order, because
+     `render()` appends the chips and the button after the pictures. */
+  #room.sharing .participant:has(video.screenPreview) {
+    flex: 0 0 100%;
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: flex-start;
+    align-self: flex-start;
+    column-gap: .5rem;
+    row-gap: .25rem;
+  }
+  #room.sharing .participant:has(video.screenPreview) > h3,
+  #room.sharing .participant:has(video.screenPreview) > .tracks,
+  #room.sharing .participant:has(video.screenPreview) > .shareExpand {
+    order: 1;
+    flex: 0 0 auto;
+    margin: 0;
+  }
+  /* The name takes the slack, and gives it back by cutting itself short
+     rather than wrapping onto a second line and costing the row its
+     height. */
+  #room.sharing .participant:has(video.screenPreview) > h3 {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  #room.sharing .participant:has(video.screenPreview) > .media {
+    order: 2;
+    flex: 0 0 100%;
+    width: 100%;
+    margin: 0;
+  }
+  #room.sharing .participant:has(video.screenPreview) .media {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: .4rem;
+    position: relative;
+  }
+  /* Left, then right, by `order` rather than by DOM position: a screen
+     share's `<video>` can land in the holder before or after its camera's,
+     depending on which track negotiated first, and the layout should not
+     depend on that race. */
+  #room.sharing .participant:has(video.screenPreview) .media video:not(.screenPreview) {
+    order: 1;
+    flex: 0 0 var(--tile-cam);
+    width: var(--tile-cam);
+    height: auto;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    /* Top of the row, whatever the screen beside it is doing. A screen is
+       often the taller of the two and stretching a face to match it is how
+       you get a portrait strip of somebody's chin. */
+    align-self: flex-start;
+  }
+  /* `auto` in both directions with a bound on each, so the browser's own
+     replaced-element sizing keeps the picture's shape while it fits it into
+     the row. `desktop-layout-fit.ts` replaces both with pixels once the
+     picture has decoded and it knows how tall this row is allowed to be. */
+  #room.sharing .participant:has(video.screenPreview) .media video.screenPreview {
+    order: 2;
+    flex: 0 1 auto;
+    min-width: 0;
+    width: auto;
+    height: auto;
+    aspect-ratio: auto;
+    object-fit: contain;
+    align-self: flex-start;
+    max-width: calc(100% - var(--tile-cam) - .4rem);
+    max-height: 60dvh;
+  }
+  /* The "This device" / "Device 2" caption, over the top-left corner of the
+     row rather than squeezed into it as a narrow column of wrapped text.
+     Only over a CAMERA: the caption and the name stand-in below are the
+     same `::before`, so without the `:has` a share with no camera beside it
+     and a label (anybody on two devices, or your own tile) got both rules at
+     once - the stand-in's size and dashed border with the caption's
+     absolute position and grey fill, floated over the shared picture. */
+  #room.sharing .participant:has(video.screenPreview) .media[data-camera-label]:not([data-camera-label=""]):has(video:not(.screenPreview))::before {
+    position: absolute;
+    top: .3rem;
+    left: .3rem;
+    z-index: 1;
+    background: rgb(0 0 0 / 55%);
+    color: #fff;
+    padding: .1rem .4rem;
+    border-radius: 4px;
+    font-size: .75rem;
+  }
+  /* A share with no camera behind it still reads as somebody's: the name
+     that would sit under a camera sits in its place instead, at the camera's
+     size and shape so the row does not change width when somebody turns
+     their camera off. See `mediaEl.dataset.ownerName`, set beside
+     `dataset.cameraLabel` in `render()`. Only in a holder with a share in
+     it: a second device on the call with just a microphone has nothing to
+     stand beside. Beside the picture, never on it, so `static` whatever
+     else matches. */
+  #room.sharing .participant:has(video.screenPreview) .media:has(video.screenPreview):not(:has(video:not(.screenPreview)))::before {
+    content: attr(data-owner-name);
+    position: static;
+    order: 1;
+    flex: 0 0 var(--tile-cam);
+    width: var(--tile-cam);
+    aspect-ratio: 4 / 3;
+    align-self: flex-start;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: .4rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: .9rem;
   }
 }
 @media (max-width: 700px) and (orientation: portrait) {
@@ -3672,3 +3947,20 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 }
 
 #notificationSettings #notify > h3 { display: none; }
+
+.tidyUp { max-width: min(40rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
+.tidyUp ol, .tidyUp ul { padding-left: 1.25rem; }
+.tidyUp li { margin: .35rem 0; }
+.tidyUp .tidyResult { display: block; color: var(--muted); font-size: .95rem; overflow-wrap: anywhere; }
+.tidyUp .checkRow { display: flex; gap: .5rem; align-items: flex-start; margin: .75rem 0; }
+
+.attachment .attachmentImage { display: block; padding: 0; border: 0; background: transparent; cursor: zoom-in; max-width: 100%; }
+dialog.attachmentViewer { width: calc(100vw - 2rem); height: calc(100dvh - 2rem); max-width: none; max-height: none; padding: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--bg, #101114); color: inherit; }
+.attachmentViewer::backdrop { background: rgb(0 0 0 / 75%); }
+.attachmentViewer[open] { display: flex; flex-direction: column; }
+.attachmentViewer header { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; padding: .75rem; }
+.attachmentViewer header strong { flex: 1 1 160px; overflow-wrap: anywhere; }
+.attachmentViewerSurface { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; }
+.attachmentViewerSurface img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.attachmentViewerSurface.actualSize { display: block; }
+.attachmentViewerSurface.actualSize img { max-width: none; max-height: none; }

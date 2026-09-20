@@ -1557,3 +1557,70 @@ Android is a separate client and a separate repository
 (`kithmoot-android`); this change does not touch it. Its `RoomViewModel.kt`
 carries its own literal `stun:stun.l.google.com:19302` default as of this
 writing, tracked as follow-up work there rather than here.
+
+## relay.trotters.cc rejoins the default list, third and last, 17 September 2026
+
+`5d0ed9b` dropped the project's own relay from the default list on the
+principle that a relay the maker runs becomes load-bearing for everybody who
+never opens relay settings. The principle holds for a relay a room cannot do
+without; it does not hold for one of three. A real joiner on an iPhone could
+not get into a room because both `nos.lol` and `relay.primal.net` timed out
+on publish ("publish timed out"), with no third relay to fall back to.
+
+`RelayConnections.publish` (`src/relay-pool.ts`) sends to every writable
+relay at once and succeeds the moment any one acknowledges. So
+`relay.trotters.cc`, added after the two third-party public relays, only
+adds redundancy against exactly the failure above: a default room keeps
+working with it down, and it is never the only relay a room has.
+
+A room's link still carries its own relay list, so every room already
+running is unaffected by a change to the default; only a link written
+without relay hints picks the new default up, and only for future joins. A
+person who does not want the project's relay in their list can still remove
+it, or add their own, in relay settings.
+
+`relay.trotters.cc` runs strfry, does not require NIP-42 auth, and accepts
+messages up to 131072 bytes, checked the day of this change.
+
+## Dependencies that run in a call are pinned exactly, 18 September 2026
+
+`@mediapipe/tasks-vision` `1.0.1` (installed under the `^1.0.1` range added
+25 August) turned out to carry an ungated usage logger. Creating any task -
+including the `ImageSegmenter` background blur and replacement use - starts
+it: a start event on creation (OS family read from the user agent, library
+version, task type, running mode, init latency), a stats event every 30s
+(frame counts, latencies), both sent as protobuf to
+`https://odml.pa.googleapis.com/v1/log` every 60s and on `close()`, with an
+`x-goog-api-key` header carried in the wasm. Reproduced in a headless
+browser against our own shipped wasm and model: one 136-byte POST on
+`close()`. The CSP (`connect-src 'self' wss: https:`) does not block it.
+Checked by packing and grepping the tarball: `0.10.14`, `0.10.21` and
+`0.10.22-rc.20250304` do not contain `odml.pa.googleapis.com`; every
+`1.0.1` and later, and the `1.0.1-rc.*` prereleases checked, do.
+
+The dependency is now pinned to the exact version `0.10.35` - the newest
+0.10.x release, checked clean of `odml.pa.googleapis.com`,
+`x-goog-api-key` and `_mediapipeLoggerGetEncodedApiKey` in its published
+tarball and in the wasm binaries themselves, not only its JS. No caret: a
+routine `npm install` must not move it again without that check being
+redone by a person, not by semver.
+
+That check is now also automatic. `scripts/check-no-telemetry.mjs` scans
+the built app (`app/dist`, and `desktop/web` for the desktop build) for
+those same three strings and fails the build if any is found, wired into
+`npm run build`, `desktop/scripts/build.mjs` and `.github/workflows/ci.yml`.
+It exists because the pin alone is a fact about today; a dependency bump
+made without rereading this entry is exactly how the logger arrived the
+first time. `test/camera-effects-no-phone-home.spec.ts` is the third layer:
+a real browser turns blur on, runs the segmenter for real, turns it off,
+and asserts that no request left the app for anywhere but the app itself
+and the local test relay.
+
+This corrects, rather than merely adds to, an existing claim: README.md
+already says the MediaPipe runtime is served from this origin "so enabling
+blur does not announce you to a third party" - true of the 11.7MB WASM
+download, and false of the logger regardless of where the WASM came from,
+for as long as the ungated version was installed. No behaviour of the
+segmenter itself changed - same confidence masks, same VIDEO running mode,
+same GPU-then-CPU delegate fallback in `app/src/mediapipe-segmenter.ts` -
+only the version pinned and the two checks added.

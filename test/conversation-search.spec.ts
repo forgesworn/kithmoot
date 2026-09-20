@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { goToConversation, openRoomDetails } from './browser.js'
+import { goToConversation, openRoomDetails, TEST_RELAY_WS } from './browser.js'
 import { withRelays } from './relays.js'
 
 async function setup(browser: Browser, baseURL: string, namedConversations = false) {
@@ -14,8 +14,8 @@ async function setup(browser: Browser, baseURL: string, namedConversations = fal
   context.on('request', request => requests.push(request.url()))
   let link = encodeRoomLink(baseURL, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
   const writer = namedConversations
-    ? await RoomAgent.create({ base: baseURL, roomName: 'Workshop', relays: ['ws://127.0.0.1:7777'], name: 'Rowan' })
-    : await RoomAgent.join({ link, relays: ['ws://127.0.0.1:7777'], name: 'Rowan' })
+    ? await RoomAgent.create({ base: baseURL, roomName: 'Workshop', relays: [TEST_RELAY_WS], name: 'Rowan' })
+    : await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan' })
   if (namedConversations) link = withRelays(writer.url, [relay.href])
   const page = await context.newPage()
   await page.goto(link)

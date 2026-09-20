@@ -2,7 +2,7 @@ import { test, expect, type Browser } from '@playwright/test'
 import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { RoomAgent } from '../src/agent.js'
 import { KINDS } from '../src/kinds.js'
-import { withRelays } from './relays.js'
+import { withRelays, TEST_RELAY_WS } from './relays.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -190,7 +190,7 @@ test('an incomplete invitation has a clear way back to rooms', async ({ browser,
 })
 
 test('an unanswered invitation can be retried without losing the name already entered', async ({ browser, baseURL }) => {
-  const host = await RoomAgent.create({ base: baseURL!, name: 'Host', state: { secret: generateRoomSecret(), inviterSk: generateRoomSecret(), bearer: generateRoomSecret() }, relays: ['ws://127.0.0.1:7777'] })
+  const host = await RoomAgent.create({ base: baseURL!, name: 'Host', state: { secret: generateRoomSecret(), inviterSk: generateRoomSecret(), bearer: generateRoomSecret() }, relays: [TEST_RELAY_WS] })
   const { context, relay } = await device(browser, baseURL!)
   let ignoreGrants = true
   await context.routeWebSocket(relay, ws => {
@@ -225,7 +225,7 @@ test('an unanswered invitation can be retried without losing the name already en
 })
 
 test('a retired invitation asks for a current link and does not offer a pointless retry', async ({ browser, baseURL }) => {
-  const host = await RoomAgent.create({ base: baseURL!, name: 'Host', relays: ['ws://127.0.0.1:7777'] })
+  const host = await RoomAgent.create({ base: baseURL!, name: 'Host', relays: [TEST_RELAY_WS] })
   const { context, relay } = await device(browser, baseURL!)
   try {
     const oldLink = withRelays(host.url, [relay])
