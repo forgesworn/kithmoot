@@ -93,7 +93,13 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
     expect((await areaBounds()).x + (await areaBounds()).width).toBe(beforeNorthwest.x + beforeNorthwest.width)
     expect(await native.evaluate(({ BrowserWindow }) => {
       const frame = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!
-      return frame.isAlwaysOnTop() && frame.isVisibleOnAllWorkspaces()
+      return frame.isAlwaysOnTop() && frame.isVisibleOnAllWorkspaces() && frame.getParentWindow() === null
+    })).toBe(true)
+    await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => !window.webContents.getURL().includes('kithmoot-share-area'))!.minimize())
+    await area.getByRole('button', { name: 'Show KithMoot', exact: true }).click()
+    await expect.poll(() => native.evaluate(({ BrowserWindow }) => {
+      const owner = BrowserWindow.getAllWindows().find(window => !window.webContents.getURL().includes('kithmoot-share-area'))!
+      return owner.isVisible() && !owner.isMinimized() && owner.isAlwaysOnTop()
     })).toBe(true)
     const validBounds = await areaBounds()
     await mac.evaluate(() => (window as any).kithmootDesktop.shareAreaAction('bounds', { x: NaN, y: 100, width: 700, height: 400 }))

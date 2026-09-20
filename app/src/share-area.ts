@@ -56,13 +56,18 @@ export class DesktopShareArea {
     const draw = doc.createElement('button')
     draw.textContent = 'Draw'
     draw.setAttribute('aria-pressed', 'false')
+    const owner = doc.createElement('button')
+    owner.textContent = 'KithMoot'
+    owner.title = 'Bring the KithMoot call window to the front'
+    owner.setAttribute('aria-label', 'Show KithMoot')
+    owner.onclick = () => bridge.shareAreaAction('owner')
     const stop = doc.createElement('button')
     stop.textContent = 'Cancel'
     const start = doc.createElement('button')
     start.textContent = 'Start sharing'
     start.disabled = true
     stop.onclick = () => { this.stop(); this.opts.ended() }
-    bar.append(label, start, draw, stop)
+    bar.append(label, start, draw, owner, stop)
     const marks = doc.createElement('canvas')
     marks.setAttribute('aria-label', 'Draw on the sharing area')
     const status = doc.createElement('footer')
