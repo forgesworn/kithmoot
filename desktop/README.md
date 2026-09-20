@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.10.
+Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.11.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -36,7 +36,7 @@ The ZIP alongside it is the same app for another Apple Silicon Mac.
 
 ## Distribution and acceptance boundaries
 
-The 0.1.10 Mac preview is **Developer ID signed and notarised**, with hardened runtime and a stapled Apple ticket. It remains a preview: physical capture/audio acceptance and a verified automatic update path are still outstanding. Updates are manual. Earlier published previews were ad-hoc signed.
+The 0.1.11 Mac preview is **Developer ID signed and notarised**, with hardened runtime and a stapled Apple ticket. It remains a preview: physical capture/audio acceptance and the first update from 0.1.11 to a later signed build are still outstanding. Earlier published previews were ad-hoc signed.
 
 Linux x64 and ARM64 tarballs include a user-level Python installer and a matching applications-menu desktop entry. Windows packaging and iOS remain future work. Linux preview archives are not repository-signed.
 
@@ -124,3 +124,17 @@ For a disposable local build only, `KITHMOOT_MAC_LOCAL_PREVIEW=1 npm run package
 produces an explicitly named `-local-preview.zip`. Do not publish it as a normal
 Mac update. Developer ID signing still needs physical upgrade/capture acceptance;
 it cannot silently transfer a permission previously granted to an ad-hoc build.
+
+## Automatic Mac updates
+
+Signed Apple Silicon builds check the static Squirrel.Mac feed at
+`/downloads/updates/darwin/arm64/RELEASES.json`. Electron downloads the ZIP in
+the background, verifies its declared SHA-256 and size, and requires the new app
+to satisfy the running app's code-signing requirement. KithMoot asks before
+restarting and uses the same unfinished-work and active-call gates as PWA
+updates. Development builds and Linux builds keep the updater disabled.
+
+Every Mac release must update `site/downloads/release.json`, its archive and the
+static feed together. `npm test` in this directory refuses version, URL, size or
+digest drift. The first updater-capable release still needs a manual install;
+automatic delivery starts with the following signed release.

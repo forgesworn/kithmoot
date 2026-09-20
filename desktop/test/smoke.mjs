@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 const desktop = fileURLToPath(new URL('../', import.meta.url))
 const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-smoke-'))
+const packaged = Boolean(process.env.DESKTOP_EXECUTABLE)
 let app
 const launch = () => electron.launch({
   executablePath: process.env.DESKTOP_EXECUTABLE ?? process.env.ELECTRON_EXECUTABLE ?? join(desktop, process.platform === 'linux' ? 'node_modules/electron/dist/electron' : 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
@@ -29,10 +30,16 @@ try {
   }))
   expect(state.secure).toBe(true)
   expect(state.node).toBe('undefined'); expect(state.process).toBe('undefined')
-  expect(state.bridge).toEqual(['supportsShareArea', 'armShareArea', 'shareAreaState', 'shareAreaAction', 'onShareAreaState', 'setUnread', 'notify', 'onOpenRoom', 'setCallActive']); expect(state.workers).toBe(0)
+  expect(state.bridge).toEqual(['supportsShareArea', 'armShareArea', 'shareAreaState', 'shareAreaAction', 'onShareAreaState', 'setUnread', 'notify', 'onOpenRoom', 'setCallActive', 'updateState', 'installUpdate', 'onUpdateState']); expect(state.workers).toBe(0)
   expect(state.workerStatus).toBe(404); expect(state.traversalStatus).toBe(404)
   expect(state.csp).toContain("object-src 'none'")
   expect(state.notifications).not.toBe('denied')
+  expect(await page.evaluate(() => window.kithmootDesktop.updateState())).toEqual({ phase: packaged ? 'idle' : 'disabled' })
+  expect(await page.evaluate(() => window.kithmootDesktop.installUpdate())).toBe(false)
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('desktop:update-state', { phase: 'ready', version: '0.1.11' }))
+  await expect(page.locator('#updateNotice')).toContainText('KithMoot 0.1.11 is ready')
+  await page.locator('#updateApp').click()
+  await expect(page.locator('#updateApp')).toHaveText('Try updating again')
   // Exercise the real native frame without capturing the user's desktop.
   await page.evaluate(() => { window.__area = window.open('about:blank#kithmoot-share-area', '_blank', 'popup,width=900,height=600') })
   await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(2)

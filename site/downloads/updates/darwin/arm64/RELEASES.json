@@ -1,0 +1,17 @@
+{
+  "currentRelease": "0.1.11",
+  "releases": [
+    {
+      "version": "0.1.11",
+      "updateTo": {
+        "version": "0.1.11",
+        "pub_date": "2026-09-20T12:27:00Z",
+        "notes": "Signed Mac updates now download quietly and wait until you approve a safe restart.",
+        "name": "0.1.11",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.11/KithMoot-0.1.11-mac-arm64.zip",
+        "sha256": "146a90d7835dd758bb31309e550dfacb0ca647a5cfb10e6740c673b49992c276",
+        "size": 138895547
+      }
+    }
+  ]
+}
