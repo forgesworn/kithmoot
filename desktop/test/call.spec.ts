@@ -65,6 +65,48 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
     }
     await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1320, 852))
     await mac.screenshot({ path: join(desktop, 'artifacts/call.png') })
+    // Exercise the actual floating frame and its pointer controls without
+    // granting access to or capturing any pixels from the user's desktop.
+    const popupReady = native.waitForEvent('window')
+    await mac.locator('#shareArea').click()
+    const area = await popupReady
+    const areaBounds = () => native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!.getBounds())
+    await expect(area.getByRole('button', { name: 'Start sharing', exact: true })).toBeEnabled()
+    await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!.setBounds({ x: 100, y: 100, width: 900, height: 600 }))
+    const original = await areaBounds()
+    const corner = area.getByRole('button', { name: 'Resize sharing area from bottom right', exact: true })
+    const handle = (await corner.boundingBox())!
+    expect(handle.width).toBeGreaterThanOrEqual(28)
+    await area.mouse.move(handle.x + 10, handle.y + 10)
+    await area.mouse.down()
+    await area.mouse.move(handle.x + 70, handle.y + 50, { steps: 5 })
+    await area.mouse.up()
+    await expect.poll(async () => (await areaBounds()).width).toBe(original.width + 60)
+    await expect.poll(async () => (await areaBounds()).height).toBe(original.height + 40)
+    const moved = area.getByLabel('Move sharing area with arrow keys')
+    await moved.press('ArrowRight')
+    await expect.poll(async () => (await areaBounds()).x).toBe(original.x + 10)
+    const northwest = area.getByRole('button', { name: 'Resize sharing area from top left', exact: true })
+    const beforeNorthwest = await areaBounds()
+    await northwest.press('ArrowLeft')
+    await expect.poll(async () => (await areaBounds()).width).toBe(beforeNorthwest.width + 10)
+    expect((await areaBounds()).x + (await areaBounds()).width).toBe(beforeNorthwest.x + beforeNorthwest.width)
+    expect(await native.evaluate(({ BrowserWindow }) => {
+      const frame = BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!
+      return frame.isAlwaysOnTop() && frame.isVisibleOnAllWorkspaces()
+    })).toBe(true)
+    const validBounds = await areaBounds()
+    await mac.evaluate(() => (window as any).kithmootDesktop.shareAreaAction('bounds', { x: NaN, y: 100, width: 700, height: 400 }))
+    expect(await areaBounds()).toEqual(validBounds)
+    const geometry = await area.locator('canvas').evaluate(canvas => {
+      const r = canvas.getBoundingClientRect()
+      return { left: r.left, top: r.top, right: innerWidth - r.right, bottom: innerHeight - r.bottom }
+    })
+    expect(geometry).toEqual({ left: 8, top: 52, right: 8, bottom: 40 })
+    await area.screenshot({ path: join(desktop, 'artifacts/share-area-controls.png') })
+    await area.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect.poll(() => native.windows().length).toBe(1)
+    console.log('PASS: native sharing frame pointer resize, keyboard move, opposite-corner anchoring, always-on-top/workspaces, invalid IPC rejection and capture insets')
     // Native close must offer to stay, without dropping this live call.
     await native.evaluate(({ dialog, BrowserWindow }) => {
       const original = dialog.showMessageBoxSync
@@ -82,6 +124,34 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
     await expect(web.locator('#chatLog')).toContainText('Still here after leaving the call')
     console.log('PASS: native/browser bidirectional moving video, synthetic audio, chat, cancel-close, leave-call and continuing chat')
     await web.locator('#leaveCall').click()
+    await expect(mac.locator('html')).toHaveAttribute('data-call-pane', 'resting')
+    await mac.locator('#chatInput').fill('A draft kept while resizing the desktop')
+    const expectFullWidthChat = async () => {
+      await expect.poll(() => mac.evaluate(() => {
+        const room = document.getElementById('roomArea')!.getBoundingClientRect()
+        const chat = document.getElementById('chatLog')!.getBoundingClientRect()
+        const input = document.getElementById('chatInput')!.getBoundingClientRect()
+        return Math.abs(chat.right - room.right) <= 4 && Math.abs(input.right - room.right) <= 4
+          && chat.width / room.width > .95 && input.width / room.width > .95
+          && input.bottom <= innerHeight && input.left >= 0
+      }), { message: 'Chat and composer must fill the native room without leaving the window' }).toBe(true)
+      await expect(mac.locator('#chatInput')).toHaveValue('A draft kept while resizing the desktop')
+    }
+    for (const [width, height] of [[1920, 1120], [1320, 880], [1100, 700], [1920, 1120]]) {
+      await native.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]!.setContentSize(size[0]!, size[1]!), [width, height])
+      await expectFullWidthChat()
+    }
+    await mac.screenshot({ path: join(desktop, 'artifacts/chat-wide.png') })
+    await mac.locator('#projectsRailToggle').click()
+    await expect(mac.locator('html')).toHaveAttribute('data-rail', 'collapsed')
+    await expectFullWidthChat()
+    await mac.locator('#openAssignments').click()
+    await expect(mac.locator('#assignmentPanel')).toBeVisible()
+    await expectFullWidthChat()
+    await mac.locator('#assignmentClose').click()
+    await mac.locator('#projectsRailToggle').click()
+    await expect(mac.locator('html')).toHaveAttribute('data-rail', 'open')
+    await expectFullWidthChat()
   } finally {
     await native.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy() }).catch(() => {})
     await native.close().catch(() => {})

@@ -151,7 +151,7 @@ async function createWindow() {
         action: 'allow',
         overrideBrowserWindowOptions: {
           title: 'KithMoot', backgroundColor: '#101114', autoHideMenuBar: true,
-          ...(url === AREA_URL ? { transparent: true, backgroundColor: '#00000000', frame: false, alwaysOnTop: true, hasShadow: false, resizable: false, minWidth: 320, minHeight: 200 } : {}),
+          ...(url === AREA_URL ? { transparent: true, backgroundColor: '#00000000', frame: false, alwaysOnTop: true, hasShadow: false, resizable: false, minWidth: 460, minHeight: 200 } : {}),
           webPreferences: {
             session: ses, preload: join(here, 'preload.cjs'),
             nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,

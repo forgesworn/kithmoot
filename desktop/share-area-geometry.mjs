@@ -1,5 +1,5 @@
 // Keep the toolbar and frame outside the pixels sent to the call.
-export const AREA_INSET = { left: 6, top: 42, right: 6, bottom: 6 }
+export const AREA_INSET = { left: 8, top: 52, right: 8, bottom: 40 }
 
 export function areaRect(bounds, display) {
   if (![bounds.x, bounds.y, bounds.width, bounds.height, display.x, display.y, display.width, display.height].every(Number.isFinite) || display.width <= 0 || display.height <= 0) return null

@@ -1,9 +1,9 @@
 import { packager } from '@electron/packager'
-import { signAsync } from '@electron/osx-sign'
+import { sign } from '@electron/osx-sign'
 import { macSigningConfig } from './mac-signing.mjs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const signing = macSigningConfig()
@@ -40,7 +40,7 @@ for (const path of paths) {
     const signed = spawnSync('codesign', ['--force', '--deep', '--sign', '-', bundle], { stdio: 'inherit' })
     if (signed.status) throw new Error('Local signing failed')
   } else {
-    await signAsync({ app: bundle, identity: signing.identity, keychain: signing.keychain,
+    await sign({ app: bundle, identity: signing.identity, keychain: signing.keychain,
       platform: 'darwin', type: 'distribution',
       optionsForFile: () => ({ hardenedRuntime: true, entitlements: [
         'com.apple.security.cs.allow-jit', 'com.apple.security.device.audio-input', 'com.apple.security.device.camera',
@@ -53,6 +53,7 @@ for (const path of paths) {
   if (spawnSync('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', bundle, zip], { stdio: 'inherit' }).status) throw new Error('ZIP failed')
   if (!signing.localPreview) {
     const submitted = spawnSync('xcrun', ['notarytool', 'submit', zip, '--keychain-profile', signing.profile, '--wait', '--output-format', 'json'], { encoding: 'utf8' })
+    await writeFile(resolve(assets, `notarisation-${version}.json`), submitted.stdout || JSON.stringify({ error: submitted.stderr, status: submitted.status }))
     if (submitted.status || JSON.parse(submitted.stdout).status !== 'Accepted') throw new Error('Apple did not accept notarisation. The archive must not be published.')
     for (const args of [['stapler', 'staple', bundle], ['stapler', 'validate', bundle]]) {
       if (spawnSync('xcrun', args, { stdio: 'inherit' }).status) throw new Error('Notarisation ticket verification failed')

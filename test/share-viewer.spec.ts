@@ -41,8 +41,15 @@ test('a viewer enlarges, pans and pops out a real received synthetic screen with
     const presenterMarks = presenter.locator('canvas.shareMarks')
     await expect(presenterMarks).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/, { timeout: 10_000 })
     await expect(presenterMarks).toBeVisible()
+    const legend = JSON.parse((await presenterMarks.getAttribute('data-legend')) ?? '[]')
+    expect(legend).toHaveLength(1)
+    expect(legend[0].label).toContain('Rowan')
+    expect(legend[0].color).toMatch(/^#[0-9a-f]{6}$/i)
+    await dialog.screenshot({ path: '/tmp/kithmoot-share-legend.png' })
     await expect(presenterMarks).toHaveAttribute('data-strokes', '0', { timeout: 10_000 })
     await expect(presenterMarks).toBeHidden()
+    await expect(presenterMarks).toHaveAttribute('data-legend', '[]')
+    await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-legend', '[]')
     await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', '0')
     // The presenter's own expanded view paints the same marks, and a clear
     // removes them from both ends before they would have faded.

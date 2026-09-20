@@ -1,4 +1,5 @@
 import type { AnnotationPoint, ScreenAnnotation } from '../../src/signal.js'
+import { markLegendEntries } from './share-mark-legend.js'
 import { ShareMarks, type LiveMark, type MarkAuthor } from './share-marks.js'
 
 /** A stroke still being drawn on this device: not yet a `LiveMark` - it has
@@ -8,11 +9,7 @@ import { ShareMarks, type LiveMark, type MarkAuthor } from './share-marks.js'
  *  `ShareMarks.colourFor`. */
 interface PendingMark { points: AnnotationPoint[]; author: MarkAuthor; color: string }
 
-/** Paint strokes in normalised coordinates onto a canvas of any size, each
- *  as strongly as its age allows and in the colour of whoever drew it - see
- *  `share-marks.ts`. A name chip rides the live end of each stroke, fading
- *  with it, so a mark left on someone's screen still says whose it was once
- *  the person who drew it has moved on to something else. */
+/** Paint live strokes and one fading colour legend entry per author. */
 function paintMarks(canvas: HTMLCanvasElement, marks: LiveMark[], pending?: PendingMark): void {
   const ctx = canvas.getContext('2d')
   if (!ctx) return
@@ -26,30 +23,32 @@ function paintMarks(canvas: HTMLCanvasElement, marks: LiveMark[], pending?: Pend
     for (const point of points.slice(1)) ctx.lineTo(point.x * canvas.width, point.y * canvas.height)
     ctx.stroke(); ctx.shadowBlur = 0
   }
-  // A label drawn straight onto the canvas, never through the DOM, so there
-  // is no innerHTML anywhere near somebody else's chosen name - only
-  // `fillText`, which paints characters and cannot execute markup.
-  const paintChip = (end: AnnotationPoint, label: string, alpha: number) => {
-    if (!label || alpha <= 0) return
-    const x = end.x * canvas.width, y = end.y * canvas.height
-    const fontSize = Math.max(11, Math.round(canvas.width / 90))
-    ctx.globalAlpha = alpha
-    ctx.font = `${fontSize}px sans-serif`
-    ctx.textBaseline = 'middle'
-    const padX = 6, padY = 3, width = ctx.measureText(label).width
-    ctx.fillStyle = 'rgb(0 0 0 / 65%)'
-    ctx.fillRect(x + 8, y - fontSize / 2 - padY, width + padX * 2, fontSize + padY * 2)
+  for (const mark of marks) paintStroke(mark.annotation.points ?? [], mark.alpha, mark.color)
+  if (pending) paintStroke(pending.points, 1, pending.color)
+  const legend = markLegendEntries(marks, pending)
+  canvas.dataset.legend = JSON.stringify(legend)
+  const fontSize = Math.max(11, Math.min(16, Math.round(canvas.width / 70)))
+  ctx.font = `${fontSize}px sans-serif`
+  ctx.textBaseline = 'middle'
+  const rowHeight = fontSize + 14
+  let x = 8, y = canvas.height - rowHeight - 8
+  for (const entry of legend) {
+    let label = entry.label || 'Guest'
+    const maxWidth = Math.max(20, Math.min(260, canvas.width - 40))
+    if (ctx.measureText(label).width > maxWidth) {
+      while (label.length > 1 && ctx.measureText(label + '…').width > maxWidth) label = label.slice(0, -1)
+      label += '…'
+    }
+    const width = ctx.measureText(label).width + 32
+    if (x > 8 && x + width > canvas.width - 8) { x = 8; y -= rowHeight + 4 }
+    ctx.globalAlpha = entry.alpha
+    ctx.fillStyle = 'rgb(0 0 0 / 75%)'
+    ctx.fillRect(x, y, width, rowHeight)
+    ctx.fillStyle = entry.color
+    ctx.fillRect(x + 8, y + rowHeight / 2 - 4, 8, 8)
     ctx.fillStyle = '#fff'
-    ctx.fillText(label, x + 8 + padX, y + 1)
-  }
-  for (const mark of marks) {
-    const points = mark.annotation.points ?? []
-    paintStroke(points, mark.alpha, mark.color)
-    if (points.length > 0) paintChip(points[points.length - 1]!, mark.author.label, mark.alpha)
-  }
-  if (pending && pending.points.length > 0) {
-    paintStroke(pending.points, 1, pending.color)
-    paintChip(pending.points[pending.points.length - 1]!, pending.author.label, 1)
+    ctx.fillText(label, x + 24, y + rowHeight / 2)
+    x += width + 6
   }
   ctx.globalAlpha = 1
 }
@@ -144,7 +143,7 @@ export class ShareViewer {
       const marks = id ? this.#marks.alive(id) : []
       canvas.dataset.strokes = String(marks.length)
       canvas.dataset.authors = authorsData(marks)
-      if (marks.length === 0) { canvas.hidden = true; return }
+      if (marks.length === 0) { canvas.dataset.legend = '[]'; canvas.hidden = true; return }
       if (doc.defaultView?.getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
       // The picture inside the element, under object-fit: contain.
       const box = video.getBoundingClientRect(), outer = parent.getBoundingClientRect()
