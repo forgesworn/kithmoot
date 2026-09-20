@@ -2,6 +2,7 @@ import { screen, desktopCapturer } from 'electron'
 
 export const AREA_URL = 'about:blank#kithmoot-share-area'
 import { areaRect } from './share-area-geometry.mjs'
+import { refuse } from './screen-share.mjs'
 
 export class ShareArea {
   window
@@ -30,14 +31,14 @@ export class ShareArea {
     return areaRect(this.window.getBounds(), display.bounds)
   }
   async capture(request, callback) {
-    if (!this.window || this.window.isDestroyed()) return callback({})
+    if (!this.window || this.window.isDestroyed()) return refuse(callback)
     const window = this.window
     this.display = screen.getDisplayMatching(window.getBounds())
     const display = this.display
-    if (!this.state()) return callback({})
+    if (!this.state()) return refuse(callback)
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
     const source = sources.find(item => item.display_id === String(display.id))
-    if (!source || this.window !== window || window.isDestroyed() || this.display !== display || !this.state()) return callback({})
+    if (!source || this.window !== window || window.isDestroyed() || this.display !== display || !this.state()) return refuse(callback)
     this.owner()?.webContents.send('desktop:area-state', this.state())
     callback({ video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) })
   }

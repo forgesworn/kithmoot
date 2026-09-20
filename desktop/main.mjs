@@ -6,6 +6,7 @@ import { extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
 import { HOME, ORIGIN, CSP, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
+import { SCREEN_SETTINGS_URL, answerDisplayRequest, screenAccessGranted, refuse } from './screen-share.mjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 // Automation always uses a disposable profile, never the user's account.
@@ -108,26 +109,44 @@ async function createWindow() {
         callback(true)
       } catch { callback(false) }
     })
+    const hasScreenAccess = () => screenAccessGranted({
+        platform: testProfile ? 'test' : process.platform,
+        status: () => systemPreferences.getMediaAccessStatus('screen'),
+        listSources: () => desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }),
+        askToOpenSettings: async () => (await dialog.showMessageBox(win, {
+          type: 'info', message: 'Let KithMoot share your screen',
+          detail: 'macOS has not allowed KithMoot to record the screen. In System Settings, open Privacy & Security, then Screen & System Audio Recording, and turn KithMoot on. Quit and reopen KithMoot afterwards.',
+          buttons: ['Not now', 'Open System Settings'], defaultId: 1, cancelId: 0,
+        })).response === 1,
+        openSettings: () => shell.openExternal(SCREEN_SETTINGS_URL),
+      })
     configureDisplayCapture = (area = false) => ses.setDisplayMediaRequestHandler(async (request, callback) => {
       const areaFrame = area && request.frame === shareArea.window?.webContents.mainFrame
       const mainFrame = request.frame === win?.webContents.mainFrame && isAppUrl(request.frame?.url ?? '')
-      if (!request.frame || !(areaFrame || mainFrame) || !request.userGesture) return callback({})
+      if (!request.frame || !(areaFrame || mainFrame) || !request.userGesture) return refuse(callback)
       if (area) {
         configureDisplayCapture()
-        try { await shareArea.capture(request, callback) } catch { callback({}) }
+        try {
+          if (!await hasScreenAccess()) return refuse(callback)
+          await shareArea.capture(request, callback)
+        } catch { refuse(callback) }
         return
       }
-      try {
-        const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 120, height: 75 } })
-        let answered = false
-        const finish = (selection) => { if (!answered) { answered = true; callback(selection) } }
-        const menu = Menu.buildFromTemplate([
+      await answerDisplayRequest(request, callback, {
+        allowed: () => true,
+        screenAccessGranted: hasScreenAccess,
+        listSources: () => desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 120, height: 75 } }),
+        selection: source => ({ video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) }),
+        choose: (sources, chosen) => {
+          let picked = false
+          const pick = source => { if (!picked) { picked = true; chosen(source) } }
+          Menu.buildFromTemplate([
           { label: 'Choose what to share', enabled: false },
-          ...sources.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => finish({ video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) }) })),
-          { type: 'separator' }, { label: 'Cancel', click: () => finish({}) },
-        ])
-        menu.popup({ window: win, callback: () => finish({}) })
-      } catch { callback({}) }
+          ...sources.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => pick(source) })),
+          { type: 'separator' }, { label: 'Cancel', click: () => pick() },
+          ]).popup({ window: win, callback: () => setTimeout(() => { if (!picked) pick() }, 250) })
+        },
+      })
     }, { useSystemPicker: !area })
     configureDisplayCapture()
     ses.on('will-download', (_event, item) => {
