@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll, vi } from 'vitest'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
-import { RelayConnections, profilePreference } from './relay-settings.js'
+import { currentRoomRelayHints, RelayConnections, profilePreference } from './relay-settings.js'
 import { FakeWebSocket, fakeRelay, resetFakeRelays } from '../../test/fake-socket.js'
 
 beforeAll(() => {
@@ -16,6 +16,21 @@ function storage() {
 }
 
 describe('device relay preferences', () => {
+  it('adds the solid public fallback to invitations carrying the exact old default pair', () => {
+    expect(currentRoomRelayHints(['wss://relay.primal.net', 'wss://nos.lol'])).toEqual([
+      { url: 'wss://relay.primal.net/', read: true, write: true },
+      { url: 'wss://nos.lol/', read: true, write: true },
+      { url: 'wss://relay.trotters.cc/', read: true, write: true },
+    ])
+  })
+
+  it('leaves custom, private and permissioned relay hints unchanged', () => {
+    const custom = [{ url: 'wss://nos.lol', read: true, write: false }, { url: 'wss://relay.primal.net', read: false, write: true }]
+    expect(currentRoomRelayHints(custom)).toBe(custom)
+    const extra = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://private.test']
+    expect(currentRoomRelayHints(extra)).toBe(extra)
+  })
+
   it('honours room hints until explicitly changed, persists permissions and keeps defaults separate', () => {
     const saved = storage()
     const connections = new RelayConnections(saved, defaults)

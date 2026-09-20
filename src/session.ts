@@ -14,6 +14,7 @@ import { evaluateAccess, evaluateAgentAccess } from './access.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
+import type { RoleResolver } from './peer-slots.js'
 import type { ForwardingState, MeshDiagnostic, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
 import type { ForwarderMediaPipeline } from './mesh.js'
 import type { PairDiagnostics } from './pair-controller.js'
@@ -168,6 +169,8 @@ export interface RoomSessionBaseOptions {
    * day is one reload away from today's behaviour. See `MeshOptions.callProfile`.
    */
   callProfile?: 1 | 2
+  /** Maps this app's local tracks into profile-2 fixed media slots. */
+  trackRole?: RoleResolver
   /** Declare this device an automated participant on every entry it
    *  publishes. See `RosterEntry.agent`. */
   agent?: boolean
@@ -642,6 +645,7 @@ export class RoomSession {
         // speaks it when the far end's roster entry says so too. See
         // `RoomSessionBaseOptions.callProfile`.
         callProfile: this.#opts.callProfile,
+        trackRole: this.#opts.trackRole,
         factory: this.#opts.factory,
         localDevice: device,
         localParticipant: this.participant,

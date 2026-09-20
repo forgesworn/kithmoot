@@ -533,6 +533,7 @@ function isTimeoutError(error: unknown): boolean {
   // AbstractSimplePool rejects a failed handshake with this string. An OK
   // false from a relay is an Error, even if its reason uses the same words.
   return error === 'connection failure: connection timed out'
+    || error === 'connection failure: connection failed'
     || error instanceof Error && (error.message === 'publish timed out' || error.message.startsWith('relay connection closed'))
 }
 

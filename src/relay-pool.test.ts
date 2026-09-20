@@ -376,6 +376,20 @@ describe('NostrRelayPool', () => {
     await failure
   })
 
+  it('reopens a failed connection handshake and publishes once when it recovers', async () => {
+    vi.useFakeTimers()
+    const laterUrl = 'wss://later.test'
+    pool.close()
+    pool = new NostrRelayPool([laterUrl])
+    const event = evt()
+    const published = pool.publish(event)
+    await vi.advanceTimersByTimeAsync(1)
+    const later = fakeRelay(laterUrl)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await published
+    expect(later.stored.map(item => item.id)).toEqual([event.id])
+  })
+
   it('does not retry an explicit refusal that quotes the connection timeout wording', async () => {
     vi.useFakeTimers()
     pool.close()
@@ -387,6 +401,24 @@ describe('NostrRelayPool', () => {
       if (message[0] !== 'EVENT') return original(socket, frame)
       attempts++
       socket.deliver(JSON.stringify(['OK', message[1].id, false, 'connection failure: connection timed out']))
+    }
+    const failure = expect(pool.publish(evt())).rejects.toThrow(/every relay rejected the event/)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await failure
+    expect(attempts).toBe(1)
+  })
+
+  it('does not retry an explicit refusal that quotes the connection failed wording', async () => {
+    vi.useFakeTimers()
+    pool.close()
+    pool = new NostrRelayPool([URL_A])
+    const original = a.receive.bind(a)
+    let attempts = 0
+    a.receive = (socket, frame) => {
+      const message = JSON.parse(frame)
+      if (message[0] !== 'EVENT') return original(socket, frame)
+      attempts++
+      socket.deliver(JSON.stringify(['OK', message[1].id, false, 'connection failure: connection failed']))
     }
     const failure = expect(pool.publish(evt())).rejects.toThrow(/every relay rejected the event/)
     await vi.advanceTimersByTimeAsync(30_000)

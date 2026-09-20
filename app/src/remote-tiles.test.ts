@@ -85,6 +85,21 @@ describe('bindRoles', () => {
     expect(binding.get('screen')).toBe(screen)
   })
 
+  it('keeps fixed profile-2 receivers in their stated slots when browser ids match nothing', () => {
+    const idleCamera = track('receiver-camera', 'video')
+    const liveScreen = track('receiver-screen', 'video')
+    const binding = bindRoles({
+      kind: 'video',
+      adverts: [advert('screen', 'sender-screen')],
+      receivers: [
+        { ...receiving(idleCamera), role: 'camera' },
+        { ...receiving(liveScreen, true), role: 'screen' },
+      ],
+    })
+    expect(binding.get('camera')).toBe(idleCamera)
+    expect(binding.get('screen')).toBe(liveScreen)
+  })
+
   it('never binds a receiver whose direction is not receiving and whose packets have stopped', () => {
     const stale = track('stale', 'video')
     const binding = bindRoles({

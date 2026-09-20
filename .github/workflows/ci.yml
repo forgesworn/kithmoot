@@ -71,7 +71,10 @@ jobs:
   # outage is a gate people learn to ignore.
   acceptance:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Chromium also runs the cross-browser call case and has grown beyond the
+    # old 30-minute ceiling on the hosted runner. Keep the gate finite without
+    # killing a still-progressing suite before it can report an assertion.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

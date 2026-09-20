@@ -8,7 +8,11 @@ const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-smoke-'))
 const packaged = Boolean(process.env.DESKTOP_EXECUTABLE)
 let app
 const launch = () => electron.launch({
-  executablePath: process.env.DESKTOP_EXECUTABLE ?? process.env.ELECTRON_EXECUTABLE ?? join(desktop, process.platform === 'linux' ? 'node_modules/electron/dist/electron' : 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+  executablePath: process.env.DESKTOP_EXECUTABLE ?? process.env.ELECTRON_EXECUTABLE ?? join(desktop, process.platform === 'linux'
+    ? 'node_modules/electron/dist/electron'
+    : process.platform === 'win32'
+      ? 'node_modules/electron/dist/electron.exe'
+      : 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
   args: [...(process.env.DESKTOP_EXECUTABLE ? [] : [desktop]), `--user-data-dir=${profile}`],
   env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile }, timeout: 30_000,
 })

@@ -960,6 +960,25 @@ dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100
 .shareStage { position: relative; flex: none; transform-origin: center; }
 .shareStage video, .shareStage canvas { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; border: 0; border-radius: 0; }
 .shareStage video { object-fit: contain; pointer-events: none; }
+
+/* A self-view behaves like a mirror. Remote cameras and every screen share
+   retain their true orientation. */
+video.localCameraPreview { transform: scaleX(-1); }
+
+/* A remote receiver needs a rendered sink before Chromium will reliably
+   decode its first frame. Keep that sink out of the tile layout without
+   using display:none; syncRemoteVideos reveals it as soon as its clock moves. */
+video.awaitingFrame {
+  position: fixed !important;
+  left: -2px !important;
+  top: -2px !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
 .shareAnnotations { pointer-events: none; }
 /* Marks over a preview tile of a share: the same strokes the viewer paints,
    sized to the picture inside the video element. Hidden when there are none. */
