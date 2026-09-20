@@ -8,8 +8,20 @@ const STORAGE_KEY = 'kithmoot.relays.v1'
  *  than read off a card. Saved on the device; the contact book's boxes join
  *  it without being saved. */
 const CIRCLE_KEY = 'kithmoot.circle.v1'
+const LEGACY_PUBLIC_RELAYS = new Set(['wss://nos.lol/', 'wss://relay.primal.net/'])
+const PUBLIC_FALLBACK_RELAY = 'wss://relay.trotters.cc/'
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 type RelayHints = (string | RelayConfig)[]
+
+/** Rooms made before the third public fallback joined the defaults carry only this exact
+ * pair in their invitation. Give those rooms the current third route at use
+ * time without changing arbitrary, private or permissioned relay choices. */
+export function currentRoomRelayHints(hints: RelayHints): RelayHints {
+  let relays: RelayConfig[]
+  try { relays = normaliseRelayConfig(hints) } catch { return hints }
+  if (relays.length !== LEGACY_PUBLIC_RELAYS.size || !relays.every(relay => relay.read && relay.write && LEGACY_PUBLIC_RELAYS.has(relay.url))) return hints
+  return [...relays, { url: PUBLIC_FALLBACK_RELAY, read: true, write: true }]
+}
 
 /** Device preferences, separate from relay hints shared in an invitation. */
 export class RelayConnections {
@@ -95,7 +107,7 @@ export class RelayConnections {
   #configuration(scope: string, hints: RelayHints): RelayConfig[] {
     if (this.#saved[scope]) return normaliseRelayConfig(this.#saved[scope])
     const inherited = this.#saved[scope.replace(/^room:/, 'inherited:')]
-    if (hints.length) return normaliseRelayConfig(hints).map(relay => inherited?.find(saved => saved.url === relay.url) ?? relay)
+    if (hints.length) return normaliseRelayConfig(currentRoomRelayHints(hints)).map(relay => inherited?.find(saved => saved.url === relay.url) ?? relay)
     return normaliseRelayConfig(inherited ?? this.#saved.default ?? this.defaults)
   }
   #marked(relays: RelayConfig[]): RelayConfig[] {
