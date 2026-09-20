@@ -31,6 +31,8 @@ test('people with the link ask, and the person in the room lets them in or decli
     await rowan.addInitScript(() => localStorage.setItem('kithmoot.name', 'Rowan'))
     await rowan.goto(link)
     await expect(rowan.locator('#status')).toContainText('Asking to be let in', { timeout: 60_000 })
+    await expect(rowan.locator('#arrivalTitle')).toHaveText('Waiting to be admitted')
+    await expect(rowan.locator('#arrivalLead')).toContainText('Someone already in the room needs to let you in')
     const card = host.locator('#approvals .approvalCard.knock')
     await expect(card).toContainText('Rowan wants to join', { timeout: 60_000 })
     await card.getByRole('button', { name: 'Let in', exact: true }).click()

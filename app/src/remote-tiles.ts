@@ -87,6 +87,8 @@ export interface TrackLike {
 /** One receiver of one remote device, as the page currently sees it. */
 export interface ReceiverFacts {
   readonly track: TrackLike
+  /** Fixed profile-2 slot, when the mesh supplied one with ontrack. */
+  readonly role?: TrackRole
   /** `RTCRtpTransceiver.currentDirection` for the transceiver this receiver sits on. */
   readonly direction: string | null | undefined
   /** Whether inbound RTP for this receiver has moved recently. */
@@ -171,7 +173,10 @@ export function bindRoles({ kind, adverts, receivers, bound, prefer }: BindInput
   const pairs: { role: TrackRole; roleAt: number; trackAt: number; track: TrackLike; score: number }[] = []
   roles.forEach((role, roleAt) => {
     eligible.forEach((track, trackAt) => {
+      const fixed = receivers.find((facts) => facts.track === track)?.role
+      if (fixed !== undefined && fixed !== role) return
       let score = 0
+      if (fixed === role) score += 32
       if (advertFor.get(role)?.trackId === track.id) score += 8
       if (bound?.get(role) === track) score += 4
       if (progressing.has(track)) score += 2

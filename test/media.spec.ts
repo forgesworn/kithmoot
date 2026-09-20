@@ -136,6 +136,10 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     // above the toggles. The preview strip is for before you join.
     const ownTile = pageA.locator('#room .participant', { hasText: '(you)' })
     await expect(ownTile.locator('video'), "Ada's own picture is not in her tile").toHaveCount(1)
+    await expect(ownTile.locator('video')).toHaveClass(/localCameraPreview/)
+    await expect.poll(() => ownTile.locator('video').evaluate(video => getComputedStyle(video).transform))
+      .toMatch(/^matrix\(-1, 0, 0, 1,/)
+    await expect(pageA.locator('#room .participant:not(:has-text("(you)")) video').first()).not.toHaveClass(/localCameraPreview/)
     await expect(pageA.locator('#local video')).toHaveCount(0)
   } finally {
     await contextA.close()

@@ -2435,6 +2435,14 @@ function activeTracks(): MediaStreamTrack[] {
   return [micTrack, cameraTrack, screenTrack, screenAudioTrack].filter((t): t is MediaStreamTrack => t !== undefined)
 }
 
+function activeTrackRole(track: MediaStreamTrack): TrackAdvert['role'] | undefined {
+  if (track === micTrack) return 'mic'
+  if (track === cameraTrack) return 'camera'
+  if (track === screenTrack) return 'screen'
+  if (track === screenAudioTrack) return 'screen-audio'
+  return undefined
+}
+
 function fragmentPayload(url: string): Partial<RoomUrlPayload> {
   const hash = new URL(url).hash.slice(1)
   if (!hash) throw new Error('join URL has no fragment')
@@ -2502,6 +2510,11 @@ async function roomFromLocation(): Promise<boolean> {
         cacheAdmission(invitation, cached)
         serveCurrentInvitation()
       } else {
+        $('arrivalTitle').textContent = invitation.persistent ? 'Opening this room' : 'Waiting to be admitted'
+        $('arrivalLead').textContent = invitation.persistent
+          ? 'Checking the room invitation…'
+          : 'Your request has been sent. Someone already in the room needs to let you in.'
+        $('arrivalLead').hidden = false
         setStatus(invitation.persistent ? 'Getting you in…' : 'Asking to be let in…', 'progress')
         const transport = configuredPool(relays)
         try {
@@ -2557,6 +2570,11 @@ async function roomFromLocation(): Promise<boolean> {
     history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
     pairWithPrimary(code).catch((err) => setStatus(describeError(err)))
   }
+
+  // An older saved invitation may predate names in room links. The rooms
+  // list still knows the human name, so keep it when opening that bookmark
+  // instead of replacing it with `Room deadbeef` on desktop.
+  if (!roomName) roomName = knownRooms(roomStore()).find((room) => room.roomId === currentRoomId())?.name
 
   // Admitted, one way or another: this is now a room this device has been
   // in, and the list on the front page will offer it again - and, if the
@@ -4417,6 +4435,7 @@ function clearShareError(): void {
 
 function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): void {
   const video = document.createElement('video')
+  if (kind === 'camera') video.classList.add('localCameraPreview')
   video.srcObject = new MediaStream([track])
   video.autoplay = true
   video.muted = true
@@ -7410,6 +7429,8 @@ interface RemoteVideo {
 }
 
 const remoteVideos = new Map<string, RemoteVideo>()
+/** Fixed profile-2 role learned from ontrack; receiver ids are not role identity. */
+const fixedRemoteRoles = new WeakMap<MediaStreamTrack, TrackAdvert['role']>()
 
 /** Follow the advertised screen role across a track replacement or reconnect. */
 function screenSource(participant: string, device: string): ShareSource | undefined {
@@ -7907,7 +7928,7 @@ function deviceReceivers(device: string, now: number): ReceiverFacts[] {
       const track = transceiver.receiver?.track
       if (!track) continue
       noteRtp(transceiver.receiver, track, now)
-      facts.push({ track, direction: transceiver.currentDirection, progressing: trackProgressing(track, now) })
+      facts.push({ track, direction: transceiver.currentDirection, progressing: trackProgressing(track, now), role: fixedRemoteRoles.get(track) })
     }
   }
   return facts
@@ -7954,7 +7975,7 @@ function syncRemoteVideos(): void {
       // Keep a newly negotiated sink connected so it can decode, but do not
       // let its empty black rectangle take half of a grouped person's card.
       // The first painted frame makes it a picture and earns its place.
-      if (entry.el.hidden) { entry.el.hidden = false; changed = true }
+      if (entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
     }
     const progressedAt = trackProgressAt.get(entry.track)
     if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
@@ -8087,9 +8108,12 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       el.autoplay = true
       el.playsInline = true
       el.muted = true
-      // `ontrack` precedes the first decoded frame. Hidden media continues
-      // to be a connected sink, while contributing no empty pane to layout.
-      el.hidden = true
+      // `ontrack` precedes the first decoded frame. Keep a tiny transparent
+      // sink in the rendering tree so Chromium continues decoding; the HTML
+      // `hidden` attribute maps to display:none and can suspend the decoder,
+      // leaving videoHeight at zero forever. The first moving frame removes
+      // this class in syncRemoteVideos above.
+      el.classList.add('awaitingFrame')
       el.dataset.track = track.id
       remoteVideos.set(key, { el, container, track, last: -1, stalled: 0, played: false })
       container.append(el)
@@ -8112,7 +8136,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       existing!.last = -1
       existing!.stalled = 0
       existing!.played = false
-      el.hidden = true
+      el.classList.add('awaitingFrame')
     }
     track.addEventListener('ended', () => {
       // Only the track currently on this element may take it down. The
@@ -8686,6 +8710,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
+          trackRole: activeTrackRole,
           assist: currentAssistOffer,
           relay: peerRelay,
           ...forwarderMediaOptions,
@@ -8721,6 +8746,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // Off unless the kill switch says otherwise, and a pair uses it
           // only when the far end's roster entry says 2 as well.
           callProfile,
+          trackRole: activeTrackRole,
           assist: currentAssistOffer,
           relay: peerRelay,
           ...forwarderMediaOptions,
@@ -8762,7 +8788,15 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
       // The owner of an agent that asked may only now be known.
       renderApprovals()
     })
-    s.onRemoteTrack(({ device, track }) => { if (session === s) attachRemoteTrack(device, track); else track.stop() })
+    s.onRemoteTrack(({ device, track, role }) => {
+      // Profile 2's fixed slot is authoritative. Discarding it here made the
+      // UI guess from browser-local receiver ids and arrival order, so an
+      // idle camera receiver could take the screen slot and the real share
+      // remained attached to a decoder that never received its frames.
+      if (role) fixedRemoteRoles.set(track, role)
+      if (session === s) attachRemoteTrack(device, track, role ? tileKey(device, role) : undefined)
+      else track.stop()
+    })
     s.onAnnotation(({ participant, annotation }) => {
       if (session !== s) return
       shareViewer.receive(annotation, markAuthor(participant))

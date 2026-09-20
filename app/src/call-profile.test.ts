@@ -1,8 +1,11 @@
 /**
  * The kill switch: step S12 of the call reliability design.
  *
- * Profile 2 is the current default, with a durable per-device switch back to
- * profile 1. A pair still uses profile 2 only when both devices advertise it.
+ * The default is the whole point of this file. Profile 2 changes how every
+ * pair of new clients negotiates, and a change to a call that can only be
+ * undone by shipping is not a change anybody should make on a Friday. Off
+ * unless somebody says otherwise, and one reload back to exactly what every
+ * client from before today speaks.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -23,20 +26,22 @@ function device(initial: Record<string, string> = {}) {
 }
 
 describe('which call profile this device advertises', () => {
-  it('is profile 2 when nobody has said anything', () => {
-    expect(readCallProfile('', storage())).toBe(2)
-    expect(readCallProfile('?room=x', storage())).toBe(2)
+  it('is profile 1 when nobody has said anything', () => {
+    expect(readCallProfile('', storage())).toBe(1)
+    expect(readCallProfile('?room=x', storage())).toBe(1)
   })
 
-  it('is profile 2 with no storage at all', () => {
-    expect(readCallProfile('')).toBe(2)
+  it('is profile 1 with no storage at all', () => {
+    // A private window, or a browser with site data blocked. The default is
+    // the safe one, so there is nothing to fall back to.
+    expect(readCallProfile('')).toBe(1)
   })
 
   it('honours a stored off switch, and ignores a stored on one', () => {
     // Nothing writes a durable `2` any more; one left by an older build must
     // not keep a device on it silently.
     expect(readCallProfile('', storage({ [CALL_PROFILE_KEY]: '1' }))).toBe(1)
-    expect(readCallProfile('', storage({ [CALL_PROFILE_KEY]: '2' })), 'a durable on switch changed the default').toBe(2)
+    expect(readCallProfile('', storage({ [CALL_PROFILE_KEY]: '2' })), 'a durable on switch was honoured').toBe(1)
   })
 
   it('honours this page session\'s own switch', () => {
@@ -64,7 +69,7 @@ describe('which call profile this device advertises', () => {
     // A new tab of the same browser: same device, same origin, no memory of
     // somebody else's link.
     const later = { local: d.local, session: storage() }
-    expect(readCallProfile('', later.local, later.session)).toBe(2)
+    expect(readCallProfile('', later.local, later.session)).toBe(1)
   })
 
   it('lets the query turn it off again, and that one is remembered for good', () => {
@@ -84,9 +89,9 @@ describe('which call profile this device advertises', () => {
 
   it('ignores anything that is not exactly 1 or 2', () => {
     for (const value of ['0', '3', '2.0', 'two', '', ' 2', 'true']) {
-      expect(readCallProfile(`?callProfile=${encodeURIComponent(value)}`, storage(), storage()), value).toBe(2)
+      expect(readCallProfile(`?callProfile=${encodeURIComponent(value)}`, storage(), storage()), value).toBe(1)
     }
-    expect(readCallProfile('', storage({ [CALL_PROFILE_KEY]: 'yes' }))).toBe(2)
+    expect(readCallProfile('', storage({ [CALL_PROFILE_KEY]: 'yes' }))).toBe(1)
   })
 
   it('still honours the query when the browser refuses to remember it', () => {
@@ -99,6 +104,6 @@ describe('which call profile this device advertises', () => {
       },
     }
     expect(readCallProfile('?callProfile=2', refusing, refusing)).toBe(2)
-    expect(readCallProfile('', refusing, refusing)).toBe(2)
+    expect(readCallProfile('', refusing, refusing)).toBe(1)
   })
 })

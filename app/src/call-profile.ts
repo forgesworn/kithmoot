@@ -3,10 +3,12 @@
  * turns it off again.
  *
  * Profile 2 - fixed media slots, the reliable signal channel, pair
- * generations and the health ladder - is the default for current clients.
- * The answer to a bad day remains local and immediate: `?callProfile=1` in
- * the address bar, or `kithmoot.callProfile` in this browser's storage, puts
- * that device back on what every client from before profile 2 speaks.
+ * generations and the health ladder - is **off by default**, deliberately.
+ * It changes how every pair of new clients negotiates, and the one thing a
+ * call cannot afford is a change that can only be undone by shipping. So the
+ * answer to a bad day is a reload: `?callProfile=1` in the address bar, or
+ * `kithmoot.callProfile` in this browser's storage, and the device is back to
+ * exactly what every client from before today speaks.
  *
  * The far end's own claim still governs the pair. This only says what this
  * device advertises about itself; §2.3's rule is that both roster entries
@@ -50,8 +52,8 @@ function parse(value: string | null | undefined): CallProfile | undefined {
  * **off** is remembered for good, because that one is somebody saying "not
  * this, not on my device", and it must not need saying twice.
  *
- * Storage that throws (a private window, blocked site data) is simply absent,
- * so the current profile remains available without persistent state.
+ * Storage that throws (a private window, blocked site data) is simply
+ * absent: the default is the safe one, so there is nothing to fall back to.
  */
 export function readCallProfile(search: string, storage?: CallProfileStorage, session?: CallProfileStorage): CallProfile {
   const asked = ask(search)
@@ -74,7 +76,7 @@ export function readCallProfile(search: string, storage?: CallProfileStorage, se
   // Nothing asked: an explicit off is durable, an on is only ever this page
   // session's.
   if (read(storage) === 1) return 1
-  return read(session) ?? 2
+  return read(session) ?? 1
 }
 
 /** `localStorage` and `sessionStorage` both satisfy this, and so does a test
