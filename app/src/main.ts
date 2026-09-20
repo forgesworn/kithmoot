@@ -6572,14 +6572,16 @@ function renderAgentActivity(): void {
   const agents = (session?.participants() ?? []).filter(view => view.agent)
   const watching = currentChannel === AGENT_CHANNEL
   const activity = $('agentActivity')
-  activity.hidden = !watching && agents.length === 0
+  // Inviting the first agent must not require an Agents conversation that
+  // does not exist until a host advertises one or an agent has already joined.
+  activity.hidden = !session
   $('agentActivityTitle').textContent = agents.length ? `${agents.length} agent${agents.length === 1 ? '' : 's'} in this room` : 'No agents here yet'
   const names = agents.slice(0, 3).map(view => shownAs(view.participant, view.name).name ?? shortKey(view.participant)).join(', ')
   $('agentActivityNote').textContent = watching
     ? agents.length ? `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''}` : 'Invite an agent, or read earlier messages here.'
     : `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''} · Read what they say to each other.`
   $('watchAgents').hidden = watching
-  $('manageAgents').hidden = !watching
+  $('manageAgents').hidden = !session
 }
 
 function renderChannels(): void {
@@ -10147,6 +10149,13 @@ $('manageAgents').addEventListener('click', () => {
   ;($('inviteAgents') as HTMLDetailsElement).open = true
   $('inviteAgents').scrollIntoView({ block: 'start' })
   $('inviteAgents').querySelector('summary')?.focus()
+})
+$('copyAgentInvite').addEventListener('click', async () => {
+  await copyInput('shareUrl')
+  const copied = $('inviteStatus').textContent?.startsWith('Link copied') === true
+  $('agentInviteStatus').textContent = copied
+    ? 'Room link copied. Paste it into kithmoot-agent join on the computer running your bot.'
+    : 'Automatic copy was unavailable. Copy the invite link under Invite people and give it to kithmoot-agent join.'
 })
 $('chatLog').addEventListener('scroll', () => { if (markConversationRead()) renderConversationNav() }, { passive: true })
 document.addEventListener('visibilitychange', () => { if (markConversationRead()) renderConversationNav() })

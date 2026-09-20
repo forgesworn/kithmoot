@@ -278,6 +278,21 @@ test('assignment retries clear only the submitted form and keep a newer draft', 
   } finally { await context.close() }
 })
 
+test('the first external agent can be invited before any host advertises a catalogue', async ({ browser, baseURL }) => {
+  const { context, page, relay } = await workDevice(browser, baseURL!)
+  const room = await RoomAgent.create({ base: baseURL!, name: 'Room host', agent: false, relays: [TEST_RELAY_WS] })
+  try {
+    await page.goto(encodeRoomLink(baseURL!, { ...parseRoomLink(room.url), relays: [relay] }))
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#manageAgents')).toBeVisible()
+    await page.locator('#manageAgents').click()
+    await expect(page.locator('#inviteAgents')).toHaveAttribute('open', '')
+    await expect(page.locator('#copyAgentInvite')).toBeVisible()
+    await expect(page.locator('#inviteList')).toContainText('Nobody here is offering one')
+    await expect(page.locator('#shareUrl')).not.toHaveValue('')
+  } finally { await context.close(); room.leave() }
+})
+
 test('an advertised agent can be invited and assigned work without replacing an unfinished draft', async ({ browser, baseURL }, testInfo) => {
   const { context, page, relay } = await workDevice(browser, baseURL!)
   const host = await RoomAgent.create({ base: baseURL!, name: 'Workshop host', roomName: 'Agent workshop', agent: false, relays: [TEST_RELAY_WS] })
