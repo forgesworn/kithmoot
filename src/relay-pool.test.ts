@@ -348,6 +348,52 @@ describe('NostrRelayPool', () => {
     expect(seen).toEqual([])
   })
 
+  it('retries a stalled connection handshake and delivers the same prepared event after recovery', async () => {
+    vi.useFakeTimers()
+    pool.close()
+    pool = new NostrRelayPool([URL_A])
+    a.stallConnections = true
+    const event = evt()
+    const outcomes: unknown[] = []
+    const published = pool.publish(event).then(() => outcomes.push('published'), error => outcomes.push(error))
+    await vi.advanceTimersByTimeAsync(3_400)
+    expect(outcomes).toEqual([])
+    expect(a.stored).toEqual([])
+    a.stallConnections = false
+    await vi.advanceTimersByTimeAsync(5_000)
+    await published
+    expect(outcomes).toEqual(['published'])
+    expect(a.stored.map(item => item.id)).toEqual([event.id])
+  })
+
+  it('keeps the existing retry budget when connection handshakes never recover', async () => {
+    vi.useFakeTimers()
+    pool.close()
+    pool = new NostrRelayPool([URL_A])
+    a.stallConnections = true
+    const failure = expect(pool.publish(evt())).rejects.toThrow(/no relay could be reached in time/)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await failure
+  })
+
+  it('does not retry an explicit refusal that quotes the connection timeout wording', async () => {
+    vi.useFakeTimers()
+    pool.close()
+    pool = new NostrRelayPool([URL_A])
+    const original = a.receive.bind(a)
+    let attempts = 0
+    a.receive = (socket, frame) => {
+      const message = JSON.parse(frame)
+      if (message[0] !== 'EVENT') return original(socket, frame)
+      attempts++
+      socket.deliver(JSON.stringify(['OK', message[1].id, false, 'connection failure: connection timed out']))
+    }
+    const failure = expect(pool.publish(evt())).rejects.toThrow(/every relay rejected the event/)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await failure
+    expect(attempts).toBe(1)
+  })
+
   it('retries a relay whose publish times out, and resolves once it recovers', async () => {
     // A joiner's socket opened while the door was showing goes half-open in
     // the background: `send()` succeeds into the void and no `OK` ever

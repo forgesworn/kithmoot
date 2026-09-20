@@ -530,7 +530,10 @@ const PUBLISH_RETRY_BUDGET_MS = 20_000
  *  like, so both are retried the same way. An explicit `OK false` rejects
  *  with the relay's own reason instead, and is never mistaken for either. */
 function isTimeoutError(error: unknown): boolean {
-  return error instanceof Error && (error.message === 'publish timed out' || error.message.startsWith('relay connection closed'))
+  // AbstractSimplePool rejects a failed handshake with this string. An OK
+  // false from a relay is an Error, even if its reason uses the same words.
+  return error === 'connection failure: connection timed out'
+    || error instanceof Error && (error.message === 'publish timed out' || error.message.startsWith('relay connection closed'))
 }
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
