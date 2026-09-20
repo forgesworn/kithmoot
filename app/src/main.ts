@@ -222,6 +222,8 @@ installReactionHold($('chatLog'))
 for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(positionReactionDetails)
 }, { passive: true })
+// WebKit can consume Escape during native popover handling before a bubbling
+// listener sees it. Capture first so receipt details close consistently.
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(details => details.hidePopover())
@@ -229,7 +231,7 @@ document.addEventListener('keydown', event => {
   // than reopening its panel, so a bay folded away by Escape would be a
   // call with no controls and no way back to them.
   if (!$('callBay').hidden && !callIsLive() && !onCall() && !document.querySelector('dialog[open]')) setCallOpen(false)
-})
+}, true)
 
 function positionReactionDetails(details: HTMLElement): void {
   const button = details.parentElement?.querySelector('button')
