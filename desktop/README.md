@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.11.
+Apple Silicon macOS and Linux x64/ARM64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.12.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -28,7 +28,7 @@ The ZIP alongside it is the same app for another Apple Silicon Mac.
 - Microphone and camera start only through existing call controls and macOS consent. Screen sharing uses the native macOS 15+ picker when available and an explicit screen/window menu otherwise. Closing during a call asks first. Leaving a call keeps the room chat available.
 - Calls disable app suspension while joined. Closing the window ends its call; the macOS Dock app remains available to reopen. There is no incoming-call background daemon.
 - Chat and its composer fill the available width when there is no media beside them.
-- Share an area has four large corner resize handles and a draggable Move bar; focused controls support arrow keys. The pane stays above normal windows and across Mac fullscreen spaces. Drawing colours appear in a bottom legend once per author, fading with their last mark.
+- Share an area has four large corner resize handles and a draggable Move bar; focused controls support arrow keys. The pane stays above normal windows and across Mac fullscreen spaces. Its KithMoot control restores and raises the call window, then the sharing frame retakes the front when focus moves away. Drawing colours appear in a bottom legend once per author, fading with their last mark.
 - Wide windows show call video beside the conversation. Smaller windows stack bounded panels while keeping the composer and red Leave call control visible.
 - Native Edit, zoom, fullscreen and window menus are available. External links require confirmation and open in the browser. Downloads use a save dialog.
 - The renderer is sandboxed, has no Node APIs and receives a narrow IPC bridge for call state, unread counts, bounded notifications and notification room clicks. Main-frame sender checks, navigation restrictions, CSP, asset traversal guards and a permission allowlist protect that boundary. Clipboard reading, USB, serial and location permissions are denied.
@@ -36,7 +36,7 @@ The ZIP alongside it is the same app for another Apple Silicon Mac.
 
 ## Distribution and acceptance boundaries
 
-The 0.1.11 Mac preview is **Developer ID signed and notarised**, with hardened runtime and a stapled Apple ticket. It remains a preview: physical capture/audio acceptance and the first update from 0.1.11 to a later signed build are still outstanding. Earlier published previews were ad-hoc signed.
+The 0.1.12 Mac preview is **Developer ID signed and notarised**, with hardened runtime and a stapled Apple ticket. It remains a preview: physical capture/audio acceptance and the first automatic update from 0.1.11 still require a completed installed-app check. Earlier published previews were ad-hoc signed.
 
 Linux x64 and ARM64 tarballs include a user-level Python installer and a matching applications-menu desktop entry. Windows packaging and iOS remain future work. Linux preview archives are not repository-signed.
 
