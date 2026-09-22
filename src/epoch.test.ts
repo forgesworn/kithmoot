@@ -268,6 +268,20 @@ describe('epoch requests and grants', () => {
       deviceSk,
     )
     expect(decodeEpochRequest(stripped, { roomId, authoritySk, roomKey, now: NOW })).toBeNull()
+    expect(decodeEpochRequest(stripped, {
+      roomId,
+      authoritySk,
+      roomKey,
+      now: NOW,
+      legacyParticipants: new Set([identity.pubkey]),
+    })).toEqual({ device, participant: identity.pubkey, request: stripped.id })
+    expect(decodeEpochRequest(stripped, {
+      roomId,
+      authoritySk,
+      roomKey,
+      now: NOW,
+      legacyParticipants: new Set([localIdentity(generateSecretKey()).pubkey]),
+    })).toBeNull()
   })
 
   it('the desk does not answer a stranger who has the room id and the authority but no room key', async () => {

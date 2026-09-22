@@ -564,6 +564,7 @@ export class RoomAgent {
             removed: () => session.removed,
             closed: () => session.closed,
             policy: opts.link.policy,
+            legacyParticipants: new Set(agent.admins),
             now: opts.now,
           })
         }
