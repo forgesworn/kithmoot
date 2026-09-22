@@ -5805,9 +5805,9 @@
     ],
     "agentOwnership": [
       {
-        "name": "valid",
+        "name": "legacy-no-expiry",
         "kind": "positive",
-        "note": "The smallest honest proof: an agent pubkey, a principal pubkey, when it was issued, and a BIP-340 signature over `sha256(\"kithmoot/v1/agent-owner:<agent>:<principal>:<issuedAt>:<expiresAt>:<label>\")`. Note the two empty fields: an absent expiry and an absent label are the EMPTY STRING in the signed message, not omitted, so a proof with no expiry and one whose expiry is the empty string cannot be made to collide.",
+        "note": "The legacy no-expiry proof keeps its exact signed bytes for mixed-version readers. Its signature remains display evidence, but current-owner authority rejects it until renewed with an expiry of at most 30 days.",
         "input": {
           "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
           "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
@@ -5831,8 +5831,8 @@
             "now": 1800000000
           },
           "result": {
-            "ok": true,
-            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c"
+            "ok": false,
+            "reason": "no expiry"
           }
         }
       },

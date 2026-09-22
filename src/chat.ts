@@ -20,7 +20,7 @@ import { verifyDeviceCredential } from './credential.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { evaluateAccess } from './access.js'
-import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
+import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RelayTransport } from './relay-pool.js'
 import { laneOfRelayUrl, laneOfRelays, type Lane } from './lane.js'
 import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from './types.js'
@@ -142,6 +142,8 @@ export interface ChatMessage {
    * and dropped if it does not hold. See `AgentOwnership`.
    */
   owner?: AgentOwnership
+  /** Signature-valid historical claim without current owner authority. */
+  ownerClaim?: AgentOwnership
   /**
    * The message this one answers, and the root of the thread it belongs
    * to. A reply to a root carries both, equal; deeper in a thread `thread`
@@ -352,6 +354,10 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
   // encoded before attachments existed.
   const transcript = msg.kind === 'transcript'
   const directive = msg.kind === 'directive'
+  const suppliedOwner = msg.owner ? normaliseAgentOwnership(msg.owner) ?? undefined : undefined
+  const currentOwner = suppliedOwner && verifyAgentOwnership(suppliedOwner, { agent: msg.participant, now: msg.sentAt }).ok ? suppliedOwner : undefined
+  const historicalOwner = !currentOwner && suppliedOwner && inspectAgentOwnershipSignature(suppliedOwner, { agent: msg.participant, now: msg.sentAt }).ok ? suppliedOwner : undefined
+  const claimedOwner = !currentOwner && msg.ownerClaim ? normaliseAgentOwnership(msg.ownerClaim) ?? undefined : undefined
   const plaintext = JSON.stringify({
     ...msg,
     name: sanitiseDisplayName(msg.name),
@@ -359,7 +365,8 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     speaker: transcript && typeof msg.speaker === 'string' ? normaliseHex(msg.speaker) : undefined,
     attachments: honestAttachments(msg.attachments),
     reaction: msg.reaction === undefined ? undefined : normaliseReaction(msg.reaction),
-    owner: msg.owner ? normaliseAgentOwnership(msg.owner) ?? undefined : undefined,
+    owner: currentOwner,
+    ownerClaim: historicalOwner ?? (claimedOwner && inspectAgentOwnershipSignature(claimedOwner, { agent: msg.participant, now: msg.sentAt }).ok ? claimedOwner : undefined),
     // The message layer's fields, each in its one honest shape or absent,
     // so a message that says nothing about another is byte-identical to
     // one encoded before any of them existed.
@@ -561,12 +568,21 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
 
     // Whose agent the sender is: verified as at send time, like the
     // credential, or not carried at all. See `decodeRosterEvent`.
+    const claimed = normaliseAgentOwnership(msg.ownerClaim)
+    delete msg.ownerClaim
     if (msg.owner !== undefined) {
       const proof = normaliseAgentOwnership(msg.owner)
       const verdict = proof ? verifyAgentOwnership(proof, { agent: msg.participant, now: msg.sentAt }) : { ok: false as const }
       if (proof && verdict.ok) msg.owner = proof
-      else delete msg.owner
+      else {
+        delete msg.owner
+        if (proof && inspectAgentOwnershipSignature(proof, { agent: msg.participant, now: msg.sentAt }).ok) {
+          msg.ownerClaim = proof
+        }
+      }
     }
+    if (msg.owner === undefined && msg.ownerClaim === undefined && claimed
+      && inspectAgentOwnershipSignature(claimed, { agent: msg.participant, now: msg.sentAt }).ok) msg.ownerClaim = claimed
 
     // The device that signed this event must be the device the message
     // claims to be from - the same attribution guard the roster uses.
@@ -625,6 +641,8 @@ export interface ChatLogOptions {
   /** This sender's ownership proof, when it is an agent whose principal
    *  has attested to it. Carried on every message. */
   owner?: AgentOwnership
+  /** Historical signed claim; never current-owner authority. */
+  ownerClaim?: AgentOwnership
 }
 
 /** What `send` may say beyond the text. */
@@ -816,6 +834,7 @@ export class ChatLog {
       sentAt: this.#now(),
       ...(attachments ? { attachments } : {}),
       ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),
+      ...(this.#opts.ownerClaim ? { ownerClaim: this.#opts.ownerClaim } : {}),
       ...(reply ? { reply } : {}),
       ...(thread ? { thread } : {}),
       ...(sendOpts.replaces !== undefined ? { replaces: sendOpts.replaces } : {}),

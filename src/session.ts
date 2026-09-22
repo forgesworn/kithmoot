@@ -11,7 +11,7 @@ import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid,
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
 import { evaluateAccess, evaluateAgentAccess } from './access.js'
-import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
+import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
 import type { RoleResolver } from './peer-slots.js'
@@ -103,6 +103,8 @@ export interface ParticipantView {
    *  devices' entries. Absent for a person, and for an agent nobody has
    *  claimed. See `AgentOwnership`. */
   owner?: { principal: string; label?: string }
+  /** Signed historical claim, displayed separately from current authority. */
+  ownerClaim?: { principal: string; label?: string }
   /** The single device holding the microphone, if any. */
   mic?: string
   /** The single device playing the room's audio, if any. */
@@ -524,7 +526,7 @@ export class RoomSession {
       const proof = normaliseAgentOwnership(opts.owner)
       const agent = participant ?? verifyDeviceCredential(opts.credential!, { roomId, now: this.#now() })
       const named = typeof agent === 'string' ? agent : agent.ok ? agent.participant : ''
-      const verdict = proof ? verifyAgentOwnership(proof, { agent: named, now: this.#now() }) : { ok: false as const, reason: 'malformed' }
+      const verdict = proof ? inspectAgentOwnershipSignature(proof, { agent: named, now: this.#now() }) : { ok: false as const, reason: 'malformed' }
       if (!proof || !verdict.ok) throw new Error(`ownership proof rejected: ${verdict.ok ? 'malformed' : verdict.reason}`)
       this.#owner = proof
     }
@@ -582,7 +584,7 @@ export class RoomSession {
       // The same courtesy for the agent rule: an agent with no proof will
       // be refused by everybody, so it is told now. Whether its principal
       // is here cannot be known before the roster is read.
-      if (this.#opts.policy.agents === 'owned-by-members' && this.#opts.agent === true && !this.#owner) {
+      if (this.#opts.policy.agents === 'owned-by-members' && this.#opts.agent === true && !this.#ownerToCarry()) {
         throw new Error('this room admits only agents whose principal is a member, and this agent carries no ownership proof')
       }
     }
@@ -742,6 +744,7 @@ export class RoomSession {
       now: this.#now,
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
+      ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
     })
 
     // Presence is live state, so it has to be restated and it has to lapse -
@@ -767,7 +770,12 @@ export class RoomSession {
   /** The proof this device puts on what it publishes: only when it says it
    *  is an agent, because a proof is a statement about one. */
   #ownerToCarry(): AgentOwnership | undefined {
-    return this.#opts.agent === true ? this.#owner : undefined
+    return this.#opts.agent === true && this.#owner && verifyAgentOwnership(this.#owner, { agent: this.participant, now: this.#now() }).ok ? this.#owner : undefined
+  }
+
+  #ownerClaimToCarry(): AgentOwnership | undefined {
+    return this.#opts.agent === true && this.#owner && !this.#ownerToCarry()
+      && inspectAgentOwnershipSignature(this.#owner, { agent: this.participant, now: this.#now() }).ok ? this.#owner : undefined
   }
 
   /** Whether a participant is in this session's roster, as the agent rule
@@ -1307,6 +1315,7 @@ export class RoomSession {
       ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
+      ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(assist ? { assist } : {}),
       ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
       ...(reply ? { reply: true } : {}),
@@ -1377,7 +1386,7 @@ export class RoomSession {
     if (this.#opts.policy?.agents === 'owned-by-members') {
       for (const [key, entry] of this.#entries) {
         if (key === this.#selfKey()) continue
-        if (evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p)).admitted) continue
+        if (evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p), this.#now()).admitted) continue
         this.#entries.delete(key)
         this.#seenAt.delete(key)
         changed = true
@@ -1689,6 +1698,7 @@ export class RoomSession {
       now: this.#now,
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
+      ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
     })
     this.#channels.set(name, log)
     return log
@@ -1716,7 +1726,7 @@ export class RoomSession {
       // The agent rule, enforced where every rule is: at every reader.
       // `entry.owner` is here only if `decodeRosterEvent` verified it.
       // Our own entry echoing back is exempt: we know we are here.
-      if (entry.device !== this.device && !evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p)).admitted) return
+      if (entry.device !== this.device && !evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p), this.#now()).admitted) return
     }
 
     // The presence identity, which is the device key only for an entry that
@@ -1796,7 +1806,7 @@ export class RoomSession {
 
   /** The verified proof carried by an agent, for explicit context grants. */
   agentOwnership(participant: string): AgentOwnership | undefined {
-    const proof = [...this.#entries.values()].find(e => e.participant === participant && e.agent && e.owner)?.owner
+    const proof = [...this.#entries.values()].find(e => e.participant === participant && e.agent && e.owner && verifyAgentOwnership(e.owner, { agent: participant, now: this.#now() }).ok)?.owner
     return proof ? structuredClone(proof) : undefined
   }
 
@@ -1805,7 +1815,13 @@ export class RoomSession {
     // never sees a device that lapsed since the last sweep. No notification
     // from here: the caller is reading the fresh answer already.
     this.#evictLapsed()
-    const entries = [...this.#entries.values()]
+    const fresh = [...this.#entries.values()]
+    const present = new Set(fresh.map((entry) => entry.participant))
+    // A proof can expire while its roster entry is still fresh. In rooms
+    // requiring an owned agent, expiry must end admission on this read.
+    const entries = this.#opts.policy?.agents === 'owned-by-members'
+      ? fresh.filter((entry) => evaluateAgentAccess(this.#opts.policy, entry, (principal) => present.has(principal), this.#now()).admitted)
+      : fresh
     const roles = resolveSingularRoles(entries)
     const byParticipant = new Map<string, ParticipantView>()
     /** When the name currently held for a participant was last restated. */
@@ -1858,7 +1874,14 @@ export class RoomSession {
       // Verified at decode, or not here at all. One proof per person is
       // enough: every device of one agent names the same principal.
       if (entry.owner && !view.owner) {
-        view.owner = { principal: entry.owner.principal, ...(entry.owner.label !== undefined ? { label: entry.owner.label } : {}) }
+        if (verifyAgentOwnership(entry.owner, { agent: entry.participant, now: this.#now() }).ok) {
+          view.owner = { principal: entry.owner.principal, ...(entry.owner.label !== undefined ? { label: entry.owner.label } : {}) }
+        } else if (inspectAgentOwnershipSignature(entry.owner, { agent: entry.participant, now: this.#now() }).ok && !view.ownerClaim) {
+          view.ownerClaim = { principal: entry.owner.principal, ...(entry.owner.label !== undefined ? { label: entry.owner.label } : {}) }
+        }
+      }
+      if (entry.ownerClaim && !view.ownerClaim) {
+        view.ownerClaim = { principal: entry.ownerClaim.principal, ...(entry.ownerClaim.label !== undefined ? { label: entry.ownerClaim.label } : {}) }
       }
       for (const track of entry.tracks) view.tracks.push({ ...track, device: entry.device })
       // Per device, not per person: two of somebody's devices can be in the

@@ -1940,6 +1940,19 @@ function ownerRun(owner: { principal: string; label?: string }): DocumentFragmen
   return run
 }
 
+/** A signed old claim is useful context, but grants no present authority. */
+function ownerClaimRun(owner: { principal: string; label?: string }): DocumentFragment {
+  const run = document.createDocumentFragment()
+  const note = document.createElement('span')
+  note.className = 'ownerOf'
+  note.textContent = ' historically claimed by '
+  note.title = 'This signed ownership claim is historical or unbounded. Renew it with an expiry of at most 30 days to establish current ownership.'
+  run.append(note)
+  const principalName = session?.participants().find((v) => v.participant === owner.principal)?.name
+  run.append(identityRun(shownAs(owner.principal, principalName), owner.principal === meParticipant))
+  return run
+}
+
 /**
  * Which way in this device is on, and what that means.
  *
@@ -4837,6 +4850,7 @@ function render(views: ParticipantView[], me: string): void {
       badge.title = 'An agent, not a person'
       chip.append(badge)
       if (view.owner) chip.append(ownerRun(view.owner))
+      else if (view.ownerClaim) chip.append(ownerClaimRun(view.ownerClaim))
       agentsRow.append(chip)
       continue
     }
@@ -4892,6 +4906,7 @@ function render(views: ParticipantView[], me: string): void {
       badge.title = 'This participant says it is an automated agent'
       heading.append(badge)
       if (view.owner) heading.append(ownerRun(view.owner))
+      else if (view.ownerClaim) heading.append(ownerClaimRun(view.ownerClaim))
     }
     if (view.participant !== me) {
       heading.append(verifyChip(view, shown.name ?? ''))
@@ -5127,6 +5142,7 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
       badge.title = 'An agent, not a person'
       row.append(badge)
       if (view.owner) row.append(ownerRun(view.owner))
+      else if (view.ownerClaim) row.append(ownerClaimRun(view.ownerClaim))
     }
     if (view.devices.length > 1) {
       const badge = document.createElement('span')
@@ -5693,6 +5709,7 @@ function renderApprovals(): void {
     const view = session.participants().find((v) => v.participant === request.from)
     who.append(identityRun(shownAs(request.from, view?.name), false))
     if (view?.owner) who.append(ownerRun(view.owner))
+    else if (view?.ownerClaim) who.append(ownerClaimRun(view.ownerClaim))
     who.append(' asks:')
     const text = document.createElement('span')
     text.className = 'text'
@@ -5757,6 +5774,7 @@ function renderHost(): void {
     who.append(identityRun(shownAs(view.participant, view.name), false))
     if (view.agent) who.append(' (agent)')
     if (view.owner) who.append(ownerRun(view.owner))
+    else if (view.ownerClaim) who.append(ownerClaimRun(view.ownerClaim))
     row.append(who)
     const label = personLabel(view.participant)
     if (view.participant === keeperParticipant) {
@@ -7122,7 +7140,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     row.dataset.messageId = original.id
     row.dataset.messageAuthor = original.participant
     row.dataset.sentAt = String(original.sentAt)
-    row.dataset.senderGroup = JSON.stringify([original.participant, original.name, original.owner, fromAgent, original.kind])
+    row.dataset.senderGroup = JSON.stringify([original.participant, original.name, original.owner, original.ownerClaim, fromAgent, original.kind])
     const previous = into.lastElementChild as HTMLElement | null
     const previousAt = Number(previous?.dataset.sentAt)
     if (!r.retracted && previous?.classList.contains('msg') && !previous.classList.contains('retracted') &&
@@ -7158,6 +7176,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       // Whose agent wrote this, from the proof carried on the message and
       // verified as at its send time - see ChatMessage.owner.
       if (original.owner) sender.append(ownerRun(original.owner))
+      else if (original.ownerClaim) sender.append(ownerClaimRun(original.ownerClaim))
       header.append(sender)
     }
     // The time it was first said. An edit does not move a message.

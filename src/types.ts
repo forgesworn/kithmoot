@@ -55,7 +55,7 @@ export interface RoomPolicy {
  *
  * Signed by the principal over the agent's key, its own, when it was
  * issued, until when, and what the principal calls the agent. Room
- * independent: it is a fact about two keys, attested once and carried into
+ * independent: it is a fact about two keys, renewed at most every 30 days and carried into
  * every room. What a client shows as "agent of" comes only from a proof it
  * verified itself; the codecs drop one that fails before anybody sees it.
  * See `ownership.ts`.
@@ -67,7 +67,7 @@ export interface AgentOwnership {
   principal: string
   /** Unix seconds. */
   issuedAt: number
-  /** Unix seconds. Absent means it stands until the keys change. */
+  /** Unix seconds. Absent on legacy proofs, which are display-only. */
   expiresAt?: number
   /** What the principal calls the agent, sanitised like a display name. */
   label?: string
@@ -279,6 +279,9 @@ export interface RosterEntry {
    * byte-identical for a client that has never heard of ownership.
    */
   owner?: AgentOwnership
+  /** Signature-valid historical ownership evidence with no current authority.
+   * Older clients ignore this optional wire field. */
+  ownerClaim?: AgentOwnership
   /**
    * True on the last entry a device publishes: it has left the room.
    *

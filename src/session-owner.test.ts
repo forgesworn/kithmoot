@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { schnorr } from '@noble/curves/secp256k1.js'
+import { sha256 } from '@noble/hashes/sha2'
+import { bytesToHex } from '@noble/hashes/utils'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { RoomSession } from './session.js'
 import { localIdentity } from './identity.js'
@@ -55,6 +58,73 @@ describe('whose agent, in a room', () => {
     const principalSk = generateSecretKey()
     const proof = issueAgentOwnership({ principalSk, agent: getPublicKey(generateSecretKey()), issuedAt: NOW })
     expect(() => session(relay, generateSecretKey(), 'Wrong', { agent: true, owner: proof })).toThrow(/another agent/)
+  })
+
+  it('lets an open-room agent carry a genuine legacy proof as display-only evidence', async () => {
+    const relay = new SimRelay()
+    const principalSk = generateSecretKey()
+    const principal = getPublicKey(principalSk)
+    const agentSk = generateSecretKey()
+    const agent = getPublicKey(agentSk)
+    const transcript = `kithmoot/v1/agent-owner:${agent}:${principal}:${NOW}::`
+    const proof = { agent, principal, issuedAt: NOW, sig: bytesToHex(schnorr.sign(sha256(new TextEncoder().encode(transcript)), principalSk)) }
+    const person = session(relay, principalSk, 'Ada')
+    const tally = session(relay, agentSk, 'Tally', { agent: true, owner: proof })
+    await person.join([], {})
+    await tally.join([], {})
+    await settle()
+    const view = person.participants().find((v) => v.participant === agent)
+    expect(view?.owner).toBeUndefined()
+    expect(view?.ownerClaim?.principal).toBe(principal)
+    await tally.chat.send('reporting')
+    await settle()
+    const message = person.chat.messages()[0]
+    expect(message?.owner).toBeUndefined()
+    expect(message?.ownerClaim).toEqual(proof)
+    await tally.leave()
+    await person.leave()
+  })
+
+  it('drops current-owner authority when a live roster proof expires', async () => {
+    const relay = new SimRelay()
+    let clock = NOW
+    const now = () => clock
+    const principalSk = generateSecretKey()
+    const agentSk = generateSecretKey()
+    const agent = getPublicKey(agentSk)
+    const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW + 15 })
+    const person = session(relay, principalSk, 'Ada', {}, now)
+    const tally = session(relay, agentSk, 'Tally', { agent: true, owner: proof }, now)
+    await person.join([], {})
+    await tally.join([], {})
+    await settle()
+    expect(person.agentOwnership(agent)).toEqual(proof)
+    clock = NOW + 16
+    expect(person.agentOwnership(agent)).toBeUndefined()
+    const view = person.participants().find((v) => v.participant === agent)
+    expect(view?.owner).toBeUndefined()
+    expect(view?.ownerClaim?.principal).toBe(getPublicKey(principalSk))
+    await tally.leave()
+    await person.leave()
+  })
+
+  it('removes an expired agent immediately from an owned-by-members view', async () => {
+    const relay = new SimRelay()
+    let clock = NOW
+    const now = () => clock
+    const principalSk = generateSecretKey()
+    const agentSk = generateSecretKey()
+    const proof = issueAgentOwnership({ principalSk, agent: getPublicKey(agentSk), issuedAt: NOW, expiresAt: NOW + 15 })
+    const person = session(relay, principalSk, 'Ada', { policy: OWNED }, now)
+    const tally = session(relay, agentSk, 'Tally', { agent: true, owner: proof, policy: OWNED }, now)
+    await person.join([], {})
+    await tally.join([], {})
+    await settle()
+    expect(person.participants().some((v) => v.name === 'Tally')).toBe(true)
+    clock = NOW + 16
+    expect(person.participants().some((v) => v.name === 'Tally')).toBe(false)
+    await tally.leave()
+    await person.leave()
   })
 
   it('under owned-by-members an agent is in the roster only with its principal', async () => {

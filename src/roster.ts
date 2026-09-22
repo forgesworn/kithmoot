@@ -6,7 +6,7 @@ import { verifyEventUncached } from './verify.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { sanitiseAssistOffer } from './peer-assist.js'
-import { normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
+import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RosterEntry, CallMembership, TrackAdvert, TrackRole } from './types.js'
 
 export interface EncodeRosterOptions {
@@ -43,7 +43,11 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
   // of a truthy value, and every entry that is not one stays byte-identical.
   // An ownership proof rides only on an agent's entry, in its one honest
   // shape: it is the principal's signed bytes, and anything else is not it.
-  const owner = entry.agent === true && entry.owner ? normaliseAgentOwnership(entry.owner) ?? undefined : undefined
+  const supplied = entry.agent === true && entry.owner ? normaliseAgentOwnership(entry.owner) ?? undefined : undefined
+  const owner = supplied && verifyAgentOwnership(supplied, { agent: entry.participant, now: entry.updatedAt }).ok ? supplied : undefined
+  const historical = !owner && supplied && inspectAgentOwnershipSignature(supplied, { agent: entry.participant, now: entry.updatedAt }).ok ? supplied : undefined
+  const claimed = entry.agent === true && !owner && entry.ownerClaim ? normaliseAgentOwnership(entry.ownerClaim) ?? undefined : undefined
+  const ownerClaim = historical ?? (claimed && inspectAgentOwnershipSignature(claimed, { agent: entry.participant, now: entry.updatedAt }).ok ? claimed : undefined)
   const plaintext = JSON.stringify({
     ...entry,
     name: sanitiseDisplayName(entry.name),
@@ -58,6 +62,7 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
     agent: entry.agent === true ? true : undefined,
     requestReceipts: entry.agent === true && entry.requestReceipts === true ? true : undefined,
     owner,
+    ownerClaim,
   })
   const root = opts.epoch ?? { id: opts.roomId, key: opts.roomKey }
   const content = nip44.v2.encrypt(plaintext, root.key)
@@ -182,12 +187,21 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     // moment; one that fails costs the claim, never the entry. On a device
     // that does not say it is an agent there is nothing for a proof to be
     // about, and it goes too.
+    const claimed = entry.agent === true ? normaliseAgentOwnership(entry.ownerClaim) : null
+    delete entry.ownerClaim
     if (entry.owner !== undefined) {
       const proof = entry.agent === true ? normaliseAgentOwnership(entry.owner) : null
       const verdict = proof ? verifyAgentOwnership(proof, { agent: entry.participant, now: opts.now }) : { ok: false as const }
       if (proof && verdict.ok) entry.owner = proof
-      else delete entry.owner
+      else {
+        delete entry.owner
+        if (proof && inspectAgentOwnershipSignature(proof, { agent: entry.participant, now: opts.now }).ok) {
+          entry.ownerClaim = proof
+        }
+      }
     }
+    if (entry.owner === undefined && entry.ownerClaim === undefined && claimed
+      && inspectAgentOwnershipSignature(claimed, { agent: entry.participant, now: opts.now }).ok) entry.ownerClaim = claimed
 
     if (entry.proof) {
       entry.proof = {

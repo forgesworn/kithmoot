@@ -44,7 +44,7 @@ import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
 import { decodeDescriptorEvent } from '../src/descriptor.js'
 import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../src/epoch.js'
-import { normaliseAgentOwnership, verifyAgentOwnership } from '../src/ownership.js'
+import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from '../src/ownership.js'
 import { decodeChatEvent } from '../src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
 import { encodeControl, decodeControl } from '../src/control.js'
@@ -748,7 +748,7 @@ describe('room epoch', () => {
 })
 
 describe('agent ownership', () => {
-  for (const name of ['valid', 'with-expiry-and-label']) {
+  for (const name of ['with-expiry-and-label']) {
     it(name, () => {
       const v = vec('agentOwnership', name)
       const proof = v.output.proof as Record<string, unknown>
@@ -762,6 +762,15 @@ describe('agent ownership', () => {
       expect(JSON.stringify(proof)).not.toContain(deriveRoom(fx.ROOM_SECRET_1).roomId)
     })
   }
+
+  it('legacy-no-expiry: signature stays valid but current authority is refused', () => {
+    const v = vec('agentOwnership', 'legacy-no-expiry')
+    const proof = v.output.proof as Record<string, unknown>
+    const opts = v.expected!.verify as { agent: string; now: number }
+    expect(inspectAgentOwnershipSignature(proof, opts).ok).toBe(true)
+    expect(verifyAgentOwnership(proof, opts)).toEqual(v.expected!.result)
+    expect(v.expected!.result).toEqual({ ok: false, reason: 'no expiry' })
+  })
 
   for (const name of ['names-another-agent', 'expired', 'label-not-as-signed', 'its-own-principal', 'bad-signature']) {
     it(`${name}: refused, with a reason`, () => {
