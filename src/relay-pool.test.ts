@@ -3,6 +3,7 @@ import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
 import { NostrRelayPool } from './relay-pool.js'
 import { FakeWebSocket, fakeRelay, resetFakeRelays, type FakeRelayServer } from '../test/fake-socket.js'
+import { boundedEventVerifier } from './verify.js'
 
 // Must happen before any pool is constructed: SimplePool reads the websocket
 // implementation once, in its constructor.
@@ -537,5 +538,38 @@ describe('NostrRelayPool', () => {
     await vi.advanceTimersByTimeAsync(4_400 + 1_000 + 4_400 + 3_000 + 4_400)
     await published
     expect(seen).toEqual([stillHeard.id])
+  })
+})
+
+describe('boundedEventVerifier', () => {
+  it('verifies an exact relay replay once', () => {
+    const verify = vi.fn(() => true)
+    const cached = boundedEventVerifier(8, verify)
+    const event = evt()
+
+    expect(cached(event)).toBe(true)
+    expect(cached(structuredClone(event))).toBe(true)
+    expect(verify).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not transfer a verdict to changed signed fields with the same id', () => {
+    const verify = vi.fn((event: Event) => event.content === 'x')
+    const cached = boundedEventVerifier(8, verify)
+    const event = evt()
+
+    expect(cached(event)).toBe(true)
+    expect(cached({ ...event, content: 'changed' })).toBe(false)
+    expect(verify).toHaveBeenCalledTimes(1)
+  })
+
+  it('evicts old verdicts at its fixed bound', () => {
+    const verify = vi.fn(() => true)
+    const cached = boundedEventVerifier(1, verify)
+    const first = evt()
+
+    expect(cached(first)).toBe(true)
+    expect(cached(evt())).toBe(true)
+    expect(cached(first)).toBe(true)
+    expect(verify).toHaveBeenCalledTimes(3)
   })
 })

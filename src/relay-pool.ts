@@ -1,5 +1,5 @@
 import { AbstractSimplePool, SimplePool } from 'nostr-tools/pool'
-import { verifyEventUncached } from './verify.js'
+import { boundedEventVerifier } from './verify.js'
 import { normalizeURL } from 'nostr-tools/utils'
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
@@ -90,6 +90,7 @@ export class NostrRelayPool implements RelayTransport {
   #authFailures = new Map<string, string>()
   #publishing = 0
   readonly #authTimeout: number
+  readonly #verifyEvent = boundedEventVerifier()
 
   constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean, private readonly options: NostrRelayPoolOptions = {}) {
     this.#relays = normaliseRelayConfig(relays, this.options.profile)
@@ -140,8 +141,11 @@ export class NostrRelayPool implements RelayTransport {
           : params)
       }
     }({ enableReconnect: false, enablePing: false, websocketImplementation,
-      verifyEvent: verifyEventUncached, maxWaitForConnection: 3_000 })
+      verifyEvent: this.#verifyEvent, maxWaitForConnection: 3_000 })
       : new SimplePool({ enableReconnect: false, enablePing: false })
+    // SimplePool deliberately exposes fewer constructor options than its
+    // base class. Set the verifier before ensureRelay creates any sockets.
+    pool.verifyEvent = this.#verifyEvent
     pool.allowConnectingToRelay = url => current(normalizeURL(url))
     pool.onRelayConnectionSuccess = url => {
       if (generation === this.#generation) this.#mark(url, { state: 'connected', lastConnectedAt: Date.now(), lastError: undefined })
