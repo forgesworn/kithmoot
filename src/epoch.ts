@@ -423,6 +423,10 @@ export interface DecodeEpochRequestOptions {
   roomKey: Uint8Array
   now: number
   policy?: RoomPolicy
+  /** Participants whose already-signed device credential may bridge a
+   * pre-admission-proof client. Keep this narrow: a missing proof is never
+   * accepted for an ordinary link holder. */
+  legacyParticipants?: ReadonlySet<string>
   maxAgeSeconds?: number
 }
 
@@ -452,16 +456,20 @@ export function decodeEpochRequest(event: Event, opts: DecodeEpochRequestOptions
     if (!verdict.ok) return null
     if (!hexEquals(verdict.device, event.pubkey)) return null
     // Admission before policy: a stranger with no room key is turned away
-    // before anything about the room's tiers is consulted.
-    if (typeof body.admission !== 'string') return null
-    const expected = epochRequestAdmission({
-      roomKey: opts.roomKey,
-      roomId: opts.roomId,
-      authority,
-      device: verdict.device,
-      createdAt: event.created_at,
-    })
-    if (!admissionEquals(body.admission, expected)) return null
+    // before anything about the room's tiers is consulted. A keeper may
+    // bridge its named admins from the last desktop release: their signed
+    // participant identity is configured out of band, while an arbitrary
+    // holder of the public room id still gets no answer.
+    if (typeof body.admission === 'string') {
+      const expected = epochRequestAdmission({
+        roomKey: opts.roomKey,
+        roomId: opts.roomId,
+        authority,
+        device: verdict.device,
+        createdAt: event.created_at,
+      })
+      if (!admissionEquals(body.admission, expected)) return null
+    } else if (!opts.legacyParticipants?.has(verdict.participant)) return null
     if (opts.policy) {
       const proof = body.proof && typeof body.proof === 'object' ? body.proof : undefined
       if (!evaluateAccess(opts.policy, verdict.participant, proof, opts.now, opts.roomId).admitted) return null
@@ -587,6 +595,7 @@ export interface HostRoomEpochOptions {
   /** True once the room has been closed: every request is refused. */
   closed?: () => boolean
   policy?: RoomPolicy
+  legacyParticipants?: ReadonlySet<string>
   now?: () => number
   onGranted?: (request: EpochRequest) => void
   onRefused?: (request: EpochRequest, why: EpochRefusal) => void
@@ -620,6 +629,7 @@ export function hostRoomEpoch(opts: HostRoomEpochOptions): { close(): void } {
         roomKey: opts.roomKey,
         now: now(),
         policy: opts.policy,
+        legacyParticipants: opts.legacyParticipants,
       })
       if (!request || answered.has(request.request)) return
       answered.add(request.request)
