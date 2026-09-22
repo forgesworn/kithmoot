@@ -949,6 +949,7 @@ export class RoomSession {
           roomId: this.roomId,
           authority,
           deviceSk: this.#opts.deviceSk,
+          roomKey: this.#roomKey,
           credential: self.credential,
           proof: this.#opts.proof,
           now: this.#now,

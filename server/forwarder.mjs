@@ -19,18 +19,20 @@
 // - It cannot decrypt the roster, so it never learns who is in the room, what
 //   they are publishing, or which devices belong to one person. It does not
 //   even subscribe to the roster kind - see `start()`.
-// - It can read the media it relays, today. Media is meant to be encrypted
-//   end to end under a key derived from the room key (`src/media-crypto.ts`),
-//   and that scheme is built, but it is not yet switched on in the app or in
-//   this process. This process terminates DTLS-SRTP on each connection like
-//   any other WebRTC endpoint, so until the transform is wired in, it has
-//   plain RTP to move. A room uses a forwarder only if its descriptor names
-//   one.
+// - It cannot read the media it relays. This process terminates DTLS-SRTP on
+//   each connection like any other WebRTC endpoint, so what it holds is the
+//   RTP the browser sent - and the browser seals every frame under a key
+//   derived from the room key and bound to the sending device before it
+//   goes out (`src/media-crypto.ts`, installed by the app's
+//   `forwarder-media` transform). The app will not promote to a forwarder
+//   unless that transform is on every sender and receiver, so nothing here
+//   ever sees a plain frame. A room uses a forwarder only if its descriptor
+//   names one.
 // - It cannot forge attribution, because it cannot produce a frame that opens
 //   under any member's media key.
 //
-// Jitsi's videobridge sees your media by default. This is no different yet,
-// though the roster stays structurally unreadable to it either way.
+// Jitsi's videobridge sees your media by default. This cannot, and the
+// roster stays structurally unreadable to it as well.
 //
 // ## How a client finds it, given it cannot read the room's roster
 //

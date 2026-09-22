@@ -94,7 +94,7 @@ submission to the upstream registry is separate. Existing numbers do not change.
 | 20463 / 20464 | Device pairing request / grant | Room ciphertext; ephemeral |
 | 20465 | Room descriptor | Room ciphertext; ephemeral |
 | 20466 / 20467 | Legacy invitation request / grant | Capability/requester ciphertext; ephemeral |
-| 20468 / 20469 | Epoch request / grant | Authority/device ciphertext; ephemeral |
+| 20468 / 20469 | Epoch request / grant | Authority/device ciphertext; a request carries an admission proof under the epoch-0 room key; ephemeral |
 | 20470 | Member pass | Reserved signed presentation; no automatic relay publication |
 | 21059 | Ephemeral signal wrap | Shared upstream kind; recipient-addressed ciphertext |
 | 1059 | Quiet room drop | Shared upstream kind; a kind 1460 inside, addressed to a room-derived rendezvous key (`nostr-deaddrop` room case); regular |
@@ -237,6 +237,19 @@ Rekeys and the encrypted control channel are authority-bound. A room advances
 one verified epoch at a time; a removed device can read the removal notice but
 cannot recover a next-epoch secret addressed only to remaining devices. The
 `roomEpoch` vectors include wrong authority, missing recipients and epoch gaps.
+
+An epoch request (20468) body is `{v:1,credential,proof?,admission}`. `admission`
+is `HMAC-SHA256(k, "kithmoot/v1/epoch-request:" + roomId + ":" + authority + ":"
++ device + ":" + created_at)` as lower-case hex, where `k` is
+HKDF-SHA256(ikm = epoch-0 room key, no salt, info `kithmoot/v1/epoch-request-key`,
+32) and the identifiers are lower-case hex. It proves the asking device was
+admitted to the room, which the credential alone does not: the room id and the
+authority's pubkey are public on every rekey, and a credential is minted by any
+participant key. A desk MUST refuse a request whose `admission` is missing or
+does not verify, before consulting the policy and without publishing any grant.
+The proof key is always epoch 0's, since the device asking is by definition
+behind. A responder from before this field ignores it. The
+`epochRequestAdmission` vectors pin the derivation and the refusals.
 Clients that cannot follow an epoch must say so rather than display a quiet,
 empty room. Android capability gaps are recorded in the compatibility ledger;
 passing M2 codecs does not implement features it did not previously support.

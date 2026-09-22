@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **An epoch request proves admission.** Wire change, additive: the kind
+  20468 body keeps `v: 1` and gains a required `admission` field, an HMAC
+  under a key derived from the epoch-0 room key over the room, the
+  authority, the device and the event's `created_at`. A keeper's epoch desk
+  refuses a request without it, so a stranger who reads a room id and its
+  authority off a public rekey event can no longer be handed an open room's
+  current key. A responder from before this release ignores the field; a
+  client from before it cannot catch up after a removal through a new desk
+  until it updates. Five new `epochRequestAdmission` vectors. See
+  `docs/decisions.md`.
+- The Remove dialogue says that somebody who keeps the invite link can come
+  back under a new name, and that replacing the link is the answer.
+- README, deploy README and the forwarder's own header no longer say media
+  through a forwarder is readable: browser media through a forwarder has
+  been sealed end to end since 15 September (`e68a79f`), and a browser
+  without `RTCRtpScriptTransform` never promotes to a forwarder.
+
 ## 0.5.4 — 9 September 2026
 
 - Use the approved sculptural assembly artwork for web/PWA icons, workspace

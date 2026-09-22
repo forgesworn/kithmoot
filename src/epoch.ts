@@ -1,4 +1,5 @@
 import { hkdf } from '@noble/hashes/hkdf'
+import { hmac } from '@noble/hashes/hmac'
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { schnorr } from '@noble/curves/secp256k1.js'
@@ -38,8 +39,19 @@ import type { DeviceCredential, KindredProof, RoomPolicy } from './types.js'
  * remaining device. Its body is encrypted to the epoch being left, so a
  * member at that epoch reads it and moves, and a relay reads nothing but a
  * number. A member that missed one asks the authority for the current
- * epoch, proving who it is with its device credential, and the authority
- * answers everybody except the removed.
+ * epoch, proving who it is with its device credential and that it was
+ * admitted with a proof under the room key, and the authority answers
+ * everybody except the removed.
+ *
+ * The admission proof is what keeps the desk from being a back door. The
+ * room id and the authority's pubkey are public: both ride in the clear on
+ * every rekey event. A device credential is self-issued by whichever
+ * participant key signs it. So a request carrying only a credential proves
+ * nothing a stranger reading the relay could not produce, and in an open
+ * room the desk would hand that stranger the current epoch's secret, which
+ * opens the roster and the chat. The epoch-0 room key is the one thing the
+ * link hands out and nothing else does, so a MAC under a key derived from
+ * it is proof of having been admitted, and the desk demands one.
  *
  * Copies are sealed to the *device* pubkey, not the participant's, because
  * the device key is the one every session holds in memory: a participant
@@ -58,6 +70,13 @@ const DEFAULT_RETRY_MS = 2_000
 /** A room that has been rekeyed more times than this has a problem that is
  *  not this module's to solve. Bounds the tag a client will parse. */
 export const MAX_EPOCH = 1_000_000
+/**
+ * HKDF info string for the key an epoch request's admission proof is made
+ * under. Its own domain, like the media key's: a proof key that was the
+ * room key would put the room key itself into a MAC on every request, and
+ * a key that is only the epoch-request key opens nothing else if it leaks.
+ */
+export const EPOCH_REQUEST_KEY_INFO = 'kithmoot/v1/epoch-request-key'
 
 /** One epoch of a room. Epoch 0's secret is the room secret itself. */
 export interface RoomEpoch {
@@ -295,16 +314,75 @@ export function decodeRekeyEvent(event: Event, opts: DecodeRekeyOptions): RekeyN
 // Asking the authority for the current epoch
 // ---------------------------------------------------------------------------
 
+/**
+ * The key an epoch request's admission proof is computed under: the epoch-0
+ * room key, expanded under its own info string. Taken from the room key
+ * rather than the room secret for the same reason the media key is: a
+ * joined client holds the room key and need not keep the capability.
+ */
+export function deriveEpochRequestKey(roomKey: Uint8Array): Uint8Array {
+  require32(roomKey, 'room key')
+  return hkdf(sha256, roomKey, undefined, EPOCH_REQUEST_KEY_INFO, 32)
+}
+
+export interface EpochRequestAdmissionOptions {
+  /** The epoch-0 room key: `deriveRoom(secret).roomKey`, never a later epoch's. */
+  roomKey: Uint8Array
+  roomId: string
+  authority: string
+  device: string
+  /** The request event's `created_at`. */
+  createdAt: number
+}
+
+/**
+ * Prove, inside an epoch request, that the asking device was admitted to
+ * the room.
+ *
+ * `HMAC-SHA256(deriveEpochRequestKey(roomKey), "kithmoot/v1/epoch-request:" +
+ * roomId + ":" + authority + ":" + device + ":" + createdAt)`, as hex, with
+ * the three identifiers in lower-case hex. Bound to the device and the
+ * moment so that a proof lifted from one request is no use in another,
+ * though the body it rides in is already sealed to the authority. Every
+ * admitted device holds the epoch-0 room key, including one that has fallen
+ * several epochs behind, which is exactly who asks; a removed member holds
+ * it too, and is refused by name, not by this. What this refuses is the
+ * stranger: somebody with the room id and the authority's pubkey off a
+ * public rekey event, and no link.
+ */
+export function epochRequestAdmission(opts: EpochRequestAdmissionOptions): string {
+  const roomId = requireHex32(opts.roomId, 'room id')
+  const authority = requireHex32(opts.authority, 'authority pubkey')
+  const device = requireHex32(opts.device, 'device pubkey')
+  if (!Number.isSafeInteger(opts.createdAt) || opts.createdAt < 0) throw new Error('created_at must be a non-negative integer')
+  const message = new TextEncoder().encode(`kithmoot/v1/epoch-request:${roomId}:${authority}:${device}:${opts.createdAt}`)
+  return bytesToHex(hmac(sha256, deriveEpochRequestKey(opts.roomKey), message))
+}
+
+/** Equality that does not leak where two proofs first differ. */
+function admissionEquals(presented: string, expected: string): boolean {
+  const a = normaliseHex(presented)
+  if (a.length !== expected.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ expected.charCodeAt(i)
+  return diff === 0
+}
+
 interface EpochRequestBody {
   v: 1
   credential: DeviceCredential
   proof?: KindredProof
+  /** `epochRequestAdmission` for this request. Required by every desk from
+   *  the release that introduced it; a responder from before ignores it. */
+  admission: string
 }
 
 export interface EncodeEpochRequestOptions {
   roomId: string
   authority: string
   deviceSk: Uint8Array
+  /** The epoch-0 room key, which proves this device was admitted. */
+  roomKey: Uint8Array
   /** Proves which participant this device speaks for. */
   credential: DeviceCredential
   proof?: KindredProof
@@ -316,7 +394,14 @@ export function encodeEpochRequest(opts: EncodeEpochRequestOptions): Event {
   require32(opts.deviceSk, 'device secret key')
   const roomId = requireHex32(opts.roomId, 'room id')
   const authority = requireHex32(opts.authority, 'authority pubkey')
-  const body: EpochRequestBody = { v: 1, credential: opts.credential, ...(opts.proof ? { proof: opts.proof } : {}) }
+  const admission = epochRequestAdmission({
+    roomKey: opts.roomKey,
+    roomId,
+    authority,
+    device: getPublicKey(opts.deviceSk),
+    createdAt: opts.now,
+  })
+  const body: EpochRequestBody = { v: 1, credential: opts.credential, ...(opts.proof ? { proof: opts.proof } : {}), admission }
   return finalizeEvent(
     {
       kind: KINDS.EPOCH_REQUEST,
@@ -334,6 +419,8 @@ export function encodeEpochRequest(opts: EncodeEpochRequestOptions): Event {
 export interface DecodeEpochRequestOptions {
   roomId: string
   authoritySk: Uint8Array
+  /** The epoch-0 room key the desk checks admission proofs against. */
+  roomKey: Uint8Array
   now: number
   policy?: RoomPolicy
   maxAgeSeconds?: number
@@ -345,8 +432,9 @@ export interface EpochRequest {
   request: string
 }
 
-/** Null for anything malformed, stale, misaddressed, or from a device that
- *  cannot prove which participant it speaks for in this room. */
+/** Null for anything malformed, stale, misaddressed, from a device that
+ *  cannot prove which participant it speaks for in this room, or from one
+ *  that cannot prove it was admitted to the room at all. */
 export function decodeEpochRequest(event: Event, opts: DecodeEpochRequestOptions): EpochRequest | null {
   try {
     if (event.kind !== KINDS.EPOCH_REQUEST) return null
@@ -363,6 +451,17 @@ export function decodeEpochRequest(event: Event, opts: DecodeEpochRequestOptions
     const verdict = verifyDeviceCredential(body.credential, { roomId: opts.roomId, now: opts.now })
     if (!verdict.ok) return null
     if (!hexEquals(verdict.device, event.pubkey)) return null
+    // Admission before policy: a stranger with no room key is turned away
+    // before anything about the room's tiers is consulted.
+    if (typeof body.admission !== 'string') return null
+    const expected = epochRequestAdmission({
+      roomKey: opts.roomKey,
+      roomId: opts.roomId,
+      authority,
+      device: verdict.device,
+      createdAt: event.created_at,
+    })
+    if (!admissionEquals(body.admission, expected)) return null
     if (opts.policy) {
       const proof = body.proof && typeof body.proof === 'object' ? body.proof : undefined
       if (!evaluateAccess(opts.policy, verdict.participant, proof, opts.now, opts.roomId).admitted) return null
@@ -479,6 +578,8 @@ export interface HostRoomEpochOptions {
   transport: RelayTransport
   roomId: string
   authoritySk: Uint8Array
+  /** The epoch-0 room key: what a request has to prove it holds. */
+  roomKey: Uint8Array
   /** Where the room is now. Asked on every request, because it moves. */
   current: () => RoomEpoch
   /** Who has been removed. Asked on every request, for the same reason. */
@@ -494,13 +595,16 @@ export interface HostRoomEpochOptions {
 /**
  * Answer epoch requests for as long as the handle is open. What a keeper
  * runs beside its invitation desk: a member arriving, or returning, after
- * a rekey is handed the current epoch on proof of who it is, and a removed
- * participant is told no. This is where removal is enforced against the
- * link: the link still admits its holder to the room's *secret*, which
- * opens epoch 0 and nothing after it.
+ * a rekey is handed the current epoch on proof of who it is and that it was
+ * admitted, and a removed participant is told no. This is where removal is
+ * enforced against the link: the link still admits its holder to the room's
+ * *secret*, which opens epoch 0 and nothing after it. A request with no
+ * admission proof, or one made under some other key, is not answered at
+ * all: a stranger learns nothing, not even that a desk is here.
  */
 export function hostRoomEpoch(opts: HostRoomEpochOptions): { close(): void } {
   require32(opts.authoritySk, 'authority secret key')
+  require32(opts.roomKey, 'room key')
   const roomId = requireHex32(opts.roomId, 'room id')
   const authority = getPublicKey(opts.authoritySk)
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
@@ -510,7 +614,13 @@ export function hostRoomEpoch(opts: HostRoomEpochOptions): { close(): void } {
     [{ kinds: [KINDS.EPOCH_REQUEST], '#d': [roomId], '#p': [authority] }],
     (event) => {
       if (closed) return
-      const request = decodeEpochRequest(event, { roomId, authoritySk: opts.authoritySk, now: now(), policy: opts.policy })
+      const request = decodeEpochRequest(event, {
+        roomId,
+        authoritySk: opts.authoritySk,
+        roomKey: opts.roomKey,
+        now: now(),
+        policy: opts.policy,
+      })
       if (!request || answered.has(request.request)) return
       answered.add(request.request)
       if (answered.size > 256) answered.delete(answered.values().next().value!)
@@ -552,6 +662,8 @@ export interface RequestRoomEpochOptions {
   roomId: string
   authority: string
   deviceSk: Uint8Array
+  /** The epoch-0 room key, which proves this device was admitted. */
+  roomKey: Uint8Array
   credential: DeviceCredential
   proof?: KindredProof
   now?: () => number
@@ -580,6 +692,7 @@ export function requestRoomEpoch(opts: RequestRoomEpochOptions): Promise<Exclude
     roomId,
     authority: opts.authority,
     deviceSk: opts.deviceSk,
+    roomKey: opts.roomKey,
     credential: opts.credential,
     proof: opts.proof,
     now: now(),

@@ -5752,7 +5752,7 @@ function renderHost(): void {
     remove.textContent = 'Remove'
     remove.title = 'Move the room to a new key this person is not given.'
     remove.addEventListener('click', async () => {
-      if (!await confirmRoomAction({ title: `Remove ${label}?`, message: 'The room will move to a new key that this person is not given. What they already read stays theirs.', confirmLabel: 'Remove from room', danger: true })) return
+      if (!await confirmRoomAction({ title: `Remove ${label}?`, message: 'The room will move to a new key that this person is not given. What they already read stays theirs. If they still have the invite link they can come back under a new name; replace the link as well when that matters.', confirmLabel: 'Remove from room', danger: true })) return
       sendHostControl({ op: 'remove', participant: view.participant }, `Asked the keeper to remove ${label}.`)
     })
     row.append(mute, remove)

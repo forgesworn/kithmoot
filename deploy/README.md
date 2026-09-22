@@ -439,19 +439,23 @@ promise. Its media is a separate claim, stated honestly below:
 - **It cannot read the roster**, which is encrypted to the room key, so it
   never learns who is in the room, what they are publishing, or which devices
   belong to one person. It does not subscribe to the roster kind at all.
-- **It can read the media it relays, today.** The forwarder terminates
-  DTLS-SRTP itself on each connection, so once a frame reaches it, it has
-  plain RTP. End-to-end media encryption under a key derived from the room
-  key is built (`src/media-crypto.ts`) but is not yet switched on in the app
-  or in this process, so it does not yet stop a forwarder in the path
-  reading the media it carries. A room uses a forwarder only if its
-  descriptor names one.
+- **It cannot read the media it relays.** The forwarder terminates
+  DTLS-SRTP itself on each connection, so what reaches it is the RTP the
+  browser sent - and the browser sends every frame sealed under a key
+  derived from the room key and bound to the sending device
+  (`src/media-crypto.ts`, installed as an `RTCRtpScriptTransform` by
+  `app/src/forwarder-media.ts`). The app refuses to promote to a forwarder
+  at all unless that transform is installed on every sender and receiver,
+  so a browser without the API stays a mesh rather than handing a
+  forwarder plaintext. A room uses a forwarder only if its descriptor
+  names one.
 - **It cannot forge attribution**, because it cannot produce a frame that
   opens under any member's media key.
 
 `test/forwarder-blindness.test.ts` is where the roster and configuration
 claims above are proven rather than asserted, and where the media-crypto
-scheme is proven to work when applied - not that the app applies it yet.
+scheme is proven to work when applied; `src/mesh.ts` is where the app is
+held to applying it before it uses a forwarder.
 
 ### How a client reaches it, given it can't read the room
 
