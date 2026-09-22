@@ -21,3 +21,25 @@ export function verifyEventUncached(event: Event): boolean {
   delete unverified[verifiedSymbol]
   return verifyEvent(unverified)
 }
+
+/**
+ * Keep relay fan-out from verifying the same signed event once per relay and
+ * replay. The cached value includes every signed field, so an object that
+ * reuses a known id while changing its body or signature is rejected. The
+ * fixed-size FIFO also prevents an untrusted relay from
+ * growing keeper memory without bound.
+ */
+export function boundedEventVerifier(limit = 8_192, verify: (event: Event) => boolean = verifyEventUncached): (event: Event) => boolean {
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('Event verification cache size must be a positive integer')
+  const verified = new Map<string, string>()
+  return event => {
+    const cached = verified.get(event.id)
+    if (cached !== undefined) {
+      return cached === JSON.stringify([event.id, event.pubkey, event.created_at, event.kind, event.tags, event.content, event.sig])
+    }
+    if (!verify(event)) return false
+    verified.set(event.id, JSON.stringify([event.id, event.pubkey, event.created_at, event.kind, event.tags, event.content, event.sig]))
+    if (verified.size > limit) verified.delete(verified.keys().next().value!)
+    return true
+  }
+}
