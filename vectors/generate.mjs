@@ -2084,9 +2084,9 @@ for (const [name, note, forwarders] of [
     auxRandLabel: 'ownership-plain',
   })
   vectors.agentOwnership.push({
-    name: 'valid',
+    name: 'legacy-no-expiry',
     kind: 'positive',
-    note: 'The smallest honest proof: an agent pubkey, a principal pubkey, when it was issued, and a BIP-340 signature over `sha256("kithmoot/v1/agent-owner:<agent>:<principal>:<issuedAt>:<expiresAt>:<label>")`. Note the two empty fields: an absent expiry and an absent label are the EMPTY STRING in the signed message, not omitted, so a proof with no expiry and one whose expiry is the empty string cannot be made to collide.',
+    note: 'The legacy no-expiry proof keeps its exact signed bytes for mixed-version readers. Its signature remains display evidence, but current-owner authority rejects it until renewed with an expiry of at most 30 days.',
     input: { ...plain.proof, canonicalMessage: plain.canonical, principalSkHex: bytesToHex(fx.PRINCIPAL_SK), auxRandHex: plain.auxRandHex },
     output: { proof: plain.proof },
     expected: {

@@ -3,6 +3,7 @@ import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { getPublicKey } from 'nostr-tools/pure'
 import { hexEquals, normaliseHex } from './hex.js'
+import { verifyAgentOwnership } from './ownership.js'
 import type { KindredProof, RoomPolicy, RosterEntry } from './types.js'
 
 /** Closest first, matching the canonical order in the kindred primitive. */
@@ -127,10 +128,8 @@ export function evaluateAccess(
  * Decide whether an agent's roster entry is admitted under the room's agent
  * rule. Nothing to decide for a person, or in a room with no rule.
  *
- * `entry.owner` is trusted here because `decodeRosterEvent` drops one that
- * did not verify: an entry that reaches this with an owner has a proof the
- * reader checked itself. What is left to ask is whether the principal is
- * in the room, which is the reader's own roster's business - `isMember`.
+ * Recheck `entry.owner` at the decision time: a proof accepted by
+ * `decodeRosterEvent` can expire while the roster entry remains live.
  * An agent whose principal has not arrived yet is not admitted yet, and is
  * admitted on its next entry once they have; one whose principal leaves is
  * swept with them.
@@ -139,9 +138,10 @@ export function evaluateAgentAccess(
   policy: RoomPolicy | undefined,
   entry: Pick<RosterEntry, 'agent' | 'owner' | 'participant'>,
   isMember: (participant: string) => boolean,
+  now = Math.floor(Date.now() / 1000),
 ): { admitted: boolean; reason: string } {
   if (policy?.agents !== 'owned-by-members' || entry.agent !== true) return { admitted: true, reason: 'no agent rule applies' }
-  if (!entry.owner) return { admitted: false, reason: 'no ownership proof' }
+  if (!entry.owner || !verifyAgentOwnership(entry.owner, { agent: entry.participant, now }).ok) return { admitted: false, reason: 'no ownership proof' }
   if (!isMember(entry.owner.principal)) return { admitted: false, reason: 'principal is not in the room' }
   return { admitted: true, reason: 'owned by a member' }
 }

@@ -21,12 +21,11 @@ import type { AgentOwnership } from './types.js'
  * bearer token. Ownership is a fact about two keys, not about a room, and
  * a principal should be able to attest to it once and have every room the
  * agent walks into read it. The cost, stated plainly: it cannot be revoked
- * except by expiry, so a principal that may change its mind sets one.
+ * except by expiry, so every new proof has a bounded lifetime.
  *
- * Verification is the whole of the trust here. A client renders "agent of"
- * only for a proof it has verified itself, and the codecs drop a proof that
- * does not verify before it reaches anybody, so a claim that cannot be
- * checked is never shown as one that was.
+ * Verification is the whole of the trust here. A client renders current
+ * ownership only for a signed proof within the 30-day bound. Older signed
+ * proofs may be shown as historical claims without granting authority.
  */
 
 const HEX64 = /^[0-9a-f]{64}$/i
@@ -34,6 +33,7 @@ const HEX64 = /^[0-9a-f]{64}$/i
  *  issued. Real clocks disagree by seconds; a proof from next year is a
  *  proof somebody made up. */
 const MAX_ISSUED_AHEAD_SECONDS = 300
+export const MAX_OWNERSHIP_PROOF_SECONDS = 30 * 86_400
 
 function message(agent: string, principal: string, issuedAt: number, expiresAt: number | undefined, label: string | undefined): Uint8Array {
   return sha256(
@@ -54,8 +54,8 @@ export interface IssueAgentOwnershipOptions {
   agent: string
   /** Unix seconds. */
   issuedAt: number
-  /** Unix seconds. Omit for a proof that stands until the principal makes
-   *  a new agent key; set one if you may want it to stop standing. */
+  /** Unix seconds. Omit to use the 30-day maximum; set an earlier expiry
+   *  when the principal wants a shorter claim. */
   expiresAt?: number
   /** What the principal calls the agent. Sanitised like a display name. */
   label?: string
@@ -68,16 +68,16 @@ export function issueAgentOwnership(opts: IssueAgentOwnershipOptions): AgentOwne
   const principal = getPublicKey(opts.principalSk)
   if (hexEquals(agent, principal)) throw new Error('an agent cannot be its own principal')
   if (!Number.isSafeInteger(opts.issuedAt) || opts.issuedAt <= 0) throw new Error('issuedAt must be unix seconds')
-  if (opts.expiresAt !== undefined) {
-    if (!Number.isSafeInteger(opts.expiresAt) || opts.expiresAt <= opts.issuedAt) throw new Error('expiresAt must be unix seconds after issuedAt')
-  }
+  const expiresAt = opts.expiresAt === undefined ? opts.issuedAt + MAX_OWNERSHIP_PROOF_SECONDS : opts.expiresAt
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= opts.issuedAt) throw new Error('expiresAt must be unix seconds after issuedAt')
+  if (expiresAt - opts.issuedAt > MAX_OWNERSHIP_PROOF_SECONDS) throw new Error('ownership proof may last at most 30 days')
   const label = sanitiseDisplayName(opts.label)
-  const sig = bytesToHex(schnorr.sign(message(agent, principal, opts.issuedAt, opts.expiresAt, label), opts.principalSk))
+  const sig = bytesToHex(schnorr.sign(message(agent, principal, opts.issuedAt, expiresAt, label), opts.principalSk))
   return {
     agent,
     principal,
     issuedAt: opts.issuedAt,
-    ...(opts.expiresAt !== undefined ? { expiresAt: opts.expiresAt } : {}),
+    expiresAt,
     ...(label !== undefined ? { label } : {}),
     sig,
   }
@@ -132,16 +132,13 @@ export interface VerifyAgentOwnershipOptions {
  * label the principal did not sign as shown, and is refused rather than
  * shown differently.
  */
-export function verifyAgentOwnership(raw: AgentOwnership, opts: VerifyAgentOwnershipOptions): OwnershipVerdict {
+export function inspectAgentOwnershipSignature(raw: AgentOwnership, opts: VerifyAgentOwnershipOptions): OwnershipVerdict {
   const proof = normaliseAgentOwnership(raw)
   if (!proof) return { ok: false, reason: 'malformed' }
   if (!hexEquals(proof.agent, opts.agent)) return { ok: false, reason: 'names another agent' }
   if (hexEquals(proof.agent, proof.principal)) return { ok: false, reason: 'an agent cannot be its own principal' }
   if (proof.issuedAt > opts.now + MAX_ISSUED_AHEAD_SECONDS) return { ok: false, reason: 'issued in the future' }
-  if (proof.expiresAt !== undefined) {
-    if (proof.expiresAt <= proof.issuedAt) return { ok: false, reason: 'expires before issued' }
-    if (proof.expiresAt <= opts.now) return { ok: false, reason: 'expired' }
-  }
+  if (proof.expiresAt !== undefined && proof.expiresAt <= proof.issuedAt) return { ok: false, reason: 'expires before issued' }
   if (proof.label !== undefined && sanitiseDisplayName(proof.label) !== proof.label) return { ok: false, reason: 'label is not as signed' }
   try {
     const ok = schnorr.verify(
@@ -154,4 +151,15 @@ export function verifyAgentOwnership(raw: AgentOwnership, opts: VerifyAgentOwner
     return { ok: false, reason: 'bad signature' }
   }
   return { ok: true, principal: proof.principal, ...(proof.label !== undefined ? { label: proof.label } : {}) }
+}
+
+/** Only a signed, unexpired proof within the 30-day bound grants authority. */
+export function verifyAgentOwnership(raw: AgentOwnership, opts: VerifyAgentOwnershipOptions): OwnershipVerdict {
+  const signature = inspectAgentOwnershipSignature(raw, opts)
+  if (!signature.ok) return signature
+  const proof = normaliseAgentOwnership(raw)!
+  if (proof.expiresAt === undefined) return { ok: false, reason: 'no expiry' }
+  if (proof.expiresAt - proof.issuedAt > MAX_OWNERSHIP_PROOF_SECONDS) return { ok: false, reason: 'expires too far after issued' }
+  if (proof.expiresAt <= opts.now) return { ok: false, reason: 'expired' }
+  return signature
 }

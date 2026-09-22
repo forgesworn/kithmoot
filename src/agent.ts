@@ -29,6 +29,7 @@ import type { ChatInvite } from './messages.js'
 import type { RemoteTrack } from './mesh.js'
 import type { AgentOwnership, ForwarderRef, KindredProof, RoomPolicy, SingularRole, TrackAdvert } from './types.js'
 import { parseForwarderRef } from './descriptor.js'
+import { verifyAgentOwnership } from './ownership.js'
 
 /**
  * The relays an agent uses when its link names none. The same three the app
@@ -751,7 +752,7 @@ export class RoomAgent {
   /** Whether a participant's answer counts: on the announced admin list,
    *  or this agent's own verified principal. */
   #isApprover(participant: string): boolean {
-    return this.#announcedAdmins.has(participant) || (this.owner !== undefined && this.owner.principal === participant)
+    return this.#announcedAdmins.has(participant) || (this.owner !== undefined && this.owner.principal === participant && verifyAgentOwnership(this.owner, { agent: this.participant, now: this.#now() }).ok)
   }
 
   /**

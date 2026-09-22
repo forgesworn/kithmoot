@@ -77,7 +77,7 @@ const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
   kithmoot-agent attest --agent <pubkey|npub> (--nsec <key> | --identity <file>) [--label <text>] [--expires <30d|12h|unix>]
       As a principal, say that an agent is yours: prints an ownership proof
       (JSON) signed by your key, to give the agent as --owner-proof. Room
-      independent, attested once; set --expires if you may change your mind.
+      independent, renewed at most every 30 days; --expires can shorten that.
 
 Options
   --context <file>         Encrypted room context cache; private collections excluded

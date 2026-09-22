@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { issueAgentOwnership, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
+import { finalizeEvent } from 'nostr-tools/pure'
+import { nip44 } from 'nostr-tools'
+import { schnorr } from '@noble/curves/secp256k1.js'
+import { sha256 } from '@noble/hashes/sha2'
+import { bytesToHex } from '@noble/hashes/utils'
+import { inspectAgentOwnershipSignature, issueAgentOwnership, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import { createDeviceCredential } from './credential.js'
 import { localIdentity } from './identity.js'
 import { deriveRoom, parseRoomPolicy } from './room.js'
@@ -14,6 +19,11 @@ const principalSk = generateSecretKey()
 const principal = getPublicKey(principalSk)
 const agentSk = generateSecretKey()
 const agent = getPublicKey(agentSk)
+
+function legacyProof() {
+  const transcript = `kithmoot/v1/agent-owner:${agent}:${principal}:${NOW}::Tally`
+  return { agent, principal, issuedAt: NOW, label: 'Tally', sig: bytesToHex(schnorr.sign(sha256(new TextEncoder().encode(transcript)), principalSk)) }
+}
 
 describe('agent ownership', () => {
   it('a principal signs, and anybody verifies, with the label and expiry as signed', () => {
@@ -44,10 +54,18 @@ describe('agent ownership', () => {
     const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW + 3600 })
     expect(verifyAgentOwnership(proof, { agent, now: NOW + 3599 }).ok).toBe(true)
     expect(verifyAgentOwnership(proof, { agent, now: NOW + 3600 })).toEqual({ ok: false, reason: 'expired' })
-    const forever = issueAgentOwnership({ principalSk, agent, issuedAt: NOW })
-    expect(verifyAgentOwnership(forever, { agent, now: NOW + 10 * 365 * 86_400 }).ok).toBe(true)
+    const bounded = issueAgentOwnership({ principalSk, agent, issuedAt: NOW })
+    expect(bounded.expiresAt).toBe(NOW + 30 * 86_400)
+    expect(verifyAgentOwnership(bounded, { agent, now: NOW + 30 * 86_400 })).toEqual({ ok: false, reason: 'expired' })
+    expect(() => issueAgentOwnership({ principalSk, agent, issuedAt: NOW, expiresAt: NOW + 31 * 86_400 })).toThrow(/30 days/)
     const ahead = issueAgentOwnership({ principalSk, agent, issuedAt: NOW + 3600 })
     expect(verifyAgentOwnership(ahead, { agent, now: NOW })).toEqual({ ok: false, reason: 'issued in the future' })
+  })
+
+  it('keeps a genuinely signed no-expiry proof as historical evidence without authority', () => {
+    const proof = legacyProof()
+    expect(inspectAgentOwnershipSignature(proof, { agent, now: NOW }).ok).toBe(true)
+    expect(verifyAgentOwnership(proof, { agent, now: NOW })).toEqual({ ok: false, reason: 'no expiry' })
   })
 
   it('an agent cannot be its own principal, and a label is shown only as signed', () => {
@@ -117,6 +135,33 @@ describe('whose agent, on the wire', () => {
     expect(decoded.owner).toBeUndefined()
   })
 
+  it('shows legacy roster and chat claims without granting agent access', async () => {
+    const deviceSk = generateSecretKey()
+    const proof = legacyProof()
+    const entry = await entryFor(agentSk, deviceSk, { agent: true, owner: proof })
+    const roster = decodeRosterEvent(encodeRosterEvent(entry, { roomId, roomKey, deviceSk }), { roomId, roomKey, now: NOW })!
+    expect(roster.owner).toBeUndefined()
+    expect(roster.ownerClaim).toEqual(proof)
+    const newEvent = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+    const newPlain = JSON.parse(nip44.v2.decrypt(newEvent.content, roomKey)) as Record<string, unknown>
+    expect(newPlain.owner).toBeUndefined()
+    expect(newPlain.ownerClaim).toEqual(proof)
+    // An older client put the same signed proof in `owner`. Preserve that
+    // exact mixed-version reading path while the new encoder uses ownerClaim.
+    delete newPlain.ownerClaim
+    newPlain.owner = proof
+    const oldEvent = finalizeEvent({ kind: newEvent.kind, created_at: newEvent.created_at, tags: newEvent.tags, content: nip44.v2.encrypt(JSON.stringify(newPlain), roomKey) }, deviceSk)
+    const oldRoster = decodeRosterEvent(oldEvent, { roomId, roomKey, now: NOW })!
+    expect(oldRoster.owner).toBeUndefined()
+    expect(oldRoster.ownerClaim).toEqual(proof)
+    const policy = { tier: 'open' as const, agents: 'owned-by-members' as const }
+    expect(evaluateAgentAccess(policy, roster, (p) => p === principal, NOW)).toEqual({ admitted: false, reason: 'no ownership proof' })
+    const msg = { id: 'legacy', participant: entry.participant, device: entry.device, credential: entry.credential, text: 'hello', sentAt: NOW, owner: proof }
+    const chat = decodeChatEvent(encodeChatEvent(msg, { roomId, roomKey, deviceSk }), { roomId, roomKey, now: NOW })!
+    expect(chat.owner).toBeUndefined()
+    expect(chat.ownerClaim).toEqual(proof)
+  })
+
   it('the agent rule parses off a link, refuses what it does not know, and gates on a present principal', () => {
     expect(parseRoomPolicy({ tier: 'open', agents: 'owned-by-members' })).toEqual({ tier: 'open', agents: 'owned-by-members' })
     expect(parseRoomPolicy({ tier: 'open' })).toEqual({ tier: 'open' })
@@ -125,9 +170,10 @@ describe('whose agent, on the wire', () => {
     const policy = { tier: 'open' as const, agents: 'owned-by-members' as const }
     const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW })
     const present = (p: string) => p === principal
-    expect(evaluateAgentAccess(policy, { participant: agent, agent: true, owner: proof }, present).admitted).toBe(true)
-    expect(evaluateAgentAccess(policy, { participant: agent, agent: true }, present)).toEqual({ admitted: false, reason: 'no ownership proof' })
-    expect(evaluateAgentAccess(policy, { participant: agent, agent: true, owner: proof }, () => false)).toEqual({ admitted: false, reason: 'principal is not in the room' })
+    expect(evaluateAgentAccess(policy, { participant: agent, agent: true, owner: proof }, present, NOW).admitted).toBe(true)
+    expect(evaluateAgentAccess(policy, { participant: agent, agent: true }, present, NOW)).toEqual({ admitted: false, reason: 'no ownership proof' })
+    expect(evaluateAgentAccess(policy, { participant: agent, agent: true, owner: proof }, () => false, NOW)).toEqual({ admitted: false, reason: 'principal is not in the room' })
+    expect(evaluateAgentAccess(policy, { participant: agent, agent: true, owner: proof }, present, NOW + 30 * 86_400)).toEqual({ admitted: false, reason: 'no ownership proof' })
     // People are not agents, and a room with no rule asks nothing.
     expect(evaluateAgentAccess(policy, { participant: principal }, () => false).admitted).toBe(true)
     expect(evaluateAgentAccess({ tier: 'open' }, { participant: agent, agent: true }, () => false).admitted).toBe(true)
