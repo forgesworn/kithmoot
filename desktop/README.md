@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current candidate: 0.1.14.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current source candidate: 0.1.15; the published Mac build remains 0.1.14 until its release keychain is recovered.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -88,6 +88,8 @@ The Zen bell is an original three-partial bowl tone with a soft attack, quiet le
 Desktop badges count resolved, unretracted messages from other participants, using existing room read positions and active conversation read state. Counts do not depend on notification permission and do not disappear merely because another room has focus. Saved rooms for which the device holds a valid key remain watched while another room is open. Quiet rooms retain their existing open-room-only delivery restriction. The app must remain open or minimised; closing the last Linux window or quitting stops delivery. No push service or background daemon was added.
 
 Linux badge integration uses Electron's LauncherEntry D-Bus API with the installed `.desktop` identity. KDE/Ubuntu-style launchers can display the number; plain GNOME setups may need a dock extension. The window title carries the same count as a fallback. See [Electron badge documentation](https://www.electronjs.org/docs/latest/api/app#appsetbadgecountcount-linux-macos) and [native notifications](https://www.electronjs.org/docs/latest/tutorial/notifications).
+
+Share Area is available in the Linux desktop app on X11. It uses the same movable, resizable crop frame and annotation overlay as macOS and Windows. Native Wayland keeps ordinary screen/window sharing because Electron cannot reliably position, resize or keep the frame above other windows there. Linux shares video without system audio: Electron's display-media loopback output is not supported on Linux. An id-less capture source is accepted only on a single-display desktop; KithMoot refuses to guess on a multi-display setup because guessing could expose the wrong monitor.
 
 Validation:
 

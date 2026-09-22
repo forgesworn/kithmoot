@@ -1,5 +1,5 @@
 {
-  "version": "0.1.14",
+  "version": "0.1.15",
   "channel": "preview",
   "published": "2026-09-20",
   "files": [
@@ -10,22 +10,22 @@
       "bytes": 138895286
     },
     {
-      "filename": "KithMoot-0.1.14-linux-x64.tar.gz",
-      "version": "0.1.14",
-      "sha256": "654590f6d0523a5d8479bef326cf6b026b87ca5d372b95469cdd734f8dd097de",
-      "bytes": 131344514
+      "filename": "KithMoot-0.1.15-linux-x64.tar.gz",
+      "version": "0.1.15",
+      "sha256": "bc608ef42048e94cc4dea0f1ae09487fc23e86d6d6d6b7be4f81c5097a556ffd",
+      "bytes": 131334535
     },
     {
-      "filename": "KithMoot-0.1.14-linux-arm64.tar.gz",
-      "version": "0.1.14",
-      "sha256": "6fb14a7cf3de2f57975c751f22a095811964af70f3f6df2878378c6c9c2d93b2",
-      "bytes": 132463458
+      "filename": "KithMoot-0.1.15-linux-arm64.tar.gz",
+      "version": "0.1.15",
+      "sha256": "efe3c76e8011cccdf462a67a0bf1d6a3a527bac1179a58abb2f5e19744266744",
+      "bytes": 132455661
     },
     {
-      "filename": "KithMoot-0.1.14-windows-x64.zip",
-      "version": "0.1.14",
-      "sha256": "fadec6a33110ac4051945b09c5913329b675ee435dff631bcbac0b514b443684",
-      "bytes": 166638507
+      "filename": "KithMoot-0.1.15-windows-x64.zip",
+      "version": "0.1.15",
+      "sha256": "1c7c8b123c54266d1f05063fa1778b95d23c11ee7561a8d701bab91d27f57468",
+      "bytes": 166638879
     }
   ]
 }
