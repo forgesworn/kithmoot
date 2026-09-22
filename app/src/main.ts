@@ -9952,7 +9952,7 @@ async function backToRooms(): Promise<void> {
 function zenBellEnabled(): boolean { return (deviceStore.get('kithmoot.zen-bell') ?? deviceStore.get('kithmoot.desktop-bell')) !== 'false' }
 const APP_TITLE = document.title
 document.addEventListener('pointerdown', () => {
-  void unlockZenChime()
+  if (notifySettings(deviceStore).enabled) void unlockZenChime()
 }, { once: true })
 window.kithmootDesktop?.onOpenRoom(roomId => {
   const room = knownRoom(roomStore(), roomId)
