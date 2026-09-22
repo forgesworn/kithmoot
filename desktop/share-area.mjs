@@ -2,6 +2,7 @@ import { screen, desktopCapturer } from 'electron'
 
 export const AREA_URL = 'about:blank#kithmoot-share-area'
 import { areaRect } from './share-area-geometry.mjs'
+import { sourceForDisplay } from './share-area-source.mjs'
 import { refuse } from './screen-share.mjs'
 
 export class ShareArea {
@@ -15,7 +16,8 @@ export class ShareArea {
     // A window opened by the renderer is otherwise a native child of the main
     // window on macOS. Detach it so either window can be deliberately raised.
     window.setParentWindow(null)
-    window.setAlwaysOnTop(true, 'screen-saver')
+    if (process.platform === 'linux') window.setAlwaysOnTop(true)
+    else window.setAlwaysOnTop(true, 'screen-saver')
     if (process.platform === 'darwin') window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     const report = () => this.owner()?.webContents.send('desktop:area-state', this.state())
     window.on('move', report)
@@ -36,8 +38,9 @@ export class ShareArea {
     this.display = screen.getDisplayMatching(window.getBounds())
     const display = this.display
     if (!this.state()) return refuse(callback)
+    const displays = screen.getAllDisplays()
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
-    const source = sources.find(item => item.display_id === String(display.id))
+    const source = sourceForDisplay(sources, display, displays)
     if (!source || this.window !== window || window.isDestroyed() || this.display !== display || !this.state()) return refuse(callback)
     this.owner()?.webContents.send('desktop:area-state', this.state())
     callback({ video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) })
@@ -65,7 +68,8 @@ export class ShareArea {
     // Give the call window the same native level briefly so it can sit above
     // the capture frame while the person uses it. The frame retakes the front
     // as soon as they return to another app.
-    owner.setAlwaysOnTop(true, 'screen-saver')
+    if (process.platform === 'linux') owner.setAlwaysOnTop(true)
+    else owner.setAlwaysOnTop(true, 'screen-saver')
     owner.moveTop()
     owner.focus()
     let released = false
@@ -76,7 +80,8 @@ export class ShareArea {
       this.releaseOwnerFront = undefined
       if (!owner.isDestroyed()) owner.setAlwaysOnTop(false)
       if (this.window === window && !window.isDestroyed()) {
-        window.setAlwaysOnTop(true, 'screen-saver')
+        if (process.platform === 'linux') window.setAlwaysOnTop(true)
+        else window.setAlwaysOnTop(true, 'screen-saver')
         window.moveTop()
       }
     }

@@ -3,7 +3,8 @@ import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
 import { buildMentionCandidates, resolveDraftMentions } from './mention-candidates.js'
-import { playZenChime, unlockZenChime } from './zen-chime.js'
+import { playZenChime, startCallRing, stopCallRing, unlockZenChime } from './zen-chime.js'
+import { IncomingCallTracker } from './incoming-call.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
@@ -951,6 +952,7 @@ async function forgetThisBrowser(): Promise<void> {
   const s = session
   session = undefined
   sessionTransport = undefined
+  resetIncomingCall()
   s?.leave()
 
   const account = nostrSession
@@ -3225,6 +3227,11 @@ function onCall(): boolean {
  * looked at again.
  */
 const callWakeLock = new CallWakeLock({ onStateChange: () => renderWakeLockNote() })
+const incomingCallTracker = new IncomingCallTracker()
+
+function resetIncomingCall(): void {
+  if (incomingCallTracker.reset()?.type === 'stop') stopCallRing()
+}
 
 /** The quiet line under the call controls saying the screen might sleep
  *  here. Worth saying only when it might actually happen - no Wake Lock API,
@@ -3567,6 +3574,25 @@ function renderCallState(views: ParticipantView[]): void {
   window.kithmootDesktop?.setCallActive(mineOn)
   const button = $('callToggle')
   const current = calls[0]
+  const starter = current && views
+    .filter(view => view.call?.id === current.id)
+    .sort((a, b) => (a.call?.since ?? 0) - (b.call?.since ?? 0) || a.participant.localeCompare(b.participant))[0]
+  const incoming = current && starter ? { id: current.id, caller: starter.participant } : undefined
+  const callChange = incomingCallTracker.update(incoming, meParticipant || currentParticipant(), mineOn)
+  if (callChange?.type === 'stop') stopCallRing()
+  else if (callChange?.type === 'ring') {
+    const settings = notifySettings(deviceStore)
+    const roomId = currentRoomId()
+    if (settings.enabled && roomId && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId))) {
+      void startCallRing()
+      const caller = shownAs(callChange.call.caller, starter?.name)
+      void deliverIncomingCallAlert({
+        title: currentRoomLabel(),
+        body: `${caller.name ?? caller.short} is calling`,
+        tag: `kithmoot:${roomId}:call:${callChange.call.id}`,
+      }, roomId)
+    }
+  }
   // One control, three things it can do, and it says which. "Call" told a
   // person nothing, and "On call" was a state where they expected an act.
   //
@@ -8931,6 +8957,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     const failedTransport = sessionTransport
     session = undefined
     sessionTransport = undefined
+    resetIncomingCall()
     void failed?.leave()
     failedTransport?.close()
     if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
@@ -9667,6 +9694,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   persistQuiet()
   session = undefined
   sessionTransport = undefined
+  resetIncomingCall()
   quietTransport = undefined
   assignmentPanel.detach()
   contextPanel.close()
@@ -9903,6 +9931,7 @@ async function backToRooms(): Promise<void> {
   const s = session
   session = undefined
   sessionTransport = undefined
+  resetIncomingCall()
   // Written down BEFORE the link comes off the address bar, because after
   // that this page no longer knows it.
   rememberWayBack()
@@ -9923,7 +9952,7 @@ async function backToRooms(): Promise<void> {
 function zenBellEnabled(): boolean { return (deviceStore.get('kithmoot.zen-bell') ?? deviceStore.get('kithmoot.desktop-bell')) !== 'false' }
 const APP_TITLE = document.title
 document.addEventListener('pointerdown', () => {
-  if (notifySettings(deviceStore).enabled && zenBellEnabled()) void unlockZenChime()
+  void unlockZenChime()
 }, { once: true })
 window.kithmootDesktop?.onOpenRoom(roomId => {
   const room = knownRoom(roomStore(), roomId)
@@ -10005,6 +10034,24 @@ async function deliverNotification(content: NotificationContent, arrival: Arriva
     shown.close()
     if (url) openLink(url)
   }
+}
+
+async function deliverIncomingCallAlert(content: NotificationContent, roomId: string): Promise<void> {
+  if (window.kithmootDesktop) {
+    window.kithmootDesktop.notify({ ...content, roomId, silent: false })
+    return
+  }
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  const url = knownRoom(roomStore(), roomId)?.link
+  const options: NotificationOptions = { body: content.body, tag: content.tag, data: { url }, silent: false }
+  let registration: ServiceWorkerRegistration | undefined
+  try { registration = await navigator.serviceWorker?.getRegistration() } catch { registration = undefined }
+  if (registration?.showNotification) {
+    await registration.showNotification(content.title, options)
+    return
+  }
+  const shown = new Notification(content.title, options)
+  shown.onclick = () => { window.focus(); shown.close(); if (url) openLink(url) }
 }
 
 /** Whether a link opens the room this page is already on. */
@@ -11144,6 +11191,7 @@ window.addEventListener('beforeunload', event => {
 })
 window.addEventListener('pagehide', () => {
   closeAllDrafts()
+  resetIncomingCall()
   session?.leave()
   stopInvitationHost()
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
