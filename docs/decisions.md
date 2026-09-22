@@ -1624,3 +1624,46 @@ for as long as the ungated version was installed. No behaviour of the
 segmenter itself changed - same confidence masks, same VIDEO running mode,
 same GPU-then-CPU delegate fallback in `app/src/mediapipe-segmenter.ts` -
 only the version pinned and the two checks added.
+
+## The epoch desk answers holders of the room key, 22 September 2026
+
+The 13 September privacy review found the one place an open room's current
+key was handed out on request proved less than it looked. An epoch request
+carried a device credential and, for a gated room, a kindred proof. A
+credential is minted by whichever participant key signs it, and it binds to
+a room id that rides in the clear on every rekey event beside the
+authority's pubkey. So for an open-tier room kept by a keeper, anybody who
+could read the relay could mint a participant key, sign a credential for the
+room id, ask the desk, and be sealed the current epoch's secret: the roster,
+the chat and every channel from the last removal on, with no link ever
+having been handed to them. Removal by epoch was real against the removed
+member's own key and open to a stranger.
+
+**A request now proves admission.** Beside the credential it carries
+`admission`: an HMAC under a key derived from the epoch-0 room key, over the
+room id, the authority, the asking device and the event's own `created_at`.
+The room key is what admission hands out and nothing else does, so holding
+it is the proof, and the desk refuses a request without it before the
+policy is consulted and without publishing a grant. A stranger learns
+nothing, not even that a desk is there. The key is epoch 0's on purpose: the
+device asking is the one that has fallen behind, and epoch 0 is the one key
+every admitted device holds however far behind it is.
+
+**What this does not change.** A removed member still holds epoch 0, so
+they can still make the proof; they are refused by the credential that
+names them, as before. If they also still hold the invite link they can
+come back under a participant key the room has never seen, because
+removal is by participant and an open link admits anyone: that was true
+before, is written in "A member is removed by a room epoch" above, and the
+answer is to replace the link when that matters. The Remove dialogue now
+says so.
+
+**Wire, additive in shape.** The body keeps `v: 1` and gains a required
+field rather than moving to `v: 2`, so a responder from before this release
+(an Android client answering for a room it created, a keeper not yet
+redeployed) keeps answering new clients, and only a desk from this release
+refuses a request from an old one. The cost of that choice is that an old
+client cannot catch up after a removal through a new desk until it updates,
+which for the web is one reload. The `epochRequestAdmission` vectors pin the
+derivation, the message and the three refusals; the Android client moves in
+step on its own branch.

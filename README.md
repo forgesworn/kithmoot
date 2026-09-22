@@ -362,7 +362,12 @@ the [workspace delivery](docs/workspace-delivery.md).
   descriptor and media keys are all derived afresh. A removed member keeps
   what they already read and decodes nothing after; the keeper refuses them
   the new epoch on the credential that proves who they are, and everybody
-  else sees "X was removed by Y" in the chat. `kithmoot-agent create --admin
+  else sees "X was removed by Y" in the chat. The keeper's epoch desk
+  answers only a device that proves it holds the room key, so a stranger
+  who reads the room id and the keeper's key off a public rekey event is
+  not answered at all. Somebody removed who still holds the invite link can
+  come back under a name the room has never seen; replace the link as well
+  when that matters. `kithmoot-agent create --admin
   <pubkey>` names who may ask, and the app shows those people a Host panel
   with Remove, Mute and Close room. Mute is a request the other client
   honours; Remove and Close are enforced by the key. See `docs/decisions.md`.
@@ -425,12 +430,17 @@ the [workspace delivery](docs/workspace-delivery.md).
   it names its TURN servers: a plural, swappable list. Promotion happens on
   *measured capacity*, never on headcount: two people sharing legible 1080p
   screens can need a forwarder while twenty on audio-only do not.
-- **A forwarder in the media path can read what it carries, today.** A
-  forwarder is given the room *id* and never the room *key*, so it cannot
-  decrypt the roster or forge attribution for a track it relays. End-to-end
-  media encryption through a forwarder is built (`src/media-crypto.ts`) but
-  not yet switched on, so that protection does not yet cover the media
-  itself. A room uses a forwarder only if its descriptor names one.
+- **Media through a forwarder is encrypted end to end.** A forwarder is
+  given the room *id* and never the room *key*, so it cannot decrypt the
+  roster, and every frame a browser sends it is sealed under a key derived
+  from the room key and bound to the sending device
+  (`src/media-crypto.ts`, `app/src/forwarder-media.ts`): the forwarder
+  routes ciphertext it cannot read, cannot relabel as somebody else's, and
+  that a removed member's old key stops opening at the next epoch. It needs
+  `RTCRtpScriptTransform`, which Safari, Firefox and Chrome from 141 have;
+  a browser without it never promotes to a forwarder and stays a mesh, and
+  the Android client and agents do not use forwarders at all. A room uses a
+  forwarder only if its descriptor names one.
 - **Peer assist**, so a room's spare uplink comes from the people in it. A
   member that measures itself publicly reachable can offer to carry the pairs
   that cannot connect directly, and the room tries that before any server. It
@@ -444,7 +454,7 @@ the [workspace delivery](docs/workspace-delivery.md).
   hear me" switch and carries display names. It cannot yet follow a room
   epoch, and says so rather than going quiet: see its own README for what
   it does and does not implement.
-- **101 published interop vectors** (`vectors/`), which both implementations
+- **214 published interop vectors** (`vectors/`), which both implementations
   are checked against.
 
 ## Names, and who you are

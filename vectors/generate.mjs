@@ -70,7 +70,7 @@ import { unwrapSignal } from '../dist/src/signal.js'
 import { evaluateAccess } from '../dist/src/access.js'
 import { mintTurnCredential } from '../dist/src/turn.js'
 import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
-import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochGrant, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
+import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, decodeEpochGrant, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from '../dist/src/ownership.js'
 import { decodeChatEvent } from '../dist/src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../dist/src/attachment.js'
@@ -82,7 +82,7 @@ import { openInvite, localPeerCrypt, dmPolicy } from '../dist/src/dm.js'
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -1914,6 +1914,136 @@ for (const [name, note, forwarders] of [
     note: 'The same signature, offered for epoch 2. Refused: a list is authorised for the epoch it names and no other, so an admin set from before a removal cannot be replayed to re-authorise somebody after it.',
     input: { roomId: room.roomId, epoch: 2, admins, sig: adminsSig, authority: fx.AUTHORITY },
     output: { result: verifyAdmins({ roomId: room.roomId, epoch: 2, admins, sig: adminsSig, authority: fx.AUTHORITY }) },
+  })
+}
+
+// ===========================================================================
+// Epoch request admission: proving to the desk that you were ever let in
+// ===========================================================================
+//
+// The room id and the authority's pubkey ride in the clear on every rekey
+// event, and a device credential is minted by whichever participant key
+// signs it. A request that proved only those would be answered for a
+// stranger reading the relay, and in an open room the answer is the current
+// epoch's secret. So a request also carries a MAC under a key derived from
+// the epoch-0 room key, which the link hands out and nothing else does.
+// These vectors pin the derivation, the message and the three refusals.
+{
+  const room = deriveRoom(fx.ROOM_SECRET_1)
+  const requestKey = deriveEpochRequestKey(room.roomKey)
+  const admission = epochRequestAdmission({
+    roomKey: room.roomKey,
+    roomId: room.roomId,
+    authority: fx.AUTHORITY,
+    device: fx.KEPT_DEVICE,
+    createdAt: fx.NOW,
+  })
+  vectors.epochRequestAdmission.push({
+    name: 'admission-proof',
+    kind: 'positive',
+    note: 'The proof a kind-20468 epoch request carries as `admission`. `requestKey = HKDF-SHA256(ikm = roomKey, info = "kithmoot/v1/epoch-request-key", 32)`, no salt, from the EPOCH-0 room key - `deriveRoom(secret).roomKey`, never a later epoch\'s key, so a device that has fallen any number of epochs behind can still make one. Then `admission = HMAC-SHA256(requestKey, "kithmoot/v1/epoch-request:" + roomId + ":" + authority + ":" + device + ":" + createdAt)` as lower-case hex, the three identifiers lower-case hex and `createdAt` the request event\'s own `created_at` in decimal.',
+    input: {
+      roomKeyHex: bytesToHex(room.roomKey),
+      roomId: room.roomId,
+      authority: fx.AUTHORITY,
+      device: fx.KEPT_DEVICE,
+      createdAt: fx.NOW,
+      message: `kithmoot/v1/epoch-request:${room.roomId}:${fx.AUTHORITY}:${fx.KEPT_DEVICE}:${fx.NOW}`,
+    },
+    output: { requestKeyHex: bytesToHex(requestKey), admission },
+  })
+
+  const credential = buildCredential({
+    participantSk: fx.PARTICIPANT_A_SK,
+    devicePubkey: fx.KEPT_DEVICE,
+    roomId: room.roomId,
+    createdAt: fx.CREDENTIAL_CREATED_AT,
+    expiresAt: fx.CREDENTIAL_EXPIRES_AT,
+    auxRandLabel: 'epoch-request-credential',
+  }).event
+
+  function buildRequest({ body, nonceLabel, auxRandLabel }) {
+    const conversation = nip44.v2.utils.getConversationKey(fx.KEPT_DEVICE_SK, fx.AUTHORITY)
+    return finalizeDeterministic(
+      {
+        kind: KINDS.EPOCH_REQUEST,
+        created_at: fx.NOW,
+        tags: [
+          ['d', room.roomId],
+          ['p', fx.AUTHORITY],
+        ],
+        content: nip44.v2.encrypt(JSON.stringify(body), conversation, seed32(nonceLabel)),
+      },
+      fx.KEPT_DEVICE_SK,
+      seed32(auxRandLabel),
+    )
+  }
+  const decodeArgs = { roomId: room.roomId, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), roomKeyHex: bytesToHex(room.roomKey), now: fx.NOW }
+  const decodeWith = (event) =>
+    decodeEpochRequest(event, { roomId: room.roomId, authoritySk: fx.AUTHORITY_SK, roomKey: room.roomKey, now: fx.NOW })
+
+  const request = buildRequest({ body: { v: 1, credential, admission }, nonceLabel: 'epoch-request-nonce', auxRandLabel: 'epoch-request-auxrand' })
+  vectors.epochRequestAdmission.push({
+    name: 'request',
+    kind: 'positive',
+    note: 'A complete epoch request: the device credential and the admission proof inside a NIP-44 body between the device key and the authority, on a kind-20468 event tagged `d` room id and `p` authority, signed by the device. The desk decodes it to the device, the participant the credential names, and the request id the grant will answer.',
+    input: {
+      event: request,
+      body: { v: 1, credential, admission },
+      deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK),
+      nonceHex: bytesToHex(seed32('epoch-request-nonce')),
+      auxRandHex: bytesToHex(seed32('epoch-request-auxrand')),
+    },
+    output: { result: decodeWith(request) },
+    expected: { decode: decodeArgs, result: decodeWith(request) },
+  })
+  if (decodeWith(request) === null) throw new Error('the positive epoch request vector must decode')
+
+  const withoutAdmission = buildRequest({ body: { v: 1, credential }, nonceLabel: 'epoch-request-bare-nonce', auxRandLabel: 'epoch-request-bare-auxrand' })
+  vectors.epochRequestAdmission.push({
+    name: 'request-without-admission',
+    kind: 'negative',
+    note: 'The same request with no `admission` field: what a client from before the proof sent, and exactly what a stranger with the room id, the authority\'s pubkey and a participant key of their own can produce. Refused before the policy is consulted; the desk publishes nothing, so the stranger does not learn that a desk is there.',
+    input: { event: withoutAdmission },
+    output: { result: decodeWith(withoutAdmission) },
+    expected: { decode: decodeArgs, result: null },
+  })
+
+  const epochOneKey = deriveEpoch({ epoch: 1, secret: fx.EPOCH_SECRET_1 }).key
+  const underEpochKey = buildRequest({
+    body: {
+      v: 1,
+      credential,
+      admission: epochRequestAdmission({ roomKey: epochOneKey, roomId: room.roomId, authority: fx.AUTHORITY, device: fx.KEPT_DEVICE, createdAt: fx.NOW }),
+    },
+    nonceLabel: 'epoch-request-epoch-key-nonce',
+    auxRandLabel: 'epoch-request-epoch-key-auxrand',
+  })
+  vectors.epochRequestAdmission.push({
+    name: 'request-under-another-key',
+    kind: 'negative',
+    note: 'The proof computed under the key of epoch 1 rather than the epoch-0 room key. Refused: the proof key is always derived from epoch 0, because that is the one key every admitted device holds however far behind it is, and a desk checking against anything else would refuse exactly the devices the desk exists for.',
+    input: { event: underEpochKey, proofKeyHex: bytesToHex(epochOneKey) },
+    output: { result: decodeWith(underEpochKey) },
+    expected: { decode: decodeArgs, result: null },
+  })
+
+  const liftedProof = buildRequest({
+    body: {
+      v: 1,
+      credential,
+      admission: epochRequestAdmission({ roomKey: room.roomKey, roomId: room.roomId, authority: fx.AUTHORITY, device: fx.KEPT_DEVICE, createdAt: fx.NOW + 1 }),
+    },
+    nonceLabel: 'epoch-request-lifted-nonce',
+    auxRandLabel: 'epoch-request-lifted-auxrand',
+  })
+  vectors.epochRequestAdmission.push({
+    name: 'request-proof-for-another-moment',
+    kind: 'negative',
+    note: 'A correct proof for `created_at` one second later than the event carries. Refused: the proof binds the device and the moment, so a proof lifted from one request is no use inside another, even one from the same device.',
+    input: { event: liftedProof },
+    output: { result: decodeWith(liftedProof) },
+    expected: { decode: decodeArgs, result: null },
   })
 }
 

@@ -128,8 +128,8 @@ signed by the authority key, and acts on a `remove` or `close` from anybody
 on it; the app shows those people a Host panel with Remove and Mute per
 person and a Close room button. A removal is a rekey: the keeper seals the
 new secret to every device in its roster except the removed participant's,
-publishes it, and from then on answers epoch requests from everybody except
-the removed. The state file records the epoch, its secret and the removed
+publishes it, and from then on answers epoch requests from every device that
+proves it holds the room key, except the removed. The state file records the epoch, its secret and the removed
 set, so a restart reopens the room in the same epoch, still refusing the
 same people; a file written before epochs reads as epoch 0 with nobody
 removed. A closed room is not reopened: delete the state to make a new one.

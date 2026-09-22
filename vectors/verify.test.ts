@@ -43,7 +43,7 @@ import { unwrapSignalEvent, unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
 import { decodeDescriptorEvent } from '../src/descriptor.js'
-import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, signAdmins, verifyAdmins, canonicalAdmins } from '../src/epoch.js'
+import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../src/epoch.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from '../src/ownership.js'
 import { decodeChatEvent } from '../src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
@@ -97,7 +97,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -592,6 +592,43 @@ describe('TURN credential', () => {
         ? mintTurnCredential(v.input.secret, v.input.ttlSeconds, v.input.now, v.input.name)
         : mintTurnCredential(v.input.secret, v.input.ttlSeconds, v.input.now)
       expect(result).toEqual(v.output)
+    })
+  }
+})
+
+describe('epoch request admission', () => {
+  const proof = groups.epochRequestAdmission.find((x) => x.name === 'admission-proof')!
+  it(proof.name, () => {
+    const roomKey = hexToBytes(proof.input.roomKeyHex as string)
+    expect(bytesToHex(deriveEpochRequestKey(roomKey))).toBe(proof.output.requestKeyHex)
+    expect(
+      epochRequestAdmission({
+        roomKey,
+        roomId: proof.input.roomId as string,
+        authority: proof.input.authority as string,
+        device: proof.input.device as string,
+        createdAt: proof.input.createdAt as number,
+      }),
+    ).toBe(proof.output.admission)
+    // The message is spelt out so a second implementation can check its
+    // bytes before it checks its MAC.
+    expect(proof.input.message).toBe(
+      `kithmoot/v1/epoch-request:${proof.input.roomId}:${proof.input.authority}:${proof.input.device}:${proof.input.createdAt}`,
+    )
+  })
+
+  for (const v of groups.epochRequestAdmission.filter((x) => x.name.startsWith('request'))) {
+    it(v.name, () => {
+      const decode = v.expected!.decode as Record<string, unknown>
+      const result = decodeEpochRequest(v.input.event as Event, {
+        roomId: decode.roomId as string,
+        authoritySk: hexToBytes(decode.authoritySkHex as string),
+        roomKey: hexToBytes(decode.roomKeyHex as string),
+        now: decode.now as number,
+      })
+      expect(result).toEqual(v.expected!.result)
+      if (v.kind === 'negative') expect(result).toBeNull()
+      else expect(result).not.toBeNull()
     })
   }
 })

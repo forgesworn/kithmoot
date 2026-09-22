@@ -161,6 +161,7 @@ describe('room epochs', () => {
       transport: new SimTransport(relay),
       roomId: keeper.roomId,
       authoritySk,
+      roomKey: deriveRoom(SECRET).roomKey,
       current: () => keeper.currentEpoch(),
       removed: () => keeper.removed,
       now,

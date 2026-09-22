@@ -121,6 +121,7 @@ directly, with no reimplementation involved.
 | `turnCredential` | secret + ttl + fixed now → coturn REST `{ username, credential }` | `src/turn.ts` |
 | `roomDescriptor` | a `RoomDescriptor` (forwarders + ICE servers) + room key → encrypted kind-20465 event | `src/descriptor.ts` |
 | `roomEpoch` | epoch → `id` + `key`; a kind-1462 rekey read by a kept device, by a removed one, and refused; the authority-signed admin list | `src/epoch.ts` |
+| `epochRequestAdmission` | the `admission` proof inside a kind-20468 epoch request, derived from the epoch-0 room key; a full request decoded by the desk, and the three ways it refuses one | `src/epoch.ts` |
 | `agentOwnership` | a principal's signature that an agent is theirs, and the six ways a reader must refuse one | `src/ownership.ts` |
 | `chatAttachment` | a Wildbloom share riding in a kind-1460 message, what a reader defuses, and the envelope's own arithmetic | `src/attachment.ts`, `src/chat.ts` |
 | `approvalControl` | an agent's approval request and the answer, on the room's `control` channel | `src/control.ts` |
@@ -495,6 +496,21 @@ applied, so a device cannot be walked past a removal it never saw. The
 `rekey-read-by-the-removed-device` vector is the one worth reading twice: the
 removed device decodes the notice perfectly well and finds no secret in it,
 and that - not an error - is how it learns it is out.
+
+**`epochRequestAdmission`.** The desk that answers "which epoch is the room
+at, and what is its secret" is the one place where an open room's current key
+is handed out on request, and the request used to prove only two things a
+relay reader already has: a device credential, which any participant key can
+mint, bound to a room id that rides in the clear on every rekey. So the
+request now also carries a MAC under a key derived from the epoch-0 room key,
+the one thing the link hands out and nothing else does. Three things a second
+implementation must get right: the proof key comes from epoch 0's room key and
+never a later epoch's, because the device asking is by definition behind; the
+message binds the device and the event's own `created_at`, so a proof cannot
+be lifted into another request; and a request with no proof is refused before
+the policy is consulted and without any answer at all, so a stranger does not
+learn that a desk exists. A responder from before this group ignores the
+field; a desk from after it refuses its absence.
 
 **`agentOwnership`.** The proof is deliberately room-independent and has no
 revocation but expiry, so every other rule has to hold. The signed message

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { nip44 } from 'nostr-tools'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { createDeviceCredential } from './credential.js'
 import { localIdentity } from './identity.js'
@@ -13,6 +14,7 @@ import {
   deriveEpoch,
   encodeEpochGrant,
   encodeEpochRequest,
+  epochRequestAdmission,
   encodeRekeyEvent,
   generateEpochSecret,
   hostRoomEpoch,
@@ -161,10 +163,10 @@ describe('epoch requests and grants', () => {
 
   it('a request proves the participant through its credential, and the answer is sealed to the device', async () => {
     const credential = await credentialFor(deviceSk)
-    const request = encodeEpochRequest({ roomId, authority, deviceSk, credential, now: NOW })
+    const request = encodeEpochRequest({ roomId, authority, deviceSk, roomKey, credential, now: NOW })
     expect(request.kind).toBe(KINDS.EPOCH_REQUEST)
     expect(request.content).not.toContain(identity.pubkey)
-    const decoded = decodeEpochRequest(request, { roomId, authoritySk, now: NOW })
+    const decoded = decodeEpochRequest(request, { roomId, authoritySk, roomKey, now: NOW })
     expect(decoded).toEqual({ device, participant: identity.pubkey, request: request.id })
 
     const epoch = { epoch: 3, secret: generateEpochSecret() }
@@ -183,17 +185,17 @@ describe('epoch requests and grants', () => {
   it('refuses a request whose credential is for another room, another device, or is stale', async () => {
     const credential = await credentialFor(deviceSk)
     const otherRoom = deriveRoom(new Uint8Array(32).fill(3)).roomId
-    const wrongRoom = encodeEpochRequest({ roomId: otherRoom, authority, deviceSk, credential, now: NOW })
-    expect(decodeEpochRequest(wrongRoom, { roomId: otherRoom, authoritySk, now: NOW })).toBeNull()
-    const borrowed = encodeEpochRequest({ roomId, authority, deviceSk: generateSecretKey(), credential, now: NOW })
-    expect(decodeEpochRequest(borrowed, { roomId, authoritySk, now: NOW })).toBeNull()
-    const fresh = encodeEpochRequest({ roomId, authority, deviceSk, credential, now: NOW })
-    expect(decodeEpochRequest(fresh, { roomId, authoritySk, now: NOW + 600 })).toBeNull()
+    const wrongRoom = encodeEpochRequest({ roomId: otherRoom, authority, deviceSk, roomKey, credential, now: NOW })
+    expect(decodeEpochRequest(wrongRoom, { roomId: otherRoom, authoritySk, roomKey, now: NOW })).toBeNull()
+    const borrowed = encodeEpochRequest({ roomId, authority, deviceSk: generateSecretKey(), roomKey, credential, now: NOW })
+    expect(decodeEpochRequest(borrowed, { roomId, authoritySk, roomKey, now: NOW })).toBeNull()
+    const fresh = encodeEpochRequest({ roomId, authority, deviceSk, roomKey, credential, now: NOW })
+    expect(decodeEpochRequest(fresh, { roomId, authoritySk, roomKey, now: NOW + 600 })).toBeNull()
   })
 
   it('a refusal reaches the asker as one', async () => {
     const credential = await credentialFor(deviceSk)
-    const request = encodeEpochRequest({ roomId, authority, deviceSk, credential, now: NOW })
+    const request = encodeEpochRequest({ roomId, authority, deviceSk, roomKey, credential, now: NOW })
     const grant = encodeEpochGrant({ roomId, authoritySk, device, request: request.id, now: NOW, refused: 'removed' })
     expect(decodeEpochGrant(grant, { roomId, authority, deviceSk, request: request.id, now: NOW })).toEqual({ refused: 'removed' })
   })
@@ -206,6 +208,7 @@ describe('epoch requests and grants', () => {
       transport: new SimTransport(relay),
       roomId,
       authoritySk,
+      roomKey,
       current: () => epoch,
       removed: () => new Set([removedIdentity.pubkey]),
       now,
@@ -215,6 +218,7 @@ describe('epoch requests and grants', () => {
       roomId,
       authority,
       deviceSk,
+      roomKey,
       credential: await credentialFor(deviceSk),
       now,
       timeoutMs: 1_000,
@@ -229,11 +233,74 @@ describe('epoch requests and grants', () => {
         roomId,
         authority,
         deviceSk: removedSk,
+        roomKey,
         credential: await credentialFor(removedSk, removedIdentity),
         now,
         timeoutMs: 1_000,
       }),
     ).rejects.toBeInstanceOf(EpochRefusedError)
+    desk.close()
+  })
+
+  it('a request carries an admission proof under the room key, and one without it, or under another key, is refused', async () => {
+    const credential = await credentialFor(deviceSk)
+    const request = encodeEpochRequest({ roomId, authority, deviceSk, roomKey, credential, now: NOW })
+    const body = JSON.parse(nip44.v2.decrypt(request.content, nip44.v2.utils.getConversationKey(authoritySk, device))) as { admission?: string }
+    expect(body.admission).toBe(epochRequestAdmission({ roomKey, roomId, authority, device, createdAt: NOW }))
+    expect(body.admission).not.toBe(epochRequestAdmission({ roomKey, roomId, authority, device, createdAt: NOW + 1 }))
+    expect(decodeEpochRequest(request, { roomId, authoritySk, roomKey, now: NOW })).not.toBeNull()
+
+    // A desk holding a different room key sees a proof it cannot verify.
+    const otherKey = new Uint8Array(32).fill(9)
+    expect(decodeEpochRequest(request, { roomId, authoritySk, roomKey: otherKey, now: NOW })).toBeNull()
+    // A request made under the wrong key - a stranger guessing - is refused by the right desk.
+    const strangers = encodeEpochRequest({ roomId, authority, deviceSk, roomKey: otherKey, credential, now: NOW })
+    expect(decodeEpochRequest(strangers, { roomId, authoritySk, roomKey, now: NOW })).toBeNull()
+
+    // A request from before the proof existed, or with the field stripped, is refused.
+    const stripped = finalizeEvent(
+      {
+        kind: KINDS.EPOCH_REQUEST,
+        created_at: NOW,
+        tags: [['d', roomId], ['p', authority]],
+        content: nip44.v2.encrypt(JSON.stringify({ v: 1, credential }), nip44.v2.utils.getConversationKey(deviceSk, authority)),
+      },
+      deviceSk,
+    )
+    expect(decodeEpochRequest(stripped, { roomId, authoritySk, roomKey, now: NOW })).toBeNull()
+  })
+
+  it('the desk does not answer a stranger who has the room id and the authority but no room key', async () => {
+    const relay = new SimRelay()
+    const epoch = { epoch: 2, secret: generateEpochSecret() }
+    const desk = hostRoomEpoch({
+      transport: new SimTransport(relay),
+      roomId,
+      authoritySk,
+      roomKey,
+      current: () => epoch,
+      removed: () => new Set(),
+      now,
+    })
+    // Everything a relay reader can see: the room id and the authority's
+    // pubkey off a rekey event. A participant key and a credential are
+    // theirs to mint. The room key is not.
+    const strangerSk = generateSecretKey()
+    const strangerIdentity = localIdentity(generateSecretKey())
+    await expect(
+      requestRoomEpoch({
+        transport: new SimTransport(relay),
+        roomId,
+        authority,
+        deviceSk: strangerSk,
+        roomKey: new Uint8Array(32).fill(1),
+        credential: await credentialFor(strangerSk, strangerIdentity),
+        now,
+        timeoutMs: 60,
+        retryMs: 20,
+      }),
+    ).rejects.toThrow(/not answering/)
+    expect(relay.published.filter((e) => e.kind === KINDS.EPOCH_GRANT)).toHaveLength(0)
     desk.close()
   })
 
@@ -245,6 +312,7 @@ describe('epoch requests and grants', () => {
         roomId,
         authority,
         deviceSk,
+      roomKey,
         credential: await credentialFor(deviceSk),
         now,
         timeoutMs: 30,

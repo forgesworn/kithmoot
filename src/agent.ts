@@ -559,6 +559,7 @@ export class RoomAgent {
             transport: hostTransport,
             roomId: session.roomId,
             authoritySk: opts.keeper.inviterSk,
+            roomKey: deriveRoom(opts.secret).roomKey,
             current: () => session.currentEpoch(),
             removed: () => session.removed,
             closed: () => session.closed,
