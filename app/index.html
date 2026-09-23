@@ -52,6 +52,18 @@
         <p id="workspaceNote" class="note"></p>
       </aside>
       <section id="roomArea" hidden>
+        <!-- The call this device is on while another room is on screen. The
+             call's own tiles stay in the document, hidden, so its sound keeps
+             playing; this is the way back to them and the way off the call. -->
+        <div id="callDock" class="callDock" role="region" aria-label="Your call" hidden>
+          <span id="callDockText" class="callDockText" aria-live="polite"></span>
+          <span class="callDockActions">
+            <button id="callDockMic" type="button" aria-pressed="false">Microphone</button>
+            <button id="callDockCamera" type="button" aria-pressed="false">Camera</button>
+            <button id="callDockBack" type="button" class="primary">Back to the call</button>
+            <button id="callDockLeave" type="button" class="danger">Leave call</button>
+          </span>
+        </div>
         <!-- One line. Back, who and where you are, a call, and the rest. -->
         <div class="roomBar">
           <button id="backToRooms" type="button" class="barBtn" aria-haspopup="dialog" aria-controls="roomSwitcher">Rooms</button>
