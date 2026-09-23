@@ -1,8 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron')
 // Sandboxed: nothing but electron can be required here (see main.mjs).
-const supportsShareArea = process.argv.includes('--kithmoot-share-area')
+const areaSwitch = process.argv.find(arg => arg.startsWith('--kithmoot-share-area='))?.split('=')[1]
+const shareAreaMode = ['frame', 'preview'].includes(areaSwitch) ? areaSwitch : null
 contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
-  supportsShareArea,
+  supportsShareArea: shareAreaMode !== null,
+  shareAreaMode,
   armShareArea() { return ipcRenderer.invoke('desktop:area-arm') },
   shareAreaState() { return ipcRenderer.invoke('desktop:area-state') },
   shareAreaAction(action, value) { ipcRenderer.send('desktop:area-action', action, value) },

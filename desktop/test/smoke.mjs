@@ -34,7 +34,7 @@ try {
   }))
   expect(state.secure).toBe(true)
   expect(state.node).toBe('undefined'); expect(state.process).toBe('undefined')
-  expect(state.bridge).toEqual(['supportsShareArea', 'armShareArea', 'shareAreaState', 'shareAreaAction', 'onShareAreaState', 'setUnread', 'notify', 'onOpenRoom', 'setCallActive', 'updateState', 'installUpdate', 'onUpdateState']); expect(state.workers).toBe(0)
+  expect(state.bridge).toEqual(['supportsShareArea', 'shareAreaMode', 'armShareArea', 'shareAreaState', 'shareAreaAction', 'onShareAreaState', 'setUnread', 'notify', 'onOpenRoom', 'setCallActive', 'updateState', 'installUpdate', 'onUpdateState']); expect(state.workers).toBe(0)
   expect(state.workerStatus).toBe(404); expect(state.traversalStatus).toBe(404)
   expect(state.csp).toContain("object-src 'none'")
   expect(state.notifications).not.toBe('denied')
