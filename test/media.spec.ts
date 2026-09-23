@@ -106,8 +106,15 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     // WebKit can retain a connected receiver element but pause it during a
     // peer rebuild. The reconciliation loop must resume that state too.
     const remoteVideo = pageA.locator('#room .participant:not(:has-text("(you)")) video').first()
-    await remoteVideo.evaluate(video => (video as HTMLVideoElement).pause())
-    await expect(remoteVideo).toHaveJSProperty('paused', true)
+    // Paused, and proved paused by its own event: reading `paused` back
+    // afterwards raced the very loop under test, which on a slow machine had
+    // already resumed it.
+    expect(await remoteVideo.evaluate(video => new Promise<boolean>(resolve => {
+      const el = video as HTMLVideoElement
+      el.addEventListener('pause', () => resolve(true), { once: true })
+      el.pause()
+      setTimeout(() => resolve(el.paused), 1000)
+    }))).toBe(true)
     await expect.poll(() => remoteVideo.evaluate(video => !(video as HTMLVideoElement).paused), {
       message: 'a connected but paused receiver was not resumed', timeout: 10_000,
     }).toBe(true)

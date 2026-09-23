@@ -1,6 +1,6 @@
 import { test, expect, chromium, firefox, type Browser, type BrowserContext, type CDPSession, type Page } from '@playwright/test'
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createRoom, joinWithMedia, newDeviceContext, open, openCall } from './browser.js'
 
@@ -330,7 +330,14 @@ async function waitForMatrix(
   }
   const reports = await Promise.all(people.filter(p => involved.has(p.name)).map(async p => {
     const report = await diagnostics(p)
-    if (report) await test.info().attach(`diagnostics-${label}-${p.name}.json`, { body: JSON.stringify(report, null, 1), contentType: 'application/json' })
+    if (report) {
+      // Written to the test's own folder as well, because CI uploads
+      // test-results/ and nothing else: an intermittent failure there has to
+      // bring its evidence home, or it is only ever a line in a log.
+      const file = test.info().outputPath(`diagnostics-${label}-${p.name}.json`.replace(/[^\w.-]+/g, '-'))
+      writeFileSync(file, JSON.stringify(report, null, 1))
+      await test.info().attach(`diagnostics-${label}-${p.name}.json`, { path: file, contentType: 'application/json' })
+    }
     const voice = p.cdp ? null : await p.page.locator('#voiceStatus').textContent({ timeout: 2000 }).catch(() => null)
     return `${condense(p.name, report)}\n    voice: ${voice}`
   }))
