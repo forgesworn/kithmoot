@@ -59,7 +59,7 @@ describe('approvals in the room', () => {
   }
 
   it('stops accepting principal approvals after a remembered signed revocation', async () => {
-    const { buildBotOwnershipRevocation } = await import('signet-protocol')
+    const { buildBotOwnershipRevocation } = await import('signet-protocol/experimental')
     const { keeper, tally, ada, bob, host, principal } = await scene()
     const ignored: IgnoredApproval[] = [], outcomes: ApprovalOutcome[] = []
     tally.onApprovalIgnored(value => ignored.push(value))

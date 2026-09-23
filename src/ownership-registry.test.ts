@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { buildBotOwnershipRevocation } from 'signet-protocol'
+import { buildBotOwnershipRevocation } from 'signet-protocol/experimental'
 import { issueAgentOwnership } from './ownership.js'
 import { OwnershipRegistry, type OwnershipEventStore } from './ownership-registry.js'
 const sk = generateSecretKey(), principal = getPublicKey(sk), agent = getPublicKey(generateSecretKey()), now = 1800000000

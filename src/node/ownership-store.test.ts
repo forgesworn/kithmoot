@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync, symlinkSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { buildBotOwnershipRevocation } from 'signet-protocol'
+import { buildBotOwnershipRevocation } from 'signet-protocol/experimental'
 import { OwnershipRegistry } from '../ownership-registry.js'
 import { issueAgentOwnership } from '../ownership.js'
 import { OwnershipFileStore, rememberOwnershipFile } from './ownership-store.js'

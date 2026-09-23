@@ -103,7 +103,7 @@ describe('whose agent, in a room', () => {
 
 it.each([false, true])('removes remembered revoked ownership from live views (gated=%s)', async gated => {
   const { finalizeEvent } = await import('nostr-tools/pure')
-  const { buildBotOwnershipRevocation } = await import('signet-protocol')
+  const { buildBotOwnershipRevocation } = await import('signet-protocol/experimental')
   const relay = new SimRelay(), principalSk = generateSecretKey(), agentSk = generateSecretKey()
   const agent = getPublicKey(agentSk), principal = getPublicKey(principalSk)
   const proof = issueAgentOwnership({ principalSk, agent, issuedAt: NOW, label: 'Tally' })
