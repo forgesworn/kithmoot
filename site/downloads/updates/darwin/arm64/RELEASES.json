@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.16",
+  "currentRelease": "0.1.17",
   "releases": [
     {
-      "version": "0.1.16",
+      "version": "0.1.17",
       "updateTo": {
-        "version": "0.1.16",
-        "pub_date": "2026-09-23T08:00:00Z",
-        "notes": "Incoming calls ring on every device with notifications on. Desktop notifications, unread badges and update prompts work again.",
-        "name": "0.1.16",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.16/KithMoot-0.1.16-mac-arm64.zip",
-        "sha256": "e7683ca6ca638967a894af1bcc78c56b946abb5feba3fe3cff3a81422663bc36",
-        "size": 138900430
+        "version": "0.1.17",
+        "pub_date": "2026-09-23T14:00:00Z",
+        "notes": "Share an area on Linux no longer freezes after the pointer crosses the frame.",
+        "name": "0.1.17",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.17/KithMoot-0.1.17-mac-arm64.zip",
+        "sha256": "cad2c6e358244d407f8f173687f3cc506432c3865b6dc3ea28e904541ed590e7",
+        "size": 138900491
       }
     }
   ]
