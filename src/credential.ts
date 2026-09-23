@@ -104,6 +104,22 @@ export type VerifyResult =
  * so admits their devices. A room credential is never accepted as a person
  * credential, and a room credential carrying a `scope` tag is refused.
  */
+/** A credential rides on every message and presence its device sends, so
+ *  the same one reaches this check again and again: checking its signature
+ *  afresh each time was half of what opening an old room cost. Keyed on the
+ *  whole event, signature included: a Schnorr signature is randomised, so
+ *  one credential can carry two valid signatures, and an id-keyed cache
+ *  would refuse the second. */
+const verifiedCredentials = new Set<string>()
+function credentialSignature(cred: DeviceCredential): boolean {
+  const whole = JSON.stringify([cred.id, cred.pubkey, cred.created_at, cred.kind, cred.tags, cred.content, cred.sig])
+  if (verifiedCredentials.has(whole)) return true
+  if (!verifyEventUncached(cred)) return false
+  verifiedCredentials.add(whole)
+  if (verifiedCredentials.size > 4_096) verifiedCredentials.delete(verifiedCredentials.values().next().value!)
+  return true
+}
+
 export function verifyDeviceCredential(
   cred: DeviceCredential,
   opts: { roomId: string; now: number; acceptPerson?: boolean } | { identity: string; now: number },
@@ -143,10 +159,10 @@ export function verifyDeviceCredential(
   if (!device) return { ok: false, reason: 'no device' }
 
   // Signature last: it is the most expensive check, and tampering with any tag
-  // above invalidates it anyway. Via `verifyEventUncached` so a credential
-  // that arrives carrying a cached verdict still gets a real check - see
-  // `verify.ts` for why that matters.
-  if (!verifyEventUncached(cred)) return { ok: false, reason: 'bad signature' }
+  // above invalidates it anyway. Never nostr-tools' own cached verdict, which
+  // a credential could arrive carrying - see `verify.ts` - but our bounded
+  // cache, which matches only the identical event.
+  if (!credentialSignature(cred)) return { ok: false, reason: 'bad signature' }
 
   // A credential is one of the places a device/participant pubkey enters
   // the system - the `device` tag in particular is free text set by
