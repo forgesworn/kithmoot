@@ -10135,6 +10135,9 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
 function renderDock(): void {
   const dock = $('callDock')
   const c = dockedCall
+  // Above the room on screen, or above the rooms list when there is none.
+  const place = $('roomArea').hidden && !$('home').hidden ? $('home') : $('roomArea')
+  if (dock.parentElement !== place) place.prepend(dock)
   if (dock.hidden !== !c) dock.hidden = !c
   if (!c) return
   const views = c.session.participants()
@@ -10324,6 +10327,39 @@ function renderWayBack(): void {
   // Already on the list, so the way to it is not the thing to offer.
   $('doorToRooms').hidden = true
   $('roomNav').hidden = false
+}
+
+/**
+ * The rooms list, with the call docked above it. No reload: a reload is what
+ * ends a call, and nothing a person navigates to ends a call. Opening a room
+ * from the list goes through `switchRoom`, which brings the call's own room
+ * back without a rejoin.
+ */
+async function homeKeepingCall(): Promise<void> {
+  if (switchingRoom) return
+  if (hasUnsentWork() && !await confirmDiscardAndLeave()) return
+  if (!dockedCall) {
+    const room = dockableRoom()
+    // A room this device kept no link for cannot be come back to.
+    if (!room) {
+      if (!await confirmRoomAction({ title: 'Leave this call?', message: 'You will return to all rooms. Your microphone and camera will turn off.', confirmLabel: 'Leave call' })) return
+      return backToRooms()
+    }
+    dockCall(room)
+  }
+  switchingRoom = true
+  try {
+    await closeRoomSession({ backgroundFarewell: true })
+    resetRoomState()
+    history.replaceState(null, '', joinLinkBase())
+    $('roomArea').hidden = true
+    $('workspaceNav').hidden = true
+    $('setup').hidden = false
+    showRoomsList()
+    renderDock()
+  } finally {
+    switchingRoom = false
+  }
 }
 
 /** Back to the list: leave the room if in it, and open the app with no
@@ -10701,7 +10737,11 @@ $('roomSwitcherClose').addEventListener('click', () => ($('roomSwitcher') as HTM
 $('roomSearch').addEventListener('input', renderRoomSwitcher)
 $('roomSwitcherHome').addEventListener('click', async () => {
   if (hasUnsentWork()) { renderRoomSwitcher(); return }
-  if ((callIsLive() || onCall()) && !await confirmRoomAction({ title: 'Leave this call?', message: 'You will return to all rooms. Your microphone and camera will turn off.', confirmLabel: 'Leave call' })) return
+  if (callIsLive() || onCall()) {
+    ;($('roomSwitcher') as HTMLDialogElement).close()
+    void homeKeepingCall()
+    return
+  }
   backToRooms()
 })
 $('roomSwitcher').addEventListener('click', event => {
