@@ -526,3 +526,23 @@ test('keyboard readers navigate messages, reply through actions and retain focus
     await expect(tab).toBeFocused()
   } finally { writer.leave(); await context.close() }
 })
+
+test('rooms can be forgotten from the sidebar and the switcher, but not the one on screen', async ({ browser, baseURL }) => {
+  const { context, page, rooms } = await setup(browser, baseURL!)
+  try {
+    await join(page, rooms[0]!.link)
+    const sidebar = page.locator('#workspaceRooms')
+    await expect(sidebar.getByRole('button', { name: 'Forget Town hall', exact: true })).toHaveCount(0)
+    await sidebar.getByRole('button', { name: 'Forget Release planning', exact: true }).click()
+    await page.getByRole('button', { name: 'Forget room', exact: true }).click()
+    await expect(sidebar.getByRole('button', { name: 'Release planning', exact: true })).toHaveCount(0)
+    await expect(page.locator('#roomTitle')).toHaveText('Town hall')
+    await page.keyboard.press('Control+k')
+    const switcher = page.locator('#roomSwitcherList')
+    await expect(switcher.getByRole('button', { name: 'Forget Town hall', exact: true })).toHaveCount(0)
+    await switcher.getByRole('button', { name: 'Forget Design workshop', exact: true }).click()
+    await page.getByRole('button', { name: 'Forget room', exact: true }).click()
+    await expect(switcher.locator('.roomRow')).toHaveCount(1)
+    await expect(sidebar.locator('.workspaceRoom')).toHaveCount(1)
+  } finally { await context.close() }
+})
