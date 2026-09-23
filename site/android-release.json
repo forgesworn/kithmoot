@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.12",
-  "versionCode": 35,
+  "versionName": "0.6.13",
+  "versionCode": 36,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkSha256": "2130dd3a9b4ea12f5b90ec74c3f37eb666c8dfd96705a5846c350757f6834724",
+  "apkSha256": "f28e48c8b0651b975a7b9ef283d653b8fa1c6002fdc9ff801f631f88d0321fcc",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -23,5 +23,5 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.12-production.apk"
+  "downloadFilename": "kithmoot-0.6.13-production.apk"
 }
