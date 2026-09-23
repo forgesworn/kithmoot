@@ -24,7 +24,7 @@ if (spawnSync('iconutil', ['-c', 'icns', iconset, '-o', icon]).status) throw new
 const paths = await packager({
   dir: root, out: resolve(root, 'out'), name: 'KithMoot', platform: 'darwin', arch: 'arm64',
   electronVersion: '44.4.1', appBundleId: 'dev.forgesworn.kithmoot.desktop',
-  appVersion: version, buildVersion: '10', icon, overwrite: true, asar: true,
+  appVersion: version, buildVersion: '11', icon, overwrite: true, asar: true,
   ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {
     NSAudioCaptureUsageDescription: 'KithMoot shares system sound when you choose to include audio with your screen share.',

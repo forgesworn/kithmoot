@@ -6,9 +6,21 @@ function linuxDisplayBackend(env = process.env) {
   return 'x11'
 }
 
-function supportsShareArea(platform = process.platform, env = process.env) {
-  if (platform === 'darwin' || platform === 'win32') return true
-  return platform === 'linux' && linuxDisplayBackend(env) === 'x11'
+/**
+ * 'frame' floats a positioned crop frame over the screen. Wayland forbids a
+ * client placing its own window, so there the person draws the rectangle on
+ * a preview of the monitor the portal gave us instead.
+ */
+function shareAreaMode(platform = process.platform, env = process.env) {
+  if (platform === 'darwin' || platform === 'win32') return 'frame'
+  if (platform !== 'linux') return null
+  return linuxDisplayBackend(env) === 'wayland' ? 'preview' : 'frame'
 }
 
-module.exports = { linuxDisplayBackend, supportsShareArea }
+function supportsShareArea(platform = process.platform, env = process.env) {
+  return shareAreaMode(platform, env) !== null
+}
+
+const SHARE_AREA_SWITCH = '--kithmoot-share-area'
+
+module.exports = { SHARE_AREA_SWITCH, linuxDisplayBackend, shareAreaMode, supportsShareArea }

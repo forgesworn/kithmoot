@@ -2,20 +2,28 @@ import { screen, desktopCapturer } from 'electron'
 
 export const AREA_URL = 'about:blank#kithmoot-share-area'
 import { areaRect } from './share-area-geometry.mjs'
-import { sourceForDisplay } from './share-area-source.mjs'
+import { sourceForDisplay, sourceForPortal } from './share-area-source.mjs'
 import { refuse } from './screen-share.mjs'
 
 export class ShareArea {
   window
   display
   releaseOwnerFront
-  constructor(owner) { this.owner = owner }
+  constructor(owner, mode = 'frame') { this.owner = owner; this.mode = mode }
+  get preview() { return this.mode === 'preview' }
   attach(window) {
     this.close()
     this.window = window
     // A window opened by the renderer is otherwise a native child of the main
     // window on macOS. Detach it so either window can be deliberately raised.
     window.setParentWindow(null)
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    window.webContents.on('will-navigate', event => event.preventDefault())
+    // A preview is an ordinary window: the renderer owns the rectangle.
+    if (this.preview) {
+      window.on('closed', () => { if (this.window === window) this.window = undefined })
+      return
+    }
     if (process.platform === 'linux') window.setAlwaysOnTop(true)
     else window.setAlwaysOnTop(true, 'screen-saver')
     if (process.platform === 'darwin') window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -23,8 +31,6 @@ export class ShareArea {
     window.on('move', report)
     window.on('resize', report)
     window.on('closed', () => { if (this.window === window) { this.window = undefined; this.display = undefined; report() } })
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    window.webContents.on('will-navigate', event => event.preventDefault())
   }
   state() {
     if (!this.window || this.window.isDestroyed() || !this.display) return null
@@ -35,6 +41,11 @@ export class ShareArea {
   async capture(request, callback) {
     if (!this.window || this.window.isDestroyed()) return refuse(callback)
     const window = this.window
+    if (this.preview) {
+      const source = sourceForPortal(await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }))
+      if (!source || this.window !== window || window.isDestroyed()) return refuse(callback)
+      return callback({ video: source })
+    }
     this.display = screen.getDisplayMatching(window.getBounds())
     const display = this.display
     if (!this.state()) return refuse(callback)
@@ -50,6 +61,7 @@ export class ShareArea {
     if (!window || window.isDestroyed()) return
     if (action === 'close') return this.close()
     if (action === 'owner') return this.showOwner()
+    if (this.preview) return
     if (action === 'passthrough' && typeof value === 'boolean') window.setIgnoreMouseEvents(value, { forward: true })
     if (action === 'bounds' && value && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))) {
       window.setBounds({ x: Math.max(-32000, Math.min(32000, Math.round(value.x))), y: Math.max(-32000, Math.min(32000, Math.round(value.y))), width: Math.max(460, Math.min(8000, Math.round(value.width))), height: Math.max(200, Math.min(8000, Math.round(value.height))) })
@@ -65,6 +77,7 @@ export class ShareArea {
     this.releaseOwnerFront?.()
     if (owner.isMinimized()) owner.restore()
     owner.show()
+    if (this.preview) return owner.focus()
     // Give the call window the same native level briefly so it can sit above
     // the capture frame while the person uses it. The frame retakes the front
     // as soon as they return to another app.

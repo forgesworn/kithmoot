@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current source candidate: 0.1.15; the published Mac build remains 0.1.14 until its release keychain is recovered.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.16 on every platform. Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -89,7 +89,7 @@ Desktop badges count resolved, unretracted messages from other participants, usi
 
 Linux badge integration uses Electron's LauncherEntry D-Bus API with the installed `.desktop` identity. KDE/Ubuntu-style launchers can display the number; plain GNOME setups may need a dock extension. The window title carries the same count as a fallback. See [Electron badge documentation](https://www.electronjs.org/docs/latest/api/app#appsetbadgecountcount-linux-macos) and [native notifications](https://www.electronjs.org/docs/latest/tutorial/notifications).
 
-Share Area is available in the Linux desktop app on X11. It uses the same movable, resizable crop frame and annotation overlay as macOS and Windows. Native Wayland keeps ordinary screen/window sharing because Electron cannot reliably position, resize or keep the frame above other windows there. Linux shares video without system audio: Electron's display-media loopback output is not supported on Linux. An id-less capture source is accepted only on a single-display desktop; KithMoot refuses to guess on a multi-display setup because guessing could expose the wrong monitor.
+Share Area is available in the Linux desktop app on X11 and Wayland. On X11 it uses the same movable, resizable crop frame and annotation overlay as macOS and Windows. Wayland does not let an app position its own window or read screen coordinates, so there Share an area opens a preview window instead: the system's screen-share dialog chooses the monitor, the person drags a box on the preview, and only that box is sent, through the same crop and drawing path. The selection can be moved while sharing. `KITHMOOT_DESKTOP_AREA_MODE=preview` forces the preview in an unpackaged run so `test/area-preview.spec.ts` can drive it on a Mac; the portal itself is only exercised on a real Wayland desktop. Ordinary screen sharing on Wayland takes the portal's one answer without a second KithMoot menu. Linux shares video without system audio: Electron's display-media loopback output is not supported on Linux. An id-less capture source is accepted only on a single-display desktop; KithMoot refuses to guess on a multi-display setup because guessing could expose the wrong monitor.
 
 Validation:
 

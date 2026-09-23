@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.14",
+  "currentRelease": "0.1.16",
   "releases": [
     {
-      "version": "0.1.14",
+      "version": "0.1.16",
       "updateTo": {
-        "version": "0.1.14",
-        "pub_date": "2026-09-20T22:42:00Z",
-        "notes": "Screen sharing now explains missing macOS permission, cancels cleanly, and keeps area sharing and system audio working.",
-        "name": "0.1.14",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.14/KithMoot-0.1.14-mac-arm64.zip",
-        "sha256": "0aa7263c99106e392f7153c7a3ecbd815edad1a2ca56e3e2fd5b40040b243e23",
-        "size": 138895286
+        "version": "0.1.16",
+        "pub_date": "2026-09-23T08:00:00Z",
+        "notes": "Incoming calls ring on every device with notifications on. Desktop notifications, unread badges and update prompts work again.",
+        "name": "0.1.16",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.16/KithMoot-0.1.16-mac-arm64.zip",
+        "sha256": "e7683ca6ca638967a894af1bcc78c56b946abb5feba3fe3cff3a81422663bc36",
+        "size": 138900430
       }
     }
   ]

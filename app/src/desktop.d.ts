@@ -5,6 +5,7 @@ declare global {
   interface Window {
     kithmootDesktop?: {
       supportsShareArea?: boolean
+      shareAreaMode?: 'frame' | 'preview' | null
       armShareArea(): Promise<boolean>
       shareAreaState(): Promise<AreaRect | null>
       shareAreaAction(action: string, value?: unknown): void

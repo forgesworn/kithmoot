@@ -7,8 +7,15 @@ import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
 import { HOME, ORIGIN, CSP, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
 import { SCREEN_SETTINGS_URL, answerDisplayRequest, screenAccessGranted, refuse } from './screen-share.mjs'
+import platformFeatures from './platform-features.cjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
+// A sandboxed preload can require only electron, so the platform decision
+// is made here and handed over as a switch.
+// Unpackaged runs may force the Wayland preview so it can be exercised off Linux.
+const forcedAreaMode = !app.isPackaged && ['frame', 'preview'].includes(process.env.KITHMOOT_DESKTOP_AREA_MODE) && process.env.KITHMOOT_DESKTOP_AREA_MODE
+const areaMode = forcedAreaMode || platformFeatures.shareAreaMode()
+const preloadArguments = areaMode ? [`${platformFeatures.SHARE_AREA_SWITCH}=${areaMode}`] : []
 // Automation always uses a disposable profile, never the user's account.
 const testProfile = !app.isPackaged && process.env.KITHMOOT_DESKTOP_TEST_PROFILE
 const profileArgument = app.commandLine.getSwitchValue('user-data-dir')
@@ -30,7 +37,7 @@ const updates = createDesktopUpdater({
   notify: state => win?.webContents.send('desktop:update-state', state),
   log: error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error'),
 })
-const shareArea = new ShareArea(() => win)
+const shareArea = new ShareArea(() => win, areaMode)
 let configureDisplayCapture
 let callActive = false
 let powerBlock
@@ -140,6 +147,8 @@ async function createWindow() {
         choose: (sources, chosen) => {
           let picked = false
           const pick = source => { if (!picked) { picked = true; chosen(source) } }
+          // On Wayland the portal already asked; a menu of its one answer is a second prompt.
+          if (areaMode === 'preview' && sources.length === 1) return pick(sources[0])
           Menu.buildFromTemplate([
           { label: 'Choose what to share', enabled: false },
           ...sources.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => pick(source) })),
@@ -159,7 +168,7 @@ async function createWindow() {
     icon: join(here, 'web/pwa-512x512.png'),
     backgroundColor: '#101114', show: !testProfile,
     webPreferences: {
-      session: ses, preload: join(here, 'preload.cjs'),
+      session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
       backgroundThrottling: false, spellcheck: true,
     },
@@ -176,9 +185,10 @@ async function createWindow() {
         action: 'allow',
         overrideBrowserWindowOptions: {
           title: 'KithMoot', backgroundColor: '#101114', autoHideMenuBar: true,
-          ...(url === AREA_URL ? { transparent: true, backgroundColor: '#00000000', frame: false, alwaysOnTop: true, hasShadow: false, resizable: false, minWidth: 460, minHeight: 200 } : {}),
+          ...(url === AREA_URL && areaMode === 'preview' ? { title: 'Share an area', minWidth: 460, minHeight: 320 } : {}),
+          ...(url === AREA_URL && areaMode !== 'preview' ? { transparent: true, backgroundColor: '#00000000', frame: false, alwaysOnTop: true, hasShadow: false, resizable: false, minWidth: 460, minHeight: 200 } : {}),
           webPreferences: {
-            session: ses, preload: join(here, 'preload.cjs'),
+            session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
             nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
             backgroundThrottling: false,
           },

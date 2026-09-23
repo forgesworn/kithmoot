@@ -9,3 +9,12 @@ export function sourceForDisplay(sources, display, displays) {
   if (sources.length === 1 && displays.length === 1) return sources[0]
   return undefined
 }
+
+/**
+ * On Wayland the ScreenCast portal is the chooser: getSources raises it and
+ * returns only what the person picked, with no display_id. Take that one
+ * source; with anything else, refuse rather than guess.
+ */
+export function sourceForPortal(sources) {
+  return sources.length === 1 ? sources[0] : undefined
+}
