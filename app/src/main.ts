@@ -10833,12 +10833,11 @@ $('callToggle').addEventListener('click', () => {
 $('joinCall').addEventListener('click', () => {
   joinCall().catch((err) => setStatus(describeError(err)))
 })
-// The resting strip's own control. Only ever on screen when this device is
-// off the call, so it starts or joins one; it never has to leave.
 $('stopOpening').addEventListener('click', async () => {
   if (dockedCall && !await confirmRoomAction({ title: 'Leave your call?', message: `Going back to your rooms ends your call in ${dockedCall.label}.`, confirmLabel: 'Leave call' })) return
   history.replaceState(null, '', joinLinkBase())
   approvedReload()
+})
 applyMirrorSelf()
 $('toggleMirror').addEventListener('click', () => {
   deviceStore.set('kithmoot.mirror-self', String(!mirrorSelf()))

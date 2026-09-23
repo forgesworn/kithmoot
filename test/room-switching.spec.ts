@@ -377,6 +377,9 @@ test('a room that will not open offers a way back to the rooms instead of trappi
     await page.locator('#stopOpening').click()
     await expect(page.locator('#setup')).toBeVisible()
     expect(new URL(page.url()).hash).toBe('')
+  } finally { await context.close() }
+})
+
 test('the self-view mirror can be turned off on this device, and stays off', async ({ browser, baseURL }) => {
   test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic camera')
   const { context, page } = await setup(browser, baseURL!)
