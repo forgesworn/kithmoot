@@ -3966,3 +3966,20 @@ dialog.attachmentViewer { width: calc(100vw - 2rem); height: calc(100dvh - 2rem)
 .attachmentViewerSurface img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
 .attachmentViewerSurface.actualSize { display: block; }
 .attachmentViewerSurface.actualSize img { max-width: none; max-height: none; }
+
+/* The call, docked while another room is on screen. See `DockedCall` in
+   app/src/main.ts. Its tiles and the room's call controls are hidden, never
+   removed: a media element taken out of the document is paused. */
+.callDock { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem .75rem; margin: 0 0 .6rem; padding: .45rem .7rem; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-dim); }
+.callDock[hidden] { display: none; }
+.callDockText { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.callDockActions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.callDockActions button { margin: 0; }
+.callDockActions button[aria-pressed='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); color: var(--accent); font-weight: 650; }
+.callDockActions button[aria-pressed='true']::before { content: '● '; }
+html[data-call-docked] #callBay,
+html[data-call-docked] #callStage,
+html[data-call-docked] #callStrip,
+html[data-call-docked] #callBanner,
+html[data-call-docked] #callToggle,
+html[data-call-docked] #mobileCall { display: none !important; }

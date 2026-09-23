@@ -121,7 +121,7 @@ test('room switches retain separate drafts, selections and staged files without 
   } finally { await context.close() }
 })
 
-test('browsing rooms keeps a live call; cancelling a switch leaves the microphone on', async ({ browser, baseURL }) => {
+test('switching rooms docks a live call instead of leaving it, and the dock leads back or off', async ({ browser, baseURL }) => {
   test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone')
   const { context, page } = await setup(browser, baseURL!)
   try {
@@ -129,15 +129,30 @@ test('browsing rooms keeps a live call; cancelling a switch leaves the microphon
     await page.locator('#toggleMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     await page.locator('#backToRooms').click()
+    await expect(page.locator('#roomSwitcherNote')).toContainText('Your call carries on')
     await page.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Project room', exact: true }).click()
-    await page.locator('#actionCancel').click()
-    await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
-    await expect(page.locator('#roomTitle')).toHaveText('Town hall')
-    await page.screenshot({ path: '/tmp/kithmoot-room-switcher.png' })
-    await page.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Project room', exact: true }).click()
-    await page.locator('#actionConfirm').click()
+    // Nothing asked: nothing a person navigates to ends a call.
     await expect(page.locator('#roomTitle')).toHaveText('Project room')
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#actionConfirm')).toBeHidden()
+    await expect(page.locator('#callDock')).toBeVisible()
+    await expect(page.locator('#callDockText')).toHaveText('On a call in Town hall. Just you.')
+    await expect(page.locator('#callDockMic')).toHaveAttribute('aria-pressed', 'true')
+    await page.screenshot({ path: '/tmp/kithmoot-call-dock.png' })
+    // The dock's own microphone control is the call's.
+    await page.locator('#callDockMic').click()
+    await expect(page.locator('#callDockMic')).toHaveAttribute('aria-pressed', 'false')
+    await page.locator('#callDockMic').click()
+    await expect(page.locator('#callDockMic')).toHaveAttribute('aria-pressed', 'true')
+    await page.locator('#callDockBack').click()
+    await expect(page.locator('#roomTitle')).toHaveText('Town hall')
+    await expect(page.locator('#callDock')).toBeHidden()
+    await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await page.locator('#backToRooms').click()
+    await page.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Project room', exact: true }).click()
+    await expect(page.locator('#callDock')).toBeVisible()
+    await page.locator('#callDockLeave').click()
+    await expect(page.locator('#callDock')).toBeHidden()
+    await expect(page.locator('#roomTitle')).toHaveText('Project room')
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
   } finally { await context.close() }
 })
@@ -162,7 +177,7 @@ test('a switch never auto-enters as a guest after an account mismatch or an expi
 })
 
 
-test('a late media permission result cannot start a call after a room switch', async ({ browser, baseURL }) => {
+test('a late media permission result lands on the docked call, and leaving the dock stops it', async ({ browser, baseURL }) => {
   test.skip(test.info().project.name !== 'chromium', 'Chromium supplies synthetic media')
   const { context, page } = await setup(browser, baseURL!)
   try {
@@ -191,11 +206,14 @@ test('a late media permission result cannot start a call after a room switch', a
       await page.locator('#backToRooms').click()
       const next = index % 2 === 0 ? 'Project room' : 'Town hall'
       await page.locator('#roomSwitcherList').getByRole('button', { name: `Switch to ${next}`, exact: true }).click()
-      // The Call button put this device on a call, so switching asks first.
-      await page.locator('#actionConfirm').click()
+      // The Call button put this device on a call, so switching docks it,
+      // and what the person asked for arrives on that call.
       await expect(page.locator('#roomTitle')).toHaveText(next)
-      await expect(page.locator('#roomArea')).toBeVisible()
+      await expect(page.locator('#callDock')).toBeVisible()
       await page.evaluate(() => (window as any).releaseMedia())
+      await expect.poll(() => page.evaluate(() => (window as any).lateTracks.some((track: MediaStreamTrack) => track.readyState === 'live'))).toBe(true)
+      await page.locator('#callDockLeave').click()
+      await expect(page.locator('#callDock')).toBeHidden()
       await expect.poll(() => page.evaluate(() => (window as any).lateTracks.every((track: MediaStreamTrack) => track.readyState === 'ended'))).toBe(true)
       for (const id of ['toggleMic', 'toggleCamera', 'toggleScreen']) await expect(page.locator('#' + id)).toHaveAttribute('data-on', 'false')
       await expect(page.locator('#callBay')).toBeHidden()

@@ -7,6 +7,7 @@ import { playZenChime, startCallRing, stopCallRing, unlockZenChime } from './zen
 import { IncomingCallTracker } from './incoming-call.js'
 import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
+import { dockSummary, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
 import { setProjectsRailUnread } from './desktop-projects-rail.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
@@ -1573,6 +1574,52 @@ window.addEventListener('storage', (event) => {
 let session: RoomSession | undefined
 let joining = false
 let iceRefreshTimer: ReturnType<typeof setInterval> | undefined
+
+/**
+ * The call this device is on while another room is on screen.
+ *
+ * Nothing a person navigates to ends a call; pressing Leave does. Switching
+ * away from the call's room keeps its session, relays and media running
+ * here, and the room on screen is for reading and writing only: it never
+ * carries this device's microphone or camera. The call's tiles stay in the
+ * document, hidden, so no media element is paused by leaving it. Coming back
+ * puts the room's screen state back as it was left; there is no rejoin, so
+ * nobody else sees anything happen. See app/src/call-dock.ts.
+ */
+interface DockedCall {
+  session: RoomSession
+  transport: NostrRelayPool | undefined
+  quiet: QuietRoomTransport | undefined
+  iceRefreshTimer: ReturnType<typeof setInterval> | undefined
+  room: KnownRoom
+  label: string
+  me: string
+  ui: RoomUiState
+}
+let dockedCall: DockedCall | undefined
+
+function docked(): boolean {
+  return dockedCall !== undefined
+}
+
+/** The session carrying this device's call: the docked one, or the room on
+ *  screen. Everything about media asks this, never `session`. */
+function mediaSession(): RoomSession | undefined {
+  return dockedCall?.session ?? session
+}
+
+/** This device's participant key in the call's room. */
+function mediaMe(): string {
+  return dockedCall?.me ?? meParticipant
+}
+
+/** Bumped only when this device's call media is torn down, so a capture
+ *  that finishes after a room switch still lands on a docked call. */
+let callGeneration = 0
+
+/** Each session's own peer connections, so closing a room on screen while
+ *  a call is docked closes only that room's. Keys into `openConnections`. */
+const sessionConnections = new WeakMap<RoomSession, Set<string>>()
 /** The relay pool the session publishes through, for a file dropped into
  *  the chat to announce itself on. Set and cleared with `session`. */
 let sessionTransport: NostrRelayPool | undefined
@@ -1701,7 +1748,7 @@ const donations = new DonationLedger({
   transport: (urls) => configuredPool(urls),
   fetch: (...args) => fetch(...args),
   onChange: () => {
-    if (session) render(session.participants(), meParticipant)
+    repaint()
   },
 })
 
@@ -3033,9 +3080,10 @@ async function pollAssist(): Promise<void> {
   // there, or sitting on one that is. Either way the roster is republished
   // and the relay's own gate is brought back into step with it.
   const offering = currentAssistOffer() !== null
-  if (session && offering !== lastOffering) {
+  const carrier = mediaSession()
+  if (carrier && offering !== lastOffering) {
     lastOffering = offering
-    void session.setAssist(currentAssistOffer).catch(() => {})
+    void carrier.setAssist(currentAssistOffer).catch(() => {})
   }
   renderAssist()
 }
@@ -3228,7 +3276,7 @@ function callIsLive(): boolean {
 
 /** On the call, whatever is or is not switched on. */
 function onCall(): boolean {
-  return session?.call !== undefined
+  return mediaSession()?.call !== undefined
 }
 
 /**
@@ -3286,7 +3334,7 @@ let leavingCall = false
  * this device's own entry outlives its leave by a beat.
  */
 function callStanceNow(views: ParticipantView[]): CallStanceInput {
-  const current = (session?.calls() ?? [])[0]
+  const current = (mediaSession()?.calls() ?? [])[0]
   let otherDevicesOn = 0
   if (current) {
     for (const view of views) {
@@ -3319,7 +3367,7 @@ function newCallId(): string {
 /** The call-tab-lock key for this device's call on the current room, or
  *  undefined outside a room. */
 function callLockKey(): string | undefined {
-  const roomId = currentRoomId()
+  const roomId = dockedCall ? dockedCall.room.roomId : currentRoomId()
   return roomId && myDeviceId ? `${roomId}|${myDeviceId}` : undefined
 }
 
@@ -3398,6 +3446,9 @@ $('callTabNoticeTake').addEventListener('click', () => {
 /** Start a call, or join the one that is on. The same act: say which call
  *  this device is on. Nothing is switched on by joining; the controls are. */
 async function joinCall(): Promise<void> {
+  // One call at a time: the room on screen beside a docked call is for
+  // reading and writing only.
+  if (docked()) return
   const s = session
   if (!s || s.call) return
   // The user gesture the gain path needs to open an AudioContext that is
@@ -3454,6 +3505,8 @@ function stopLocalMedia(): void {
  *  normal Leave keeps the connection warm on purpose, for an instant Join
  *  back. */
 async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
+  // Leaving a docked call leaves its room too: nothing of it is on screen.
+  if (dockedCall) return endDockedCall(reason)
   const s = session
   // Before a single thing is torn down. Everything between here and the
   // repaint at the end reads this and paints the resting state, so the
@@ -3485,7 +3538,7 @@ async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
     leavingCall = false
   }
   updateUi()
-  if (session) render(session.participants(), meParticipant)
+  repaint()
 }
 
 /**
@@ -3517,7 +3570,8 @@ function roomHasPictures(views: ParticipantView[]): boolean {
 }
 
 function applyCallPane(views: ParticipantView[], state: CallStanceInput): void {
-  const target = callPane({ ...state, pictures: roomHasPictures(views) })
+  // A docked call is out of sight: the room on screen has the whole window.
+  const target = docked() ? 'resting' : callPane({ ...state, pictures: roomHasPictures(views) })
   const shown = paneSettler.settle(target, Date.now())
   if (document.documentElement.dataset.callPane !== shown) document.documentElement.dataset.callPane = shown
   if (paneTimer !== undefined) { clearTimeout(paneTimer); paneTimer = undefined }
@@ -3528,7 +3582,8 @@ function applyCallPane(views: ParticipantView[], state: CallStanceInput): void {
   if (due !== undefined) {
     paneTimer = setTimeout(() => {
       paneTimer = undefined
-      if (session) applyCallPane(session.participants(), callStanceNow(session.participants()))
+      const s = mediaSession()
+      if (s) applyCallPane(s.participants(), callStanceNow(s.participants()))
     }, Math.max(0, due - Date.now()) + 20)
   }
 }
@@ -3555,7 +3610,7 @@ function renderCallChips(views: ParticipantView[], callId: string | undefined): 
   if (!callId) return
   for (const view of views) {
     if (view.call?.id !== callId) continue
-    const mine = view.participant === meParticipant
+    const mine = view.participant === mediaMe()
     const chip = document.createElement('span')
     chip.className = 'callChip'
     const devices = mine ? [LOCAL_SPEAKING_KEY] : view.devices
@@ -3580,7 +3635,7 @@ function renderCallChips(views: ParticipantView[], callId: string | undefined): 
  * their heartbeat says so, and ends when the last of them stops saying so.
  */
 function renderCallState(views: ParticipantView[]): void {
-  const calls = session?.calls() ?? []
+  const calls = mediaSession()?.calls() ?? []
   const state = callStanceNow(views)
   const stance = callStance(state)
   const mineOn = stance === 'leave'
@@ -3591,7 +3646,7 @@ function renderCallState(views: ParticipantView[]): void {
     .filter(view => view.call?.id === current.id)
     .sort((a, b) => (a.call?.since ?? 0) - (b.call?.since ?? 0) || a.participant.localeCompare(b.participant))[0]
   const incoming = current && starter ? { id: current.id, caller: starter.participant } : undefined
-  const callChange = incomingCallTracker.update(incoming, meParticipant || currentParticipant(), mineOn)
+  const callChange = incomingCallTracker.update(incoming, mediaMe() || currentParticipant(), mineOn)
   if (callChange?.type === 'stop') stopCallRing()
   else if (callChange?.type === 'ring') {
     const settings = notifySettings(deviceStore)
@@ -3648,7 +3703,7 @@ function renderCallState(views: ParticipantView[]): void {
   }
 
   if (mineOn && current) {
-    const names = views.filter(view => view.call?.id === current.id && view.participant !== meParticipant)
+    const names = views.filter(view => view.call?.id === current.id && view.participant !== mediaMe())
       .map(view => shownAs(view.participant, view.name).name ?? 'somebody')
     $('callWho').textContent = names.length === 0 ? 'On the call. Just you.' : `On the call with ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`
   }
@@ -3751,7 +3806,7 @@ function contactsChanged(): void {
   boxDiscovery?.reconcile()
   relayConnections.circleChanged()
   renderContacts()
-  if (session) render(session.participants(), meParticipant)
+  repaint()
   renderLaneNote()
 }
 
@@ -3993,14 +4048,14 @@ async function makeRoomPersistent(): Promise<void> {
 /** The OS can interrupt capture without ending the canvas/Web Audio output.
  * Keep the existing pipelines so mute, effects and paired-device claims survive. */
 async function recoverCallMedia(): Promise<void> {
-  if (document.hidden || switchingRoom || leftCall || !session) return
-  const generation = roomGeneration
+  if (document.hidden || switchingRoom || leftCall || !mediaSession()) return
+  const generation = callGeneration
   const currentMic = mic
   const currentCamera = camera
   remoteVolume.resume()
   recoverRemoteTracks()
   const results = await Promise.allSettled([currentMic?.resume(), currentCamera?.resume()])
-  if (generation !== roomGeneration || leftCall || mic !== currentMic || camera !== currentCamera) return
+  if (generation !== callGeneration || leftCall || mic !== currentMic || camera !== currentCamera) return
   adoptMicTrack()
   const failed = results.some(result => result.status === 'rejected')
   $('mediaRecoveryNote').hidden = !failed
@@ -4042,7 +4097,7 @@ function adoptMicTrack(): void {
 }
 
 async function toggleMic(): Promise<void> {
-  const generation = roomGeneration
+  const generation = callGeneration
   if (switchingRoom) return
   if ([...pendingMedia].some(pipeline => pipeline instanceof MicPipeline)) return
   // An ended output cannot be unmuted. A deliberate press reopens capture.
@@ -4054,9 +4109,9 @@ async function toggleMic(): Promise<void> {
   }
   if (!micTrack) {
     const pipeline = new MicPipeline({
-      onSourceEnded: () => { if (generation === roomGeneration) void recoverCallMedia() },
+      onSourceEnded: () => { if (generation === callGeneration) void recoverCallMedia() },
       onStateChange: (state) => {
-        if (generation !== roomGeneration) return
+        if (generation !== callGeneration) return
         renderVoiceState(state)
         adoptMicTrack()
       },
@@ -4064,11 +4119,11 @@ async function toggleMic(): Promise<void> {
     pendingMedia.add(pipeline)
     try {
       const track = await pipeline.start()
-      if (generation !== roomGeneration) { pipeline.stop(); return }
+      if (generation !== callGeneration) { pipeline.stop(); return }
       micTrack = track
     } catch (err) {
       pipeline.stop()
-      if (generation !== roomGeneration) return
+      if (generation !== callGeneration) return
       throw err
     } finally {
       pendingMedia.delete(pipeline)
@@ -4107,7 +4162,7 @@ async function toggleMic(): Promise<void> {
 }
 
 async function toggleCamera(): Promise<void> {
-  const generation = roomGeneration
+  const generation = callGeneration
   if (switchingRoom) return
   if ([...pendingMedia].some(pipeline => pipeline instanceof CameraPipeline)) return
   if (camera) {
@@ -4125,20 +4180,20 @@ async function toggleCamera(): Promise<void> {
     publishActiveTracks()
   } else {
     const pipeline = new CameraPipeline({
-      onStateChange: state => { if (generation === roomGeneration) renderEffectState(state) },
+      onStateChange: state => { if (generation === callGeneration) renderEffectState(state) },
       onSourceEnded: () => {
-        if (generation !== roomGeneration) return
+        if (generation !== callGeneration) return
         void recoverCallMedia()
       },
     })
     pendingMedia.add(pipeline)
     try {
       const track = await pipeline.start()
-      if (generation !== roomGeneration) { pipeline.stop(); return }
+      if (generation !== callGeneration) { pipeline.stop(); return }
       cameraTrack = track
     } catch (err) {
       pipeline.stop()
-      if (generation !== roomGeneration) return
+      if (generation !== callGeneration) return
       throw err
     } finally {
       pendingMedia.delete(pipeline)
@@ -4362,7 +4417,7 @@ interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
 
 let screenStarting = false
 async function toggleScreen(area = false): Promise<void> {
-  const generation = roomGeneration
+  const generation = callGeneration
   if (switchingRoom) return
   if (screenStarting) return
   if (screenTrack) {
@@ -4407,14 +4462,14 @@ async function toggleScreen(area = false): Promise<void> {
     let stream: MediaStream
     try { stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options) }
     finally { screenStarting = false }
-    if (generation !== roomGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
+    if (generation !== callGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
-        if (generation !== roomGeneration) return
+        if (generation !== callGeneration) return
         desktopShareArea.stop()
         screenTrack = undefined
         screenAudioTrack?.stop()
@@ -4431,7 +4486,7 @@ async function toggleScreen(area = false): Promise<void> {
       // tab switch, on a browser that ties system audio to a shared tab
       // having focus. Unadvertise the sound and leave the picture alone.
       screenAudioTrack?.addEventListener('ended', () => {
-        if (generation !== roomGeneration) return
+        if (generation !== callGeneration) return
         screenAudioTrack = undefined
         publishActiveTracks()
         updateUi()
@@ -4630,7 +4685,7 @@ function currentClaims(): Partial<Record<SingularRole, number>> {
     claims.mic = micClaimedAt
   }
   if (!besideAnotherDevice && (onCall() || micTrack || cameraTrack || screenTrack)) {
-    const owner = session?.participants().find(view => view.participant === meParticipant)?.monitor
+    const owner = mediaSession()?.participants().find(view => view.participant === mediaMe())?.monitor
     if (monitorClaimedAt === undefined && (!owner || owner === myDeviceId)) monitorClaimedAt = nowSeconds()
     if (monitorClaimedAt !== undefined) claims.monitor = monitorClaimedAt
   }
@@ -4655,9 +4710,9 @@ function toggleCompanionMode(): void {
  *  everybody else's tile reads to say "camera" or "connecting". */
 function publishActiveTracks(): void {
   if (!micTrack) micClaimedAt = undefined
-  session?.publishTracks(activeTracks(), { audience })
-  session?.advertise(currentAdverts(), currentClaims()).catch(() => {})
-  const s = session
+  const s = mediaSession()
+  s?.publishTracks(activeTracks(), { audience })
+  s?.advertise(currentAdverts(), currentClaims()).catch(() => {})
   if (s && !s.call && activeTracks().length > 0) {
     leftCall = false
     s.setCall({ id: s.calls()[0]?.id ?? newCallId(), since: nowSeconds() }).catch(() => {})
@@ -4682,7 +4737,7 @@ function updateScreenAudioNote(): void {
 }
 
 function updateUi(): void {
-  if (callIsLive() || onCall()) setCallOpen(true)
+  if ((callIsLive() || onCall()) && !docked()) setCallOpen(true)
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
@@ -4712,8 +4767,8 @@ function updateUi(): void {
   revealEffects('cameraEffects', !!camera)
   revealEffects('voiceEffects', !!mic)
   if (camera) renderBackgroundChoices()
-  if (session) {
-    render(session.participants(), meParticipant)
+  if (session || dockedCall) {
+    repaint()
   } else {
     $('micIndicator').textContent = micTrack?.enabled ? 'Mic is ready - not in a room yet' : ''
   }
@@ -4761,6 +4816,28 @@ function render(views: ParticipantView[], me: string): void {
     if (view.requestReceipts) receiptAgents.add(view.participant)
     else receiptAgents.delete(view.participant)
   }
+  // Beside a docked call the room on screen carries no media, and the tiles,
+  // sound and call controls are the call's.
+  if (dockedCall) renderCallMedia(dockedCall.session.participants(), dockedCall.me)
+  else renderCallMedia(views, me)
+  renderDock()
+  renderAgentsExplain(views)
+  renderRoomWho()
+  if (($('roomSheet') as HTMLDialogElement).open) renderSheetRoster(views, me)
+
+  // Which tabs are worth showing depends on who is here (Agents appears
+  // when an agent does), so a roster change can change the row.
+  const tabKey = navTabs().map(([name]) => name ?? '').join('\n')
+  if (tabKey !== renderedTabKey) { renderedTabKey = tabKey; renderConversationNav() }
+  if (collisionsChanged) {
+    collisionsChanged = false
+    repaintActiveChat()
+  }
+}
+
+/** The call's half of `render`: this device's roles, remote sound, tiles and
+ *  call controls, for whichever session carries the call. */
+function renderCallMedia(views: ParticipantView[], me: string): void {
   const mine = views.find((v) => v.participant === me)
 
   // A paired phone and laptop are one participant. Whichever device most
@@ -5022,10 +5099,6 @@ function render(views: ParticipantView[], me: string): void {
   // anything on shows nothing at all - which is most rooms, most of the
   // time, and is why this is not on the screen permanently.
   $('whoIsHere').hidden = !views.some((view) => view.tracks.length > 0) && localMediaEl.childElementCount === 0
-  renderAgentsExplain(views)
-  renderRoomWho()
-  if (($('roomSheet') as HTMLDialogElement).open) renderSheetRoster(views, me)
-
   // Emptying the grid above detached our own holder if it was in a tile. If
   // no tile of ours was built this time - our entry has not come back from
   // the relay yet, or lapsed - it goes back to the preview strip in this same
@@ -5034,14 +5107,6 @@ function render(views: ParticipantView[], me: string): void {
   if (!localMediaEl.isConnected) $('local').append(localMediaEl)
 
   renderCallState(views)
-  // Which tabs are worth showing depends on who is here (Agents appears
-  // when an agent does), so a roster change can change the row.
-  const tabKey = navTabs().map(([name]) => name ?? '').join('\n')
-  if (tabKey !== renderedTabKey) { renderedTabKey = tabKey; renderConversationNav() }
-  if (collisionsChanged) {
-    collisionsChanged = false
-    repaintActiveChat()
-  }
 }
 
 /** Small numbers read better as words in a sentence a stranger has to take
@@ -7601,7 +7666,7 @@ function showVerification(view: ParticipantView, name: string, status: string): 
     dialog.removeEventListener('close', onClose)
     if (dialog.returnValue !== 'verify') return
     rememberVerified(deviceStore, view.participant, name, Date.now())
-    if (session) render(session.participants(), meParticipant)
+    repaint()
   }
   dialog.addEventListener('close', onClose)
   dialog.returnValue = ''
@@ -7889,7 +7954,7 @@ const tileLiveness = new TileLiveness()
  */
 function advertised(key: string): boolean | undefined {
   const device = tileDevice(key), role = tileRole(key)
-  const person = session?.participants().find(view => view.devices.includes(device))
+  const person = mediaSession()?.participants().find(view => view.devices.includes(device))
   if (!person) return undefined
   if (!role) return false
   return person.tracks.some(track => track.device === device && track.role === role)
@@ -7897,7 +7962,7 @@ function advertised(key: string): boolean | undefined {
 
 /** Everything this device is advertising right now. */
 function advertsFor(device: string): TrackAdvert[] {
-  const person = session?.participants().find(view => view.devices.includes(device))
+  const person = mediaSession()?.participants().find(view => view.devices.includes(device))
   return person?.tracks.filter(track => track.device === device) ?? []
 }
 
@@ -8084,7 +8149,7 @@ function syncRemoteVideos(): void {
     changed = true
   }
   tileLiveness.retain([...remoteVideos.keys(), ...remoteAudios.keys()])
-  if (changed && session) render(session.participants(), meParticipant)
+  if (changed) repaint()
 }
 
 setInterval(syncRemoteVideos, 1000)
@@ -8193,7 +8258,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       el.remove()
       remoteVideos.delete(key)
       callTimeline.record('track-removed', short(device), 'video')
-      if (session) render(session.participants(), meParticipant)
+      repaint()
     })
   } else {
     // Audio is never taken off screen for going quiet. A picture that
@@ -8235,11 +8300,11 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       speakingMonitor.unwatch(device)
       paintSpeaking()
       callTimeline.record('track-removed', short(device), 'audio')
-      if (session) render(session.participants(), meParticipant)
+      repaint()
     })
   }
 
-  if (session) render(session.participants(), meParticipant)
+  repaint()
 }
 
 /**
@@ -8293,6 +8358,7 @@ function dropUnboundTiles(device: string, kind: MediaKind, binding: ReadonlyMap<
 let changedTiles = false
 
 function recoverRemoteTracks(): void {
+  const session = mediaSession()
   if (!session) return
   const now = performance.now()
   const devices = new Set<string>()
@@ -8330,7 +8396,7 @@ function recoverRemoteTracks(): void {
   }
   if (changedTiles) {
     changedTiles = false
-    if (session) render(session.participants(), meParticipant)
+    repaint()
   }
 }
 
@@ -8354,7 +8420,7 @@ const short = (hex: string | undefined) => (hex ? hex.slice(0, 8) : hex)
  * is not something a "copy" button should put on their clipboard.
  */
 async function collectDiagnostics(): Promise<string> {
-  const s = session
+  const s = mediaSession()
   const pick = (r: Record<string, unknown>, keys: string[]) =>
     Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]]))
   const connections = await Promise.all(
@@ -8417,7 +8483,7 @@ async function collectDiagnostics(): Promise<string> {
     ua: navigator.userAgent,
     visibility: document.visibilityState,
     me: {
-      participant: short(meParticipant),
+      participant: short(mediaMe()),
       device: short(myDeviceId),
       publishing: currentAdverts().map((a) => a.role),
       callProfile,
@@ -8593,6 +8659,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
   const generation = roomGeneration
   if (!retry && (joining || session || loginBusy)) return
   const requestedMedia = entryMediaChoice()
+  // Beside a docked call this room is for reading and writing: it never
+  // carries this device's microphone, camera or relaying.
+  const chatOnly = docked()
   joining = true
   const deadline = retry?.deadline ?? Date.now() + 20_000
   if (!retry) setStatus('Joining the room…', 'progress')
@@ -8621,7 +8690,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
       return
     }
     const deviceSk = deviceKey()
-    myDeviceId = getPublicKey(deviceSk)
+    // A device key is per room. Beside a docked call `myDeviceId` stays the
+    // call's, because every media decision is made against it.
+    const deviceId = getPublicKey(deviceSk)
+    if (!chatOnly) myDeviceId = deviceId
     const credential = loadCredential()
 
     // The design says the room names its own STUN and TURN - never an
@@ -8665,10 +8737,14 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // person whose Wi-Fi had just changed could not be reached again.
     // Refreshed well inside the credential's life, and never blocking: a
     // refresh that fails leaves the last good list in place.
+    // A docked call keeps refreshing its own credentials while another room
+    // is on screen, so the guard is the session, not the screen.
+    let created: RoomSession | undefined
+    const alive = (): boolean => created ? session === created || dockedCall?.session === created : generation === roomGeneration
     const refreshIce = (): void => {
       resolveIceServers(roomIceUrls)
         .then((fresh) => {
-          if (generation !== roomGeneration) return
+          if (!alive()) return
           // Do not replace a working relay-only allocation list with a STUN
           // fallback after a credential refresh failure. Keeping the last
           // good credential is safe until it expires; replacing it would
@@ -8681,6 +8757,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
         .catch(() => {})
     }
     if (!relayOnly && isDefaultIceUrls(roomIceUrls)) refreshIce()
+    const ownConnections = new Set<string>()
     const factory: PeerFactory = (context?: PeerContext) => {
       const configuration = relayOnly
         ? relayOnlyIceConfiguration(resolvedIceServers)
@@ -8698,6 +8775,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
       // on until it closes itself.
       const key = `${context?.tier ?? 'direct'}:${context?.remoteDevice ?? 'unknown'}:${++connectionSeq}`
       openConnections.set(key, pc)
+      ownConnections.add(key)
       pc.addEventListener('connectionstatechange', () => {
         if (pc.connectionState !== 'closed' && pc.connectionState !== 'failed') return
         openConnections.delete(key)
@@ -8728,7 +8806,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           participant: credential ? credential.pubkey : currentIdentity().pubkey,
           slot: credential ? 1 : 0,
           used: loadQuietState(deviceStore, quietRoomId, nowSeconds()).used,
-          reservedCounters: epoch => cadenceReservedCounters(deviceStore, quietRoomId, myDeviceId, epoch),
+          reservedCounters: epoch => cadenceReservedCounters(deviceStore, quietRoomId, deviceId, epoch),
           intervalSeconds: QUIET_SLOT,
           onUsed: () => persistQuiet(),
           onPosted: () => persistQuiet(),
@@ -8758,17 +8836,22 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // only when the far end's roster entry says 2 as well.
           callProfile,
           trackRole: activeTrackRole,
-          assist: currentAssistOffer,
-          relay: peerRelay,
+          ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
-          onEpoch: notice => { if (generation === roomGeneration) onEpochChange(notice) },
-          onRemoved: (notice) => { if (generation === roomGeneration) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
-          onClosed: (notice) => { if (generation === roomGeneration) roomWasClosed(notice) },
+          onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
+          onRemoved: (notice) => {
+            if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+            else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+          },
+          onClosed: (notice) => {
+            if (created && dockedCall?.session === created) void endDockedCall('user', `${dockedCall.label} was closed.`)
+            else if (created && session === created) roomWasClosed(notice)
+          },
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
@@ -8776,7 +8859,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // The chips say which rung a connection is on, so they move when it does.
           onRoute: (device, route) => {
             callTimeline.record('route-tier-change', short(device), route.tier)
-            if (session) render(session.participants(), meParticipant)
+            repaint()
           },
           onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
@@ -8794,17 +8877,22 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // only when the far end's roster entry says 2 as well.
           callProfile,
           trackRole: activeTrackRole,
-          assist: currentAssistOffer,
-          relay: peerRelay,
+          ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
-          onEpoch: notice => { if (generation === roomGeneration) onEpochChange(notice) },
-          onRemoved: (notice) => { if (generation === roomGeneration) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`) },
-          onClosed: (notice) => { if (generation === roomGeneration) roomWasClosed(notice) },
+          onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
+          onRemoved: (notice) => {
+            if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+            else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+          },
+          onClosed: (notice) => {
+            if (created && dockedCall?.session === created) void endDockedCall('user', `${dockedCall.label} was closed.`)
+            else if (created && session === created) roomWasClosed(notice)
+          },
           // The indicator has to move the moment this device starts or stops
           // carrying somebody, not on the next poll tick.
           onRelayStart: () => renderAssist(),
@@ -8812,21 +8900,29 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // The chips say which rung a connection is on, so they move when it does.
           onRoute: (device, route) => {
             callTimeline.record('route-tier-change', short(device), route.tier)
-            if (session) render(session.participants(), meParticipant)
+            repaint()
           },
           onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
     session = s
+    created = s
+    sessionConnections.set(s, ownConnections)
     meParticipant = s.participant
 
     s.onChange((views) => {
-      if (session !== s) return
-      const byDevice = new Map<string, string[]>()
-      for (const view of views) for (const t of view.tracks) byDevice.set(t.device, [...(byDevice.get(t.device) ?? []), t.role])
-      for (const change of advertTracker.update([...byDevice].map(([device, roles]) => ({ device, roles })))) {
-        if (change.added.length > 0) callTimeline.record('advert-change', short(change.device), `+${change.added.join(',')}`)
-        if (change.removed.length > 0) callTimeline.record('advert-change', short(change.device), `-${change.removed.join(',')}`)
+      const isDocked = dockedCall?.session === s
+      if (session !== s && !isDocked) return
+      if (s === mediaSession()) {
+        const byDevice = new Map<string, string[]>()
+        for (const view of views) for (const t of view.tracks) byDevice.set(t.device, [...(byDevice.get(t.device) ?? []), t.role])
+        for (const change of advertTracker.update([...byDevice].map(([device, roles]) => ({ device, roles })))) {
+          if (change.added.length > 0) callTimeline.record('advert-change', short(change.device), `+${change.added.join(',')}`)
+          if (change.removed.length > 0) callTimeline.record('advert-change', short(change.device), `-${change.removed.join(',')}`)
+        }
       }
+      // The call's roster moves the tiles and the dock; the room on screen
+      // is repainted with its own roster.
+      if (isDocked) { repaint(); return }
       announceComings(views, meParticipant)
       assignmentPanel.refreshPeople()
       render(views, meParticipant)
@@ -8841,11 +8937,11 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
       // idle camera receiver could take the screen slot and the real share
       // remained attached to a decoder that never received its frames.
       if (role) fixedRemoteRoles.set(track, role)
-      if (session === s) attachRemoteTrack(device, track, role ? tileKey(device, role) : undefined)
+      if (s === mediaSession()) attachRemoteTrack(device, track, role ? tileKey(device, role) : undefined)
       else track.stop()
     })
     s.onAnnotation(({ participant, annotation }) => {
-      if (session !== s) return
+      if (s !== mediaSession()) return
       shareViewer.receive(annotation, markAuthor(participant))
       notifyDrawingOnMyShare(participant, annotation)
     })
@@ -8855,14 +8951,14 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // after it did is: a cheap round trip here catches it before the join
     // event is the thing that discovers it, the slow and public way.
     if (lastHiddenAt >= poolCreatedAt) await pool.probe().catch((err) => callTimeline.record('probe-failed', undefined, describeError(err)))
-    await s.join(currentAdverts(), currentClaims())
+    await s.join(chatOnly ? [] : currentAdverts(), chatOnly ? {} : currentClaims())
     if (session !== s) return
     // Another tab of this browser, same account, may already be on this
     // room's call under the identical device key - see call-tab-lock.ts.
     // Asked once, now, because a fresh tab's own heartbeat asserting no
     // tracks is exactly the contradiction that orphans that tab's live
     // media a few seconds later.
-    {
+    if (!chatOnly) {
       const lockKey = callLockKey()
       if (lockKey) {
         callTabLock.askHeldElsewhere(lockKey).then((held) => {
@@ -8879,7 +8975,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     selectRoomDrafts()
     void assignmentPanel.attach(s)
     iceRefreshTimer = setInterval(refreshIce, ICE_REFRESH_MS)
-    s.publishTracks(activeTracks(), { audience })
+    if (!chatOnly) s.publishTracks(activeTracks(), { audience })
 
     // What lands while this tab is in the background is worth a
     // notification, if the person asked for them. Followed from now, so
@@ -8889,8 +8985,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     const roomLabelNow = () => currentRoomLabel()
     followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey)
     const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel })
-    s.chat.onChange(() => coalesceChatPaint('chat', () => {
-      if (session !== s) return
+    s.chat.onChange(() => coalesceChatPaint(dockedCall?.session === s ? 'docked-chat' : 'chat', () => {
+      // A docked call's room still tells the person when somebody writes.
+      if (session !== s) { if (dockedCall?.session === s) notifyChat(s.chat.messages()); return }
       const messages = s.chat.messages()
       // Only when the main chat is the conversation on screen. Repainting
       // regardless put the main chat under whichever tab was selected and
@@ -8969,7 +9066,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     chatScroll.resume(draftRoomKey())
     restoreConversation()
     repaintActiveChat()
-    await enableEntryMedia(requestedMedia)
+    if (!chatOnly) await enableEntryMedia(requestedMedia)
   } catch (err) {
     const failed = session
     if (generation !== roomGeneration) return
@@ -9589,7 +9686,7 @@ function renderRoomSwitcher(): void {
   $('roomSwitcherNote').textContent = busy
     ? 'Finish sending or stop adding files before switching. You can also open the other room in a new tab.'
     : callIsLive() || onCall()
-      ? 'Your call stays connected while you browse. Switching will ask before leaving it; a new tab keeps this call here.'
+      ? 'Your call carries on while you visit other rooms. Choose its room again, or Back to the call, to return.'
       : hasUnsentWork()
         ? 'Your drafts stay here while you switch.'
         : ''
@@ -9652,7 +9749,14 @@ async function switchRoom(room: KnownRoom): Promise<void> {
     return
   }
   if (switchingBlocked()) { openRoomSwitcher(); renderRoomSwitcher(); return }
-  if ((callIsLive() || onCall()) && !await confirmRoomAction({ title: `Switch to ${knownRoomLabel(room)}?`, message: 'This leaves your current call. Your microphone and camera will be off in the other room.', confirmLabel: 'Leave call and switch' })) return
+  // Nothing a person navigates to ends a call. See `DockedCall`.
+  let intent = switchIntent({ onCall: callIsLive() || onCall(), dockedRoomId: dockedCall?.room.roomId, destination: room.roomId })
+  const dockRoom = intent === 'dock' ? dockableRoom() : undefined
+  if (intent === 'dock' && !dockRoom) {
+    // A room this device has no link kept for cannot be come back to.
+    if (!await confirmRoomAction({ title: `Switch to ${knownRoomLabel(room)}?`, message: 'This leaves your current call. Your microphone and camera will be off in the other room.', confirmLabel: 'Leave call and switch' })) return
+    intent = 'plain'
+  }
   if (switchingRoom || switchingBlocked()) { renderRoomSwitcher(); return }
   const account = nostrSession?.pubkey
   const identity = identityGeneration
@@ -9670,8 +9774,10 @@ async function switchRoom(room: KnownRoom): Promise<void> {
   $('joinRoomForm').inert = $('accountHome').inert = true
   ;($('workspaceQuery') as HTMLInputElement).disabled = true
   try {
+    if (intent === 'dock' && dockRoom) dockCall(dockRoom)
     await closeRoomSession({ backgroundFarewell: true })
     resetRoomState()
+    if (intent === 'undock') { resumeDockedCall(); return }
     const hash = new URL(room.link, location.href).hash
     // Bookmarks provide an invitation fragment, never an external redirect.
     history.replaceState(null, '', joinLinkBase() + hash)
@@ -9717,16 +9823,44 @@ async function switchRoom(room: KnownRoom): Promise<void> {
   }
 }
 
+/** Everything of the call's own on this page: local capture, remote media,
+ *  tiles. Done when a room closes with no docked call, and when a docked
+ *  call ends. */
+function tearDownCallMedia(): void {
+  stopLocalMedia()
+  void callWakeLock.release()
+  speakingMonitor.retain([])
+  remoteVolume.retain([])
+  for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
+    entry.track.stop()
+    entry.el.pause()
+    entry.el.srcObject = null
+    entry.el.remove()
+  }
+  remoteVideos.clear()
+  remoteAudios.clear()
+  for (const el of deviceMediaEls.values()) el.remove()
+  deviceMediaEls.clear()
+  for (const box of tileBoxes.values()) box.remove()
+  tileBoxes.clear()
+  leftCall = false
+}
+
 /** Stop the room completely before any other room can own the controls. */
 async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}): Promise<void> {
   chatScroll.suspend()
   ++roomGeneration
   const old = session
-  {
+  // A docked call outlives the room on screen: its session, relays, media,
+  // tab lock and timers are left exactly as they are. `dockCall` has already
+  // taken them out of the globals this clears.
+  const keepCall = docked()
+  if (!keepCall) {
+    ++callGeneration
     const key = callLockKey()
     if (key) callTabLock.release(key)
-    if (heldElsewhereKey !== undefined) { heldElsewhereKey = undefined; renderCallTabNotice() }
   }
+  if (heldElsewhereKey !== undefined) { heldElsewhereKey = undefined; renderCallTabNotice() }
   const transport = sessionTransport
   persistQuiet()
   session = undefined
@@ -9749,26 +9883,13 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   pairingTransport?.close()
   pairingHost = pairingTransport = undefined
   if (iceRefreshTimer !== undefined) clearInterval(iceRefreshTimer)
-  if (assistTimer !== undefined) clearInterval(assistTimer)
   if (approvalTimer !== undefined) clearTimeout(approvalTimer)
-  iceRefreshTimer = assistTimer = approvalTimer = undefined
-  stopLocalMedia()
-  void callWakeLock.release()
-  speakingMonitor.retain([])
-  remoteVolume.retain([])
-  for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
-    entry.track.stop()
-    entry.el.pause()
-    entry.el.srcObject = null
-    entry.el.remove()
+  iceRefreshTimer = approvalTimer = undefined
+  if (!keepCall) {
+    if (assistTimer !== undefined) clearInterval(assistTimer)
+    assistTimer = undefined
+    tearDownCallMedia()
   }
-  remoteVideos.clear()
-  remoteAudios.clear()
-  for (const el of deviceMediaEls.values()) el.remove()
-  deviceMediaEls.clear()
-  for (const box of tileBoxes.values()) box.remove()
-  tileBoxes.clear()
-  leftCall = false
   presenceAnnouncements = undefined
   if (departureNoticeTimer !== undefined) clearTimeout(departureNoticeTimer)
   departureNoticeTimer = undefined
@@ -9777,14 +9898,16 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   $('presenceNotice').hidden = true
   $('presenceNotice').textContent = ''
   forgetKnocks()
-  tileLiveness.retain([])
-  $('agentsRow').replaceChildren()
+  if (!keepCall) {
+    tileLiveness.retain([])
+    $('agentsRow').replaceChildren()
+  }
   const preview = $('voicePreviewAudio') as HTMLAudioElement
   preview.pause()
   if (preview.src) URL.revokeObjectURL(preview.src)
   preview.removeAttribute('src')
   preview.hidden = true
-  peerRelay.close()
+  if (!keepCall) peerRelay.close()
   setCallOpen(false)
   updateUi()
   if (document.documentElement.dataset.roomSwitching !== 'true') $('roomArea').hidden = true
@@ -9792,9 +9915,15 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   // relay acknowledgement. Keep that transport alive for the bounded farewell,
   // but free the controls immediately. Never clean up global connections later:
   // by then they may belong to the newly opened room.
+  if (old && old === dockedCall?.session) return
   const farewell = old?.leave() ?? Promise.resolve()
-  for (const [key, pc] of openConnections) { pc.close(); uplink.forget(key) }
-  openConnections.clear()
+  const own = old ? sessionConnections.get(old) : undefined
+  for (const [key, pc] of openConnections) {
+    if (keepCall && !own?.has(key)) continue
+    pc.close()
+    uplink.forget(key)
+    openConnections.delete(key)
+  }
   const finished = farewell.finally(() => transport?.close())
   if (options.backgroundFarewell) void finished.catch(() => {})
   else await finished
@@ -9830,14 +9959,18 @@ function resetRoomState(): void {
   expectedEpoch = undefined
   admittedRoom = undefined
   startedHere = false
-  meParticipant = myDeviceId = ''
+  meParticipant = ''
   roomRelayScope = 'default'
   relays = RELAYS
   roomRelayConfig = relayConnections.configuration('default')
   iceUrls = DEFAULT_ICE_URLS
-  assistEnabled = false
-  lastOffering = false
-  peerRelay.reopen()
+  // Carrying others, and this device's key, belong to the docked call.
+  if (!docked()) {
+    myDeviceId = ''
+    assistEnabled = false
+    lastOffering = false
+    peerRelay.reopen()
+  }
   drafts = new ConversationDrafts()
   restoreDraft()
   chatScroll.suspend()
@@ -9851,6 +9984,198 @@ function resetRoomState(): void {
   render([], '')
   renderHost()
   renderApprovals()
+}
+
+/** Repaint the room on screen and the call, wherever each is. */
+function repaint(): void {
+  if (session) render(session.participants(), meParticipant)
+  else if (dockedCall) render([], '')
+}
+
+/** Whether the call on screen can be docked: it needs a room to come back to. */
+function dockableRoom(): KnownRoom | undefined {
+  const roomId = currentRoomId()
+  if (!session || !roomId) return undefined
+  return navigationRooms().find(room => room.roomId === roomId) ?? knownRoom(roomStore(), roomId)
+}
+
+/** Keep the call on this page while another room opens in front of it. The
+ *  caller closes the room on screen next; everything the call needs has
+ *  been taken out of the globals that closing clears. */
+function dockCall(room: KnownRoom): void {
+  dockedCall = {
+    session: session!, transport: sessionTransport, quiet: quietTransport, iceRefreshTimer,
+    room, label: currentRoomLabel(), me: meParticipant, ui: captureRoomUi(),
+  }
+  iceRefreshTimer = undefined
+  document.documentElement.dataset.callDocked = 'true'
+}
+
+/** Back in the docked call's room: its screen as it was left, no rejoin. The
+ *  caller has closed the room that was on screen. */
+function resumeDockedCall(): void {
+  const c = dockedCall
+  if (!c) return
+  dockedCall = undefined
+  delete document.documentElement.dataset.callDocked
+  restoreRoomUi(c.ui)
+  const s = c.session
+  session = s
+  sessionTransport = c.transport
+  quietTransport = c.quiet
+  iceRefreshTimer = c.iceRefreshTimer
+  meParticipant = c.me
+  history.replaceState(null, '', joinLinkBase() + new URL(c.room.link, location.href).hash)
+  showRoomUi()
+  renderIdentity()
+  serveCurrentInvitation()
+  selectRoomDrafts()
+  void assignmentPanel.attach(s)
+  followReadPositions(s.roomId, deriveRoom(roomSecret).roomKey)
+  // What arrived while the call was docked: the logs kept listening, and
+  // only the screen stopped following them.
+  for (const [name, log] of channelLogs) channelCounts.set(name, log.messages().length)
+  ingestControl(s.channel(CONTROL_CHANNEL).messages())
+  renderRoomLockState()
+  renderHost()
+  renderChannels()
+  ;($('join') as HTMLButtonElement).hidden = true
+  $('identity').hidden = true
+  $('identityMore').hidden = true
+  $('roomArea').hidden = false
+  setStatus('')
+  showRoomTools()
+  renderNudgeChoice()
+  setCallOpen(true)
+  updateUi()
+  chatScroll.resume(draftRoomKey())
+  restoreConversation()
+  repaintActiveChat()
+  noteChatRead(s.chat.messages())
+  renderCallTabNotice()
+}
+
+/** Leave a docked call, and with it the call's room: none of it is on
+ *  screen, so there is nothing of the room to stay in. */
+async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: string): Promise<void> {
+  const c = dockedCall
+  if (!c) return
+  const key = callLockKey()
+  dockedCall = undefined
+  delete document.documentElement.dataset.callDocked
+  ++callGeneration
+  if (key && reason === 'user') callTabLock.release(key)
+  if (c.iceRefreshTimer !== undefined) clearInterval(c.iceRefreshTimer)
+  tearDownCallMedia()
+  tileLiveness.retain([])
+  $('agentsRow').replaceChildren()
+  autoplayBanner.hide()
+  renderAutoplayBanner()
+  peerRelay.close()
+  peerRelay.reopen()
+  window.kithmootDesktop?.setCallActive(false)
+  // The room on screen is this device's only room now.
+  myDeviceId = session?.device ?? ''
+  if (reason === 'preempted') await c.session.farewellCall().catch(() => {})
+  const own = sessionConnections.get(c.session)
+  for (const [k, pc] of openConnections) {
+    if (!own?.has(k)) continue
+    pc.close()
+    uplink.forget(k)
+    openConnections.delete(k)
+  }
+  void c.session.leave().finally(() => c.transport?.close()).catch(() => {})
+  updateUi()
+  renderDock()
+  renderWorkspace()
+  setStatus(notice ?? `You left the call in ${c.label}.`, 'done')
+}
+
+/** The dock: which call this device is on, and the ways to it and off it. */
+function renderDock(): void {
+  const dock = $('callDock')
+  const c = dockedCall
+  if (dock.hidden !== !c) dock.hidden = !c
+  if (!c) return
+  const views = c.session.participants()
+  // The call this device is on, which is not always the room's first.
+  const callId = c.session.call?.id
+  const others = callId
+    ? views.filter(view => view.call?.id === callId && view.participant !== c.me).map(view => shownAs(view.participant, view.name).name ?? 'somebody')
+    : []
+  const text = dockSummary(c.label, others)
+  if ($('callDockText').textContent !== text) $('callDockText').textContent = text
+  setToggle('callDockMic', !!micTrack?.enabled)
+  setToggle('callDockCamera', !!cameraTrack)
+  $('callDockBack').setAttribute('aria-label', `Back to the call in ${c.label}`)
+}
+
+/** What `resetRoomState` clears about the room on screen, kept for a docked
+ *  call so coming back to its room needs no rejoin. */
+interface RoomUiState {
+  catalogues: Map<string, Extract<ControlMessage, { op: 'catalogue' }> & { at: number }>
+  controlSeen: Set<string>
+  admins: Set<string>
+  adminsAt: number
+  channelsAt: number
+  channels: string[]
+  channelLogs: Map<string, ReturnType<NonNullable<typeof session>['channel']>>
+  channelCounts: Map<string, number>
+  conversationRead: Map<string, Set<string>>
+  currentChannel: string | undefined
+  keeperParticipant: string | undefined
+  agentParticipants: Set<string>
+  agentDisplayNames: Map<string, string>
+  receiptAgents: Set<string>
+  handledInvites: Set<string>
+  approvals: Map<string, OpenApproval>
+  systemLines: SystemLine[]
+  roomSecret: Uint8Array
+  roomPolicy: RoomPolicy | undefined
+  roomName: string | undefined
+  roomInvitationCapability: RoomInvitation | undefined
+  invitationAuthoritySk: Uint8Array | undefined
+  invitationDelegation: InvitationDelegation[]
+  expectedEpoch: number | undefined
+  admittedRoom: SavedRoomAdmission | undefined
+  startedHere: boolean
+  roomRelayScope: string
+  relays: string[]
+  roomRelayConfig: RelayConfig[]
+  iceUrls: string[]
+  sessionAuthority: string | undefined
+  presenceAnnouncements: PresenceAnnouncements | undefined
+}
+
+function captureRoomUi(): RoomUiState {
+  return {
+    catalogues: new Map(catalogues), controlSeen: new Set(controlSeen), admins, adminsAt, channelsAt, channels,
+    channelLogs: new Map(channelLogs), channelCounts: new Map(channelCounts), conversationRead, currentChannel,
+    keeperParticipant, agentParticipants: new Set(agentParticipants), agentDisplayNames: new Map(agentDisplayNames),
+    receiptAgents: new Set(receiptAgents), handledInvites: new Set(handledInvites), approvals: new Map(approvals),
+    systemLines: [...systemLines], roomSecret, roomPolicy, roomName, roomInvitationCapability, invitationAuthoritySk,
+    invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope, relays, roomRelayConfig, iceUrls,
+    sessionAuthority, presenceAnnouncements,
+  }
+}
+
+function restoreRoomUi(ui: RoomUiState): void {
+  const refill = <K, V>(into: Map<K, V>, from: Map<K, V>) => { into.clear(); for (const [k, v] of from) into.set(k, v) }
+  const refillSet = <V>(into: Set<V>, from: Set<V>) => { into.clear(); for (const v of from) into.add(v) }
+  refill(catalogues, ui.catalogues)
+  refillSet(controlSeen, ui.controlSeen)
+  refill(channelLogs, ui.channelLogs)
+  refill(channelCounts, ui.channelCounts)
+  refillSet(agentParticipants, ui.agentParticipants)
+  refill(agentDisplayNames, ui.agentDisplayNames)
+  refillSet(receiptAgents, ui.receiptAgents)
+  refillSet(handledInvites, ui.handledInvites)
+  refill(approvals, ui.approvals)
+  systemLines.length = 0
+  systemLines.push(...ui.systemLines)
+  ;({ admins, adminsAt, channelsAt, channels, conversationRead, currentChannel, keeperParticipant, roomSecret, roomPolicy, roomName,
+    roomInvitationCapability, invitationAuthoritySk, invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope,
+    relays, roomRelayConfig, iceUrls, sessionAuthority, presenceAnnouncements } = ui)
 }
 
 async function forgetKnownRoom(room: KnownRoom): Promise<void> {
@@ -10423,7 +10748,7 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
   // A relay marked as a circle box by hand moves the lane the same way a
   // card's box does; the marks are already in every pool, so only the
   // screen needs telling.
-  circleChanged: () => { if (session) render(session.participants(), meParticipant); renderLaneNote() },
+  circleChanged: () => { repaint(); renderLaneNote() },
   applied: (scope, entries) => {
     if (scope === 'default') {
       RELAYS = relayConnections.configuration('default').map(relay => relay.url)
@@ -10470,6 +10795,10 @@ $('joinCall').addEventListener('click', () => {
 })
 // The resting strip's own control. Only ever on screen when this device is
 // off the call, so it starts or joins one; it never has to leave.
+$('callDockMic').addEventListener('click', () => { void toggleMic() })
+$('callDockCamera').addEventListener('click', () => { void toggleCamera() })
+$('callDockBack').addEventListener('click', () => { if (dockedCall) void switchRoom(dockedCall.room) })
+$('callDockLeave').addEventListener('click', () => { void endDockedCall() })
 $('callStripAction').addEventListener('click', () => {
   joinCall().catch((err) => setStatus(describeError(err)))
 })
@@ -10970,6 +11299,8 @@ $('joinRoomForm').addEventListener('submit', event => {
 /** Leave every local media source before returning to this room's door. */
 async function leaveRoom(): Promise<void> {
   closeAllDrafts()
+  // Leaving the room beside a docked call goes back to the call.
+  if (dockedCall) { await switchRoom(dockedCall.room); return }
   ;($('leave') as HTMLButtonElement).disabled = true
   await closeRoomSession()
   approvedReload()
@@ -11230,6 +11561,7 @@ window.addEventListener('pagehide', () => {
   closeAllDrafts()
   resetIncomingCall()
   session?.leave()
+  dockedCall?.session.leave()
   stopInvitationHost()
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
   void callWakeLock.release()
