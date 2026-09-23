@@ -31,6 +31,21 @@ describe('device credentials', () => {
     expect(result).toEqual({ ok: true, participant, device })
   })
 
+  it('remembers a good signature only for the identical credential', async () => {
+    const { participantSk, participant, device } = setup()
+    const cred = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, roomId: ROOM, expiresAt: NOW + 3600 })
+    expect(verifyDeviceCredential(cred, { roomId: ROOM, now: NOW })).toEqual({ ok: true, participant, device })
+    // Checked before: still refused once anything signed has changed.
+    const moved = { ...cred, tags: cred.tags.map(t => t[0] === 'expiration' ? ['expiration', String(NOW + 7200)] : t) }
+    expect(verifyDeviceCredential(moved, { roomId: ROOM, now: NOW })).toEqual({ ok: false, reason: 'bad signature' })
+    expect(verifyDeviceCredential({ ...cred, sig: cred.sig.replace(/^./, c => c === '0' ? '1' : '0') }, { roomId: ROOM, now: NOW }).ok).toBe(false)
+    // The same credential signed again carries a different, equally good signature.
+    const again = finalizeEvent({ kind: cred.kind, created_at: cred.created_at, tags: cred.tags, content: cred.content }, participantSk)
+    expect(again.id).toBe(cred.id)
+    expect(again.sig).not.toBe(cred.sig)
+    expect(verifyDeviceCredential(again, { roomId: ROOM, now: NOW })).toEqual({ ok: true, participant, device })
+  })
+
   it('rejects a credential for a different room', async () => {
     const { participantSk, device } = setup()
     const cred = await createDeviceCredential({

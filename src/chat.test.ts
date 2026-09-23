@@ -955,3 +955,28 @@ describe('the message layer on the wire', () => {
     log.close()
   })
 })
+
+describe('opening an old room', () => {
+  it('asks for no more than it keeps, and decodes each event once however many relays send it', async () => {
+    const f = await fixture()
+    const relay = new SimRelay({ replay: true })
+    // Newest first, as a relay answers, and three relays' worth of copies.
+    const events = Array.from({ length: MAX_CHAT_MESSAGES + 20 }, (_, i) => encodeChatEvent({ ...f.msg, id: `old-${i}`, sentAt: NOW - 86_400 + i * 60 }, f)).reverse()
+    for (const event of events) for (let copy = 0; copy < 3; copy++) relay.publish(event)
+    const filters: Filter[][] = []
+    const inner = new SimTransport(relay)
+    const transport: RelayTransport = { publish: e => inner.publish(e), subscribe: (fs, on, eose) => { filters.push(fs); return inner.subscribe(fs, on, eose) } }
+    let decrypts = 0
+    const decrypt = nip44.v2.decrypt
+    nip44.v2.decrypt = (payload, key) => { decrypts++; return decrypt(payload, key) }
+    try {
+      const log = new ChatLog({ ...f, transport, now: () => NOW })
+      expect(filters[0]![0]!.limit).toBe(MAX_CHAT_MESSAGES)
+      expect(log.messages()).toHaveLength(MAX_CHAT_MESSAGES)
+      expect(log.messages()[0]!.id).toBe('old-20')
+      // The newest 500, each once: not the 1,560 copies, nor the 20 older ones.
+      expect(decrypts).toBe(MAX_CHAT_MESSAGES)
+      log.close()
+    } finally { nip44.v2.decrypt = decrypt }
+  })
+})

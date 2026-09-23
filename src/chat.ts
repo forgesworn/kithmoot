@@ -688,6 +688,11 @@ export class ChatLog {
   #credential: DeviceCredential | undefined
   #messages: ChatMessage[] = []
   readonly #seen = new Set<string>()
+  /** Events already decoded, by event id. Decoding is the expensive part of
+   *  a message, a signature, a credential and a decryption, and every relay
+   *  a room uses replays the same events: an old room's history cost about
+   *  3 ms an event, several seconds of a frozen page on opening it. */
+  readonly #decoded = new Set<string>()
   readonly #senderTimes = new Map<string, number[]>()
   readonly #listeners = new Set<(messages: ChatMessage[]) => void>()
   #closed = false
@@ -707,7 +712,9 @@ export class ChatLog {
     const root = rootOf({ roomId: this.#opts.roomId, roomKey: this.#opts.roomKey, epoch: this.#epoch })
     const { id } = deriveChannel(root.id, root.key, this.#opts.channel)
     return this.#opts.transport.subscribe(
-      [{ kinds: [KINDS.CHAT], '#d': [id], since: this.#now() - CHAT_RETENTION_SECONDS }],
+      // The newest the log can hold, not the whole retention window: the
+      // rest would be decoded only to fall off the end.
+      [{ kinds: [KINDS.CHAT], '#d': [id], since: this.#now() - CHAT_RETENTION_SECONDS, limit: MAX_CHAT_MESSAGES }],
       (event, via) => this.#ingest(event, via),
     )
   }
@@ -891,6 +898,18 @@ export class ChatLog {
   }
 
   #ingest(event: Event, via?: string): void {
+    if (this.#decoded.has(event.id)) return
+    // Older than everything a full log keeps: it would be decoded and
+    // dropped straight away. `encodeChatEvent` writes `sentAt` as
+    // `created_at`; a sender who puts an earlier one on the outside only
+    // loses their own message.
+    const oldest = this.#messages.length >= MAX_CHAT_MESSAGES ? this.#messages[0] : undefined
+    if (oldest && event.created_at < oldest.sentAt) return
+    this.#decoded.add(event.id)
+    if (this.#decoded.size > MAX_CHAT_MESSAGES * 4) {
+      const first = this.#decoded.values().next().value
+      if (first !== undefined) this.#decoded.delete(first)
+    }
     const msg = decodeChatEvent(event, {
       roomId: this.#opts.roomId,
       roomKey: this.#opts.roomKey,
