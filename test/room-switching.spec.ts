@@ -400,3 +400,38 @@ test('the self-view mirror can be turned off on this device, and stays off', asy
     expect(await page.evaluate(() => Object.keys(localStorage).some(key => key.endsWith('mirror-self') && localStorage.getItem(key)?.includes('false')))).toBe(true)
   } finally { await context.close() }
 })
+
+test('the rooms list keeps a live call docked, and a room from the list brings it back', async ({ browser, baseURL }) => {
+  test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone')
+  const { context, page } = await setup(browser, baseURL!)
+  try {
+    await page.evaluate(() => { (window as any).sameDocument = true })
+    await page.locator('#callToggle:visible, #mobileCall:visible').click()
+    await page.locator('#toggleMic').click()
+    await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await page.locator('#backToRooms').click()
+    await page.locator('#roomSwitcherHome').click()
+    // No question, and no reload: a reload is what ends a call.
+    await expect(page.locator('#actionConfirm')).toBeHidden()
+    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeHidden()
+    await expect(page.locator('#home #callDock')).toBeVisible()
+    await expect(page.locator('#callDockText')).toHaveText('On a call in Town hall. Just you.')
+    await expect(page.locator('#callDockMic')).toHaveAttribute('aria-pressed', 'true')
+    expect(await page.evaluate(() => (window as any).sameDocument)).toBe(true)
+    expect(new URL(page.url()).hash).toBe('')
+    // Another room from the list: the call stays docked above it.
+    await page.getByRole('button', { name: 'Open Project room', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Project room')
+    await expect(page.locator('#roomArea #callDock')).toBeVisible()
+    // And back through the list to the call's own room, with no rejoin.
+    await page.locator('#backToRooms').click()
+    await page.locator('#roomSwitcherHome').click()
+    await expect(page.locator('#home #callDock')).toBeVisible()
+    await page.getByRole('button', { name: 'Open Town hall', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Town hall')
+    await expect(page.locator('#callDock')).toBeHidden()
+    await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    expect(await page.evaluate(() => (window as any).sameDocument)).toBe(true)
+  } finally { await context.close() }
+})
