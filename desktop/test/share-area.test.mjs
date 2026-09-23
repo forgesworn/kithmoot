@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { areaRect } from '../share-area-geometry.mjs'
+import { areaRect, insideArea } from '../share-area-geometry.mjs'
 
 test('sharing area excludes frame and toolbar on displays with negative origins', () => {
   assert.deepEqual(areaRect({ x: -1808, y: 48, width: 656, height: 572 }, { x: -1920, y: 0, width: 1920, height: 1080 }), {
@@ -16,4 +16,9 @@ test('invalid and cross-monitor crops cannot expose the whole desktop', () => {
     { x: 0, y: 900, width: 640, height: 480 },
     { x: 0, y: 0, width: 12, height: 48 },
   ]) assert.equal(areaRect(bounds, display), null)
+})
+test('only the drawing hole lets clicks through', () => {
+  const bounds = { x: -1808, y: 48, width: 656, height: 572 }
+  assert.equal(insideArea({ x: -1500, y: 300 }, bounds), true)
+  for (const point of [{ x: -1500, y: 60 }, { x: -1802, y: 300 }, { x: -1158, y: 300 }, { x: -1500, y: 600 }, { x: 0, y: 0 }]) assert.equal(insideArea(point, bounds), false)
 })

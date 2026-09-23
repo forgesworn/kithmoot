@@ -1,7 +1,7 @@
 import { screen, desktopCapturer } from 'electron'
 
 export const AREA_URL = 'about:blank#kithmoot-share-area'
-import { areaRect } from './share-area-geometry.mjs'
+import { areaRect, insideArea } from './share-area-geometry.mjs'
 import { sourceForDisplay, sourceForPortal } from './share-area-source.mjs'
 import { refuse } from './screen-share.mjs'
 
@@ -62,13 +62,25 @@ export class ShareArea {
     if (action === 'close') return this.close()
     if (action === 'owner') return this.showOwner()
     if (this.preview) return
-    if (action === 'passthrough' && typeof value === 'boolean') window.setIgnoreMouseEvents(value, { forward: true })
+    if (action === 'passthrough' && typeof value === 'boolean') this.passthrough(window, value)
     if (action === 'bounds' && value && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))) {
       window.setBounds({ x: Math.max(-32000, Math.min(32000, Math.round(value.x))), y: Math.max(-32000, Math.min(32000, Math.round(value.y))), width: Math.max(460, Math.min(8000, Math.round(value.width))), height: Math.max(200, Math.min(8000, Math.round(value.height))) })
     }
     if (action === 'resize' && value && Number.isFinite(value.width) && Number.isFinite(value.height)) {
       window.setSize(Math.max(460, Math.min(8000, Math.round(value.width))), Math.max(200, Math.min(8000, Math.round(value.height))))
     }
+  }
+  // Linux cannot forward mouse moves to an ignoring window, so the renderer
+  // never learns the pointer has left the hole. Watch the cursor here instead.
+  passthrough(window, ignore) {
+    clearInterval(this.passthroughTimer)
+    this.passthroughTimer = undefined
+    window.setIgnoreMouseEvents(ignore, { forward: true })
+    if (!ignore || process.platform !== 'linux') return
+    this.passthroughTimer = setInterval(() => {
+      if (window.isDestroyed() || this.window !== window) return clearInterval(this.passthroughTimer)
+      if (!insideArea(screen.getCursorScreenPoint(), window.getBounds())) this.passthrough(window, false)
+    }, 50)
   }
   showOwner() {
     const window = this.window
@@ -102,6 +114,8 @@ export class ShareArea {
     owner.once('blur', release)
   }
   close() {
+    clearInterval(this.passthroughTimer)
+    this.passthroughTimer = undefined
     this.releaseOwnerFront?.()
     const window = this.window
     this.window = undefined

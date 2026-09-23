@@ -11,3 +11,8 @@ export function areaRect(bounds, display) {
   return { x: x / display.width, y: y / display.height, width: width / display.width, height: height / display.height }
 }
 
+// Whether a screen point is over the drawing hole, where clicks pass through.
+export function insideArea(point, bounds) {
+  return point.x >= bounds.x + AREA_INSET.left && point.x < bounds.x + bounds.width - AREA_INSET.right &&
+    point.y >= bounds.y + AREA_INSET.top && point.y < bounds.y + bounds.height - AREA_INSET.bottom
+}
