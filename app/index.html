@@ -445,6 +445,10 @@
         <h2 id="arrivalTitle">Open your room</h2>
         <p id="arrivalLead" class="lead" hidden></p>
         <p id="status" role="status"></p>
+        <!-- A room that will not open must never be a reason to quit the
+             app. Offered after a few seconds of waiting; see
+             `armStopOpening` in app/src/main.ts. -->
+        <button id="stopOpening" type="button" hidden>Stop and go back to your rooms</button>
         <div id="arrivalActions" hidden>
           <button id="retryArrival" type="button">Try the link again</button>
           <button id="addCardArrival" type="button" hidden>Add this contact</button>

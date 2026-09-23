@@ -8663,6 +8663,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
   // carries this device's microphone, camera or relaying.
   const chatOnly = docked()
   joining = true
+  if (!retry) armStopOpening()
   const deadline = retry?.deadline ?? Date.now() + 20_000
   if (!retry) setStatus('Joining the room…', 'progress')
   const joinBtn = $('join') as HTMLButtonElement
@@ -9102,6 +9103,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     }
   } finally {
     if (!retrying) {
+      disarmStopOpening()
       joining = false
       joinBtn.disabled = false
       $('joinRoomForm').removeAttribute('aria-busy')
@@ -9742,6 +9744,24 @@ function renderRoomSwitcher(): void {
   ;($('roomSwitcherHome') as HTMLButtonElement).disabled = hasUnsentWork()
 }
 
+/** How long a room may take to open before the way out is offered. */
+const STOP_OPENING_AFTER_MS = 8_000
+let stopOpeningTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Offer a way out of a room that is taking too long to open: a tester's
+ *  old room sat on "Opening" until the app was killed. */
+function armStopOpening(): void {
+  clearTimeout(stopOpeningTimer)
+  // Finishing either way disarms this first, so firing means still waiting.
+  stopOpeningTimer = setTimeout(() => { $('stopOpening').hidden = false }, STOP_OPENING_AFTER_MS)
+}
+
+function disarmStopOpening(): void {
+  clearTimeout(stopOpeningTimer)
+  stopOpeningTimer = undefined
+  $('stopOpening').hidden = true
+}
+
 async function switchRoom(room: KnownRoom): Promise<void> {
   if (switchingRoom) return
   if (session && room.roomId === currentRoomId()) {
@@ -9764,6 +9784,7 @@ async function switchRoom(room: KnownRoom): Promise<void> {
   switchDestination = room
   captureDraft()
   switchingRoom = true
+  armStopOpening()
   if (import.meta.env.VITE_DESKTOP === 'true' && !$('roomArea').hidden) {
     document.documentElement.dataset.roomSwitching = 'true'
     $('roomSwitchProgress').textContent = `Opening ${knownRoomLabel(room)}…`
@@ -9805,6 +9826,7 @@ async function switchRoom(room: KnownRoom): Promise<void> {
     // previous room remain in memory and return with its next successful join.
     $('workspaceNav').hidden = false
   } finally {
+    disarmStopOpening()
     switchingRoom = false
     delete document.documentElement.dataset.roomSwitching
     if (import.meta.env.VITE_DESKTOP === 'true') $('roomSwitchProgress').hidden = true
@@ -10795,6 +10817,11 @@ $('joinCall').addEventListener('click', () => {
 })
 // The resting strip's own control. Only ever on screen when this device is
 // off the call, so it starts or joins one; it never has to leave.
+$('stopOpening').addEventListener('click', async () => {
+  if (dockedCall && !await confirmRoomAction({ title: 'Leave your call?', message: `Going back to your rooms ends your call in ${dockedCall.label}.`, confirmLabel: 'Leave call' })) return
+  history.replaceState(null, '', joinLinkBase())
+  approvedReload()
+})
 $('callDockMic').addEventListener('click', () => { void toggleMic() })
 $('callDockCamera').addEventListener('click', () => { void toggleCamera() })
 $('callDockBack').addEventListener('click', () => { if (dockedCall) void switchRoom(dockedCall.room) })
@@ -12606,8 +12633,10 @@ const pendingRoomSwitch = (() => {
     return raw
   } catch { return null }
 })()
+armStopOpening()
 const roomArrival = roomFromLocation()
 roomArrival
+  .finally(disarmStopOpening)
   .then((found) => {
     if (!found) {
       // No link: the front page, with the rooms this device has been in.

@@ -360,3 +360,22 @@ test('a pending acknowledgement holds switching and releases the open picker whe
     await expect(page.locator('#chatLog')).not.toContainText('Wait for this acknowledgement')
   } finally { await context.close() }
 })
+
+test('a room that will not open offers a way back to the rooms instead of trapping the app', async ({ browser, baseURL }) => {
+  const secret = generateRoomSecret()
+  const silent = { roomId: deriveRoom(secret).roomId, name: 'Silent room', link: encodeRoomLink(baseURL!, { secret, name: 'Silent room', relays: ['wss://silent.test/'], iceUrls: [] }), openedAt: Math.floor(Date.now() / 1000), readAt: 0 }
+  const { context, page } = await setup(browser, baseURL!, async context => {
+    // Accepted, and never answered: the relay a stuck room was waiting on.
+    await context.routeWebSocket('wss://silent.test/', () => {})
+    await context.addInitScript(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), silent)
+  })
+  try {
+    await page.locator('#backToRooms').click()
+    await page.locator('#roomSwitcherList').getByRole('button', { name: 'Switch to Silent room', exact: true }).click()
+    await expect(page.locator('#stopOpening')).toBeHidden()
+    await expect(page.locator('#stopOpening')).toBeVisible({ timeout: 15_000 })
+    await page.locator('#stopOpening').click()
+    await expect(page.locator('#setup')).toBeVisible()
+    expect(new URL(page.url()).hash).toBe('')
+  } finally { await context.close() }
+})
