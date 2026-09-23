@@ -2767,6 +2767,7 @@ label.note {
 .switchRoomCode { color: var(--muted); font-size: .8rem; }
 .switchRoomNewTab { flex: 0 0 auto; padding: .6rem; color: var(--accent); }
 #roomSwitcherList .roomRow { align-items: center; flex-wrap: wrap; }
+#roomSwitcherList .forget { flex: 0 0 auto; margin: 0; }
 
 /* Search uses the room's sheet so opening it never interrupts the call. */
 #searchConversation { margin-bottom: 1rem; }
@@ -3020,6 +3021,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   .workspaceRoomLink { flex: 1; min-width: 0; text-align: left; margin: 0; border-color: transparent; background: transparent; font-size: .9rem; padding: .55rem .6rem; overflow-wrap: anywhere; }
   .workspaceRoomLink[aria-current='true'] { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); font-weight: 650; }
   .workspaceRoom .organiseRoom { border: 0; background: transparent; padding: .3rem; min-width: 32px; }
+  .workspaceRoom .forget { border: 0; background: transparent; padding: .3rem; min-width: 32px; margin: 0; color: var(--muted); }
   #workspaceHome { font-size: .85rem; margin-top: 1rem; }
   #workspaceNote { font-size: .75rem; margin: .5rem 0; }
 }

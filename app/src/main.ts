@@ -9282,18 +9282,24 @@ function roomRow(room: KnownRoom): HTMLLIElement {
 
   const actions = document.createElement('div')
   actions.className = 'roomActions'
+  if (organising()) actions.append(projectButton(room))
+  actions.append(forgetButton(room, 'Forget'))
+
+  row.append(main, actions)
+  return row
+}
+
+/** Forget a room from wherever rooms are listed, not only the rooms page. */
+function forgetButton(room: KnownRoom, text: string): HTMLButtonElement {
   const forget = document.createElement('button')
   forget.type = 'button'
   forget.className = 'forget quiet'
   forget.dataset.action = 'forget'
   forget.setAttribute('aria-label', `Forget ${knownRoomLabel(room)}`)
-  forget.textContent = 'Forget'
+  forget.title = `Forget ${knownRoomLabel(room)}`
+  forget.textContent = text
   forget.addEventListener('click', () => forgetKnownRoom(room))
-  if (organising()) actions.append(projectButton(room))
-  actions.append(forget)
-
-  row.append(main, actions)
-  return row
+  return forget
 }
 
 /** What is new and who is here, or why that cannot be said. */
@@ -9538,6 +9544,13 @@ function renderWorkspace(): void {
         organise.textContent = '⋯'
         row.append(organise)
       }
+      // The room on screen is left first; forgetting it from under the
+      // person would strand the conversation they are reading.
+      if (room.roomId !== current) {
+        const forget = forgetButton(room, '×')
+        forget.disabled = busy
+        row.append(forget)
+      }
       group.append(row)
     }
     list.append(group)
@@ -9616,6 +9629,11 @@ function renderRoomSwitcher(): void {
       row.append(link)
     }
     if (organising()) row.append(projectButton(room))
+    if (room.roomId !== current) {
+      const forget = forgetButton(room, 'Forget')
+      forget.disabled = busy
+      row.append(forget)
+    }
     list.append(row)
   }
   if (focusedRoom && focusedAction) {
