@@ -16,3 +16,11 @@ test('macOS and Windows retain share area', () => {
   assert.equal(features.supportsShareArea('darwin', {}), true)
   assert.equal(features.supportsShareArea('win32', {}), true)
 })
+
+test('the sandboxed preload requires nothing but electron', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../preload.cjs', import.meta.url), 'utf8')
+  const required = [...source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(match => match[1])
+  assert.deepEqual(required, ['electron'])
+  assert.ok(source.includes(`'${features.SHARE_AREA_SWITCH}'`))
+})

@@ -7,8 +7,12 @@ import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
 import { HOME, ORIGIN, CSP, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
 import { SCREEN_SETTINGS_URL, answerDisplayRequest, screenAccessGranted, refuse } from './screen-share.mjs'
+import platformFeatures from './platform-features.cjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
+// A sandboxed preload can require only electron, so the platform decision
+// is made here and handed over as a switch.
+const preloadArguments = platformFeatures.supportsShareArea() ? [platformFeatures.SHARE_AREA_SWITCH] : []
 // Automation always uses a disposable profile, never the user's account.
 const testProfile = !app.isPackaged && process.env.KITHMOOT_DESKTOP_TEST_PROFILE
 const profileArgument = app.commandLine.getSwitchValue('user-data-dir')
@@ -159,7 +163,7 @@ async function createWindow() {
     icon: join(here, 'web/pwa-512x512.png'),
     backgroundColor: '#101114', show: !testProfile,
     webPreferences: {
-      session: ses, preload: join(here, 'preload.cjs'),
+      session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
       backgroundThrottling: false, spellcheck: true,
     },
@@ -178,7 +182,7 @@ async function createWindow() {
           title: 'KithMoot', backgroundColor: '#101114', autoHideMenuBar: true,
           ...(url === AREA_URL ? { transparent: true, backgroundColor: '#00000000', frame: false, alwaysOnTop: true, hasShadow: false, resizable: false, minWidth: 460, minHeight: 200 } : {}),
           webPreferences: {
-            session: ses, preload: join(here, 'preload.cjs'),
+            session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
             nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
             backgroundThrottling: false,
           },

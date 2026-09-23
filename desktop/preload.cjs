@@ -1,7 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron')
-const { supportsShareArea } = require('./platform-features.cjs')
+// Sandboxed: nothing but electron can be required here (see main.mjs).
+const supportsShareArea = process.argv.includes('--kithmoot-share-area')
 contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
-  supportsShareArea: supportsShareArea(),
+  supportsShareArea,
   armShareArea() { return ipcRenderer.invoke('desktop:area-arm') },
   shareAreaState() { return ipcRenderer.invoke('desktop:area-state') },
   shareAreaAction(action, value) { ipcRenderer.send('desktop:area-action', action, value) },

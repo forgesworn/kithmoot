@@ -11,4 +11,6 @@ function supportsShareArea(platform = process.platform, env = process.env) {
   return platform === 'linux' && linuxDisplayBackend(env) === 'x11'
 }
 
-module.exports = { linuxDisplayBackend, supportsShareArea }
+const SHARE_AREA_SWITCH = '--kithmoot-share-area'
+
+module.exports = { SHARE_AREA_SWITCH, linuxDisplayBackend, supportsShareArea }
