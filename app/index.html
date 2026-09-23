@@ -189,8 +189,11 @@
                  details section open. -->
             <p id="wakeLockNote" class="indicator" hidden>This device may let its screen sleep during the call.</p>
             <details id="callMore" class="callMore">
-              <summary>Two devices, agents</summary>
+              <summary>Two devices, mirror, agents</summary>
               <button id="toggleCompanion" class="toggle" data-on="false" aria-pressed="false" title="Silence this device's microphone and speaker; its camera and screen share still work">Use beside another device</button>
+              <!-- This device's own view of you, from its camera or your other
+                   device's. Everybody else always sees it the right way round. -->
+              <button id="toggleMirror" type="button" class="toggle" data-on="true" aria-pressed="true" title="Show your own camera like a mirror. Others always see it the right way round.">Mirror my view</button>
               <p id="companionNote" class="indicator" hidden>This device’s microphone and speaker are off. Its camera and screen share still work.</p>
               <div class="toggles agentsHear">
                 <button id="toggleAgentsHear" class="toggle" data-on="false" aria-pressed="false" title="Off: nothing that says it is an agent is sent your camera or microphone">Let agents hear me</button>

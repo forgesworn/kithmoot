@@ -4224,6 +4224,18 @@ async function toggleCamera(): Promise<void> {
 // could be publishing a room they think is hidden.
 // ---------------------------------------------------------------------------
 
+/** Whether this device shows its own camera as a mirror, which is what most
+ *  people expect of a self-view and some find backwards. Only the preview:
+ *  the picture sent to the room is never flipped. */
+function mirrorSelf(): boolean {
+  return deviceStore.get('kithmoot.mirror-self') !== 'false'
+}
+
+function applyMirrorSelf(): void {
+  document.documentElement.dataset.mirrorSelf = String(mirrorSelf())
+  setToggle('toggleMirror', mirrorSelf())
+}
+
 function revealEffects(id: string, show: boolean): void {
   const details = $(id) as HTMLDetailsElement
   details.hidden = !show
@@ -4853,6 +4865,12 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
   // tracks still arrive, because the room's mesh outlives the call, but
   // Leave has to mean quiet. See `leftCall`.
   const ownDevices = new Set(mine?.devices ?? [])
+  // A phone filming you, seen on the laptop beside it, is a self-view too:
+  // mirrored like this device's own camera, or left and right swap.
+  for (const [key, entry] of remoteVideos) {
+    const device = tileDevice(key)
+    entry.el.classList.toggle('ownCameraView', device !== myDeviceId && ownDevices.has(device) && key === tileKey(device, 'camera'))
+  }
   cachedMonitorHere = monitorHere
   cachedOwnDevices = ownDevices
   // Which participant each device belongs to, so the loop below can look up
@@ -10815,13 +10833,18 @@ $('callToggle').addEventListener('click', () => {
 $('joinCall').addEventListener('click', () => {
   joinCall().catch((err) => setStatus(describeError(err)))
 })
-// The resting strip's own control. Only ever on screen when this device is
-// off the call, so it starts or joins one; it never has to leave.
 $('stopOpening').addEventListener('click', async () => {
   if (dockedCall && !await confirmRoomAction({ title: 'Leave your call?', message: `Going back to your rooms ends your call in ${dockedCall.label}.`, confirmLabel: 'Leave call' })) return
   history.replaceState(null, '', joinLinkBase())
   approvedReload()
 })
+applyMirrorSelf()
+$('toggleMirror').addEventListener('click', () => {
+  deviceStore.set('kithmoot.mirror-self', String(!mirrorSelf()))
+  applyMirrorSelf()
+})
+// The resting strip's own control. Only ever on screen when this device is
+// off the call, so it starts or joins one; it never has to leave.
 $('callDockMic').addEventListener('click', () => { void toggleMic() })
 $('callDockCamera').addEventListener('click', () => { void toggleCamera() })
 $('callDockBack').addEventListener('click', () => { if (dockedCall) void switchRoom(dockedCall.room) })

@@ -84,7 +84,7 @@ test('an agent joins from the link, chats, whispers, and hears only what it is a
 
     // She turns it on: her microphone's tone reaches the agent, is cut into
     // utterances, and comes back as transcript lines she can read. The
-    // switch is folded under "Two devices, agents" in the call controls.
+    // switch is folded under "Two devices, mirror, agents" in the call controls.
     await page.locator('#callExtras').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
     await page.locator('#callMore').evaluate((fold) => { (fold as HTMLDetailsElement).open = true })
     await page.locator('#toggleAgentsHear').click()

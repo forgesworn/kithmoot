@@ -963,7 +963,10 @@ dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100
 
 /* A self-view behaves like a mirror. Remote cameras and every screen share
    retain their true orientation. */
-video.localCameraPreview { transform: scaleX(-1); }
+video.localCameraPreview, video.ownCameraView { transform: scaleX(-1); }
+/* Turned off per device with Mirror my view: see `mirrorSelf` in main.ts.
+   `ownCameraView` is this person's other device's camera, a self-view too. */
+html[data-mirror-self='false'] :is(video.localCameraPreview, video.ownCameraView) { transform: none; }
 
 /* A remote receiver needs a rendered sink before Chromium will reliably
    decode its first frame. Keep that sink out of the tile layout without

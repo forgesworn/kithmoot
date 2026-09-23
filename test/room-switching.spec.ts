@@ -379,3 +379,24 @@ test('a room that will not open offers a way back to the rooms instead of trappi
     expect(new URL(page.url()).hash).toBe('')
   } finally { await context.close() }
 })
+
+test('the self-view mirror can be turned off on this device, and stays off', async ({ browser, baseURL }) => {
+  test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic camera')
+  const { context, page } = await setup(browser, baseURL!)
+  try {
+    const transform = () => page.locator('video.localCameraPreview').first().evaluate(video => getComputedStyle(video).transform)
+    await page.locator('#callToggle:visible, #mobileCall:visible').click()
+    await page.locator('#toggleCamera').click()
+    await expect(page.locator('video.localCameraPreview')).toHaveCount(1)
+    expect(await transform()).toBe('matrix(-1, 0, 0, 1, 0, 0)')
+    await expect(page.locator('#toggleMirror')).toHaveAttribute('aria-pressed', 'true')
+    // Under Settings, Two devices, where the other-device view is too.
+    await page.locator('#callExtras > summary').click()
+    await page.locator('#callMore > summary').click()
+    await page.locator('#toggleMirror').click()
+    await expect(page.locator('#toggleMirror')).toHaveAttribute('aria-pressed', 'false')
+    expect(await transform()).toBe('none')
+    // Remembered for this device, not for the room.
+    expect(await page.evaluate(() => Object.keys(localStorage).some(key => key.endsWith('mirror-self') && localStorage.getItem(key)?.includes('false')))).toBe(true)
+  } finally { await context.close() }
+})
