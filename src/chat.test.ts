@@ -965,7 +965,7 @@ describe('opening an old room', () => {
     for (const event of events) for (let copy = 0; copy < 3; copy++) relay.publish(event)
     const filters: Filter[][] = []
     const inner = new SimTransport(relay)
-    const transport: RelayTransport = { publish: e => inner.publish(e), subscribe: (fs, on, eose) => { filters.push(fs); return inner.subscribe(fs, on, eose) } }
+    const transport: RelayTransport = { publish: e => inner.publish(e), subscribe: (fs, on, eose) => { filters.push(fs); return inner.subscribe(fs, on, eose) }, close: () => inner.close() }
     let decrypts = 0
     const decrypt = nip44.v2.decrypt
     nip44.v2.decrypt = (payload, key) => { decrypts++; return decrypt(payload, key) }
