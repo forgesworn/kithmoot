@@ -4,6 +4,7 @@ const { _electron: electron } = await import(process.env.PLAYWRIGHT_MODULE ?? 'p
 import { spawnSync } from 'node:child_process'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const launch = () => electron.launch({ executablePath: '/tmp/kithmoot-linux-installed/kithmoot-desktop/kithmoot', args: ['--no-sandbox', '--user-data-dir=/tmp/kithmoot-smoke-profile'], timeout: 60000 })
 let app = await launch()
 try {
@@ -13,8 +14,10 @@ try {
   assert.equal(state.secure, true)
   assert.equal(state.node, 'undefined')
   assert.equal(state.process, 'undefined')
-  assert.deepEqual(state.bridge, ['setUnread', 'notify', 'onOpenRoom', 'setCallActive'])
-  assert.equal(await app.evaluate(({ app }) => app.getVersion()), '0.1.8')
+  assert.deepEqual(state.bridge, ['supportsShareArea', 'armShareArea', 'shareAreaState', 'shareAreaAction', 'onShareAreaState', 'setUnread', 'notify', 'onOpenRoom', 'setCallActive', 'updateState', 'installUpdate', 'onUpdateState'])
+  // --no-sandbox relaxes the preload's require; test/platform-features.test.mjs keeps it to electron.
+  assert.equal(await page.evaluate(() => window.kithmootDesktop.supportsShareArea), true)
+  assert.equal(await app.evaluate(({ app }) => app.getVersion()), version)
   await page.evaluate(() => {
     window.kithmootDesktop.onOpenRoom(roomId => { window.testOpenedRoom = roomId })
     window.kithmootDesktop.setUnread(7)
