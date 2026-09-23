@@ -350,6 +350,12 @@ test('one person on two devices delivers two live pictures to everybody else', a
     await pageLaptop.locator('#toggleScreen').click()
     await expect(pageLaptop.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
 
+    // The phone filming Ada, seen on her laptop, is her self-view: mirrored
+    // there like a mirror, and the right way round for everybody else.
+    await expect(pageLaptop.locator('#room video.ownCameraView')).toHaveCount(1, { timeout: 60_000 })
+    expect(await pageLaptop.locator('#room video.ownCameraView').evaluate(video => getComputedStyle(video).transform)).toBe('matrix(-1, 0, 0, 1, 0, 0)')
+    await expect(pageCara.locator('video.ownCameraView')).toHaveCount(0)
+
     // And the part nothing checked before: TWO live pictures, in that one
     // tile, from that one person.
     await expect
