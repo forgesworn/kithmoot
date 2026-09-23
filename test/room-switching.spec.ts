@@ -387,8 +387,9 @@ test('the self-view mirror can be turned off on this device, and stays off', asy
     await expect(page.locator('video.localCameraPreview')).toHaveCount(1)
     expect(await transform()).toBe('matrix(-1, 0, 0, 1, 0, 0)')
     await expect(page.locator('#toggleMirror')).toHaveAttribute('aria-pressed', 'true')
-    // It lives with the other camera settings, under the call's extras.
+    // Under Settings, Two devices, where the other-device view is too.
     await page.locator('#callExtras > summary').click()
+    await page.locator('#callMore > summary').click()
     await page.locator('#toggleMirror').click()
     await expect(page.locator('#toggleMirror')).toHaveAttribute('aria-pressed', 'false')
     expect(await transform()).toBe('none')

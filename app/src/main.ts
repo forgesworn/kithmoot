@@ -4777,7 +4777,6 @@ function updateUi(): void {
   // off has to be visible without hunting for it, and the paragraph saying
   // what neither effect can do is worth as much as the buttons above it.
   revealEffects('cameraEffects', !!camera)
-  $('toggleMirror').hidden = !camera
   revealEffects('voiceEffects', !!mic)
   if (camera) renderBackgroundChoices()
   if (session || dockedCall) {
@@ -10845,6 +10844,8 @@ $('toggleMirror').addEventListener('click', () => {
   deviceStore.set('kithmoot.mirror-self', String(!mirrorSelf()))
   applyMirrorSelf()
 })
+// The resting strip's own control. Only ever on screen when this device is
+// off the call, so it starts or joins one; it never has to leave.
 $('callDockMic').addEventListener('click', () => { void toggleMic() })
 $('callDockCamera').addEventListener('click', () => { void toggleCamera() })
 $('callDockBack').addEventListener('click', () => { if (dockedCall) void switchRoom(dockedCall.room) })
