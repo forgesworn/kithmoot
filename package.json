@@ -14,7 +14,8 @@
     "dist/src",
     "bin",
     "server/forwarder.mjs",
-    "vectors/kithmoot-vectors.json"
+    "vectors/kithmoot-vectors.json",
+    "llms.txt"
   ],
   "scripts": {
     "brand:build": "node scripts/build-brand-assets.mjs",

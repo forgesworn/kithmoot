@@ -1,0 +1,66 @@
+# KithMoot
+
+> Group calls and chat over an incumbent's servers mean an operator holds the
+> guest list, the history and the room state. KithMoot is a workspace with
+> rooms, chat, files and calls built on Nostr, where membership is whoever
+> holds the link, not an account on someone else's server.
+
+KithMoot groups by participant rather than by connection: a phone and a
+laptop from the same person are one tile with two tracks, not two strangers.
+An agent joins the same link a person was sent, on the same terms, and says
+it is one. It is for anyone who wants a Slack-and-Jitsi-grade workspace
+without a server that can be shut down, subpoenaed or read. Live at
+[kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/) (app under `/j/`).
+
+## Getting Started
+
+```bash
+git clone https://github.com/forgesworn/kithmoot.git
+cd kithmoot
+npm ci
+npm run build:lib
+npm test
+npm run demo   # HTTPS dev server, phone-friendly
+```
+
+Or drive a room headlessly: `npm run agent -- --help` (see `kithmoot-agent`).
+
+## Key Concepts
+
+- **Room**: derived from a shared secret in the join link; a relay only sees
+  opaque identifiers, never contents or names.
+- **Participant identity**: a pubkey plus an async `signEvent`
+  (`ParticipantIdentity` in `src/identity.ts`); satisfied by a locally
+  generated key or an external Nostr signer.
+- **Device credential**: what a paired device signs to join an existing
+  participant's tiles, scoped to one room and time-limited.
+- **Agent**: a `RoomAgent` (`src/agent.ts`) that joins a room the same way a
+  browser does, with one addition: it declares that it is an agent.
+- **Epoch**: the room's rekeying unit, used to rotate admins and channel
+  keys without changing the live room (`src/epoch.ts`).
+
+## API Surface
+
+Main entry point: `src/index.ts`.
+
+- `deriveRoom`, `generateRoomSecret`, `encodeJoinUrl`, `decodeJoinUrl`: create
+  and encode a room.
+- `parseRoomLink`, `encodeRoomLink`: the join link itself.
+- `RoomAgent`, `AGENT_CHANNEL`, `TRANSCRIPT_CHANNEL`, `MINUTES_CHANNEL`: the
+  headless agent runtime.
+- `verifyEventUncached`, `KINDS`: protocol event kinds and verification.
+- `importBoundedHistory`, `historyImportRequest`: bounded history import
+  between devices.
+- `deriveEpoch`, `encodeRekeyEvent`, `hostRoomEpoch`, `requestRoomEpoch`: room
+  rekeying.
+
+CLIs: `kithmoot-agent` (join a room without a browser), `kithmoot-context`
+(context extraction), `kithmoot-forwarder` (`server/forwarder.mjs`).
+
+## Optional
+
+- [README.md](README.md): full protocol claims, platform support, publishing.
+- [docs/decisions.md](docs/decisions.md): why not NIP-29 or Marmot.
+- [docs/agents.md](docs/agents.md): agents-as-members design and brain types.
+- [docs/nostr-identity.md](docs/nostr-identity.md): identity in KithMoot.
+- [CHANGELOG.md](CHANGELOG.md): what has shipped.
