@@ -2,6 +2,27 @@
   "name": "kithmoot",
   "version": "0.5.4",
   "description": "An open Slack with agents over Nostr - a workspace nobody owns",
+  "keywords": [
+    "nostr",
+    "webrtc",
+    "video-calls",
+    "voice-calls",
+    "screen-share",
+    "end-to-end-encryption",
+    "encrypted-chat",
+    "serverless",
+    "decentralized",
+    "workspace",
+    "group-chat",
+    "agents",
+    "mcp",
+    "pwa"
+  ],
+  "homepage": "https://kithmoot.forgesworn.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forgesworn/kithmoot.git"
+  },
   "author": "TheCryptoDonkey",
   "license": "MIT",
   "type": "module",
