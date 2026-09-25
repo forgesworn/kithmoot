@@ -52,6 +52,28 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
       { timeout: 30_000 },
     )
 
+    // High contrast. Forced colours drop box-shadows and repaint label
+    // backgrounds, which once erased the whole cue; the ring must survive
+    // as an outline and the label must take the system highlight.
+    await pageA.emulateMedia({ forcedColors: 'active' })
+    // Polled: the detector can drop the class for a moment between reads on a
+    // slow runner, and the question is the style while speaking, not the timing.
+    const cueWhileSpeaking = () => ownTile.evaluate(tile => {
+      if (!tile.classList.contains('speaking')) return undefined
+      const label = tile.querySelector('h3')!
+      return {
+        outline: getComputedStyle(tile).outlineWidth,
+        labelDiffers: getComputedStyle(label).backgroundColor !== getComputedStyle(document.body).backgroundColor,
+      }
+    })
+    await expect.poll(async () => (await cueWhileSpeaking())?.outline, {
+      message: 'the speaking ring vanished in high contrast', timeout: 15_000,
+    }).toBe('4px')
+    await expect.poll(async () => (await cueWhileSpeaking())?.labelDiffers, {
+      message: 'the speaking label looked like any other in high contrast', timeout: 15_000,
+    }).toBe(true)
+    await pageA.emulateMedia({ forcedColors: 'none' })
+
     // Mute. The track stays published with `enabled = false`, which feeds
     // the analyser silence rather than ending anything, so this is the
     // hangover expiring rather than a track teardown.
