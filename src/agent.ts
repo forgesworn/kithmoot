@@ -36,7 +36,7 @@ import { verifyAgentOwnership } from './ownership.js'
  * defaults to, so a link written without hints lands in the same room from
  * any of them: see the app's note on its list.
  */
-export const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://relay.trotters.cc']
+export const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom']
 
 /**
  * The channel agents talk to each other on. Every member can open it - see
