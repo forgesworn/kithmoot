@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.18",
+  "currentRelease": "0.1.19",
   "releases": [
     {
-      "version": "0.1.18",
+      "version": "0.1.19",
       "updateTo": {
-        "version": "0.1.18",
-        "pub_date": "2026-09-23T19:30:00Z",
-        "notes": "A call keeps going while you visit other rooms, old rooms open without freezing, and rooms can be forgotten from the sidebar.",
-        "name": "0.1.18",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.18/KithMoot-0.1.18-mac-arm64.zip",
-        "sha256": "bef24a73f0d6e712570dcca96040c821de5ca7ecccdc1e89845262c8243d673d",
-        "size": 138902406
+        "version": "0.1.19",
+        "pub_date": "2026-09-25T13:30:00Z",
+        "notes": "KithMoot no longer defaults to a relay we run, and every screen links to the new report page.",
+        "name": "0.1.19",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.19/KithMoot-0.1.19-mac-arm64.zip",
+        "sha256": "de1c068ce0442dfbfd47cf33e6d4ea6e61e489d54cf7f237a605557d40ee4c41",
+        "size": 138902716
       }
     }
   ]
