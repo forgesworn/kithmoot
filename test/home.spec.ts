@@ -84,10 +84,13 @@ test('the home page leads with room actions, fits both themes and starts a named
     // Firefox and WebKit apply the new desktop media-query layout on their
     // next render after a viewport resize. Poll the visible geometry instead
     // of assuming the synchronous DOM mutation has already painted it.
+    // One readable tile. It used to be capped at a fixed camera width; the
+    // call stage (app/src/call-stage.ts) now gives a face the room it has,
+    // so the floor is what matters, and the page must not scroll sideways.
     const readableTileWidth = async () =>
-      (await page.locator('#room .participant').boundingBox())!.width
+      (await page.locator('#room .participant').boundingBox())?.width ?? 0
     await expect.poll(readableTileWidth).toBeGreaterThanOrEqual(256)
-    await expect.poll(readableTileWidth).toBeLessThanOrEqual(320)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     const tools = (await page.locator('.conversationTools').boundingBox())!
     const chat = (await page.locator('#chatViewport').boundingBox())!
     expect(tools.y + tools.height).toBeLessThanOrEqual(chat.y + 1)
