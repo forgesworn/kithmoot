@@ -33,6 +33,16 @@ export function isTextEntry(target: unknown): boolean {
   return hasClosest(target) && Boolean(target.closest(TEXT_ENTRY_SELECTOR))
 }
 
+/** Anything Space already means something on: pressing a button, ticking a
+ *  box, opening a summary, or a focusable message in the log. Push to talk
+ *  must not take Space from a keyboard user sitting on one of these, or a
+ *  muted person pressing "Leave" would unmute instead. */
+const SPACE_OWNER_SELECTOR = `${TEXT_ENTRY_SELECTOR}, button, a[href], summary, select, [role], [tabindex]`
+
+export function spaceBelongsToTarget(target: unknown): boolean {
+  return hasClosest(target) && Boolean(target.closest(SPACE_OWNER_SELECTOR))
+}
+
 interface ModifierEventLike {
   key: string
   ctrlKey: boolean
@@ -103,7 +113,7 @@ export function installCallShortcuts(
     if (ev.defaultPrevented || ev.isComposing || !hooks.onCall()) return
     if (isMicShortcut(ev)) { ev.preventDefault(); hooks.toggleMic(); return }
     if (isCameraShortcut(ev)) { ev.preventDefault(); hooks.toggleCamera(); return }
-    if (!isPushToTalkKey(ev) || isTextEntry(ev.target)) return
+    if (!isPushToTalkKey(ev) || spaceBelongsToTarget(ev.target)) return
     // Browser key repeat resends keydown every ~30ms while held; the guard
     // below is what stops that from toggling the microphone over and over.
     if (ev.repeat || holdingSpace) return

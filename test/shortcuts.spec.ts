@@ -58,13 +58,22 @@ test('holding Space unmutes while muted and re-mutes on release, but only outsid
 
   const mic = page.locator('#toggleMic')
   await expect(mic).toHaveAttribute('data-on', 'true')
-  await page.locator('#chatLog').focus()
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await page.keyboard.press('Control+d')
   await expect(mic).toHaveAttribute('data-on', 'false')
 
   await page.keyboard.down('Space')
   await expect(mic).toHaveAttribute('data-on', 'true')
   await page.keyboard.up('Space')
+  await expect(mic).toHaveAttribute('data-on', 'false')
+
+  // On a focused control Space keeps its own meaning: pressing the mic
+  // button with Space turns the mic on once and leaves it on, rather than
+  // push to talk unmuting and re-muting underneath the button.
+  await mic.focus()
+  await page.keyboard.press('Space')
+  await expect(mic).toHaveAttribute('data-on', 'true')
+  await page.keyboard.press('Control+d')
   await expect(mic).toHaveAttribute('data-on', 'false')
 
   // In the chat box, Space must only ever be a space character - never a

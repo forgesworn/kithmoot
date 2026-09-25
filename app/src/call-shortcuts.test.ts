@@ -2,7 +2,7 @@
 // in the browser by test/shortcuts.spec.ts (no jsdom in this workspace's
 // vitest config).
 import { expect, test } from 'vitest'
-import { isCameraShortcut, isMicShortcut, isPushToTalkKey, isTextEntry, modifierGlyph } from './call-shortcuts.js'
+import { isCameraShortcut, isMicShortcut, isPushToTalkKey, isTextEntry, modifierGlyph, spaceBelongsToTarget } from './call-shortcuts.js'
 
 const base = { key: '', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }
 
@@ -45,4 +45,12 @@ test('modifierGlyph reads Mac platforms as the command glyph and everything else
   expect(modifierGlyph('macOS')).toBe('⌘')
   expect(modifierGlyph('Win32')).toBe('Ctrl')
   expect(modifierGlyph('Linux x86_64')).toBe('Ctrl')
+})
+
+test('spaceBelongsToTarget keeps Space for buttons, roles and focusable items, not the bare page', () => {
+  const button = { closest: (selector: string) => (selector.includes('button') ? {} : null) }
+  const body = { closest: () => null }
+  expect(spaceBelongsToTarget(button)).toBe(true)
+  expect(spaceBelongsToTarget(body)).toBe(false)
+  expect(spaceBelongsToTarget(null)).toBe(false)
 })
