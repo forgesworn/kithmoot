@@ -194,6 +194,9 @@ test('the call has the window: a full-height stage, one bar, one Leave', async (
 
     // The view switcher is behind View, and choosing puts the menu away.
     await openCallView(ada)
+    await ada.locator('.callViewOptions > summary').click()
+    await shot(ada, 'view-menu-open')
+    await ada.locator('.callViewOptions > summary').click()
     await ada.locator('#callView').getByRole('button', { name: 'Speaker', exact: true }).click()
     await expect(ada.locator('#callViewMenu')).not.toHaveAttribute('open', '')
     await expect(ada.locator('#room')).toHaveAttribute('data-layout', 'solo')
