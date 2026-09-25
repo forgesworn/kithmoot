@@ -159,10 +159,14 @@ test('two people each share a screen: both on the stage, faces one size beside t
 
     // The drawer, before anything touches it: open, because chat has always
     // been there on desktop and a closed default would quietly remove it.
-    const toggle = pageA.locator('#chatDrawerToggle')
+    // On a call with pictures the call comes first (app/src/call-focus.ts),
+    // and the drawer's control is the Chat button in the call's own bar.
+    await expect(pageA.locator('html')).toHaveAttribute('data-call-first', '')
+    await expect(pageA.locator('#chatDrawerToggle')).toBeHidden()
+    const toggle = pageA.locator('#callChatToggle')
     await expect(toggle).toBeVisible()
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    await expect(pageA.locator('#chatDrawer')).toHaveJSProperty('dataset.open', 'true')
+    await expect(pageA.locator('html')).toHaveAttribute('data-call-chat', 'open')
 
     await checkRoom(pageA, '1320x880')
     await pageA.screenshot({ path: `${SHOTS}/1320x880.png` })
@@ -177,7 +181,7 @@ test('two people each share a screen: both on the stage, faces one size beside t
     const openWidth = (await boxOf(stage)).width
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await expect(pageA.locator('#chatDrawer')).toHaveJSProperty('dataset.open', 'false')
+    await expect(pageA.locator('html')).toHaveAttribute('data-call-chat', 'closed')
     await expect.poll(async () => (await boxOf(stage)).width).toBeGreaterThan(openWidth + 20)
     await checkRoom(pageA, '1600x1000, drawer closed')
     await pageA.screenshot({ path: `${SHOTS}/1600x1000-drawer-closed.png` })
@@ -506,7 +510,9 @@ test('with nothing beside it the conversation is the main column, not a strip', 
     await expect.poll(async () => (await boxOf(log)).width).toBeLessThan(600)
     await checkChatIsUsable(page, '1744x850, on a call with a camera')
     // And leaving gives the column back - Leave takes the camera with it.
-    await page.locator('#callToggle').click()
+    // With a picture on screen the call comes first, and its one Leave is
+    // in the call's own bar.
+    await page.locator('#leaveCall').click()
     await expect(page.locator('#callToggle')).toHaveText('Start call')
     await expect.poll(async () => (await boxOf(log)).width).toBeGreaterThanOrEqual(600)
     await expect(page.locator('#chatInput')).toHaveValue('Half a thought, still being written')

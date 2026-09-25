@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, open } from './browser.js'
+import { closeCallView, createRoom, joinWithMedia, newDeviceContext, open, openCallView } from './browser.js'
 
 /**
  * The call stage: one box for every face, calm when people come and go.
@@ -142,8 +142,11 @@ async function expectSlimStrip(page: Page, strip: { box: Box }[], label: string)
 }
 
 async function chooseView(page: Page, label: 'Gallery' | 'Speaker' | 'Screen'): Promise<void> {
+  await openCallView(page)
   await page.locator('#callView').getByRole('button', { name: label, exact: true }).click()
-  await expect(page.locator('#callView').getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true')
+  // Choosing puts the bar's View menu away, so read the state off the
+  // button whether or not it is still on screen.
+  await expect(page.locator('#callView .callViewChoice button', { hasText: new RegExp(`^${label}$`) })).toHaveAttribute('aria-pressed', 'true')
 }
 
 test('every face is one box, from a call of two to a call of eight', async ({ browser, baseURL }) => {
@@ -180,7 +183,9 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     await shot(first, '2-one-to-one')
 
     // The keyboard way to move it, remembered on this device.
+    await openCallView(first)
     await first.locator('#moveSelfView').click()
+    await closeCallView(first)
     await expect.poll(async () => (await tiles(first)).find(tile => tile.floating)!.box.x).toBeLessThan(theirs.box.x + theirs.box.width / 2)
     expect(await first.evaluate(() => localStorage.getItem('kithmoot.call-self-corner'))).toBe('bottom-left')
     // And by dragging it to the top right.
@@ -278,9 +283,11 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     await first.locator('#room').evaluate(el => { el.scrollTop = 0; el.scrollLeft = 0 })
 
     // Hide people without video: the three with cameras off go.
+    await openCallView(first)
     await first.locator('.callViewOptions > summary').click()
     await first.getByLabel('Hide people without video').check()
     await first.locator('.callViewOptions > summary').click()
+    await closeCallView(first)
     await expect.poll(async () => (await tiles(first)).length).toBe(5)
     await shot(first, '8-share-hide-no-video')
     expect(await first.evaluate(() => localStorage.getItem('kithmoot.call-hide-no-video'))).toBe('true')
@@ -324,6 +331,7 @@ test('the speaking cue is more than a colour, and can be said aloud', async ({ b
 
     // Spoken announcements are opt in and remembered.
     await expect(page.locator('#speakerAnnouncement')).toHaveText('')
+    await openCallView(page)
     await page.locator('.callViewOptions > summary').click()
     await page.getByLabel('Announce who is speaking (screen readers)').check()
     await expect(page.locator('#speakerAnnouncement')).toHaveText(/is speaking/, { timeout: 10_000 })

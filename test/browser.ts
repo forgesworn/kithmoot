@@ -381,6 +381,9 @@ export async function joinWithMedia(page: Page, url: string, name: string): Prom
  * call is already open can just say so.
  */
 export async function openCall(page: Page): Promise<void> {
+  // Already open. On a wide screen with the call first, the room bar's call
+  // control steps aside and the controls are the bar under the stage.
+  if (await page.locator('#deviceControls').isVisible()) return
   await expect(
     page.locator('#callToggle:visible, #mobileCall:visible'),
     'the call control only appears once this device is in the room',
@@ -503,4 +506,22 @@ export async function startRelay(port: number, okDelayMs = 0): Promise<{ url: st
       return exited
     },
   }
+}
+
+/**
+ * The call's view switcher, open. On a wide screen with the call first it
+ * is behind View in the control bar; anywhere else it is already on screen.
+ */
+export async function openCallView(page: Page): Promise<void> {
+  const summary = page.locator('#callViewMenu > summary')
+  if (!(await summary.isVisible())) return
+  if (!(await page.locator('#callViewMenu').evaluate(el => (el as HTMLDetailsElement).open))) await summary.click()
+  await expect(page.locator('#callView')).toBeVisible()
+}
+
+/** The View menu put away again, if the bar has one open. */
+export async function closeCallView(page: Page): Promise<void> {
+  const menu = page.locator('#callViewMenu')
+  if (await menu.count() === 0) return
+  if (await menu.evaluate(el => (el as HTMLDetailsElement).open)) await page.locator('#callViewMenu > summary').click()
 }
