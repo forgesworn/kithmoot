@@ -127,6 +127,20 @@ async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: `${SHOTS}/${test.info().project.name}-${name}.png` })
 }
 
+async function ringSettled(tile: import('@playwright/test').Locator): Promise<void> {
+  await expect.poll(() => tile.evaluate(el => getComputedStyle(el).boxShadow)).toContain(' 4px')
+}
+
+/** The strip is one column or one row, and no wider than about a fifth of
+ *  the room's long side: the stage is what the room is looking at. */
+async function expectSlimStrip(page: Page, strip: { box: Box }[], label: string): Promise<void> {
+  const xs = new Set(strip.map(tile => tile.box.x))
+  const ys = new Set(strip.map(tile => tile.box.y))
+  expect(xs.size === 1 || ys.size === 1, `${label}: the strip is more than one column or row`).toBe(true)
+  const room = await page.locator('#room').evaluate(el => ({ width: el.clientWidth, height: el.clientHeight }))
+  expect(strip[0].box.width, `${label}: strip tiles are ${strip[0].box.width}px in a ${room.width}px room`).toBeLessThanOrEqual(Math.max(162, Math.max(room.width, room.height) * 0.23))
+}
+
 async function chooseView(page: Page, label: 'Gallery' | 'Speaker' | 'Screen'): Promise<void> {
   await page.locator('#callView').getByRole('button', { name: label, exact: true }).click()
   await expect(page.locator('#callView').getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true')
@@ -215,7 +229,9 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     await first.waitForTimeout(400)
     const speaker8 = await tiles(first)
     const featured8 = await first.locator('#room > .participant[data-featured]').getAttribute('data-name')
-    expectSameBox(speaker8.filter(tile => tile.name !== featured8), '8 people, speaker strip')
+    const speakerStrip8 = speaker8.filter(tile => tile.name !== featured8)
+    expectSameBox(speakerStrip8, '8 people, speaker strip')
+    await expectSlimStrip(first, speakerStrip8, '8 people, speaker')
     await shot(first, '8-speaker')
 
     // Pin somebody: they take the big picture and keep it.
@@ -235,18 +251,31 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     await expect(pages[1].locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
     await expect(first.locator('#room')).toHaveAttribute('data-layout', 'share', { timeout: 60_000 })
     await expect(first.locator('#room video.screenPreview')).toBeVisible()
+    // Hovering Flo to pin them scrolled the strip; start from the top.
+    await first.locator('#room').evaluate(el => { el.scrollTop = 0; el.scrollLeft = 0 })
     await first.waitForTimeout(2000)
     const shared = await tiles(first)
     expect(shared).toHaveLength(8)
     expectSameBox(shared, '8 people beside a share')
+    await expectSlimStrip(first, shared, '8 people beside a share')
     const stage = await first.locator('#room video.screenPreview').boundingBox()
-    expect(stage!.width, 'the share should be the biggest thing on the stage').toBeGreaterThan(shared[0].box.width * 2)
+    const roomBox = (await first.locator('#room').boundingBox())!
+    expect(stage!.width, 'the share should take most of the room').toBeGreaterThan(roomBox.width * 0.65)
     for (const tile of shared) {
       const overlapX = Math.min(tile.box.x + tile.box.width, stage!.x + stage!.width) - Math.max(tile.box.x, stage!.x)
       const overlapY = Math.min(tile.box.y + tile.box.height, stage!.y + stage!.height) - Math.max(tile.box.y, stage!.y)
       expect(overlapX > 1 && overlapY > 1, `${tile.name} sits on the share`).toBe(false)
     }
     await shot(first, '8-share')
+
+    // Faces past the end of the room scroll; the share stays where it is.
+    await first.locator('#room').evaluate(el => { el.scrollTop = el.scrollHeight; el.scrollLeft = el.scrollWidth })
+    await first.waitForTimeout(300)
+    const scrolled = (await first.locator('#room video.screenPreview').boundingBox())!
+    expect(Math.abs(scrolled.y - stage!.y), 'the share scrolled away with the faces').toBeLessThanOrEqual(2)
+    expect(Math.abs(scrolled.x - stage!.x), 'the share scrolled away with the faces').toBeLessThanOrEqual(2)
+    await shot(first, '8-share-scrolled')
+    await first.locator('#room').evaluate(el => { el.scrollTop = 0; el.scrollLeft = 0 })
 
     // Hide people without video: the three with cameras off go.
     await first.locator('.callViewOptions > summary').click()
@@ -283,11 +312,12 @@ test('the speaking cue is more than a colour, and can be said aloud', async ({ b
 
     // A thicker ring and a solid label: the label's fill changes, not just
     // its hue, so the cue survives a colour it cannot be told by.
+    // After the ring's 120ms ease in.
+    await ringSettled(tile)
     const cue = await tile.evaluate(el => {
       const label = el.querySelector('h3')!
       return { ring: getComputedStyle(el).boxShadow, label: getComputedStyle(label).backgroundColor, ink: getComputedStyle(label).color }
     })
-    expect(cue.ring).toContain('4px')
     expect(cue.label).toBe('rgb(23, 96, 47)')
     expect(cue.ink).toBe('rgb(255, 255, 255)')
     await expect(page.locator('#speakingNow')).toContainText('Bob')

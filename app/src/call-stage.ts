@@ -1,6 +1,6 @@
 import './call-layout.css'
 import {
-  ActiveSpeaker, ANNOUNCE_KEY, CORNER_KEY, HIDE_NO_VIDEO_KEY, HIDE_SELF_KEY, Throttle, VIEW_KEY,
+  ActiveSpeaker, StripOrder, ANNOUNCE_KEY, CORNER_KEY, HIDE_NO_VIDEO_KEY, HIDE_SELF_KEY, Throttle, VIEW_KEY,
   fitRect, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref,
   type CallView, type LayoutPrefs, type LayoutResult, type Rect, type ShareInput,
 } from './call-layout.js'
@@ -56,6 +56,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   const prefs: LayoutPrefs = loadPrefs(storage)
   const media = matchMedia(DESKTOP_STAGE)
   const speaker = new ActiveSpeaker()
+  const stripOrder = new StripOrder()
   const throttle = new Throttle(ANNOUNCE_GAP_MS)
   let view: CallView = prefs.view
   let knownShares = new Set<string>()
@@ -139,8 +140,10 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     const candidates = shown.filter(person => !person.self).map(person => person.id)
     const now = performance.now()
     const active = speaker.update(speaking, candidates, now)
+    const lead = stripOrder.update(speaking, pinned, now)
     if (recheck) { clearTimeout(recheck); recheck = undefined }
-    if (active.recheckIn !== undefined) recheck = setTimeout(schedule, active.recheckIn + 20)
+    const wait = Math.min(active.recheckIn ?? Infinity, lead.recheckIn ?? Infinity)
+    if (wait !== Infinity) recheck = setTimeout(schedule, wait + 20)
 
     const self = shown.find(person => person.self)
     const out = layoutCall({
@@ -152,6 +155,8 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       shares,
       featured: pinned ?? active.current,
       selfCorner: prefs.corner,
+      stripFirst: lead.first,
+      scroll: { x: room.scrollLeft, y: room.scrollTop },
     })
     last = out
     room.setAttribute('data-layout', out.mode)
@@ -438,6 +443,10 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   const sizes = new ResizeObserver(schedule)
   sizes.observe(room)
   media.addEventListener('change', schedule)
+  // A strip longer than the room scrolls, and the stage follows the scroll
+  // in the same frame so it never slides out of view.
+  const onScroll = (): void => { if (room.hasAttribute('data-layout')) apply() }
+  room.addEventListener('scroll', onScroll, { passive: true })
   schedule()
 
   return {
@@ -446,6 +455,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       mutations.disconnect()
       sizes.disconnect()
       media.removeEventListener('change', schedule)
+      room.removeEventListener('scroll', onScroll)
       room.removeEventListener('pointerdown', onPointerDown)
       if (queued) cancelAnimationFrame(queued)
       if (recheck) clearTimeout(recheck)

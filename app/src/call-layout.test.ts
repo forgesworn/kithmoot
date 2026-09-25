@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   ActiveSpeaker, ANNOUNCE_KEY, CORNER_KEY, HIDE_SELF_KEY, MIN_TILE_WIDTH, TILE_ASPECT, TILE_GAP, Throttle, VIEW_KEY,
-  bestGrid, cornerRect, effectiveMode, fitRect, gridRects, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref, sideStrip, splitStage, underStrip,
+  STRIP_FRACTION, StripOrder, bestGrid, cornerRect, orderStrip, stripTileWidth, effectiveMode, fitRect, gridRects, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref, sideStrip, splitStage, underStrip,
   type Rect,
 } from './call-layout.js'
 
@@ -172,6 +172,67 @@ describe('layoutCall', () => {
     const tile = out.people.get('p0')!
     expect(tile.width).toBeGreaterThanOrEqual(MIN_TILE_WIDTH)
     expect(out.contentHeight).toBeGreaterThan(400)
+  })
+})
+
+describe('the stage dominates', () => {
+  const shapes: [number, number][] = [[1200, 620], [790, 430], [1400, 800], [700, 900], [1900, 500]]
+
+  test('a strip is one column or one row, at most about a fifth of the long side', () => {
+    for (const [width, height] of shapes) {
+      for (const count of [1, 3, 7, 12]) {
+        const area = { x: 0, y: 0, width, height }
+        const { strip } = splitStage(area, count)
+        const xs = new Set(strip.map(r => r.x))
+        const ys = new Set(strip.map(r => r.y))
+        expect(xs.size === 1 || ys.size === 1, `${width}x${height}, ${count}: more than one column and row`).toBe(true)
+        const tile = stripTileWidth(area)
+        expect(strip[0].width).toBe(tile)
+        expect(tile).toBeLessThanOrEqual(Math.max(160, Math.round(Math.max(width, height) * STRIP_FRACTION)))
+      }
+    }
+  })
+
+  test('with eight people beside a share, the share gets most of the room', () => {
+    const out = layoutCall({ width: 790, height: 450, view: 'share', people: ids(8), self: 'p0', shares: [{ id: 's' }] })
+    const stage = out.shares.get('s')!
+    expect(stage.width).toBeGreaterThan(790 * 0.7)
+    expect(out.contentHeight, 'faces that do not fit scroll').toBeGreaterThan(450)
+  })
+
+  test('the stage rides with the scroll, the strip does not', () => {
+    const input = { width: 790, height: 450, view: 'share' as const, people: ids(8), self: 'p0', shares: [{ id: 's' }] }
+    const still = layoutCall(input)
+    const moved = layoutCall({ ...input, scroll: { x: 0, y: 200 } })
+    expect(moved.shares.get('s')!.y).toBe(still.shares.get('s')!.y + 200)
+    expect(moved.people.get('p3')).toEqual(still.people.get('p3'))
+  })
+
+  test('pinned and talking faces lead the strip', () => {
+    expect(orderStrip(['a', 'b', 'c', 'd'], ['c', 'x', 'a', 'c'])).toEqual(['c', 'a', 'b', 'd'])
+    const out = layoutCall({ width: 1400, height: 700, view: 'share', people: ids(5), self: 'p0', shares: [{ id: 's' }], stripFirst: ['p4'] })
+    const top = Math.min(...[...out.people.values()].map(r => r.y))
+    expect(out.people.get('p4')!.y).toBe(top)
+  })
+})
+
+describe('StripOrder', () => {
+  test('moves a voice to the front only after the hold', () => {
+    const order = new StripOrder(1500)
+    expect(order.update(new Set(['b']), undefined, 0)).toEqual({ first: [], recheckIn: 1500 })
+    expect(order.update(new Set(['b']), undefined, 1500).first).toEqual(['b'])
+    order.update(new Set(['c']), undefined, 2000)
+    expect(order.update(new Set(['c']), undefined, 3600).first).toEqual(['c', 'b'])
+  })
+  test('a cough does not move anybody', () => {
+    const order = new StripOrder(1500)
+    order.update(new Set(['b']), undefined, 0)
+    expect(order.update(new Set(), undefined, 400).first).toEqual([])
+  })
+  test('the pinned person is always first', () => {
+    const order = new StripOrder(1500)
+    order.update(new Set(['b']), 'a', 0)
+    expect(order.update(new Set(['b']), 'a', 2000).first).toEqual(['a', 'b'])
   })
 })
 

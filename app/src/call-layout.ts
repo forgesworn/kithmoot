@@ -29,6 +29,9 @@ export const MIN_TILE_WIDTH = 160
 /** A strip tile beside a stage: never smaller than the gallery's floor. */
 export const STRIP_MIN_WIDTH = 160
 export const STRIP_MAX_WIDTH = 256
+/** A strip is at most this share of the stage's long side: the share or
+ *  the speaker is what the room is looking at, and the faces are context. */
+export const STRIP_FRACTION = 0.21
 /** How long the big picture in Speaker view holds before it follows a new
  *  voice. Short enough to feel like it follows the conversation, long
  *  enough that a cough across the room does not swap the whole screen. */
@@ -145,6 +148,11 @@ export interface LayoutInput {
   featured?: string
   /** Where your own picture floats in a call of two. */
   selfCorner?: Corner
+  /** Who goes first in a strip, in order: the pinned and the talking. */
+  stripFirst?: readonly string[]
+  /** How far the room is scrolled. A strip longer than the room scrolls;
+   *  the stage is moved with the scroll so it stays in view. */
+  scroll?: { x: number; y: number }
 }
 
 export type LayoutMode = 'gallery' | 'speaker' | 'share' | 'solo'
@@ -163,6 +171,9 @@ export interface LayoutResult {
   /** How tall the content is, which can be taller than the room when a
    *  gallery has more people than fit at the minimum size. */
   contentHeight: number
+  /** How wide the content is: wider than the room when a strip under the
+   *  stage has more faces than fit across it. */
+  contentWidth: number
 }
 
 /** The effective view: Share needs a share, and a call of two is a
@@ -185,7 +196,7 @@ export function layoutCall(input: LayoutInput): LayoutResult {
   const mode = effectiveMode(input)
   const people = new Map<string, Rect>()
   const shares = new Map<string, Rect>()
-  const result: LayoutResult = { mode, people, shares, contentHeight: input.height }
+  const result: LayoutResult = { mode, people, shares, contentHeight: input.height, contentWidth: input.width }
 
   if (mode === 'solo') {
     const other = input.people.find(id => id !== input.self)!
@@ -215,10 +226,16 @@ export function layoutCall(input: LayoutInput): LayoutResult {
   const onStage = mode === 'share'
     ? input.shares.map(share => share.id)
     : [pickFeatured(input)].filter((id): id is string => id !== undefined)
-  const inStrip = mode === 'share'
+  const everyoneElse = mode === 'share'
     ? [...input.people]
     : [...input.people.filter(id => !onStage.includes(id)), ...input.shares.map(share => share.id)]
-  const { stage, strip } = splitStage(area, inStrip.length)
+  const inStrip = orderStrip(everyoneElse, input.stripFirst ?? [])
+  const split = splitStage(area, inStrip.length)
+  const scroll = input.scroll ?? { x: 0, y: 0 }
+  // The stage rides along with the scroll, so paging through the faces
+  // never takes the share or the speaker off the screen.
+  const stage: Rect = { ...split.stage, x: split.stage.x + scroll.x, y: split.stage.y + scroll.y }
+  const strip = split.strip
   if (mode === 'speaker') {
     result.featured = onStage[0]
     if (onStage[0] !== undefined) people.set(onStage[0], fitRect(stage, TILE_ASPECT))
@@ -230,8 +247,15 @@ export function layoutCall(input: LayoutInput): LayoutResult {
   }
   const shareIds = new Set(input.shares.map(share => share.id))
   for (const [i, id] of inStrip.entries()) (shareIds.has(id) ? shares : people).set(id, strip[i])
-  result.contentHeight = Math.max(input.height, bottomOf([stage, ...strip]) + gap)
+  result.contentHeight = Math.max(input.height, bottomOf([split.stage, ...strip]) + gap)
+  result.contentWidth = Math.max(input.width, strip.reduce((right, r) => Math.max(right, r.x + r.width), 0) + gap)
   return result
+}
+
+/** `ids` with any of `first` moved to the front, in `first`'s order. */
+export function orderStrip(ids: readonly string[], first: readonly string[]): string[] {
+  const lead = first.filter((id, i) => ids.includes(id) && first.indexOf(id) === i)
+  return [...lead, ...ids.filter(id => !lead.includes(id))]
 }
 
 function pickFeatured(input: LayoutInput): string | undefined {
@@ -244,10 +268,10 @@ function bottomOf(rects: readonly Rect[]): number {
 }
 
 /**
- * A stage and a strip of `count` equal tiles: beside the stage or under it,
- * whichever leaves the bigger 16:9 picture on the stage. The strip grows a
- * second or third column (or row) before its tiles shrink below the floor,
- * and runs past the bottom of the room only after that.
+ * A stage and a strip of `count` equal tiles: ONE column beside the stage
+ * or ONE row under it, whichever leaves the bigger 16:9 picture on the
+ * stage. The strip is at most `STRIP_FRACTION` of the long side; faces
+ * that do not fit run on past the end of the room, which scrolls.
  */
 export function splitStage(area: Rect, count: number, gap = TILE_GAP): { stage: Rect; strip: Rect[] } {
   if (count === 0) return { stage: area, strip: [] }
@@ -260,43 +284,33 @@ export function splitStage(area: Rect, count: number, gap = TILE_GAP): { stage: 
   return size(under) > size(side) ? under : side
 }
 
+/** How wide a strip tile is, from the stage's long side. */
+export function stripTileWidth(area: Rect): number {
+  return Math.max(STRIP_MIN_WIDTH, Math.min(STRIP_MAX_WIDTH, Math.round(Math.max(area.width, area.height) * STRIP_FRACTION)))
+}
+
 export function sideStrip(area: Rect, count: number, gap: number): { stage: Rect; strip: Rect[] } {
-  const tileWidth = Math.max(STRIP_MIN_WIDTH, Math.min(STRIP_MAX_WIDTH, Math.round(area.width * 0.2)))
+  const tileWidth = stripTileWidth(area)
   const tileHeight = Math.floor(tileWidth / TILE_ASPECT)
-  const perColumn = Math.max(1, Math.floor((area.height + gap) / (tileHeight + gap)))
-  const columns = Math.min(3, Math.ceil(count / perColumn))
-  const rows = Math.ceil(count / columns)
-  const stripWidth = columns * tileWidth + (columns - 1) * gap
-  const stage: Rect = { x: area.x, y: area.y, width: Math.max(0, area.width - stripWidth - gap), height: area.height }
-  const blockHeight = rows * tileHeight + (rows - 1) * gap
+  const stage: Rect = { x: area.x, y: area.y, width: Math.max(0, area.width - tileWidth - gap), height: area.height }
+  const blockHeight = count * tileHeight + (count - 1) * gap
+  // Centred while it fits; from the top once it scrolls.
   const top = area.y + Math.max(0, Math.floor((area.height - blockHeight) / 2))
-  const left = area.x + area.width - stripWidth
+  const left = area.x + area.width - tileWidth
   const strip: Rect[] = []
-  for (let i = 0; i < count; i++) {
-    const row = i % rows
-    const column = Math.floor(i / rows)
-    strip.push({ x: left + column * (tileWidth + gap), y: top + row * (tileHeight + gap), width: tileWidth, height: tileHeight })
-  }
+  for (let i = 0; i < count; i++) strip.push({ x: left, y: top + i * (tileHeight + gap), width: tileWidth, height: tileHeight })
   return { stage, strip }
 }
 
 export function underStrip(area: Rect, count: number, gap: number): { stage: Rect; strip: Rect[] } {
-  const tileHeight = Math.max(Math.floor(STRIP_MIN_WIDTH / TILE_ASPECT), Math.min(Math.floor(STRIP_MAX_WIDTH / TILE_ASPECT), Math.round(area.height * 0.2)))
-  const tileWidth = Math.floor(tileHeight * TILE_ASPECT)
-  const perRow = Math.max(1, Math.floor((area.width + gap) / (tileWidth + gap)))
-  const rows = Math.min(2, Math.ceil(count / perRow))
-  const stripHeight = rows * tileHeight + (rows - 1) * gap
-  const stage: Rect = { x: area.x, y: area.y, width: area.width, height: Math.max(0, area.height - stripHeight - gap) }
-  const strip: Rect[] = []
+  const tileWidth = stripTileWidth(area)
+  const tileHeight = Math.floor(tileWidth / TILE_ASPECT)
+  const stage: Rect = { x: area.x, y: area.y, width: area.width, height: Math.max(0, area.height - tileHeight - gap) }
+  const rowWidth = count * tileWidth + (count - 1) * gap
+  const left = area.x + Math.max(0, Math.floor((area.width - rowWidth) / 2))
   const top = area.y + stage.height + gap
-  for (let i = 0; i < count; i++) {
-    // Rows past the second run below the room, which then scrolls.
-    const row = Math.floor(i / perRow)
-    const inRow = Math.min(perRow, count - row * perRow)
-    const rowWidth = inRow * tileWidth + (inRow - 1) * gap
-    const left = area.x + Math.max(0, Math.floor((area.width - rowWidth) / 2))
-    strip.push({ x: left + (i % perRow) * (tileWidth + gap), y: top + row * (tileHeight + gap), width: tileWidth, height: tileHeight })
-  }
+  const strip: Rect[] = []
+  for (let i = 0; i < count; i++) strip.push({ x: left + i * (tileWidth + gap), y: top, width: tileWidth, height: tileHeight })
   return { stage, strip }
 }
 
@@ -381,6 +395,39 @@ export class Throttle {
     if (now - this.#last < this.gapMs) return false
     this.#last = now
     return true
+  }
+}
+
+/**
+ * Who leads the strip. The pinned person first, then whoever has been
+ * talking, most recent first, but only once they have been talking for
+ * `holdMs`: a face that jumped to the front on every cough would make the
+ * strip as restless as the old grid.
+ */
+export class StripOrder {
+  readonly #holdMs: number
+  readonly #since = new Map<string, number>()
+  #recent: string[] = []
+
+  constructor(holdMs = SPEAKER_HOLD_MS) {
+    this.#holdMs = holdMs
+  }
+
+  update(speaking: ReadonlySet<string>, pinned: string | undefined, now: number): { first: string[]; recheckIn?: number } {
+    for (const id of [...this.#since.keys()]) if (!speaking.has(id)) this.#since.delete(id)
+    let recheckIn: number | undefined
+    for (const id of speaking) {
+      const since = this.#since.get(id) ?? now
+      this.#since.set(id, since)
+      const held = now - since
+      if (held >= this.#holdMs) {
+        if (this.#recent[0] !== id) this.#recent = [id, ...this.#recent.filter(other => other !== id)]
+      } else if (this.#recent[0] !== id) {
+        recheckIn = Math.min(recheckIn ?? Infinity, this.#holdMs - held)
+      }
+    }
+    const first = pinned === undefined ? [...this.#recent] : [pinned, ...this.#recent.filter(id => id !== pinned)]
+    return recheckIn === undefined ? { first } : { first, recheckIn }
   }
 }
 

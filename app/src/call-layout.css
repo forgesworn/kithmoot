@@ -71,8 +71,12 @@
   height: clamp(20rem, calc(100dvh - var(--call-stage-top, 21rem) - 1rem), 64rem);
   min-height: 0;
   padding: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* The room is scrolled only by a person: the browser's scroll anchoring
+     would otherwise scroll it to chase a tile that moved. And the gutter
+     is kept, so a strip starting to overflow cannot resize the room. */
+  overflow-anchor: none;
   scrollbar-gutter: stable;
 }
 
@@ -90,6 +94,9 @@
   box-shadow: none;
   transition: box-shadow 120ms ease-out, left 160ms ease, top 160ms ease, width 160ms ease, height 160ms ease;
 }
+/* The stage is moved with the room's scroll (call-stage.ts): an easing on
+   it would make the speaker lag behind every scroll. */
+#room[data-layout]:is([data-layout="speaker"], [data-layout="share"]) > .participant[data-featured] { transition: box-shadow 120ms ease-out; }
 #room[data-layout] > .participant.linked { box-shadow: 0 0 0 1px var(--accent) inset; }
 #room[data-layout] > .participant.speaking { box-shadow: 0 0 0 var(--speak-ring-width) var(--speak-ring); z-index: 1; }
 #room[data-layout] > .participant.linked.speaking {
