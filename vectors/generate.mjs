@@ -78,11 +78,12 @@ import { encodeControl, decodeControl } from '../dist/src/control.js'
 import { resolveConversation, mentionsOf, mentionedBy } from '../dist/src/messages.js'
 import { decodeReadPositions, readPositionId, readPositionPlaintext, localSelfCrypt, mergeReadPositions, READ_POSITION_KIND, READ_POSITION_LABEL } from '../dist/src/read-position.js'
 import { openInvite, localPeerCrypt, dmPolicy } from '../dist/src/dm.js'
+import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCallBellEvent, CALL_BELL_TTL_SECONDS } from '../dist/src/call-bell.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -2829,6 +2830,82 @@ for (const [name, roomKey, a, b, note] of [
     input: { local, remote },
     output: mergeReadPositions(local, remote),
   })
+}
+
+// ===========================================================================
+// Call bell - kind 1464, one event per call start and end, signed by a
+// throwaway key, tagged with a daily rendezvous from the epoch key
+// (dist/src/call-bell.js)
+// ===========================================================================
+
+{
+  const room = ROOM_1
+  const call = { id: 'c0ffee'.padEnd(32, '0'), since: fx.NOW }
+  const decodeArgs = (r = room, now = fx.NOW) => ({ roomId: r.roomId, keyHex: bytesToHex(r.roomKey), now })
+  const decodeWith = (event, r = room, now = fx.NOW) => decodeCallBellEvent(event, { roomId: r.roomId, key: r.roomKey, now })
+  // Built by hand from the same primitives as `encodeCallBellEvent`, with the
+  // throwaway key, the device signature's aux-rand and the NIP-44 nonce all
+  // fixed and recorded. `body` overrides let the negative cases carry an
+  // otherwise honest bell with one thing wrong.
+  function buildBell({ label, state = 'start', bellCall = call, createdAt = fx.NOW, signerSk = fx.DEVICE_A_SK, body = {} }) {
+    const auxRand = seed32(`${label}-device-auxrand`)
+    const sig = bytesToHex(schnorr.sign(callBellMessage(room.roomId, state, bellCall, createdAt), signerSk, auxRand))
+    const plaintext = JSON.stringify({ v: 1, state, call: bellCall, device: fx.DEVICE_A, sig, ...body })
+    const nonce = seed32(`${label}-nonce`)
+    const throwawaySk = deriveSecretKey(`${label}-throwaway`)
+    const event = finalizeDeterministic(
+      { kind: KINDS.CALL_BELL, created_at: createdAt, tags: [['d', callBellTag(room.roomKey, createdAt)], ['expiration', String(createdAt + CALL_BELL_TTL_SECONDS)]], content: nip44.v2.encrypt(plaintext, callBellContentKey(room.roomKey), nonce) },
+      throwawaySk,
+      seed32(`${label}-auxrand`),
+    )
+    return {
+      event,
+      roomId: room.roomId,
+      keyHex: bytesToHex(room.roomKey),
+      plaintext,
+      throwawaySkHex: bytesToHex(throwawaySk),
+      deviceSkHex: bytesToHex(signerSk),
+      deviceAuxRandHex: bytesToHex(auxRand),
+      nonceHex: bytesToHex(nonce),
+      auxRandHex: bytesToHex(seed32(`${label}-auxrand`)),
+    }
+  }
+  const bellVector = (name, kind, note, built, r = room, now = fx.NOW) => {
+    vectors.callBell.push({ name, kind, note, input: { ...built, decode: decodeArgs(r, now) }, output: { result: decodeWith(built.event, r, now) } })
+  }
+
+  vectors.callBell.push({
+    name: 'tag-for-day',
+    kind: 'positive',
+    note: 'The `d` tag: HMAC-SHA256 keyed with HKDF-SHA256(room/epoch key, empty salt, `kithmoot/v1/call-bell-tag`, 32), over `kithmoot-call-bell-v1|` + the UTC day of created_at as yyyy-mm-dd, hex, first 32 characters. The NIP-44 content key is HKDF-SHA256 of the same key with info `kithmoot/v1/call-bell-key`. Neither is the roster `d` or the roster key.',
+    input: { keyHex: bytesToHex(room.roomKey), at: fx.NOW, day: callBellDay(fx.NOW), nextDayAt: fx.NOW + 86_400 },
+    output: { tag: callBellTag(room.roomKey, fx.NOW), nextDayTag: callBellTag(room.roomKey, fx.NOW + 86_400), contentKeyHex: bytesToHex(callBellContentKey(room.roomKey)) },
+  })
+  const start = buildBell({ label: 'call-bell-start' })
+  bellVector('valid-start', 'positive',
+    'A call starting: kind 1464 signed by a throwaway key, tags `d` and `expiration` (created_at + 120) and nothing else, content NIP-44 v2 of `{v:1,state,call:{id,since},device,sig}`. `sig` is BIP-340 by the device key over sha256 of `kithmoot/v1/call-bell:` + room id + `:` + state + `:` + call id + `:` + since + `:` + created_at.',
+    start)
+  bellVector('valid-end', 'positive',
+    'The last device off an hour-long call rings it closed. `since` is when the call began, well before created_at; for an end that is allowed up to 30 days.',
+    buildBell({ label: 'call-bell-end', state: 'end', createdAt: fx.NOW + 3600 }), room, fx.NOW + 3600)
+  bellVector('wrong-room-key', 'negative',
+    "The valid start read with another room's key: the tag does not match that room's day tag, and nothing is decrypted.",
+    start, ROOM_2)
+  bellVector('bad-signature', 'negative',
+    'The body names device A but the signature is by device B: refused, so a bell cannot be pinned on a device that did not ring it.',
+    buildBell({ label: 'call-bell-bad-sig', signerSk: fx.DEVICE_B_SK }))
+  bellVector('expired', 'negative',
+    'The valid start read 121 seconds after created_at: past its expiration, a phone must not ring for it.',
+    start, room, fx.NOW + CALL_BELL_TTL_SECONDS + 1)
+  bellVector('future', 'negative',
+    'The valid start read 61 seconds before created_at: stamped further ahead than the 60 seconds of clock skew allowed.',
+    start, room, fx.NOW - 61)
+  bellVector('malformed-call-id', 'negative',
+    'A call id in upper case: call ids are exactly 32 lower-case hex characters on this kind, and a bell with any other is refused whole.',
+    buildBell({ label: 'call-bell-bad-id', bellCall: { id: call.id.toUpperCase(), since: fx.NOW } }))
+  bellVector('wrong-version', 'negative',
+    'A body with `v:2`, otherwise correctly signed: an unknown version is refused, never guessed at.',
+    buildBell({ label: 'call-bell-v2', body: { v: 2 } }))
 }
 
 // ===========================================================================

@@ -1,6 +1,7 @@
 import { ShareArea, AREA_URL } from './share-area.mjs'
 import { createDesktopUpdater } from './updater.mjs'
-import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification } from 'electron'
+import { buildContextMenuTemplate } from './context-menu.mjs'
+import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -64,6 +65,25 @@ function confirmClose(message, detail) {
   return dialog.showMessageBoxSync(win, {
     type: 'question', message, detail, buttons: ['Stay', 'Close KithMoot'], defaultId: 0, cancelId: 0,
   }) === 1
+}
+
+// Electron builds no right-click menu of its own; every window gets the
+// standard editing menu, wired to that window's own webContents so a
+// spelling fix or a paste lands where the click happened. The main window's
+// contents reach both callers: `web-contents-created` fires inside
+// `new BrowserWindow()`, before `win` is assigned, so its guard cannot tell.
+const withContextMenu = new WeakSet()
+function attachContextMenu(contents) {
+  if (withContextMenu.has(contents)) return
+  withContextMenu.add(contents)
+  contents.on('context-menu', (_event, params) => {
+    const template = buildContextMenuTemplate(params, {
+      replaceMisspelling: word => contents.replaceMisspelling(word),
+      copyLink: url => clipboard.writeText(url),
+      openLink: url => void external(url),
+    })
+    if (template.length) Menu.buildFromTemplate(template).popup({ window: BrowserWindow.fromWebContents(contents) })
+  })
 }
 
 async function createWindow() {
@@ -204,6 +224,7 @@ async function createWindow() {
   })
   win.webContents.on('will-redirect', (event, url) => { if (!isAppUrl(url)) event.preventDefault() })
   win.webContents.on('will-attach-webview', event => event.preventDefault())
+  attachContextMenu(win.webContents)
   win.webContents.on('will-prevent-unload', event => {
     if (confirmClose('Close with unsent work?', 'Your current draft or unfinished work may be lost.')) event.preventDefault()
   })
@@ -262,6 +283,7 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     app.on('web-contents-created', (_event, contents) => {
       if (contents === win?.webContents) return
       contents.setWindowOpenHandler(({ url }) => { void external(url); return { action: 'deny' } })
+      attachContextMenu(contents)
       contents.on('will-navigate', (event, url) => {
         if (!isAppUrl(url)) { event.preventDefault(); void external(url) }
       })

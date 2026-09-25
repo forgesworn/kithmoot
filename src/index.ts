@@ -471,6 +471,20 @@ export {
 } from './read-position.js'
 export type { ReadPosition, ReadPositions, ReadPositionRecord, SelfCrypt, EncodeReadPositionOptions, DecodeReadPositionOptions } from './read-position.js'
 
+export {
+  CALL_BELL_TTL_SECONDS,
+  CALL_BELL_FUTURE_SKEW_SECONDS,
+  CALL_BELL_MAX_CALL_SECONDS,
+  callBellDay,
+  callBellTag,
+  callBellListenTags,
+  callBellContentKey,
+  callBellMessage,
+  encodeCallBellEvent,
+  decodeCallBellEvent,
+} from './call-bell.js'
+export type { CallBell, CallBellState, EncodeCallBellOptions, DecodeCallBellOptions } from './call-bell.js'
+
 export { localPeerCrypt, dmPolicy, isDmPolicy, dmPeer, sealInvite, openInvite, preferredDm, peerCryptPubkey } from './dm.js'
 export type { PeerCrypt, SealInviteOptions, OpenInviteOptions } from './dm.js'
 export {

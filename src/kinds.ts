@@ -78,6 +78,13 @@ export const KINDS = {
    * newcomers can enter with every member offline. Contains epoch 0 only;
    * it never grants authority to rekey or bypass a later removal. */
   GROUP_INVITATION: 1463,
+  /** A call starting or ending, for a phone that has the app closed and
+   * must not wake for every presence heartbeat. Regular, so a socket that
+   * just reconnected catches it with `since`, and every one carries a NIP-40
+   * `expiration` two minutes out. Signed by a throwaway key and tagged only
+   * with a daily rendezvous derived from the epoch key, so a relay cannot
+   * tie it to the room's roster or to any device. See `call-bell.ts`. */
+  CALL_BELL: 1464,
   /** A room moving to a new epoch: a fresh traffic secret, sealed per
    * remaining device, with the participants removed at this step named.
    *
