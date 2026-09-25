@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
-  ActiveSpeaker, ANNOUNCE_KEY, CORNER_KEY, HIDE_SELF_KEY, MIN_TILE_WIDTH, TILE_ASPECT, TILE_GAP, Throttle, VIEW_KEY,
+  ActiveSpeaker, CORNER_KEY, HIDE_SELF_KEY, MIN_TILE_WIDTH, TILE_ASPECT, TILE_GAP, VIEW_KEY,
   STRIP_FRACTION, StripOrder, bestGrid, cornerRect, orderStrip, stripTileWidth, effectiveMode, fitRect, gridRects, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref, sideStrip, splitStage, underStrip,
   type Rect,
 } from './call-layout.js'
@@ -304,13 +304,6 @@ describe('ActiveSpeaker', () => {
   })
 })
 
-test('Throttle lets one through per gap', () => {
-  const t = new Throttle(4000)
-  expect(t.allow(0)).toBe(true)
-  expect(t.allow(3999)).toBe(false)
-  expect(t.allow(4000)).toBe(true)
-})
-
 test('initials', () => {
   expect(initialsOf('Ada Lovelace')).toBe('AL')
   expect(initialsOf('bob')).toBe('B')
@@ -323,16 +316,15 @@ describe('prefs', () => {
     const map = new Map<string, string>()
     return { getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => void map.set(k, v), map }
   }
-  test('defaults: gallery, bottom right, nothing hidden, announcements off', () => {
-    expect(loadPrefs(store())).toEqual({ view: 'gallery', corner: 'bottom-right', hideSelf: false, hideNoVideo: false, announce: false })
+  test('defaults: gallery, bottom right, nothing hidden', () => {
+    expect(loadPrefs(store())).toEqual({ view: 'gallery', corner: 'bottom-right', hideSelf: false, hideNoVideo: false })
   })
   test('round trip, under kithmoot. keys', () => {
     const s = store()
     savePref(s, VIEW_KEY, 'speaker')
     savePref(s, CORNER_KEY, 'top-left')
     savePref(s, HIDE_SELF_KEY, true)
-    savePref(s, ANNOUNCE_KEY, true)
-    expect(loadPrefs(s)).toMatchObject({ view: 'speaker', corner: 'top-left', hideSelf: true, announce: true })
+    expect(loadPrefs(s)).toMatchObject({ view: 'speaker', corner: 'top-left', hideSelf: true })
     for (const key of s.map.keys()) expect(key.startsWith('kithmoot.')).toBe(true)
   })
   test('rubbish and a storage that throws both fall back to defaults', () => {
