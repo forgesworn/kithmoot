@@ -140,3 +140,16 @@ footer nav { gap: 1.2rem; }
 .platform li + li { margin-top: .65rem; }
 #linux > .button { margin-top: .8rem; }
 code { font-size: .88em; overflow-wrap: anywhere; }
+
+/* Terms, privacy and report pages: plain prose on the same palette. */
+.legal-page { max-width: 760px; padding-block: 3rem 5rem; }
+.legal-page h1 { margin-bottom: .4rem; }
+.legal-page .dated { color: var(--muted); font-size: .9rem; margin-top: 0; }
+.legal-page h2 { margin-top: 2.6rem; font-size: 1.35rem; }
+.legal-page h3 { margin-top: 1.6rem; font-size: 1.1rem; }
+.legal-page p, .legal-page li { color: var(--text); }
+.legal-page ul, .legal-page ol { padding-left: 1.3rem; }
+.legal-page li + li { margin-top: .4rem; }
+.draft-note { background: var(--warning-bg); color: var(--warning); padding: 1rem 1.2rem; border-radius: 8px; font-size: .92rem; margin-block: 1.5rem 2rem; }
+.draft-note p { margin: 0; color: inherit; }
+.draft-note p + p { margin-top: .6rem; }

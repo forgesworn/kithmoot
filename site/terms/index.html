@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Terms of use — KithMoot</title>
+    <meta name="description" content="The terms of use for KithMoot: an encrypted workspace built on Nostr, run by ForgeSworn." />
+    <meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="canonical" href="https://kithmoot.forgesworn.dev/terms/" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap"><a class="brand" href="/" aria-label="KithMoot home"><img src="/pwa-192x192.png" width="36" height="36" alt="" />KithMoot</a><nav aria-label="Main navigation"><a href="/#what">Features</a><a href="/#privacy">Privacy</a><a href="/downloads/">Downloads</a><a class="nav-open" href="/j/">Open KithMoot ↗</a></nav></header>
+<main id="main" class="wrap">
+<section class="legal-page">
+<h1>Terms of use</h1>
+<p class="dated">Draft published for review. Last updated 25 September 2026.</p>
+<div class="draft-note">
+<p><strong>This page is a draft.</strong> It has not been reviewed by a lawyer and it is not final. It is published here so it can be checked against how KithMoot actually works, not because it is in force.</p>
+</div>
+
+<h2>1. About these terms</h2>
+<p>These terms apply when you use KithMoot: its website, its web app, and its desktop and Android apps. KithMoot is run by <strong>ForgeSworn</strong> ("we", "us"). You can reach us at <a href="mailto:abuse@forgesworn.dev">abuse@forgesworn.dev</a> for anything to do with content, safety or reports.</p>
+<p>KithMoot is an encrypted workspace: rooms, messages, files and calls between the people you invite. It is built on Nostr, an open network, and uses relays, TURN servers and file stores that you can choose; some of those are run by us by default, and you can point a room at others instead.</p>
+<p>By using KithMoot you agree to these terms. If we change them, we will say so on the site before the change takes effect. These terms do not take away any rights you have by law as a consumer.</p>
+
+<h2>2. Who can use the service</h2>
+<ul>
+<li><strong>Anyone with a room's link can join that room.</strong> There is no sign-up, no account requirement, and no central membership list. A room's link is a capability: whoever holds it can use it.</li>
+<li><strong>Signing in with a Nostr key is optional.</strong> It lets your room bookmarks and settings follow you between devices. It is not required to create, join or use a room.</li>
+<li><strong>Age.</strong> KithMoot has not yet set a minimum age. See our <a href="/report/">report page</a> if you believe a child is at risk on the service.</li>
+</ul>
+
+<h2>3. Rooms, links and who is responsible for them</h2>
+<ul>
+<li>A room's link is its access control. Whoever creates a room decides who to send it to, and is responsible for who they invite.</li>
+<li>Changing an invitation stops future use of the old one by cooperating clients. It does not remove people already admitted.</li>
+<li>A "kept" room, run by a keeper on their own computer or server, can name hosts who remove members or close the room. Removal changes the room's key for everyone still in it, but it cannot erase a message someone already received on their device.</li>
+<li>We cannot see who is in your room, or what your room contains. Everything meaningful in a room is end-to-end encrypted; we have no membership list and no content to review (section 6).</li>
+</ul>
+
+<h2>4. Your identity and your keys</h2>
+<ul>
+<li>Your Nostr key, if you use one, is yours. We never ask you to send your private key to us.</li>
+<li>A per-device, per-room key is the default if you do not sign in with Nostr. It is generated on your device and is not linked to any account.</li>
+<li>We cannot recover a lost key, a lost room link, or a lost device pairing for you.</li>
+</ul>
+
+<h2>5. What is not allowed</h2>
+<p>You must not use KithMoot, or any of the default infrastructure we run for it (relays, TURN, the default file store, the default drop tier), for:</p>
+<ol>
+<li>unlawful or harmful content, including anything terrorist, anything that sexually exploits or abuses children, and anything that encourages suicide or self-harm;</li>
+<li>harassment or abuse, including threats, bullying, stalking and hate, whether inside a room or aimed at another person through it;</li>
+<li>infringing other people's rights, including copyright and other people's private information;</li>
+<li>scams or fraud, including pretending to be someone else to gain a person's trust in a room;</li>
+<li>abusing the default infrastructure itself: minting TURN credentials or posting to the default drop tier for any purpose other than using KithMoot as intended, or running automated load against any default endpoint;</li>
+<li>disrupting or exploiting the service, including malware and getting round rate limits or access controls.</li>
+</ol>
+
+<h2>6. What we can see, and what we cannot</h2>
+<p>Read this section before relying on anything else in these terms about reports or removal.</p>
+<ul>
+<li><strong>We cannot read your messages, your files, or your calls.</strong> Rooms are end-to-end encrypted; the traffic key never leaves the room's own link and the devices in it.</li>
+<li><strong>What relays, forwarders and TURN servers see instead:</strong> event kinds, device public keys, opaque room selectors, timing and the size of what is sent. Not who a person is, and not what was said.</li>
+<li><strong>What we can act on, when something is reported to us, is metadata:</strong> a room link, an event id, a file hash, a pubkey, and your account of what happened. Our report-handling process is documented in the project's source repository, and describes exactly what each action does and does not do, surface by surface. We will not promise a capability we do not have.</li>
+<li>One default relay is operated by us, alongside independent public relays a room may also use. On that relay, and only that one, we have relay-operator-level control over what it stores and serves. We have no such control over other relays, including the other two defaults, or over any relay a room's creator chooses instead.</li>
+<li>The default file store accepts only sealed, encrypted files it cannot itself read or display. It cannot serve a viewable image, video or document under any circumstances.</li>
+</ul>
+
+<h2>7. Reporting content and complaints</h2>
+<p>Write to <a href="mailto:abuse@forgesworn.dev">abuse@forgesworn.dev</a>, or use the <a href="/report/">report page</a>, to report illegal content or abuse connected with KithMoot. You do not need an account to report to us.</p>
+<p><strong>Complaints.</strong> If you reported something and are unhappy with what we did, or think we removed or restricted something wrongly, write to the same address and say what happened. We acknowledge, look at it again, and tell you what we decided. If you are not satisfied, you can contact Ofcom, which regulates online safety, or seek independent advice.</p>
+
+<h2>8. Removing access</h2>
+<p>We may take default infrastructure we control offline for a room, a credential, or a specific hash, or block a pubkey where the underlying software allows it, at our discretion, for example to act on a report or to protect people. This is a metadata-level action; it never involves us reading room content, because we cannot. Nothing here reaches a room's own key holders, a keeper's own infrastructure, or a self-hosted deployment of KithMoot, none of which we control.</p>
+
+<h2>9. Our responsibility to you</h2>
+<ul>
+<li>We provide the service as it is, and we are improving it all the time. We do our best to keep the default infrastructure running, but we cannot promise it will always be available.</li>
+<li>We are not responsible for what other people say, share or do in a room, because we cannot see it and cannot pre-review it.</li>
+<li>If you self-host KithMoot or run your own keeper, relay, TURN server or file store, these terms cover only the default infrastructure we run; your own deployment is your own responsibility.</li>
+<li>Nothing in these terms limits or excludes our liability for death or personal injury caused by our negligence, for fraud or fraudulent misrepresentation, or for anything else the law does not allow us to limit.</li>
+</ul>
+
+<h2>10. Privacy</h2>
+<p>How we handle personal data is in our <a href="/privacy/">privacy notice</a>.</p>
+
+<h2>11. Law</h2>
+<p>These terms are governed by the law of England and Wales.</p>
+
+<h2>12. Contact</h2>
+<p>ForgeSworn. Content, safety and reports: <a href="mailto:abuse@forgesworn.dev">abuse@forgesworn.dev</a>.</p>
+</section>
+</main>
+<footer class="wrap"><a class="brand" href="/">KithMoot</a><p>Made by <a href="https://forgesworn.dev/">Forgesworn</a>. Open source under the MIT licence.</p><nav aria-label="Source and support"><a href="https://github.com/forgesworn/kithmoot">Source code</a><a href="https://github.com/forgesworn/kithmoot/issues">Report an issue</a><a href="/terms/" aria-current="page">Terms</a><a href="/privacy/">Privacy notice</a><a href="/report/">Report abuse</a></nav></footer>
+</body></html>
