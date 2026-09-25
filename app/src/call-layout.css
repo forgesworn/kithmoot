@@ -330,3 +330,25 @@
 }
 .callViewPanel label { display: flex; align-items: center; gap: .45rem; margin: 0; font-weight: 400; min-height: 28px; }
 .callViewPanel input { margin: 0; width: 1rem; height: 1rem; }
+
+/* High contrast (Windows contrast themes, forced colours in the browser).
+   The browser drops every box-shadow and repaints every background in this
+   mode, which took the whole speaking cue with it: no ring, and a label
+   indistinguishable from anyone else's. An outline survives, and the
+   system's own Highlight pair is the colour the person chose to stand out,
+   so the cue uses those instead of ours. */
+@media (forced-colors: active) {
+  .participant.speaking,
+  #room[data-layout] > .participant.speaking,
+  #room[data-layout] > .participant[data-floating].speaking {
+    outline: var(--speak-ring-width) solid Highlight;
+    outline-offset: 2px;
+  }
+  .participant.speaking > h3,
+  #room[data-layout] > .participant.speaking > h3,
+  .callChip.speaking {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}
