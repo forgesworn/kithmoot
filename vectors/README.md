@@ -132,6 +132,7 @@ directly, with no reimplementation involved.
 | `chatMention` | who a message addresses, on the wire and by the legacy name match, and what an agent answers to | `src/messages.ts` |
 | `chatInvite` | a DM room's link sealed to one member, opened by the pair and nobody else; a two-member policy | `src/dm.ts`, `src/access.ts` |
 | `readPosition` | a participant's read positions per room: the derived `d` tag, the record, its refusals, and the merge | `src/read-position.ts` |
+| `callBell` | the kind-1464 bell a closed phone waits for: the daily `d` tag, a start and an end, and the six ways a reader refuses one | `src/call-bell.ts` |
 
 **A note on scope:** the brief for stage 1 described the join URL as
 carrying "secret + relays + ICE list". The join URL does not carry an ICE
@@ -482,6 +483,11 @@ addressed by `everyone`, and Tally as an agent is too. `chatInvite/invite` opens
 for the addressee and for the sender's own other devices, and for nobody
 else without a decrypt being tried. `readPosition` derives its `d` tag from
 the room key so a relay cannot tie the record to a room id it carries.
+`callBell` pins what a relay may not learn: every event is signed by a
+recorded throwaway key, never `DEVICE_A`, and its only tags are the daily
+rendezvous and `expiration`. The device's own signature is inside the
+ciphertext, and `bad-signature` is the case that keeps a bell from being
+pinned on a device that did not ring it.
 
 ## What the four earlier groups exist to pin
 
