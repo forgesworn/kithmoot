@@ -8,7 +8,7 @@
 
 ## 1. How a notice arrives
 
-- **Email: `abuse@forgesworn.dev`.** `[OWNER TO DO: create this mailbox
+- **Email: `abuse@safety.forgesworn.dev`.** `[OWNER TO DO: create this mailbox
   before this runbook, the terms or the privacy notice can be relied on.
   Nothing in this repository creates it.]`
 - **The `/report/` page** (`site/report/index.html`, this PR), which tells
@@ -231,6 +231,6 @@ role; it is the NCA's and the IWF's.
 ## 7. Who does this
 
 `[DECISION: name the role, matching ICU A2 in the illegal content risk
-assessment. A role, not a name.]` Until named, `abuse@forgesworn.dev`
+assessment. A role, not a name.]` Until named, `abuse@safety.forgesworn.dev`
 should be monitored by whoever the owner designates, and this document
 updated once it is.

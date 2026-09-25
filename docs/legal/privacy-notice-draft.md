@@ -10,7 +10,7 @@ KithMoot is run by **ForgeSworn**. For UK data protection law we are the
 controller of the personal data described here, to the extent described
 below (most of what happens in a room is not something we hold at all —
 see section 2). Contact us about anything in this notice at
-`abuse@forgesworn.dev`.
+`abuse@safety.forgesworn.dev`.
 
 `[DECISION: whether ForgeSworn pays the ICO data protection fee.]`
 
@@ -177,7 +177,7 @@ identifiable to you (for example, an email you sent us), you can ask us to:
 - delete it;
 - restrict or stop using it.
 
-Write to `abuse@forgesworn.dev`. We will answer within one month.
+Write to `abuse@safety.forgesworn.dev`. We will answer within one month.
 
 **Content in a room.** We cannot delete a message, a file, or a call
 recording (if a keeper's own setup makes one) from a room, because we
@@ -210,7 +210,7 @@ docs/legal/childrens-access-assessment-draft.md.]` We do not knowingly
 collect personal information from children, and in practice we hold
 almost no personal information from anyone (section 2). If you think a
 child has given us personal information through a report or an email,
-contact us at `abuse@forgesworn.dev` and we will delete it.
+contact us at `abuse@safety.forgesworn.dev` and we will delete it.
 
 ## 10. Automated decisions
 

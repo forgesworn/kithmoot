@@ -9,7 +9,7 @@
 
 These terms apply when you use KithMoot: its website, its web app, and its
 desktop and Android apps. KithMoot is run by **ForgeSworn** ("we", "us").
-You can reach us at `abuse@forgesworn.dev` for anything to do with content,
+You can reach us at `abuse@safety.forgesworn.dev` for anything to do with content,
 safety or reports, and `[general contact address]` for anything else.
 
 KithMoot is an encrypted workspace: rooms, messages, files and calls
@@ -117,7 +117,7 @@ reports or removal.
 
 ## 7. Reporting content and complaints
 
-Write to **`abuse@forgesworn.dev`**, or use the `/report/` page, to report
+Write to **`abuse@safety.forgesworn.dev`**, or use the `/report/` page, to report
 illegal content or abuse connected with KithMoot. Tell us:
 
 - the room link, if you have or can share one, or the context you
@@ -177,5 +177,5 @@ These terms are governed by the law of England and Wales.
 
 ## 12. Contact
 
-**ForgeSworn.** Content, safety and reports: `abuse@forgesworn.dev`.
+**ForgeSworn.** Content, safety and reports: `abuse@safety.forgesworn.dev`.
 `[general contact address]`.

@@ -268,7 +268,7 @@ file store cannot serve viewable media.
 | --- | --- | --- | --- |
 | ICU A2 | A named person (role) accountable for illegal content and for reporting and complaints | None named | `[DECISION]`: name a role |
 | ICU C1/C2 | A content moderation function; swift takedown of illegal content | No content exists to moderate (E2EE); metadata-level actions exist per surface, unevenly (`docs/legal/report-handling.md`) | Confirm and communicate the honest limit: this is a metadata-and-referral function, not a content-review function |
-| ICU D1/D2 | Let users and affected people report content and complain, in a way that is easy to find and use | An `abuse@forgesworn.dev` mailbox, once created (item 7 of this record's README), plus the `/report/` page | Build/confirm; keep it reachable without an account |
+| ICU D1/D2 | Let users and affected people report content and complain, in a way that is easy to find and use | An `abuse@safety.forgesworn.dev` mailbox, once created (item 7 of this record's README), plus the `/report/` page | Build/confirm; keep it reachable without an account |
 | ICU D7 | Act on complaints about suspected illegal content | Not yet written down | `docs/legal/report-handling.md` |
 | ICU G1/G3 | Terms say, clearly, how people are protected from illegal content | No terms today | `docs/legal/terms-draft.md` |
 | ICU H1 | Remove accounts of proscribed organisations | No accounts exist to remove in the ordinary sense (per-device, per-room keys); a room or link can be shut down | Add to the report-handling runbook |
@@ -318,7 +318,7 @@ file store cannot serve viewable media.
 1. The named role accountable (ICU A2).
 2. Whether to build any operator-side removal capability beyond what the
    underlying software already exposes (section 6.2, items 2 and 3).
-3. Confirm the `abuse@forgesworn.dev` mailbox exists and is monitored
+3. Confirm the `abuse@safety.forgesworn.dev` mailbox exists and is monitored
    before relying on this record or the terms that reference it.
 
 Still to do: the evidence marked `[INPUT]`.

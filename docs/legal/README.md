@@ -20,7 +20,7 @@ been reviewed by a lawyer.
 
 ## Before any of this is true
 
-1. **Create the `abuse@forgesworn.dev` mailbox.** Every one of these
+1. **Create the `abuse@safety.forgesworn.dev` mailbox.** Every one of these
    documents refers to it. Nothing in this repository creates it.
 2. **Read and adopt the assessments and drafts**, or send them for legal
    review first. They are written honestly, including the gaps, but an AI
