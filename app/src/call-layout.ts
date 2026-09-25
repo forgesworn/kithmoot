@@ -244,33 +244,43 @@ function bottomOf(rects: readonly Rect[]): number {
 }
 
 /**
- * A stage and a strip of `count` equal tiles. Beside the stage in a wide
- * room, under it in a tall one. The strip grows a second or third column
- * (or row) before its tiles shrink below the floor, and runs past the
- * bottom of the room only after that.
+ * A stage and a strip of `count` equal tiles: beside the stage or under it,
+ * whichever leaves the bigger 16:9 picture on the stage. The strip grows a
+ * second or third column (or row) before its tiles shrink below the floor,
+ * and runs past the bottom of the room only after that.
  */
 export function splitStage(area: Rect, count: number, gap = TILE_GAP): { stage: Rect; strip: Rect[] } {
   if (count === 0) return { stage: area, strip: [] }
-  const wide = area.height > 0 && area.width / area.height >= 1.25
-  if (wide) {
-    const tileWidth = Math.max(STRIP_MIN_WIDTH, Math.min(STRIP_MAX_WIDTH, Math.round(area.width * 0.2)))
-    const tileHeight = Math.floor(tileWidth / TILE_ASPECT)
-    const perColumn = Math.max(1, Math.floor((area.height + gap) / (tileHeight + gap)))
-    const columns = Math.min(3, Math.ceil(count / perColumn))
-    const rows = Math.ceil(count / columns)
-    const stripWidth = columns * tileWidth + (columns - 1) * gap
-    const stage: Rect = { x: area.x, y: area.y, width: Math.max(0, area.width - stripWidth - gap), height: area.height }
-    const blockHeight = rows * tileHeight + (rows - 1) * gap
-    const top = area.y + Math.max(0, Math.floor((area.height - blockHeight) / 2))
-    const left = area.x + area.width - stripWidth
-    const strip: Rect[] = []
-    for (let i = 0; i < count; i++) {
-      const row = i % rows
-      const column = Math.floor(i / rows)
-      strip.push({ x: left + column * (tileWidth + gap), y: top + row * (tileHeight + gap), width: tileWidth, height: tileHeight })
-    }
-    return { stage, strip }
+  const side = sideStrip(area, count, gap)
+  const under = underStrip(area, count, gap)
+  const size = (option: { stage: Rect }) => {
+    const box = fitRect(option.stage, TILE_ASPECT)
+    return box.width * box.height
   }
+  return size(under) > size(side) ? under : side
+}
+
+export function sideStrip(area: Rect, count: number, gap: number): { stage: Rect; strip: Rect[] } {
+  const tileWidth = Math.max(STRIP_MIN_WIDTH, Math.min(STRIP_MAX_WIDTH, Math.round(area.width * 0.2)))
+  const tileHeight = Math.floor(tileWidth / TILE_ASPECT)
+  const perColumn = Math.max(1, Math.floor((area.height + gap) / (tileHeight + gap)))
+  const columns = Math.min(3, Math.ceil(count / perColumn))
+  const rows = Math.ceil(count / columns)
+  const stripWidth = columns * tileWidth + (columns - 1) * gap
+  const stage: Rect = { x: area.x, y: area.y, width: Math.max(0, area.width - stripWidth - gap), height: area.height }
+  const blockHeight = rows * tileHeight + (rows - 1) * gap
+  const top = area.y + Math.max(0, Math.floor((area.height - blockHeight) / 2))
+  const left = area.x + area.width - stripWidth
+  const strip: Rect[] = []
+  for (let i = 0; i < count; i++) {
+    const row = i % rows
+    const column = Math.floor(i / rows)
+    strip.push({ x: left + column * (tileWidth + gap), y: top + row * (tileHeight + gap), width: tileWidth, height: tileHeight })
+  }
+  return { stage, strip }
+}
+
+export function underStrip(area: Rect, count: number, gap: number): { stage: Rect; strip: Rect[] } {
   const tileHeight = Math.max(Math.floor(STRIP_MIN_WIDTH / TILE_ASPECT), Math.min(Math.floor(STRIP_MAX_WIDTH / TILE_ASPECT), Math.round(area.height * 0.2)))
   const tileWidth = Math.floor(tileHeight * TILE_ASPECT)
   const perRow = Math.max(1, Math.floor((area.width + gap) / (tileWidth + gap)))
@@ -374,12 +384,12 @@ export class Throttle {
   }
 }
 
-/** Initials for a tile with no picture: up to two letters, from the words
- *  of a name. */
+/** Initials for a tile with no picture: the first letter of the first and
+ *  last words of a name, or of its only word. */
 export function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean)
   if (words.length === 0) return '?'
-  const letters = words.length === 1 ? [...words[0]].slice(0, 2) : [[...words[0]][0], [...words[words.length - 1]][0]]
+  const letters = words.length === 1 ? [[...words[0]][0]] : [[...words[0]][0], [...words[words.length - 1]][0]]
   return letters.join('').toUpperCase()
 }
 

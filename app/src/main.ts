@@ -25,6 +25,7 @@ import { installReactionHold } from './reaction-hold.js'
 import { splitLinks } from './linkify.js'
 import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
+import { installCallStage } from './call-stage.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
@@ -221,6 +222,8 @@ const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.
 const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
 installReactionHold($('chatLog'))
+// Where every tile goes on a desktop-sized call. See app/src/call-stage.ts.
+installCallStage($('room'), $('whoIsHere'))
 for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(positionReactionDetails)
 }, { passive: true })
@@ -4959,6 +4962,8 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
     // Everything but the media holders is rebuilt from the roster; the
     // holders stay exactly where they are unless they have emptied.
     for (const child of [...box.children]) {
+      // The call stage's own controls (see call-stage.ts) are its to keep.
+      if (child.hasAttribute('data-call-layout')) continue
       if (!child.classList.contains('media') || child.childElementCount === 0) child.remove()
     }
     box.className = 'participant'
@@ -4972,9 +4977,13 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
     // already lit rather than waiting for the next poll to notice.
     const tileDevices = view.participant === me ? [LOCAL_SPEAKING_KEY] : view.devices
     box.dataset.devices = tileDevices.join(' ')
+    // Read by the call stage: who this tile is, and what to call them.
+    box.dataset.participant = view.participant
+    box.dataset.self = String(view.participant === me)
     if (tileDevices.some((d) => speakingMonitor.isSpeaking(d))) box.classList.add('speaking')
 
     const shown = shownAs(view.participant, view.name)
+    box.dataset.name = shown.name ?? shown.short
 
     const heading = document.createElement('h3')
     // The picture comes with the identity run now, ringed by what this

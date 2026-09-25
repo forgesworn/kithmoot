@@ -163,6 +163,9 @@ function clearFit(room: HTMLElement): void {
  * a run that changes nothing observes nothing and cannot feed itself.
  */
 export function fitShares(room: HTMLElement, bottom: number): void {
+  // The call stage (call-stage.ts) places every share itself, and the
+  // pixels it writes are not this function's to take off.
+  if (room.hasAttribute('data-layout')) return
   const tiles = [...room.children].filter((child): child is HTMLElement => child instanceof HTMLElement)
   const sharers = tiles.filter(isSharer)
   // Narrow the installed window past the desktop breakpoint and the room

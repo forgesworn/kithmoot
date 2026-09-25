@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   ActiveSpeaker, ANNOUNCE_KEY, CORNER_KEY, HIDE_SELF_KEY, MIN_TILE_WIDTH, TILE_ASPECT, TILE_GAP, Throttle, VIEW_KEY,
-  bestGrid, cornerRect, effectiveMode, fitRect, gridRects, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref, splitStage,
+  bestGrid, cornerRect, effectiveMode, fitRect, gridRects, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref, sideStrip, splitStage, underStrip,
   type Rect,
 } from './call-layout.js'
 
@@ -151,9 +151,20 @@ describe('layoutCall', () => {
     expect(same([...out.people.values(), out.shares.get('s')!])).toBe(true)
   })
 
-  test('a tall room puts the strip underneath', () => {
-    const { stage, strip } = splitStage({ x: 0, y: 0, width: 700, height: 900 }, 4)
-    for (const tile of strip) expect(tile.y).toBeGreaterThanOrEqual(stage.y + stage.height)
+  test('a tall room puts the strip underneath, a wide one beside', () => {
+    const tall = splitStage({ x: 0, y: 0, width: 700, height: 900 }, 4)
+    for (const tile of tall.strip) expect(tile.y).toBeGreaterThanOrEqual(tall.stage.y + tall.stage.height)
+    const wide = splitStage({ x: 0, y: 0, width: 1600, height: 700 }, 4)
+    for (const tile of wide.strip) expect(tile.x).toBeGreaterThanOrEqual(wide.stage.x + wide.stage.width)
+  })
+
+  test('the strip goes wherever it leaves the bigger stage', () => {
+    const area16x9 = (stage: Rect) => { const box = fitRect(stage, TILE_ASPECT); return box.width * box.height }
+    for (const [width, height, count] of [[790, 430, 7], [1200, 700, 5], [900, 700, 9], [1400, 500, 3], [700, 900, 4]]) {
+      const area = { x: 0, y: 0, width, height }
+      const chosen = area16x9(splitStage(area, count).stage)
+      expect(chosen, `${width}x${height} with ${count}`).toBe(Math.max(area16x9(sideStrip(area, count, TILE_GAP).stage), area16x9(underStrip(area, count, TILE_GAP).stage)))
+    }
   })
 
   test('a crowded gallery scrolls rather than shrinking below the floor', () => {
@@ -241,7 +252,7 @@ test('Throttle lets one through per gap', () => {
 
 test('initials', () => {
   expect(initialsOf('Ada Lovelace')).toBe('AL')
-  expect(initialsOf('bob')).toBe('BO')
+  expect(initialsOf('bob')).toBe('B')
   expect(initialsOf('  ')).toBe('?')
   expect(initialsOf('Jean Luc Picard')).toBe('JP')
 })
