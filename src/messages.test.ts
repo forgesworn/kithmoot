@@ -77,6 +77,7 @@ describe('mentions', () => {
 
 describe('reachesReader', () => {
   const agentRoster = [{ participant: ROWAN, name: 'Bot', agent: true }]
+  const OWNER = { agent: ROWAN, principal: ADA, issuedAt: 0, sig: 'x' }
 
   it('counts an ordinary message from a person', () => {
     expect(reachesReader(msg('m1', ROWAN, 'hi', 100), TALLY)).toBe(true)
@@ -95,13 +96,30 @@ describe('reachesReader', () => {
     expect(reachesReader(msg('m1', ROWAN, 'done', 100, { mentions: [EVERYONE] }), TALLY, agentRoster)).toBe(false)
   })
 
+  it('counts a reply to the viewer’s own message as addressing them, agent or not', () => {
+    const reply = refOf(msg('root', TALLY, 'question', 90))
+    expect(reachesReader(msg('m1', ROWAN, 'here you go', 100, { reply }), TALLY, agentRoster)).toBe(true)
+    // A reply to somebody else is not a reply to the viewer.
+    expect(reachesReader(msg('m1', ROWAN, 'here you go', 100, { reply: refOf(msg('root', ADA, 'q', 90)) }), TALLY, agentRoster)).toBe(false)
+  })
+
   it('never counts the viewer’s own message, agent or not', () => {
     expect(reachesReader(msg('m1', TALLY, 'hi', 100), TALLY)).toBe(false)
     expect(reachesReader(msg('m1', TALLY, 'hi', 100), TALLY, [{ participant: TALLY, agent: true }])).toBe(false)
   })
 
-  it('treats a sender absent from the roster as a person', () => {
+  it('treats a sender absent from the roster, with no owner claim, as a person', () => {
     expect(reachesReader(msg('m1', ROWAN, 'hi', 100), TALLY, [])).toBe(true)
+  })
+
+  it('knows a sender is an agent from `owner` or `ownerClaim` alone, roster or no roster', () => {
+    // Gone from the roster - read out of history, exactly the stale-agent
+    // case a presence-only check misses.
+    expect(reachesReader(msg('m1', ROWAN, 'over to you', 100, { owner: OWNER }), TALLY, [])).toBe(false)
+    expect(reachesReader(msg('m1', ROWAN, 'over to you', 100, { ownerClaim: OWNER }), TALLY, [])).toBe(false)
+    expect(reachesReader(msg('m1', ROWAN, 'hi', 100, { owner: OWNER, mentions: [TALLY] }), TALLY, [])).toBe(true)
+    // The roster still works when neither field is carried.
+    expect(reachesReader(msg('m1', ROWAN, 'over to you', 100), TALLY, agentRoster)).toBe(false)
   })
 })
 

@@ -159,24 +159,34 @@ export function isConversation(m: ChatMessage): boolean {
 /**
  * Whether a message is one the viewer should be told about, as opposed to
  * noise: never their own message, and, when the sender is an agent, only
- * when it names the viewer directly rather than the whole room. Two agents
- * talking on a shared channel can run for as long as they like without
- * troubling anybody's unread count; a room-wide `everyone` call from an
- * agent is the same broadcast and does not count either. A sender absent
- * from `roster` - gone before this device could hear of them - is treated
- * as a person, since nothing here says otherwise.
+ * when it addresses the viewer directly - by reply or by mention - rather
+ * than the whole room. Two agents talking on a shared channel can run for
+ * as long as they like without troubling anybody's unread count; a
+ * room-wide `everyone` call from an agent is the same broadcast and does
+ * not count either.
+ *
+ * An agent is one whose message carries `owner` or `ownerClaim` - chat is
+ * durable and those ride with the message for exactly this reason, so a
+ * line read out of history is still known to be an agent's once whoever
+ * heard it live has gone - or, failing that, one the roster currently
+ * marks as an agent. The roster is only a fallback: it says nothing about
+ * a message from before this device was watching, or from a sender who has
+ * since left. A sender with neither signal is treated as a person, since
+ * nothing here says otherwise.
  *
  * This is the one place that decides it, so every unread count and
  * notification in the app reaches the same answer.
  */
 export function reachesReader(
-  message: Pick<ChatMessage, 'participant' | 'text' | 'mentions'>,
+  message: Pick<ChatMessage, 'participant' | 'text' | 'mentions' | 'owner' | 'ownerClaim' | 'reply'>,
   self: string,
   roster: readonly Named[] = [],
 ): boolean {
   if (hexEquals(message.participant, self)) return false
   const sender = roster.find((entry) => hexEquals(entry.participant, message.participant))
-  if (sender?.agent !== true) return true
+  const isAgent = message.owner !== undefined || message.ownerClaim !== undefined || sender?.agent === true
+  if (!isAgent) return true
+  if (message.reply && hexEquals(message.reply.participant, self)) return true
   return mentionsOf(message, roster).some((p) => p !== EVERYONE && hexEquals(p, self))
 }
 
