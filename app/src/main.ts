@@ -7106,6 +7106,41 @@ async function copyMessageText(text: string): Promise<boolean> {
  */
 const expandedMessages = new Set<string>()
 
+/** Latest message time already announced, per channel (`''` for the main
+ *  chat). Lets `announceArrivals` tell a genuinely new message from a
+ *  channel's history: the first render of a channel only records this
+ *  high-water mark, and pagination that pulls in older messages never moves
+ *  it forward, so neither reads out anything. */
+const lastAnnouncedAt = new Map<string, number>()
+
+/** Read new arrivals from others into `#chatArrivals`, a status region kept
+ *  apart from `#chatLog` itself (see C10 in the 13 September accessibility
+ *  pass): the log repaints in full on almost every change, and a screen
+ *  reader watching the log as its own live region re-announces everything
+ *  still on screen along with whatever is actually new. Your own messages
+ *  are not announced - you just typed them. */
+function announceArrivals(channelKey: string, conversation: { byKey: Map<string, ResolvedMessage> }): void {
+  const previous = lastAnnouncedAt.get(channelKey)
+  let latest = previous ?? 0
+  const arrivals: string[] = []
+  for (const r of conversation.byKey.values()) {
+    const original = r.original
+    if (original.sentAt > latest) latest = original.sentAt
+    if (previous === undefined || original.sentAt <= previous) continue
+    if (r.retracted || original.participant === meParticipant || r.shown.kind === 'transcript') continue
+    const sender = shownAs(original.participant, original.name).name || 'Somebody'
+    arrivals.push(`${sender}: ${r.shown.text.slice(0, 80)}`)
+  }
+  lastAnnouncedAt.set(channelKey, latest)
+  if (!arrivals.length) return
+  const region = $('chatArrivals')
+  region.textContent = ''
+  // A screen reader treats identical text as no change; the empty text set
+  // first, and this set a tick later, makes the next arrival read out even
+  // when it repeats the words of the one before it.
+  requestAnimationFrame(() => { region.textContent = arrivals.join('; ') })
+}
+
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
   // A receipt or roster update replaces the rows while someone may be
@@ -7521,6 +7556,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   restoreScroll()
   messageActions.refresh()
   restoreReaction?.()
+  if (logId === 'chatLog') announceArrivals(currentChannel ?? '', conversation)
 }
 
 /**

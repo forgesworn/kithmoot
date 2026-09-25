@@ -301,8 +301,14 @@
           <button id="invitePeople" type="button" aria-label="Invite people" aria-haspopup="dialog" aria-controls="inviteDialog">Invite</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
+        <!-- A re-render of the whole log re-announces everything already
+             read if the log itself is the live region. Screen reader users
+             hear only genuinely new arrivals from others, in this separate
+             status; the log's own aria-live is not set. Filled in by
+             `renderLog` in app/src/main.ts. -->
+        <p id="chatArrivals" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
         <div id="chatViewport">
-          <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" aria-live="polite" tabindex="0"></div>
+          <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
         </div>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
