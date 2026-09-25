@@ -4355,6 +4355,7 @@ function renderBackgroundChoices(): void {
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'seg'
+    button.setAttribute('role', 'radio')
     button.dataset.background = choice.id
     button.textContent = choice.label
     button.addEventListener('click', () => {
