@@ -7790,6 +7790,65 @@ function paintSpeaking(): void {
     const devices = (box.dataset.devices ?? '').split(' ').filter(Boolean)
     box.classList.toggle('speaking', devices.some((d) => speaking.has(d)))
   }
+  paintSpeakingLine()
+}
+
+/** How long a name stays on the "Speaking:" line after that person stops -
+ *  long enough to smooth over the gaps inside ordinary speech, without
+ *  leaving the line stuck on somebody who has clearly finished. */
+const SPEAKING_LINE_HOLD_MS = 1000
+
+/** When each name last spoke enough to be held on the line, keyed by
+ *  participant (`LOCAL_SPEAKING_KEY` for this device). Kept across calls to
+ *  `paintSpeakingLine` so a name does not drop the instant its tile's own
+ *  `speaking` class does. */
+const speakingLineHeld = new Map<string, number>()
+let speakingLineTimer: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * The plain-text "Speaking: A, B" line beside the call controls.
+ *
+ * Built from the tiles' own `speaking` class, so it can never disagree with
+ * the ring round a picture - and from their `data-name`, so it says exactly
+ * what the tile's own label says. This device is "You" rather than its own
+ * display name, to match how the tile itself is marked.
+ *
+ * Not an aria-live region, and nothing here writes to one: the owner does
+ * not want speakers announced over a screen reader. It is ordinary text
+ * that a screen reader user can navigate to like any other line - see
+ * `speakerAnnouncement` in call-stage.ts for the separate, opt-in spoken
+ * version.
+ */
+function paintSpeakingLine(): void {
+  const line = document.getElementById('speakingLine')
+  if (!line) return
+  const now = Date.now()
+  for (const box of document.querySelectorAll<HTMLElement>('#room > .participant[data-devices]')) {
+    if (!box.classList.contains('speaking')) continue
+    const key = box.dataset.self === 'true' ? LOCAL_SPEAKING_KEY : box.dataset.participant
+    if (key) speakingLineHeld.set(key, now + SPEAKING_LINE_HOLD_MS)
+  }
+
+  const names: string[] = []
+  let soonest = Infinity
+  for (const [key, until] of speakingLineHeld) {
+    if (until <= now) { speakingLineHeld.delete(key); continue }
+    soonest = Math.min(soonest, until)
+    if (key === LOCAL_SPEAKING_KEY) { names.push('You'); continue }
+    const box = document.querySelector<HTMLElement>(`#room > .participant[data-participant="${CSS.escape(key)}"]`)
+    names.push(box?.dataset.name || 'Somebody')
+  }
+
+  const text = names.length ? `Speaking: ${names.join(', ')}` : ''
+  if (line.textContent !== text) line.textContent = text
+  if (line.hidden !== (names.length === 0)) line.hidden = names.length === 0
+
+  // Nothing else repaints this line when a held name's time is up - a tile
+  // that has gone quiet fires no event of its own - so a timer is set for
+  // whichever name is due off soonest, and cleared and reset every time
+  // this runs rather than left to stack up.
+  if (speakingLineTimer !== undefined) { clearTimeout(speakingLineTimer); speakingLineTimer = undefined }
+  if (soonest !== Infinity) speakingLineTimer = setTimeout(paintSpeakingLine, Math.max(50, soonest - now))
 }
 
 // ---------------------------------------------------------------------------
