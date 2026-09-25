@@ -21,7 +21,7 @@ see section 2). Contact us about anything in this notice at
 - Joining a room needs only its link. We do not run accounts, and most
   people never give us anything we would call personal data.
 - Our default infrastructure (a TURN server, a file store, a drop tier,
-  and one of three default relays) sees connection-level information —
+  and, for rooms whose links name it, a relay we also run) sees connection-level information —
   device keys, IP addresses, timing, sizes — while helping your room
   connect or store a sealed file, and is designed to keep as little of it
   as possible.
@@ -111,15 +111,16 @@ filter by.
 **How long.** Bounded by total size (1 GiB by default), a 30-day maximum
 age, and each wrap's own expiry; oldest-out when the bound is reached.
 
-### 4.4 One default relay we also run
+### 4.4 A relay we also run
 
-Of the relays KithMoot suggests by default, two are independent public
-relays we do not operate, and **one is operated by us.** On that relay we
-can see, for events that pass through it: event kinds, device public keys,
-opaque room selectors, timing and message size — never plaintext content,
-which is encrypted before it reaches any relay. We do not name that
-relay's address in this notice; it is disclosed in the app itself, and a
-room's creator can choose not to use it.
+The relays KithMoot suggests by default are independent public relays we
+do not operate. Until September 2026 one of the defaults was a relay we
+run, and a room whose link was written then still names it. On that relay
+we can see, for events that pass through it: event kinds, device public
+keys, opaque room selectors, timing and message size — never plaintext
+content, which is encrypted before it reaches any relay. We do not name
+that relay's address in this notice; a room's link shows it, and a room's
+creator can remove it from the room's relays.
 
 ### 4.5 Access and error logs on our web server
 

@@ -172,14 +172,14 @@ room link, a pubkey, not the plaintext itself.
    store as free, anonymous, expiring bulk storage — not as a way to
    publish or view illegal media through KithMoot, since nothing it holds
    is servable as media.
-6. **A default relay the operator also runs.** One of the three relays
-   the app suggests by default is operated by the same person who runs
-   this service (the other two are independent public relays). On that one
-   relay, and only that one, the operator has relay-operator-level control
-   (it could, in principle, refuse to store or serve particular events);
-   on the other two default relays, and on any relay a room's creator adds
-   instead, the operator has no control at all. This record does not name
-   that relay's address.
+6. **A relay the operator also runs, no longer a default.** The relays
+   the app suggests by default are independent public relays. Until
+   September 2026 one of the three defaults was a relay the operator runs,
+   and room links written before then still name it. On that relay, and
+   only that one, the operator has relay-operator-level control (it can
+   refuse to store or serve particular events); on the default relays, and
+   on any relay a room's creator adds instead, the operator has no control
+   at all. This record does not name that relay's address.
 7. **No content the operator can review exists for any of this**, by
    design (section 2.1), so "swift takedown of illegal content" as Ofcom's
    Codes measures describe it cannot mean removing a message's *content*
@@ -225,7 +225,7 @@ of the harm to a person; likelihood reflects this service's actual design.
 
 | # | Kind of priority illegal content | Level | Reasoning |
 | --- | --- | --- | --- |
-| 1 | Terrorism | Low | Nothing here can be viewed or found by anyone but a room's own members; a room cannot be discovered, browsed or recommended. The drop tier and default relay carry unreadable ciphertext only |
+| 1 | Terrorism | Low | Nothing here can be viewed or found by anyone but a room's own members; a room cannot be discovered, browsed or recommended. The drop tier and the relay we run carry unreadable ciphertext only |
 | 2 | CSEA: grooming | **Medium** | Private, encrypted, one-to-one and small-group messaging with anonymous, throwaway identity by default is close to the shape Ofcom's guidance treats as the clearest grooming risk. What lowers it from higher: KithMoot is invitation-based, not a public discovery surface a stranger can use to find and approach a child with no prior link at all; there is no public profile browsing or "people near you" feature |
 | 2 | CSEA: image-based CSAM | Low | The default Blossom store cannot serve a viewable file of any kind (2.3); an uploaded envelope is meaningless bytes without the room's key. The risk that remains is the store being used as anonymous bulk storage for material intended for exchange entirely outside KithMoot, which is a real but different risk from CSAM being viewed or distributed *through* the service |
 | 3 | Hate | Low | No public or discoverable surface for it to reach beyond a room's own members |

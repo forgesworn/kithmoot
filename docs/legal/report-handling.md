@@ -36,8 +36,8 @@ Ask the sender for, and act on:
   identifies which relay(s) and TURN server, if any, are involved, and
   whether our default infrastructure is in the path at all.
 - **An event id**, if they have one (visible to a technical user through
-  their own client or a relay's own tooling). Relevant to the default
-  relay we operate (section 3.4).
+  their own client or a relay's own tooling). Relevant to the relay
+  we operate (section 3.4).
 - **A file hash**, if the notice concerns something shared through the
   default Blossom store. Relevant to section 3.2.
 - **A description of what happened and why it is illegal or against the
@@ -140,17 +140,18 @@ misdescribed in the terms.** State it as what it is: an unauthenticated
 surface with no targeted removal capability at all, covered only by an
 untargeted "take it offline" option.
 
-### 3.4 The default relay we also run
+### 3.4 The relay we also run
 
-On the one default relay we operate (never named by hostname in these
-documents; disclosed in the app), we have ordinary relay-operator control:
-we can refuse to store or serve a specific event id, and refuse
-connections or writes from a specific pubkey, using whatever admission and
-moderation features that relay's own software offers. `[INPUT: name the
-relay software in use and its actual delete/ban interface, so this
-section can state a verified capability rather than a generic one.]`
+The relay we operate (never named by hostname in these documents) is no
+longer a default, but rooms whose links were written before September 2026
+still name it. It runs strfry. We can delete a specific event by id with
+`strfry delete --filter '{"ids":["<id>"]}'` on the host, which removes it
+from what the relay stores and serves. Refusing future writes from a
+specific pubkey needs the relay's write-policy ban list, which is drafted
+but not yet deployed: until it is, a ban means deleting that key's events
+and repeating. `[INPUT: update this once the ban list is live.]`
 
-On the two independent default relays, and on any relay a room's creator
+On the independent default relays, and on any relay a room's creator
 adds instead, **we have no control of any kind.** A notice naming content
 on a relay we do not operate can only be forwarded to that relay's own
 abuse contact, if it has one, or answered with the fact that we cannot act

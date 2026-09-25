@@ -67,7 +67,7 @@
 <li><strong>We cannot read your messages, your files, or your calls.</strong> Rooms are end-to-end encrypted; the traffic key never leaves the room's own link and the devices in it.</li>
 <li><strong>What relays, forwarders and TURN servers see instead:</strong> event kinds, device public keys, opaque room selectors, timing and the size of what is sent. Not who a person is, and not what was said.</li>
 <li><strong>What we can act on, when something is reported to us, is metadata:</strong> a room link, an event id, a file hash, a pubkey, and your account of what happened. Our report-handling process is documented in the project's source repository, and describes exactly what each action does and does not do, surface by surface. We will not promise a capability we do not have.</li>
-<li>One default relay is operated by us, alongside independent public relays a room may also use. On that relay, and only that one, we have relay-operator-level control over what it stores and serves. We have no such control over other relays, including the other two defaults, or over any relay a room's creator chooses instead.</li>
+<li>The default relays are independent public relays. Rooms whose links were written before September 2026 may also name a relay we run. On that relay, and only that one, we have relay-operator-level control over what it stores and serves. We have no such control over any other relay, including the defaults, or any relay a room's creator chooses instead.</li>
 <li>The default file store accepts only sealed, encrypted files it cannot itself read or display. It cannot serve a viewable image, video or document under any circumstances.</li>
 </ul>
 

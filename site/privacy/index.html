@@ -30,7 +30,7 @@
 <ul>
 <li>KithMoot's rooms are end-to-end encrypted. We do not hold, and cannot read, your messages, your files, or your calls.</li>
 <li>Joining a room needs only its link. We do not run accounts, and most people never give us anything we would call personal data.</li>
-<li>Our default infrastructure (a TURN server, a file store, a drop tier, and one of three default relays) sees connection-level information while helping your room connect or store a sealed file, and is designed to keep as little of it as possible.</li>
+<li>Our default infrastructure (a TURN server, a file store, a drop tier, and, for rooms whose links name it, a relay we also run) sees connection-level information while helping your room connect or store a sealed file, and is designed to keep as little of it as possible.</li>
 <li>We keep no server-side account, session or membership record for a room. There is nothing to delete on request because there is nothing held.</li>
 <li>We do not sell your data, we do not show adverts, and we do not run analytics or tracking.</li>
 </ul>
@@ -50,8 +50,8 @@
 <p>A file you choose to drop into a room's chat, after you explicitly opt in to shared storage, is sealed in your browser first, then uploaded as an opaque encrypted blob. The store holds the encrypted bytes, their size, and the device key that signed the upload, never the file's name, type or contents. It is kept for up to 90 days from the blob's last fetch, sooner if storage is full.</p>
 <h3>4.3 The default drop tier</h3>
 <p>A bounded relay for one Nostr message kind, accepted from any connection with no authentication, used for quiet delivery. It deliberately keeps no index of who sent or who a delivery was for, so nobody, including us, can look up what belongs to whom. It is bounded by size (1 GiB by default) and a 30-day maximum age.</p>
-<h3>4.4 One default relay we also run</h3>
-<p>Of the relays KithMoot suggests by default, two are independent public relays we do not operate, and one is operated by us. On that relay we can see event kinds, device public keys, opaque room selectors, timing and message size for events that pass through it, never plaintext content, which is encrypted before it reaches any relay.</p>
+<h3>4.4 A relay we also run</h3>
+<p>The relays KithMoot suggests by default are independent public relays we do not operate. Until September 2026 one of the defaults was a relay we run, and a room whose link was written then still names it. On that relay we can see, for events that pass through it: event kinds, device public keys, opaque room selectors, timing and message size, never plaintext content, which is encrypted before it reaches any relay. A room's link shows which relays it uses, and a room's creator can remove that relay from them.</p>
 <h3>4.5 Access and error logs on our web server</h3>
 <p>Our web server is configured to discard access logs for the KithMoot site. <strong>Known gap, stated honestly:</strong> the automatic redirect from plain HTTP to HTTPS may still be recorded by the operating system's own connection logging even though the site's own access log is discarded. We have not independently verified this is fully suppressed, and we say so rather than claim a guarantee we have not checked.</p>
 

@@ -83,7 +83,7 @@ it (relays, TURN, the default file store, the default drop tier), for:
 5. **abusing the default infrastructure itself**: minting TURN credentials
    or posting to the default drop tier for any purpose other than using
    KithMoot as intended, running automated load against any default
-   endpoint, or using the default relay, TURN server or file store to
+   endpoint, or using the relay we run, TURN server or file store to
    relay or store material unconnected to a KithMoot room;
 6. **disrupting or exploiting the service**, including malware and getting
    round rate limits or access controls.
@@ -105,11 +105,11 @@ reports or removal.
   what happened. See `docs/legal/report-handling.md` for exactly what each
   action does and does not do, surface by surface. We will not promise a
   capability we do not have.
-- **One default relay is operated by us**, alongside independent public
-  relays a room may also use. On that relay, and only that one, we have
-  relay-operator-level control over what it stores and serves. We have no
-  such control over other public relays, including the other defaults, or
-  over any relay a room's creator chooses instead.
+- **The default relays are independent public relays.** Rooms whose links
+  were written before September 2026 may also name a relay we run. On that
+  relay, and only that one, we have relay-operator-level control over what
+  it stores and serves. We have no such control over any other relay,
+  including the defaults, or any relay a room's creator chooses instead.
 - **The default file store accepts only sealed, encrypted files it cannot
   itself read or display.** It cannot serve a viewable image, video or
   document under any circumstances; what is stored there is meaningless

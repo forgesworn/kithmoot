@@ -7,7 +7,8 @@ been reviewed by a lawyer.
 
 - [`online-safety-risk-assessment-draft.md`](online-safety-risk-assessment-draft.md)
   — the illegal content risk assessment, covering rooms, calls, the
-  default file store, the default drop tier and the default relay.
+  default file store, the default drop tier and the relay the operator
+  also runs (no longer a default).
 - [`childrens-access-assessment-draft.md`](childrens-access-assessment-draft.md)
   — whether children can and do access KithMoot. Honest answer: they can,
   and we do not have evidence either way on whether they do.
