@@ -20,7 +20,7 @@ describe('device relay preferences', () => {
     expect(currentRoomRelayHints(['wss://relay.primal.net', 'wss://nos.lol'])).toEqual([
       { url: 'wss://relay.primal.net/', read: true, write: true },
       { url: 'wss://nos.lol/', read: true, write: true },
-      { url: 'wss://relay.trotters.cc/', read: true, write: true },
+      { url: 'wss://nostr.mom/', read: true, write: true },
     ])
   })
 

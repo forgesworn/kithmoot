@@ -9,7 +9,7 @@ const STORAGE_KEY = 'kithmoot.relays.v1'
  *  it without being saved. */
 const CIRCLE_KEY = 'kithmoot.circle.v1'
 const LEGACY_PUBLIC_RELAYS = new Set(['wss://nos.lol/', 'wss://relay.primal.net/'])
-const PUBLIC_FALLBACK_RELAY = 'wss://relay.trotters.cc/'
+const PUBLIC_FALLBACK_RELAY = 'wss://nostr.mom/'
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 type RelayHints = (string | RelayConfig)[]
 

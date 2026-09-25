@@ -1582,6 +1582,28 @@ it, or add their own, in relay settings.
 `relay.trotters.cc` runs strfry, does not require NIP-42 auth, and accepts
 messages up to 131072 bytes, checked the day of this change.
 
+## The project's own relay leaves the defaults, 25 September 2026
+
+The third default relay, reinstated on 17 September, is replaced by
+`wss://nostr.mom`. The redundancy argument for a third relay stands; the
+argument for it being one the project runs does not. A relay the maker runs
+and every client names by default makes the maker the operator of a public
+store for everybody's rooms, with the duties that brings, for a benefit any
+well-run public relay provides equally.
+
+`nostr.mom` runs strfry, advertises no auth or payment requirement and a
+131072-byte message limit in its NIP-11 document, and accepted kinds 1460,
+1463 and 1059 from a throwaway key the day of this change. Of the other
+candidates checked the same day, `offchain.pub` refused kind 1059 from a key
+outside its web of trust and `relay.damus.io` was refusing the test machine
+for earlier rate-limit violations.
+
+As before, a room's link carries its own relay list. Rooms whose links were
+written with the previous default still name the old relay until a new
+link is written; the exact old pair of two public relays now gains
+`nostr.mom` as its third route at use time instead. The forwarder and keeper
+install scripts default to the same three relays.
+
 ## Dependencies that run in a call are pinned exactly, 18 September 2026
 
 `@mediapipe/tasks-vision` `1.0.1` (installed under the `^1.0.1` range added

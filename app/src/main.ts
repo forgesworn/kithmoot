@@ -342,18 +342,19 @@ function hasUnsentWork(): boolean {
   return outbox.pending || assignmentPanel.busy || assignmentPanel.hasDrafts || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
 }
 
-// Relays confirmed live for this room kind: two third-party public relays,
-// plus relay.trotters.cc third and last. A publish succeeds when any
-// writable relay in the list acknowledges it (see RelayConnections/publish
-// in relay-pool.ts), so this third relay only ever adds redundancy - it is
-// never the only relay a room has, and a person who wants their own or
-// their circle's box in the list still adds it in relay settings, or reads
-// it off a contact card. Reinstated 17 September 2026 after a real joiner
-// on an iPhone failed to join when both nos.lol and relay.primal.net timed
-// out on publish; see docs/decisions.md. relay.damus.io returned 503 during
-// the stage 2 acceptance run and was dropped for that reason. Change this
-// list, not code elsewhere, if a relay in it goes down again.
-const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://relay.trotters.cc']
+// Relays confirmed live for this room kind: three third-party public relays,
+// none of them run by the project. A publish succeeds when any writable
+// relay in the list acknowledges it (see RelayConnections/publish in
+// relay-pool.ts), so the third relay is the redundancy a joiner needs when
+// both nos.lol and relay.primal.net time out on publish, which happened to a
+// real joiner on an iPhone on 17 September 2026. nostr.mom took that place on
+// 25 September 2026, when the project stopped carrying rooms on a relay of its
+// own; see docs/decisions.md. relay.damus.io returned 503 during the stage 2
+// acceptance run and was dropped for that reason. A person who wants their
+// own or their circle's box in the list still adds it in relay settings, or
+// reads it off a contact card. Change this list, not code elsewhere, if a
+// relay in it goes down again.
+const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom']
 const relayStorage = {
   getItem: (key: string) => localStorage.getItem(key),
   setItem: (key: string, value: string) => localStorage.setItem(key, value),

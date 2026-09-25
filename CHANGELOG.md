@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The default relays are now three third-party public relays: `nostr.mom`
+  replaces the project's own relay as the third. Existing room links keep
+  the relays they name. See `docs/decisions.md`.
 - **An epoch request proves admission.** Wire change, additive: the kind
   20468 body keeps `v: 1` and gains a required `admission` field, an HMAC
   under a key derived from the epoch-0 room key over the room, the
