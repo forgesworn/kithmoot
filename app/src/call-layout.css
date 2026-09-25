@@ -1,0 +1,308 @@
+/* The call stage on a desktop-sized window. See app/src/call-stage.ts for
+   what writes the numbers and app/src/call-layout.ts for how they are
+   chosen.
+
+   `#room[data-layout]` is only ever set above 700px wide and 540px tall;
+   everything here is scoped to it, so the phone layouts in style.css
+   (`#roomArea[data-mobile-view]`) never see a rule from this file. */
+
+/* The speaking cue, in one place.
+
+   Not colour alone (WCAG 1.4.1): the ring gets thicker AND the name label
+   under the picture turns from a translucent plate to a solid one. To turn
+   the cue round - a dark label going light, say, or the ring going inside
+   the tile - change these and nothing else. The label pair measures 7.6:1,
+   and the same pair is used in both themes because it sits on a picture,
+   not on the page. The ring is `--ok`, which is at least 3:1 against both
+   the page and a black picture in either theme. */
+:root {
+  --speak-ring-width: 4px;
+  --speak-ring: var(--ok);
+  --speak-label-bg: #17602f;
+  --speak-label-fg: #ffffff;
+  --speak-label-weight: 700;
+
+  --tile-radius: 10px;
+  --tile-bg: #24262c;
+  --tile-initials-bg: #3a3d45;
+  --tile-initials-fg: #f2efe8;
+  --tile-label-bg: rgb(0 0 0 / 62%);
+  --tile-label-fg: #ffffff;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --tile-bg: #e4dfd4;
+    --tile-initials-bg: #c9c2b4;
+    --tile-initials-fg: #1b1915;
+  }
+}
+
+/* Everywhere a tile is drawn, phones included. */
+.participant.speaking {
+  box-shadow: 0 0 0 var(--speak-ring-width) var(--speak-ring);
+}
+.participant.linked.speaking {
+  box-shadow:
+    0 0 0 1px var(--accent) inset,
+    0 0 0 var(--speak-ring-width) var(--speak-ring);
+}
+.participant.speaking > h3 {
+  background: var(--speak-label-bg);
+  color: var(--speak-label-fg);
+  font-weight: var(--speak-label-weight);
+  border-radius: 6px;
+}
+.participant.speaking > h3 :is(.pubkey, .nip05, .devices) { color: inherit; }
+.callChip.speaking {
+  background: var(--speak-label-bg);
+  color: var(--speak-label-fg);
+  border-color: var(--speak-ring);
+  box-shadow: 0 0 0 calc(var(--speak-ring-width) - 2px) var(--speak-ring);
+}
+
+/* --- The stage -------------------------------------------------------- */
+
+/* A browser tab has no fixed height to divide up, so the stage takes most
+   of the window and the conversation carries on underneath. The installed
+   window's flex column (desktop.css) stretches or shrinks it to fit. */
+#room[data-layout] {
+  display: block;
+  position: relative;
+  height: clamp(20rem, calc(100dvh - var(--call-stage-top, 21rem) - 1rem), 64rem);
+  min-height: 0;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* The room is scrolled only by a person: the browser's scroll anchoring
+     would otherwise scroll it to chase a tile that moved. And the gutter
+     is kept, so a strip starting to overflow cannot resize the room. */
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+}
+
+#room[data-layout] > .participant {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--tile-radius);
+  background: var(--tile-bg);
+  display: block;
+  overflow: visible;
+  min-width: 0;
+  max-width: none;
+  box-shadow: none;
+  transition: box-shadow 120ms ease-out, left 160ms ease, top 160ms ease, width 160ms ease, height 160ms ease;
+}
+/* The stage is moved with the room's scroll (call-stage.ts): an easing on
+   it would make the speaker lag behind every scroll. */
+#room[data-layout]:is([data-layout="speaker"], [data-layout="share"]) > .participant[data-featured] { transition: box-shadow 120ms ease-out; }
+#room[data-layout] > .participant.linked { box-shadow: 0 0 0 1px var(--accent) inset; }
+#room[data-layout] > .participant.speaking { box-shadow: 0 0 0 var(--speak-ring-width) var(--speak-ring); z-index: 1; }
+#room[data-layout] > .participant.linked.speaking {
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 0 0 var(--speak-ring-width) var(--speak-ring);
+}
+@media (prefers-reduced-motion: reduce) {
+  #room[data-layout] > .participant { transition: none; }
+}
+
+/* Nobody's picture: their initials, in the middle of the same box a camera
+   would fill. Under the picture, so a camera that comes on simply covers it. */
+#room[data-layout] > .participant::before {
+  content: attr(data-initials);
+  position: absolute;
+  left: 50%;
+  /* A little above the middle, clear of the name label on a small tile. */
+  top: calc(50% - .6rem);
+  transform: translate(-50%, -50%);
+  width: clamp(2rem, calc(var(--tile-h, 120px) * .4), 8rem);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--tile-initials-bg);
+  color: var(--tile-initials-fg);
+  font: 600 clamp(.9rem, calc(var(--tile-h, 120px) * .15), 2.8rem) / 1 system-ui, sans-serif;
+  letter-spacing: .02em;
+  pointer-events: none;
+}
+
+/* Every holder covers the whole tile, and is positioned, so a share's
+   marks overlay (share-viewer.ts) measures from it rather than making it
+   `relative` and moving everything inside. */
+#room[data-layout] > .participant > .media {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: block;
+  border-radius: inherit;
+}
+#room[data-layout] > .participant > .media::before { content: none; display: none; }
+#room[data-layout] > .participant > .media > video:not(.screenPreview) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: cover;
+  border-radius: inherit;
+  background: transparent;
+  margin: 0;
+}
+/* A second device's camera in the same person's tile: a small picture in
+   its corner rather than half of the box. */
+#room[data-layout] > .participant > .media:has(> video:not(.screenPreview)) ~ .media > video:not(.screenPreview) {
+  inset: 8px 8px auto auto;
+  width: 30%;
+  height: 30%;
+  z-index: 1;
+  border-radius: 6px;
+  outline: 2px solid var(--tile-bg);
+}
+/* A shared screen, wherever its place is: the numbers are written on by
+   call-stage.ts, measured from its owner's tile. */
+#room[data-layout] > .participant > .media > video.screenPreview {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: contain;
+  background: transparent;
+  margin: 0;
+  border-radius: 6px;
+  z-index: 0;
+}
+#room[data-layout] > .participant > .media > .shareMarks { z-index: 1; }
+
+/* The name, on the picture. */
+#room[data-layout] > .participant > h3 {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  max-width: calc(100% - 16px);
+  margin: 0;
+  padding: .15rem .5rem;
+  border-radius: 6px;
+  background: var(--tile-label-bg);
+  color: var(--tile-label-fg);
+  font: 500 .8rem/1.35 system-ui, sans-serif;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
+}
+#room[data-layout] > .participant.speaking > h3 {
+  background: var(--speak-label-bg);
+  color: var(--speak-label-fg);
+  font-weight: var(--speak-label-weight);
+}
+#room[data-layout] > .participant > h3 * { color: inherit; }
+#room[data-layout] > .participant > h3 .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: system-ui, sans-serif; }
+#room[data-layout] > .participant > h3 :is(.devices, .pubkey, .nip05, .idkind) { display: none; }
+#room[data-layout] > .participant > h3 :is(.badge, .verifyChip, button) { font-size: .7rem; padding: 0 .3rem; flex: 0 0 auto; background: transparent; border-color: currentColor; }
+#room[data-layout] > .participant > h3 :is(img, .avatar, .picture) { width: 1.1rem; height: 1.1rem; }
+
+/* The chips are the long form of what the label and the picture say. */
+#room[data-layout] > .participant > .tracks { display: none; }
+
+#room[data-layout] > .participant > .shareExpand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  margin: 0;
+  padding: .2rem .55rem;
+  font-size: .8rem;
+  min-height: 0;
+  white-space: nowrap;
+}
+#room[data-layout] > .participant > .shareExpand[data-on-stage] { right: auto; }
+
+/* Pin: on hover and focus, and always while it is on. */
+#room[data-layout] > .participant > .tilePin {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  margin: 0;
+  min-height: 28px;
+  padding: .15rem .6rem;
+  font-size: .8rem;
+  color: var(--tile-label-fg);
+  background: var(--tile-label-bg);
+  border: 1px solid rgb(255 255 255 / 35%);
+  border-radius: 6px;
+  opacity: 0;
+}
+#room[data-layout] > .participant:is(:hover, :focus-within) > .tilePin,
+#room[data-layout] > .participant > .tilePin:focus-visible,
+#room[data-layout] > .participant > .tilePin[aria-pressed="true"] { opacity: 1; }
+#room[data-layout] > .participant > .tilePin[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+/* Not in the picture: hidden, never taken out of the document (a media
+   element that leaves is paused). A share of theirs still shows. */
+#room[data-layout] > .participant[data-layout-hidden] {
+  visibility: hidden;
+  background: none;
+  box-shadow: none;
+  pointer-events: none;
+  transition: none;
+}
+#room[data-layout] > .participant[data-layout-hidden] :is(video.screenPreview, .shareMarks, .shareExpand) { visibility: visible; pointer-events: auto; }
+
+/* Your own picture, floating over the other person in a call of two. */
+#room[data-layout] > .participant[data-floating] {
+  z-index: 4;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 6px 22px var(--drop-shadow);
+  outline: 2px solid rgb(255 255 255 / 70%);
+}
+#room[data-layout] > .participant[data-floating].speaking { box-shadow: 0 0 0 var(--speak-ring-width) var(--speak-ring), 0 6px 22px var(--drop-shadow); }
+#room[data-layout] > .participant[data-floating][data-dragging] { cursor: grabbing; transition: none; }
+#room[data-layout] > .participant[data-floating] > h3 { font-size: .72rem; left: 6px; bottom: 6px; }
+#room[data-layout] > .participant[data-floating] > h3 > :not(.name) { display: none; }
+
+/* --- The control in the call bar ------------------------------------ */
+
+.callView { display: none; }
+#whoIsHere:has(> #room[data-layout]) > .callView:not([hidden]) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .4rem .75rem;
+  margin: 0 0 .4rem;
+  font-size: .875rem;
+  position: relative;
+}
+.callViewChoice { display: inline-flex; border: 1px solid var(--control-border); border-radius: 8px; overflow: hidden; }
+.callViewChoice button { margin: 0; border: 0; border-radius: 0; padding: .3rem .75rem; min-height: 32px; font-size: .875rem; background: var(--control); color: var(--text); }
+.callViewChoice button + button { border-left: 1px solid var(--control-border); }
+.callViewChoice button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 650; }
+.callViewChoice button:disabled { color: var(--muted); cursor: default; }
+.callViewChoice button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.speakingNow { margin: 0; flex: 1 1 12rem; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+.speakingNow[data-quiet] { color: var(--muted); font-weight: 400; }
+#moveSelfView { margin: 0; min-height: 32px; padding: .25rem .7rem; font-size: .875rem; }
+.callViewOptions { position: relative; }
+.callViewOptions > summary { cursor: pointer; padding: .3rem .6rem; min-height: 32px; display: flex; align-items: center; border: 1px solid var(--control-border); border-radius: 8px; background: var(--control); list-style: none; }
+.callViewOptions > summary::-webkit-details-marker { display: none; }
+.callViewOptions > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.callViewPanel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  display: grid;
+  gap: .35rem;
+  min-width: 17rem;
+  padding: .6rem .75rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px var(--drop-shadow);
+}
+.callViewPanel label { display: flex; align-items: center; gap: .45rem; margin: 0; font-weight: 400; min-height: 28px; }
+.callViewPanel input { margin: 0; width: 1rem; height: 1rem; }

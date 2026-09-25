@@ -675,24 +675,10 @@ details#roomSettings label {
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
-/* Speaking: an outer ring, so it stacks with `linked`'s inset one rather
-   than replacing it. Being one person across two devices is the claim this
-   app exists to show, and it must stay legible while somebody is talking.
-
-   A shadow rather than a border width, because growing the border by 3px
-   reflows the whole grid every time anybody starts or stops a sentence.
-
-   `--ok` rather than `--accent`: accent already means "one person", and a
-   second meaning on the same colour makes both harder to read. */
-.participant.speaking {
-  box-shadow: 0 0 0 3px var(--ok);
-}
-
-.participant.linked.speaking {
-  box-shadow:
-    0 0 0 1px var(--accent) inset,
-    0 0 0 3px var(--ok);
-}
+/* Speaking: a thicker outer ring and a solid name label, both defined with
+   the rest of the cue in app/src/call-layout.css so it can be changed in
+   one place. An outer ring (a shadow, not a border) stacks with `linked`'s
+   inset one and does not reflow the grid when somebody starts a sentence. */
 
 /* Short enough to feel immediate, long enough not to flash. The detector's
    hangover already stops this strobing between words; this only softens the
@@ -3350,7 +3336,6 @@ button.primary:hover:not(:disabled) {
 }
 /* The same ring the tiles use, so "who is talking" reads the same whether
    the room is showing faces or names. */
-.callChip.speaking { border-color: var(--live); box-shadow: 0 0 0 2px var(--live); }
 .callChip .name { overflow: hidden; text-overflow: ellipsis; }
 .callChip .avatar, .callChip .donorRing { width: 20px; height: 20px; }
 .callChip .badge { font-size: .7rem; }
@@ -3447,6 +3432,11 @@ button.primary:hover:not(:disabled) {
 
 /* Person beside their screen, September 2026.
 
+   Superseded above 700px wide and 540px tall by the call stage (see
+   app/src/call-layout.css and call-stage.ts, September 2026), which gives
+   every face one box and puts a share on a stage of its own. What follows
+   only applies where that is not running: `#room:not([data-layout])`.
+
    A shared screen used to force its owner's whole tile across the row and
    spotlight it, so two people sharing at once stacked full-width and the
    second one was off the bottom of the window. Above this width the room
@@ -3471,7 +3461,7 @@ button.primary:hover:not(:disabled) {
 
    Below this width the room falls back to the stacked behaviour above. */
 @media (min-width: 900px) {
-  #room.sharing {
+  #room.sharing:not([data-layout]) {
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
@@ -3493,13 +3483,13 @@ button.primary:hover:not(:disabled) {
      padding comes off the outside and the picture itself is exactly
      `--tile-cam` - the same number of pixels as a sharer's camera, which is
      what "the same size as each other" has to mean to be worth asserting. */
-  #room.sharing .participant:not(:has(video.screenPreview)) {
+  #room.sharing:not([data-layout]) .participant:not(:has(video.screenPreview)) {
     flex: 0 0 auto;
     align-self: flex-start;
     min-width: 0;
     max-width: calc(var(--tile-cam) + 2rem);
   }
-  #room.sharing .participant:not(:has(video.screenPreview)) .media video {
+  #room.sharing:not([data-layout]) .participant:not(:has(video.screenPreview)) .media video {
     width: var(--tile-cam);
     max-width: 100%;
     aspect-ratio: 4 / 3;
@@ -3516,7 +3506,7 @@ button.primary:hover:not(:disabled) {
      and with two rows to fit in the window that came straight off the top
      and bottom of both screens. `order` rather than DOM order, because
      `render()` appends the chips and the button after the pictures. */
-  #room.sharing .participant:has(video.screenPreview) {
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) {
     flex: 0 0 100%;
     width: 100%;
     max-width: 100%;
@@ -3528,9 +3518,9 @@ button.primary:hover:not(:disabled) {
     column-gap: .5rem;
     row-gap: .25rem;
   }
-  #room.sharing .participant:has(video.screenPreview) > h3,
-  #room.sharing .participant:has(video.screenPreview) > .tracks,
-  #room.sharing .participant:has(video.screenPreview) > .shareExpand {
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) > h3,
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) > .tracks,
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) > .shareExpand {
     order: 1;
     flex: 0 0 auto;
     margin: 0;
@@ -3538,20 +3528,20 @@ button.primary:hover:not(:disabled) {
   /* The name takes the slack, and gives it back by cutting itself short
      rather than wrapping onto a second line and costing the row its
      height. */
-  #room.sharing .participant:has(video.screenPreview) > h3 {
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) > h3 {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
-  #room.sharing .participant:has(video.screenPreview) > .media {
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) > .media {
     order: 2;
     flex: 0 0 100%;
     width: 100%;
     margin: 0;
   }
-  #room.sharing .participant:has(video.screenPreview) .media {
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) .media {
     display: flex;
     flex-direction: row;
     flex-wrap: nowrap;
@@ -3563,7 +3553,7 @@ button.primary:hover:not(:disabled) {
      share's `<video>` can land in the holder before or after its camera's,
      depending on which track negotiated first, and the layout should not
      depend on that race. */
-  #room.sharing .participant:has(video.screenPreview) .media video:not(.screenPreview) {
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) .media video:not(.screenPreview) {
     order: 1;
     flex: 0 0 var(--tile-cam);
     width: var(--tile-cam);
@@ -3579,7 +3569,7 @@ button.primary:hover:not(:disabled) {
      replaced-element sizing keeps the picture's shape while it fits it into
      the row. `desktop-layout-fit.ts` replaces both with pixels once the
      picture has decoded and it knows how tall this row is allowed to be. */
-  #room.sharing .participant:has(video.screenPreview) .media video.screenPreview {
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) .media video.screenPreview {
     order: 2;
     flex: 0 1 auto;
     min-width: 0;
@@ -3598,7 +3588,7 @@ button.primary:hover:not(:disabled) {
      and a label (anybody on two devices, or your own tile) got both rules at
      once - the stand-in's size and dashed border with the caption's
      absolute position and grey fill, floated over the shared picture. */
-  #room.sharing .participant:has(video.screenPreview) .media[data-camera-label]:not([data-camera-label=""]):has(video:not(.screenPreview))::before {
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) .media[data-camera-label]:not([data-camera-label=""]):has(video:not(.screenPreview))::before {
     position: absolute;
     top: .3rem;
     left: .3rem;
@@ -3617,7 +3607,7 @@ button.primary:hover:not(:disabled) {
      it: a second device on the call with just a microphone has nothing to
      stand beside. Beside the picture, never on it, so `static` whatever
      else matches. */
-  #room.sharing .participant:has(video.screenPreview) .media:has(video.screenPreview):not(:has(video:not(.screenPreview)))::before {
+  #room.sharing:not([data-layout]) .participant:has(video.screenPreview) .media:has(video.screenPreview):not(:has(video:not(.screenPreview)))::before {
     content: attr(data-owner-name);
     position: static;
     order: 1;
