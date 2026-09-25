@@ -22,6 +22,11 @@
     content:
       type: free
 
+  1464:
+    description: KithMoot Call bell
+    content:
+      type: free
+
   20460:
     description: KithMoot Device credential, inner only
     content:

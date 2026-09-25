@@ -28,6 +28,12 @@
       "status": "prepared; not submitted"
     },
     {
+      "kind": 1464,
+      "description": "KithMoot Call bell",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
       "kind": 20460,
       "description": "KithMoot Device credential, inner only",
       "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
