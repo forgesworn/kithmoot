@@ -56,7 +56,13 @@ if (import.meta.env.VITE_DESKTOP === 'true') {
     unread.id = 'projectsRailUnread'
     unread.className = 'railUnread'
     unread.hidden = true
-    bar.append(railToggle, unread)
+    // An agent's tag, shown beside the people badge in the agent colour
+    // used everywhere else an agent is marked out.
+    const unreadAgents = document.createElement('span')
+    unreadAgents.id = 'projectsRailUnreadAgents'
+    unreadAgents.className = 'railUnreadAgent'
+    unreadAgents.hidden = true
+    bar.append(railToggle, unread, unreadAgents)
     rail.prepend(bar)
     const setRailOpen = (open: boolean): void => {
       document.documentElement.dataset.rail = open ? 'open' : 'collapsed'

@@ -449,14 +449,17 @@ export {
   mentionsOf,
   mentionedBy,
   isConversation,
+  classifyMessage,
   reachesReader,
+  classifyUnread,
   countsAsUnread,
+  unreadSplit,
   later,
   resolveConversation,
   retractionText,
   inviteText,
 } from './messages.js'
-export type { MessageRef, ChatInvite, Named, ResolvedMessage, Conversation } from './messages.js'
+export type { MessageRef, ChatInvite, Named, ResolvedMessage, Conversation, ReachesReaderOptions, UnreadClass, UnreadSplit } from './messages.js'
 
 export {
   READ_POSITION_KIND,

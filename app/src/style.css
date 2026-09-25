@@ -1939,6 +1939,19 @@ button.primary:hover:not(:disabled) {
   font-weight: 600;
 }
 
+/* An agent's tag on the rooms list, next to (or, with nothing from a
+   person, instead of) the line above - the agent colour used everywhere
+   else, so it never reads as a person talking. */
+.roomRow .unread.agent {
+  min-width: 1.4rem;
+  padding: 0 .35rem;
+  border-radius: 1rem;
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--agent-fill);
+}
+
 .roomRow .roomActions {
   display: flex;
   gap: 0.25rem;
@@ -2934,6 +2947,12 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   font-weight: 700;
   color: var(--on-accent);
   background: var(--accent);
+}
+/* An agent's tag, beside the people badge above, in the same colour the
+   agent tag uses everywhere else - never mistaken for a person talking. */
+.conversationUnread.agent {
+  color: var(--on-accent);
+  background: var(--agent-fill);
 }
 .conversationNav .draftBadge { margin: 0; }
 .agentActivity {

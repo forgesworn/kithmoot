@@ -132,6 +132,8 @@ import {
   resolveConversation,
   mentionedBy,
   reachesReader,
+  classifyMessage,
+  type UnreadSplit,
   sameRef,
   refKey,
   retractionText,
@@ -6340,7 +6342,19 @@ function renderChat(messages: ChatMessage[]): void {
   // showing. See `#chatLog.minutes` in style.css.
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
-  callFocus.noteMessages(`${draftRoomKey()}|${currentChannel ?? ''}`, messages.filter(m => reachesReader(m, meParticipant, session?.participants() ?? [])).map(m => m.id))
+  {
+    const roster = session?.participants() ?? []
+    const direct = dmPeer(roomPolicy, meParticipant) !== undefined
+    const reached: string[] = []
+    const fromAgents: string[] = []
+    for (const m of messages) {
+      const cls = classifyMessage(m, meParticipant, roster, { direct })
+      if (cls === null) continue
+      reached.push(m.id)
+      if (cls === 'agent') fromAgents.push(m.id)
+    }
+    callFocus.noteMessages(`${draftRoomKey()}|${currentChannel ?? ''}`, reached, fromAgents)
+  }
   if (currentChannel === undefined) void handleInvites(messages)
   updateConversationSearch()
   if (currentChannel === undefined) noteChatRead(messages)
@@ -6667,13 +6681,33 @@ function conversationMessages(name: string | undefined): ChatMessage[] {
 function unreadMessageIds(name: string | undefined): Set<string> {
   const read = conversationRead.get(name ?? '')
   const roster = session?.participants() ?? []
+  const direct = dmPeer(roomPolicy, meParticipant) !== undefined
   return new Set(Array.from(resolveConversation(conversationMessages(name)).byKey.values())
-    .filter(message => !message.retracted && !read?.has(message.original.id) && reachesReader(message.original, meParticipant, roster))
+    .filter(message => !message.retracted && !read?.has(message.original.id) && reachesReader(message.original, meParticipant, roster, { direct }))
     .map(message => message.original.id))
 }
 
 function conversationUnread(name: string | undefined): number {
   return unreadMessageIds(name).size
+}
+
+/** The same unread messages as `unreadMessageIds`, split into what a
+ *  person said and what an agent addressed to the viewer - see
+ *  `classifyMessage` in `src/messages.ts` - for the two badges a
+ *  conversation tab shows. */
+function conversationUnreadSplit(name: string | undefined): UnreadSplit {
+  const read = conversationRead.get(name ?? '')
+  const roster = session?.participants() ?? []
+  const direct = dmPeer(roomPolicy, meParticipant) !== undefined
+  let people = 0
+  let agents = 0
+  for (const message of resolveConversation(conversationMessages(name)).byKey.values()) {
+    if (message.retracted || read?.has(message.original.id)) continue
+    const cls = classifyMessage(message.original, meParticipant, roster, { direct })
+    if (cls === 'person') people++
+    else if (cls === 'agent') agents++
+  }
+  return { people, agents }
 }
 
 function nextUnreadConversation(): [string | undefined, string] | undefined {
@@ -6714,6 +6748,17 @@ function navTabs(): Array<[string | undefined, string]> {
 }
 
 let renderedTabKey = ''
+/** A small unread badge, capped at "99+" so a busy agent channel does not
+ *  smear the tab it sits in. Shared by every place that shows one, so a
+ *  person's count and an agent's look and read the same way everywhere. */
+function unreadBadge(className: string, count: number, label: string): HTMLSpanElement {
+  const badge = document.createElement('span')
+  badge.className = className
+  badge.textContent = count > 99 ? '99+' : String(count)
+  badge.setAttribute('aria-label', label)
+  return badge
+}
+
 function renderConversationNav(): void {
   updateDesktopUnread()
   renderedTabKey = navTabs().map(([name]) => name ?? '').join('\n')
@@ -6735,14 +6780,9 @@ function renderConversationNav(): void {
     button.title = channelSummary(name)
     button.setAttribute('aria-pressed', String(name === currentChannel))
     button.append(label)
-    const count = conversationUnread(name)
-    if (count > 0) {
-      const badge = document.createElement('span')
-      badge.className = 'conversationUnread'
-      badge.textContent = count > 99 ? '99+' : String(count)
-      badge.setAttribute('aria-label', `${count} unread messages`)
-      button.append(badge)
-    }
+    const split = conversationUnreadSplit(name)
+    if (split.people > 0) button.append(unreadBadge('conversationUnread', split.people, `${split.people} unread messages`))
+    if (split.agents > 0) button.append(unreadBadge('conversationUnread agent', split.agents, `${split.agents} from agents`))
     const draft = document.createElement('span')
     draft.className = 'draftBadge'
     button.append(draft)
@@ -9079,7 +9119,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     const joinedRoomId = currentRoomId() ?? s.roomId
     const roomLabelNow = () => currentRoomLabel()
     followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey)
-    const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel, roster: () => s.participants() })
+    const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel, roster: () => s.participants(), direct: () => dmPeer(roomPolicy, meParticipant) !== undefined })
     s.chat.onChange(() => coalesceChatPaint(dockedCall?.session === s ? 'docked-chat' : 'chat', () => {
       // A docked call's room still tells the person when somebody writes.
       if (session !== s) { if (dockedCall?.session === s) notifyChat(s.chat.messages()); return }
@@ -9121,9 +9161,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
       log.onChange(arrived)
       arrived(log.messages())
     }
-    followChannel(AGENT_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'agents', room: roomLabelNow, sender: senderLabel, roster: () => s.participants() }))
+    followChannel(AGENT_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'agents', room: roomLabelNow, sender: senderLabel, roster: () => s.participants(), direct: () => dmPeer(roomPolicy, meParticipant) !== undefined }))
     followChannel(TRANSCRIPT_CHANNEL)
-    followChannel(MINUTES_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'minutes', room: roomLabelNow, sender: senderLabel, roster: () => s.participants() }))
+    followChannel(MINUTES_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'minutes', room: roomLabelNow, sender: senderLabel, roster: () => s.participants(), direct: () => dmPeer(roomPolicy, meParticipant) !== undefined }))
     // Agent hosts say what they can run on the control channel; a person
     // asks on it. Asked once on arrival, so a host that has been quiet for
     // an hour says again.
@@ -9305,7 +9345,10 @@ function watchKnownRoom(room: KnownRoom): void {
     channel: 'chat',
     room: () => knownRoomLabel(knownRoom(roomStore(), roomId) ?? room),
     sender: senderLabel,
-    roster: () => watch.present(),
+    // The viewer is never in `present()` here - this device is not in the
+    // room - so a name-in-text mention of them would otherwise be missed.
+    roster: () => [...watch.present(), { participant: meParticipant || currentParticipant() || '', name: joiningName() }],
+    direct: () => dmPeerOf(room) !== undefined,
   })
   const watch = new RoomWatch({
     transport: pool,
@@ -9516,14 +9559,22 @@ function roomMeta(room: KnownRoom): HTMLDivElement {
     return meta
   }
 
-  const unread = watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '')
+  const split = watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName())
   const count = document.createElement('span')
   count.className = 'unread'
-  count.dataset.count = String(unread)
   // A quiet room's chat is not read from the list: it would cost the whole
-  // gift-wrap stream per room in the background. Open it to read.
-  count.textContent = !watched.watch.readsChat ? 'quiet room: open it to read' : unread === 0 ? 'nothing new' : `${unread} unread`
-  meta.append(count)
+  // gift-wrap stream per room in the background. Open it to read. When
+  // there is nothing but an agent's tag, the agent badge below says so on
+  // its own; this line only speaks for people, or for having nothing to say.
+  if (!watched.watch.readsChat) {
+    count.textContent = 'quiet room: open it to read'
+    meta.append(count)
+  } else if (split.people > 0 || split.agents === 0) {
+    count.dataset.count = String(split.people)
+    count.textContent = split.people === 0 ? 'nothing new' : `${split.people} unread`
+    meta.append(count)
+  }
+  if (watched.watch.readsChat && split.agents > 0) meta.append(unreadBadge('unread agent', split.agents, `${split.agents} from agents`))
 
   const present = watched.watch.present()
   const here = document.createElement('span')
@@ -10477,19 +10528,28 @@ window.kithmootDesktop?.onOpenRoom(roomId => {
 /** Use the same resolved messages/read positions as chat, not the number of banners. */
 function updateDesktopUnread(): void {
   const self = meParticipant || currentParticipant() || ''
-  let count = 0
+  const selfName = joiningName()
+  let people = 0
+  let agents = 0
   for (const room of knownRooms(roomStore())) {
     if (session && room.roomId === currentRoomId()) continue
     const watched = roomWatches.get(room.roomId)
-    const messages = watched?.watch.messages() ?? []
-    const roster = watched?.watch.present() ?? []
-    count += [...resolveConversation(messages).byKey.values()].filter(message =>
-      !message.retracted && message.original.sentAt > (room.readAt ?? 0) && reachesReader(message.original, self, roster)).length
+    if (!watched) continue
+    const split = watched.watch.unread(room.readAt ?? 0, self, selfName)
+    people += split.people
+    agents += split.agents
   }
-  if (session) for (const [name] of conversationTabs()) count += conversationUnread(name)
-  // The same total the badge carries, on the collapsed rooms rail: putting
+  if (session) for (const [name] of conversationTabs()) {
+    const split = conversationUnreadSplit(name)
+    people += split.people
+    agents += split.agents
+  }
+  // The same totals the badge carries, on the collapsed rooms rail: putting
   // the rail away must not mean losing sight of a room that is talking.
-  setProjectsRailUnread(count)
+  setProjectsRailUnread(people, agents)
+  // The bell still rings for a tag: it is addressed to this person, unlike
+  // the agent chatter that never reaches this count at all.
+  const count = people + agents
   window.kithmootDesktop?.setUnread(count)
   if (!window.kithmootDesktop) updateAppBadge(count)
   document.title = titleWithCount('KithMoot', count)

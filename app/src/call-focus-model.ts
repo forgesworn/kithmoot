@@ -91,24 +91,34 @@ export class UnreadCounter {
   #seen = new Set<string>()
   #current: readonly string[] = []
   #count = 0
+  #agents = 0
 
   get count(): number { return this.#count }
+  /** Of `count`, how many are an agent's message that reached this person -
+   *  see `classifyMessage` in `src/messages.ts` - rather than a person's
+   *  own. Always at most `count`. */
+  get agents(): number { return this.#agents }
 
   /** The messages from other people now in the conversation `scope`, and
-   *  whether the panel showing them is open. Returns the unread count. */
-  update(scope: string, ids: readonly string[], open: boolean): number {
+   *  whether the panel showing them is open. `agentIds` names which of
+   *  `ids` are the agent ones, for the `agents` split above; every id not
+   *  in it is read as a person's. Returns the unread count. */
+  update(scope: string, ids: readonly string[], open: boolean, agentIds: readonly string[] = []): number {
     this.#current = ids
     if (scope !== this.#scope) {
       this.#scope = scope
       this.#seen = new Set(ids)
       this.#count = 0
+      this.#agents = 0
       return 0
     }
     if (open) return this.read()
+    const agentSet = new Set(agentIds)
     for (const id of ids) {
       if (this.#seen.has(id)) continue
       this.#seen.add(id)
       this.#count++
+      if (agentSet.has(id)) this.#agents++
     }
     return this.#count
   }
@@ -117,6 +127,7 @@ export class UnreadCounter {
   read(): number {
     for (const id of this.#current) this.#seen.add(id)
     this.#count = 0
+    this.#agents = 0
     return 0
   }
 
@@ -126,6 +137,7 @@ export class UnreadCounter {
     this.#seen.clear()
     this.#current = []
     this.#count = 0
+    this.#agents = 0
   }
 }
 

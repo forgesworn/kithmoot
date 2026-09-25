@@ -23,7 +23,8 @@
  * no relay.
  */
 import type { Event } from 'nostr-tools/pure'
-import { countsAsUnread } from '../../src/messages.js'
+import { unreadSplit, type UnreadSplit } from '../../src/messages.js'
+import { dmPeer } from '../../src/dm.js'
 import { KINDS } from '../../src/kinds.js'
 import { decodeRosterEvent } from '../../src/roster.js'
 import { evaluateAccess } from '../../src/access.js'
@@ -184,14 +185,18 @@ export class RoomWatch {
   }
 
   /** How many messages are newer than `readAt` and worth telling `self`
-   *  about - see `countsAsUnread` in `src/messages.ts`. Zero for a quiet
+   *  about, split into what a person said and what an agent addressed to
+   *  them - see `unreadSplit` in `src/messages.ts`. Zero both for a quiet
    *  room, which says nothing either way. Judged against who this watch
-   *  has heard is present, since a watch never joins the roster itself. */
-  unread(readAt: number, self: string): number {
-    let count = 0
-    const roster = this.present()
-    for (const message of this.messages()) if (countsAsUnread(message, readAt, self, roster)) count++
-    return count
+   *  has heard is present, plus `self` itself - a watch never joins the
+   *  roster, so a name-in-text mention of the viewer would otherwise go
+   *  unrecognised - named `selfName` when this device knows one. A DM
+   *  read off the link's own policy counts every agent message from the
+   *  other side too: there is no room to address instead. */
+  unread(readAt: number, self: string, selfName?: string): UnreadSplit {
+    const roster = [...this.present(), { participant: self, name: selfName }]
+    const direct = dmPeer(this.#opts.policy, self) !== undefined
+    return unreadSplit(this.messages(), readAt, self, roster, { direct })
   }
 
   /** Who is here now, as far as this watch has heard. */

@@ -21,7 +21,7 @@
 import { parseRoomLink } from '../../src/link.js'
 import { deriveInvitationId } from '../../src/invitation.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
-import { countsAsUnread, type Named } from '../../src/messages.js'
+import { unreadSplit, type Named, type UnreadSplit } from '../../src/messages.js'
 import type { ChatMessage } from '../../src/chat.js'
 import { forgetKeptAdmission, type DeviceStore } from './device-store.js'
 import { forgetRoomAccess } from './invitation-store.js'
@@ -218,15 +218,14 @@ export function roomLabel(room: Pick<KnownRoom, 'roomId' | 'name'>): string {
   return room.name ?? `Room ${room.roomId.slice(0, 8)}`
 }
 
-/** How many of these messages are newer than the room was last read to, and
- *  worth telling `self` about - see `countsAsUnread` in `src/messages.ts`. */
+/** How many of these messages are newer than the room was last read to,
+ *  split into what a person said and what an agent addressed to `self` -
+ *  see `unreadSplit` in `src/messages.ts`. */
 export function unreadCount(
   messages: readonly ChatMessage[],
   readAt: number,
   self: string,
   roster: readonly Named[] = [],
-): number {
-  let count = 0
-  for (const message of messages) if (countsAsUnread(message, readAt, self, roster)) count++
-  return count
+): UnreadSplit {
+  return unreadSplit(messages, readAt, self, roster)
 }

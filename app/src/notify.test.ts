@@ -170,6 +170,15 @@ describe('the notifier over changing logs', () => {
     expect(delivered).toHaveLength(1)
   })
 
+  it('marks a chat notification as an agent’s, so a tag never reads as a person', () => {
+    const { notifier, delivered } = harness()
+    const roster = [{ participant: ADA, agent: true }]
+    const ingest = notifier.follow({ roomId: ROOM_A, channel: 'chat', room: () => 'r', sender: () => 'Bot', roster: () => roster, direct: () => true })
+    ingest([message('1', ADA, NOW, 'over to you')])
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]!.body).toBe('Bot (agent) said something')
+  })
+
   it('survives a delivery that throws or rejects', () => {
     const store = memoryDeviceStore()
     setNotifySettings(store, { enabled: true })

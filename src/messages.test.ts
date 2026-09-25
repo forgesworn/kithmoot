@@ -6,8 +6,11 @@ import {
   namesInText,
   mentionsOf,
   mentionedBy,
+  classifyMessage,
   reachesReader,
+  classifyUnread,
   countsAsUnread,
+  unreadSplit,
   resolveConversation,
   refOf,
   EVERYONE,
@@ -121,6 +124,27 @@ describe('reachesReader', () => {
     // The roster still works when neither field is carried.
     expect(reachesReader(msg('m1', ROWAN, 'over to you', 100), TALLY, agentRoster)).toBe(false)
   })
+
+  it('counts an agent message in a direct message, unaddressed, since there is nobody else to say it to', () => {
+    expect(reachesReader(msg('m1', ROWAN, 'over to you', 100), TALLY, agentRoster, { direct: true })).toBe(true)
+  })
+
+  it('matches a name-in-text mention against a roster entry for the viewer, added by the caller', () => {
+    const roster = [{ participant: ROWAN, agent: true }, { participant: TALLY, name: 'Tally' }]
+    expect(reachesReader(msg('m1', ROWAN, 'over to @Tally', 100), TALLY, roster)).toBe(true)
+    expect(reachesReader(msg('m1', ROWAN, 'over to you', 100), TALLY, roster)).toBe(false)
+  })
+})
+
+describe('classifyMessage', () => {
+  const agentRoster = [{ participant: ROWAN, agent: true }]
+
+  it('tells a person’s message from an agent’s that reaches the viewer, and neither from what does not', () => {
+    expect(classifyMessage(msg('m1', ROWAN, 'hi', 100), TALLY)).toBe('person')
+    expect(classifyMessage(msg('m1', ROWAN, 'hi', 100, { mentions: [TALLY] }), TALLY, agentRoster)).toBe('agent')
+    expect(classifyMessage(msg('m1', ROWAN, 'over to you', 100), TALLY, agentRoster)).toBeNull()
+    expect(classifyMessage(msg('m1', TALLY, 'hi', 100), TALLY, agentRoster)).toBeNull()
+  })
 })
 
 describe('countsAsUnread', () => {
@@ -132,6 +156,30 @@ describe('countsAsUnread', () => {
     expect(countsAsUnread(msg('m1', ROWAN, 'hi', 100, { mentions: [TALLY] }), 50, TALLY, agentRoster)).toBe(true)
     const reaction = msg('x1', ROWAN, 'Reacted', 100, { reaction: { messageId: 'm1', participant: ADA, emoji: '👍', active: true, revision: 1 } })
     expect(countsAsUnread(reaction, 50, TALLY)).toBe(false)
+  })
+})
+
+describe('classifyUnread', () => {
+  it('is `classifyMessage` gated on new and conversational', () => {
+    const agentRoster = [{ participant: ROWAN, agent: true }]
+    expect(classifyUnread(msg('m1', ROWAN, 'hi', 100), 50, TALLY)).toBe('person')
+    expect(classifyUnread(msg('m1', ROWAN, 'hi', 100), 150, TALLY)).toBeNull()
+    expect(classifyUnread(msg('m1', ROWAN, 'hi', 100, { mentions: [TALLY] }), 50, TALLY, agentRoster)).toBe('agent')
+    expect(classifyUnread(msg('m1', ROWAN, '@all', 100), 50, TALLY, agentRoster)).toBeNull()
+  })
+})
+
+describe('unreadSplit', () => {
+  it('splits a log into what a person said and what an agent addressed to the viewer, leaving untagged agent chatter out of both', () => {
+    const agentRoster = [{ participant: ROWAN, name: 'Bot', agent: true }]
+    const messages = [
+      msg('h1', ADA, 'hi', 50),
+      msg('a1', ROWAN, 'over to you', 60),
+      msg('a2', ROWAN, 'hi @Tally', 70, { mentions: [TALLY] }),
+      msg('p1', ADA, 'lunch?', 80),
+      msg('own', TALLY, 'mine', 90),
+    ]
+    expect(unreadSplit(messages, 0, TALLY, agentRoster)).toEqual({ people: 2, agents: 1 })
   })
 })
 
