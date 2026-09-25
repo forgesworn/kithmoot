@@ -69,8 +69,13 @@ function confirmClose(message, detail) {
 
 // Electron builds no right-click menu of its own; every window gets the
 // standard editing menu, wired to that window's own webContents so a
-// spelling fix or a paste lands where the click happened.
+// spelling fix or a paste lands where the click happened. The main window's
+// contents reach both callers: `web-contents-created` fires inside
+// `new BrowserWindow()`, before `win` is assigned, so its guard cannot tell.
+const withContextMenu = new WeakSet()
 function attachContextMenu(contents) {
+  if (withContextMenu.has(contents)) return
+  withContextMenu.add(contents)
   contents.on('context-menu', (_event, params) => {
     const template = buildContextMenuTemplate(params, {
       replaceMisspelling: word => contents.replaceMisspelling(word),
