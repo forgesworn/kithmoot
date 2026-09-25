@@ -131,6 +131,7 @@ import {
   ringTier,
   resolveConversation,
   mentionedBy,
+  reachesReader,
   sameRef,
   refKey,
   retractionText,
@@ -6339,7 +6340,7 @@ function renderChat(messages: ChatMessage[]): void {
   // showing. See `#chatLog.minutes` in style.css.
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
-  callFocus.noteMessages(`${draftRoomKey()}|${currentChannel ?? ''}`, messages.filter(m => m.participant !== meParticipant).map(m => m.id))
+  callFocus.noteMessages(`${draftRoomKey()}|${currentChannel ?? ''}`, messages.filter(m => reachesReader(m, meParticipant, session?.participants() ?? [])).map(m => m.id))
   if (currentChannel === undefined) void handleInvites(messages)
   updateConversationSearch()
   if (currentChannel === undefined) noteChatRead(messages)
@@ -6665,8 +6666,9 @@ function conversationMessages(name: string | undefined): ChatMessage[] {
 
 function unreadMessageIds(name: string | undefined): Set<string> {
   const read = conversationRead.get(name ?? '')
+  const roster = session?.participants() ?? []
   return new Set(Array.from(resolveConversation(conversationMessages(name)).byKey.values())
-    .filter(message => !message.retracted && message.original.participant !== meParticipant && !read?.has(message.original.id))
+    .filter(message => !message.retracted && !read?.has(message.original.id) && reachesReader(message.original, meParticipant, roster))
     .map(message => message.original.id))
 }
 
@@ -9077,7 +9079,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     const joinedRoomId = currentRoomId() ?? s.roomId
     const roomLabelNow = () => currentRoomLabel()
     followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey)
-    const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel })
+    const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel, roster: () => s.participants() })
     s.chat.onChange(() => coalesceChatPaint(dockedCall?.session === s ? 'docked-chat' : 'chat', () => {
       // A docked call's room still tells the person when somebody writes.
       if (session !== s) { if (dockedCall?.session === s) notifyChat(s.chat.messages()); return }
@@ -9119,9 +9121,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
       log.onChange(arrived)
       arrived(log.messages())
     }
-    followChannel(AGENT_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'agents', room: roomLabelNow, sender: senderLabel }))
+    followChannel(AGENT_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'agents', room: roomLabelNow, sender: senderLabel, roster: () => s.participants() }))
     followChannel(TRANSCRIPT_CHANNEL)
-    followChannel(MINUTES_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'minutes', room: roomLabelNow, sender: senderLabel }))
+    followChannel(MINUTES_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'minutes', room: roomLabelNow, sender: senderLabel, roster: () => s.participants() }))
     // Agent hosts say what they can run on the control channel; a person
     // asks on it. Asked once on arrival, so a host that has been quiet for
     // an hour says again.
@@ -9303,6 +9305,7 @@ function watchKnownRoom(room: KnownRoom): void {
     channel: 'chat',
     room: () => knownRoomLabel(knownRoom(roomStore(), roomId) ?? room),
     sender: senderLabel,
+    roster: () => watch.present(),
   })
   const watch = new RoomWatch({
     transport: pool,
@@ -9513,7 +9516,7 @@ function roomMeta(room: KnownRoom): HTMLDivElement {
     return meta
   }
 
-  const unread = watched.watch.unread(room.readAt)
+  const unread = watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '')
   const count = document.createElement('span')
   count.className = 'unread'
   count.dataset.count = String(unread)
@@ -10473,13 +10476,15 @@ window.kithmootDesktop?.onOpenRoom(roomId => {
 
 /** Use the same resolved messages/read positions as chat, not the number of banners. */
 function updateDesktopUnread(): void {
-  const self = meParticipant || currentParticipant()
+  const self = meParticipant || currentParticipant() || ''
   let count = 0
   for (const room of knownRooms(roomStore())) {
     if (session && room.roomId === currentRoomId()) continue
-    const messages = roomWatches.get(room.roomId)?.watch.messages() ?? []
+    const watched = roomWatches.get(room.roomId)
+    const messages = watched?.watch.messages() ?? []
+    const roster = watched?.watch.present() ?? []
     count += [...resolveConversation(messages).byKey.values()].filter(message =>
-      !message.retracted && message.original.participant !== self && message.original.sentAt > (room.readAt ?? 0)).length
+      !message.retracted && message.original.sentAt > (room.readAt ?? 0) && reachesReader(message.original, self, roster)).length
   }
   if (session) for (const [name] of conversationTabs()) count += conversationUnread(name)
   // The same total the badge carries, on the collapsed rooms rail: putting

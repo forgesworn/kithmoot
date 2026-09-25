@@ -23,7 +23,7 @@
  * no relay.
  */
 import type { Event } from 'nostr-tools/pure'
-import { isConversation } from '../../src/messages.js'
+import { countsAsUnread } from '../../src/messages.js'
 import { KINDS } from '../../src/kinds.js'
 import { decodeRosterEvent } from '../../src/roster.js'
 import { evaluateAccess } from '../../src/access.js'
@@ -183,10 +183,14 @@ export class RoomWatch {
     return this.#chat?.messages() ?? []
   }
 
-  /** How many messages are newer than `readAt`. Zero for a quiet room, which says nothing either way. */
-  unread(readAt: number): number {
+  /** How many messages are newer than `readAt` and worth telling `self`
+   *  about - see `countsAsUnread` in `src/messages.ts`. Zero for a quiet
+   *  room, which says nothing either way. Judged against who this watch
+   *  has heard is present, since a watch never joins the roster itself. */
+  unread(readAt: number, self: string): number {
     let count = 0
-    for (const message of this.messages()) if (message.sentAt > readAt && isConversation(message)) count++
+    const roster = this.present()
+    for (const message of this.messages()) if (countsAsUnread(message, readAt, self, roster)) count++
     return count
   }
 

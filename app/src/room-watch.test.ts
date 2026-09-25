@@ -113,14 +113,18 @@ describe('RoomWatch', () => {
     await send('one', NOW - 100)
     await send('two', NOW - 50)
     await send('three', NOW - 10)
-    expect(watch.unread(0)).toBe(3)
-    expect(watch.unread(NOW - 50)).toBe(1)
-    expect(watch.unread(NOW)).toBe(0)
+    const observer = 'f'.repeat(64)
+    expect(watch.unread(0, observer)).toBe(3)
+    expect(watch.unread(NOW - 50, observer)).toBe(1)
+    expect(watch.unread(NOW, observer)).toBe(0)
     expect(changes).toBe(3)
     // A message signed by a device the credential does not name is refused
     // here exactly as it is in a member's own log.
     await send('forged', NOW - 5, generateSecretKey())
-    expect(watch.unread(0)).toBe(3)
+    expect(watch.unread(0, observer)).toBe(3)
+    // The sender's own messages never count, even read back through a
+    // watch that never joined the room.
+    expect(watch.unread(0, ada.participant)).toBe(0)
     clock = NOW + 1
     expect(published.every((kind) => kind === 1460), 'the watch published something').toBe(true)
     watch.close()

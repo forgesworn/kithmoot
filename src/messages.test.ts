@@ -6,6 +6,8 @@ import {
   namesInText,
   mentionsOf,
   mentionedBy,
+  reachesReader,
+  countsAsUnread,
   resolveConversation,
   refOf,
   EVERYONE,
@@ -70,6 +72,48 @@ describe('mentions', () => {
     expect(mentionedBy({ text: '@all', mentions: [] }, TALLY, [], { agent: true })).toBe(false)
     const roster = Array.from({ length: 40 }, (_, i) => ({ name: `Person${i}`, participant: i.toString(16).padStart(64, '0') }))
     expect(mentionsOf({ text: `${roster.map(p => `@${p.name}`).join(' ')} @all` }, roster).slice(0, 32)).toContain(EVERYONE)
+  })
+})
+
+describe('reachesReader', () => {
+  const agentRoster = [{ participant: ROWAN, name: 'Bot', agent: true }]
+
+  it('counts an ordinary message from a person', () => {
+    expect(reachesReader(msg('m1', ROWAN, 'hi', 100), TALLY)).toBe(true)
+  })
+
+  it('leaves out an agent talking to another agent, unaddressed', () => {
+    expect(reachesReader(msg('m1', ROWAN, 'over to you', 100), TALLY, agentRoster)).toBe(false)
+  })
+
+  it('counts an agent message that names the viewer', () => {
+    expect(reachesReader(msg('m1', ROWAN, 'over to you', 100, { mentions: [TALLY] }), TALLY, agentRoster)).toBe(true)
+  })
+
+  it('leaves out an agent’s room-wide everyone call', () => {
+    expect(reachesReader(msg('m1', ROWAN, '@everyone done', 100), TALLY, agentRoster)).toBe(false)
+    expect(reachesReader(msg('m1', ROWAN, 'done', 100, { mentions: [EVERYONE] }), TALLY, agentRoster)).toBe(false)
+  })
+
+  it('never counts the viewer’s own message, agent or not', () => {
+    expect(reachesReader(msg('m1', TALLY, 'hi', 100), TALLY)).toBe(false)
+    expect(reachesReader(msg('m1', TALLY, 'hi', 100), TALLY, [{ participant: TALLY, agent: true }])).toBe(false)
+  })
+
+  it('treats a sender absent from the roster as a person', () => {
+    expect(reachesReader(msg('m1', ROWAN, 'hi', 100), TALLY, [])).toBe(true)
+  })
+})
+
+describe('countsAsUnread', () => {
+  it('is the unread rule in full: new, something said, and reaching the viewer', () => {
+    const agentRoster = [{ participant: ROWAN, agent: true }]
+    expect(countsAsUnread(msg('m1', ROWAN, 'hi', 100), 50, TALLY)).toBe(true)
+    expect(countsAsUnread(msg('m1', ROWAN, 'hi', 100), 150, TALLY)).toBe(false)
+    expect(countsAsUnread(msg('m1', ROWAN, '@all', 100), 50, TALLY, agentRoster)).toBe(false)
+    expect(countsAsUnread(msg('m1', ROWAN, 'hi', 100, { mentions: [TALLY] }), 50, TALLY, agentRoster)).toBe(true)
+    const reaction = msg('x1', ROWAN, 'Reacted', 100, { reaction: { messageId: 'm1', participant: ADA, emoji: '👍', active: true, revision: 1 } })
+    expect(countsAsUnread(reaction, 50, TALLY)).toBe(false)
   })
 })
 

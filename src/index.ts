@@ -449,6 +449,8 @@ export {
   mentionsOf,
   mentionedBy,
   isConversation,
+  reachesReader,
+  countsAsUnread,
   later,
   resolveConversation,
   retractionText,

@@ -19,7 +19,7 @@
  * room on screen and the delivery, and this decides.
  */
 import type { ChatMessage } from '../../src/chat.js'
-import { isConversation } from '../../src/messages.js'
+import { isConversation, reachesReader, type Named } from '../../src/messages.js'
 import type { DeviceStore } from './device-store.js'
 
 export const NOTIFY_STORAGE_KEY = 'kithmoot.notify'
@@ -150,6 +150,10 @@ export interface FollowOptions {
   /** How to show a sender: the name on the message beside a short key,
    *  the way it is shown everywhere else. */
   sender: (message: ChatMessage) => string
+  /** Who is known here, looked up at delivery, so an agent that joined
+   *  after `follow` was called is still recognised. Defaults to nobody
+   *  known, which reads every sender as a person. */
+  roster?: () => readonly Named[]
 }
 
 export interface NotifierOptions {
@@ -219,6 +223,11 @@ export class Notifier {
         if (!settings.enabled) continue
         const hidden = this.#opts.hidden()
         if (!shouldNotify(arrival, { hidden, shownRoomId: this.#opts.shownRoomId(), self: this.#opts.self(), followedSince })) continue
+        // Two agents talking to each other is not news for a person to be
+        // interrupted for; naming them directly still is. See
+        // `reachesReader` in `src/messages.ts`.
+        const self = this.#opts.self()
+        if (self !== undefined && !reachesReader(message, self, follow.roster?.() ?? [])) continue
         const content = notificationContent({
           roomId: follow.roomId,
           room: follow.room(),

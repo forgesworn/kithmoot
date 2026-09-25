@@ -160,6 +160,16 @@ describe('the notifier over changing logs', () => {
     expect(counts).toEqual([1])
   })
 
+  it('leaves out an agent talking to another agent, but still rings when one names this person', () => {
+    const { notifier, delivered } = harness({ shown: ROOM_B })
+    const roster = [{ participant: ADA, agent: true }]
+    const ingest = notifier.follow({ roomId: ROOM_A, channel: 'agents', room: () => 'r', sender: () => 'Bot', roster: () => roster })
+    ingest([message('1', ADA, NOW, '@all done')])
+    expect(delivered).toEqual([])
+    ingest([message('1', ADA, NOW, '@all done'), { ...message('2', ADA, NOW + 1, 'over to you'), mentions: [ME] }])
+    expect(delivered).toHaveLength(1)
+  })
+
   it('survives a delivery that throws or rejects', () => {
     const store = memoryDeviceStore()
     setNotifySettings(store, { enabled: true })
