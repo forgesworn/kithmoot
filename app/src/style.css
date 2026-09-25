@@ -255,6 +255,18 @@ select:focus-visible {
   box-shadow: 0 0 0 3px var(--focus-glow);
 }
 
+/* Buttons, disclosure summaries and tabs relied on the browser's own default
+   ring, which several browsers draw thin or not at all. Keyboard and switch
+   users get the same accent ring and glow as a field, offset outward since
+   these sit on their own background rather than inside a bordered box. */
+button:focus-visible,
+summary:focus-visible,
+[role=tab]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-glow);
+}
+
 section {
   margin: 1rem 0;
 }
