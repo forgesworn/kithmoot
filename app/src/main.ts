@@ -200,6 +200,7 @@ import {
   loadBackgroundId, loadBlurStrength, loadCameraDeviceId, loadEffectMode, loadMicDeviceId, loadVoicePreset,
   storeBackgroundId, storeBlurStrength, storeCameraDeviceId, storeEffectMode, storeMicDeviceId, storeVoicePreset,
 } from './call-prefs.js'
+import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type Profile } from './profiles.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay-settings.js'
 import { renderQr } from './qr.js'
@@ -10679,6 +10680,46 @@ async function setNudge(on: boolean): Promise<void> {
 
 // The bar: back, who and where, the call, and everything else.
 installKeyboardNavigation(document)
+
+// Call shortcuts: Control/Command+D and +E route through the same
+// toggleMic/toggleCamera the buttons call, so a shortcut leaves state, the
+// UI and what the room is told exactly where a click would. See
+// call-shortcuts.ts.
+const callShortcutGlyph = modifierGlyph(navigator.platform || navigator.userAgent)
+$('toggleMic').setAttribute('title', `Microphone (${callShortcutGlyph}D)`)
+$('toggleCamera').setAttribute('title', `Camera (${callShortcutGlyph}E)`)
+
+/** A polite announcement for a shortcut-driven toggle only: a click already
+ *  carries its own feedback through focus landing on the button and
+ *  `aria-pressed` changing under it, which a shortcut typed from elsewhere
+ *  in the room does not. */
+function announceCallShortcut(message: string): void {
+  const el = $('callShortcutAnnounce')
+  el.textContent = ''
+  // A screen reader that saw the same text a moment ago may not re-announce
+  // it; clearing first and setting again on the next tick guarantees this
+  // one is heard even when mic and camera happen to echo the same word.
+  window.setTimeout(() => { el.textContent = message }, 0)
+}
+
+function micToggleFromShortcut(): void {
+  toggleMic()
+    .then(() => announceCallShortcut(micTrack?.enabled ? 'Microphone on' : 'Microphone off'))
+    .catch((err) => setStatus(describeError(err)))
+}
+
+function cameraToggleFromShortcut(): void {
+  toggleCamera()
+    .then(() => announceCallShortcut(cameraTrack ? 'Camera on' : 'Camera off'))
+    .catch((err) => setStatus(describeError(err)))
+}
+
+installCallShortcuts(document, window, {
+  onCall,
+  toggleMic: micToggleFromShortcut,
+  toggleCamera: cameraToggleFromShortcut,
+  micMuted: () => !micTrack?.enabled,
+})
 $('backToRooms').addEventListener('click', openRoomSwitcher)
 $('doorToRooms').addEventListener('click', openRoomSwitcher)
 $('watchAgents').addEventListener('click', () => selectChannel(AGENT_CHANNEL))
