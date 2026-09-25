@@ -209,9 +209,9 @@
               <details id="cameraEffects" hidden>
                 <summary>Hide what is behind you <span id="effectMode" class="chip">blur</span></summary>
                 <div class="segmented" id="effectModes" role="radiogroup" aria-label="Background">
-                  <button type="button" class="seg" data-mode="off">Off</button>
-                  <button type="button" class="seg" data-mode="blur">Blur</button>
-                  <button type="button" class="seg" data-mode="replace">Replace</button>
+                  <button type="button" class="seg" role="radio" data-mode="off">Off</button>
+                  <button type="button" class="seg" role="radio" data-mode="blur">Blur</button>
+                  <button type="button" class="seg" role="radio" data-mode="replace">Replace</button>
                 </div>
                 <div class="effectRow" id="strengthRow">
                   <label for="blurStrength">Strength</label>
@@ -241,12 +241,12 @@
               <details id="voiceEffects" hidden>
                 <summary>Change how your voice sounds <span id="voiceMode" class="chip">off</span></summary>
                 <div class="segmented" id="voicePresets" role="radiogroup" aria-label="Voice masking">
-                  <button type="button" class="seg" data-preset="off">Off</button>
-                  <button type="button" class="seg" data-preset="lower">Lower</button>
-                  <button type="button" class="seg" data-preset="higher">Higher</button>
-                  <button type="button" class="seg" data-preset="neutral">Neutral</button>
-                  <button type="button" class="seg" data-preset="deep">Deep</button>
-                  <button type="button" class="seg" data-preset="bright">Bright</button>
+                  <button type="button" class="seg" role="radio" data-preset="off">Off</button>
+                  <button type="button" class="seg" role="radio" data-preset="lower">Lower</button>
+                  <button type="button" class="seg" role="radio" data-preset="higher">Higher</button>
+                  <button type="button" class="seg" role="radio" data-preset="neutral">Neutral</button>
+                  <button type="button" class="seg" role="radio" data-preset="deep">Deep</button>
+                  <button type="button" class="seg" role="radio" data-preset="bright">Bright</button>
                 </div>
                 <div class="effectRow">
                   <button id="voicePreview" type="button">Hear yourself</button>
@@ -305,8 +305,14 @@
           <button id="invitePeople" type="button" aria-label="Invite people" aria-haspopup="dialog" aria-controls="inviteDialog">Invite</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
+        <!-- A re-render of the whole log re-announces everything already
+             read if the log itself is the live region. Screen reader users
+             hear only genuinely new arrivals from others, in this separate
+             status; the log's own aria-live is not set. Filled in by
+             `renderLog` in app/src/main.ts. -->
+        <p id="chatArrivals" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
         <div id="chatViewport">
-          <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" aria-live="polite" tabindex="0"></div>
+          <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
         </div>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>

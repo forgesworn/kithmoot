@@ -54,6 +54,7 @@ import { resolveConversation, mentionsOf, mentionedBy, type ResolvedMessage, typ
 import type { ChatMessage } from '../src/chat.js'
 import { decodeReadPositions, readPositionId, readPositionPlaintext, localSelfCrypt, mergeReadPositions, type ReadPositions } from '../src/read-position.js'
 import { openInvite, localPeerCrypt } from '../src/dm.js'
+import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCallBellEvent } from '../src/call-bell.js'
 
 interface Vector {
   name: string
@@ -97,7 +98,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -1091,6 +1092,38 @@ describe('the message layer', () => {
     const v = vec('readPosition', 'read-position-merge')
     expect(mergeReadPositions(v.input.local as ReadPositions, v.input.remote as ReadPositions)).toEqual(v.output)
   })
+})
+
+describe('call bell', () => {
+  it('callBell/tag-for-day', () => {
+    const v = vec('callBell', 'tag-for-day')
+    const key = hexToBytes(v.input.keyHex as string)
+    expect(callBellDay(v.input.at as number)).toBe(v.input.day)
+    expect(callBellTag(key, v.input.at as number)).toBe(v.output.tag)
+    expect(callBellTag(key, v.input.nextDayAt as number)).toBe(v.output.nextDayTag)
+    expect(bytesToHex(callBellContentKey(key))).toBe(v.output.contentKeyHex)
+  })
+
+  for (const v of groups.callBell.filter((x) => x.name !== 'tag-for-day')) {
+    it(`callBell/${v.name}: reproduces the exact event and reads it as recorded`, () => {
+      const event = v.input.event as Event
+      const decode = v.input.decode as { roomId: string; keyHex: string; now: number }
+      const body = JSON.parse(v.input.plaintext as string) as { state: 'start' | 'end'; call: { id: string; since: number } }
+      // The device signature, from its recorded key and aux-rand.
+      const sig = bytesToHex(schnorr.sign(callBellMessage(v.input.roomId as string, body.state, body.call, event.created_at), hexToBytes(v.input.deviceSkHex as string), hexToBytes(v.input.deviceAuxRandHex as string)))
+      expect(v.input.plaintext).toContain(sig)
+      const content = nip44.v2.encrypt(v.input.plaintext as string, callBellContentKey(hexToBytes(v.input.keyHex as string)), hexToBytes(v.input.nonceHex as string))
+      const rebuilt = finalizeDeterministic({ kind: KINDS.CALL_BELL, created_at: event.created_at, tags: event.tags, content }, hexToBytes(v.input.throwawaySkHex as string), hexToBytes(v.input.auxRandHex as string))
+      expect(rebuilt).toEqual(event)
+      expect(event.tags[0]![1]).toBe(callBellTag(hexToBytes(v.input.keyHex as string), event.created_at))
+      expect(event.tags.map((t) => t[0])).toEqual(['d', 'expiration'])
+      expect(event.tags[1]![1]).toBe(String(event.created_at + 120))
+      expect(event.pubkey).not.toBe(fx.DEVICE_A)
+      expect(JSON.stringify(event)).not.toContain(fx.DEVICE_A)
+      expect(decodeCallBellEvent(event, { roomId: decode.roomId, key: hexToBytes(decode.keyHex), now: decode.now })).toEqual(v.output.result)
+      if (v.kind === 'negative') expect(v.output.result).toBeNull()
+    })
+  }
 })
 
 describe('M2 signal compatibility vectors', () => {
