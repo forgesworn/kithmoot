@@ -887,7 +887,7 @@ video {
 .messageBody { display: flex; align-items: flex-start; gap: .15rem; max-width: 100%; min-width: 0; }
 .messageBody .bubble { flex: 1 1 auto; }
 .reactableBubble { -webkit-touch-callout: none; }
-@media (any-pointer: coarse) {
+@media (hover: none) and (pointer: coarse) {
   .reactableBubble { -webkit-user-select: none; user-select: none; }
 }
 /* A link inside a held bubble keeps its own platform behaviour: the
@@ -902,7 +902,7 @@ video {
 .reactableBubble a {
   -webkit-touch-callout: default;
 }
-@media (any-pointer: coarse) {
+@media (hover: none) and (pointer: coarse) {
   .reactableBubble a { -webkit-user-select: text; user-select: text; }
 }
 .msg.mine .messageBody { flex-direction: row-reverse; }
