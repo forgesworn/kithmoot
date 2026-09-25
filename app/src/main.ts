@@ -26,6 +26,7 @@ import { splitLinks } from './linkify.js'
 import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
 import { installCallStage } from './call-stage.js'
+import { installCallFocus } from './call-focus.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
@@ -229,6 +230,7 @@ const messageActions = new MessageActions()
 installReactionHold($('chatLog'))
 // Where every tile goes on a desktop-sized call. See app/src/call-stage.ts.
 installCallStage($('room'), $('whoIsHere'))
+const callFocus = installCallFocus()
 for (const target of [$('chatLog'), window]) target.addEventListener('scroll', () => {
   document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(positionReactionDetails)
 }, { passive: true })
@@ -3649,6 +3651,7 @@ function renderCallState(views: ParticipantView[]): void {
   const stance = callStance(state)
   const mineOn = stance === 'leave'
   window.kithmootDesktop?.setCallActive(mineOn)
+  callFocus.setOnCall(mineOn && !docked())
   const button = $('callToggle')
   const current = calls[0]
   const starter = current && views
@@ -6336,6 +6339,7 @@ function renderChat(messages: ChatMessage[]): void {
   // showing. See `#chatLog.minutes` in style.css.
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
   renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
+  callFocus.noteMessages(`${draftRoomKey()}|${currentChannel ?? ''}`, messages.filter(m => m.participant !== meParticipant).map(m => m.id))
   if (currentChannel === undefined) void handleInvites(messages)
   updateConversationSearch()
   if (currentChannel === undefined) noteChatRead(messages)
