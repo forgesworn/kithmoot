@@ -20,8 +20,10 @@ been reviewed by a lawyer.
 
 ## Before any of this is true
 
-1. **Create the `abuse@safety.forgesworn.dev` mailbox.** Every one of these
-   documents refers to it. Nothing in this repository creates it.
+1. **Watch the `abuse@safety.forgesworn.dev` inbox.** Every one of these
+   documents refers to it. It exists (Cloudflare Email Routing, forwarding
+   to the owner's inbox, set up 25 September 2026); send it a test message
+   and make sure reports are read.
 2. **Read and adopt the assessments and drafts**, or send them for legal
    review first. They are written honestly, including the gaps, but an AI
    assistant drafting them is not the same as an owner deciding to stand
