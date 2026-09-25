@@ -150,10 +150,14 @@
             <div class="toggles">
               <!-- Short words on a phone, where the four share one row; the
                    accessible name is the full one everywhere. -->
-              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone"><span class="callFull">Microphone</span><span class="callShort">Mic</span></button>
-              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera">Camera</button>
+              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone" aria-keyshortcuts="Control+D Meta+D"><span class="callFull">Microphone</span><span class="callShort">Mic</span></button>
+              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera" aria-keyshortcuts="Control+E Meta+E">Camera</button>
               <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share"><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
             </div>
+            <!-- Filled by `announceCallShortcut` in main.ts, only for a
+                 toggle made from the keyboard: a click already carries its
+                 own feedback through focus and `aria-pressed`. -->
+            <div id="callShortcutAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
             <p id="micIndicator" class="indicator"></p>
             <!-- Another of this device's own tabs holds the microphone.
                  Filled in by `render` in app/src/main.ts alongside
@@ -205,9 +209,9 @@
               <details id="cameraEffects" hidden>
                 <summary>Hide what is behind you <span id="effectMode" class="chip">blur</span></summary>
                 <div class="segmented" id="effectModes" role="radiogroup" aria-label="Background">
-                  <button type="button" class="seg" data-mode="off">Off</button>
-                  <button type="button" class="seg" data-mode="blur">Blur</button>
-                  <button type="button" class="seg" data-mode="replace">Replace</button>
+                  <button type="button" class="seg" role="radio" data-mode="off">Off</button>
+                  <button type="button" class="seg" role="radio" data-mode="blur">Blur</button>
+                  <button type="button" class="seg" role="radio" data-mode="replace">Replace</button>
                 </div>
                 <div class="effectRow" id="strengthRow">
                   <label for="blurStrength">Strength</label>
@@ -237,12 +241,12 @@
               <details id="voiceEffects" hidden>
                 <summary>Change how your voice sounds <span id="voiceMode" class="chip">off</span></summary>
                 <div class="segmented" id="voicePresets" role="radiogroup" aria-label="Voice masking">
-                  <button type="button" class="seg" data-preset="off">Off</button>
-                  <button type="button" class="seg" data-preset="lower">Lower</button>
-                  <button type="button" class="seg" data-preset="higher">Higher</button>
-                  <button type="button" class="seg" data-preset="neutral">Neutral</button>
-                  <button type="button" class="seg" data-preset="deep">Deep</button>
-                  <button type="button" class="seg" data-preset="bright">Bright</button>
+                  <button type="button" class="seg" role="radio" data-preset="off">Off</button>
+                  <button type="button" class="seg" role="radio" data-preset="lower">Lower</button>
+                  <button type="button" class="seg" role="radio" data-preset="higher">Higher</button>
+                  <button type="button" class="seg" role="radio" data-preset="neutral">Neutral</button>
+                  <button type="button" class="seg" role="radio" data-preset="deep">Deep</button>
+                  <button type="button" class="seg" role="radio" data-preset="bright">Bright</button>
                 </div>
                 <div class="effectRow">
                   <button id="voicePreview" type="button">Hear yourself</button>
@@ -301,8 +305,14 @@
           <button id="invitePeople" type="button" aria-label="Invite people" aria-haspopup="dialog" aria-controls="inviteDialog">Invite</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
+        <!-- A re-render of the whole log re-announces everything already
+             read if the log itself is the live region. Screen reader users
+             hear only genuinely new arrivals from others, in this separate
+             status; the log's own aria-live is not set. Filled in by
+             `renderLog` in app/src/main.ts. -->
+        <p id="chatArrivals" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
         <div id="chatViewport">
-          <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" aria-live="polite" tabindex="0"></div>
+          <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>
         </div>
         <div id="outbox" hidden aria-label="Messages awaiting confirmation"></div>
@@ -848,6 +858,9 @@
         <dt>Enter or Shift + F10 on a message</dt><dd>Open its actions. Tab moves through the actions; Escape closes them.</dd>
         <dt>Escape in messages</dt><dd>Return to writing, where this conversation allows replies.</dd>
         <dt>Control / Command + /</dt><dd>Open this help. Shortcuts leave open dialogs and text editing in control.</dd>
+        <dt>Control / Command + D</dt><dd>On a call: toggle the microphone.</dd>
+        <dt>Control / Command + E</dt><dd>On a call: toggle the camera.</dd>
+        <dt>Hold Space</dt><dd>On a call, outside a text field: talk while otherwise muted. Releasing it mutes again.</dd>
       </dl>
       </div>
     </dialog>

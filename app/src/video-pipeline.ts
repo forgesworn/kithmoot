@@ -168,6 +168,11 @@ export interface CameraPipelineOptions {
    *  Reported on the *source* track rather than the published one, because
    *  the published one is a canvas and knows nothing about it. */
   onSourceEnded?: () => void
+  /** Start on this mode rather than `BLUR_ON_BY_DEFAULT` - a remembered
+   *  choice from `call-prefs.ts`. */
+  mode?: EffectMode
+  /** Start at this blur strength rather than `DEFAULT_BLUR_STRENGTH`. */
+  strength?: number
 }
 
 export interface CameraStats {
@@ -246,8 +251,8 @@ export class CameraPipeline {
           wasmPath: `${import.meta.env.BASE_URL}mediapipe`,
           modelPath: `${import.meta.env.BASE_URL}models/selfie_segmenter.tflite`,
         }),
-      mode: BLUR_ON_BY_DEFAULT ? 'blur' : 'off',
-      strength: DEFAULT_BLUR_STRENGTH,
+      mode: opts.mode ?? (BLUR_ON_BY_DEFAULT ? 'blur' : 'off'),
+      strength: opts.strength ?? DEFAULT_BLUR_STRENGTH,
       onStateChange: (state) => this.#onStateChange?.(state),
     })
   }
@@ -314,14 +319,17 @@ export class CameraPipeline {
   }
 
   /** Start the camera and return the track to publish. Idempotent enough to
-   *  call twice; the second call returns the same track. */
-  async start(): Promise<MediaStreamTrack> {
+   *  call twice; the second call returns the same track. `deviceId` is a
+   *  remembered camera from `call-prefs.ts` - tried first, and dropped in
+   *  favour of the default camera if it no longer exists (unplugged, or
+   *  never valid on this machine) rather than failing the call. */
+  async start(opts: { deviceId?: string } = {}): Promise<MediaStreamTrack> {
     if (this.#stopped) throw new Error('Camera was stopped.')
     if (this.#outputStream) {
       const existing = this.#outputStream.getVideoTracks()[0]
       if (existing) return existing
     }
-    await this.#openCamera({ facingMode: this.#facingMode })
+    await this.#openInitialCamera(opts.deviceId)
     if (this.#stopped) throw new Error('Camera was stopped.')
 
     this.#outputStream = this.#canvas.captureStream(CAPTURE_FPS)
@@ -495,6 +503,23 @@ export class CameraPipeline {
   }
 
   // -- internals ------------------------------------------------------------
+
+  /** The camera to open on a fresh `start()`: a remembered device if one
+   *  was given and still opens, the default camera otherwise. */
+  async #openInitialCamera(deviceId: string | undefined): Promise<void> {
+    if (deviceId) {
+      try {
+        this.#deviceId = deviceId
+        await this.#openCamera({ deviceId: { exact: deviceId } })
+        return
+      } catch {
+        // The remembered camera is gone. Fall through to the default one
+        // rather than failing to join with video at all.
+        this.#deviceId = undefined
+      }
+    }
+    await this.#openCamera({ facingMode: this.#facingMode })
+  }
 
   async #openCamera(video: MediaTrackConstraints): Promise<void> {
     if (this.#stopped) throw new Error('Camera was stopped.')

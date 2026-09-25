@@ -198,6 +198,11 @@ import {
 import { DEFAULT_VOICE_PRESET, type VoicePreset } from '../../src/voice-effects.js'
 import { BACKGROUNDS, CameraPipeline, type BackgroundChoice } from './video-pipeline.js'
 import { MicPipeline, type MicState } from './voice-pipeline.js'
+import {
+  loadBackgroundId, loadBlurStrength, loadCameraDeviceId, loadEffectMode, loadMicDeviceId, loadVoicePreset,
+  storeBackgroundId, storeBlurStrength, storeCameraDeviceId, storeEffectMode, storeMicDeviceId, storeVoicePreset,
+} from './call-prefs.js'
+import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type Profile } from './profiles.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay-settings.js'
 import { renderQr } from './qr.js'
@@ -4116,6 +4121,7 @@ async function toggleMic(): Promise<void> {
   }
   if (!micTrack) {
     const pipeline = new MicPipeline({
+      preset: savedVoicePreset,
       onSourceEnded: () => { if (generation === callGeneration) void recoverCallMedia() },
       onStateChange: (state) => {
         if (generation !== callGeneration) return
@@ -4125,7 +4131,7 @@ async function toggleMic(): Promise<void> {
     })
     pendingMedia.add(pipeline)
     try {
-      const track = await pipeline.start()
+      const track = await pipeline.start({ deviceId: loadMicDeviceId(deviceStore) })
       if (generation !== callGeneration) { pipeline.stop(); return }
       micTrack = track
     } catch (err) {
@@ -4136,6 +4142,7 @@ async function toggleMic(): Promise<void> {
       pendingMedia.delete(pipeline)
     }
     mic = pipeline
+    if (pipeline.deviceId) storeMicDeviceId(deviceStore, pipeline.deviceId)
     micTrack.addEventListener('ended', onMicEnded)
     // Choosing the microphone is an explicit choice to use this device for
     // the conversation, even if it was previously in camera-only mode. It
@@ -4187,6 +4194,8 @@ async function toggleCamera(): Promise<void> {
     publishActiveTracks()
   } else {
     const pipeline = new CameraPipeline({
+      mode: savedEffectMode,
+      strength: savedBlurStrength,
       onStateChange: state => { if (generation === callGeneration) renderEffectState(state) },
       onSourceEnded: () => {
         if (generation !== callGeneration) return
@@ -4195,7 +4204,7 @@ async function toggleCamera(): Promise<void> {
     })
     pendingMedia.add(pipeline)
     try {
-      const track = await pipeline.start()
+      const track = await pipeline.start({ deviceId: loadCameraDeviceId(deviceStore) })
       if (generation !== callGeneration) { pipeline.stop(); return }
       cameraTrack = track
     } catch (err) {
@@ -4206,6 +4215,17 @@ async function toggleCamera(): Promise<void> {
       pendingMedia.delete(pipeline)
     }
     camera = pipeline
+    if (pipeline.deviceId) storeCameraDeviceId(deviceStore, pipeline.deviceId)
+    // A remembered "replace" choice needs its background loaded too - the
+    // same two calls `setEffectMode` makes for an explicit switch, just
+    // made here for the mode the pipeline already started on.
+    if (savedEffectMode === 'replace') {
+      const choice = BACKGROUNDS.find((b) => b.id === backgroundId) ?? BACKGROUNDS[0]
+      if (choice) {
+        await pipeline.setFish(fishEnabled)
+        await pipeline.setBackground(choice)
+      }
+    }
     // The preview shows the CANVAS, not the camera, so what you see is what
     // the room gets - including whatever the effect is or is not managing to
     // do about the wall behind you.
@@ -4352,6 +4372,7 @@ async function switchCamera(): Promise<void> {
   if (!next) return
   try { await pipeline.useCamera({ deviceId: next.deviceId }) }
   finally { if (camera !== pipeline) pipeline.stop() }
+  if (camera === pipeline && pipeline.deviceId) storeCameraDeviceId(deviceStore, pipeline.deviceId)
 }
 
 function renderBackgroundChoices(): void {
@@ -4361,6 +4382,7 @@ function renderBackgroundChoices(): void {
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'seg'
+    button.setAttribute('role', 'radio')
     button.dataset.background = choice.id
     button.textContent = choice.label
     button.addEventListener('click', () => {
@@ -4373,12 +4395,14 @@ function renderBackgroundChoices(): void {
 
 async function chooseBackground(choice: BackgroundChoice): Promise<void> {
   backgroundId = choice.id
+  storeBackgroundId(deviceStore, backgroundId)
   markSegmented('backgroundChoices', 'background', backgroundId)
   if (camera) renderEffectState(camera.status)
   await camera?.setBackground(choice)
 }
 
 async function setEffectMode(mode: EffectMode): Promise<void> {
+  storeEffectMode(deviceStore, mode)
   const pipeline = camera
   if (!pipeline) return
   if (mode === 'replace') {
@@ -7118,6 +7142,41 @@ async function copyMessageText(text: string): Promise<boolean> {
  */
 const expandedMessages = new Set<string>()
 
+/** Latest message time already announced, per channel (`''` for the main
+ *  chat). Lets `announceArrivals` tell a genuinely new message from a
+ *  channel's history: the first render of a channel only records this
+ *  high-water mark, and pagination that pulls in older messages never moves
+ *  it forward, so neither reads out anything. */
+const lastAnnouncedAt = new Map<string, number>()
+
+/** Read new arrivals from others into `#chatArrivals`, a status region kept
+ *  apart from `#chatLog` itself (see C10 in the 13 September accessibility
+ *  pass): the log repaints in full on almost every change, and a screen
+ *  reader watching the log as its own live region re-announces everything
+ *  still on screen along with whatever is actually new. Your own messages
+ *  are not announced - you just typed them. */
+function announceArrivals(channelKey: string, conversation: { byKey: Map<string, ResolvedMessage> }): void {
+  const previous = lastAnnouncedAt.get(channelKey)
+  let latest = previous ?? 0
+  const arrivals: string[] = []
+  for (const r of conversation.byKey.values()) {
+    const original = r.original
+    if (original.sentAt > latest) latest = original.sentAt
+    if (previous === undefined || original.sentAt <= previous) continue
+    if (r.retracted || original.participant === meParticipant || r.shown.kind === 'transcript') continue
+    const sender = shownAs(original.participant, original.name).name || 'Somebody'
+    arrivals.push(`${sender}: ${r.shown.text.slice(0, 80)}`)
+  }
+  lastAnnouncedAt.set(channelKey, latest)
+  if (!arrivals.length) return
+  const region = $('chatArrivals')
+  region.textContent = ''
+  // A screen reader treats identical text as no change; the empty text set
+  // first, and this set a tick later, makes the next arrival read out even
+  // when it repeats the words of the one before it.
+  requestAnimationFrame(() => { region.textContent = arrivals.join('; ') })
+}
+
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
   // A receipt or roster update replaces the rows while someone may be
@@ -7533,6 +7592,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   restoreScroll()
   messageActions.refresh()
   restoreReaction?.()
+  if (logId === 'chatLog') announceArrivals(currentChannel ?? '', conversation)
 }
 
 /**
@@ -10670,6 +10730,46 @@ async function setNudge(on: boolean): Promise<void> {
 
 // The bar: back, who and where, the call, and everything else.
 installKeyboardNavigation(document)
+
+// Call shortcuts: Control/Command+D and +E route through the same
+// toggleMic/toggleCamera the buttons call, so a shortcut leaves state, the
+// UI and what the room is told exactly where a click would. See
+// call-shortcuts.ts.
+const callShortcutGlyph = modifierGlyph(navigator.platform || navigator.userAgent)
+$('toggleMic').setAttribute('title', `Microphone (${callShortcutGlyph}D)`)
+$('toggleCamera').setAttribute('title', `Camera (${callShortcutGlyph}E)`)
+
+/** A polite announcement for a shortcut-driven toggle only: a click already
+ *  carries its own feedback through focus landing on the button and
+ *  `aria-pressed` changing under it, which a shortcut typed from elsewhere
+ *  in the room does not. */
+function announceCallShortcut(message: string): void {
+  const el = $('callShortcutAnnounce')
+  el.textContent = ''
+  // A screen reader that saw the same text a moment ago may not re-announce
+  // it; clearing first and setting again on the next tick guarantees this
+  // one is heard even when mic and camera happen to echo the same word.
+  window.setTimeout(() => { el.textContent = message }, 0)
+}
+
+function micToggleFromShortcut(): void {
+  toggleMic()
+    .then(() => announceCallShortcut(micTrack?.enabled ? 'Microphone on' : 'Microphone off'))
+    .catch((err) => setStatus(describeError(err)))
+}
+
+function cameraToggleFromShortcut(): void {
+  toggleCamera()
+    .then(() => announceCallShortcut(cameraTrack ? 'Camera on' : 'Camera off'))
+    .catch((err) => setStatus(describeError(err)))
+}
+
+installCallShortcuts(document, window, {
+  onCall,
+  toggleMic: micToggleFromShortcut,
+  toggleCamera: cameraToggleFromShortcut,
+  micMuted: () => !micTrack?.enabled,
+})
 $('backToRooms').addEventListener('click', openRoomSwitcher)
 $('doorToRooms').addEventListener('click', openRoomSwitcher)
 $('watchAgents').addEventListener('click', () => selectChannel(AGENT_CHANNEL))
@@ -11318,7 +11418,9 @@ $('effectModes').addEventListener('click', (event) => {
 })
 
 $('blurStrength').addEventListener('input', (event) => {
-  camera?.setStrength(Number((event.target as HTMLInputElement).value) / 100)
+  const strength = Number((event.target as HTMLInputElement).value) / 100
+  camera?.setStrength(strength)
+  storeBlurStrength(deviceStore, strength)
 })
 
 ;($('fishToggle') as HTMLInputElement).checked = fishEnabled
@@ -11338,6 +11440,7 @@ $('voicePresets').addEventListener('click', (event) => {
     | undefined
   if (!preset || !mic) return
   mic.setPreset(preset)
+  storeVoicePreset(deviceStore, preset)
 })
 
 $('voicePreview').addEventListener('click', () => {
@@ -12675,14 +12778,20 @@ function showPasteSize(): void {
 }
 $('chatInput').addEventListener('input', showPasteSize)
 
-// The effect controls start where the constants say they start, rather than
-// where index.html happens to say they do: BLUR_ON_BY_DEFAULT is a product
-// decision and it is meant to be one line to change.
-;($('blurStrength') as HTMLInputElement).value = String(Math.round(DEFAULT_BLUR_STRENGTH * 100))
-markSegmented('effectModes', 'mode', BLUR_ON_BY_DEFAULT ? 'blur' : 'off')
-markSegmented('voicePresets', 'preset', DEFAULT_VOICE_PRESET)
-$('effectMode').textContent = BLUR_ON_BY_DEFAULT ? 'blur' : 'off'
-$('voiceMode').textContent = DEFAULT_VOICE_PRESET
+// The effect controls start where a remembered choice from this browser's
+// last call says they start (`call-prefs.ts`), or otherwise where the
+// constants say: BLUR_ON_BY_DEFAULT is a product decision and it is meant
+// to stay one line to change.
+const savedEffectMode = loadEffectMode(deviceStore) ?? (BLUR_ON_BY_DEFAULT ? 'blur' : 'off')
+const savedBlurStrength = loadBlurStrength(deviceStore) ?? DEFAULT_BLUR_STRENGTH
+const savedVoicePreset = loadVoicePreset(deviceStore) ?? DEFAULT_VOICE_PRESET
+const savedBackgroundId = loadBackgroundId(deviceStore)
+if (savedBackgroundId && BACKGROUNDS.some((b) => b.id === savedBackgroundId)) backgroundId = savedBackgroundId
+;($('blurStrength') as HTMLInputElement).value = String(Math.round(savedBlurStrength * 100))
+markSegmented('effectModes', 'mode', savedEffectMode)
+markSegmented('voicePresets', 'preset', savedVoicePreset)
+$('effectMode').textContent = savedEffectMode
+$('voiceMode').textContent = savedVoicePreset
 
 // What kind of visit this is, said before the relays are asked.
 //

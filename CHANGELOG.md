@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Call bell, kind 1464.** Wire change, additive: the first device on a
+  call publishes one `start` bell and the last one off publishes one `end`,
+  so a phone with the app closed can wait for a call on an idle socket
+  instead of decrypting every presence heartbeat. Signed by a throwaway key,
+  tagged only with a daily tag derived from the epoch key and a NIP-40
+  `expiration` two minutes out; the ringing device and its signature are
+  inside the ciphertext. Nine new `callBell` vectors. See "Call bell" in
+  `docs/protocol.md`.
 - The default relays are now three third-party public relays: `nostr.mom`
   replaces the project's own relay as the third. Existing room links keep
   the relays they name. See `docs/decisions.md`.

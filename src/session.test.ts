@@ -11,6 +11,7 @@ import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
 import { decodeRosterEvent, encodeRosterEvent } from './roster.js'
 import { PRESENCE_TTL_SECONDS } from './session.js'
+import { decodeCallBellEvent } from './call-bell.js'
 import type { RelayTransport } from './relay-pool.js'
 
 const NOW = 1_800_000_000
@@ -191,6 +192,50 @@ describe('RoomSession', () => {
     await bob.leave()
     await settle()
     expect(observer.calls()).toEqual([])
+  })
+
+  it('rings one start bell for the first device on a call and one end bell for the last off it', async () => {
+    const relay = new SimRelay()
+    const make = () => new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    const ada = make()
+    const bob = make()
+    const reader = make()
+    await ada.join([], {})
+    await bob.join([], {})
+    await reader.join([], {})
+    await settle()
+    const { roomId, roomKey } = deriveRoom(secret())
+    const bells = () => relay.published.filter((e) => e.kind === KINDS.CALL_BELL)
+    const read = () => bells().map((e) => decodeCallBellEvent(e, { roomId, key: roomKey, now: NOW }))
+
+    const id = 'e'.repeat(32)
+    await ada.setCall({ id, since: NOW })
+    await settle()
+    expect(read()).toEqual([{ state: 'start', call: { id, since: NOW }, device: ada.device, createdAt: NOW }])
+    const [start] = bells()
+    expect(start.pubkey).not.toBe(ada.device)
+    expect(start.pubkey).not.toBe(ada.participant)
+    expect(start.tags.map((t) => t[0])).toEqual(['d', 'expiration'])
+
+    // Joining somebody's call and leaving it while others remain ring nothing.
+    await bob.setCall({ id, since: NOW })
+    await settle()
+    await ada.setCall(null)
+    await settle()
+    expect(bells()).toHaveLength(1)
+
+    // The last one off - here by leaving the room - rings it closed.
+    await bob.leave()
+    await settle()
+    expect(read()[1]).toEqual({ state: 'end', call: { id, since: NOW }, device: bob.device, createdAt: NOW })
+    expect(bells()).toHaveLength(2)
   })
 
   it('breaks a tie between equal-size, equal-since calls on id, regardless of insertion order', async () => {

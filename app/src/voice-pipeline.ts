@@ -27,6 +27,9 @@ const PREVIEW_SECONDS = 3
 export interface MicPipelineOptions {
   onStateChange?: (state: MicState) => void
   onSourceEnded?: () => void
+  /** Start on this preset rather than `DEFAULT_VOICE_PRESET` - a
+   *  remembered choice from `call-prefs.ts`. */
+  preset?: VoicePreset
 }
 
 export interface MicState {
@@ -81,10 +84,19 @@ export class MicPipeline {
   /** The raw microphone, once the masking graph has been seen to stop. */
   #fallback: MediaStreamTrack | null = null
   #watchdog: ReturnType<typeof setInterval> | undefined
+  /** Which microphone is feeding the pipeline right now, read off the raw
+   *  track's own settings once it is open. */
+  #deviceId: string | undefined
 
   constructor(opts: MicPipelineOptions = {}) {
     this.#onStateChange = opts.onStateChange
     this.#onSourceEnded = opts.onSourceEnded
+    this.#preset = opts.preset ?? DEFAULT_VOICE_PRESET
+  }
+
+  /** The microphone actually in use, for `call-prefs.ts` to remember. */
+  get deviceId(): string | undefined {
+    return this.#deviceId
   }
 
   get preset(): VoicePreset {
@@ -122,12 +134,10 @@ export class MicPipeline {
    * The state goes to `degraded` and the UI says the voice is not masked,
    * which is the only honest thing to do with a control that has failed.
    */
-  async start(): Promise<MediaStreamTrack> {
+  async start(opts: { deviceId?: string } = {}): Promise<MediaStreamTrack> {
     if (this.#stopped) throw new Error('Microphone was stopped.')
     if (this.track) return this.track
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    })
+    const stream = await this.#openMic(opts.deviceId)
     if (this.#stopped) {
       for (const track of stream.getTracks()) track.stop()
       throw new Error('Microphone was stopped.')
@@ -135,6 +145,7 @@ export class MicPipeline {
     this.#stream = stream
     const raw = this.#stream.getAudioTracks()[0]
     if (!raw) throw new Error('the browser opened the microphone and gave back no audio track')
+    this.#deviceId = raw.getSettings?.().deviceId
     this.#watchSource(raw)
 
     try {
@@ -218,6 +229,22 @@ export class MicPipeline {
     raw.addEventListener('ended', () => {
       if (!this.#stopped && this.#stream?.getAudioTracks()[0] === raw) this.#onSourceEnded?.()
     })
+  }
+
+  /** The microphone to open: a remembered device if one was given and
+   *  still opens, the default microphone otherwise - see
+   *  `CameraPipeline.#openInitialCamera` for the same fallback. */
+  async #openMic(deviceId: string | undefined): Promise<MediaStream> {
+    const base: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    if (deviceId) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio: { ...base, deviceId: { exact: deviceId } } })
+      } catch {
+        // The remembered microphone is gone. Fall through to the default
+        // one rather than failing to join the call with audio at all.
+      }
+    }
+    return navigator.mediaDevices.getUserMedia({ audio: base })
   }
 
   /** Resume the existing graph and replace only an interrupted device source.

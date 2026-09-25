@@ -88,6 +88,7 @@ submission to the upstream registry is separate. Existing numbers do not change.
 | 1461 | Invitation retirement | Creator-signed tombstone; regular |
 | 1462 | Room rekey | Authority-signed, prior-epoch ciphertext; regular |
 | 1463 | Group invitation | Creator-signed, bearer-derived ciphertext; regular |
+| 1464 | Call bell | Throwaway-signed, daily room-derived tag, room/epoch ciphertext; regular with NIP-40 expiration |
 | 20460 | Device credential | Participant-signed inner event; never published bare |
 | 20461 | Roster | Device-signed room ciphertext; ephemeral |
 | 20462 | KithMoot signal | Signed inner event or sealed rumor; never published bare |
@@ -253,6 +254,68 @@ behind. A responder from before this field ignores it. The
 Clients that cannot follow an epoch must say so rather than display a quiet,
 empty room. Android capability gaps are recorded in the compatibility ledger;
 passing M2 codecs does not implement features it did not previously support.
+
+## Call bell
+
+A call has no event of its own in the roster: it is read off presence. A
+phone with the app closed cannot afford presence, which is a heartbeat every
+20 seconds from every device in every room. Kind 1464 gives it one event per
+call start and one per call end to wait for on an idle socket.
+
+The bell is a regular kind, so a socket that has just reconnected catches it
+with `since`, and every bell carries a NIP-40 `expiration` of `created_at +
+120`. Its outer event is signed by a secret key minted for that one bell and
+then discarded, never a device or participant key. It has exactly two tags:
+
+- `d`: the first 32 hex characters of HMAC-SHA256(K, UTF-8
+  `kithmoot-call-bell-v1|` + the UTC day of `created_at` as `yyyy-mm-dd`),
+  where K = HKDF-SHA256(current room/epoch key, empty salt,
+  `kithmoot/v1/call-bell-tag`, 32).
+- `expiration`: `created_at + 120`, decimal.
+
+The content is NIP-44 v2 with the conversation key HKDF-SHA256(current
+room/epoch key, empty salt, `kithmoot/v1/call-bell-key`, 32), of compact
+JSON `{"v":1,"state":"start"|"end","call":{"id","since"},"device","sig"}`.
+`call` has the roster's shape. `device` is the ringing device's public key.
+`sig` is its BIP-340 signature over SHA-256 of UTF-8
+`kithmoot/v1/call-bell:<room id>:<state>:<call id>:<since>:<created_at>`,
+with the room's (epoch-0) id, so a bell replayed into another room, or
+restamped to another time, fails. The body carries no names.
+
+A device publishes a `start` bell when it goes on a call no other present
+endpoint carries, and an `end` bell when it leaves a call (by stepping off
+or by leaving the room) and no other present endpoint carries it. Nothing
+else rings: no periodic bells, and no bell when a call moves between two tabs
+of one device. Publishing never delays going on or off a call; a failure
+costs only the ring.
+
+A reader subscribes to `{"kinds":[1464],"#d":[...]}` with today's tag and,
+within 120 seconds after or 60 seconds before UTC midnight, the neighbouring
+day's. It rejects a bell whose tag is not the day tag for its `created_at`,
+whose outer signature fails, that does not decrypt, whose `v` is not `1` or
+`state` not `start`/`end`, whose call id is not 32 lower-case hex characters,
+whose device signature fails, that is more than 120 seconds old or more than
+60 seconds in the future, or whose `since` is more than 60 seconds after
+`created_at`, more than 120 seconds before it on a `start`, or more than 30
+days before it on an `end`. A valid bell says a device holding the room key
+rang; whether that device belongs to the room is checked against the roster
+or a credential the reader holds. The `callBell` vectors pin the derivation
+and the refusals.
+
+**What a relay learns.** That some opaque tag, which changes every UTC day,
+saw a call start or end at a time, from an unlinked key, and the connection
+(and so the IP address) that published it. A relay that also carries the
+room's roster can correlate that connection and moment with the roster
+heartbeats the same connection sends, and so guess which roster tag the bell
+belongs to; the bell hides nothing that the connection's own timing gives
+away. Relays that ignore NIP-40 keep the event, still opaque. Anybody who
+holds the room key can compute the tag and read the bell, exactly as they can
+read the roster.
+
+**What it cannot.** Derive the roster's `d` from the bell's tag or the other
+way round, link bells of one room across days without the key, or tie a bell
+to any device or participant key: those are only inside the ciphertext.
+Another room's bells share nothing with this one's on the wire.
 
 ## Call signalling profile 1
 

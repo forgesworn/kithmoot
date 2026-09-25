@@ -21,6 +21,7 @@ import type { PairDiagnostics } from './pair-controller.js'
 import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
+import { encodeCallBellEvent, type CallBellState } from './call-bell.js'
 import { ChatLog } from './chat.js'
 import type { EpochRoot } from './chat.js'
 import {
@@ -135,6 +136,9 @@ export interface RoomSessionBaseOptions {
   deviceSk: Uint8Array
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
+  /** `false` never publishes a call bell (kind 1464) when this device is
+   *  the first on a call or the last off it. Defaults to on. */
+  callBell?: boolean
   /**
    * This page session's id, published on every entry - see `RosterEntry.sid`.
    *
@@ -1477,9 +1481,41 @@ export class RoomSession {
    */
   async setCall(call: CallMembership | null): Promise<void> {
     if (!this.#self || this.#left) return
-    const { call: _dropped, ...rest } = this.#self
+    const { call: previous, ...rest } = this.#self
     this.#self = call ? { ...rest, call: { id: call.id.toLowerCase(), since: Math.floor(call.since) } } : rest
+    const next = this.#self.call
+    // Decided before the entry goes out, on the presence as it stood: the
+    // bell is for the first device on a call and the last one off it.
+    const bells: Array<[CallBellState, CallMembership]> = []
+    if (previous && previous.id !== next?.id && !this.#othersOnCall(previous.id)) bells.push(['end', previous])
+    if (next && next.id !== previous?.id && !this.#othersOnCall(next.id)) bells.push(['start', next])
     await this.#publishEntry(true)
+    for (const [state, on] of bells) void this.#ringBell(state, on)
+  }
+
+  /** Whether any other present endpoint - another device, or another page
+   *  session of this one - says it is on `id`. */
+  #othersOnCall(id: string): boolean {
+    for (const [key, entry] of this.#entries) {
+      if (key === this.#selfKey() || entry.left) continue
+      if (entry.call?.id === id) return true
+    }
+    return false
+  }
+
+  /**
+   * Publish one call bell (kind 1464) for a phone waiting with the app
+   * closed - see `call-bell.ts`. Fire and forget: it never holds up going on
+   * or off a call, and a failure costs only the ring, so it is swallowed.
+   */
+  #ringBell(state: CallBellState, call: CallMembership): Promise<void> {
+    if (this.#opts.callBell === false) return Promise.resolve()
+    try {
+      const event = encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now() })
+      return this.#opts.transport.publish(event).catch(() => {})
+    } catch {
+      return Promise.resolve()
+    }
   }
 
   /** The call this device says it is on, if any. */
@@ -1949,8 +1985,12 @@ export class RoomSession {
     // anyway - so there is only one path to test.
     let farewell: Promise<void> = Promise.resolve()
     if (this.#self && !this.#left) {
-      const { call: _off, ...rest } = this.#self
+      const { call: off, ...rest } = this.#self
       this.#self = { ...rest, tracks: [], claims: {} }
+      // The last one off a call rings it closed, inside the same bound as
+      // the farewell, because the transport may be closed the moment this
+      // resolves.
+      const bell = off && !this.#othersOnCall(off.id) ? this.#ringBell('end', off) : Promise.resolve()
       // Flagged the same way an answer is, because a farewell is not an
       // arrival either: without it, the last thing a leaving device does is
       // provoke every remaining device into re-announcing at it. And flagged
@@ -1962,7 +2002,7 @@ export class RoomSession {
       // was mid-reconnect kept a test process alive for a quarter of an
       // hour. Past the bound the goodbye is simply lost, and the room evicts
       // this device on the timeout as it always did.
-      const publish = this.#publishEntry(true, true).catch(() => {})
+      const publish = Promise.all([this.#publishEntry(true, true).catch(() => {}), bell]).then(() => {})
       const bound = new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, FAREWELL_BOUND_MS)
         ;(timer as unknown as { unref?: () => void }).unref?.()
