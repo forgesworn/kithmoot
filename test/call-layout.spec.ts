@@ -223,6 +223,9 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     await pinTarget.hover()
     await pinTarget.getByRole('button', { name: 'Pin Flo' }).click()
     await expect(pinTarget).toHaveAttribute('data-featured', '')
+    // Tiles glide to their new places; photograph where they land.
+    await first.mouse.move(0, 0)
+    await first.waitForTimeout(500)
     await shot(first, '8-speaker-pinned')
     await pinTarget.getByRole('button', { name: 'Unpin Flo' }).click()
 

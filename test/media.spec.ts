@@ -75,7 +75,13 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     await expectToSeeAndHear(pageB, 'Bob')
 
     // Laptop faces must be readable and the chat tools must remain separate.
-    for (const tile of await pageA.locator('#room .participant:has(video)').all()) {
+    // Your own picture is the exception on purpose: in a call of two it
+    // floats small over the other person (app/src/call-stage.ts), as it does
+    // in any phone call app, and has its own floor.
+    for (const tile of await pageA.locator('#room .participant[data-floating]').all()) {
+      expect((await tile.boundingBox())!.width, 'your own floating picture is smaller than a readable thumbnail').toBeGreaterThanOrEqual(160)
+    }
+    for (const tile of await pageA.locator('#room .participant:has(video):not([data-floating])').all()) {
       const bounds = (await tile.boundingBox())!
       expect(bounds.width, 'a participant video is still a tiny thumbnail').toBeGreaterThanOrEqual(256)
       const video = (await tile.locator('video').first().boundingBox())!

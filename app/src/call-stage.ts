@@ -182,12 +182,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       const picture = share.aspect ? fitRect(slot, share.aspect) : slot
       placeVideo(share.video, { x: picture.x - origin.x, y: picture.y - origin.y, width: picture.width, height: picture.height })
       const expand = share.owner.box.querySelectorAll<HTMLElement>(':scope > .shareExpand')[share.owner.shares.indexOf(share.video)]
-      if (expand) {
-        // On the picture's own corner, not the stage's.
-        setStyle(expand, 'left', `${picture.x - origin.x + picture.width - 8}px`)
-        setStyle(expand, 'top', `${picture.y - origin.y + 8}px`)
-        setAttr(expand, 'data-on-stage', '')
-      }
+      if (expand) placeExpand(expand, slot, picture, origin)
     }
 
     renderToolbar(everyone, shares.length, out)
@@ -237,6 +232,24 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     setStyle(video, 'top', `${rect.y}px`)
     setStyle(video, 'width', `${rect.width}px`)
     setStyle(video, 'height', `${rect.height}px`)
+  }
+
+  /**
+   * The button that opens a share full size, next to the picture rather
+   * than on it: beside its top right corner when the stage has room there,
+   * above it when it has room there, and only on the picture when neither.
+   */
+  function placeExpand(expand: HTMLElement, slot: Rect, picture: Rect, origin: { x: number; y: number }): void {
+    const width = expand.offsetWidth || 180
+    const height = expand.offsetHeight || 30
+    const right = picture.x + picture.width
+    let place: { x: number; y: number; where: string }
+    if (slot.x + slot.width - right >= width + 8) place = { x: right + 8, y: picture.y, where: 'beside' }
+    else if (picture.y - slot.y >= height + 8) place = { x: right - width, y: picture.y - height - 6, where: 'above' }
+    else place = { x: right - width - 8, y: picture.y + 8, where: 'over' }
+    setStyle(expand, 'left', `${place.x - origin.x}px`)
+    setStyle(expand, 'top', `${place.y - origin.y}px`)
+    setAttr(expand, 'data-on-stage', place.where)
   }
 
   function unplaceVideo(video: HTMLVideoElement): void {

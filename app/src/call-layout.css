@@ -209,8 +209,9 @@
   padding: .2rem .55rem;
   font-size: .8rem;
   min-height: 0;
+  white-space: nowrap;
 }
-#room[data-layout] > .participant > .shareExpand[data-on-stage] { right: auto; transform: translateX(-100%); }
+#room[data-layout] > .participant > .shareExpand[data-on-stage] { right: auto; }
 
 /* Pin: on hover and focus, and always while it is on. */
 #room[data-layout] > .participant > .tilePin {
