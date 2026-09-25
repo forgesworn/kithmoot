@@ -103,6 +103,12 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     await expect.poll(() => pageA.evaluate(() =>
       (window as unknown as { __testCaptures: MediaStream[] }).__testCaptures.length,
     )).toBeGreaterThanOrEqual(4)
+    // A reopened camera is blurred whole until the background effect has
+    // seen the new source (see `useCamera` in video-pipeline.ts), which is a
+    // flat picture by design. Wait that out rather than sampling inside it.
+    await expect.poll(async () => (await pageB.evaluate(remotePictures))[0]?.spread ?? 0, {
+      message: "Bob's picture of Ada never came back from the camera reopening", timeout: 30_000,
+    }).toBeGreaterThan(3)
     await expectToSeeAndHear(pageB, 'Bob')
     const recoveredEnergy = (await pageB.evaluate(inbound)).audioEnergy
     await expect.poll(async () => (await pageB.evaluate(inbound)).audioEnergy).toBeGreaterThan(recoveredEnergy)

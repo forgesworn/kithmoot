@@ -255,6 +255,13 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     await expect.poll(async () => (await tiles(first)).length).toBe(5)
     await shot(first, '8-share-hide-no-video')
     expect(await first.evaluate(() => localStorage.getItem('kithmoot.call-hide-no-video'))).toBe('true')
+
+    // The same stage in the dark theme, for the eye.
+    await first.getByLabel('Hide people without video').evaluate(el => { (el as HTMLInputElement).click() })
+    await first.emulateMedia({ colorScheme: 'dark' })
+    await expect.poll(async () => (await tiles(first)).length).toBe(8)
+    await first.waitForTimeout(500)
+    await shot(first, '8-share-dark')
   } finally {
     for (const context of contexts) await context.close()
   }
