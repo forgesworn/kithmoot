@@ -7,21 +7,19 @@ import { localIdentity } from '../src/identity.js'
 import { SYNTHETIC_MIC, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, remoteAudioCount, turnOnMedia, TEST_RELAY_WS } from './browser.js'
 
 /**
- * Person beside their screen, and a chat that slides rather than sits.
+ * Two screens on the stage, faces beside them, and a chat that slides.
  *
- * Two people each sharing a camera and a screen. What the owner asked for,
- * and what three passes at this got wrong in three different ways:
+ * Two people each sharing a camera and a screen. This used to be "person
+ * beside their screen": each sharer a row, their camera at the left of it.
+ * The call stage replaced that in September 2026 (app/src/call-stage.ts):
+ * shares go on a stage of their own and every face is one box in a strip.
+ * What the owner asked for the first time round still holds, and is what
+ * this measures:
  *
- *  - Each person is a ROW: their camera at the left of it, their own screen
- *    beside it on the right, and the rows stacked so both people are on the
- *    screen at once. (Pass one put the camera at 437px against a 225px
- *    screen and left half the window empty.)
- *  - Every camera is the same size as every other camera. (Pass two made
- *    each camera a ~130px full-height portrait strip.)
- *  - A share's box is the shape of the picture in it. (Pass two letterboxed
- *    every share inside ~100px black bands top and bottom.)
- *  - Neither row runs off the bottom of the window, at either of two window
- *    sizes a person actually uses.
+ *  - Every camera is the same size as every other camera.
+ *  - A share's box is the shape of the picture in it: no black bands.
+ *  - Nothing runs off the bottom of the window, at either of two window
+ *    sizes a person actually uses, and nothing sits on a share.
  *  - The chat is a drawer, and it starts open, because a closed default
  *    silently takes chat away from everybody upgrading into this.
  *
@@ -58,60 +56,37 @@ async function naturalAspect(share: Locator): Promise<number> {
  */
 async function checkRoom(page: Page, label: string): Promise<void> {
   const viewport = page.viewportSize()!
-  const tiles = page.locator('#room .participant:has(video.screenPreview)')
-  await expect(tiles, `${label}: both shares should be on screen`).toHaveCount(2, { timeout: 60_000 })
+  const shares = page.locator('#room video.screenPreview')
+  await expect(shares, `${label}: both shares should be on screen`).toHaveCount(2, { timeout: 60_000 })
+  await expect(page.locator('#room'), `${label}: two shares should put the room in Share view`).toHaveAttribute('data-layout', 'share')
 
-  // Settle: the fit runs off a frame callback, so read the geometry only
-  // once two consecutive reads agree.
+  // Settle: the stage lays out on the next frame after a change.
   await expect.poll(async () => {
-    const boxes = await tiles.locator('video.screenPreview').evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().width)))
+    const boxes = await shares.evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().width)))
     return boxes.join(',')
   }, { timeout: 30_000, message: `${label}: share boxes never settled` }).not.toBe('')
   await page.waitForTimeout(400)
 
-  if (process.env.DESKTOP_LAYOUT_DEBUG) {
-    console.log(label, JSON.stringify(await page.evaluate(() => {
-      const room = document.getElementById('room')!
-      const stage = document.getElementById('callStage')!
-      const r = (el: Element) => { const b = el.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) } }
-      return {
-        stage: r(stage), stageScroll: stage.scrollHeight, room: r(room), innerHeight: window.innerHeight,
-        tiles: Array.from(room.children).map(t => ({
-          box: r(t), cls: t.className,
-          media: Array.from(t.children).filter(c => c.classList.contains('media')).map(m => r(m)),
-          share: t.querySelector('video.screenPreview') ? r(t.querySelector('video.screenPreview')!) : null,
-          cam: t.querySelector('video:not(.screenPreview)') ? r(t.querySelector('video:not(.screenPreview)')!) : null,
-        })),
-      }
-    }), null, 1))
-  }
-
   const cameras: Box[] = []
-  const rows: Box[] = []
+  for (const camera of await page.locator('#room > .participant:not([data-layout-hidden]) > .media > video:not(.screenPreview)').all()) {
+    await expect(camera, `${label}: a camera should be visible`).toBeVisible()
+    cameras.push(await boxOf(camera))
+  }
+  expect(cameras.length, `${label}: both cameras should be on screen`).toBe(2)
+  const faces: Box[] = []
+  for (const tile of await page.locator('#room > .participant:not([data-layout-hidden])').all()) faces.push(await boxOf(tile))
+
+  const screens: Box[] = []
   for (let i = 0; i < 2; i++) {
-    const tile = tiles.nth(i)
-    const camera = tile.locator('video:not(.screenPreview)')
-    const share = tile.locator('video.screenPreview')
-    await expect(camera, `${label}: camera ${i} should be visible`).toBeVisible()
+    const share = shares.nth(i)
     await expect(share, `${label}: share ${i} should be visible`).toBeVisible()
-
-    const cam = await boxOf(camera)
     const scr = await boxOf(share)
-    cameras.push(cam)
-    rows.push(await boxOf(tile))
-
-    // Camera on the left, that person's own screen on the right of it.
-    expect(scr.x, `${label}: share ${i} is not to the right of its own camera`).toBeGreaterThanOrEqual(cam.x + cam.width - 2)
-    // Top-aligned with each other: the camera does not stretch to match a
-    // taller screen.
-    expect(Math.abs(scr.y - cam.y), `${label}: share ${i} is not level with its camera`).toBeLessThanOrEqual(4)
+    screens.push(scr)
     // The screen is the thing being read; the camera is context beside it.
-    expect(scr.width, `${label}: share ${i} is not wider than its camera`).toBeGreaterThan(cam.width)
+    expect(scr.width, `${label}: share ${i} is not wider than a camera`).toBeGreaterThan(cameras[0].width)
 
     // No bands. The element's box has to be the shape of the picture, or
-    // `object-fit: contain` pillarboxes or letterboxes the difference - and
-    // a share inside 100px of black top and bottom is worse than no layout
-    // at all.
+    // `object-fit: contain` pillarboxes or letterboxes the difference.
     const aspect = await naturalAspect(share)
     expect(aspect, `${label}: share ${i} never decoded a picture`).toBeGreaterThan(0)
     const drawnWidth = Math.min(scr.width, scr.height * aspect)
@@ -120,44 +95,43 @@ async function checkRoom(page: Page, label: string): Promise<void> {
     expect(filled, `${label}: share ${i} is mostly empty box - ${scr.width.toFixed(0)}x${scr.height.toFixed(0)} around a ${aspect.toFixed(2)} picture`).toBeGreaterThanOrEqual(0.8)
     expect((scr.height - drawnHeight) / 2, `${label}: share ${i} has letterbox bands`).toBeLessThanOrEqual(scr.height * 0.1)
     expect((scr.width - drawnWidth) / 2, `${label}: share ${i} has pillarbox bands`).toBeLessThanOrEqual(scr.width * 0.1)
+
+    // Nothing on it.
+    for (const [j, face] of faces.entries()) {
+      const overlapX = Math.min(face.x + face.width, scr.x + scr.width) - Math.max(face.x, scr.x)
+      const overlapY = Math.min(face.y + face.height, scr.y + scr.height) - Math.max(face.y, scr.y)
+      expect(overlapX > 1 && overlapY > 1, `${label}: tile ${j} sits on share ${i}`).toBe(false)
+    }
   }
+  const [s0, s1] = screens
+  const overlapX = Math.min(s0.x + s0.width, s1.x + s1.width) - Math.max(s0.x, s1.x)
+  const overlapY = Math.min(s0.y + s0.height, s1.y + s1.height) - Math.max(s0.y, s1.y)
+  expect(overlapX > 1 && overlapY > 1, `${label}: the two shares overlap`).toBe(false)
 
   // Two faces the same size as each other, whoever is sharing what.
   expect(Math.abs(cameras[0].width - cameras[1].width), `${label}: camera tiles are not the same width`).toBeLessThanOrEqual(2)
   expect(Math.abs(cameras[0].height - cameras[1].height), `${label}: camera tiles are not the same height`).toBeLessThanOrEqual(2)
-  // And the size the owner asked for, not a strip and not half the window.
   for (const [i, cam] of cameras.entries()) {
-    expect(cam.width, `${label}: camera ${i} is ${cam.width.toFixed(0)}px wide, outside the 240-320px the owner asked for`).toBeGreaterThanOrEqual(240)
-    expect(cam.width, `${label}: camera ${i} is ${cam.width.toFixed(0)}px wide, outside the 240-320px the owner asked for`).toBeLessThanOrEqual(320)
+    expect(cam.width, `${label}: camera ${i} is ${cam.width.toFixed(0)}px wide, too small to read a face`).toBeGreaterThanOrEqual(160)
   }
 
-  // Rows, stacked: one person per row rather than two people squeezed side
-  // by side, and the second row genuinely below the first.
-  const [first, second] = rows[0].y <= rows[1].y ? [rows[0], rows[1]] : [rows[1], rows[0]]
-  expect(second.y, `${label}: the two sharers are not on separate rows`).toBeGreaterThanOrEqual(first.y + first.height - 4)
-
-  // Both rows on the screen. This is the one that pushes back on "as tall
-  // as the picture wants": the second row has to fit, so the first one
-  // gives up height rather than the second one giving up its place.
-  //
-  // Measured against the stage's own visible bottom edge as well as the
-  // window's, because the stage scrolls. A row can sit inside an 880px
-  // window and still be clipped off the bottom of a 741px stage, which is
-  // exactly what happened here first time round and looked perfect in every
-  // number the test was reading.
+  // Everything on the screen, measured against the stage's own visible
+  // bottom edge as well as the window's, because the stage scrolls. A box
+  // can sit inside an 880px window and still be clipped off the bottom of a
+  // 741px stage, which is exactly what happened here first time round.
   const stage = await page.locator('#callStage').evaluate(el => {
     const box = el.getBoundingClientRect()
     return { bottom: box.bottom, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }
   })
   expect(stage.scrollHeight, `${label}: the call stage has to scroll to show the room, so something is off the bottom of it`).toBeLessThanOrEqual(stage.clientHeight + 2)
   const floor = Math.min(viewport.height, stage.bottom)
-  for (const [i, row] of rows.entries()) {
-    expect(row.y, `${label}: row ${i} starts above the window`).toBeGreaterThanOrEqual(-1)
-    expect(row.y + row.height, `${label}: row ${i} runs ${(row.y + row.height - floor).toFixed(0)}px past the visible bottom of a ${viewport.width}x${viewport.height} window`).toBeLessThanOrEqual(floor + 1)
+  for (const [i, box] of [...faces, ...screens].entries()) {
+    expect(box.y, `${label}: box ${i} starts above the window`).toBeGreaterThanOrEqual(-1)
+    expect(box.y + box.height, `${label}: box ${i} runs ${(box.y + box.height - floor).toFixed(0)}px past the visible bottom of a ${viewport.width}x${viewport.height} window`).toBeLessThanOrEqual(floor + 1)
   }
 }
 
-test('two people each share a screen beside their own camera, both rows on screen, chat on a drawer', async ({ browser, baseURL }) => {
+test('two people each share a screen: both on the stage, faces one size beside them, chat on a drawer', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
   await mkdir(SHOTS, { recursive: true })
 
