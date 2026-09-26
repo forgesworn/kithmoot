@@ -329,6 +329,12 @@ test('the speaking cue is more than a colour, and is shown rather than spoken', 
     expect(cue.ink).toBe('rgb(255, 255, 255)')
     await expect(page.locator('#speakingNow')).toContainText('Bob')
 
+    // B2: the h3's own colour is white on green, but `.name` set its own
+    // colour and used to win the cascade back to the page's dark text in
+    // light theme - about 2.3:1 on the green fill. It has to read white too.
+    await page.emulateMedia({ colorScheme: 'light' })
+    await expect.poll(() => tile.evaluate(el => getComputedStyle(el.querySelector('h3 .name')!).color)).toBe('rgb(255, 255, 255)')
+
     // Shown, never spoken: nothing on the call page announces speakers.
     await expect(page.locator('[aria-live] , [role="status"]').filter({ hasText: /speaking/i })).toHaveCount(0)
   } finally {

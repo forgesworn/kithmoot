@@ -49,7 +49,9 @@ test('timestamps, avatars, direct search, emoji insertion and encrypted reaction
     await expect(page.locator('#messageSearchResults li')).toHaveCount(1)
     await page.locator('#messageSearchClose').click(); await expect(page.locator('#chatSearch')).toBeFocused()
     await expect(page.locator('#chatInput')).toHaveValue('before 🤦after')
-    await row.getByRole('button', { name: /^React to message from Rowan/ }).click()
+    // M9: the name alone, not "Rowan (npub…)" - nobody else in view shares it.
+    await expect(row.getByRole('button', { name: 'React to message from Rowan', exact: true })).toBeVisible()
+    await row.getByRole('button', { name: 'React to message from Rowan', exact: true }).click()
     await page.locator('#messageActionPanel').getByRole('button', { name: 'Add ❤️ reaction', exact: true }).click()
     await expect(row.getByRole('button', { name: 'Remove ❤️ reaction, 1', exact: true })).toHaveAttribute('aria-pressed', 'true')
     const target = writer.chat.messages().find(m => m.text === 'Where is the toolbox?')!

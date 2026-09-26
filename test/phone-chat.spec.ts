@@ -149,6 +149,23 @@ test('a phone reads the conversation: size, width, contrast and no sideways scro
   } finally { rowan.leave(); clerk.leave(); await context.close() }
 })
 
+test('M9: the composer is a combobox while the mention list is open, with no aria-allowed-attr violation', async ({ browser, baseURL }) => {
+  const { context, link } = await phone(browser, baseURL!)
+  try {
+    const page = await context.newPage()
+    await page.goto(link)
+    await page.locator('#displayName').fill('Ada')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#chatInput').fill('@')
+    await expect(page.locator('#mentions')).toBeVisible()
+    await expect(page.locator('#chatInput')).toHaveAttribute('role', 'combobox')
+    await expect(page.locator('#chatInput')).toHaveAttribute('aria-expanded', 'true')
+    const scan = await new AxeBuilder({ page }).include('#chatInput').include('#mentions').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
+    expect(scan.violations.map(v => v.id)).toEqual([])
+  } finally { await context.close() }
+})
+
 test('phone Call and Chat each use the screen, with settings in a sheet', async ({ browser, baseURL }, info) => {
   test.skip(browser.browserType().name() !== 'chromium', 'Chromium provides the synthetic camera')
   const { context, link } = await phone(browser, baseURL!)
@@ -157,7 +174,9 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
     const page = await context.newPage(); const remote = await other.newPage()
     for (const [p, name] of [[page, 'Ada'], [remote, 'Rowan']] as const) {
       await p.goto(link); await p.locator('#displayName').fill(name); await p.locator('#join').click()
-      await p.locator('#mobileCall').click(); await p.locator('#toggleCamera').click()
+      // The Call tab only opens the call view (B1); starting the call is
+      // still the one explicit tap on the strip's own action.
+      await p.locator('#mobileCall').click(); await p.locator('#callStripAction').click(); await p.locator('#toggleCamera').click()
     }
     await expect(page.locator('#room video')).toHaveCount(2)
     await expect.poll(() => remote.locator('#room video').evaluateAll(v => v.every(e => (e as HTMLVideoElement).videoWidth > 0))).toBe(true)
@@ -195,6 +214,9 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
     await expect(page.locator('#callMore > summary')).toBeVisible()
     await page.locator('#mobileCallSettingsClose').click()
     expect(await page.locator('#whoIsHere').boundingBox()).toEqual(before)
+    // M13: Leave used to be plain on a phone and red only in the desktop
+    // build. Every width gets the same danger fill now.
+    await expect.poll(() => page.locator('#leaveCall').evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
     await page.locator('#leaveCall').click()
     await expect(page.locator('#chatForm')).toBeVisible()
   } finally { await context.close(); await other.close() }

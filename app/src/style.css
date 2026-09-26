@@ -372,6 +372,10 @@ details#roomSettings label {
    twenty points off the conversation. */
 #status:empty {
   min-height: 0;
+  /* The paragraph's own default top and bottom margin cost 32px under the
+     composer even with nothing written in it - the single biggest gap
+     found chasing B3's landscape numbers, and wasted everywhere else too. */
+  margin: 0;
 }
 
 #status {
@@ -3409,7 +3413,12 @@ button.primary:hover:not(:disabled) {
 }
 .callHead { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .4rem; }
 .callHead p { margin: 0; }
-#leaveCall { margin: 0; white-space: nowrap; }
+/* M13: this used to be plain on a phone and red only in the desktop build,
+   so the one button that ends a call for everybody watching wore two
+   different weights depending on where it was tapped from. Every width
+   gets the same danger fill now. */
+#leaveCall { margin: 0; white-space: nowrap; background: var(--danger); border-color: var(--danger-border); color: var(--on-danger); }
+#leaveCall:hover { filter: brightness(0.9); }
 #room .participant.onCall { border-color: var(--live); }
 
 .callMore { margin: .4rem 0 0; }
@@ -3960,6 +3969,23 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   #roomArea[data-mobile-view="call"] #callStage { display: flex; position: static; inset: auto; width: auto; padding: 0; margin: 0; border: 0; flex: 1 1 0; min-height: 0; overflow: hidden; }
   #roomArea[data-mobile-view="call"] #callStage > #whoIsHere:not([hidden]) { order: 0; display: block; flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; }
   #roomArea[data-mobile-view="call"] #callStage > #callBay { order: 1; flex: 0 0 auto; padding: .5rem 0 .2rem; border: 0; }
+  /* Nobody is on a call yet: the phone's call view says so, in the same
+     words as the desktop resting strip (`renderCallState` writes both from
+     one label), with the one tap that starts or joins it. Tapping the Call
+     tab only opens this view; it never starts a call by itself. */
+  html[data-call-pane="resting"] #roomArea[data-mobile-view="call"] #callStage > .callStrip {
+    display: flex;
+    order: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: .5rem;
+    margin: 0;
+    padding: .75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  html[data-call-pane="resting"] #roomArea[data-mobile-view="call"] #callStage > .callStrip .callStripText { color: var(--muted); }
+  html[data-call-pane="resting"] #roomArea[data-mobile-view="call"] #callStage > .callStrip button { margin: 0; }
   #roomArea[data-mobile-view="call"] #room,
   #roomArea[data-mobile-view="call"] #room[data-tiles]:has(video) { display: grid; grid-template-columns: 1fr; gap: .65rem; }
   #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant { width: 100%; box-sizing: border-box; border-radius: 12px; padding: .6rem; }
@@ -3996,6 +4022,22 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   main:has(#roomArea:not([hidden])) > #roomArea { position: relative; }
   #roomArea > .roomBar { position: absolute; inset: 0 auto auto 0; width: 48%; height: 44px; padding: 0; border: 0; }
   #mobileRoomViews { padding: 0 0 .2rem 50%; }
+  /* B3: bars took 70% of a 390px-tall phone (117px left for the log). A
+     row of its own for Search and Invite cost 44px it does not have here;
+     both stay reachable in one tap from "…" (Room details already has
+     `#searchConversation` beside Invite), so the row is not drawn twice. */
+  .conversationTools { display: none; }
+  /* The same 44px for an agent banner with nobody in it. Portrait and every
+     wider layout still show it, with the Invite button for a first agent. */
+  .agentActivity[data-empty] { display: none; }
+  /* M1: the dock used to sit in normal flow while the room bar, absolutely
+     positioned above, was drawn at the same top-left corner - "Rooms",
+     "Book club" and "On a call in Design crit" overprinting each other.
+     The dock keeps its own full-width strip at the very top; the bar (and
+     the tabs beside it) move down to sit under it, never on it. */
+  #callDock:not([hidden]) { flex-wrap: nowrap; margin: 0; padding: 0 .5rem; height: 44px; border-radius: 0; border-width: 0 0 1px; }
+  #roomArea:has(> #callDock:not([hidden])) > .roomBar { top: 44px; }
+  #roomArea:has(> #callDock:not([hidden])) > #mobileRoomViews { padding-top: 44px; }
 }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   #roomArea[data-mobile-view="chat"] #chatInput { flex: 1 1 0; min-width: 0; width: auto; }

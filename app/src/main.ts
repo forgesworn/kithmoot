@@ -62,6 +62,7 @@ import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError } from './share-error.js'
+import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
 import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
@@ -6298,7 +6299,9 @@ function laneChip(lane: Lane): HTMLSpanElement {
   const meaning = 'Message content is encrypted for this conversation. ' + LANE_MEANING[lane]
   span.textContent = `${LANE_GLYPH[lane]} ${label}`
   span.title = meaning
-  span.setAttribute('aria-label', `${label}. ${meaning}`)
+  // The short label only (M9): the fuller meaning stays in the tooltip and
+  // in Room details, not repeated in every message's accessible name.
+  span.setAttribute('aria-label', label)
   return span
 }
 
@@ -6809,13 +6812,18 @@ function renderAgentActivity(): void {
   const watching = currentChannel === AGENT_CHANNEL
   const activity = $('agentActivity')
   // Inviting the first agent must not require an Agents conversation that
-  // does not exist until a host advertises one or an agent has already joined.
+  // does not exist until a host advertises one or an agent has already joined,
+  // so the banner and its Invite button stay even in a room with no agents.
   activity.hidden = !session
+  activity.toggleAttribute('data-empty', agents.length === 0)
   $('agentActivityTitle').textContent = agents.length ? `${agents.length} agent${agents.length === 1 ? '' : 's'} in this room` : 'No agents here yet'
   const names = agents.slice(0, 3).map(view => shownAs(view.participant, view.name).name ?? shortKey(view.participant)).join(', ')
+  // Only ever built from a non-empty name list: joining an empty one used to
+  // leave a bare " · Read what they say to each other." with nothing before
+  // the dot (M3).
   $('agentActivityNote').textContent = watching
     ? agents.length ? `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''}` : 'Invite an agent, or read earlier messages here.'
-    : `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''} · Read what they say to each other.`
+    : agents.length ? `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''} · Read what they say to each other.` : ''
   $('watchAgents').hidden = watching
   $('manageAgents').hidden = !session
 }
@@ -9297,9 +9305,15 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     if (message.includes('expired')) {
       forgetCredential()
       setStatus('This device\u2019s pass for this room has run out. Ask your other device for a new one.')
-    } else if (isUnreachableRelayFailure(err)) {
-      setStatus(`Could not reach the room's relays. ${message}. Check your connection, then try again.`)
+    } else if (isNetworkFailure(err)) {
+      // A relay-pool failure is the jargon this collapses (M6): the room's
+      // own words stay in the console, for a bug report, and the person
+      // reads the plain instruction instead of "every relay rejected\u2026".
+      console.error('join failed:', message)
+      setStatus(describeFailureForPerson(err))
     } else {
+      // Anything else already says something a person can act on - a TURN
+      // relay missing, a stale invitation - so it keeps saying it.
       setStatus(`Could not join the room. ${message}. Check your connection or sign-in, then try again.`)
     }
   } finally {
@@ -9449,6 +9463,16 @@ function showRoomsList(): void {
   $('identityMore').hidden = true
   $('homeRooms').append($('rooms'))
   $('homeActions').append($('setup'))
+  // M10: Chromium restores a radio's last checked state on load - even
+  // with the form's own `autocomplete="off"` - so the markup's own
+  // `checked` on "Anyone with the link" can arrive unchecked, and a room
+  // access choice with nothing selected is a form with no visible default.
+  // Nobody has touched this fieldset yet on a fresh visit, so put the
+  // written default back rather than trust the attribute alone.
+  if (!document.querySelector('input[name="roomAccess"]:checked')) {
+    const anyone = document.querySelector<HTMLInputElement>('input[name="roomAccess"][value="anyone"]')
+    if (anyone) anyone.checked = true
+  }
   $('homeAccount').append($('accountHome'))
   $('homeStatus').append($('status'))
   $('accountHome').hidden = false
@@ -10623,11 +10647,17 @@ function updateDesktopUnread(): void {
 }
 
 
-/** How a sender is named in a notification: as everywhere else, the name
- *  they claim beside a short key, or the key alone. */
+/** How a sender is named in a notification, and the accessible name for a
+ *  message's own React and Actions buttons: the name alone, the way a
+ *  person would say it out loud. The short code only joins in when two
+ *  people in view share the name and the name alone would not tell them
+ *  apart - the same `nameCollides` rule `identityRun` draws the code under
+ *  a name for (M9: "React to message from Wren (npub…)" on every message,
+ *  whether or not there was another Wren to tell apart from). */
 function senderLabel(m: ChatMessage): string {
   const shown = shownAs(m.participant, m.name)
-  return shown.name !== undefined ? `${shown.name} (${shown.short})` : shown.short
+  if (shown.name === undefined) return shown.short
+  return nameCollides(m.participant, shown.name) ? `${shown.name} (${shown.short})` : shown.name
 }
 
 const notifier = new Notifier({
@@ -11275,7 +11305,10 @@ $('createRoomForm').addEventListener('submit', async event => {
     $('identity').scrollIntoView({ block: 'start' })
     ;(typedName ? $('join') : $('displayName')).focus({ preventScroll: true })
   } catch (error) {
-    $('createError').textContent = `Could not create the room. ${describeError(error)}. Try again when connected.`
+    // The relay's own words stay in the console, for a bug report; the room
+    // itself only ever reads the plain instruction (M6).
+    console.error('room create failed:', describeError(error))
+    $('createError').textContent = describeFailureForPerson(error)
     $('createError').hidden = false
   } finally { button.disabled = false; button.textContent = 'Start a room' }
 })

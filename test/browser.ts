@@ -390,6 +390,9 @@ export async function openCall(page: Page): Promise<void> {
   ).toBeVisible()
   if (await page.locator('#deviceControls').isHidden()) {
     await page.locator('#callToggle:visible, #mobileCall:visible').click()
+    // On a phone the Call tab is navigation only (B1): it opens the call
+    // view, and starting or joining is that view's own strip action.
+    if (await page.locator('#mobileCall').isVisible()) await page.locator('#callStripAction').click()
   }
   await expect(page.locator('#deviceControls')).toBeVisible()
 }

@@ -1,5 +1,5 @@
 import { test, expect, type Browser } from '@playwright/test'
-import { openRoomDetails } from './browser.js'
+import { openCall, openRoomDetails } from './browser.js'
 
 /** A visitor device: no signer, no Nostr account, only what a name-only
  *  join and a kept room leave in this browser. Trimmed from home.spec.ts's
@@ -80,8 +80,7 @@ test('Forget this browser, offered from Room details too, refuses while on a cal
     await page.locator('#displayName').fill('Ada')
     await page.locator('#displayName').press('Enter')
     await expect(page.locator('#roomArea')).toBeVisible()
-    await page.locator('#callToggle:visible, #mobileCall:visible').click()
-    await expect(page.locator('#deviceControls')).toBeVisible()
+    await openCall(page)
     await page.locator('#toggleMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
 

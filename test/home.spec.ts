@@ -266,7 +266,9 @@ test('a rejected join closes its relay connection and can be retried from the na
     await page.goto(encodeJoinUrl(baseURL!, generateRoomSecret(), [relay]))
     await page.locator('#displayName').fill('Ada')
     await page.locator('#displayName').press('Enter')
-    await expect(page.locator('#status')).toContainText('Could not join the room')
+    // M6: a relay's own rejection text ("try again") never reaches the room;
+    // it collapses to the same plain instruction every unreachable relay does.
+    await expect(page.locator('#status')).toContainText('Could not reach the network')
     await expect(page.locator('#join')).toBeEnabled()
     await expect(page.locator('#joinRoomForm')).not.toHaveAttribute('aria-busy')
     await expect.poll(() => page.evaluate(() => (window as typeof window & { testSockets: WebSocket[] }).testSockets.filter(socket => socket.readyState < WebSocket.CLOSING).length)).toBe(0)
@@ -364,4 +366,14 @@ test('a new room exposes invitations directly, confirms copying honestly and adm
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
     await expect(other.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
   } finally { await context.close(); await guest.context.close() }
+})
+
+test('M10: the room access choice has a visible default on a fresh visit', async ({ browser, baseURL }) => {
+  const { context } = await device(browser, baseURL!)
+  try {
+    const page = await context.newPage()
+    await page.goto(baseURL!)
+    await expect(page.getByRole('radio', { name: 'Anyone with the link' })).toBeChecked()
+    await expect(page.getByRole('radio', { name: 'Ask me first' })).not.toBeChecked()
+  } finally { await context.close() }
 })

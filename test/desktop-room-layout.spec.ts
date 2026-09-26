@@ -253,17 +253,17 @@ test('an empty call pane costs nothing, the call control says what it does, and 
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
 
-    // Nobody on a call: one strip, and a control that offers to start one.
+    // Nobody on a call: no strip - the room bar's own call button already
+    // says "Start call", and a strip repeating it was the same offer twice
+    // on one screen (M7). See app/src/desktop.css.
     const strip = page.locator('#callStrip')
     const toggle = page.locator('#callToggle')
     await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'resting')
-    await expect(strip).toBeVisible()
+    await expect(strip).toBeHidden()
     await expect(toggle).toHaveText('Start call')
     await expect(page.locator('#callBanner')).toBeHidden()
-    const stripBox = await boxOf(strip)
-    expect(stripBox.height, `the resting call strip is ${stripBox.height.toFixed(0)}px tall`).toBeLessThan(80)
     const stageBox = await boxOf(page.locator('#callStage'))
-    expect(stageBox.height, `the resting call pane is ${stageBox.height.toFixed(0)}px tall around a ${stripBox.height.toFixed(0)}px strip`).toBeLessThan(120)
+    expect(stageBox.height, `the resting call pane is ${stageBox.height.toFixed(0)}px tall with nothing in it`).toBeLessThan(120)
 
     // Work and Chat both open, at every window size. This is the case the
     // owner called unusable: 32% of what Shared Work left was 197px.
