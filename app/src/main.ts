@@ -7857,9 +7857,10 @@ function paintSpeaking(): void {
 const SPEAKING_LINE_HOLD_MS = 1000
 
 /** When each name last spoke enough to be held on the line, keyed by
- *  participant (`LOCAL_SPEAKING_KEY` for this device). Kept across calls to
- *  `paintSpeakingLine` so a name does not drop the instant its tile's own
- *  `speaking` class does. */
+ *  participant. This device (`LOCAL_SPEAKING_KEY`) is never entered here -
+ *  it is never shown on the line. Kept across calls to `paintSpeakingLine`
+ *  so a name does not drop the instant its tile's own `speaking` class
+ *  does. */
 const speakingLineHeld = new Map<string, number>()
 let speakingLineTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -7868,8 +7869,11 @@ let speakingLineTimer: ReturnType<typeof setTimeout> | undefined
  *
  * Built from the tiles' own `speaking` class, so it can never disagree with
  * the ring round a picture - and from their `data-name`, so it says exactly
- * what the tile's own label says. This device is "You" rather than its own
- * display name, to match how the tile itself is marked.
+ * what the tile's own label says. This device is never listed here: seeing
+ * your own name on a line while you are talking is pointless, so the line
+ * only ever names other people. Your own tile still gets its speaking ring,
+ * so you can tell your mic is live; when you are the only one speaking the
+ * line is empty, exactly as when nobody is.
  *
  * Not an aria-live region, and nothing here writes to one: the owner does
  * not want speakers announced over a screen reader. It is ordinary text
@@ -7883,7 +7887,8 @@ function paintSpeakingLine(): void {
   const now = Date.now()
   for (const box of document.querySelectorAll<HTMLElement>('#room > .participant[data-devices]')) {
     if (!box.classList.contains('speaking')) continue
-    const key = box.dataset.self === 'true' ? LOCAL_SPEAKING_KEY : box.dataset.participant
+    if (box.dataset.self === 'true') continue // never held for the line - see doc comment above
+    const key = box.dataset.participant
     if (key) speakingLineHeld.set(key, now + SPEAKING_LINE_HOLD_MS)
   }
 
@@ -7892,7 +7897,6 @@ function paintSpeakingLine(): void {
   for (const [key, until] of speakingLineHeld) {
     if (until <= now) { speakingLineHeld.delete(key); continue }
     soonest = Math.min(soonest, until)
-    if (key === LOCAL_SPEAKING_KEY) { names.push('You'); continue }
     const box = document.querySelector<HTMLElement>(`#room > .participant[data-participant="${CSS.escape(key)}"]`)
     names.push(box?.dataset.name || 'Somebody')
   }
