@@ -375,7 +375,8 @@ test('a room that will not open offers a way back to the rooms instead of trappi
     await expect(page.locator('#stopOpening')).toBeHidden()
     await expect(page.locator('#stopOpening')).toBeVisible({ timeout: 15_000 })
     await page.locator('#stopOpening').click()
-    await expect(page.locator('#setup')).toBeVisible()
+    await expect(page.locator('#home')).toBeVisible()
+    await expect(page.locator('#roomList').getByRole('button', { name: 'Open Silent room', exact: true })).toBeVisible()
     expect(new URL(page.url()).hash).toBe('')
   } finally { await context.close() }
 })

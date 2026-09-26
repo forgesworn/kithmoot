@@ -1,5 +1,5 @@
 import { test, expect, type Browser } from '@playwright/test'
-import { openCall, openRoomDetails } from './browser.js'
+import { openCall, openNewRoomForm, openRoomDetails } from './browser.js'
 
 /** A visitor device: no signer, no Nostr account, only what a name-only
  *  join and a kept room leave in this browser. Trimmed from home.spec.ts's
@@ -46,9 +46,10 @@ test('Forget this browser removes the visitor identity, kept rooms and signer co
     expect(before.participant, 'no visitor identity was created').not.toBeNull()
     expect(before.rooms.length, 'the room was never kept').toBeGreaterThan(0)
 
-    // Back to the front page - accountHome, and Forget this browser with it,
-    // only ever shows outside a live room.
+    // Back to the front page - Forget this browser lives in Settings now,
+    // reached from the rooms list, and only ever shows outside a live room.
     await page.goto(baseURL!)
+    await page.locator('#openAppSettings').click()
     await expect(page.locator('#forgetBrowser')).toBeVisible()
     await page.locator('#forgetBrowser').click()
     const dialog = page.getByRole('alertdialog', { name: 'Forget this browser?', exact: true })
@@ -59,7 +60,7 @@ test('Forget this browser removes the visitor identity, kept rooms and signer co
     // A brand new visitor with nothing kept and no account gets no rooms
     // section at all, not an empty one - see showRoomsList/renderRooms.
     await expect(page.locator('#rooms')).toBeHidden()
-    await expect(page.locator('#signIn')).toBeVisible()
+    await expect(page.locator('#homeSignIn')).toBeVisible()
     await expect(page.locator('#displayName')).toBeHidden()
 
     const remaining = await page.evaluate(() => [

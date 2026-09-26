@@ -215,7 +215,7 @@ function forgetKeptFor(store: DeviceStore, link: string): void {
  *  same reason a pubkey is shown beside a person's - two rooms can be
  *  called the same thing. */
 export function roomLabel(room: Pick<KnownRoom, 'roomId' | 'name'>): string {
-  return room.name ?? `Room ${room.roomId.slice(0, 8)}`
+  return room.name ?? 'Untitled room'
 }
 
 /** How many of these messages are newer than the room was last read to,

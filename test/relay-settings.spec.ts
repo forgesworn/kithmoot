@@ -10,6 +10,7 @@ import { npubEncode } from 'nostr-tools/nip19'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { verifyEventUncached } from '../src/verify.js'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
+import { openNewRoomForm } from './browser.js'
 
 test('relay settings enforce read-only traffic, show health and persist additions and removals', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -94,6 +95,7 @@ test('relay settings enforce read-only traffic, show health and persist addition
     await page.locator('#relaySave').click()
     await expect(page.locator('#relaySettingsStatus')).toContainText('Saved on this device')
     await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#roomName').fill('Default relay fixture')
     await page.locator('#create').click()
     await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
@@ -171,9 +173,10 @@ test('relay identity permission is explicit, names the chosen account and is wit
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
     await page.goto(baseURL + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
-    await expect(page.locator('#signOut')).toBeVisible()
     expect(signed.filter(event => event.kind === 22242)).toHaveLength(0)
-    await page.locator('#roomSettings > summary').click()
+    await page.locator('#openAppSettings').click()
+    await expect(page.locator('#signOut')).toBeVisible()
+    await page.locator('#appConnections > summary').click()
     await page.locator('#defaultRelaySettings').click()
     const row = page.locator('.relayRow').filter({ hasText: keeper })
     await row.getByRole('button', { name: `Use signed-in account with ${keeper}` }).click()

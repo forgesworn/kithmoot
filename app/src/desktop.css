@@ -27,6 +27,10 @@ html[data-desktop] {
     height: 100dvh; min-height: 0; overflow: hidden; max-width: none;
     padding: 1rem;
   }
+  /* Home's returning list uses the window's own 1rem edge too, the same
+     one the room's rail sits at - leaving a room must not reshape the
+     window (finding 5). */
+  html[data-desktop] body:has(#home[data-state='returning']:not([hidden])) { padding-left: 1rem; padding-right: 1rem; }
   html[data-desktop] body:has(#roomArea:not([hidden])) > main { min-height: 0; }
   html[data-desktop] .desktopRoomContent {
     display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; gap: .75rem;

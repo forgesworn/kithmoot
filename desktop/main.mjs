@@ -1,7 +1,7 @@
 import { ShareArea, AREA_URL } from './share-area.mjs'
 import { createDesktopUpdater } from './updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
-import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard } from 'electron'
+import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -186,7 +186,10 @@ async function createWindow() {
   win = new BrowserWindow({
     title: 'KithMoot', width: 1320, height: 880, minWidth: 900, minHeight: 640,
     icon: join(here, 'web/pwa-512x512.png'),
-    backgroundColor: '#101114', show: !testProfile,
+    // Follows the OS rather than always dark: the two --bg values from
+    // app/src/style.css, so a light-mode launch shows no dark flash before
+    // the first paint (finding 17).
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#101114' : '#faf8f3', show: !testProfile,
     webPreferences: {
       session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,

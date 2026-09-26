@@ -175,14 +175,31 @@ main > p {
   max-width: 72ch;
 }
 
+/* The app bar is quiet chrome throughout: one row, a small logo, the
+   wordmark at 1.25rem/600 and (on the home page) a Settings button. It is
+   not sticky, so it scrolls away with the rest of the page rather than
+   taking a share of a short landscape phone. */
 h1 {
-  font-size: clamp(1.5rem, 8vw, 2rem);
+  font-size: 1.25rem;
+  font-weight: 600;
   overflow-wrap: anywhere;
-  margin-bottom: 0;
+  margin: 0;
 }
 
-.app-brand, .workspaceBrand { display: flex; align-items: center; gap: .6rem; }
+header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 56px;
+  padding-block: 0.5rem;
+}
+
+.app-brand, .workspaceBrand { display: flex; align-items: center; gap: .6rem; min-width: 0; }
 .app-brand img, .workspaceBrand img { flex: 0 0 auto; border-radius: 22%; }
+
+#openAppSettings { margin: 0; flex: 0 0 auto; }
 
 h2 {
   font-size: 1rem;
@@ -192,26 +209,15 @@ h2 {
   margin-top: 2rem;
 }
 
-.tagline {
-  margin-top: 0.25rem;
-  color: var(--muted);
-}
-
-/* In a room, the masthead steps back.
-
-   On the front page the name and the line under it are the whole
-   introduction and they earn their space. Once somebody is inside a room
-   they know what the app is called, and on a phone that block was costing
-   about a hundred and twenty pixels at the top of every screen - which came
-   straight out of the conversation underneath it. The name stays, because a
-   page with no name on it is a page you cannot tell anybody about. */
+/* In a room, the masthead steps back further still: the room's own bar
+   carries the way out and back, and the header would otherwise cost a
+   short landscape phone a second row it cannot spare. */
 body:has(#roomArea:not([hidden])) h1 {
-  font-size: 1.3rem;
-  margin: 0;
+  font-size: 1.1rem;
 }
 
-body:has(#roomArea:not([hidden])) .tagline {
-  display: none;
+@media (max-height: 500px) and (orientation: landscape) {
+  header { min-height: 44px; }
 }
 
 button {
@@ -303,16 +309,18 @@ section {
   margin: 1rem 0;
 }
 
-details#roomSettings {
+details#appConnections {
   margin-top: 0.75rem;
   font-size: 0.95rem;
   color: var(--muted);
 }
 
-details#roomSettings label {
+details#appConnections label {
   display: block;
   margin: 0.5rem 0 0.35rem;
 }
+
+details#appConnections button { display: block; }
 
 .linkBox {
   border: 1px solid var(--box-border);
@@ -568,7 +576,8 @@ details#roomSettings label {
   padding: 0.55rem 0.8rem;
   border: 1px solid var(--accent);
   border-radius: 8px;
-  background: var(--accent-dim);
+  /* Border only, no tint: a fieldset holding an unmade choice is not a
+     status to colour in - see finding 13. */
 }
 
 .joinMediaChoice legend {
@@ -584,6 +593,7 @@ details#roomSettings label {
   min-height: 44px;
   margin: 0;
   cursor: pointer;
+  line-height: 1.2rem;
 }
 
 .joinMediaChoice input {
@@ -2545,6 +2555,7 @@ label.note {
    that pinning anything to the page itself would. */
 #roomSheet,
 #roomSwitcher,
+#appSettings,
 #contextPanel,
 #conversationSearch {
   padding: 0;
@@ -2562,6 +2573,7 @@ label.note {
 
 #roomSheet::backdrop,
 #roomSwitcher::backdrop,
+#appSettings::backdrop,
 #contextPanel::backdrop,
 #conversationSearch::backdrop {
   background: rgb(0 0 0 / 0.55);
@@ -2643,6 +2655,24 @@ label.note {
 
 .sheetBody > .sheetHead:first-child {
   margin-top: 0.25rem;
+}
+
+/* "Keep your rooms with you" / "Your Nostr account" duplicated the "You"
+   heading above it once accountHome moved into Settings, and the door
+   already has its own "Your account" summary - see the strings removed in
+   spec section 9. */
+#accountHeading { display: none; }
+
+/* #notify brings its own "Notifications & sound" <h3> along when it moves
+   into the sheet (reused as-is, unchanged markup); restyled here to match
+   "You" and "Text size" rather than reading heavier than its neighbours. */
+#appSettingsNotify h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .sheetBody > section {
@@ -2859,75 +2889,278 @@ label.note {
 /* Give the dashboard and invitation a reading width on a desktop. */
 body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 
-/* The home page leads with rooms and their two entry points. Account
-   settings follow the task instead of interrupting it. */
-.homeIntro { margin: 1.5rem 0 2rem; max-width: 38rem; }
+/* Home is your rooms: one screen, two states, no boxes. Hierarchy comes
+   from size, weight and space - proximity says what belongs together, not
+   a card round it. See docs/handover/design-start-page.md sections 4 to 8. */
+/* Full width under 600px: `<main>` is a column flex container, and an auto
+   inline margin on a flex child is resolved before stretch even applies,
+   so pairing max-width with margin-inline:auto here unconditionally shrank
+   #home to its content width and centred it - the extra ~57px gutter each
+   side that ate a fifth of a phone screen. Centring is a medium-and-up
+   read (section 5); compact stays flush with the app bar's own edge. */
+#home { width: 100%; }
+@media (min-width: 600px) {
+  #home { max-width: 40rem; margin-inline: auto; }
+}
+.homeIntro { margin: 1.5rem 0 2rem; max-width: 32rem; }
 #homeHeading, #arrivalTitle {
   margin: 0 0 .65rem;
   color: var(--text);
-  font-size: clamp(1.55rem, 4vw, 2.25rem);
+  font-size: 1.75rem;
+  font-weight: 600;
   line-height: 1.2;
   letter-spacing: -.025em;
   text-transform: none;
   overflow-wrap: anywhere;
 }
-.homeIntro p { margin: 0; color: var(--muted); }
-.homeActionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-.homeCard, #homeAccount {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1.25rem;
-  background: var(--panel);
-  min-width: 0;
-  overflow-wrap: anywhere;
+#home[data-state='returning'] .homeIntro { display: none; }
+.homeIntro p { margin: 0; color: var(--muted); max-width: 60ch; }
+
+/* The start form: one field, one checkbox, one filled button. No card.
+   Top margin only: the gap under it is #homeFoot's own margin-top, so the
+   two quiet lines sit one consistent section gap below the form rather
+   than stacking #setup's bottom margin on top of #homeFoot's. */
+#setup { margin: 1.5rem 0 0; }
+#setup.collapsed { display: none; }
+#newRoomHeading { margin: 0 0 1rem; font-size: 1.25rem; font-weight: 600; text-transform: none; color: var(--text); }
+#home[data-state='cold'] #newRoomHeading { display: none; }
+#createRoomForm label { display: block; margin: 0 0 .4rem; font-weight: 600; }
+#createRoomForm input { font-family: inherit; }
+/* Beats "#createRoomForm label" above on specificity, not just source
+   order: without it the checkbox's own label picked up that rule's
+   display:block and font-weight:600, and the text dropped onto its own
+   line below the box instead of sitting on its baseline. */
+#createRoomForm label.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 44px;
+  margin: .6rem 0;
+  font-weight: 400;
+  cursor: pointer;
 }
-.homeCard h3 { margin: 0; font-size: 1.2rem; }
-.homeCard > .note { margin: .45rem 0 1rem; }
-.homeCard label { display: block; margin: .8rem 0 .4rem; font-weight: 600; }
-.homeCard input, #homeRoomQuery { font-family: inherit; }
-.homeCard select { width: 100%; min-width: 0; max-width: 100%; margin-top: .6rem; }
-.homeCard button { margin-top: .8rem; }
-.homeCard #roomNameNote { margin: .5rem 0 0; font-size: .9rem; }
-#homeAccount { margin-top: 1.5rem; }
-#homeAccount h2 { margin-top: 0; }
-#homeAccount details { margin-bottom: 0; }
-#home #rooms { margin-bottom: 1.5rem; }
-#home #roomsHeading { margin-top: 0; }
+.checkboxRow input { flex: 0 0 auto; width: 1.2rem; height: 1.2rem; margin: 0; accent-color: var(--accent); }
+.checkboxRow span { flex: 1 1 auto; min-width: 0; }
+#roomAskHint { margin: -.3rem 0 .6rem; max-width: 60ch; }
+.setupButtons { display: flex; align-items: center; gap: .75rem; margin-top: .8rem; }
+.setupButtons button { margin: 0; }
+/* Cancel only makes sense once returning to a list it can cancel back to;
+   the cold, first-visit form has nothing to cancel out of. */
+#home[data-state='cold'] #cancelNewRoom { display: none; }
+#setup #create.primary { font-size: 1rem; font-weight: 600; }
+
+/* The two quiet lines at the foot: never a card, never as loud as the
+   primary action above them. */
+#homeFoot { margin-top: 1.5rem; }
+#homeFoot summary, #homeFoot > button.linkish { min-height: 44px; display: flex; align-items: center; color: var(--muted); cursor: pointer; }
+#homeFoot summary:hover, #homeFoot > button.linkish:hover { color: var(--text); }
+#openLink form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0 .75rem; }
+#openLink input { flex: 1 1 16rem; min-width: 0; font-family: inherit; }
+#openLink button { margin: 0; }
+#homeSignIn { border: 0; background: transparent; padding: 0; }
+
+.roomsHead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1.5rem 0 .5rem; }
+#home #roomsHeading { margin: 0; font-size: 1.25rem; font-weight: 600; text-transform: none; color: var(--text); }
+#newRoom { margin: 0; }
+@media (min-width: 1100px) { #newRoom { display: none; } }
 .roomSearchRow { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
+.roomSearchRow label { font-weight: 600; }
 .accountReconnect { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin: 0 0 .75rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
 .accountReconnect[hidden] { display: none; }
 .accountReconnect .note { flex: 1 1 16rem; margin: 0; }
 .roomSearchRow input { min-width: 0; }
 .roomSearchRow button { margin: 0; }
-#roomList .roomMain { flex-basis: 12rem; }
-#roomList .roomName {
+
+/* The rows themselves: one left edge, a border-top divider (never a card),
+   the open button carrying the whole name and preview column, time and
+   pill and presence in a second column, and the `⋯` menu in a fixed third. */
+#roomList {
+  display: block;
+}
+#roomList .roomRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 44px;
+  align-items: center;
+  gap: .75rem;
+  min-height: 64px;
+  padding: .625rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+#roomList .roomRow:first-child { border-top: 0; }
+#roomList .open {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .15rem;
   border: 0;
   background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-weight: 650;
-  padding: .3rem 0;
+  padding: .3rem .25rem .3rem 0;
   margin: 0;
   min-height: 44px;
+  min-width: 0;
+  width: 100%;
   text-align: left;
-  overflow-wrap: anywhere;
+  font: inherit;
+  color: inherit;
 }
-#roomList .roomName::after { content: ' →'; white-space: nowrap; }
-#roomList .roomName:hover { text-decoration: underline; }
-#roomList .forget { border-color: transparent; }
-#roomList .roomMeta { font-size: .9rem; }
-#roomList .roomActions { align-self: flex-start; }
+/* One line, truncated with an ellipsis rather than crowding the time and
+   pill beside it - the row's own min-width:0 track still shrinks at 200%
+   text, so the ellipsis lands earlier rather than the row ever scrolling
+   sideways. The full name is always the row's accessible name regardless
+   of where the visible text is cut. */
+#roomList .roomName { display: block; font-size: 1rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+#roomList .roomPreview { font-size: .875rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+#roomList .roomAside {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: .25rem;
+  font-size: .875rem;
+  color: var(--muted);
+}
+#roomList .roomTime { white-space: nowrap; }
+#roomList .unread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 .4rem;
+  border-radius: 999px;
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+#roomList .unread.agent { color: var(--on-agent); background: var(--agent-fill); }
+#roomList .here { white-space: nowrap; }
+#roomList .rowMenu {
+  grid-column: 3;
+  justify-self: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  font-size: 1.1rem;
+  color: var(--muted);
+}
+#roomList .rowMenu:hover { color: var(--text); }
+.rowMenuPopover {
+  margin: 0;
+  padding: .35rem;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 4px 16px var(--drop-shadow);
+  min-width: 12rem;
+}
+.rowMenuPopover button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.rowMenuPopover button:hover { background: var(--control-hover); }
+.rowMenuPopover button.danger { color: var(--danger); }
+@media (hover: hover) {
+  #roomList .roomRow:hover { background: var(--control-hover); }
+}
+#roomList .roomRow:active,
+#roomList .open:active { background: var(--control-hover); }
+
+/* Windows and other forced-colours themes flatten every button to the same
+   two system colours; a filled primary needs telling apart from the rest
+   by outline alone (finding 11). */
+/* Touch targets on home: rows already carry their own 64px minimum; every
+   other control here (Settings, the fields, the buttons, the quiet lines)
+   needs the ordinary 44px floor under a coarse pointer - see section 7. */
+@media (any-pointer: coarse) {
+  #home button, #home input, #openAppSettings { min-height: 44px; }
+}
+
+@media (forced-colors: active) {
+  button.primary { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; }
+  #roomList .unread, #roomList .unread.agent { border: 1px solid transparent; }
+}
+
+@media (display-mode: standalone) {
+  html, body { overscroll-behavior: none; }
+}
+
+/* Landscape phone, the hardest layout: the start form sits beside the lede
+   rather than under it, so Start a room is never below the fold. */
+@media (max-height: 500px) and (orientation: landscape) and (min-width: 640px) {
+  /* .homeIntro, #homeStatus, #homeRooms, #homeActions and #homeFoot are the
+     grid items here (direct children of #home); #setup and #rooms are their
+     nested content and take no grid-column of their own. */
+  #home[data-state='cold'] {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 2rem;
+    align-items: start;
+    max-width: none;
+  }
+  #home[data-state='cold'] .homeIntro { margin: 1rem 0 0; grid-column: 1; }
+  #home[data-state='cold'] #homeHeading { font-size: 1.5rem; }
+  #home[data-state='cold'] #homeStatus,
+  #home[data-state='cold'] #homeRooms { grid-column: 1; }
+  #home[data-state='cold'] #homeActions { grid-column: 2; grid-row: 1 / span 4; }
+  #home[data-state='cold'] #homeActions #setup { margin-top: 0; }
+  #home[data-state='cold'] #homeFoot { grid-column: 1; margin-top: .5rem; }
+}
+
+/* Expanded: home takes the in-room rail's own left edge and column shape,
+   so leaving a room does not turn the window into a different kind of page
+   (finding 5). The New room pane is always open here; its list heading
+   button is hidden by the rule above. */
+@media (min-width: 1100px) {
+  /* The list's left edge matches the in-room rail's: both start at the
+     body's own padding, flush left, rather than centred in a narrower
+     reading column - the point being that leaving a room does not turn
+     the window into a different shape (finding 5). */
+  body:has(#home[data-state='returning']:not([hidden])) { max-width: none; }
+  #home[data-state='returning'] {
+    max-width: 64rem;
+    margin-inline: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 40rem) 20rem;
+    /* Column gap only: a row-gap here would add extra space between
+       #homeActions and #homeFoot on top of #homeFoot's own margin-top,
+       which is the one gap that is supposed to separate them. */
+    column-gap: 3rem;
+    row-gap: 0;
+    align-items: start;
+  }
+  /* #homeRooms spans both implicit rows so the left column's own height
+     (the list) never sets the right column's row heights: without this,
+     #homeFoot auto-placed into row 2 started at the bottom of row 1 - the
+     taller of #homeRooms and #homeActions - leaving a much bigger gap
+     under Start a room than the gap above it. */
+  #home[data-state='returning'] #homeRooms { grid-column: 1; grid-row: 1 / span 2; }
+  #home[data-state='returning'] #homeActions { grid-column: 2; grid-row: 1; }
+  #home[data-state='returning'] #homeFoot { grid-column: 2; grid-row: 2; }
+  #home[data-state='returning'] #setup.collapsed { display: block; }
+  /* Always open here, so there is nothing for Cancel to cancel back to. */
+  #home[data-state='returning'] #cancelNewRoom { display: none; }
+}
+
 #identity { padding: clamp(1rem, 4vw, 2rem); border-radius: 12px; }
 #identity .lead { margin: .5rem 0 1.25rem; color: var(--muted); font-size: 1rem; }
 #identity #status { margin: .75rem 0; }
 #identity #join { width: 100%; min-height: 44px; }
 #joinPrivacy { margin-bottom: 0; }
 .formError { color: var(--danger); font-size: .95rem; }
-@media (max-width: 620px) {
-  .homeActionGrid { grid-template-columns: minmax(0, 1fr); }
-  .homeIntro { margin: .5rem 0 .75rem; }
-  .homeCard { padding: 1rem; }
-}
 
 .emojiPicker { width: min(25rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; }
 .emojiPicker h2 { margin-top: 0; }

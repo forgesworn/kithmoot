@@ -9,8 +9,10 @@ test('notification settings work at phone size without requesting permission on 
     window.WebSocket = class { addEventListener() {} removeEventListener() {} close() {} send() {} } as unknown as typeof WebSocket
   })
   await page.goto('./')
-  await page.locator('#homeNotifications').click()
-  await expect(page.locator('#notificationSettings')).toBeVisible()
+  // Notifications & sound lives inline in Settings now, reached from the
+  // rooms list rather than behind its own button and dialog.
+  await page.locator('#openAppSettings').click()
+  await expect(page.locator('#appSettings')).toBeVisible()
   await expect(page.locator('#toggleNotify')).toHaveAttribute('aria-pressed', 'false')
   await expect(page.locator('#toggleNotifyBell')).toHaveAttribute('aria-pressed', 'true')
   await page.locator('#toggleNotifyBell').click()
@@ -18,8 +20,8 @@ test('notification settings work at phone size without requesting permission on 
   await page.locator('#previewNotifyBell').click()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: '/tmp/kithmoot-notifications-phone.png' })
-  await page.locator('#notificationSettingsClose').click()
-  await expect(page.locator('#notificationSettings')).not.toBeVisible()
-  await page.locator('#homeNotifications').click()
+  await page.locator('#appSettingsClose').click()
+  await expect(page.locator('#appSettings')).not.toBeVisible()
+  await page.locator('#openAppSettings').click()
   await expect(page.locator('#toggleNotifyBell')).toHaveAttribute('aria-pressed', 'false')
 })

@@ -330,9 +330,20 @@ export async function newDeviceContext(browser: Browser, baseURL: string): Promi
   return context
 }
 
+/** Home's start form collapses behind "New room" once this browser already
+ *  knows a room, under 1100px - open it first if that is where the page
+ *  is, so `#roomName` and `#create` are the ones actually on screen. A
+ *  no-op on the cold, first-visit layout, where the form is already open
+ *  and `#newRoom` does not exist on screen to click. */
+export async function openNewRoomForm(page: Page): Promise<void> {
+  const newRoom = page.locator('#newRoom')
+  if (await newRoom.isVisible()) await newRoom.click()
+}
+
 export async function createRoom(page: Page, baseURL: string, relays = testRelays()): Promise<string> {
   if (relays) await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
   await page.goto(baseURL)
+  await openNewRoomForm(page)
   await page.locator('#create').click()
   // Wait for the link itself rather than the box that used to hold it. The
   // entry page was rebuilt to put the conversation first and `#links` went

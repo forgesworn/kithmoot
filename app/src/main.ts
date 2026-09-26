@@ -53,6 +53,7 @@ import {
 } from './device-store.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { forgetRoom, knownRoom, knownRooms, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
 import { RoomWatch } from './room-watch.js'
@@ -1052,6 +1053,7 @@ function startRoomBookmarks(account: SignetSession): void {
     if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   }, message => {
     $('roomSyncStatus').textContent = message
+    renderHomeSyncStatus()
     if (message.includes('not confirmed') || message.includes('not synced') || message.includes('browser only')) {
       const details = $('roomSyncStatus').closest('details')
       if (details) details.open = true
@@ -2054,10 +2056,10 @@ function renderIdentity(): void {
   $('retryRoomSync').hidden = nostrSession === undefined
   $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Keep your rooms with you'
   $('accountLead').textContent = nostrSession
-    ? (nostrSession.signer.nip44 ? 'Your room links follow this key.' : 'Rooms are saved in this browser only with this signer.')
-    : 'Sign in as yourself, with your Nostr profile and the public key your agents recognise. Your rooms can follow you across devices.'
+    ? (nostrSession.signer.nip44 ? 'Your rooms are saved to this account, encrypted by your signer.' : 'This sign-in cannot encrypt, so your rooms are saved on this device only.')
+    : 'You go into rooms with just a name. Sign in with Nostr to keep your rooms on every device where you sign in.'
   $('accountHelp').textContent = nostrSession
-    ? 'Rooms you open while signed in are saved to this account. Your signer encrypts their names and links; relays can see your public key and that you use KithMoot. Visitor history is not uploaded.'
+    ? 'Relays can see your public key and that you use KithMoot.'
     : 'Sign in to find your rooms across devices. Your signer keeps your key and encrypts your room bookmarks. Visiting someone else? Open their invitation link; no sign-in is needed.'
   const accountProfile = $('accountProfile')
   accountProfile.replaceChildren()
@@ -2068,6 +2070,7 @@ function renderIdentity(): void {
   }
   renderHistoryRecovery()
   renderImportedHistorySearch()
+  renderAccountMore()
   $('joinNostr').hidden = !!nostrSession || !!loadCredential()
   // A signer extension in this browser, and no account signed in here: the
   // door used to show a visitor with the typed name and a small link, and
@@ -2184,6 +2187,25 @@ function renderIdentity(): void {
   renderNudgeChoice()
 }
 
+/** The wrapping disclosure for the three "More for your Nostr account"
+ *  parts, shown only when at least one of them has something to offer -
+ *  an empty disclosure is a dead end with a label on it. */
+function renderAccountMore(): void {
+  $('accountMore').hidden = $('rendezvousProvision').hidden && $('historyRecovery').hidden && $('importedHistorySearch').hidden
+}
+
+/** Signed in, still looking: a status line under the home lede, mirroring
+ *  the existing #roomSyncStatus text (spec section 6). A separate element
+ *  rather than writing into #homeStatus, which holds #status and must
+ *  never be overwritten. */
+function renderHomeSyncStatus(): void {
+  const line = $('homeSyncStatus')
+  const message = $('roomSyncStatus').textContent ?? ''
+  const show = roomsListShown && !!nostrSession && knownRooms(roomStore()).length === 0 && message !== ''
+  line.textContent = show ? message : ''
+  line.hidden = !show
+}
+
 function renderHistoryRecovery(): void {
   const details = $('historyRecovery') as HTMLDetailsElement
   const select = $('historyRecoveryBox') as HTMLSelectElement
@@ -2195,6 +2217,7 @@ function renderHistoryRecovery(): void {
   }))
   const account = nostrSession
   details.hidden = !account
+  renderAccountMore()
   select.replaceChildren()
   if (!account) return
   const crypt = account.signer.nip44
@@ -2226,6 +2249,7 @@ function renderImportedHistorySearch(): void {
   const results = $('importedHistoryResults')
   const account = nostrSession
   details.hidden = !account
+  renderAccountMore()
   results.replaceChildren()
   if (!account) return
   input.value = importedHistorySearchView.query
@@ -3145,7 +3169,7 @@ async function startNewRoom(): Promise<void> {
   // asking its owner, see `askToLetIn`. It cannot be self-service from the
   // relay, which is exactly the point, and it is why such a room needs
   // somebody online to let people in.
-  const ask = (document.querySelector('input[name="roomAccess"]:checked') as HTMLInputElement | null)?.value === 'ask'
+  const ask = ($('roomAsk') as HTMLInputElement).checked
   const persistent = !ask
   const secret = generateRoomSecret()
   const created = createRoomInvitation(persistent)
@@ -3186,7 +3210,7 @@ async function startNewRoom(): Promise<void> {
  * anything to be about. What is left is a name and a way in.
  */
 function showRoomUi(): void {
-  $('homeNotifications').hidden = true
+  $('openAppSettings').hidden = true
   $('home').hidden = true
   $('identity').hidden = false
   $('identityMore').hidden = false
@@ -9396,6 +9420,11 @@ let roomsTimer: ReturnType<typeof setInterval> | undefined
  *  relay open, when it is not. */
 let roomsListShown = false
 
+/** Whether the inline "New room" form is open under 1100px in the
+ *  returning state. Always effectively open, and its own toggle hidden, in
+ *  the cold state and at 1100px and up - see the CSS for `#setup`. */
+let newRoomOpen = false
+
 /** The room secret behind a known room, when this device holds it: the
  *  creator's record, this tab's admission, or one the person chose to
  *  keep. */
@@ -9467,20 +9496,13 @@ function showRoomsList(): void {
   $('identityMore').hidden = true
   $('homeRooms').append($('rooms'))
   $('homeActions').append($('setup'))
-  // M10: Chromium restores a radio's last checked state on load - even
-  // with the form's own `autocomplete="off"` - so the markup's own
-  // `checked` on "Anyone with the link" can arrive unchecked, and a room
-  // access choice with nothing selected is a form with no visible default.
-  // Nobody has touched this fieldset yet on a fresh visit, so put the
-  // written default back rather than trust the attribute alone.
-  if (!document.querySelector('input[name="roomAccess"]:checked')) {
-    const anyone = document.querySelector<HTMLInputElement>('input[name="roomAccess"][value="anyone"]')
-    if (anyone) anyone.checked = true
-  }
-  $('homeAccount').append($('accountHome'))
+  $('openAppSettings').hidden = false
   $('homeStatus').append($('status'))
-  $('accountHome').hidden = false
+  // Notifications & sound lives in Settings now, not loose on the page -
+  // see openAppSettings, which is the only thing that ever unhides it here.
+  $('notify').hidden = true
   roomsListShown = true
+  newRoomOpen = false
   // renderRooms offers notifications when there are saved rooms to follow.
   renderWayBack()
   const rooms = knownRooms(roomStore())
@@ -9503,6 +9525,10 @@ function hideRoomsList(): void {
   if (!window.kithmootDesktop) for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
 }
 
+/** The order the list last drew in, held while focus or the pointer is
+ *  inside it (spec section 7: "rows never reorder under the user"). */
+let lastRoomOrder: string[] | undefined
+
 function renderRooms(): void {
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
@@ -9514,11 +9540,38 @@ function renderRooms(): void {
   const query = ($('homeRoomQuery') as HTMLInputElement).value.trim().toLocaleLowerCase()
   fillProjectFilter('homeProject', rooms)
   const project = ($('homeProject') as HTMLSelectElement).value
-  const filtered = rooms.filter(room => matchesRoom(room, query, project))
+  const matched = rooms.filter(room => matchesRoom(room, query, project))
+  const activityOf = (room: KnownRoom): number => activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? [])
+  const sorted = sortByActivity(matched, activityOf)
+  const list = $('roomList')
+  const held = list.contains(document.activeElement) || list.matches(':hover')
+  let filtered = sorted
+  if (held && lastRoomOrder) {
+    const byId = new Map(sorted.map(room => [room.roomId, room]))
+    const inOrder = lastRoomOrder.map(id => byId.get(id)).filter((room): room is KnownRoom => room !== undefined)
+    const seen = new Set(inOrder.map(room => room.roomId))
+    filtered = [...inOrder, ...sorted.filter(room => !seen.has(room.roomId))]
+  } else {
+    lastRoomOrder = sorted.map(room => room.roomId)
+  }
   $('homeProjectFilter').hidden = !rooms.some(room => projectOf(room))
+  // The filter only earns its place once there is something to filter by;
+  // the button to organise into projects follows the same "worth it" test
+  // as the row menu's own project item (organising()), so a signed-in
+  // person can still make their first project from an empty list.
+  $('homeSharedProjects').hidden = !organising()
   const hidden = disconnectedAccountRooms()
-  $('rooms').hidden = rooms.length === 0 && !nostrSession && !accountDisconnected()
+  // A signed-in account keeps #rooms on screen even before its first room
+  // or project arrives: Projects (organising()) and the reconnect banner
+  // both live inside it, and both must stay reachable from the first
+  // moment somebody who can use them is signed in.
+  const returning = rooms.length > 0 || !!nostrSession || accountDisconnected()
+  $('home').dataset.state = returning ? 'returning' : 'cold'
+  $('home').setAttribute('aria-labelledby', returning ? 'roomsHeading' : 'homeHeading')
+  $('rooms').hidden = !returning
+  renderHomeSyncStatus()
   $('accountReconnect').hidden = !accountDisconnected()
+  $('homeSignIn').hidden = !!nostrSession
   if (accountDisconnected()) {
     const signer = signerLabel(expectedMethod)
     const kept = hidden.filter(room => !knownRoom(deviceStore, room.roomId)).length
@@ -9527,21 +9580,14 @@ function renderRooms(): void {
         : `Rooms saved to it are not shown until you reconnect ${signer}.`)
     $('accountReconnectButton').textContent = expectedMethod === 'nip07' ? 'Reconnect extension' : 'Reconnect'
   }
-  $('homeNotifications').hidden = false
-  $('notify').hidden = rooms.length === 0
-  $('homeHeading').textContent = rooms.length ? 'Pick up the conversation.' : 'Make room for a conversation.'
-  $('roomsHeading').textContent = 'Your rooms'
-  $('roomsEmpty').hidden = rooms.length !== 0
-  $('homeRoomSearch').hidden = rooms.length === 0
+  $('homeRoomSearch').hidden = rooms.length < 8
   $('clearHomeRoomQuery').hidden = !query
   $('homeRoomResults').hidden = !query && project === '*'
-  $('homeRoomResults').textContent = filtered.length
-    ? `${filtered.length} ${filtered.length === 1 ? 'room' : 'rooms'} found`
-    : 'No rooms match this search.'
-  $('roomsNote').textContent = nostrSession
-    ? 'These bookmarks belong to your Nostr account. An invitation can expire or be retired; a bookmark does not grant permanent access. Unread counts use only keys held by this device.'
-    : 'Saved on this browser only. You can also bookmark the invitation link. No account is needed.'
-  const list = $('roomList')
+  $('homeRoomResults').textContent = matched.length
+    ? `${matched.length} ${matched.length === 1 ? 'room' : 'rooms'} found`
+    : `No rooms match “${($('homeRoomQuery') as HTMLInputElement).value.trim()}”.`
+  $('newRoom').setAttribute('aria-expanded', String(newRoomOpen))
+  $('setup').classList.toggle('collapsed', returning && !newRoomOpen)
   const focused = document.activeElement as HTMLElement | null
   const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
   const action = focused?.dataset.action
@@ -9587,124 +9633,182 @@ async function importBrowserRooms(): Promise<void> {
   renderRooms()
 }
 
+/** What a row's second line, time, unread pill, presence and accessible
+ *  description say, worked out once so the row can just render it. Line 2
+ *  follows the precedence in the spec's copy table: ended, then no key held,
+ *  then quiet, then the newest message, then "No messages yet". */
+interface RoomRowState {
+  preview: string
+  time: string
+  unreadVisible?: string
+  unreadSpoken?: string
+  unreadCount: number
+  agentCount: number
+  presence?: { visible: string; spoken: string }
+  presenceCount: number
+  description: string
+}
+
+function roomRowState(room: KnownRoom): RoomRowState {
+  const time = formatActivityTime(activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? []))
+  if (room.endedAt !== undefined) {
+    const preview = 'Ended. Its invite link no longer works.'
+    return { preview, time, unreadCount: 0, agentCount: 0, presenceCount: 0, description: preview }
+  }
+  const watched = roomWatches.get(room.roomId)
+  if (!watched) {
+    const preview = 'Open it to catch up.'
+    return { preview, time, unreadCount: 0, agentCount: 0, presenceCount: 0, description: preview }
+  }
+  if (!watched.watch.readsChat) {
+    // A quiet room's chat is not read from the list: it would cost the whole
+    // gift-wrap stream per room in the background. Open it to read.
+    const preview = 'Quiet room. Open it to read.'
+    return { preview, time, unreadCount: 0, agentCount: 0, presenceCount: 0, description: preview }
+  }
+
+  const self = meParticipant || currentParticipant() || ''
+  const messages = watched.watch.messages()
+  const latest = messages.reduce<ChatMessage | undefined>((best, m) => (!best || m.sentAt > best.sentAt ? m : best), undefined)
+  const nameOf = (participant: string): string =>
+    shownAs(participant, messages.find((m) => m.participant === participant)?.name).name ?? shortKey(participant)
+  const preview = (latest && previewLine(latest, self, nameOf)) ?? 'No messages yet'
+
+  const split = watched.watch.unread(room.readAt, self, joiningName())
+  const unreadVisible = split.people > 0 ? String(split.people) : undefined
+  const unreadSpoken = split.people > 0 ? `${split.people} unread` : undefined
+
+  const present = watched.watch.present()
+  const presence = present.length > 0 ? presenceText(present) : undefined
+  if (present.length) profiles.want(present.map((p) => p.participant))
+
+  const description = [unreadSpoken, preview, time, presence?.spoken].filter(Boolean).join('. ')
+  return { preview, time, unreadVisible, unreadSpoken, unreadCount: split.people, agentCount: split.agents, presence, presenceCount: present.length, description }
+}
+
+/** One row of the rooms list: the whole name and preview area is a single
+ *  button (kept as `data-action="open"` and `aria-label="Open {room}"`, for
+ *  the specs that already read that), a `⋯` menu for the actions that used
+ *  to sit on the row at the same weight as opening it, and a hidden
+ *  description carrying the fuller sentence a screen reader wants. */
 function roomRow(room: KnownRoom): HTMLLIElement {
+  const label = knownRoomLabel(room)
+  const state = roomRowState(room)
   const row = document.createElement('li')
   row.className = 'roomRow'
   row.dataset.room = room.roomId
 
-  const main = document.createElement('div')
-  main.className = 'roomMain'
-  const heading = document.createElement('div')
-  heading.className = 'roomTitleRow'
-  // A name and the id beside it, for the reason a person's name has a key
-  // beside it: two rooms can be called the same thing.
-  const name = document.createElement('button')
-  name.type = 'button'
-  name.className = 'roomName open'
-  name.dataset.action = 'open'
-  name.setAttribute('aria-label', `Open ${knownRoomLabel(room)}`)
-  name.textContent = knownRoomLabel(room)
-  name.addEventListener('click', () => openKnownRoom(room))
-  name.title = shortKey(room.roomId)
-  heading.append(name)
-  main.append(heading)
-  const project = projectOf(room)
-  if (project) { const label = document.createElement('span'); label.className = 'roomProject'; label.textContent = project; main.append(label) }
-  main.append(roomMeta(room))
+  const descId = `roomDesc-${room.roomId}`
 
-  const actions = document.createElement('div')
-  actions.className = 'roomActions'
-  if (organising()) actions.append(projectButton(room))
-  actions.append(forgetButton(room, 'Forget'))
+  const open = document.createElement('button')
+  open.type = 'button'
+  open.className = 'open'
+  open.dataset.action = 'open'
+  open.setAttribute('aria-label', `Open ${label}`)
+  open.setAttribute('aria-describedby', descId)
+  open.addEventListener('click', () => openKnownRoom(room))
 
-  row.append(main, actions)
+  const name = document.createElement('span')
+  name.className = 'roomName'
+  name.textContent = label
+  const preview = document.createElement('span')
+  preview.className = 'roomPreview'
+  preview.textContent = state.preview
+  open.append(name, preview)
+
+  const aside = document.createElement('div')
+  aside.className = 'roomAside'
+  const time = document.createElement('span')
+  time.className = 'roomTime'
+  time.textContent = state.time
+  aside.append(time)
+  if (state.unreadVisible) {
+    const pill = document.createElement('span')
+    pill.className = 'unread'
+    pill.dataset.count = String(state.unreadCount)
+    pill.textContent = state.unreadVisible
+    pill.setAttribute('aria-label', state.unreadSpoken!)
+    aside.append(pill)
+  }
+  if (state.agentCount > 0) aside.append(unreadBadge('unread agent', state.agentCount, `${state.agentCount} from agents`, { standalone: true }))
+  if (state.presence) {
+    const here = document.createElement('span')
+    here.className = 'here'
+    here.dataset.count = String(state.presenceCount)
+    here.textContent = state.presence.visible
+    here.setAttribute('aria-label', state.presence.spoken)
+    aside.append(here)
+  }
+
+  const description = document.createElement('span')
+  description.id = descId
+  description.className = 'sr-only'
+  description.textContent = state.description
+
+  row.append(open, aside, ...roomRowMenu(room, label))
+  row.append(description)
   return row
 }
 
-/** Forget a room from wherever rooms are listed, not only the rooms page. */
-function forgetButton(room: KnownRoom, text: string): HTMLButtonElement {
-  const forget = document.createElement('button')
-  forget.type = 'button'
-  forget.className = 'forget quiet'
+/** The row's `⋯` menu: a native popover, so Escape and outside-click close
+ *  it for free and it reaches every screen reader that knows `role="menu"`.
+ *  Copy invite link is here because getting a friend in is one of the five
+ *  stranger-test tasks and the link already sits on the row; Forget keeps
+ *  its existing confirmation. */
+function roomRowMenu(room: KnownRoom, label: string): [HTMLButtonElement, HTMLDivElement] {
+  const id = `roomMenu-${room.roomId}`
+  const opener = document.createElement('button')
+  opener.type = 'button'
+  opener.className = 'rowMenu'
+  opener.textContent = '⋯'
+  opener.setAttribute('aria-label', `More for ${label}`)
+  opener.setAttribute('aria-haspopup', 'menu')
+  opener.setAttribute('popovertarget', id)
+
+  const menu = document.createElement('div')
+  menu.id = id
+  menu.className = 'rowMenuPopover'
+  menu.popover = 'auto'
+  menu.setAttribute('role', 'menu')
+  menu.addEventListener('toggle', (event) => {
+    if ((event as ToggleEvent).newState === 'open') positionRowMenu(menu, opener)
+  })
+
+  const item = (text: string, action: () => void, danger = false): HTMLButtonElement => {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.setAttribute('role', 'menuitem')
+    if (danger) button.className = 'danger'
+    button.textContent = text
+    button.addEventListener('click', () => { menu.hidePopover(); action() })
+    return button
+  }
+
+  menu.append(item('Copy invite link', () => {
+    navigator.clipboard.writeText(room.link)
+      .then(() => setStatus('Invite link copied.'))
+      .catch((err) => setStatus(describeError(err)))
+  }))
+  if (organising()) {
+    const project = item(projectOf(room) ? 'Change project' : 'Add to a project', () => openProjectEditor(room, opener))
+    menu.append(project)
+  }
+  const forget = item('Forget this room', () => forgetKnownRoom(room), true)
   forget.dataset.action = 'forget'
-  forget.setAttribute('aria-label', `Forget ${knownRoomLabel(room)}`)
-  forget.title = `Forget ${knownRoomLabel(room)}`
-  forget.textContent = text
-  forget.addEventListener('click', () => forgetKnownRoom(room))
-  return forget
+  menu.append(forget)
+
+  return [opener, menu]
 }
 
-/** What is new and who is here, or why that cannot be said. */
-function roomMeta(room: KnownRoom): HTMLDivElement {
-  const meta = document.createElement('div')
-  meta.className = 'roomMeta'
-  if (room.endedAt !== undefined) {
-    const note = document.createElement('span')
-    note.className = 'ended'
-    note.textContent = 'Ended. Its invite link no longer works.'
-    meta.append(note)
-    return meta
-  }
-  const watched = roomWatches.get(room.roomId)
-  if (!watched) {
-    const note = document.createElement('span')
-    note.className = 'unknown'
-    note.textContent = 'Open it to catch up: this device does not hold its key right now.'
-    meta.append(note)
-    return meta
-  }
-
-  const split = watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName())
-  const count = document.createElement('span')
-  count.className = 'unread'
-  // A quiet room's chat is not read from the list: it would cost the whole
-  // gift-wrap stream per room in the background. Open it to read. When
-  // there is nothing but an agent's tag, the agent badge below says so on
-  // its own; this line only speaks for people, or for having nothing to say.
-  if (!watched.watch.readsChat) {
-    count.textContent = 'quiet room: open it to read'
-    meta.append(count)
-  } else if (split.people > 0 || split.agents === 0) {
-    count.dataset.count = String(split.people)
-    count.textContent = split.people === 0 ? 'nothing new' : `${split.people} unread`
-    meta.append(count)
-  }
-  if (watched.watch.readsChat && split.agents > 0) meta.append(unreadBadge('unread agent', split.agents, `${split.agents} from agents`, { standalone: true }))
-
-  const present = watched.watch.present()
-  const here = document.createElement('span')
-  here.className = 'here'
-  here.dataset.count = String(present.length)
-  if (present.length === 0) {
-    // Presence is only what devices say of their own accord, once a
-    // heartbeat: until one has had the chance to, an empty room is not yet
-    // an empty room.
-    here.textContent = watched.watch.settled ? 'nobody here' : ''
-    meta.append(here)
-    return meta
-  }
-  const agents = present.filter((p) => p.agent).length
-  const people = present.length - agents
-  here.textContent =
-    [people ? `${people} ${people === 1 ? 'person' : 'people'}` : '', agents ? `${agents} agent${agents === 1 ? '' : 's'}` : '']
-      .filter(Boolean)
-      .join(', ') + ' here:'
-  meta.append(here)
-  profiles.want(present.map((p) => p.participant))
-  for (const p of present) {
-    const chip = document.createElement('span')
-    chip.className = 'hereChip'
-    chip.append(identityRun(shownAs(p.participant, p.name), false))
-    if (p.agent) {
-      const badge = document.createElement('span')
-      badge.className = 'badge agent'
-      badge.textContent = 'agent'
-      badge.title = 'This participant says it is an automated agent'
-      chip.append(badge)
-    }
-    meta.append(chip)
-  }
-  return meta
+/** Below its `⋯` button where there is room, flipped above it where there
+ *  is not - the same clamped placement `positionReactionDetails` uses for
+ *  the chat log's reaction list. */
+function positionRowMenu(menu: HTMLElement, opener: HTMLElement): void {
+  const anchor = opener.getBoundingClientRect()
+  const bounds = menu.getBoundingClientRect()
+  menu.style.left = `${Math.max(8, Math.min(anchor.right - bounds.width, innerWidth - bounds.width - 8))}px`
+  const below = anchor.bottom + 4
+  menu.style.top = `${below + bounds.height <= innerHeight - 8 ? below : Math.max(8, anchor.top - bounds.height - 4)}px`
 }
 
 /** Opening a room from the list is opening its link. */
@@ -9825,6 +9929,21 @@ function projectButton(room: KnownRoom): HTMLButtonElement {
   button.setAttribute('aria-label', `Set project for ${knownRoomLabel(room)}`)
   button.addEventListener('click', () => openProjectEditor(room, button))
   return button
+}
+
+/** Forget a room from wherever rooms are listed - the switch-rooms dialog
+ *  still shows this as a row button; the home list moved it into its `⋯`
+ *  menu instead (see `roomRowMenu`). */
+function forgetButton(room: KnownRoom, text: string): HTMLButtonElement {
+  const forget = document.createElement('button')
+  forget.type = 'button'
+  forget.className = 'forget quiet'
+  forget.dataset.action = 'forget'
+  forget.setAttribute('aria-label', `Forget ${knownRoomLabel(room)}`)
+  forget.title = `Forget ${knownRoomLabel(room)}`
+  forget.textContent = text
+  forget.addEventListener('click', () => forgetKnownRoom(room))
+  return forget
 }
 
 let projectRoom: KnownRoom | undefined
@@ -11003,7 +11122,16 @@ $('projectForm').addEventListener('submit', event => {
 })
 document.addEventListener('keydown', event => {
   if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'k') return
-  if (document.querySelector('dialog[open]') || (!session && !currentRoomId())) return
+  if (document.querySelector('dialog[open]')) return
+  if (!session && !currentRoomId()) {
+    // On the rooms list rather than in a room: the same shortcut jumps
+    // straight to Find a room when there is one, or the first row.
+    if (!roomsListShown) return
+    event.preventDefault()
+    if (!$('homeRoomSearch').hidden) $('homeRoomQuery').focus()
+    else $('roomList').querySelector<HTMLButtonElement>('.open')?.focus()
+    return
+  }
   event.preventDefault()
   openRoomSwitcher()
 })
@@ -11128,10 +11256,17 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
   },
 })
 $('roomRelaySettings').addEventListener('click', () => { closeRoomSheet(); relaySettings.open($('roomMenu')) })
-$('defaultRelaySettings').addEventListener('click', () => relaySettings.open($('defaultRelaySettings')))
+$('defaultRelaySettings').addEventListener('click', () => closeAppSettingsFor(() => relaySettings.open($('defaultRelaySettings'))))
+$('appProfileSettings').addEventListener('click', () => closeAppSettingsFor(() => openProfileSettings($('appProfileSettings'))))
 $('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
 $('inviteToRoomClose').addEventListener('click', () => { invitingPeer = undefined; ($('inviteToRoom') as HTMLDialogElement).close() })
-$('profileSettings').addEventListener('close', () => profileReturnFocus.focus({ preventScroll: true }))
+$('profileSettings').addEventListener('close', () => {
+  profileReturnFocus.focus({ preventScroll: true })
+  if (reopenAppSettings) { reopenAppSettings = false; openAppSettings() }
+})
+$('relaySettings').addEventListener('close', () => {
+  if (reopenAppSettings) { reopenAppSettings = false; openAppSettings() }
+})
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
 // dialog element itself fills the screen, so a click that lands ON the
 // dialog and not on anything inside it is a click on the backdrop.
@@ -11218,7 +11353,6 @@ function openNotificationSettings(): void {
   $('notificationSettingsBody').append(controls)
   ;($('notificationSettings') as HTMLDialogElement).showModal()
 }
-$('homeNotifications').addEventListener('click', openNotificationSettings)
 $('roomNotifications').addEventListener('click', openNotificationSettings)
 $('notificationSettingsClose').addEventListener('click', () => ($('notificationSettings') as HTMLDialogElement).close())
 $('notificationSettings').addEventListener('close', () => {
@@ -11226,6 +11360,55 @@ $('notificationSettings').addEventListener('close', () => {
   notificationHome.parent.insertBefore($('notify'), notificationHome.next)
   $('notify').hidden = notificationHome.hidden
   notificationHome = undefined
+})
+
+/** Settings, reached from the rooms list: everything the home page used to
+ *  carry on its own face, moved into one sheet with the same shape as Room
+ *  details' own Settings. `#notify` reuses `notificationHome` above - the
+ *  two never overlap, since a person is either at the door of a room or on
+ *  the rooms list, never both. */
+let appSettingsHomes: { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean }[] | undefined
+function moveIntoAppSettings(el: HTMLElement, target: Element): { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean } {
+  const home = { el, parent: el.parentNode!, next: el.nextSibling, hidden: el.hidden }
+  el.hidden = false
+  target.append(el)
+  return home
+}
+function openAppSettings(): void {
+  renderIdentity()
+  renderNotifyChoice()
+  const controls = $('notify')
+  notificationHome = { parent: controls.parentNode!, next: controls.nextSibling, hidden: controls.hidden }
+  controls.hidden = false
+  $('appSettingsNotify').append(controls)
+  appSettingsHomes = [
+    moveIntoAppSettings($('accountHome'), $('appSettingsYou')),
+    moveIntoAppSettings($('forgetBrowser'), $('appSettings').querySelector('.sheetBody')!),
+  ]
+  ;($('appSettings') as HTMLDialogElement).showModal()
+}
+/** Whether `#appSettings` is being closed only to make way for Nostr relays
+ *  or Profile pictures and names, which reopen it once they close - never
+ *  two dialogs open at once, and Settings is where the person left it. */
+let reopenAppSettings = false
+function closeAppSettingsFor(action: () => void): void {
+  reopenAppSettings = true
+  ;($('appSettings') as HTMLDialogElement).close()
+  action()
+}
+$('openAppSettings').addEventListener('click', openAppSettings)
+$('appSettingsClose').addEventListener('click', () => ($('appSettings') as HTMLDialogElement).close())
+$('appSettings').addEventListener('close', () => {
+  if (notificationHome) {
+    notificationHome.parent.insertBefore($('notify'), notificationHome.next)
+    $('notify').hidden = notificationHome.hidden
+    notificationHome = undefined
+  }
+  if (appSettingsHomes) {
+    for (const home of appSettingsHomes) { home.parent.insertBefore(home.el, home.next); home.el.hidden = home.hidden }
+    appSettingsHomes = undefined
+  }
+  if (!reopenAppSettings) $('openAppSettings').focus({ preventScroll: true })
 })
 
 $('toggleNotify').addEventListener('click', () => {
@@ -11300,7 +11483,7 @@ $('createRoomForm').addEventListener('submit', async event => {
   const button = $('create') as HTMLButtonElement
   if (button.disabled) return
   button.disabled = true
-  button.textContent = 'Creating…'
+  button.textContent = 'Starting…'
   $('createError').hidden = true
   try {
     await startNewRoom()
@@ -11321,7 +11504,7 @@ $('openRoomForm').addEventListener('submit', event => {
   const value = ($('url') as HTMLInputElement).value.trim()
   const error = $('linkError')
   try {
-    if (!value) throw new Error('Paste the invitation link you were sent.')
+    if (!value) throw new Error('Paste the invite link you were sent.')
     const url = new URL(value)
     if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('unsupported scheme')
     parseRoomLink(url.href)
@@ -11331,8 +11514,8 @@ $('openRoomForm').addEventListener('submit', event => {
     location.reload()
   } catch {
     error.textContent = value
-      ? 'This is not a complete KithMoot invitation. Copy the whole link, including everything after #, and try again.'
-      : 'Paste the invitation link you were sent.'
+      ? 'That is not a whole invite link. Copy all of it, including the part after #, and try again.'
+      : 'Paste the invite link you were sent.'
     error.hidden = false
     $('url').setAttribute('aria-invalid', 'true')
     $('url').focus()
@@ -11348,6 +11531,43 @@ $('clearHomeRoomQuery').addEventListener('click', () => {
   ;($('homeRoomQuery') as HTMLInputElement).value = ''
   renderRooms()
   $('homeRoomQuery').focus()
+})
+function openNewRoom(): void {
+  newRoomOpen = true
+  renderRooms()
+  $('roomName').focus()
+}
+function closeNewRoom(): void {
+  newRoomOpen = false
+  renderRooms()
+  $('newRoom').focus()
+}
+$('newRoom').addEventListener('click', openNewRoom)
+$('cancelNewRoom').addEventListener('click', closeNewRoom)
+$('createRoomForm').addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && newRoomOpen) closeNewRoom()
+})
+$('roomAsk').addEventListener('change', () => {
+  $('roomAskHint').hidden = !($('roomAsk') as HTMLInputElement).checked
+})
+$('homeSignIn').addEventListener('click', () => {
+  signInWithNostr().catch((err) => setStatus(describeError(err)))
+})
+// ArrowUp/ArrowDown/Home/End move focus between rows' open buttons, the
+// same shape as the chat log's own message navigation.
+$('roomList').addEventListener('keydown', (event) => {
+  if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+  const rows = Array.from($('roomList').querySelectorAll<HTMLButtonElement>('.open'))
+  if (!rows.length) return
+  const active = document.activeElement as HTMLElement | null
+  const index = active ? rows.indexOf(active as HTMLButtonElement) : -1
+  let next: number
+  if (event.key === 'ArrowUp') next = index < 0 ? rows.length - 1 : Math.max(0, index - 1)
+  else if (event.key === 'ArrowDown') next = index < 0 ? 0 : Math.min(rows.length - 1, index + 1)
+  else if (event.key === 'Home') next = 0
+  else next = rows.length - 1
+  event.preventDefault()
+  rows[next]?.focus()
 })
 $('returnToPreviousRoom').addEventListener('click', () => {
   if (previousRoom) void switchRoom(previousRoom)
