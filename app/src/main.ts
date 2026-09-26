@@ -6815,6 +6815,7 @@ function renderAgentActivity(): void {
   // does not exist until a host advertises one or an agent has already joined,
   // so the banner and its Invite button stay even in a room with no agents.
   activity.hidden = !session
+  activity.toggleAttribute('data-empty', agents.length === 0)
   $('agentActivityTitle').textContent = agents.length ? `${agents.length} agent${agents.length === 1 ? '' : 's'} in this room` : 'No agents here yet'
   const names = agents.slice(0, 3).map(view => shownAs(view.participant, view.name).name ?? shortKey(view.participant)).join(', ')
   // Only ever built from a non-empty name list: joining an empty one used to

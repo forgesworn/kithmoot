@@ -4027,6 +4027,9 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
      both stay reachable in one tap from "…" (Room details already has
      `#searchConversation` beside Invite), so the row is not drawn twice. */
   .conversationTools { display: none; }
+  /* The same 44px for an agent banner with nobody in it. Portrait and every
+     wider layout still show it, with the Invite button for a first agent. */
+  .agentActivity[data-empty] { display: none; }
   /* M1: the dock used to sit in normal flow while the room bar, absolutely
      positioned above, was drawn at the same top-left corner - "Rooms",
      "Book club" and "On a call in Design crit" overprinting each other.
