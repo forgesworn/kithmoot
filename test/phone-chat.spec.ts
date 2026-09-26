@@ -149,6 +149,23 @@ test('a phone reads the conversation: size, width, contrast and no sideways scro
   } finally { rowan.leave(); clerk.leave(); await context.close() }
 })
 
+test('M9: the composer is a combobox while the mention list is open, with no aria-allowed-attr violation', async ({ browser, baseURL }) => {
+  const { context, link } = await phone(browser, baseURL!)
+  try {
+    const page = await context.newPage()
+    await page.goto(link)
+    await page.locator('#displayName').fill('Ada')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#chatInput').fill('@')
+    await expect(page.locator('#mentions')).toBeVisible()
+    await expect(page.locator('#chatInput')).toHaveAttribute('role', 'combobox')
+    await expect(page.locator('#chatInput')).toHaveAttribute('aria-expanded', 'true')
+    const scan = await new AxeBuilder({ page }).include('#chatInput').include('#mentions').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
+    expect(scan.violations.map(v => v.id)).toEqual([])
+  } finally { await context.close() }
+})
+
 test('phone Call and Chat each use the screen, with settings in a sheet', async ({ browser, baseURL }, info) => {
   test.skip(browser.browserType().name() !== 'chromium', 'Chromium provides the synthetic camera')
   const { context, link } = await phone(browser, baseURL!)
