@@ -1,6 +1,6 @@
 import './call-layout.css'
 import {
-  ActiveSpeaker, StripOrder, ANNOUNCE_KEY, CORNER_KEY, HIDE_NO_VIDEO_KEY, HIDE_SELF_KEY, Throttle, VIEW_KEY,
+  ActiveSpeaker, StripOrder, CORNER_KEY, HIDE_NO_VIDEO_KEY, HIDE_SELF_KEY, VIEW_KEY,
   fitRect, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref,
   type CallView, type LayoutPrefs, type LayoutResult, type Rect, type ShareInput,
 } from './call-layout.js'
@@ -32,7 +32,6 @@ import {
 export const DESKTOP_STAGE = '(min-width: 701px) and (min-height: 541px)'
 
 /** A spoken "X is speaking" at most this often. */
-const ANNOUNCE_GAP_MS = 5000
 
 interface Person {
   box: HTMLElement
@@ -57,11 +56,9 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
   const media = matchMedia(DESKTOP_STAGE)
   const speaker = new ActiveSpeaker()
   const stripOrder = new StripOrder()
-  const throttle = new Throttle(ANNOUNCE_GAP_MS)
   let view: CallView = prefs.view
   let knownShares = new Set<string>()
   let pinned: string | undefined
-  let announced: string | undefined
   let last: LayoutResult | undefined
   let dragging = false
   let queued = 0
@@ -191,7 +188,6 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     }
 
     renderToolbar(everyone, shares.length, out)
-    announce(everyone)
 
     // A picture that was a share and is not any more keeps no pixels from
     // the stage: inline sizes outlive the share they were measured for.
@@ -349,17 +345,9 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     }
     toggle(HIDE_SELF_KEY, 'Hide my own picture', () => prefs.hideSelf, value => { prefs.hideSelf = value })
     toggle(HIDE_NO_VIDEO_KEY, 'Hide people without video', () => prefs.hideNoVideo, value => { prefs.hideNoVideo = value })
-    toggle(ANNOUNCE_KEY, 'Announce who is speaking (screen readers)', () => prefs.announce, value => { prefs.announce = value; announced = undefined })
 
-    // Polite and separate from the visible line, which changes far too
-    // often to be read out as it goes.
-    const live = document.createElement('p')
-    live.className = 'sr-only'
-    live.setAttribute('aria-live', 'polite')
-    live.id = 'speakerAnnouncement'
-
-    root.append(views, speakingLine, move, options, live)
-    return { root, buttons, speakingLine, move, live }
+    root.append(views, speakingLine, move, options)
+    return { root, buttons, speakingLine, move }
   }
 
   function choose(value: CallView): void {
@@ -382,17 +370,6 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     setText(bar.speakingLine, talking.length ? `Speaking: ${talking.join(', ')}` : 'Nobody is speaking')
     setAttr(bar.speakingLine, 'data-quiet', talking.length ? null : '')
     bar.move.hidden = out.mode !== 'solo'
-  }
-
-  function announce(everyone: Person[]): void {
-    if (!prefs.announce) return
-    const current = speaker.current
-    if (current === undefined || current === announced) return
-    const person = everyone.find(p => p.id === current)
-    if (!person?.box.classList.contains('speaking')) return
-    if (!throttle.allow(performance.now())) return
-    announced = current
-    bar.live.textContent = `${person.name} is speaking`
   }
 
   // --- Dragging your own picture in a call of two ---------------------------

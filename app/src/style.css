@@ -103,6 +103,30 @@
   }
 }
 
+/* Turned up when the OS asks for more contrast (`prefers-contrast: more`):
+   every border reads as a line rather than a suggestion, muted text moves
+   closer to the page's own foreground, and the focus ring below thickens.
+   Modest on purpose - this sits on top of the light/dark values above, the
+   same way light already sits on top of dark, rather than a third theme. */
+@media (prefers-contrast: more) {
+  :root {
+    --border: #565b63;
+    --control-border: #7a7f87;
+    --field-border: #9aa0a8;
+    --box-border: #6a6f77;
+    --muted: #cfcabe;
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: light) {
+  :root {
+    --border: #8f8a7c;
+    --control-border: #6d675b;
+    --field-border: #55504a;
+    --box-border: #736d61;
+    --muted: #423e37;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -265,6 +289,14 @@ summary:focus-visible,
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   box-shadow: 0 0 0 3px var(--focus-glow);
+}
+
+/* A thicker ring under `prefers-contrast: more`, on top of the two rules
+   above rather than a rewrite of them. */
+@media (prefers-contrast: more) {
+  :is(input, textarea, select, button, summary, [role=tab]):focus-visible {
+    outline-width: 3px;
+  }
 }
 
 section {
@@ -3801,6 +3833,7 @@ input[type="search"] { font-family: inherit; }
   #deviceControls > .indicator,
   #deviceControls > #monitorIndicator,
   #deviceControls > #listenHere,
+  #deviceControls > #speakingLine,
   #deviceControls > #local { grid-column: 1 / -1; }
   #deviceControls > .toggles { grid-column: 1; }
   #deviceControls > .callExtras { grid-column: 2; grid-row: 2; }
@@ -3842,8 +3875,9 @@ input[type="search"] { font-family: inherit; }
   #callExtras > summary::-webkit-details-marker { display: none; }
   #callExtras[open] > summary { border-color: var(--accent); background: var(--accent-dim); }
   #callExtras > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #deviceControls > #speakingLine { grid-area: 3 / 1 / 4 / 6; margin: 0; }
   /* Open, More takes a row of its own under the controls. */
-  #callExtras[open] { grid-area: 3 / 1 / 4 / 6; }
+  #callExtras[open] { grid-area: 4 / 1 / 5 / 6; }
   #callExtras[open] > summary { width: auto; display: inline-flex; padding-inline: .8rem; }
   #deviceControls > #monitorIndicator,
   #deviceControls > #listenHere { grid-column: 1 / -1; margin: 0; }

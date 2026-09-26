@@ -36,6 +36,13 @@
     --tile-initials-fg: #1b1915;
   }
 }
+/* A wider ring under `prefers-contrast: more`, the same modest bump as the
+   focus ring in style.css. */
+@media (prefers-contrast: more) {
+  :root {
+    --speak-ring-width: 6px;
+  }
+}
 
 /* Everywhere a tile is drawn, phones included. */
 .participant.speaking {
@@ -59,6 +66,23 @@
   border-color: var(--speak-ring);
   box-shadow: 0 0 0 calc(var(--speak-ring-width) - 2px) var(--speak-ring);
 }
+
+/* Who is talking, in plain text, beside the call controls. Present in
+   every layout - phone, desktop grid, the compact call-first bar - because
+   it lives in `.callHead` rather than inside the desktop picture stage.
+   Hidden by `paintSpeakingLine` in main.ts when nobody is speaking, and by
+   this rule when the picture stage's own `#speakingNow` line is already
+   showing the same thing, so the two are never said twice. */
+.speakingLine {
+  margin: 0;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+#deviceControls:has(#callView:not([hidden])) #speakingLine { display: none; }
 
 /* --- The stage -------------------------------------------------------- */
 
@@ -306,3 +330,25 @@
 }
 .callViewPanel label { display: flex; align-items: center; gap: .45rem; margin: 0; font-weight: 400; min-height: 28px; }
 .callViewPanel input { margin: 0; width: 1rem; height: 1rem; }
+
+/* High contrast (Windows contrast themes, forced colours in the browser).
+   The browser drops every box-shadow and repaints every background in this
+   mode, which took the whole speaking cue with it: no ring, and a label
+   indistinguishable from anyone else's. An outline survives, and the
+   system's own Highlight pair is the colour the person chose to stand out,
+   so the cue uses those instead of ours. */
+@media (forced-colors: active) {
+  .participant.speaking,
+  #room[data-layout] > .participant.speaking,
+  #room[data-layout] > .participant[data-floating].speaking {
+    outline: var(--speak-ring-width) solid Highlight;
+    outline-offset: 2px;
+  }
+  .participant.speaking > h3,
+  #room[data-layout] > .participant.speaking > h3,
+  .callChip.speaking {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}

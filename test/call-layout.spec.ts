@@ -303,7 +303,7 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
   }
 })
 
-test('the speaking cue is more than a colour, and can be said aloud', async ({ browser, baseURL }) => {
+test('the speaking cue is more than a colour, and is shown rather than spoken', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved')
   const contexts: BrowserContext[] = []
   try {
@@ -329,13 +329,8 @@ test('the speaking cue is more than a colour, and can be said aloud', async ({ b
     expect(cue.ink).toBe('rgb(255, 255, 255)')
     await expect(page.locator('#speakingNow')).toContainText('Bob')
 
-    // Spoken announcements are opt in and remembered.
-    await expect(page.locator('#speakerAnnouncement')).toHaveText('')
-    await openCallView(page)
-    await page.locator('.callViewOptions > summary').click()
-    await page.getByLabel('Announce who is speaking (screen readers)').check()
-    await expect(page.locator('#speakerAnnouncement')).toHaveText(/is speaking/, { timeout: 10_000 })
-    expect(await page.evaluate(() => localStorage.getItem('kithmoot.call-announce-speaker'))).toBe('true')
+    // Shown, never spoken: nothing on the call page announces speakers.
+    await expect(page.locator('[aria-live] , [role="status"]').filter({ hasText: /speaking/i })).toHaveCount(0)
   } finally {
     for (const context of contexts) await context.close()
   }
