@@ -13,7 +13,7 @@ import { memoryDeviceStore, deviceKeyFor, storeCredentialFor } from '../app/src/
 import WebSocket from 'ws'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
-import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { openNewRoomForm, openRoomDetails, TEST_RELAY_WS } from './browser.js'
 
 /** Everything the local test relay holds for a filter, read straight off it. */
 function relayHolds(filter: Record<string, unknown>): Promise<Event[]> {
@@ -68,8 +68,12 @@ async function device(browser: Browser, baseURL: string, secret = generateSecret
 async function signIn(page: Page, baseURL: string) {
   await page.goto(baseURL + '?signin=nostr')
   await page.getByRole('button', { name: /Browser extension/ }).click()
+  // Signed in and nothing found yet: the "Already on Nostr?" line is gone
+  // now that signing in is done, and Settings is where Sign out lives now.
+  await expect(page.locator('#homeSignIn')).toBeHidden()
+  await page.locator('#openAppSettings').click()
   await expect(page.locator('#signOut')).toBeVisible()
-  await expect(page.locator('#roomsEmpty')).toBeVisible()
+  await page.locator('#appSettingsClose').click()
 }
 
 test('a returning visitor can choose their Nostr profile at the door and the clerk receives that key', async ({ browser, baseURL }) => {
@@ -175,6 +179,7 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
   try {
     const owner = await first.newPage()
     await signIn(owner, baseURL!)
+    await openNewRoomForm(owner)
     await owner.locator('#roomName').fill('Standing town hall')
     await owner.locator('#create').click()
     await expect(owner.locator('#roomSyncStatus')).toContainText('accepted by a relay')
@@ -183,7 +188,7 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     const home = await first.newPage()
     await home.goto(baseURL!)
     await expect(home.locator('#roomList .roomName')).toHaveText('Standing town hall')
-    await expect(home.locator('#signIn')).toBeHidden()
+    await expect(home.locator('#homeSignIn')).toBeHidden()
     await home.screenshot({ path: '/tmp/kithmoot-nostr-home.png', fullPage: true })
 
     const returning = await second.newPage()
@@ -207,10 +212,13 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     await returning.locator('#backToRooms').click()
     await returning.locator('#roomSwitcherHome').click()
     await expect(returning.locator('#roomList .roomName')).toHaveText('Standing town hall')
+    await returning.locator('#openAppSettings').click()
     await returning.locator('#signOut').click()
+    await expect(returning.locator('#signIn')).toBeVisible()
+    await returning.locator('#appSettingsClose').click()
     await expect(returning.locator('#roomList .roomRow')).toHaveCount(0)
     await expect(returning.locator('#backToRoom')).toBeHidden()
-    await expect(returning.locator('#signIn')).toBeVisible()
+    await expect(returning.locator('#homeSignIn')).toBeVisible()
   } finally { await first.close(); await second.close(); await visitor.close() }
 })
 
@@ -221,6 +229,7 @@ test('forgetting an account bookmark removes it on the other signed-in device', 
   try {
     const creator = await a.newPage()
     await signIn(creator, baseURL!)
+    await openNewRoomForm(creator)
     await creator.locator('#roomName').fill('A room to forget')
     await creator.locator('#create').click()
     await expect(creator.locator('#roomSyncStatus')).toContainText('accepted by a relay')
@@ -230,12 +239,16 @@ test('forgetting an account bookmark removes it on the other signed-in device', 
     await other.goto(baseURL! + '?signin=nostr')
     await other.getByRole('button', { name: /Browser extension/ }).click()
     await expect(other.locator('#roomList .roomRow')).toHaveCount(1)
-    await creator.locator('#roomList').getByRole('button', { name: 'Forget A room to forget', exact: true }).click()
+    const forgetRow = creator.locator('#roomList .roomRow', { has: creator.locator('.roomName', { hasText: 'A room to forget' }) })
+    await forgetRow.locator('.rowMenu').click()
+    await creator.getByRole('menuitem', { name: 'Forget this room' }).click()
     await creator.locator('#actionConfirm').click()
     await expect(creator.locator('#roomSyncStatus')).toContainText('accepted by a relay')
     await expect(other.locator('#roomList .roomRow')).toHaveCount(0)
     await other.reload()
+    await other.locator('#openAppSettings').click()
     await expect(other.locator('#signOut')).toBeVisible()
+    await other.locator('#appSettingsClose').click()
     await expect(other.locator('#roomList .roomRow')).toHaveCount(0)
   } finally { await a.close(); await b.close() }
 })
@@ -245,10 +258,11 @@ test('a signer without encryption gets honest local-only rooms, and no private-k
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
-    await page.locator('#signIn').click()
+    await page.locator('#homeSignIn').click()
     await expect(page.getByText('Paste private key', { exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#roomSyncStatus')).toContainText('browser only')
+    await openNewRoomForm(page)
     await page.locator('#roomName').fill('Local account room')
     await page.locator('#create').click()
     await expect(page.locator('#roomSyncStatus')).toContainText('browser only')
@@ -265,20 +279,24 @@ test('existing browser rooms are imported only after explicit confirmation', asy
   try {
     const page = await a.newPage()
     await page.goto(baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#roomName').fill('A browser shortcut')
     await page.locator('#create').click()
     await page.locator('#doorToRooms').click()
     await page.locator('#roomSwitcherHome').click()
     await expect(page.locator('#roomList .roomName')).toHaveText('A browser shortcut')
-    await page.locator('#signIn').click()
+    await page.locator('#homeSignIn').click()
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
+    // Add the rooms already here lives in Settings, with the account.
+    await page.locator('#openAppSettings').click()
     await expect(page.locator('#importBrowserRooms')).toHaveText('Add the room already here')
     await page.locator('#importBrowserRooms').click()
     await page.locator('#actionCancel').click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
     await page.locator('#importBrowserRooms').click()
     await page.locator('#actionConfirm').click()
+    await page.locator('#appSettingsClose').click()
     await expect(page.locator('#roomList .roomName')).toHaveText('A browser shortcut')
     await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
     const other = await b.newPage()
@@ -294,12 +312,16 @@ test('switching conversations restores the same Nostr identity before entering',
   try {
     const first = await context.newPage()
     await signIn(first, baseURL!)
+    await openNewRoomForm(first)
     await first.locator('#roomName').fill('First account room')
     await first.locator('#create').click()
     await expect(first.locator('#roomSyncStatus')).toContainText('accepted by a relay')
     const host = await context.newPage()
     await host.goto(baseURL!)
-    await expect(host.locator('#signOut')).toBeVisible()
+    // Signed in already, in this new tab of the same account: the quiet
+    // "Already on Nostr?" line has nothing left to offer.
+    await expect(host.locator('#homeSignIn')).toBeHidden()
+    await openNewRoomForm(host)
     await host.locator('#roomName').fill('Second account room')
     await host.locator('#create').click()
     await expect(host.locator('#roomSyncStatus')).toContainText('accepted by a relay')
@@ -357,6 +379,7 @@ test('a disconnected signer offers Reconnect before forgetting an account room, 
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#roomName').fill('Kept on the account')
     await page.locator('#create').click()
     await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
@@ -383,7 +406,9 @@ test('a disconnected signer offers Reconnect before forgetting an account room, 
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
     await expect(notice).toContainText('Rooms saved to it are not shown')
 
-    await page.locator('#roomList').getByRole('button', { name: 'Forget Kept on the account', exact: true }).click()
+    const forgetRow = page.locator('#roomList .roomRow', { has: page.locator('.roomName', { hasText: 'Kept on the account' }) })
+    await forgetRow.locator('.rowMenu').click()
+    await page.getByRole('menuitem', { name: 'Forget this room' }).click()
     const dialog = page.getByRole('alertdialog')
     await expect(dialog).toContainText('Reconnect before forgetting')
     await expect(dialog).toContainText('your Nostr browser extension is not connected in this tab')
@@ -392,7 +417,8 @@ test('a disconnected signer offers Reconnect before forgetting an account room, 
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
 
     unavailable = false
-    await page.locator('#roomList').getByRole('button', { name: 'Forget Kept on the account', exact: true }).click()
+    await forgetRow.locator('.rowMenu').click()
+    await page.getByRole('menuitem', { name: 'Forget this room' }).click()
     await page.locator('#actionConfirm').click()
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.getByRole('alertdialog')).toContainText('from your Nostr room bookmarks on all devices')
@@ -402,7 +428,7 @@ test('a disconnected signer offers Reconnect before forgetting an account room, 
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
     expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.room.')))).toEqual([])
     await page.reload()
-    await expect(page.locator('#signOut')).toBeVisible()
+    await expect(page.locator('#homeSignIn')).toBeHidden()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
   } finally { await context.close() }
 })
@@ -414,6 +440,7 @@ test('leave and tidy up deletes in order while the keys exist, takes a second ta
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
+    await openNewRoomForm(page)
     await page.locator('#roomName').fill('Tidy me')
     await page.locator('#create').click()
     await expect(page.locator('#roomSyncStatus')).toContainText('accepted by a relay')
@@ -488,6 +515,7 @@ test('choosing a visitor after sign-out requires an explicit decision and labels
   try {
     const page = await context.newPage()
     await signIn(page, baseURL!)
+    await page.locator('#openAppSettings').click()
     await page.locator('#signOut').click()
     await page.goto(link)
     await page.reload()
@@ -533,7 +561,9 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
   async function loginAccount(page: Page) {
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
+    await page.locator('#openAppSettings').click()
     await expect(page.locator('#signOut')).toBeVisible()
+    await page.locator('#appSettingsClose').click()
     // History restores the home heading and room list. Wait for that state
     // before clicking: its layout can move this button during a pointer tap.
     await expect(page.locator('#sharedProjectNew')).toBeEnabled()

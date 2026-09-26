@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, pinToTestRelays } from './relays.js'
-import { newDeviceContext } from './browser.js'
+import { newDeviceContext, openNewRoomForm } from './browser.js'
 
 /**
  * Your rooms: the front page remembers the rooms this device has been in.
@@ -28,6 +28,7 @@ import { newDeviceContext } from './browser.js'
  *  the caller re-opens it on the pinned one. */
 async function startNamedRoom(page: Page, baseURL: string, name: string): Promise<string> {
   await page.goto(baseURL)
+  await openNewRoomForm(page)
   await page.locator('#roomName').fill(name)
   await page.locator('#create').click()
   // The link exists the moment the room does, but the drawer holding it
@@ -44,6 +45,12 @@ async function startNamedRoom(page: Page, baseURL: string, name: string): Promis
  *  only control out here now, so it is the only honest thing to wait on. */
 async function expectAtTheDoor(page: Page): Promise<void> {
   await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+}
+
+/** Opens a row's `⋯` menu, the native popover built by `roomRowMenu` in
+ *  app/src/main.ts. */
+async function openRowMenu(row: ReturnType<Page['locator']>): Promise<void> {
+  await row.locator('.rowMenu').click()
 }
 
 test('the front page lists every room this device has been in, with what is new and who is here', async ({ browser, baseURL }) => {
@@ -72,26 +79,26 @@ test('the front page lists every room this device has been in, with what is new 
     await openRoomUrl(page, bench)
     await expectAtTheDoor(page)
 
-    // Back to the front page: both rooms, by name, with the room's id
-    // beside each - two rooms can be called the same thing. From the DOOR
-    // of a room, which is where this page is. Once you are inside, the
-    // room's own bar carries the way out; this is the way out before that.
+    // Back to the front page: both rooms, by name. From the DOOR of a
+    // room, which is where this page is. Once you are inside, the room's
+    // own bar carries the way out; this is the way out before that.
     await page.locator('#doorToRooms').click()
     await page.locator('#roomSwitcherHome').click()
     await expect(page.locator('#rooms')).toBeVisible()
     const rows = page.locator('#roomList .roomRow')
     await expect(rows).toHaveCount(2)
     expect((await rows.locator('.roomName').allTextContents()).sort()).toEqual(['Bench', 'Town hall'])
-    // No code beside a room name: two rooms with the same name is rare, and
-    // the id lives in Room details.
-    await expect(rows.locator('.pubkey')).toHaveCount(0)
+    // No hex id beside a room name: two rooms with the same name is rare,
+    // and the id lives in Room details.
+    expect((await rows.locator('.roomName').allTextContents()).join(' ')).not.toMatch(/\b[0-9a-f]{8}\b/)
     const townHallRow = page.locator('#roomList .roomRow', { has: page.locator('.roomName', { hasText: 'Town hall' }) })
     const benchRow = page.locator('#roomList .roomRow', { has: page.locator('.roomName', { hasText: 'Bench' }) })
-    // Read with the creator's key, which this device holds: nothing new
-    // in either, and nobody has been heard from.
-    await expect(townHallRow.locator('.unread')).toHaveText('nothing new')
-    await expect(benchRow.locator('.unread')).toHaveText('nothing new')
-    await expect(townHallRow.locator('.here')).toHaveAttribute('data-count', '0')
+    // Read with the creator's key, which this device holds: nothing new in
+    // either, and nobody has been heard from.
+    await expect(townHallRow.locator('.roomPreview')).toHaveText('No messages yet')
+    await expect(benchRow.locator('.roomPreview')).toHaveText('No messages yet')
+    await expect(townHallRow.locator('.unread')).toHaveCount(0)
+    await expect(townHallRow.locator('.here')).toHaveCount(0)
 
     // Somebody else joins the town hall from its link and says something.
     const other = await visitor.newPage()
@@ -106,16 +113,14 @@ test('the front page lists every room this device has been in, with what is new 
     await expect(other.locator('#chatLog')).toContainText('hello town hall', { timeout: 30_000 })
 
     // The list, still on screen and still not in the room, says so: one
-    // unread, one person here, shown as a person is shown everywhere else
-    // - a name beside a key - and not marked as an agent. The bench is
-    // untouched.
-    await expect(townHallRow.locator('.unread')).toHaveText('1 unread', { timeout: 60_000 })
-    await expect(townHallRow.locator('.here')).toHaveText('1 person here:', { timeout: 60_000 })
-    await expect(townHallRow.locator('.hereChip .name')).toHaveText('Ada')
-    // One Ada: no code beside the name until a second Ada turns up.
-    await expect(townHallRow.locator('.hereChip .pubkey')).toHaveCount(0)
-    await expect(townHallRow.locator('.hereChip .badge.agent')).toHaveCount(0)
-    await expect(benchRow.locator('.unread')).toHaveText('nothing new')
+    // unread pill, a preview of the newest message, and one person here.
+    // The bench is untouched.
+    await expect(townHallRow.locator('.unread')).toHaveText('1', { timeout: 60_000 })
+    await expect(townHallRow.locator('.unread')).toHaveAttribute('aria-label', '1 unread')
+    await expect(townHallRow.locator('.roomPreview')).toHaveText('Ada: hello town hall')
+    await expect(townHallRow.locator('.here')).toHaveText('1 here')
+    await expect(townHallRow.locator('.here')).toHaveAttribute('aria-label', '1 person here')
+    await expect(benchRow.locator('.roomPreview')).toHaveText('No messages yet')
 
     // Opening a saved room now joins it directly. Seeing the message is
     // reading it, and the list says so on the way back.
@@ -126,11 +131,12 @@ test('the front page lists every room this device has been in, with what is new 
     await page.locator('#backToRooms').click()
     await page.locator('#roomSwitcherHome').click()
     await expect(page.locator('#rooms')).toBeVisible()
-    await expect(townHallRow.locator('.unread')).toHaveText('nothing new', { timeout: 60_000 })
+    await expect(townHallRow.locator('.unread')).toHaveCount(0, { timeout: 60_000 })
 
-    // Forgetting a room takes it off this device's list and nothing else:
-    // the room, and everybody in it, are untouched.
-    await benchRow.locator('button.forget').click()
+    // Forgetting a room, from its `⋯` menu, takes it off this device's
+    // list and nothing else: the room, and everybody in it, are untouched.
+    await openRowMenu(benchRow)
+    await page.getByRole('menuitem', { name: 'Forget this room' }).click()
     await page.locator('#actionConfirm').click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
     await expect(page.locator('#roomList .roomName')).toHaveText(['Town hall'])

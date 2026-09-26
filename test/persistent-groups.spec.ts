@@ -3,7 +3,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { openNewRoomForm, openRoomDetails, TEST_RELAY_WS } from './browser.js'
 import { parseRoomLink } from '../src/link.js'
 import { openRoomUrl } from './relays.js'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
@@ -55,6 +55,7 @@ async function enter(page: Page, link: string, name: string) {
 
 async function create(page: Page, baseURL: string, temporary = false) {
   await page.goto(baseURL)
+  await openNewRoomForm(page)
   await page.locator('#roomName').fill('Our group')
   if (temporary) {
     const host = createRoomInvitation(false)
@@ -170,7 +171,7 @@ test('the creator ends a browser room for everyone: members are taken out, the o
     for (const who of [page, other]) {
       await who.goto(baseURL!)
       await expect(who.locator('#roomList .roomRow')).toHaveCount(1)
-      await expect(who.locator('#roomList .roomMeta')).toContainText('Ended')
+      await expect(who.locator('#roomList .roomPreview')).toContainText('Ended')
     }
   } finally { await Promise.all(contexts.map(context => context.close())) }
 })
@@ -273,7 +274,8 @@ test('the creator can turn an existing temporary meeting into a group without ch
       .map(key => JSON.parse(localStorage.getItem(key)!)).some(record => record.persistent === true))).toBe(true)
     await arrival.locator('#backToRooms').click()
     await arrival.locator('#roomSwitcherHome').click()
-    await arrival.locator('#roomList button.forget').click()
+    await arrival.locator('#roomList .rowMenu').click()
+    await arrival.getByRole('menuitem', { name: 'Forget this room' }).click()
     await arrival.locator('#actionConfirm').click()
     await expect.poll(() => arrival.evaluate(() => Object.keys(localStorage).some(key => key.startsWith('kithmoot.admission-kept.')))).toBe(false)
     await expect.poll(() => arrival.evaluate(() => Object.keys(sessionStorage).some(key => key.startsWith('kithmoot.admission.v1.')))).toBe(false)

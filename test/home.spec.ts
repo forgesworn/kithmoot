@@ -39,10 +39,15 @@ test('the home page leads with room actions, fits both themes and starts a named
         await page.setViewportSize({ width, height: 740 })
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
         const start = await page.locator('#create').boundingBox()
-        const signIn = await page.locator('#signIn').boundingBox()
+        const signIn = await page.locator('#homeSignIn').boundingBox()
         expect(start!.y).toBeLessThan(signIn!.y)
       }
     }
+    // Landscape phone, the hardest layout: Start a room fits above the fold
+    // with no scrolling, and the header carries no more than the short case.
+    await page.setViewportSize({ width: 844, height: 390 })
+    const landscapeStart = await page.locator('#create').boundingBox()
+    expect(landscapeStart!.y + landscapeStart!.height).toBeLessThanOrEqual(390)
     await page.setViewportSize({ width: 390, height: 740 })
     await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -118,6 +123,7 @@ test('invalid links stay beside their field and a complete invitation from anoth
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
+    await page.locator('#openLink > summary').click()
     for (const value of ['', 'javascript:window.badLink=true', 'https://example.com/ordinary-page', 'https://example.com/#bad']) {
       await page.locator('#url').fill(value)
       await page.locator('#url').press('Enter')
@@ -142,7 +148,11 @@ test('invalid links stay beside their field and a complete invitation from anoth
 
 test('saved rooms can be searched and refreshed without losing the selected room action', async ({ browser, baseURL }) => {
   const { context, relay } = await device(browser, baseURL!)
-  const rooms = ['Saturday workshop', 'Workshop notes', 'Garden group'].map((name, index) => {
+  // Find a room only appears at 8 rooms or more (spec section 6), so the
+  // fixture pads out past that threshold with filler rooms nothing here
+  // searches for.
+  const names = ['Saturday workshop', 'Workshop notes', 'Garden group', 'Filler one', 'Filler two', 'Filler three', 'Filler four', 'Filler five']
+  const rooms = names.map((name, index) => {
     const secret = generateRoomSecret()
     return { roomId: deriveRoom(secret).roomId, name, link: encodeJoinUrl(baseURL!, secret, [relay]), openedAt: 100 + index, readAt: 0 }
   })
@@ -153,7 +163,8 @@ test('saved rooms can be searched and refreshed without losing the selected room
     const page = await context.newPage()
     await page.clock.install()
     await page.goto(baseURL!)
-    await expect(page.locator('#roomList .roomRow')).toHaveCount(3)
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(8)
+    await expect(page.locator('#homeRoomSearch')).toBeVisible()
     await page.locator('#homeRoomQuery').fill('WORKSHOP')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(2)
     await expect(page.locator('#homeRoomResults')).toHaveText('2 rooms found')
@@ -163,11 +174,11 @@ test('saved rooms can be searched and refreshed without losing the selected room
     await expect(open).toBeFocused()
     await expect(page.locator('#homeRoomQuery')).toHaveValue('WORKSHOP')
     await page.locator('#homeRoomQuery').fill('No such room')
-    await expect(page.locator('#homeRoomResults')).toHaveText('No rooms match this search.')
+    await expect(page.locator('#homeRoomResults')).toHaveText('No rooms match “No such room”.')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
     await page.locator('#clearHomeRoomQuery').click()
     await expect(page.locator('#homeRoomQuery')).toBeFocused()
-    await expect(page.locator('#roomList .roomRow')).toHaveCount(3)
+    await expect(page.locator('#roomList .roomRow')).toHaveCount(8)
     await page.locator('#homeRoomQuery').fill(rooms[0]!.roomId.slice(0, 12))
     await expect(page.locator('#roomList .roomRow')).toHaveCount(1)
     await open.click()
@@ -368,12 +379,15 @@ test('a new room exposes invitations directly, confirms copying honestly and adm
   } finally { await context.close(); await guest.context.close() }
 })
 
-test('M10: the room access choice has a visible default on a fresh visit', async ({ browser, baseURL }) => {
+test('the "Ask me before anyone joins" checkbox starts unticked on a fresh visit', async ({ browser, baseURL }) => {
   const { context } = await device(browser, baseURL!)
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
-    await expect(page.getByRole('radio', { name: 'Anyone with the link' })).toBeChecked()
-    await expect(page.getByRole('radio', { name: 'Ask me first' })).not.toBeChecked()
+    await expect(page.locator('#roomAsk')).not.toBeChecked()
+    await expect(page.locator('#roomAskHint')).toBeHidden()
+    await page.locator('#roomAsk').check()
+    await expect(page.locator('#roomAskHint')).toBeVisible()
+    await expect(page.locator('#roomAskHint')).toContainText('someone has to be in the room when they arrive')
   } finally { await context.close() }
 })

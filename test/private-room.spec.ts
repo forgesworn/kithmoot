@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { newDeviceContext } from './browser.js'
+import { newDeviceContext, openNewRoomForm } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 // A private room: a room that asks first, whose link is never handed out.
@@ -16,8 +16,9 @@ test('somebody invited from a shared room is let straight into a room that asks 
 
     // The private room, made and entered once so it is saved on Ada's device.
     await ada.goto(baseURL!)
+    await openNewRoomForm(ada)
     await ada.locator('#roomName').fill('Private build')
-    await ada.locator('input[name="roomAccess"][value="ask"]').check()
+    await ada.locator('#roomAsk').check()
     await ada.locator('#create').click()
     await expect(ada.locator('#join')).toBeVisible({ timeout: 30_000 })
     await ada.locator('#join').click()
@@ -26,6 +27,7 @@ test('somebody invited from a shared room is let straight into a room that asks 
     // The shared room, where Ada and Rowan meet.
     await ada.locator('#backToRooms').click()
     await ada.locator('#roomSwitcherHome').click()
+    await openNewRoomForm(ada)
     await ada.locator('#roomName').fill('Shared')
     await ada.locator('#create').click()
     await expect(ada.locator('#join')).toBeVisible({ timeout: 30_000 })

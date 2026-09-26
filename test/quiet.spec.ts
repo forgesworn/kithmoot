@@ -102,7 +102,7 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
     await ada.locator('#roomSwitcherHome').click()
     await expect(ada.locator('#rooms')).toBeVisible()
     const quietRow = ada.locator('#roomList .roomRow', { has: ada.locator('.roomName', { hasText: 'Quiet: Rowan' }) })
-    await expect(quietRow.locator('.unread')).toHaveText('quiet room: open it to read', { timeout: 30_000 })
+    await expect(quietRow.locator('.roomPreview')).toHaveText('Quiet room. Open it to read.', { timeout: 30_000 })
   } finally {
     watcher.close()
     for (const context of contexts) await context.close()

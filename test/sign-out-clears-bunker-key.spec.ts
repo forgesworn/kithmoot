@@ -53,6 +53,8 @@ test('signing out forgets this browser\'s persistent bunker client key and bunke
     const page = await context.newPage()
     await page.goto(baseURL! + '?signin=nostr')
     await page.getByRole('button', { name: /Browser extension/ }).click()
+    // Sign in and Sign out live in Settings now, reached from the rooms list.
+    await page.locator('#openAppSettings').click()
     await expect(page.locator('#signOut')).toBeVisible()
 
     // Stand in for a browser that, at some earlier login, paired with a

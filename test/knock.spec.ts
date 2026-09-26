@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { newDeviceContext } from './browser.js'
+import { newDeviceContext, openNewRoomForm } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 // A room where people with the link ask, and somebody in it lets them in.
@@ -14,8 +14,9 @@ test('people with the link ask, and the person in the room lets them in or decli
     const relays = testRelaysFor(baseURL!)
     if (relays) await host.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
     await host.goto(baseURL!)
+    await openNewRoomForm(host)
     await host.locator('#roomName').fill('Asked in')
-    await host.locator('input[name="roomAccess"][value="ask"]').check()
+    await host.locator('#roomAsk').check()
     await host.locator('#create').click()
     const share = host.locator('#shareUrl')
     await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
