@@ -6298,7 +6298,9 @@ function laneChip(lane: Lane): HTMLSpanElement {
   const meaning = 'Message content is encrypted for this conversation. ' + LANE_MEANING[lane]
   span.textContent = `${LANE_GLYPH[lane]} ${label}`
   span.title = meaning
-  span.setAttribute('aria-label', `${label}. ${meaning}`)
+  // The short label only (M9): the fuller meaning stays in the tooltip and
+  // in Room details, not repeated in every message's accessible name.
+  span.setAttribute('aria-label', label)
   return span
 }
 
@@ -10623,11 +10625,17 @@ function updateDesktopUnread(): void {
 }
 
 
-/** How a sender is named in a notification: as everywhere else, the name
- *  they claim beside a short key, or the key alone. */
+/** How a sender is named in a notification, and the accessible name for a
+ *  message's own React and Actions buttons: the name alone, the way a
+ *  person would say it out loud. The short code only joins in when two
+ *  people in view share the name and the name alone would not tell them
+ *  apart - the same `nameCollides` rule `identityRun` draws the code under
+ *  a name for (M9: "React to message from Wren (npub…)" on every message,
+ *  whether or not there was another Wren to tell apart from). */
 function senderLabel(m: ChatMessage): string {
   const shown = shownAs(m.participant, m.name)
-  return shown.name !== undefined ? `${shown.name} (${shown.short})` : shown.short
+  if (shown.name === undefined) return shown.short
+  return nameCollides(m.participant, shown.name) ? `${shown.name} (${shown.short})` : shown.name
 }
 
 const notifier = new Notifier({
