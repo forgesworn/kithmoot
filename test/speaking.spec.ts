@@ -60,15 +60,40 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
       { timeout: 30_000 },
     )
 
-    // The plain-text "Speaking:" line beside the call controls, not just
-    // the ring round the tile: Bob's screen names Ada, and Ada's own names
-    // her as "You" rather than repeating her own display name.
+    // The plain-text "Speaking:" line beside the call controls, not just the
+    // ring round the tile: Bob's screen names Ada, and Ada's own screen
+    // names Bob rather than naming herself - seeing your own name on this
+    // line while you talk is pointless, so a device's own person is never
+    // listed on its own line.
     await expect(pageB.locator('#speakingLine'), "Bob's speaking line never named Ada").toContainText(
       'Ada',
       { timeout: 30_000 },
     )
-    await expect(pageA.locator('#speakingLine'), "Ada's own speaking line did not say You").toContainText(
+    await expect(pageA.locator('#speakingLine'), "Ada's own speaking line never named Bob").toContainText(
+      'Bob',
+      { timeout: 30_000 },
+    )
+    await expect(pageA.locator('#speakingLine'), "Ada's own speaking line named herself").not.toContainText(
       'You',
+      { timeout: 5_000 },
+    )
+
+    // With Bob's mic muted, Ada is the only one truly speaking on her own
+    // screen - and since she is never named on her own line, that line must
+    // read exactly as it does when nobody is speaking at all: empty and
+    // hidden, not "Speaking: You".
+    await pageB.locator('#toggleMic').click()
+    await expect(pageB.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
+    await expect(pageA.locator('#speakingLine'), "Ada's line named herself once Bob had muted").toBeEmpty({
+      timeout: 15_000,
+    })
+    await expect(pageA.locator('#speakingLine'), "Ada's line stayed visible with only herself speaking").toBeHidden({
+      timeout: 15_000,
+    })
+    await pageB.locator('#toggleMic').click()
+    await expect(pageB.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await expect(pageA.locator('#speakingLine'), "Ada's line did not pick Bob back up after he unmuted").toContainText(
+      'Bob',
       { timeout: 30_000 },
     )
 
@@ -109,15 +134,15 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
 
     // The line holds a name for about a second past the tile itself going
     // dark, so it does not flicker on every gap inside speech - but it must
-    // still drop her, or a line that never lets go is worse than none. Bob's
-    // own fake microphone is live and continuous too, so his line keeps
-    // saying "You" throughout; what has to go is Ada's name.
+    // still drop her, or a line that never lets go is worse than none.
     await expect(pageB.locator('#speakingLine'), "Bob's speaking line still named Ada after she muted").not.toContainText(
       'Ada',
       { timeout: 15_000 },
     )
-    await expect(pageA.locator('#speakingLine'), "Ada's own speaking line still said You after she muted").not.toContainText(
-      'You',
+    // Bob's own fake microphone is live and continuous throughout, so Ada's
+    // line keeps naming him regardless of her own mute state.
+    await expect(pageA.locator('#speakingLine'), "Ada's own speaking line lost Bob after she muted").toContainText(
+      'Bob',
       { timeout: 15_000 },
     )
   } finally {

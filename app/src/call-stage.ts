@@ -366,7 +366,11 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       setAttr(button, 'aria-pressed', String(value === current))
       button.disabled = value === 'share' && shareCount === 0
     }
-    const talking = everyone.filter(person => person.box.classList.contains('speaking')).map(person => person.self ? 'you' : person.name)
+    // This device's own person never appears on the line - their tile keeps
+    // its speaking ring, but seeing your own name here while you talk is
+    // pointless. When you are the only one speaking, this reads exactly as
+    // when nobody is.
+    const talking = everyone.filter(person => !person.self && person.box.classList.contains('speaking')).map(person => person.name)
     setText(bar.speakingLine, talking.length ? `Speaking: ${talking.join(', ')}` : 'Nobody is speaking')
     setAttr(bar.speakingLine, 'data-quiet', talking.length ? null : '')
     bar.move.hidden = out.mode !== 'solo'
