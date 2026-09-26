@@ -3409,7 +3409,12 @@ button.primary:hover:not(:disabled) {
 }
 .callHead { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-bottom: .4rem; }
 .callHead p { margin: 0; }
-#leaveCall { margin: 0; white-space: nowrap; }
+/* M13: this used to be plain on a phone and red only in the desktop build,
+   so the one button that ends a call for everybody watching wore two
+   different weights depending on where it was tapped from. Every width
+   gets the same danger fill now. */
+#leaveCall { margin: 0; white-space: nowrap; background: var(--danger); border-color: var(--danger-border); color: var(--on-danger); }
+#leaveCall:hover { filter: brightness(0.9); }
 #room .participant.onCall { border-color: var(--live); }
 
 .callMore { margin: .4rem 0 0; }

@@ -214,6 +214,9 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
     await expect(page.locator('#callMore > summary')).toBeVisible()
     await page.locator('#mobileCallSettingsClose').click()
     expect(await page.locator('#whoIsHere').boundingBox()).toEqual(before)
+    // M13: Leave used to be plain on a phone and red only in the desktop
+    // build. Every width gets the same danger fill now.
+    await expect.poll(() => page.locator('#leaveCall').evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
     await page.locator('#leaveCall').click()
     await expect(page.locator('#chatForm')).toBeVisible()
   } finally { await context.close(); await other.close() }
