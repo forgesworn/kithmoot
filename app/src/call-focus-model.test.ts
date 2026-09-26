@@ -117,6 +117,16 @@ describe('UnreadCounter', () => {
     unread.reset()
     expect(unread.update('other|main', ['x', 'y', 'z'], false)).toBe(0)
   })
+
+  test('splits how many of the count are an agent’s, for the badge beside the people one', () => {
+    const unread = new UnreadCounter()
+    unread.update('room|main', ['a'], false)
+    expect(unread.update('room|main', ['a', 'b', 'c'], false, ['b'])).toBe(2)
+    expect(unread.agents).toBe(1)
+    // Opening the panel reads both.
+    expect(unread.read()).toBe(0)
+    expect(unread.agents).toBe(0)
+  })
 })
 
 describe('unreadAnnouncement', () => {

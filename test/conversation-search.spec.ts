@@ -13,9 +13,13 @@ async function setup(browser: Browser, baseURL: string, namedConversations = fal
   const requests: string[] = []
   context.on('request', request => requests.push(request.url()))
   let link = encodeRoomLink(baseURL, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
+  // Not a roster agent: this file is about search and per-channel drafts,
+  // not about the agent feature, and an agent's unaddressed message no
+  // longer bumps an unread badge - see `classifyMessage` in
+  // `src/messages.ts`.
   const writer = namedConversations
-    ? await RoomAgent.create({ base: baseURL, roomName: 'Workshop', relays: [TEST_RELAY_WS], name: 'Rowan' })
-    : await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan' })
+    ? await RoomAgent.create({ base: baseURL, roomName: 'Workshop', relays: [TEST_RELAY_WS], name: 'Rowan', agent: false })
+    : await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false })
   if (namedConversations) link = withRelays(writer.url, [relay.href])
   const page = await context.newPage()
   await page.goto(link)

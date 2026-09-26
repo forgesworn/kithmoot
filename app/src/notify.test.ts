@@ -160,6 +160,25 @@ describe('the notifier over changing logs', () => {
     expect(counts).toEqual([1])
   })
 
+  it('leaves out an agent talking to another agent, but still rings when one names this person', () => {
+    const { notifier, delivered } = harness({ shown: ROOM_B })
+    const roster = [{ participant: ADA, agent: true }]
+    const ingest = notifier.follow({ roomId: ROOM_A, channel: 'agents', room: () => 'r', sender: () => 'Bot', roster: () => roster })
+    ingest([message('1', ADA, NOW, '@all done')])
+    expect(delivered).toEqual([])
+    ingest([message('1', ADA, NOW, '@all done'), { ...message('2', ADA, NOW + 1, 'over to you'), mentions: [ME] }])
+    expect(delivered).toHaveLength(1)
+  })
+
+  it('marks a chat notification as an agent’s, so a tag never reads as a person', () => {
+    const { notifier, delivered } = harness()
+    const roster = [{ participant: ADA, agent: true }]
+    const ingest = notifier.follow({ roomId: ROOM_A, channel: 'chat', room: () => 'r', sender: () => 'Bot', roster: () => roster, direct: () => true })
+    ingest([message('1', ADA, NOW, 'over to you')])
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]!.body).toBe('Bot (agent) said something')
+  })
+
   it('survives a delivery that throws or rejects', () => {
     const store = memoryDeviceStore()
     setNotifySettings(store, { enabled: true })

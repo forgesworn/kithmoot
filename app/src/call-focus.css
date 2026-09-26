@@ -316,7 +316,7 @@ html[data-call-first] #deviceControls #leaveCall .callShort { display: none; }
 html[data-call-first] #deviceControls .callBarIcon { padding-inline: .6rem; }
 html[data-call-first] #deviceControls .callBarIcon > svg { display: block; }
 
-.callChatUnread {
+.callChatUnread, .callChatUnreadAgent {
   min-width: 1.4rem;
   padding: .05rem .4rem;
   border-radius: 1rem;
@@ -326,6 +326,15 @@ html[data-call-first] #deviceControls .callBarIcon > svg { display: block; }
   font-weight: 700;
   line-height: 1.3;
   text-align: center;
+}
+/* An agent's tag, in the agent colour used everywhere else, so it never
+   reads as a person talking. A class of its own, not a modifier on
+   `.callChatUnread`: both badges live in the DOM at once, only shown or
+   hidden, so a selector for one must never also match the other. */
+.callChatUnreadAgent {
+  color: var(--on-agent);
+  background: var(--agent-fill);
+  margin-inline-start: .3rem;
 }
 
 /* A narrower stage: who is talking and the microphone move to one line

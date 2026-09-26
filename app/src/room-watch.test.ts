@@ -113,16 +113,60 @@ describe('RoomWatch', () => {
     await send('one', NOW - 100)
     await send('two', NOW - 50)
     await send('three', NOW - 10)
-    expect(watch.unread(0)).toBe(3)
-    expect(watch.unread(NOW - 50)).toBe(1)
-    expect(watch.unread(NOW)).toBe(0)
+    const observer = 'f'.repeat(64)
+    expect(watch.unread(0, observer)).toEqual({ people: 3, agents: 0 })
+    expect(watch.unread(NOW - 50, observer)).toEqual({ people: 1, agents: 0 })
+    expect(watch.unread(NOW, observer)).toEqual({ people: 0, agents: 0 })
     expect(changes).toBe(3)
     // A message signed by a device the credential does not name is refused
     // here exactly as it is in a member's own log.
     await send('forged', NOW - 5, generateSecretKey())
-    expect(watch.unread(0)).toBe(3)
+    expect(watch.unread(0, observer)).toEqual({ people: 3, agents: 0 })
+    // The sender's own messages never count, even read back through a
+    // watch that never joined the room.
+    expect(watch.unread(0, ada.participant)).toEqual({ people: 0, agents: 0 })
     clock = NOW + 1
     expect(published.every((kind) => kind === 1460), 'the watch published something').toBe(true)
+    watch.close()
+  })
+
+  it('splits people from agents, and knows the viewer by name even though a watch never joins the roster', async () => {
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(12))
+    const relay = new SimRelay()
+    const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, now: () => NOW })
+    const ada = await member(roomId, 'Ada')
+    const bot = await member(roomId, 'Bot', true)
+    const transport = new SimTransport(relay)
+    await transport.publish(encodeRosterEvent(bot.heartbeat(NOW), { roomId, roomKey, deviceSk: bot.deviceSk }))
+    const send = (participant: typeof ada, text: string, sentAt: number) =>
+      transport.publish(encodeChatEvent(
+        { id: text, participant: participant.participant, device: getPublicKey(participant.deviceSk), credential: participant.credential, text, sentAt },
+        { roomId, roomKey, deviceSk: participant.deviceSk },
+      ))
+    await send(ada, 'hello', NOW - 10)
+    // The bot names the viewer by their display name in plain text, never
+    // on the wire as a `mentions` field - the legacy reading `mentionsOf`
+    // still has to work here, off a roster this watch built itself.
+    await send(bot, 'over to Tally', NOW - 5)
+    await send(bot, 'over to you', NOW - 4)
+    expect(watch.unread(0, 't'.repeat(64), 'Tally')).toEqual({ people: 1, agents: 1 })
+    watch.close()
+  })
+
+  it('does not count a message its own author has retracted, so the rooms list and the desktop badge agree', async () => {
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(13))
+    const relay = new SimRelay()
+    const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, now: () => NOW })
+    const ada = await member(roomId, 'Ada')
+    const transport = new SimTransport(relay)
+    const send = (id: string, text: string, sentAt: number, extra: Record<string, unknown> = {}) =>
+      transport.publish(encodeChatEvent(
+        { id, participant: ada.participant, device: getPublicKey(ada.deviceSk), credential: ada.credential, text, sentAt, ...extra },
+        { roomId, roomKey, deviceSk: ada.deviceSk },
+      ))
+    await send('m1', 'oops', NOW - 10)
+    await send('r1', 'Retracted a message', NOW - 5, { retracts: 'm1' })
+    expect(watch.unread(0, 't'.repeat(64))).toEqual({ people: 0, agents: 0 })
     watch.close()
   })
 

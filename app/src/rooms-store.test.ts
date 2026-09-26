@@ -17,11 +17,19 @@ import { createRoomInvitation, deriveInvitationId } from '../../src/invitation.j
 import { parseRoomLink } from '../../src/link.js'
 import { encodeRoomLink } from '../../src/link.js'
 import { encodeJoinUrl } from '../../src/room.js'
+import type { ChatMessage } from '../../src/chat.js'
 
 const NOW = 1_800_000_000
 const BASE = 'https://example.test/j/'
 const ROOM_A = 'a'.repeat(64)
 const ROOM_B = 'b'.repeat(64)
+const SELF = 'c'.repeat(64)
+const SENDER = 'd'.repeat(64)
+const CRED = { kind: 20460, created_at: 0, tags: [], content: '', pubkey: '', id: '', sig: '' }
+
+function msg(sentAt: number, extra: Partial<ChatMessage> = {}): ChatMessage {
+  return { id: `${sentAt}`, participant: SENDER, device: SENDER, credential: CRED, text: 'hi', sentAt, ...extra }
+}
 
 function invitationLink(extra: { name?: string; pairingCode?: Uint8Array } = {}): string {
   const { invitation } = createRoomInvitation()
@@ -95,12 +103,20 @@ describe('the rooms this device has been in', () => {
     expect(knownRoom(store, ROOM_A)?.readAt).toBe(NOW + 10)
   })
 
-  it('counts what is newer than the room was read to', () => {
-    const messages = [{ sentAt: NOW - 10 }, { sentAt: NOW }, { sentAt: NOW + 1 }, { sentAt: NOW + 2 }]
-    expect(unreadCount(messages, 0)).toBe(4)
-    expect(unreadCount(messages, NOW)).toBe(2)
-    expect(unreadCount(messages, NOW + 2)).toBe(0)
-    expect(unreadCount([], 0)).toBe(0)
+  it('counts what is newer than the room was read to, as people', () => {
+    const messages = [msg(NOW - 10), msg(NOW), msg(NOW + 1), msg(NOW + 2)]
+    expect(unreadCount(messages, 0, SELF)).toEqual({ people: 4, agents: 0 })
+    expect(unreadCount(messages, NOW, SELF)).toEqual({ people: 2, agents: 0 })
+    expect(unreadCount(messages, NOW + 2, SELF)).toEqual({ people: 0, agents: 0 })
+    expect(unreadCount([], 0, SELF)).toEqual({ people: 0, agents: 0 })
+  })
+
+  it('splits out an agent’s chatter, only when it names the viewer, and never the viewer’s own message', () => {
+    const roster = [{ participant: SENDER, agent: true }]
+    expect(unreadCount([msg(NOW + 1, { text: '@all done' })], NOW, SELF, roster)).toEqual({ people: 0, agents: 0 })
+    expect(unreadCount([msg(NOW + 1, { mentions: ['everyone'] })], NOW, SELF, roster)).toEqual({ people: 0, agents: 0 })
+    expect(unreadCount([msg(NOW + 1, { mentions: [SELF] })], NOW, SELF, roster)).toEqual({ people: 0, agents: 1 })
+    expect(unreadCount([msg(NOW + 1, { participant: SELF, device: SELF })], NOW, SELF, roster)).toEqual({ people: 0, agents: 0 })
   })
 
   it('forgets a room and nothing else', () => {

@@ -156,6 +156,130 @@ export function isConversation(m: ChatMessage): boolean {
   return m.reaction === undefined && m.replaces === undefined && m.retracts === undefined && m.invite === undefined
 }
 
+/** Options that change what `reachesReader` and `countsAsUnread` count. */
+export interface ReachesReaderOptions {
+  /** This is a direct message: a room with exactly two members, the
+   *  viewer and one other. There is no room to broadcast to, so anything
+   *  the other member says is said to the viewer, agent or not, mentioned
+   *  or not. Set from `dmPeer(policy, self) !== undefined` in `dm.ts`. */
+  direct?: boolean
+  /** This is the minutes channel - see `MINUTES_CHANNEL` in `src/agent.ts`.
+   *  A scribe writes what was said there without naming anybody: minutes
+   *  are written for whoever reads the room, not addressed the way an
+   *  ordinary agent message has to be, so they still count and still
+   *  notify. */
+  minutes?: boolean
+}
+
+/** `'person'` or `'agent'` when a message reaches the viewer, so the two
+ *  can be told apart on screen; `null` when it does not reach them at all -
+ *  untagged agent chatter, never a badge and never a bell. */
+export type UnreadClass = 'person' | 'agent' | null
+
+/**
+ * Whether a message is one the viewer should be told about, as opposed to
+ * noise, and which of the two: a person's message always reaches them; an
+ * agent's only when it addresses the viewer directly - by reply, by
+ * mention, or because there is no room to address instead of them - rather
+ * than the whole room. Two agents talking on a shared channel can run for
+ * as long as they like without troubling anybody's unread count; a
+ * room-wide `everyone` call from an agent is the same broadcast and does
+ * not reach either. In a direct message, `opts.direct` makes every agent
+ * message reach the viewer: there is nobody else in the room to be it for.
+ * `opts.minutes` does the same for the minutes channel: a scribe writes
+ * what was said for the room, not for one reader, so it is never mentioned
+ * and must not be read as unaddressed noise.
+ *
+ * An agent is one whose message carries `owner` or `ownerClaim` - chat is
+ * durable and those ride with the message for exactly this reason, so a
+ * line read out of history is still known to be an agent's once whoever
+ * heard it live has gone - or, failing that, one the roster currently
+ * marks as an agent. The roster is only a fallback: it says nothing about
+ * a message from before this device was watching, or from a sender who has
+ * since left. A sender with neither signal is treated as a person, since
+ * nothing here says otherwise.
+ *
+ * This is the one place that decides it, so every unread count and
+ * notification in the app reaches the same answer.
+ */
+export function classifyMessage(
+  message: Pick<ChatMessage, 'participant' | 'text' | 'mentions' | 'owner' | 'ownerClaim' | 'reply'>,
+  self: string,
+  roster: readonly Named[] = [],
+  opts: ReachesReaderOptions = {},
+): UnreadClass {
+  if (hexEquals(message.participant, self)) return null
+  const sender = roster.find((entry) => hexEquals(entry.participant, message.participant))
+  const isAgent = message.owner !== undefined || message.ownerClaim !== undefined || sender?.agent === true
+  if (!isAgent) return 'person'
+  if (opts.direct || opts.minutes) return 'agent'
+  if (message.reply && hexEquals(message.reply.participant, self)) return 'agent'
+  return mentionsOf(message, roster).some((p) => p !== EVERYONE && hexEquals(p, self)) ? 'agent' : null
+}
+
+/** `classifyMessage` as a plain yes/no, for a caller that only wants to
+ *  know whether a message reaches the viewer, not which kind it is. */
+export function reachesReader(
+  message: Pick<ChatMessage, 'participant' | 'text' | 'mentions' | 'owner' | 'ownerClaim' | 'reply'>,
+  self: string,
+  roster: readonly Named[] = [],
+  opts: ReachesReaderOptions = {},
+): boolean {
+  return classifyMessage(message, self, roster, opts) !== null
+}
+
+/**
+ * The unread rule in full: new since `readAt`, something somebody said
+ * rather than a statement about another message, and classified by
+ * `classifyMessage` above.
+ */
+export function classifyUnread(
+  message: ChatMessage,
+  readAt: number,
+  self: string,
+  roster: readonly Named[] = [],
+  opts: ReachesReaderOptions = {},
+): UnreadClass {
+  if (message.sentAt <= readAt || !isConversation(message)) return null
+  return classifyMessage(message, self, roster, opts)
+}
+
+/** `classifyUnread` as a plain yes/no. */
+export function countsAsUnread(
+  message: ChatMessage,
+  readAt: number,
+  self: string,
+  roster: readonly Named[] = [],
+  opts: ReachesReaderOptions = {},
+): boolean {
+  return classifyUnread(message, readAt, self, roster, opts) !== null
+}
+
+/** How many of `messages` are unread, split by who they are worth telling
+ *  the viewer about: a person, or an agent that addressed them directly.
+ *  Untagged agent chatter is in neither total. */
+export interface UnreadSplit {
+  people: number
+  agents: number
+}
+
+export function unreadSplit(
+  messages: readonly ChatMessage[],
+  readAt: number,
+  self: string,
+  roster: readonly Named[] = [],
+  opts: ReachesReaderOptions = {},
+): UnreadSplit {
+  let people = 0
+  let agents = 0
+  for (const message of messages) {
+    const cls = classifyUnread(message, readAt, self, roster, opts)
+    if (cls === 'person') people++
+    else if (cls === 'agent') agents++
+  }
+  return { people, agents }
+}
+
 /** A message as it should be read, once every statement about it is applied. */
 export interface ResolvedMessage {
   /** The message as first sent. On an edit whose original is not loaded,

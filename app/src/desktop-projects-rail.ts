@@ -67,13 +67,24 @@ export function wrapRail(nav: HTMLElement): HTMLElement {
   return body
 }
 
-/** The unread total on the slim rail. A no-op in a browser tab and on a
- *  phone, where there is no rail to put it on. */
-export function setProjectsRailUnread(total: number): void {
+/** The unread totals on the slim rail, split the same way a room's own
+ *  badges are: people in the usual badge, an agent's tag beside it in a
+ *  visually distinct one, shown only while there is something in it. A
+ *  no-op in a browser tab and on a phone, where there is no rail to put it
+ *  on. */
+export function setProjectsRailUnread(people: number, agents: number): void {
   const badge = document.getElementById('projectsRailUnread')
-  if (!badge) return
-  const label = railUnreadLabel(total)
-  badge.textContent = label
-  badge.hidden = label === ''
-  badge.setAttribute('aria-label', railUnreadDescription(total))
+  if (badge) {
+    const label = railUnreadLabel(people)
+    badge.textContent = label
+    badge.hidden = label === ''
+    badge.setAttribute('aria-label', railUnreadDescription(people))
+  }
+  const agentBadge = document.getElementById('projectsRailUnreadAgents')
+  if (agentBadge) {
+    const label = railUnreadLabel(agents)
+    agentBadge.textContent = label
+    agentBadge.hidden = label === ''
+    agentBadge.setAttribute('aria-label', `${label === '' ? 0 : Math.floor(agents)} from agents`)
+  }
 }

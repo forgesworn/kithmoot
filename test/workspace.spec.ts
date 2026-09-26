@@ -100,14 +100,19 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     await keeper.setChannel('design-review', true)
     const review = page.locator('#conversationNav button[data-channel=design-review]')
     await expect(review).toBeVisible()
+    // Agent-to-agent, unaddressed: noise, not a badge - see `classifyMessage`
+    // in `src/messages.ts`. It still opens the tab and shows in the log.
     await agent.session.channel('design-review').send('The navigation review is ready.')
-    await expect(review.locator('.conversationUnread')).toHaveText('1')
+    await expect(review.locator('.conversationUnread')).toHaveCount(0)
     const agents = page.locator('#conversationNav button[data-channel=agents]')
     await expect(agents).toBeVisible()
     await expect(page.locator('#agentActivityTitle')).toHaveText('2 agents in this room')
     await keeper.session.channel('agents').send('I will map the navigation. Can you review the mobile layout?')
     await agent.session.channel('agents').send('Yes. I will check the room picker and the space left for messages.')
-    await expect(agents.locator('.conversationUnread')).toHaveText('2')
+    await expect(agents.locator('.conversationUnread')).toHaveCount(0)
+    // Naming Ada directly still reaches her, in the agent colour.
+    await agent.session.channel('agents').send('@Ada, can you weigh in on the mobile layout?')
+    await expect(agents.locator('.conversationUnread.agent')).toHaveText('1')
     await expect(page.locator('#chatLog')).not.toContainText('I will map the navigation')
     await page.locator('#watchAgents').click()
     await expect(agents).toHaveAttribute('aria-pressed', 'true')
@@ -115,8 +120,8 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     await expect(page.locator('#chatLog')).toContainText('I will check the room picker')
     await expect(agents.locator('.conversationUnread')).toHaveCount(0)
     await page.locator('#roomMenu').click()
-    await agent.session.channel('agents').send('This arrived while room details covered the conversation.')
-    await expect(agents.locator('.conversationUnread')).toHaveText('1')
+    await agent.session.channel('agents').send('@Ada, this arrived while room details covered the conversation.')
+    await expect(agents.locator('.conversationUnread.agent')).toHaveText('1')
     await page.locator('#roomSheetClose').click()
     await expect(agents.locator('.conversationUnread')).toHaveCount(0)
     await page.locator('#chatInput').fill('Please include keyboard navigation in the review.')
@@ -125,8 +130,8 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
     await expect(page.locator('#roomSheet')).not.toBeVisible()
     await page.screenshot({ path: testInfo.outputPath('desktop-agents.png') })
     await page.locator('#conversationNav button[data-channel=""]').click()
-    await agent.session.channel('agents').send('The next update should be visible from Chat.')
-    await expect(agents.locator('.conversationUnread')).toHaveText('1')
+    await agent.session.channel('agents').send('@Ada, the next update should be visible from Chat.')
+    await expect(agents.locator('.conversationUnread.agent')).toHaveText('1')
     // Transcript has no tab until a call has written to it; Room details lists it.
     await page.locator('#roomMenu').click()
     await page.locator('#channelBar button[data-channel=transcript]').click()
@@ -161,7 +166,10 @@ test('agent exchanges arrive in visible navigation and can be watched or joined 
 
 test('catching up starts at unread messages and keeps your place across conversations', async ({ browser, baseURL }, testInfo) => {
   const { context, page, relay } = await setup(browser, baseURL!)
-  const writer = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Design workshop', relays: [TEST_RELAY_WS] })
+  // This is about scroll and catch-up mechanics, not the agent feature, and
+  // an agent's unaddressed message no longer counts as unread - see
+  // `classifyMessage` in `src/messages.ts`.
+  const writer = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Design workshop', relays: [TEST_RELAY_WS], agent: false })
   try {
     await page.setViewportSize({ width: 390, height: 740 })
     await join(page, withRelays(writer.url, [relay]))
@@ -311,8 +319,11 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
 
 test('switching rooms restores independent reading places after delayed history and honours Jump to latest', async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
-  const first = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', relays: [TEST_RELAY_WS] })
-  const second = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', relays: [TEST_RELAY_WS] })
+  // Reading-position restore, not the agent feature: an agent's unaddressed
+  // message no longer counts as unread - see `classifyMessage` in
+  // `src/messages.ts`.
+  const first = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', relays: [TEST_RELAY_WS], agent: false })
+  const second = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', relays: [TEST_RELAY_WS], agent: false })
   let hold = false
   let held: (() => void)[] = []
   await context.routeWebSocket(relay, ws => {

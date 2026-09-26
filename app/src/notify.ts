@@ -19,7 +19,7 @@
  * room on screen and the delivery, and this decides.
  */
 import type { ChatMessage } from '../../src/chat.js'
-import { isConversation } from '../../src/messages.js'
+import { isConversation, classifyMessage, type Named } from '../../src/messages.js'
 import type { DeviceStore } from './device-store.js'
 
 export const NOTIFY_STORAGE_KEY = 'kithmoot.notify'
@@ -112,8 +112,13 @@ export function notificationContent(opts: {
   channel: NotifyChannel
   text: string
   showText: boolean
+  /** This is an agent's message that named the person, rather than
+   *  somebody's own - said in the body, the same way the agents channel
+   *  already says itself, so a tag never reads as a person talking. */
+  agent?: boolean
 }): NotificationContent {
   const preview = opts.showText ? clip(opts.text) : undefined
+  const sender = opts.agent ? `${opts.sender} (agent)` : opts.sender
   let body: string
   switch (opts.channel) {
     case 'agents':
@@ -123,7 +128,7 @@ export function notificationContent(opts: {
       body = preview !== undefined ? `Minutes from ${opts.sender}: ${preview}` : `${opts.sender} wrote minutes`
       break
     default:
-      body = preview !== undefined ? `${opts.sender}: ${preview}` : `${opts.sender} said something`
+      body = preview !== undefined ? `${sender}: ${preview}` : `${sender} said something`
   }
   return { title: opts.room, body, tag: `kithmoot:${opts.roomId}:${opts.channel}` }
 }
@@ -150,6 +155,13 @@ export interface FollowOptions {
   /** How to show a sender: the name on the message beside a short key,
    *  the way it is shown everywhere else. */
   sender: (message: ChatMessage) => string
+  /** Who is known here, looked up at delivery, so an agent that joined
+   *  after `follow` was called is still recognised. Defaults to nobody
+   *  known, which reads every sender as a person. */
+  roster?: () => readonly Named[]
+  /** This is a direct message, looked up at delivery. See
+   *  `ReachesReaderOptions.direct` in `src/messages.ts`. */
+  direct?: () => boolean
 }
 
 export interface NotifierOptions {
@@ -219,11 +231,21 @@ export class Notifier {
         if (!settings.enabled) continue
         const hidden = this.#opts.hidden()
         if (!shouldNotify(arrival, { hidden, shownRoomId: this.#opts.shownRoomId(), self: this.#opts.self(), followedSince })) continue
+        // Two agents talking to each other is not news for a person to be
+        // interrupted for; naming them directly still is, and everything
+        // said in a direct message is. See `classifyMessage` in
+        // `src/messages.ts`. `self` falling back to '' when this identity
+        // is not yet known matches every unread count, rather than letting
+        // agent chatter through on a device that has not paired in yet.
+        const self = this.#opts.self() ?? ''
+        const cls = classifyMessage(message, self, follow.roster?.() ?? [], { direct: follow.direct?.() ?? false, minutes: follow.channel === 'minutes' })
+        if (cls === null) continue
         const content = notificationContent({
           roomId: follow.roomId,
           room: follow.room(),
           sender: follow.sender(message),
           channel: follow.channel,
+          agent: cls === 'agent',
           text: message.text,
           showText: settings.showText,
         })

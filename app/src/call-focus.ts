@@ -25,8 +25,10 @@ export interface CallFocus {
   setOnCall(on: boolean): void
   /** The messages from other people in the conversation on screen, for the
    *  unread count on the Chat button. `scope` names the room and
-   *  conversation, so a change of either starts the count again. */
-  noteMessages(scope: string, ids: readonly string[]): void
+   *  conversation, so a change of either starts the count again. `agentIds`
+   *  names which of `ids` are an agent's message that reached this person,
+   *  shown in a badge of its own - see `UnreadCounter.agents`. */
+  noteMessages(scope: string, ids: readonly string[], agentIds?: readonly string[]): void
 }
 
 /** The parts of the conversation, wherever they are: wrapped in
@@ -86,7 +88,13 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   badge.className = 'callChatUnread'
   badge.setAttribute('aria-hidden', 'true')
   badge.hidden = true
-  chat.append(chatWord, badge)
+  // An agent's tag, in the agent colour used everywhere else, beside the
+  // people badge - or alone, when there is nothing from a person to say.
+  const agentBadge = document.createElement('span')
+  agentBadge.className = 'callChatUnreadAgent'
+  agentBadge.setAttribute('aria-hidden', 'true')
+  agentBadge.hidden = true
+  chat.append(chatWord, badge, agentBadge)
   const full = document.createElement('button')
   full.type = 'button'
   full.id = 'callFullscreen'
@@ -197,10 +205,14 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   }
 
   function renderBadge(): void {
-    const count = unread.count
-    badge.hidden = count === 0
-    badge.textContent = count > 99 ? '99+' : String(count)
-    const label = count === 0 ? 'Chat' : `Chat, ${count} unread`
+    const agents = unread.agents
+    const people = unread.count - agents
+    badge.hidden = people === 0
+    badge.textContent = people > 99 ? '99+' : String(people)
+    agentBadge.hidden = agents === 0
+    agentBadge.textContent = agents > 99 ? '99+' : String(agents)
+    const parts = [people > 0 ? `${people} unread` : undefined, agents > 0 ? `${agents} from agents` : undefined].filter((p) => p !== undefined)
+    const label = parts.length === 0 ? 'Chat' : `Chat, ${parts.join(', ')}`
     if (chat.getAttribute('aria-label') !== label) chat.setAttribute('aria-label', label)
   }
 
@@ -317,9 +329,9 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
       onCall = on
       evaluate()
     },
-    noteMessages(scope, ids) {
+    noteMessages(scope, ids, agentIds = []) {
       const before = unread.count
-      const count = unread.update(scope, ids, !active || chatOpen)
+      const count = unread.update(scope, ids, !active || chatOpen, agentIds)
       if (count !== before) {
         renderBadge()
         if (count > before) announce.textContent = unreadAnnouncement(count)
