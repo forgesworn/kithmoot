@@ -1053,6 +1053,7 @@ function startRoomBookmarks(account: SignetSession): void {
     if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   }, message => {
     $('roomSyncStatus').textContent = message
+    renderHomeSyncStatus()
     if (message.includes('not confirmed') || message.includes('not synced') || message.includes('browser only')) {
       const details = $('roomSyncStatus').closest('details')
       if (details) details.open = true
@@ -2191,6 +2192,18 @@ function renderIdentity(): void {
  *  an empty disclosure is a dead end with a label on it. */
 function renderAccountMore(): void {
   $('accountMore').hidden = $('rendezvousProvision').hidden && $('historyRecovery').hidden && $('importedHistorySearch').hidden
+}
+
+/** Signed in, still looking: a status line under the home lede, mirroring
+ *  the existing #roomSyncStatus text (spec section 6). A separate element
+ *  rather than writing into #homeStatus, which holds #status and must
+ *  never be overwritten. */
+function renderHomeSyncStatus(): void {
+  const line = $('homeSyncStatus')
+  const message = $('roomSyncStatus').textContent ?? ''
+  const show = roomsListShown && !!nostrSession && knownRooms(roomStore()).length === 0 && message !== ''
+  line.textContent = show ? message : ''
+  line.hidden = !show
 }
 
 function renderHistoryRecovery(): void {
@@ -9556,6 +9569,7 @@ function renderRooms(): void {
   $('home').dataset.state = returning ? 'returning' : 'cold'
   $('home').setAttribute('aria-labelledby', returning ? 'roomsHeading' : 'homeHeading')
   $('rooms').hidden = !returning
+  renderHomeSyncStatus()
   $('accountReconnect').hidden = !accountDisconnected()
   $('homeSignIn').hidden = !!nostrSession
   if (accountDisconnected()) {
