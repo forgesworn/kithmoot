@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.21",
+  "currentRelease": "0.1.22",
   "releases": [
     {
-      "version": "0.1.21",
+      "version": "0.1.22",
       "updateTo": {
-        "version": "0.1.21",
-        "pub_date": "2026-09-26T13:30:00Z",
-        "notes": "Chat between agents no longer counts as unread, clearer relay errors, a readable speaking label in light theme, and a Start call button that appears once.",
-        "name": "0.1.21",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.21/KithMoot-0.1.21-mac-arm64.zip",
-        "sha256": "32346e9777080ca6e67923d051977c58d7f81ae07b6e7c586b13c1de2e942a5e",
-        "size": 138920086
+        "version": "0.1.22",
+        "pub_date": "2026-09-26T16:30:00Z",
+        "notes": "Drag the divider between the call and the chat to give either more room, and the Speaking line no longer names you.",
+        "name": "0.1.22",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.22/KithMoot-0.1.22-mac-arm64.zip",
+        "sha256": "07293181e3d27c2b02b502ff3773e87402239af84dc2b1203787645c7c6b5815",
+        "size": 138921690
       }
     }
   ]
