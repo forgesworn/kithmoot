@@ -59,13 +59,14 @@
   font-weight: var(--speak-label-weight);
   border-radius: 6px;
 }
-.participant.speaking > h3 :is(.pubkey, .nip05, .devices) { color: inherit; }
+.participant.speaking > h3 :is(.name, .pubkey, .nip05, .devices, .idkind, .badge, .verifyChip) { color: inherit; }
 .callChip.speaking {
   background: var(--speak-label-bg);
   color: var(--speak-label-fg);
   border-color: var(--speak-ring);
   box-shadow: 0 0 0 calc(var(--speak-ring-width) - 2px) var(--speak-ring);
 }
+.callChip.speaking :is(.name, .pubkey, .nip05, .devices, .idkind, .badge, .verifyChip) { color: inherit; }
 
 /* Who is talking, in plain text, beside the call controls. Present in
    every layout - phone, desktop grid, the compact call-first bar - because
