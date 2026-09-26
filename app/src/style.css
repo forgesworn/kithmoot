@@ -2662,6 +2662,18 @@ label.note {
    spec section 9. */
 #accountHeading { display: none; }
 
+/* #notify brings its own "Notifications & sound" <h3> along when it moves
+   into the sheet (reused as-is, unchanged markup); restyled here to match
+   "You" and "Text size" rather than reading heavier than its neighbours. */
+#appSettingsNotify h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .sheetBody > section {
   margin: 0.75rem 0;
 }
@@ -2879,7 +2891,16 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 /* Home is your rooms: one screen, two states, no boxes. Hierarchy comes
    from size, weight and space - proximity says what belongs together, not
    a card round it. See docs/handover/design-start-page.md sections 4 to 8. */
-#home { max-width: 40rem; margin-inline: auto; }
+/* Full width under 600px: `<main>` is a column flex container, and an auto
+   inline margin on a flex child is resolved before stretch even applies,
+   so pairing max-width with margin-inline:auto here unconditionally shrank
+   #home to its content width and centred it - the extra ~57px gutter each
+   side that ate a fifth of a phone screen. Centring is a medium-and-up
+   read (section 5); compact stays flush with the app bar's own edge. */
+#home { width: 100%; }
+@media (min-width: 600px) {
+  #home { max-width: 40rem; margin-inline: auto; }
+}
 .homeIntro { margin: 1.5rem 0 2rem; max-width: 32rem; }
 #homeHeading, #arrivalTitle {
   margin: 0 0 .65rem;
@@ -2894,15 +2915,31 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #home[data-state='returning'] .homeIntro { display: none; }
 .homeIntro p { margin: 0; color: var(--muted); max-width: 60ch; }
 
-/* The start form: one field, one checkbox, one filled button. No card. */
-#setup { margin: 1.5rem 0; }
+/* The start form: one field, one checkbox, one filled button. No card.
+   Top margin only: the gap under it is #homeFoot's own margin-top, so the
+   two quiet lines sit one consistent section gap below the form rather
+   than stacking #setup's bottom margin on top of #homeFoot's. */
+#setup { margin: 1.5rem 0 0; }
 #setup.collapsed { display: none; }
 #newRoomHeading { margin: 0 0 1rem; font-size: 1.25rem; font-weight: 600; text-transform: none; color: var(--text); }
 #home[data-state='cold'] #newRoomHeading { display: none; }
 #createRoomForm label { display: block; margin: 0 0 .4rem; font-weight: 600; }
 #createRoomForm input { font-family: inherit; }
-.checkboxRow { display: flex; align-items: center; gap: .5rem; min-height: 44px; margin: .6rem 0; font-weight: 400; cursor: pointer; }
-.checkboxRow input { width: 1.2rem; height: 1.2rem; margin: 0; accent-color: var(--accent); }
+/* Beats "#createRoomForm label" above on specificity, not just source
+   order: without it the checkbox's own label picked up that rule's
+   display:block and font-weight:600, and the text dropped onto its own
+   line below the box instead of sitting on its baseline. */
+#createRoomForm label.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 44px;
+  margin: .6rem 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+.checkboxRow input { flex: 0 0 auto; width: 1.2rem; height: 1.2rem; margin: 0; accent-color: var(--accent); }
+.checkboxRow span { flex: 1 1 auto; min-width: 0; }
 #roomAskHint { margin: -.3rem 0 .6rem; max-width: 60ch; }
 .setupButtons { display: flex; align-items: center; gap: .75rem; margin-top: .8rem; }
 .setupButtons button { margin: 0; }
@@ -2913,7 +2950,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 
 /* The two quiet lines at the foot: never a card, never as loud as the
    primary action above them. */
-#homeFoot { margin-top: 2rem; }
+#homeFoot { margin-top: 1.5rem; }
 #homeFoot summary, #homeFoot > button.linkish { min-height: 44px; display: flex; align-items: center; color: var(--muted); cursor: pointer; }
 #homeFoot summary:hover, #homeFoot > button.linkish:hover { color: var(--text); }
 #openLink form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0 .75rem; }
@@ -2943,7 +2980,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto 44px;
   align-items: center;
-  gap: .5rem;
+  gap: .75rem;
   min-height: 64px;
   padding: .625rem 0;
   border: 0;
@@ -2960,7 +2997,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   gap: .15rem;
   border: 0;
   background: transparent;
-  padding: .3rem 0;
+  padding: .3rem .25rem .3rem 0;
   margin: 0;
   min-height: 44px;
   min-width: 0;
@@ -2969,7 +3006,12 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   font: inherit;
   color: inherit;
 }
-#roomList .roomName { font-size: 1rem; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+/* One line, truncated with an ellipsis rather than crowding the time and
+   pill beside it - the row's own min-width:0 track still shrinks at 200%
+   text, so the ellipsis lands earlier rather than the row ever scrolling
+   sideways. The full name is always the row's accessible name regardless
+   of where the visible text is cut. */
+#roomList .roomName { display: block; font-size: 1rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 #roomList .roomPreview { font-size: .875rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 #roomList .roomAside {
   grid-column: 2;
@@ -3092,12 +3134,21 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
     margin-inline: 0;
     display: grid;
     grid-template-columns: minmax(0, 40rem) 20rem;
-    gap: 3rem;
+    /* Column gap only: a row-gap here would add extra space between
+       #homeActions and #homeFoot on top of #homeFoot's own margin-top,
+       which is the one gap that is supposed to separate them. */
+    column-gap: 3rem;
+    row-gap: 0;
     align-items: start;
   }
-  #home[data-state='returning'] #homeRooms { grid-column: 1; }
-  #home[data-state='returning'] #homeActions { grid-column: 2; }
-  #home[data-state='returning'] #homeFoot { grid-column: 2; margin-top: 1rem; }
+  /* #homeRooms spans both implicit rows so the left column's own height
+     (the list) never sets the right column's row heights: without this,
+     #homeFoot auto-placed into row 2 started at the bottom of row 1 - the
+     taller of #homeRooms and #homeActions - leaving a much bigger gap
+     under Start a room than the gap above it. */
+  #home[data-state='returning'] #homeRooms { grid-column: 1; grid-row: 1 / span 2; }
+  #home[data-state='returning'] #homeActions { grid-column: 2; grid-row: 1; }
+  #home[data-state='returning'] #homeFoot { grid-column: 2; grid-row: 2; }
   #home[data-state='returning'] #setup.collapsed { display: block; }
   /* Always open here, so there is nothing for Cancel to cancel back to. */
   #home[data-state='returning'] #cancelNewRoom { display: none; }
