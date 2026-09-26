@@ -145,3 +145,81 @@ test('the front page lists every room this device has been in, with what is new 
     await Promise.all([principal.close(), visitor.close()])
   }
 })
+
+// Acceptance check 9: a room the list would otherwise promote to the top
+// must not move, or steal focus, while a person's focus or pointer is
+// still inside #roomList. Section 7 of the spec.
+//
+// openedAt is Unix seconds, and three rooms made back to back in a test
+// often land in the same second - so rather than assume which order three
+// freshly made rooms start in, this reads whatever order the list actually
+// gives them, bumps the room that is NOT under focus, and checks the held
+// and the released order against that same starting point.
+test('rows do not reorder while focus is inside the list', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+  const url = baseURL!
+  const principal = await newDeviceContext(browser, url)
+  const visitor = await newDeviceContext(browser, url)
+
+  try {
+    const page = await principal.newPage()
+
+    // Three standing rooms; the order they end up in is whatever the list
+    // says once they all exist, not assumed from the order made here.
+    const links = new Map<string, string>()
+    for (const name of ['Room A', 'Room B', 'Room C']) {
+      const link = await startNamedRoom(page, url, name)
+      await openRoomUrl(page, link)
+      await expectAtTheDoor(page)
+      links.set(name, link)
+    }
+
+    await page.locator('#doorToRooms').click()
+    await page.locator('#roomSwitcherHome').click()
+    await expect(page.locator('#rooms')).toBeVisible()
+    const startOrder = await page.locator('#roomList .roomName').allTextContents()
+    expect(startOrder.sort()).toEqual(['Room A', 'Room B', 'Room C'])
+    const initialOrder = await page.locator('#roomList .roomName').allTextContents()
+
+    // Focus the row NOT being bumped, in the middle of the list - a new
+    // message in either neighbour must not move it or steal its focus.
+    const heldName = initialOrder[1]!
+    const bumpedName = initialOrder[2]!
+    const heldRow = page.getByRole('button', { name: `Open ${heldName}`, exact: true })
+    await heldRow.focus()
+    await expect(heldRow).toBeFocused()
+
+    // Somebody joins the last room in the list and says something - on its
+    // own this would jump that room to the top of the list.
+    const other = await visitor.newPage()
+    await openRoomUrl(other, links.get(bumpedName)!)
+    await other.locator('#displayName').fill('Rowan')
+    await expectAtTheDoor(other)
+    await expect(other.locator('#join')).toBeEnabled({ timeout: 60_000 })
+    await other.locator('#join').click()
+    await expect(other.locator('#roomArea')).toBeVisible()
+    await other.locator('#chatInput').fill('new message while you are focused elsewhere')
+    await other.locator('#chatInput').press('Enter')
+    await expect(other.locator('#chatLog')).toContainText('new message while you are focused elsewhere', { timeout: 30_000 })
+
+    // Give the list every chance to have redrawn (it also redraws on a
+    // 5-second timer) and confirm it held its order and this device's focus.
+    await page.waitForTimeout(6000)
+    await expect(page.locator('#roomList .roomName')).toHaveText(initialOrder)
+    await expect(heldRow).toBeFocused()
+
+    // Focus leaves the list: the next render is free to catch up, and the
+    // bumped room - now with an unread message - moves to the top.
+    // #openAppSettings rather than #newRoom, which this viewport's own
+    // width may hide (it disappears at 1100px and up).
+    await page.locator('#openAppSettings').focus()
+    await expect
+      .poll(async () => (await page.locator('#roomList .roomName').allTextContents())[0], { timeout: 10_000 })
+      .toBe(bumpedName)
+    // The other two rooms are still exactly the two that were not bumped -
+    // nothing was lost or duplicated in reordering.
+    expect((await page.locator('#roomList .roomName').allTextContents()).sort()).toEqual(['Room A', 'Room B', 'Room C'])
+  } finally {
+    await Promise.all([principal.close(), visitor.close()])
+  }
+})
