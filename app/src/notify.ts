@@ -238,7 +238,7 @@ export class Notifier {
         // is not yet known matches every unread count, rather than letting
         // agent chatter through on a device that has not paired in yet.
         const self = this.#opts.self() ?? ''
-        const cls = classifyMessage(message, self, follow.roster?.() ?? [], { direct: follow.direct?.() ?? false })
+        const cls = classifyMessage(message, self, follow.roster?.() ?? [], { direct: follow.direct?.() ?? false, minutes: follow.channel === 'minutes' })
         if (cls === null) continue
         const content = notificationContent({
           roomId: follow.roomId,

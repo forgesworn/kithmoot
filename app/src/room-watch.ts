@@ -23,7 +23,7 @@
  * no relay.
  */
 import type { Event } from 'nostr-tools/pure'
-import { unreadSplit, type UnreadSplit } from '../../src/messages.js'
+import { classifyMessage, resolveConversation, type UnreadSplit } from '../../src/messages.js'
 import { dmPeer } from '../../src/dm.js'
 import { KINDS } from '../../src/kinds.js'
 import { decodeRosterEvent } from '../../src/roster.js'
@@ -186,17 +186,27 @@ export class RoomWatch {
 
   /** How many messages are newer than `readAt` and worth telling `self`
    *  about, split into what a person said and what an agent addressed to
-   *  them - see `unreadSplit` in `src/messages.ts`. Zero both for a quiet
-   *  room, which says nothing either way. Judged against who this watch
-   *  has heard is present, plus `self` itself - a watch never joins the
-   *  roster, so a name-in-text mention of the viewer would otherwise go
-   *  unrecognised - named `selfName` when this device knows one. A DM
-   *  read off the link's own policy counts every agent message from the
-   *  other side too: there is no room to address instead. */
+   *  them - see `classifyMessage` in `src/messages.ts`. Zero both for a
+   *  quiet room, which says nothing either way. Resolved first, so a
+   *  retraction here counts the same as it does everywhere else: the
+   *  original it withdraws is never itself unread. Judged against who
+   *  this watch has heard is present, plus `self` itself - a watch never
+   *  joins the roster, so a name-in-text mention of the viewer would
+   *  otherwise go unrecognised - named `selfName` when this device knows
+   *  one. A DM read off the link's own policy counts every agent message
+   *  from the other side too: there is no room to address instead. */
   unread(readAt: number, self: string, selfName?: string): UnreadSplit {
     const roster = [...this.present(), { participant: self, name: selfName }]
     const direct = dmPeer(this.#opts.policy, self) !== undefined
-    return unreadSplit(this.messages(), readAt, self, roster, { direct })
+    let people = 0
+    let agents = 0
+    for (const message of resolveConversation(this.messages()).byKey.values()) {
+      if (message.retracted || message.original.sentAt <= readAt) continue
+      const cls = classifyMessage(message.original, self, roster, { direct })
+      if (cls === 'person') people++
+      else if (cls === 'agent') agents++
+    }
+    return { people, agents }
   }
 
   /** Who is here now, as far as this watch has heard. */

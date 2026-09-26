@@ -1948,7 +1948,7 @@ button.primary:hover:not(:disabled) {
   border-radius: 1rem;
   font-size: .75rem;
   font-weight: 700;
-  color: var(--on-accent);
+  color: var(--on-agent);
   background: var(--agent-fill);
 }
 
@@ -2951,7 +2951,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 /* An agent's tag, beside the people badge above, in the same colour the
    agent tag uses everywhere else - never mistaken for a person talking. */
 .conversationUnread.agent {
-  color: var(--on-accent);
+  color: var(--on-agent);
   background: var(--agent-fill);
 }
 .conversationNav .draftBadge { margin: 0; }

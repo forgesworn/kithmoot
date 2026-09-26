@@ -129,6 +129,12 @@ describe('reachesReader', () => {
     expect(reachesReader(msg('m1', ROWAN, 'over to you', 100), TALLY, agentRoster, { direct: true })).toBe(true)
   })
 
+  it('counts an unaddressed agent message on the minutes channel, written for the room rather than one reader', () => {
+    expect(reachesReader(msg('m1', ROWAN, 'Decided to ship on Friday.', 100), TALLY, agentRoster, { minutes: true })).toBe(true)
+    // Off the minutes channel, the same unaddressed message is still noise.
+    expect(reachesReader(msg('m1', ROWAN, 'Decided to ship on Friday.', 100), TALLY, agentRoster)).toBe(false)
+  })
+
   it('matches a name-in-text mention against a roster entry for the viewer, added by the caller', () => {
     const roster = [{ participant: ROWAN, agent: true }, { participant: TALLY, name: 'Tally' }]
     expect(reachesReader(msg('m1', ROWAN, 'over to @Tally', 100), TALLY, roster)).toBe(true)
@@ -144,6 +150,10 @@ describe('classifyMessage', () => {
     expect(classifyMessage(msg('m1', ROWAN, 'hi', 100, { mentions: [TALLY] }), TALLY, agentRoster)).toBe('agent')
     expect(classifyMessage(msg('m1', ROWAN, 'over to you', 100), TALLY, agentRoster)).toBeNull()
     expect(classifyMessage(msg('m1', TALLY, 'hi', 100), TALLY, agentRoster)).toBeNull()
+  })
+
+  it('reads the minutes channel as agent, unaddressed', () => {
+    expect(classifyMessage(msg('m1', ROWAN, 'Decided to ship on Friday.', 100), TALLY, agentRoster, { minutes: true })).toBe('agent')
   })
 })
 

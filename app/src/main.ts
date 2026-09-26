@@ -6345,10 +6345,11 @@ function renderChat(messages: ChatMessage[]): void {
   {
     const roster = session?.participants() ?? []
     const direct = dmPeer(roomPolicy, meParticipant) !== undefined
+    const minutes = currentChannel === MINUTES_CHANNEL
     const reached: string[] = []
     const fromAgents: string[] = []
     for (const m of messages) {
-      const cls = classifyMessage(m, meParticipant, roster, { direct })
+      const cls = classifyMessage(m, meParticipant, roster, { direct, minutes })
       if (cls === null) continue
       reached.push(m.id)
       if (cls === 'agent') fromAgents.push(m.id)
@@ -6682,8 +6683,9 @@ function unreadMessageIds(name: string | undefined): Set<string> {
   const read = conversationRead.get(name ?? '')
   const roster = session?.participants() ?? []
   const direct = dmPeer(roomPolicy, meParticipant) !== undefined
+  const minutes = name === MINUTES_CHANNEL
   return new Set(Array.from(resolveConversation(conversationMessages(name)).byKey.values())
-    .filter(message => !message.retracted && !read?.has(message.original.id) && reachesReader(message.original, meParticipant, roster, { direct }))
+    .filter(message => !message.retracted && !read?.has(message.original.id) && reachesReader(message.original, meParticipant, roster, { direct, minutes }))
     .map(message => message.original.id))
 }
 
@@ -6699,11 +6701,12 @@ function conversationUnreadSplit(name: string | undefined): UnreadSplit {
   const read = conversationRead.get(name ?? '')
   const roster = session?.participants() ?? []
   const direct = dmPeer(roomPolicy, meParticipant) !== undefined
+  const minutes = name === MINUTES_CHANNEL
   let people = 0
   let agents = 0
   for (const message of resolveConversation(conversationMessages(name)).byKey.values()) {
     if (message.retracted || read?.has(message.original.id)) continue
-    const cls = classifyMessage(message.original, meParticipant, roster, { direct })
+    const cls = classifyMessage(message.original, meParticipant, roster, { direct, minutes })
     if (cls === 'person') people++
     else if (cls === 'agent') agents++
   }
@@ -6751,11 +6754,16 @@ let renderedTabKey = ''
 /** A small unread badge, capped at "99+" so a busy agent channel does not
  *  smear the tab it sits in. Shared by every place that shows one, so a
  *  person's count and an agent's look and read the same way everywhere. */
-function unreadBadge(className: string, count: number, label: string): HTMLSpanElement {
+function unreadBadge(className: string, count: number, label: string, opts: { standalone?: boolean } = {}): HTMLSpanElement {
   const badge = document.createElement('span')
   badge.className = className
   badge.textContent = count > 99 ? '99+' : String(count)
   badge.setAttribute('aria-label', label)
+  // A plain `<span>` has no role that lets `aria-label` override its name,
+  // so a screen reader announces only the digits inside a button's own
+  // accessible name; standing alone, outside a labelled control, it needs
+  // one that does, or the fuller label is never heard.
+  if (opts.standalone) badge.setAttribute('role', 'img')
   return badge
 }
 
@@ -9574,7 +9582,7 @@ function roomMeta(room: KnownRoom): HTMLDivElement {
     count.textContent = split.people === 0 ? 'nothing new' : `${split.people} unread`
     meta.append(count)
   }
-  if (watched.watch.readsChat && split.agents > 0) meta.append(unreadBadge('unread agent', split.agents, `${split.agents} from agents`))
+  if (watched.watch.readsChat && split.agents > 0) meta.append(unreadBadge('unread agent', split.agents, `${split.agents} from agents`, { standalone: true }))
 
   const present = watched.watch.present()
   const here = document.createElement('span')

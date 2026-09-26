@@ -153,6 +153,23 @@ describe('RoomWatch', () => {
     watch.close()
   })
 
+  it('does not count a message its own author has retracted, so the rooms list and the desktop badge agree', async () => {
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(13))
+    const relay = new SimRelay()
+    const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, now: () => NOW })
+    const ada = await member(roomId, 'Ada')
+    const transport = new SimTransport(relay)
+    const send = (id: string, text: string, sentAt: number, extra: Record<string, unknown> = {}) =>
+      transport.publish(encodeChatEvent(
+        { id, participant: ada.participant, device: getPublicKey(ada.deviceSk), credential: ada.credential, text, sentAt, ...extra },
+        { roomId, roomKey, deviceSk: ada.deviceSk },
+      ))
+    await send('m1', 'oops', NOW - 10)
+    await send('r1', 'Retracted a message', NOW - 5, { retracts: 'm1' })
+    expect(watch.unread(0, 't'.repeat(64))).toEqual({ people: 0, agents: 0 })
+    watch.close()
+  })
+
   it('hears who is in the room from their heartbeats, says when it has had the chance to, and drops a goodbye', async () => {
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(10))
     const relay = new SimRelay()

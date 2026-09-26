@@ -163,6 +163,12 @@ export interface ReachesReaderOptions {
    *  the other member says is said to the viewer, agent or not, mentioned
    *  or not. Set from `dmPeer(policy, self) !== undefined` in `dm.ts`. */
   direct?: boolean
+  /** This is the minutes channel - see `MINUTES_CHANNEL` in `src/agent.ts`.
+   *  A scribe writes what was said there without naming anybody: minutes
+   *  are written for whoever reads the room, not addressed the way an
+   *  ordinary agent message has to be, so they still count and still
+   *  notify. */
+  minutes?: boolean
 }
 
 /** `'person'` or `'agent'` when a message reaches the viewer, so the two
@@ -180,6 +186,9 @@ export type UnreadClass = 'person' | 'agent' | null
  * room-wide `everyone` call from an agent is the same broadcast and does
  * not reach either. In a direct message, `opts.direct` makes every agent
  * message reach the viewer: there is nobody else in the room to be it for.
+ * `opts.minutes` does the same for the minutes channel: a scribe writes
+ * what was said for the room, not for one reader, so it is never mentioned
+ * and must not be read as unaddressed noise.
  *
  * An agent is one whose message carries `owner` or `ownerClaim` - chat is
  * durable and those ride with the message for exactly this reason, so a
@@ -203,7 +212,7 @@ export function classifyMessage(
   const sender = roster.find((entry) => hexEquals(entry.participant, message.participant))
   const isAgent = message.owner !== undefined || message.ownerClaim !== undefined || sender?.agent === true
   if (!isAgent) return 'person'
-  if (opts.direct) return 'agent'
+  if (opts.direct || opts.minutes) return 'agent'
   if (message.reply && hexEquals(message.reply.participant, self)) return 'agent'
   return mentionsOf(message, roster).some((p) => p !== EVERYONE && hexEquals(p, self)) ? 'agent' : null
 }

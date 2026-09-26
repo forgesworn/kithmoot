@@ -332,6 +332,7 @@ html[data-call-first] #deviceControls .callBarIcon > svg { display: block; }
    `.callChatUnread`: both badges live in the DOM at once, only shown or
    hidden, so a selector for one must never also match the other. */
 .callChatUnreadAgent {
+  color: var(--on-agent);
   background: var(--agent-fill);
   margin-inline-start: .3rem;
 }

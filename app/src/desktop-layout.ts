@@ -52,15 +52,20 @@ if (import.meta.env.VITE_DESKTOP === 'true') {
     railToggle.id = 'projectsRailToggle'
     railToggle.className = 'barBtn'
     railToggle.setAttribute('aria-controls', body.id)
+    // Both carry a spoken total in `aria-label`, not just the digits in
+    // their text - a plain `<span>` has no role that lets `aria-label`
+    // override its name, so standing alone here it needs one that does.
     const unread = document.createElement('span')
     unread.id = 'projectsRailUnread'
     unread.className = 'railUnread'
+    unread.setAttribute('role', 'img')
     unread.hidden = true
     // An agent's tag, shown beside the people badge in the agent colour
     // used everywhere else an agent is marked out.
     const unreadAgents = document.createElement('span')
     unreadAgents.id = 'projectsRailUnreadAgents'
     unreadAgents.className = 'railUnreadAgent'
+    unreadAgents.setAttribute('role', 'img')
     unreadAgents.hidden = true
     bar.append(railToggle, unread, unreadAgents)
     rail.prepend(bar)
