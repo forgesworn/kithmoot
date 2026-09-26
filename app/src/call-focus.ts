@@ -1,7 +1,12 @@
 import './call-focus.css'
 import {
-  UnreadCounter, callFirst, chatPanelOpen, loadChatPanel, saveChatPanel, toolbarMove, unreadAnnouncement,
+  UnreadCounter, callFirst, chatPanelOpen, clearChatDividerFraction, loadChatDividerFraction, loadChatPanel,
+  saveChatDividerFraction, saveChatPanel, toolbarMove, unreadAnnouncement,
 } from './call-focus-model.js'
+import {
+  CALL_PANE_FLOOR_PX, CHAT_DIVIDER_DEFAULT_FRACTION, CHAT_DIVIDER_STEP_FRACTION, CHAT_DIVIDER_STEP_FRACTION_LARGE,
+  CHAT_MIN_WIDTH_PX, chatDividerFraction, chatDividerWidth,
+} from './desktop-panes.js'
 
 /**
  * The call first, on a wide screen. See call-focus-model.ts for when, and
@@ -48,6 +53,7 @@ const EXIT_FULL_SCREEN_ICON = ICON('M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5')
 export function installCallFocus(storage: Storage = localStorage): CallFocus {
   const root = document.documentElement
   const room = document.getElementById('roomArea')!
+  const stage = document.getElementById('callStage')!
   const controls = document.getElementById('deviceControls')!
   const bar = document.querySelector<HTMLElement>('#roomArea > .roomBar')
   const extras = document.getElementById('callExtras') as HTMLDetailsElement | null
@@ -58,6 +64,14 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   let chatOpen = chatPanelOpen(remembered, window.innerWidth)
   const unread = new UnreadCounter()
   let moved: Moved[] = []
+  // What this device has dragged the divider to, or undefined while it is
+  // still the CSS default (`--call-chat-w`'s own `clamp()`) that nobody has
+  // touched. Set once, from here on every resize reapplies it as a width -
+  // see `reflowDivider` - so the split stays the same fraction of the room
+  // rather than the same number of pixels.
+  let dividerFraction = loadChatDividerFraction(storage)
+  let dragState: { pointerId: number; startX: number; lastX: number; startWidth: number; containerWidth: number } | null = null
+  let dividerFrame = 0
 
   // --- What the bar adds ----------------------------------------------------
 
@@ -113,10 +127,27 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   announce.className = 'sr-only'
   announce.setAttribute('aria-live', 'polite')
 
+  // The divider between the stage and the conversation. One element serves
+  // both layouts this file draws (see call-focus.css): it never joins the
+  // flex row or the absolutely-positioned column itself, it just sits in the
+  // gap between them and is placed there by measurement, in `measureDivider`
+  // below, rather than by its own CSS - the gap is a fixed width in one
+  // layout and a flexible one in the other, and measuring what actually
+  // rendered is simpler than describing both.
+  const divider = document.createElement('div')
+  divider.id = 'callChatDivider'
+  divider.className = 'callChatDivider'
+  divider.setAttribute('role', 'separator')
+  divider.setAttribute('aria-orientation', 'vertical')
+  divider.setAttribute('aria-label', 'Resize chat')
+  divider.tabIndex = 0
+  divider.hidden = true
+
   controls.prepend(status)
   if (extras?.parentElement === controls) extras.before(viewMenu)
   else controls.append(viewMenu)
   controls.append(end, announce)
+  room.append(divider)
 
   // --- The layout -------------------------------------------------------------
 
@@ -137,6 +168,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     if (active) {
       renderChat()
       measure()
+      reflowDivider()
     }
   }
 
@@ -166,6 +198,8 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     moved = []
     refocus(focused)
     if (document.fullscreenElement === room) void document.exitFullscreen().catch(() => {})
+    cancelDrag()
+    divider.hidden = true
     // Back to the room's own layout: the whole conversation is on screen.
     unread.read()
     renderBadge()
@@ -225,6 +259,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
       announce.textContent = ''
     }
     renderChat()
+    reflowDivider()
   }
 
   chat.addEventListener('click', () => {
@@ -238,6 +273,148 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
       })
     } else if (focusWasInChat) chat.focus()
   })
+
+  // --- The divider between the call and the conversation -----------------------
+
+  /** The row the divider divides: `.desktopRoomContent` in the installed
+   *  window, `#roomArea` itself otherwise - the same element either layout
+   *  measures the chat panel's share against. */
+  function container(): HTMLElement {
+    return (stage.parentElement as HTMLElement | null) ?? room
+  }
+
+  /** The chat panel's width as it stands: what a dragged fraction says, or -
+   *  before this device has ever dragged it - what actually rendered, so the
+   *  divider's first move is a continuation of where it visibly is rather
+   *  than a jump to some other number. */
+  function currentWidth(): number {
+    const width = container().getBoundingClientRect().width
+    if (dividerFraction !== undefined) return chatDividerWidth(width, dividerFraction)
+    return Math.max(0, container().getBoundingClientRect().right - stage.getBoundingClientRect().right)
+  }
+
+  /** Sets the split to `fraction`, clamped, and applies it as a width so it
+   *  takes hold in both layouts this file draws - see `--call-chat-w` in
+   *  call-focus.css. */
+  function applyFraction(fraction: number): void {
+    const width = container().getBoundingClientRect().width
+    dividerFraction = chatDividerFraction(width, chatDividerWidth(width, fraction))
+    root.style.setProperty('--call-chat-w', `${chatDividerWidth(width, dividerFraction)}px`)
+    renderDividerA11y()
+    measureDivider()
+  }
+
+  /** Back to the default split, forgetting anything this device dragged. */
+  function resetDivider(): void {
+    dividerFraction = CHAT_DIVIDER_DEFAULT_FRACTION
+    clearChatDividerFraction(storage)
+    const width = container().getBoundingClientRect().width
+    root.style.setProperty('--call-chat-w', `${chatDividerWidth(width, dividerFraction)}px`)
+    renderDividerA11y()
+    measureDivider()
+  }
+
+  /** Reapplies the dragged fraction as a width after a resize, so the split
+   *  stays the same share of the room rather than the same number of pixels.
+   *  Nothing to reapply while nobody has ever dragged it: the CSS default is
+   *  already responsive on its own. */
+  function reflowDivider(): void {
+    if (!active || !chatOpen) { divider.hidden = true; return }
+    divider.hidden = false
+    if (dividerFraction !== undefined) {
+      const width = container().getBoundingClientRect().width
+      root.style.setProperty('--call-chat-w', `${chatDividerWidth(width, dividerFraction)}px`)
+    }
+    renderDividerA11y()
+    measureDivider()
+  }
+
+  /** Where the divider sits: in the gap between the stage's rendered right
+   *  edge and the conversation's, measured rather than placed by its own
+   *  CSS - see the element's own comment for why. */
+  function measureDivider(): void {
+    if (divider.hidden) return
+    const stageRect = stage.getBoundingClientRect()
+    const roomRect = room.getBoundingClientRect()
+    divider.style.left = `${Math.round(stageRect.right - roomRect.left)}px`
+    divider.style.top = `${Math.round(stageRect.top - roomRect.top)}px`
+    divider.style.height = `${Math.round(stageRect.height)}px`
+  }
+
+  function renderDividerA11y(): void {
+    const width = container().getBoundingClientRect().width
+    const now = currentWidth()
+    const min = chatDividerWidth(width, chatDividerFraction(width, CHAT_MIN_WIDTH_PX))
+    const max = chatDividerWidth(width, chatDividerFraction(width, width - CALL_PANE_FLOOR_PX))
+    const pct = (value: number): number => width <= 0 ? 0 : Math.round((value / width) * 100)
+    divider.setAttribute('aria-valuemin', String(pct(min)))
+    divider.setAttribute('aria-valuemax', String(pct(max)))
+    divider.setAttribute('aria-valuenow', String(pct(now)))
+    divider.setAttribute('aria-valuetext', `Chat ${pct(now)}% of the room`)
+  }
+
+  function cancelDrag(): void {
+    if (dividerFrame) { cancelAnimationFrame(dividerFrame); dividerFrame = 0 }
+    if (dragState) {
+      if (divider.hasPointerCapture(dragState.pointerId)) divider.releasePointerCapture(dragState.pointerId)
+      dragState = null
+    }
+    delete divider.dataset.dragging
+    root.removeAttribute('data-call-chat-dragging')
+  }
+
+  divider.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    dragState = { pointerId: event.pointerId, startX: event.clientX, lastX: event.clientX, startWidth: currentWidth(), containerWidth: container().getBoundingClientRect().width }
+    divider.setPointerCapture(event.pointerId)
+    divider.dataset.dragging = ''
+    root.setAttribute('data-call-chat-dragging', '')
+    // `preventDefault` below stops the drag selecting text, but it also
+    // stops the pointer's own default focus - put it back by hand.
+    divider.focus({ preventScroll: true })
+    event.preventDefault()
+  })
+  divider.addEventListener('pointermove', event => {
+    if (!dragState || event.pointerId !== dragState.pointerId) return
+    dragState.lastX = event.clientX
+    if (dividerFrame) return
+    dividerFrame = requestAnimationFrame(() => {
+      dividerFrame = 0
+      if (!dragState) return
+      // The divider moving right hands width to the call pane on its left,
+      // so a positive move is a smaller chat, not a bigger one.
+      const widthPx = dragState.startWidth - (dragState.lastX - dragState.startX)
+      applyFraction(chatDividerFraction(dragState.containerWidth, widthPx))
+    })
+  })
+  const endDrag = (event: PointerEvent): void => {
+    if (!dragState || event.pointerId !== dragState.pointerId) return
+    cancelDrag()
+    if (dividerFraction !== undefined) saveChatDividerFraction(storage, dividerFraction)
+  }
+  divider.addEventListener('pointerup', endDrag)
+  divider.addEventListener('pointercancel', endDrag)
+  divider.addEventListener('dblclick', () => resetDivider())
+  divider.addEventListener('keydown', event => {
+    const width = container().getBoundingClientRect().width
+    const step = event.shiftKey ? CHAT_DIVIDER_STEP_FRACTION_LARGE : CHAT_DIVIDER_STEP_FRACTION
+    const now = chatDividerFraction(width, currentWidth())
+    switch (event.key) {
+      // Left moves the divider left, widening the chat on its right.
+      case 'ArrowLeft': applyFraction(now + step); break
+      case 'ArrowRight': applyFraction(now - step); break
+      case 'Home': applyFraction(chatDividerFraction(width, CHAT_MIN_WIDTH_PX)); break
+      case 'End': applyFraction(chatDividerFraction(width, width - CALL_PANE_FLOOR_PX)); break
+      case 'Enter': resetDivider(); return event.preventDefault()
+      default: return
+    }
+    event.preventDefault()
+    if (dividerFraction !== undefined) saveChatDividerFraction(storage, dividerFraction)
+  })
+  // Nothing to apply straight away: the room has no size worth measuring
+  // until a call actually puts the layout into its row shape, and
+  // `reflowDivider` (from `evaluate`, above) does that the moment it does.
+  new ResizeObserver(() => { if (active) reflowDivider() }).observe(room)
 
   // --- Full screen ------------------------------------------------------------
 

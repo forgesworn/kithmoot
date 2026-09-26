@@ -77,6 +77,45 @@ export function chatPanelOpen(remembered: boolean | undefined, width: number): b
 }
 
 // ---------------------------------------------------------------------------
+// The divider between the call and the conversation, remembered on this
+// device as a fraction of the room it divides - see `chatDividerWidth` and
+// `chatDividerFraction` in desktop-panes.ts for the arithmetic a fraction
+// turns into a width.
+
+export const CHAT_DIVIDER_KEY = 'kithmoot.call-chat-divider'
+
+/** The fraction this device last dragged the divider to, or undefined when
+ *  it never has - a fresh visit, one that reset it, or any storage failure
+ *  all read the same way: let the default apply. */
+export function loadChatDividerFraction(storage: Pick<Storage, 'getItem'>): number | undefined {
+  try {
+    const raw = storage.getItem(CHAT_DIVIDER_KEY)
+    if (raw === null) return undefined
+    const value = Number(raw)
+    return Number.isFinite(value) && value > 0 && value < 1 ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function saveChatDividerFraction(storage: Pick<Storage, 'setItem'>, fraction: number): void {
+  try {
+    storage.setItem(CHAT_DIVIDER_KEY, String(fraction))
+  } catch {
+    // The divider still works for the rest of this visit.
+  }
+}
+
+/** Forgets the dragged split, so the divider goes back to the default. */
+export function clearChatDividerFraction(storage: Pick<Storage, 'removeItem'>): void {
+  try {
+    storage.removeItem(CHAT_DIVIDER_KEY)
+  } catch {
+    // Nothing to do: the default still applies for the rest of this visit.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Messages that arrived while the panel was shut.
 
 /**

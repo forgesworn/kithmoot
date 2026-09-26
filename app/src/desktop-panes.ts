@@ -93,9 +93,59 @@ export function roomAreaWidth(windowWidth: number, options: { work: boolean; rai
 
 /** The conversation drawer's width inside a room area of `roomWidth`, while
  *  a call is live and the two sit side by side. The floor first, its
- *  preferred share after. */
-export function chatDrawerWidth(roomWidth: number): number {
-  return clamp(CHAT_MIN_WIDTH_PX, roomWidth * CHAT_PREFERRED_FRACTION, WORK_MAX_PX)
+ *  preferred share after. `fraction` is the share to use instead of the
+ *  default, for a person who has dragged the divider - see
+ *  `chatDividerWidth` below for the draggable version's own, tighter
+ *  ceiling, which pays attention to the call pane it shares the row with. */
+export function chatDrawerWidth(roomWidth: number, fraction: number = CHAT_PREFERRED_FRACTION): number {
+  return clamp(CHAT_MIN_WIDTH_PX, roomWidth * fraction, WORK_MAX_PX)
+}
+
+// ---------------------------------------------------------------------------
+// The divider between the call and the conversation, dragged by hand. See
+// call-focus.ts for the pointer and keyboard handling this feeds; kept here,
+// pure, so the clamping is unit-tested without a browser.
+
+/** Where the divider sits, as a fraction of the room it divides, before
+ *  anyone has dragged it. A plain fraction rather than the CSS default's
+ *  `clamp(20rem, 24vw, 24rem)`, because a fraction is what survives a resize
+ *  and a restart; close enough to it that turning the feature on does not
+ *  visibly move anything on an ordinary window. */
+export const CHAT_DIVIDER_DEFAULT_FRACTION = 0.24
+
+/** How far one press of an arrow key moves the divider, and with Shift held
+ *  for a bigger step. */
+export const CHAT_DIVIDER_STEP_FRACTION = 0.02
+export const CHAT_DIVIDER_STEP_FRACTION_LARGE = 0.08
+
+/** The call pane's own floor beside the divider: enough for a face - see
+ *  `CAMERA_MIN_PX` in desktop-layout-fit.ts, which agrees with
+ *  `CALL_MIN_WIDTH_PX` above - plus the gap between the two panes. Dragging
+ *  the divider all the way over clamps against this rather than leaving the
+ *  call pane too narrow to be worth looking at. */
+export const CALL_PANE_FLOOR_PX = CALL_MIN_WIDTH_PX + 16
+
+/**
+ * The chat pane's width, in px, for a divider at `fraction` of a container
+ * `containerWidth` wide. The chat's own floor wins first - an unreadable
+ * chat is the complaint this whole feature answers - and the call pane's
+ * floor comes off the top of what is left for the chat to grow into, so
+ * dragging past either end clamps rather than collapsing either pane.
+ */
+export function chatDividerWidth(containerWidth: number, fraction: number): number {
+  if (containerWidth <= 0) return CHAT_MIN_WIDTH_PX
+  const ceiling = Math.max(CHAT_MIN_WIDTH_PX, containerWidth - CALL_PANE_FLOOR_PX)
+  return clamp(CHAT_MIN_WIDTH_PX, containerWidth * fraction, ceiling)
+}
+
+/** The inverse: the fraction of `containerWidth` that a dragged width of
+ *  `widthPx` represents, clamped through the same floors as
+ *  `chatDividerWidth` first. This is what gets persisted - a fraction, not
+ *  the pixels themselves - so a stored split scales with the window on the
+ *  next visit rather than being applied blindly. */
+export function chatDividerFraction(containerWidth: number, widthPx: number): number {
+  if (containerWidth <= 0) return CHAT_DIVIDER_DEFAULT_FRACTION
+  return chatDividerWidth(containerWidth, widthPx / containerWidth) / containerWidth
 }
 
 /**
