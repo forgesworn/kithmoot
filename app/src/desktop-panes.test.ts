@@ -4,8 +4,10 @@
 // test/desktop-room-layout.spec.ts; this pins the arithmetic they mirror.
 import { expect, test } from 'vitest'
 import {
-  CALL_MIN_WIDTH_PX, CHAT_MIN_WIDTH_PX, RAIL_COLLAPSED_PX, WORK_MAX_PX, WORK_MIN_PX,
-  callPaneWidth, chatColumnWidth, chatDrawerWidth, chatIsDrawer, roomAreaWidth, workPanelWidth,
+  CALL_MIN_WIDTH_PX, CALL_PANE_FLOOR_PX, CHAT_DIVIDER_DEFAULT_FRACTION, CHAT_MIN_WIDTH_PX, RAIL_COLLAPSED_PX,
+  WORK_MAX_PX, WORK_MIN_PX,
+  callPaneWidth, chatColumnWidth, chatDividerFraction, chatDividerWidth, chatDrawerWidth, chatIsDrawer,
+  roomAreaWidth, workPanelWidth,
 } from './desktop-panes.js'
 
 /** The three windows named in the brief. */
@@ -78,4 +80,53 @@ test('the drawer comes back only when the call pane has something in it', () => 
 test('with Work shut, the room area is the window less the rail and the gutter', () => {
   expect(roomAreaWidth(1320, { work: false })).toBe(1320 - 208 - 48)
   expect(roomAreaWidth(1320, { work: false, railWidth: RAIL_COLLAPSED_PX })).toBe(1320 - 56 - 48)
+})
+
+test('chatDrawerWidth takes a dragged fraction instead of the default share', () => {
+  expect(chatDrawerWidth(1600)).toBe(chatDrawerWidth(1600, 0.32))
+  expect(chatDrawerWidth(1000, 0.5)).toBeGreaterThan(chatDrawerWidth(1000, 0.32))
+  // Still floored and ceilinged the same way, whatever fraction is asked for.
+  expect(chatDrawerWidth(1600, 0.01)).toBe(CHAT_MIN_WIDTH_PX)
+  expect(chatDrawerWidth(1600, 0.9)).toBe(WORK_MAX_PX)
+})
+
+test('the divider between the call and the conversation never gives the chat less than its floor', () => {
+  expect(chatDividerWidth(1600, 0)).toBe(CHAT_MIN_WIDTH_PX)
+  expect(chatDividerWidth(1600, 0.01)).toBe(CHAT_MIN_WIDTH_PX)
+  // A container too narrow even for the chat's own floor still returns it,
+  // rather than something negative or smaller.
+  expect(chatDividerWidth(300, 0.5)).toBe(CHAT_MIN_WIDTH_PX)
+  expect(chatDividerWidth(0, 0.5)).toBe(CHAT_MIN_WIDTH_PX)
+})
+
+test('nor the call pane less than its own floor', () => {
+  const container = 1600
+  expect(chatDividerWidth(container, 1)).toBe(container - CALL_PANE_FLOOR_PX)
+  expect(chatDividerWidth(container, 0.99)).toBe(container - CALL_PANE_FLOOR_PX)
+})
+
+test('between the floors, the divider follows the fraction dragged', () => {
+  const container = 1600
+  expect(chatDividerWidth(container, 0.4)).toBe(container * 0.4)
+  expect(chatDividerWidth(container, 0.4)).toBeGreaterThan(CHAT_MIN_WIDTH_PX)
+  expect(chatDividerWidth(container, 0.4)).toBeLessThan(container - CALL_PANE_FLOOR_PX)
+})
+
+test('chatDividerFraction is the inverse, clamped the same way', () => {
+  const container = 1600
+  const width = chatDividerWidth(container, 0.4)
+  expect(chatDividerFraction(container, width)).toBeCloseTo(0.4, 10)
+  // A pixel value beyond either floor comes back as the fraction the
+  // clamped width represents, not the fraction that was asked for.
+  expect(chatDividerFraction(container, 10)).toBeCloseTo(CHAT_MIN_WIDTH_PX / container, 10)
+  expect(chatDividerFraction(container, container)).toBeCloseTo((container - CALL_PANE_FLOOR_PX) / container, 10)
+  expect(chatDividerFraction(0, 200)).toBe(CHAT_DIVIDER_DEFAULT_FRACTION)
+})
+
+test('dragging past either end clamps rather than collapsing a pane', () => {
+  const container = 900
+  // Dragged all the way to the call side: the chat keeps its floor.
+  expect(chatDividerWidth(container, -1)).toBe(CHAT_MIN_WIDTH_PX)
+  // Dragged all the way to the chat side: the call pane keeps its floor.
+  expect(container - chatDividerWidth(container, 2)).toBe(CALL_PANE_FLOOR_PX)
 })

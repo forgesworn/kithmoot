@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import {
-  CALL_FIRST_MIN_HEIGHT, CALL_FIRST_MIN_WIDTH, CHAT_OPEN_MIN_WIDTH, CHAT_PANEL_KEY, UnreadCounter,
-  callFirst, chatPanelOpen, loadChatPanel, saveChatPanel, toolbarMove, unreadAnnouncement,
+  CALL_FIRST_MIN_HEIGHT, CALL_FIRST_MIN_WIDTH, CHAT_DIVIDER_KEY, CHAT_OPEN_MIN_WIDTH, CHAT_PANEL_KEY, UnreadCounter,
+  callFirst, chatPanelOpen, clearChatDividerFraction, loadChatDividerFraction, loadChatPanel,
+  saveChatDividerFraction, saveChatPanel, toolbarMove, unreadAnnouncement,
   type CallFirstInput,
 } from './call-focus-model.js'
 
@@ -41,6 +42,7 @@ function memory(initial: Record<string, string> = {}) {
     data,
     getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => { data.set(key, value) },
+    removeItem: (key: string) => { data.delete(key) },
   }
 }
 
@@ -73,6 +75,37 @@ describe('the chat panel, remembered', () => {
     const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('full') } }
     expect(loadChatPanel(broken)).toBeUndefined()
     expect(() => saveChatPanel(broken, true)).not.toThrow()
+  })
+})
+
+describe('the divider between the call and the conversation, remembered', () => {
+  test('nothing stored until this device drags it', () => {
+    expect(loadChatDividerFraction(memory())).toBeUndefined()
+  })
+
+  test('saved and read back as a fraction, under a kithmoot.call- key', () => {
+    const storage = memory()
+    saveChatDividerFraction(storage, 0.4)
+    expect(CHAT_DIVIDER_KEY.startsWith('kithmoot.call-')).toBe(true)
+    expect(storage.data.get(CHAT_DIVIDER_KEY)).toBe('0.4')
+    expect(loadChatDividerFraction(storage)).toBe(0.4)
+  })
+
+  test('a reset forgets it', () => {
+    const storage = memory({ [CHAT_DIVIDER_KEY]: '0.4' })
+    clearChatDividerFraction(storage)
+    expect(storage.data.has(CHAT_DIVIDER_KEY)).toBe(false)
+  })
+
+  test('nonsense, an out-of-range value, or a storage that throws reads as never dragged', () => {
+    expect(loadChatDividerFraction(memory({ [CHAT_DIVIDER_KEY]: 'plenty' }))).toBeUndefined()
+    expect(loadChatDividerFraction(memory({ [CHAT_DIVIDER_KEY]: '0' }))).toBeUndefined()
+    expect(loadChatDividerFraction(memory({ [CHAT_DIVIDER_KEY]: '1' }))).toBeUndefined()
+    expect(loadChatDividerFraction(memory({ [CHAT_DIVIDER_KEY]: '1.5' }))).toBeUndefined()
+    const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('full') }, removeItem: () => { throw new Error('denied') } }
+    expect(loadChatDividerFraction(broken)).toBeUndefined()
+    expect(() => saveChatDividerFraction(broken, 0.3)).not.toThrow()
+    expect(() => clearChatDividerFraction(broken)).not.toThrow()
   })
 })
 
