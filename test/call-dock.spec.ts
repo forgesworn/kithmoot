@@ -50,7 +50,7 @@ test('a call carries on while its member chats in another room, and comes back w
     await expect(pageA.locator('#roomTitle')).toHaveText('Side room')
     await expect(pageA.locator('#actionConfirm')).toBeHidden()
     await expect(pageA.locator('#callDock')).toBeVisible()
-    await expect(pageA.locator('#callDockText')).toHaveText(/^On a call in Room [0-9a-f]+ with Bo\.$/)
+    await expect(pageA.locator('#callDockText')).toHaveText('On a call in Untitled room with Bo.')
     await expect(pageA.locator('#callDockMic')).toHaveAttribute('aria-pressed', 'true')
     await expect(pageA.locator('#callBay')).toBeHidden()
     await pageA.locator('#chatInput').fill('Just popping in here')
