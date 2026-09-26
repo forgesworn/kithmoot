@@ -9469,6 +9469,16 @@ function showRoomsList(): void {
   $('identityMore').hidden = true
   $('homeRooms').append($('rooms'))
   $('homeActions').append($('setup'))
+  // M10: Chromium restores a radio's last checked state on load - even
+  // with the form's own `autocomplete="off"` - so the markup's own
+  // `checked` on "Anyone with the link" can arrive unchecked, and a room
+  // access choice with nothing selected is a form with no visible default.
+  // Nobody has touched this fieldset yet on a fresh visit, so put the
+  // written default back rather than trust the attribute alone.
+  if (!document.querySelector('input[name="roomAccess"]:checked')) {
+    const anyone = document.querySelector<HTMLInputElement>('input[name="roomAccess"][value="anyone"]')
+    if (anyone) anyone.checked = true
+  }
   $('homeAccount').append($('accountHome'))
   $('homeStatus').append($('status'))
   $('accountHome').hidden = false
