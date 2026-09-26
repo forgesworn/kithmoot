@@ -147,6 +147,15 @@
               <div id="callChips" class="callChips" aria-label="On the call"></div>
               <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
             </div>
+            <!-- Who is talking right now, in plain text. Never an aria-live
+                 region and never announced - the owner does not want a
+                 screen reader speaking over people - but a screen reader
+                 user can still navigate to it like any other line. Hidden
+                 when nobody is speaking, and when the desktop stage's own
+                 speaking line (#speakingNow, app/src/call-stage.ts) is
+                 already on screen, so the two are never said at once.
+                 Filled by `paintSpeakingLine` in app/src/main.ts. -->
+            <p id="speakingLine" class="speakingLine" hidden></p>
             <div class="toggles">
               <!-- Short words on a phone, where the four share one row; the
                    accessible name is the full one everywhere. -->

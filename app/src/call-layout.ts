@@ -386,17 +386,6 @@ export class ActiveSpeaker {
   }
 }
 
-/** At most one spoken announcement per `gapMs`, so a lively call does not
- *  talk over the person listening to it. */
-export class Throttle {
-  #last = -Infinity
-  constructor(readonly gapMs: number) {}
-  allow(now: number): boolean {
-    if (now - this.#last < this.gapMs) return false
-    this.#last = now
-    return true
-  }
-}
 
 /**
  * Who leads the strip. The pinned person first, then whoever has been
@@ -447,7 +436,6 @@ export const VIEW_KEY = 'kithmoot.call-view'
 export const CORNER_KEY = 'kithmoot.call-self-corner'
 export const HIDE_SELF_KEY = 'kithmoot.call-hide-self'
 export const HIDE_NO_VIDEO_KEY = 'kithmoot.call-hide-no-video'
-export const ANNOUNCE_KEY = 'kithmoot.call-announce-speaker'
 
 export interface LayoutPrefs {
   /** Gallery or Speaker: Share is chosen for you when a share starts. */
@@ -455,7 +443,6 @@ export interface LayoutPrefs {
   corner: Corner
   hideSelf: boolean
   hideNoVideo: boolean
-  announce: boolean
 }
 
 type Reader = Pick<Storage, 'getItem'>
@@ -473,9 +460,6 @@ export function loadPrefs(storage: Reader): LayoutPrefs {
     corner: corner && CORNERS.includes(corner) ? corner : 'bottom-right',
     hideSelf: read(storage, HIDE_SELF_KEY) === 'true',
     hideNoVideo: read(storage, HIDE_NO_VIDEO_KEY) === 'true',
-    // Off unless this device turned it on: a screen reader already has a
-    // great deal to say during a call.
-    announce: read(storage, ANNOUNCE_KEY) === 'true',
   }
 }
 

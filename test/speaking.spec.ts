@@ -31,6 +31,14 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
   try {
     const pageA = await contextA.newPage()
     const pageB = await contextB.newPage()
+    // Short of the desktop call stage's own height threshold (541px, see
+    // DESKTOP_STAGE in call-stage.ts) and wide of its "short landscape"
+    // phone layout (1024px, see style.css). Neither picture layout takes
+    // over, so this exercises the plain "Speaking:" line in `.callHead`
+    // (app/src/main.ts `paintSpeakingLine`) rather than the desktop stage's
+    // own `#speakingNow`, which call-layout.spec.ts already covers.
+    await pageA.setViewportSize({ width: 1100, height: 500 })
+    await pageB.setViewportSize({ width: 1100, height: 500 })
 
     const url = await createRoom(pageA, baseURL!)
     await joinWithMedia(pageA, url, 'Ada')
@@ -49,6 +57,18 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
     const ownTile = pageA.locator('#room .participant', { hasText: '(you)' })
     await expect(ownTile, 'Ada could not see that her own microphone was live').toHaveClass(
       /speaking/,
+      { timeout: 30_000 },
+    )
+
+    // The plain-text "Speaking:" line beside the call controls, not just
+    // the ring round the tile: Bob's screen names Ada, and Ada's own names
+    // her as "You" rather than repeating her own display name.
+    await expect(pageB.locator('#speakingLine'), "Bob's speaking line never named Ada").toContainText(
+      'Ada',
+      { timeout: 30_000 },
+    )
+    await expect(pageA.locator('#speakingLine'), "Ada's own speaking line did not say You").toContainText(
+      'You',
       { timeout: 30_000 },
     )
 
@@ -86,6 +106,20 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
     await expect(ownTile, "Ada's own tile stayed lit after she muted").not.toHaveClass(/speaking/, {
       timeout: 15_000,
     })
+
+    // The line holds a name for about a second past the tile itself going
+    // dark, so it does not flicker on every gap inside speech - but it must
+    // still drop her, or a line that never lets go is worse than none. Bob's
+    // own fake microphone is live and continuous too, so his line keeps
+    // saying "You" throughout; what has to go is Ada's name.
+    await expect(pageB.locator('#speakingLine'), "Bob's speaking line still named Ada after she muted").not.toContainText(
+      'Ada',
+      { timeout: 15_000 },
+    )
+    await expect(pageA.locator('#speakingLine'), "Ada's own speaking line still said You after she muted").not.toContainText(
+      'You',
+      { timeout: 15_000 },
+    )
   } finally {
     await contextA.close()
     await contextB.close()
