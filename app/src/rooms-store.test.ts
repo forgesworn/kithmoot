@@ -58,9 +58,9 @@ describe('the rooms this device has been in', () => {
     expect(knownRoom(store, ROOM_A)?.name).toBe('Given')
   })
 
-  it('shows a room by its name, or by enough of its id to tell it from the next', () => {
+  it('shows a room by its name, or "Untitled room" when it has none', () => {
     expect(roomLabel({ roomId: ROOM_A, name: 'Bench' })).toBe('Bench')
-    expect(roomLabel({ roomId: ROOM_A })).toBe('Room aaaaaaaa')
+    expect(roomLabel({ roomId: ROOM_A })).toBe('Untitled room')
   })
 
   it('sanitises a name like a display name, wherever it came from', () => {

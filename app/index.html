@@ -20,8 +20,8 @@
       <button id="updateApp" type="button">Update now</button>
     </aside>
     <header>
-      <h1 class="app-brand"><img src="/pwa-192x192.png" width="44" height="44" alt="" />KithMoot</h1>
-      <p class="tagline">A workspace nobody owns.</p>
+      <h1 class="app-brand"><img src="/pwa-192x192.png" width="28" height="28" alt="" />KithMoot</h1>
+      <button id="openAppSettings" type="button" class="quiet" aria-haspopup="dialog" aria-controls="appSettings" hidden>Settings</button>
     </header>
 
     <!-- The room picker stays inside the current visit. Only selecting a
@@ -413,13 +413,24 @@
            boot moves each group into the screen for this visit. -->
       <section id="home" hidden aria-labelledby="homeHeading">
         <div class="homeIntro">
-          <h2 id="homeHeading">Make room for a conversation.</h2>
-          <p>Messages, files and calls for your people. Start a room, or open an invite link.</p>
+          <h2 id="homeHeading">Start a room, then send the link.</h2>
+          <p id="homeLede">A workspace nobody owns: messages, files and calls for your people and your agents. No account needed.</p>
         </div>
         <div id="homeStatus"></div>
         <div id="homeRooms"></div>
         <div id="homeActions"></div>
-        <div id="homeAccount"></div>
+        <div id="homeFoot">
+          <details id="openLink">
+            <summary>Open an invite link</summary>
+            <form id="openRoomForm" novalidate>
+              <label for="url">Invite link</label>
+              <input id="url" type="url" inputmode="url" placeholder="https://…#…" autocomplete="off" spellcheck="false" enterkeyhint="go" aria-describedby="linkError" />
+              <button id="openUrl" type="submit">Open</button>
+              <p id="linkError" class="formError" role="alert" hidden></p>
+            </form>
+          </details>
+          <button id="homeSignIn" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
+        </div>
       </section>
 
       <section id="identity" hidden aria-labelledby="arrivalTitle">
@@ -436,34 +447,37 @@
             <p id="roomSyncStatus" class="note" role="status"></p>
             <button id="retryRoomSync" type="button" class="quiet" hidden>Retry room sync</button>
           </details>
-          <details id="rendezvousProvision" hidden>
-            <summary>Set up this device’s private rendezvous key</summary>
-            <p class="note">Choose a new index, then approve the exact request on Heartwood. The signer sends an encrypted child only to this browser’s NIP-46 device key; this page never receives a root key or exports the child.</p>
-            <label for="rendezvousIndex">New rendezvous index</label>
-            <input id="rendezvousIndex" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]+" maxlength="10" placeholder="For example, 1">
-            <button id="provisionRendezvous" type="button" class="quiet">Ask Heartwood to set up this device</button>
-            <p id="rendezvousStatus" class="note" role="status"></p>
+          <details id="accountMore" hidden>
+            <summary>More for your Nostr account</summary>
+            <details id="rendezvousProvision" hidden>
+              <summary>Set up this device’s private rendezvous key</summary>
+              <p class="note">Choose a new index, then approve the exact request on Heartwood. The signer sends an encrypted child only to this browser’s NIP-46 device key; this page never receives a root key or exports the child.</p>
+              <label for="rendezvousIndex">New rendezvous index</label>
+              <input id="rendezvousIndex" type="text" inputmode="numeric" autocomplete="off" pattern="[0-9]+" maxlength="10" placeholder="For example, 1">
+              <button id="provisionRendezvous" type="button" class="quiet">Ask Heartwood to set up this device</button>
+              <p id="rendezvousStatus" class="note" role="status"></p>
+            </details>
+            <details id="historyRecovery" hidden>
+              <summary>Bring recent Nostr history home</summary>
+              <p class="note">This explicitly reads one 30-day window from each of your configured read relays. Verified original events are sent privately to a freshly checked box you control. Only NIP-17 messages this signer can open are added to this browser’s encrypted search index.</p>
+              <label for="historyRecoveryBox">Verified box</label>
+              <select id="historyRecoveryBox"></select>
+              <button id="recoverRecentHistory" type="button" class="quiet">Bring the recent window home</button>
+              <p id="historyRecoveryStatus" class="note" role="status"></p>
+              <ul id="historyRecoveryReport" class="note"></ul>
+            </details>
+            <details id="importedHistorySearch" hidden>
+              <summary>Search imported history on this device</summary>
+              <p class="note">This searches only the encrypted index in this browser. Search words and results never leave this device.</p>
+              <label for="importedHistoryQuery">Find in imported messages</label>
+              <input id="importedHistoryQuery" type="search" autocomplete="off" maxlength="512" placeholder="Words, person or file name">
+              <button id="searchImportedHistory" type="button" class="quiet">Search this device</button>
+              <p id="importedHistoryStatus" class="note" role="status"></p>
+              <ul id="importedHistoryResults" class="note"></ul>
+            </details>
           </details>
-          <details id="historyRecovery" hidden>
-            <summary>Bring recent Nostr history home</summary>
-            <p class="note">This explicitly reads one 30-day window from each of your configured read relays. Verified original events are sent privately to a freshly checked box you control. Only NIP-17 messages this signer can open are added to this browser’s encrypted search index.</p>
-            <label for="historyRecoveryBox">Verified box</label>
-            <select id="historyRecoveryBox"></select>
-            <button id="recoverRecentHistory" type="button" class="quiet">Bring the recent window home</button>
-            <p id="historyRecoveryStatus" class="note" role="status"></p>
-            <ul id="historyRecoveryReport" class="note"></ul>
-          </details>
-          <details id="importedHistorySearch" hidden>
-            <summary>Search imported history on this device</summary>
-            <p class="note">This searches only the encrypted index in this browser. Search words and results never leave this device.</p>
-            <label for="importedHistoryQuery">Find in imported messages</label>
-            <input id="importedHistoryQuery" type="search" autocomplete="off" maxlength="512" placeholder="Words, person or file name">
-            <button id="searchImportedHistory" type="button" class="quiet">Search this device</button>
-            <p id="importedHistoryStatus" class="note" role="status"></p>
-            <ul id="importedHistoryResults" class="note"></ul>
-          </details>
-          <button id="forgetBrowser" type="button" class="danger">Forget this browser</button>
         </div>
+        <button id="forgetBrowser" type="button" class="danger" hidden>Forget this browser</button>
         <h2 id="arrivalTitle">Open your room</h2>
         <p id="arrivalLead" class="lead" hidden></p>
         <p id="status" role="status"></p>
@@ -507,7 +521,10 @@
       </section>
 
       <section id="rooms" hidden>
-        <h2 id="roomsHeading">Your rooms</h2>
+        <div class="roomsHead">
+          <h2 id="roomsHeading">Rooms</h2>
+          <button id="newRoom" type="button" aria-expanded="false" aria-controls="createRoomForm">New room</button>
+        </div>
         <!-- A Nostr account used here whose signer is not in this tab. Its
              rooms are not listed, and nothing may act for it until it is
              reconnected. -->
@@ -515,70 +532,43 @@
           <p id="accountReconnectText" class="note"></p>
           <button id="accountReconnectButton" type="button" class="primary">Reconnect</button>
         </div>
-        <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
+        <button id="homeSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects" hidden>Projects</button>
         <div id="homeRoomSearch" class="roomSearchRow" hidden>
-          <label for="homeRoomQuery" class="sr-only">Search saved rooms</label>
-          <input id="homeRoomQuery" type="search" placeholder="Search rooms or projects" autocomplete="off" spellcheck="false" />
+          <label for="homeRoomQuery">Find a room</label>
+          <input id="homeRoomQuery" type="search" placeholder="Find a room" autocomplete="off" spellcheck="false" />
           <button id="clearHomeRoomQuery" type="button" class="quiet" hidden>Clear</button>
         </div>
         <p id="homeRoomResults" class="note" role="status" hidden></p>
-        <p id="roomsEmpty" class="note" hidden>No saved rooms yet. Start a room or open an invite link. Check Room sync and privacy below if you expected rooms from another device.</p>
+        <p id="roomsEmpty" class="note" hidden></p>
         <div id="homeProjectFilter" class="projectFilter" hidden>
           <label for="homeProject">Project</label>
           <select id="homeProject"><option value="*">All projects</option></select>
         </div>
-        <ul id="roomList" class="roomList" aria-live="polite"></ul>
-        <!-- Under the list rather than over it. Somebody who comes back here
-             comes back for the rooms, and three lines about how the list is
-             read were three lines between them and the first one - enough,
-             on a 375 by 540 phone, to leave no room visible at all. -->
+        <ul id="roomList" class="roomList" aria-labelledby="roomsHeading"></ul>
         <p id="roomsNote" class="note" hidden></p>
       </section>
 
       <!-- These actions belong to the dashboard. Following an invitation
            opens its door directly, including while admission is pending. -->
       <section id="setup" hidden>
-        <div class="homeActionGrid">
         <!-- autocomplete off on the form itself: Firefox restores every control
-             on a reload, and the last room started with "Ask me first" would
-             quietly make the next one ask too. Each start form begins as written. -->
-        <form id="createRoomForm" class="homeCard" autocomplete="off">
-        <h3>Start a room</h3>
+             on a reload, and the last room started with "Ask me before
+             anyone joins" would quietly make the next one ask too. Each
+             start form begins as written. -->
+        <form id="createRoomForm" autocomplete="off">
+        <h3 id="newRoomHeading">New room</h3>
         <label for="roomName">Room name <span class="note">(optional)</span></label>
         <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
-               aria-label="Room name" aria-describedby="roomNameNote" />
-        <fieldset class="roomAccess" aria-label="Who can come in">
-          <legend class="sr-only">Who can come in</legend>
-          <label><input type="radio" name="roomAccess" value="anyone" checked /> Anyone with the link</label>
-          <label><input type="radio" name="roomAccess" value="ask" /> Ask me first</label>
-        </fieldset>
-        <button id="create" type="submit" class="primary">Start a room</button>
+               enterkeyhint="go" aria-label="Room name" />
+        <label class="checkboxRow"><input id="roomAsk" type="checkbox" /> Ask me before anyone joins</label>
+        <p id="roomAskHint" class="note" hidden>You let each person in yourself, so someone has to be in the room when they arrive.</p>
+        <div class="setupButtons">
+          <button id="create" type="submit" class="primary">Start a room</button>
+          <button id="cancelNewRoom" type="button" class="quiet">Cancel</button>
+        </div>
         <p id="createError" class="formError" role="alert" hidden></p>
         <p id="roomTypeNote" class="note" hidden></p>
-        <p id="roomNameNote" class="note">
-          No account needed. You pick a name next.
-        </p>
         </form>
-        <form id="openRoomForm" class="homeCard" novalidate>
-        <h3>Have an invite link?</h3>
-        <p class="note">Open a room link somebody sent you.</p>
-        <label for="url">Invite link</label>
-        <input id="url" type="url" placeholder="https://…#…" autocomplete="off" spellcheck="false" aria-describedby="linkError" />
-        <button id="openUrl" type="submit">Open invite link</button>
-        <p id="linkError" class="formError" role="alert" hidden></p>
-        </form>
-        </div>
-
-        <details id="roomSettings">
-          <summary>Settings</summary>
-          <button id="defaultRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
-          <label for="iceServers">
-            Helper servers that let two devices find each other, separated by
-            commas. The room hands these to everybody who joins, so nobody
-            has to take our word for which ones to use.
-          </label>
-          <input id="iceServers" placeholder="Leave blank to use this site's own STUN/TURN" />
-        </details>
       </section>
 
       <!-- Below the action, deliberately.
@@ -618,8 +608,8 @@
       <!-- Notifications come from this open app and nowhere else: there is
            no server to push from. Per device, off until asked for, and what
            reaches the operating system is the room and the sender unless
-           the second switch says the words may go too. -->
-      <button id="homeNotifications" type="button" class="quiet" aria-haspopup="dialog" aria-controls="notificationSettings">Notifications &amp; sound</button>
+           the second switch says the words may go too. Reached from
+           Settings on the rooms list, and from Room details once in a room. -->
       <section id="notify">
         <h3>Notifications &amp; sound</h3>
         <div class="toggles switchRow">
@@ -670,6 +660,40 @@
         <button id="switcherSharedProjects" type="button" class="quiet" aria-haspopup="dialog" aria-controls="sharedProjects">Projects</button>
         <p id="roomSwitcherEmpty" class="note" hidden>No matching rooms. Rooms you open while signed in appear here.</p>
         <button id="roomSwitcherHome" type="button" class="quiet">All rooms / Start a room</button>
+      </div>
+    </dialog>
+
+    <!-- Settings, reached from the rooms list. Everything the home page used
+         to carry on its own face, in one sheet: the same shape as Room
+         details' own Settings, so it reads as the same place rather than a
+         second one. -->
+    <dialog id="appSettings" aria-labelledby="appSettingsTitle">
+      <div class="sheetBar">
+        <h2 id="appSettingsTitle">Settings</h2>
+        <button id="appSettingsClose" type="button" class="primary" autofocus>Done</button>
+      </div>
+      <div class="sheetBody">
+        <h3 class="sheetHead">You</h3>
+        <div id="appSettingsYou"></div>
+
+        <h3 class="sheetHead">Text size</h3>
+        <fieldset class="textSizeChoice" data-text-size>
+          <legend class="sr-only">Text size</legend>
+          <label><input type="radio" name="appTextSize" value="standard" checked /> Standard</label>
+          <label><input type="radio" name="appTextSize" value="large" /> Large</label>
+          <label><input type="radio" name="appTextSize" value="huge" /> Huge</label>
+        </fieldset>
+
+        <div id="appSettingsNotify"></div>
+
+        <details id="appConnections">
+          <summary>Connections</summary>
+          <button id="defaultRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
+          <button id="appProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
+          <label for="iceServers">Call servers</label>
+          <p class="note">Servers that help two devices connect for a call, separated by commas. Rooms you start hand these to everyone who joins. Leave blank to use this site’s own.</p>
+          <input id="iceServers" />
+        </details>
       </div>
     </dialog>
 
