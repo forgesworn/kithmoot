@@ -372,6 +372,10 @@ details#roomSettings label {
    twenty points off the conversation. */
 #status:empty {
   min-height: 0;
+  /* The paragraph's own default top and bottom margin cost 32px under the
+     composer even with nothing written in it - the single biggest gap
+     found chasing B3's landscape numbers, and wasted everywhere else too. */
+  margin: 0;
 }
 
 #status {
@@ -4018,6 +4022,19 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   main:has(#roomArea:not([hidden])) > #roomArea { position: relative; }
   #roomArea > .roomBar { position: absolute; inset: 0 auto auto 0; width: 48%; height: 44px; padding: 0; border: 0; }
   #mobileRoomViews { padding: 0 0 .2rem 50%; }
+  /* B3: bars took 70% of a 390px-tall phone (117px left for the log). A
+     row of its own for Search and Invite cost 44px it does not have here;
+     both stay reachable in one tap from "…" (Room details already has
+     `#searchConversation` beside Invite), so the row is not drawn twice. */
+  .conversationTools { display: none; }
+  /* M1: the dock used to sit in normal flow while the room bar, absolutely
+     positioned above, was drawn at the same top-left corner - "Rooms",
+     "Book club" and "On a call in Design crit" overprinting each other.
+     The dock keeps its own full-width strip at the very top; the bar (and
+     the tabs beside it) move down to sit under it, never on it. */
+  #callDock:not([hidden]) { flex-wrap: nowrap; margin: 0; padding: 0 .5rem; height: 44px; border-radius: 0; border-width: 0 0 1px; }
+  #roomArea:has(> #callDock:not([hidden])) > .roomBar { top: 44px; }
+  #roomArea:has(> #callDock:not([hidden])) > #mobileRoomViews { padding-top: 44px; }
 }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   #roomArea[data-mobile-view="chat"] #chatInput { flex: 1 1 0; min-width: 0; width: auto; }
