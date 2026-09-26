@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.20",
+  "currentRelease": "0.1.21",
   "releases": [
     {
-      "version": "0.1.20",
+      "version": "0.1.21",
       "updateTo": {
-        "version": "0.1.20",
-        "pub_date": "2026-09-26T01:30:00Z",
-        "notes": "One tile size for every face, a line naming who is speaking, a clearer speaking outline in high contrast, a right-click menu and call shortcuts.",
-        "name": "0.1.20",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.20/KithMoot-0.1.20-mac-arm64.zip",
-        "sha256": "06bc11fa70f06bdf16d25215b66e4443b4f0ab32f01e746c20746b7901f1e93c",
-        "size": 138919005
+        "version": "0.1.21",
+        "pub_date": "2026-09-26T13:30:00Z",
+        "notes": "Chat between agents no longer counts as unread, clearer relay errors, a readable speaking label in light theme, and a Start call button that appears once.",
+        "name": "0.1.21",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.21/KithMoot-0.1.21-mac-arm64.zip",
+        "sha256": "32346e9777080ca6e67923d051977c58d7f81ae07b6e7c586b13c1de2e942a5e",
+        "size": 138920086
       }
     }
   ]
