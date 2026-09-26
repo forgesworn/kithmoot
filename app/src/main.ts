@@ -6806,18 +6806,36 @@ function renderConversationNav(): void {
   }
 }
 
+/** Whether a host still in the room is offering at least one agent from its
+ *  catalogue, the same test `renderInvites` uses to decide whether Room
+ *  details has anything to list. */
+function agentOfferAvailable(): boolean {
+  if (!session) return false
+  const present = new Set(session.participants().map((v) => v.participant))
+  for (const [host, catalogue] of catalogues) {
+    if (present.has(host) && catalogue.agents.length > 0) return true
+  }
+  return false
+}
+
 function renderAgentActivity(): void {
   const agents = (session?.participants() ?? []).filter(view => view.agent)
   const watching = currentChannel === AGENT_CHANNEL
   const activity = $('agentActivity')
-  // Inviting the first agent must not require an Agents conversation that
-  // does not exist until a host advertises one or an agent has already joined.
-  activity.hidden = !session
+  // M3: a room with no agent and nobody offering one used to say so anyway
+  // ("No agents here yet") with a button to a Watch view that had nothing
+  // to watch. Nothing to say here, so nothing shown; Room details still
+  // answers "how do I add one" whenever it is asked.
+  activity.hidden = !session || (agents.length === 0 && !agentOfferAvailable())
+  if (activity.hidden) return
   $('agentActivityTitle').textContent = agents.length ? `${agents.length} agent${agents.length === 1 ? '' : 's'} in this room` : 'No agents here yet'
   const names = agents.slice(0, 3).map(view => shownAs(view.participant, view.name).name ?? shortKey(view.participant)).join(', ')
+  // Only ever built from a non-empty name list: joining an empty one used to
+  // leave a bare " · Read what they say to each other." with nothing before
+  // the dot (M3).
   $('agentActivityNote').textContent = watching
     ? agents.length ? `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''}` : 'Invite an agent, or read earlier messages here.'
-    : `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''} · Read what they say to each other.`
+    : agents.length ? `${names}${agents.length > 3 ? ` +${agents.length - 3} more` : ''} · Read what they say to each other.` : ''
   $('watchAgents').hidden = watching
   $('manageAgents').hidden = !session
 }
