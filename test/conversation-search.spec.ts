@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
-import { goToConversation, openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { goToConversation, openCall, openRoomDetails, TEST_RELAY_WS } from './browser.js'
 import { withRelays } from './relays.js'
 
 async function setup(browser: Browser, baseURL: string, namedConversations = false) {
@@ -282,7 +282,7 @@ test('searching while the microphone is on keeps the call live', async ({ browse
   test.skip(test.info().project.name !== 'chromium', 'Chromium provides the synthetic microphone')
   const { page, writer, context } = await setup(browser, baseURL!)
   try {
-    await page.locator('#callToggle:visible, #mobileCall:visible').click()
+    await openCall(page)
     await expect(page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'false')
     await page.locator('#toggleMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')

@@ -3960,6 +3960,23 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   #roomArea[data-mobile-view="call"] #callStage { display: flex; position: static; inset: auto; width: auto; padding: 0; margin: 0; border: 0; flex: 1 1 0; min-height: 0; overflow: hidden; }
   #roomArea[data-mobile-view="call"] #callStage > #whoIsHere:not([hidden]) { order: 0; display: block; flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; }
   #roomArea[data-mobile-view="call"] #callStage > #callBay { order: 1; flex: 0 0 auto; padding: .5rem 0 .2rem; border: 0; }
+  /* Nobody is on a call yet: the phone's call view says so, in the same
+     words as the desktop resting strip (`renderCallState` writes both from
+     one label), with the one tap that starts or joins it. Tapping the Call
+     tab only opens this view; it never starts a call by itself. */
+  html[data-call-pane="resting"] #roomArea[data-mobile-view="call"] #callStage > .callStrip {
+    display: flex;
+    order: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: .5rem;
+    margin: 0;
+    padding: .75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  html[data-call-pane="resting"] #roomArea[data-mobile-view="call"] #callStage > .callStrip .callStripText { color: var(--muted); }
+  html[data-call-pane="resting"] #roomArea[data-mobile-view="call"] #callStage > .callStrip button { margin: 0; }
   #roomArea[data-mobile-view="call"] #room,
   #roomArea[data-mobile-view="call"] #room[data-tiles]:has(video) { display: grid; grid-template-columns: 1fr; gap: .65rem; }
   #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant { width: 100%; box-sizing: border-box; border-radius: 12px; padding: .6rem; }

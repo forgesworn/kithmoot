@@ -16,12 +16,10 @@ export function showMobileRoomView(view: 'chat' | 'call'): void {
 
 showMobileRoomView('chat')
 chat.addEventListener('click', () => showMobileRoomView('chat'))
-call.addEventListener('click', () => {
-  showMobileRoomView('call')
-  // This is navigation, including when returning from Chat during a call.
-  // Join is idempotent; the header toggle would leave an existing call.
-  document.getElementById('joinCall')!.click()
-})
+// Navigation only, whether or not a call is on: the tab opens the call view
+// and nothing more. Starting or joining is `#callStripAction`'s own click,
+// in the view it opens, so a tap on Call never itself starts a call.
+call.addEventListener('click', () => showMobileRoomView('call'))
 document.getElementById('mobileWork')!.addEventListener('click', () => document.getElementById('openAssignments')!.click())
 
 // Extra controls open over the call, never expand the page beneath it.

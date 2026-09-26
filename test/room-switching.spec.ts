@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { buildFileEvent } from '../src/attachment.js'
 import { fetchFromTestBlossom } from './blossom.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
-import { allowTestFileStorage } from './browser.js'
+import { allowTestFileStorage, openCall } from './browser.js'
 
 async function setup(browser: Browser, base: string, beforeJoin?: (context: BrowserContext, roomId: string, relay: string) => Promise<void>) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
@@ -125,7 +125,7 @@ test('switching rooms docks a live call instead of leaving it, and the dock lead
   test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone')
   const { context, page } = await setup(browser, baseURL!)
   try {
-    await page.locator('#callToggle:visible, #mobileCall:visible').click()
+    await openCall(page)
     await page.locator('#toggleMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     await page.locator('#backToRooms').click()
@@ -200,7 +200,7 @@ test('a late media permission result lands on the docked call, and leaving the d
           return start(constraints)
         }
       }, kind)
-      await page.locator('#callToggle:visible, #mobileCall:visible').click()
+      await openCall(page)
       await page.locator(kind === 'audio' ? '#toggleMic' : kind === 'video' ? '#toggleCamera' : '#toggleScreen').click()
       await expect.poll(() => page.evaluate(() => typeof (window as any).releaseMedia)).toBe('function')
       await page.locator('#backToRooms').click()
@@ -385,7 +385,7 @@ test('the self-view mirror can be turned off on this device, and stays off', asy
   const { context, page } = await setup(browser, baseURL!)
   try {
     const transform = () => page.locator('video.localCameraPreview').first().evaluate(video => getComputedStyle(video).transform)
-    await page.locator('#callToggle:visible, #mobileCall:visible').click()
+    await openCall(page)
     await page.locator('#toggleCamera').click()
     await expect(page.locator('video.localCameraPreview')).toHaveCount(1)
     expect(await transform()).toBe('matrix(-1, 0, 0, 1, 0, 0)')
@@ -406,7 +406,7 @@ test('the rooms list keeps a live call docked, and a room from the list brings i
   const { context, page } = await setup(browser, baseURL!)
   try {
     await page.evaluate(() => { (window as any).sameDocument = true })
-    await page.locator('#callToggle:visible, #mobileCall:visible').click()
+    await openCall(page)
     await page.locator('#toggleMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     await page.locator('#backToRooms').click()

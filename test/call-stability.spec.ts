@@ -812,6 +812,42 @@ test.describe('call stability', () => {
     })
   })
 
+  /**
+   * B1: the phone's Call tab is navigation, never an act. It used to click
+   * `#joinCall` on the way in, which creates a call when none exists - so
+   * opening the tab told the whole room "Sam started a call". Tapping it
+   * now only ever shows the call view; starting or joining stays the one
+   * explicit tap on that view's own strip action.
+   */
+  test('B1: the phone Call tab only opens the call view, and starts nothing', async ({ browser, baseURL }) => {
+    const watcherContext = await newDeviceContext(browser, baseURL!)
+    const phoneContext = await newDeviceContext(browser, baseURL!)
+    try {
+      const watcher = await watcherContext.newPage()
+      const url = await createRoom(watcher, baseURL!)
+      await open(watcher, url, 'Rowan')
+      await watcher.locator('#join').click()
+      await expect(watcher.locator('#roomArea')).toBeVisible()
+
+      const phone = await phoneContext.newPage()
+      await phone.setViewportSize({ width: 390, height: 844 })
+      await open(phone, url, 'Ada')
+      await phone.locator('#join').click()
+      await expect(phone.locator('#roomArea')).toBeVisible()
+
+      await phone.locator('#mobileCall').click()
+      await expect(phone.locator('#roomArea')).toHaveAttribute('data-mobile-view', 'call')
+      await expect(phone.getByRole('button', { name: 'Start call', exact: true })).toBeVisible()
+      await expect(phone.locator('#deviceControls')).toBeHidden()
+
+      await PAUSE(watcher, 5000)
+      await expect(watcher.locator('#callBanner')).toBeHidden()
+    } finally {
+      await watcherContext.close()
+      await phoneContext.close()
+    }
+  })
+
   test('same device key in a second tab: the others still hear that person', async ({ browser, baseURL }) => {
     test.setTimeout(600_000)
     const { people, contexts, url } = await joinAll(browser, baseURL!, ['Ada', 'Bob', 'Cara'])
