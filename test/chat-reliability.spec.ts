@@ -58,7 +58,9 @@ test('a lost acknowledgement retains the message and retries the same event in i
     reject = true
     await page.locator('#chatInput').fill('Please keep this message')
     await page.locator('#chatInput').press('Enter')
-    await expect(page.locator('#outbox')).toContainText('Send not confirmed')
+    // M6: the relay's own words ("acknowledgement lost after delivery") stay
+    // in the console for a bug report; the row reads the plain instruction.
+    await expect(page.locator('#outbox')).toContainText('Could not reach the network')
     await expect(page.locator('#outbox')).toContainText('Please keep this message')
     await expect(page.locator('#chatLog .msg')).toHaveCount(1)
     await goToConversation(page, 'Agents')

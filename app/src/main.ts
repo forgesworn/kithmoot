@@ -62,6 +62,7 @@ import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError } from './share-error.js'
+import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
 import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
@@ -9317,9 +9318,15 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     if (message.includes('expired')) {
       forgetCredential()
       setStatus('This device\u2019s pass for this room has run out. Ask your other device for a new one.')
-    } else if (isUnreachableRelayFailure(err)) {
-      setStatus(`Could not reach the room's relays. ${message}. Check your connection, then try again.`)
+    } else if (isNetworkFailure(err)) {
+      // A relay-pool failure is the jargon this collapses (M6): the room's
+      // own words stay in the console, for a bug report, and the person
+      // reads the plain instruction instead of "every relay rejected\u2026".
+      console.error('join failed:', message)
+      setStatus(describeFailureForPerson(err))
     } else {
+      // Anything else already says something a person can act on - a TURN
+      // relay missing, a stale invitation - so it keeps saying it.
       setStatus(`Could not join the room. ${message}. Check your connection or sign-in, then try again.`)
     }
   } finally {
@@ -11311,7 +11318,10 @@ $('createRoomForm').addEventListener('submit', async event => {
     $('identity').scrollIntoView({ block: 'start' })
     ;(typedName ? $('join') : $('displayName')).focus({ preventScroll: true })
   } catch (error) {
-    $('createError').textContent = `Could not create the room. ${describeError(error)}. Try again when connected.`
+    // The relay's own words stay in the console, for a bug report; the room
+    // itself only ever reads the plain instruction (M6).
+    console.error('room create failed:', describeError(error))
+    $('createError').textContent = describeFailureForPerson(error)
     $('createError').hidden = false
   } finally { button.disabled = false; button.textContent = 'Start a room' }
 })

@@ -293,7 +293,9 @@ test('failed relay publication leaves creation retryable and never presents a re
     const page = await context.newPage()
     await page.goto(baseURL!)
     await page.locator('#create').click()
-    await expect(page.locator('#createError')).toContainText('Could not create the room')
+    // M6: every relay rejecting the event collapses to the plain network
+    // instruction rather than the relay's own reason ("blocked: test rejection").
+    await expect(page.locator('#createError')).toContainText('Could not reach the network')
     await expect(page.locator('#create')).toBeEnabled()
     await expect(page.locator('#home')).toBeVisible()
     expect(new URL(page.url()).hash).toBe('')

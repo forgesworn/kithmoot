@@ -1,4 +1,5 @@
 import { confirmAction } from './confirm-action.js'
+import { describeFailure } from './error-copy.js'
 
 /** Pending and failed sends belong to their original conversation. Retrying
  * uses the prepared event, never the currently selected channel or draft. */
@@ -44,7 +45,10 @@ export class Outbox {
         await publish()
         remove()
       } catch (error) {
-        status.textContent = `Send not confirmed. ${error instanceof Error ? error.message : String(error)}`
+        // The relay's own words stay in the console, for a bug report; the
+        // row itself only ever reads the plain instruction (M6).
+        console.error('send failed:', error instanceof Error ? error.message : String(error))
+        status.textContent = describeFailure(error)
         retry.hidden = discard.hidden = false
       }
     }
