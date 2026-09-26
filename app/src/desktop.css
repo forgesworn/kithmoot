@@ -175,22 +175,15 @@ html[data-desktop][data-call-pane="controls"] #deviceControls > #micIndicator,
 html[data-desktop][data-call-pane="controls"] #deviceControls > #local { display: none; }
 html[data-desktop][data-call-pane="controls"] #callChips { display: flex; }
 
-html[data-desktop][data-call-pane="resting"] .callStrip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: nowrap;
-  gap: .75rem;
-  margin: 0;
-  padding: .35rem .6rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-html[data-desktop][data-call-pane="resting"] .callStripText { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
-html[data-desktop][data-call-pane="resting"] .callStrip button { margin: 0; white-space: nowrap; }
-/* The banner above already says a call is on and offers the way into it.
-   The strip beneath it would be the same offer twice on one screen. */
-html[data-desktop][data-call-pane="resting"] #roomArea:has(#callBanner:not([hidden])) .callStrip { display: none; }
+/* M7: this used to show the strip's own "Start call" beside the header's -
+   the same offer twice on one screen, in the room bar's own words plus the
+   strip's. The header's `#callToggle` already says "Start call", "Join
+   call" or "Leave call" from the same `renderCallState`, so the desktop
+   build's resting pane no longer draws the strip at all; the global
+   `.callStrip { display: none }` in style.css is left standing. The
+   compact phone build still shows it - see the `data-mobile-view="call"`
+   rule in style.css - because there the header's own call button is
+   hidden, and the strip is the call view's only way to start or join. */
 
 /* The rooms rail, and the control that puts it away.
    Collapsed, the grid column comes down to the control's own width and the
