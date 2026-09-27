@@ -639,3 +639,63 @@ test('somebody who leaves is gone from everybody else at once', async ({ browser
     await contextB.close()
   }
 })
+
+/**
+ * Taking the microphone back from your other device.
+ *
+ * A person on a phone and a laptop has one microphone between them: the
+ * device that claimed it last wins, and the other mutes itself on every
+ * render. The laptop's unmute used to stamp its claim with its own clock,
+ * so a phone whose clock ran ahead - or one that had just stamped past the
+ * newest claim, as the Android client does - kept the microphone, and the
+ * laptop's unmute was undone on the next render. From the person's side:
+ * the sound stopped, and nothing brought it back.
+ *
+ * The phone here runs twenty seconds fast. The laptop must still win.
+ */
+test('the laptop takes the microphone back from a paired phone whose clock runs ahead', async ({
+  browser,
+  baseURL,
+}) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+
+  const laptop = await newDeviceContext(browser, baseURL!)
+  const phone = await newDeviceContext(browser, baseURL!)
+  await phone.addInitScript(() => {
+    const real = Date.now
+    Date.now = () => real() + 20_000
+  })
+  try {
+    const pageLaptop = await laptop.newPage()
+    const pagePhone = await phone.newPage()
+
+    const url = await createRoom(pageLaptop, baseURL!)
+    await open(pageLaptop, url, 'Ada')
+    await pageLaptop.locator('#join').click()
+    await expect(pageLaptop.locator('#roomArea')).toBeVisible()
+    await openCall(pageLaptop)
+    await pageLaptop.locator('#toggleMic').click()
+    await expect(pageLaptop.locator('#micIndicator')).toHaveText('Mic: this device')
+    const pairUrl = await offerPairing(pageLaptop)
+
+    await Promise.all([open(pagePhone, pairUrl, 'Ada'), pageLaptop.getByRole('button', { name: 'Add device', exact: true }).click()])
+    await pagePhone.locator('#join').click()
+    await expect(pagePhone.locator('#roomArea')).toBeVisible()
+    await openCall(pagePhone)
+    await pagePhone.locator('#toggleMic').click()
+
+    // The phone picked the microphone up last, so it has it.
+    await expect(pagePhone.locator('#micIndicator')).toHaveText('Mic: this device', { timeout: 60_000 })
+    await expect(pageLaptop.locator('#micIndicator')).toHaveText('Your microphone is on your other device.', { timeout: 60_000 })
+
+    // The laptop takes it back, and keeps it past the next few renders.
+    await pageLaptop.locator('#claimMic').click()
+    await expect(pageLaptop.locator('#micIndicator')).toHaveText('Mic: this device', { timeout: 30_000 })
+    await expect(pagePhone.locator('#micIndicator')).toHaveText('Your microphone is on your other device.', { timeout: 30_000 })
+    await pageLaptop.waitForTimeout(3000)
+    await expect(pageLaptop.locator('#micIndicator')).toHaveText('Mic: this device')
+  } finally {
+    await laptop.close()
+    await phone.close()
+  }
+})

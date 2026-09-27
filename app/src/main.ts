@@ -4179,7 +4179,7 @@ async function toggleMic(): Promise<void> {
     // is claimed weakly, so it is this device's only when nothing else of
     // theirs is playing sound - see `WEAK_MONITOR_CLAIM`.
     besideAnotherDevice = false
-    micClaimedAt = nowSeconds()
+    micClaimedAt = takeRole('mic')
     monitorClaimedAt ??= WEAK_MONITOR_CLAIM
     // Our own tile lights up too, so a person can see they are being picked
     // up rather than guessing. Muting sets `track.enabled = false`, which
@@ -4193,7 +4193,7 @@ async function toggleMic(): Promise<void> {
       // An explicit unmute is how this device takes the mic back from
       // another paired device. The speaker stays where it was.
       besideAnotherDevice = false
-      micClaimedAt = nowSeconds()
+      micClaimedAt = takeRole('mic')
       monitorClaimedAt ??= WEAK_MONITOR_CLAIM
     }
     // Either way the roster's mute flag has to follow, so the far end's
@@ -4730,6 +4730,15 @@ let monitorClaimedAt: number | undefined
  * There is no safe way to infer physical proximity from room or network data,
  * so the person can silence this device while retaining its camera/share. */
 let besideAnotherDevice = false
+/** A deliberate take of a singular role from this person's other device.
+ *  Stamped past every claim already seen rather than at this device's own
+ *  clock: a phone whose clock runs a second or two ahead, or one that has
+ *  just taken the role itself, would otherwise keep winning, and an unmute
+ *  here would be undone on the next render - see `renderCallMedia`. */
+function takeRole(role: SingularRole): number {
+  try { return mediaSession()?.nextRoleClaim(role) ?? nowSeconds() }
+  catch { return nowSeconds() }
+}
 /** A speaker claim that loses to any real one. A device with only a
  *  microphone on claims the speaker this weakly, so two devices of one
  *  person never both play sound unless the person asks. */
@@ -4769,8 +4778,8 @@ function toggleCompanionMode(): void {
     if (micTrack) micTrack.enabled = false
     micClaimedAt = monitorClaimedAt = undefined
   } else {
-    if (micTrack) micClaimedAt = nowSeconds()
-    if (micTrack || cameraTrack || screenTrack) monitorClaimedAt = nowSeconds()
+    if (micTrack) micClaimedAt = takeRole('mic')
+    if (micTrack || cameraTrack || screenTrack) monitorClaimedAt = takeRole('monitor')
   }
   publishActiveTracks()
   updateUi()

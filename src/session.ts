@@ -1858,7 +1858,18 @@ export class RoomSession {
     const entries = this.#opts.policy?.agents === 'owned-by-members'
       ? fresh.filter((entry) => evaluateAgentAccess(this.#opts.policy, entry, (principal) => present.has(principal), this.#now()).admitted)
       : fresh
-    const roles = resolveSingularRoles(entries)
+    // Our own claims as they stand now, not as the relay last echoed them.
+    // A claim is published and comes back a round trip later - longer on a
+    // slow relay - and a client enforcing the answer in between would see
+    // its other device still holding the microphone and mute the one the
+    // person has just unmuted, for good: the echo that follows says this
+    // device holds it, muted.
+    const self = this.#self && !this.#left ? this.#self : undefined
+    const mine = (entry: RosterEntry) => entry.device === this.device && entry.sid === this.sid
+    const roleEntries = self
+      ? [...entries.filter((entry) => !mine(entry)), { ...(entries.find(mine) ?? { participant: this.participant, device: this.device }), claims: self.claims } as RosterEntry]
+      : entries
+    const roles = resolveSingularRoles(roleEntries)
     const byParticipant = new Map<string, ParticipantView>()
     /** When the name currently held for a participant was last restated. */
     const nameStamp = new Map<string, number>()
