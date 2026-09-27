@@ -8,6 +8,8 @@ declare global {
       shareAreaMode?: 'frame' | 'preview' | null
       armShareArea(): Promise<boolean>
       shareAreaState(): Promise<AreaRect | null>
+      /** macOS's Screen Recording status for the app; 'granted' elsewhere. */
+      screenAccess?(): Promise<string>
       shareAreaAction(action: string, value?: unknown): void
       onShareAreaState(listener: (state: AreaRect | null) => void): () => void
       setCallActive(active: boolean): void
