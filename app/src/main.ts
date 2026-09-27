@@ -4031,7 +4031,7 @@ async function rotateRoomInvitation(): Promise<void> {
       now: nowSeconds(),
     }))
   } finally {
-    retirementTransport.close()
+    closeWhenSettled(retirementTransport)
   }
   stopInvitationHost()
   forgetInvitationOwner(retired)
@@ -4062,8 +4062,16 @@ async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8A
     ])
   } finally {
     if (timer !== undefined) clearTimeout(timer)
-    pool.close()
+    closeWhenSettled(pool)
   }
+}
+
+/** Close a pool used for one durable event once every relay has answered,
+ *  in the background. Closing at the first ack aborted the other relays'
+ *  writes, which left a group invitation on a single relay: a member or
+ *  agent that later used only another of the room's relays could not join. */
+function closeWhenSettled(pool: NostrRelayPool): void {
+  void pool.settled().finally(() => pool.close())
 }
 
 async function makeRoomPersistent(): Promise<void> {
@@ -11783,7 +11791,7 @@ async function endRoomForEveryone(): Promise<void> {
   try {
     await retirement.publish(encodeInvitationRetirement({ invitation, inviterSk: authoritySk, now: nowSeconds(), ended: true }))
   } finally {
-    retirement.close()
+    closeWhenSettled(retirement)
   }
   stopInvitationHost()
   endingRoom = true
