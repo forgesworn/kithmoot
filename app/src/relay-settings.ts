@@ -190,7 +190,10 @@ export class RelayConnections {
       const connected = matches.some(health => health.state === 'connected')
       const lastWrite = matches.filter(health => health.lastPublishedAt).sort((a, b) => b.lastPublishedAt! - a.lastPublishedAt!)[0]
       const failed = matches.find(health => health.lastError)
-      return { ...lastWrite, ...relay, lastError: failed?.lastError,
+      // One pool that found the relay forgets chat outweighs another that
+      // has not asked yet.
+      const keepsChat = matches.some(health => health.keepsChat === false) ? false : matches.some(health => health.keepsChat) ? true : undefined
+      return { ...lastWrite, ...relay, lastError: failed?.lastError, keepsChat,
         authentication: matches.find(health => health.authentication === 'authenticated')?.authentication ?? matches.find(health => health.authentication)?.authentication,
         state: connected ? 'connected' : matches.some(health => health.state === 'connecting') ? 'connecting'
           : matches.some(health => health.state === 'disconnected') ? 'disconnected' : 'idle' }
@@ -323,6 +326,7 @@ export class RelaySettingsPanel {
       else if (found?.authentication === 'allowed' && found.state === 'connecting') text.textContent = 'Authenticating…'
       if (found?.lastPublishedAt) text.textContent += ` · Last accepted write ${new Date(found.lastPublishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} (${found.publishLatencyMs} ms)`
       if (found?.lastError) text.textContent += ` · ${found.lastError}`
+      if (found?.keepsChat === false) text.textContent += ' · Does not keep chat: it accepted this room\'s messages and returned none'
     }
   }
 }

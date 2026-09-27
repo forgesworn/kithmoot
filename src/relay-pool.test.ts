@@ -139,6 +139,24 @@ describe('NostrRelayPool', () => {
     expect(b.stored.map((e) => e.id)).toEqual([event.id])
   })
 
+  it('asks one relay alone, writes to one relay alone, and records whether it keeps chat', async () => {
+    // A room's shared subscription hides which relay held what; a device
+    // putting history back has to ask, and write to, each one separately.
+    const onlyA = evt(1460, [['d', 'room']])
+    const onBoth = evt(1460, [['d', 'room']])
+    a.seed(onlyA); a.seed(onBoth); b.seed(onBoth)
+    expect((await pool.query(URL_B, [{ kinds: [1460], '#d': ['room'] }], 2_000)).map(e => e.id)).toEqual([onBoth.id])
+    expect((await pool.query(URL_A, [{ kinds: [1460], '#d': ['room'] }], 2_000)).map(e => e.id).sort()).toEqual([onlyA.id, onBoth.id].sort())
+    await pool.publishTo(URL_B, onlyA)
+    expect(b.stored.map(e => e.id)).toContain(onlyA.id)
+    expect(a.stored.filter(e => e.id === onlyA.id)).toHaveLength(1)
+    await expect(pool.publishTo('wss://elsewhere.test', onlyA)).rejects.toThrow(/not a writable relay/)
+    await expect(pool.query('wss://elsewhere.test', [{ kinds: [1460] }])).rejects.toThrow(/not a readable relay/)
+    pool.noteKeepsChat(URL_B, false)
+    pool.noteKeepsChat('wss://elsewhere.test', false)
+    expect(pool.health().map(h => h.keepsChat)).toEqual([undefined, false])
+  })
+
   it('succeeds when one relay accepts and the other refuses', async () => {
     b.rejectPublishes = true
     const event = evt()

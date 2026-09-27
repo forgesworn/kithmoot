@@ -42,6 +42,10 @@ export interface RelayHealth extends RelayConfig {
   publishLatencyMs?: number
   lastError?: string
   authentication?: 'allowed' | 'authenticated' | 'failed' | 'withdrawn'
+  /** False once this device handed the relay room chat it accepted and
+   *  then returned none of it: a relay that does not keep chat. See
+   *  `noteKeepsChat`. */
+  keepsChat?: boolean
 }
 
 
@@ -369,6 +373,58 @@ export class NostrRelayPool implements RelayTransport {
     this.#pool.close([url])
     this.#attempted.set(url, Date.now())
     for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
+  }
+
+  /**
+   * Ask one configured, readable relay alone and collect what it returns
+   * until it says it has sent everything or `timeoutMs` passes. A room's
+   * shared subscription cannot say which relay holds what, because the
+   * first relay to deliver an event hides every later copy; this can. The
+   * events are signature-checked like every other.
+   */
+  query(url: string, filters: Filter[], timeoutMs = 8_000): Promise<Event[]> {
+    if (this.#closed) return Promise.reject(new Error('pool is closed'))
+    const relay = this.#relays.find(r => r.url === normalizeURL(url))
+    if (!relay?.read) return Promise.reject(new Error('not a readable relay of this pool'))
+    return new Promise(resolve => {
+      const events = new Map<string, Event>()
+      let settled = false
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        handle.close()
+        resolve([...events.values()])
+      }
+      const handle = this.#pool.subscribeMap(filters.map(filter => ({ url: relay.url, filter: { ...filter } })), {
+        abort: this.#abort.signal,
+        maxWait: timeoutMs,
+        onevent: event => { events.set(event.id, event) },
+        oneose: finish,
+        onclose: finish,
+      })
+      const timer = setTimeout(finish, timeoutMs)
+    })
+  }
+
+  /** Publish to one configured, writable relay only, with the same retry
+   *  and health bookkeeping as `publish`. */
+  async publishTo(url: string, event: Event): Promise<void> {
+    if (this.#closed) throw new Error('pool is closed')
+    const relay = this.#relays.find(r => r.url === normalizeURL(url))
+    if (!relay?.write) throw new Error('not a writable relay of this pool')
+    this.#publishing++
+    try {
+      await this.#publishToRelay(relay.url, event, this.#generation, Date.now())
+    } finally {
+      this.#publishing--
+    }
+  }
+
+  /** Record whether a relay keeps room chat, as a device found by handing
+   *  it some and asking for it back. Shown in the relay's health. */
+  noteKeepsChat(url: string, keeps: boolean): void {
+    if (this.#relays.some(r => r.url === normalizeURL(url))) this.#mark(url, { keepsChat: keeps })
   }
 
   describe(): RelayConfig[] {
