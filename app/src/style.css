@@ -2962,7 +2962,6 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .roomsHead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1.5rem 0 .5rem; }
 #home #roomsHeading { margin: 0; font-size: 1.25rem; font-weight: 600; text-transform: none; color: var(--text); }
 #newRoom { margin: 0; }
-@media (min-width: 1100px) { #newRoom { display: none; } }
 .roomSearchRow { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
 .roomSearchRow label { font-weight: 600; }
 .accountReconnect { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin: 0 0 .75rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); }
@@ -3120,40 +3119,10 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   #home[data-state='cold'] #homeFoot { grid-column: 1; margin-top: .5rem; }
 }
 
-/* Expanded: home takes the in-room rail's own left edge and column shape,
-   so leaving a room does not turn the window into a different kind of page
-   (finding 5). The New room pane is always open here; its list heading
-   button is hidden by the rule above. */
-@media (min-width: 1100px) {
-  /* The list's left edge matches the in-room rail's: both start at the
-     body's own padding, flush left, rather than centred in a narrower
-     reading column - the point being that leaving a room does not turn
-     the window into a different shape (finding 5). */
-  body:has(#home[data-state='returning']:not([hidden])) { max-width: none; }
-  #home[data-state='returning'] {
-    max-width: 64rem;
-    margin-inline: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 40rem) 20rem;
-    /* Column gap only: a row-gap here would add extra space between
-       #homeActions and #homeFoot on top of #homeFoot's own margin-top,
-       which is the one gap that is supposed to separate them. */
-    column-gap: 3rem;
-    row-gap: 0;
-    align-items: start;
-  }
-  /* #homeRooms spans both implicit rows so the left column's own height
-     (the list) never sets the right column's row heights: without this,
-     #homeFoot auto-placed into row 2 started at the bottom of row 1 - the
-     taller of #homeRooms and #homeActions - leaving a much bigger gap
-     under Start a room than the gap above it. */
-  #home[data-state='returning'] #homeRooms { grid-column: 1; grid-row: 1 / span 2; }
-  #home[data-state='returning'] #homeActions { grid-column: 2; grid-row: 1; }
-  #home[data-state='returning'] #homeFoot { grid-column: 2; grid-row: 2; }
-  #home[data-state='returning'] #setup.collapsed { display: block; }
-  /* Always open here, so there is nothing for Cancel to cancel back to. */
-  #home[data-state='returning'] #cancelNewRoom { display: none; }
-}
+/* One centred column at every width, the same shape as the window grows
+   or shrinks. It used to turn into a flush-left list beside an always-open
+   New room form at 1100px, which read as a different page on resize and
+   left most of a wide window empty. */
 
 #identity { padding: clamp(1rem, 4vw, 2rem); border-radius: 12px; }
 #identity .lead { margin: .5rem 0 1.25rem; color: var(--muted); font-size: 1rem; }

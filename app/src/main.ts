@@ -9565,13 +9565,21 @@ function renderRooms(): void {
   // or project arrives: Projects (organising()) and the reconnect banner
   // both live inside it, and both must stay reachable from the first
   // moment somebody who can use them is signed in.
-  const returning = rooms.length > 0 || !!nostrSession || accountDisconnected()
+  // A sign-in from an earlier visit is restored after the first paint, and
+  // a bunker can take seconds. Until it lands this is somebody whose rooms
+  // are on their way, not a stranger to welcome, and the rooms this browser
+  // holds on its own are not the list they are about to see.
+  const restoring = identityRestoring && !!expectedAccount && !nostrSession
+  const returning = rooms.length > 0 || !!nostrSession || accountDisconnected() || restoring
   $('home').dataset.state = returning ? 'returning' : 'cold'
   $('home').setAttribute('aria-labelledby', returning ? 'roomsHeading' : 'homeHeading')
   $('rooms').hidden = !returning
   renderHomeSyncStatus()
   $('accountReconnect').hidden = !accountDisconnected()
-  $('homeSignIn').hidden = !!nostrSession
+  $('homeSignIn').hidden = !!nostrSession || restoring
+  list.hidden = restoring
+  $('roomsEmpty').textContent = restoring ? 'Loading your rooms…' : ''
+  $('roomsEmpty').hidden = !restoring
   if (accountDisconnected()) {
     const signer = signerLabel(expectedMethod)
     const kept = hidden.filter(room => !knownRoom(deviceStore, room.roomId)).length
@@ -10122,6 +10130,19 @@ function disarmStopOpening(): void {
   $('stopOpening').hidden = true
 }
 
+/** The door while a room you already know is opening: its name and a
+ *  word about connecting, never "pick a name", which belongs to invitations. */
+function showOpening(room: KnownRoom): void {
+  $('arrivalTitle').textContent = `Opening ${knownRoomLabel(room)}`
+  // One line of progress: the status under the title, which joining
+  // itself goes on to update.
+  $('arrivalLead').hidden = true
+  if (!$('status').textContent) setStatus('Connecting to the room…', 'progress')
+  $('joinRoomForm').hidden = true
+  $('identityMore').hidden = true
+  $('arrivalActions').hidden = true
+}
+
 async function switchRoom(room: KnownRoom): Promise<void> {
   if (switchingRoom) return
   if (session && room.roomId === currentRoomId()) {
@@ -10163,13 +10184,8 @@ async function switchRoom(room: KnownRoom): Promise<void> {
     // Bookmarks provide an invitation fragment, never an external redirect.
     history.replaceState(null, '', joinLinkBase() + hash)
     $('identity').hidden = false
-    $('arrivalTitle').textContent = `Opening ${knownRoomLabel(room)}`
-    $('arrivalLead').textContent = 'Connecting to the room…'
-    $('arrivalLead').hidden = false
-    $('joinRoomForm').hidden = true
-    $('identityMore').hidden = true
-    $('arrivalActions').hidden = true
     setStatus('')
+    showOpening(room)
     if (!await roomFromLocation()) throw new Error('The room has no invitation link.')
     if (sharedProjects.forRoom(room.roomId).length && currentRoomId() !== room.roomId) throw new Error('This project invitation opened a different room. Ask the project owner to correct it before continuing.')
     showRoomUi()
@@ -10179,7 +10195,16 @@ async function switchRoom(room: KnownRoom): Promise<void> {
       setStatus('Check your sign-in before entering: the account used to switch rooms is not available.')
       return
     }
+    // A room you have been in is not an invitation: it goes straight in
+    // under the name it already has, so the door's name form stays away
+    // unless joining fails and there is something to change.
+    showOpening(room)
     await startSession()
+    if (!session) {
+      $('joinRoomForm').hidden = false
+      $('identityMore').hidden = false
+      renderArrival()
+    }
   } catch (error) {
     showArrivalFailure(error)
     // Keep the room list within reach when admission fails. Drafts in the
