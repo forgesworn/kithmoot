@@ -506,16 +506,18 @@ signature per join.
   the only signal that exists. Nothing on the wire distinguishes a real
   Nostr key from one this browser generated a moment ago, and nothing
   could.
-- **Public-profile lookup is on by default.** Room details offers a
-  switch remembered on this device. Looking profiles up gives the room's
+- **Public-profile lookup is on by default in open rooms, and off in
+  direct messages and quiet conversations.** Room details offers a switch
+  for each, remembered on this device. Looking profiles up gives the room's
   relays, and a fixed set of public aggregator relays (purplepag.es,
   relay.damus.io, nos.lol and relay.primal.net), the participant keys in
   plaintext queries, and loading pictures contacts their hosts. NIP-05
   addresses are checked with their domains and shown only when the address
   maps to the profile key. Turning it off stops further lookups and removes
-  the loaded profiles; it cannot retract requests already sent. Other
-  members can independently enable lookups, so this is not a room-wide
-  privacy guarantee.
+  the loaded profiles; it cannot retract requests already sent. The rooms
+  list looks nobody up, and a name-only key made in this browser is never
+  looked up by the browser that made it. Other members can independently
+  enable lookups, so this is not a room-wide privacy guarantee.
 - **A kind-0 name is also self-asserted.** It says "the holder of this key
   calls themselves Robin", which is the same kind of claim as a typed
   name; the difference is that the key is persistent and has a history.

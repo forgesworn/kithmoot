@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Public-profile lookups stay out of direct messages and quiet
+  conversations** until a second switch in Profile pictures and names,
+  off by default, says otherwise. Names already learned stay. The rooms
+  list no longer looks anybody up, and a browser no longer asks the relays
+  about a name-only key it made itself. No wire change. See "A kind-0
+  profile is a fact about a key" in `docs/decisions.md`.
 - **Call bell, kind 1464.** Wire change, additive: the first device on a
   call publishes one `start` bell and the last one off publishes one `end`,
   so a phone with the app closed can wait for a call on an idle socket

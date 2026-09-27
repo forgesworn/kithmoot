@@ -34,7 +34,10 @@ import { normalizeURL } from 'nostr-tools/utils'
  * and nothing else - can also learn which participant keys are in it.
  *
  * The app enables lookups by default, with a persistent switch in profile
- * settings. Disabling closes subscriptions and removes cached profiles and
+ * settings, and holds them back in a room with a member list until a
+ * second switch says otherwise - see `profile-lookups.ts` for that rule,
+ * which the book itself knows nothing about: it is enabled or it is not.
+ * Disabling closes subscriptions and removes cached profiles and
  * external pictures. NIP-05 checks also contact the address domains with no
  * cookies or referrer. Disabling aborts those checks. It cannot undo a request already sent.
  *

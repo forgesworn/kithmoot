@@ -1225,7 +1225,11 @@
       <label class="profileChoice"><input id="lookupProfiles" type="checkbox" checked /> Show public profile pictures, names and Nostr addresses</label>
       <p class="note">Show the picture and name published by each person’s Nostr key. Names are chosen by their owners.</p>
       <p class="note">This sends people’s keys to the room’s relays and to public profile relays, and loads pictures from their hosts. Nostr addresses are checked with their domains. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
-      <p class="note">A new room identity may not have a public profile. It keeps its name and short code here.</p>
+      <p id="lookupRelays" class="note" hidden></p>
+      <label class="profileChoice"><input id="lookupProfilesMemberRooms" type="checkbox" /> Also in direct messages and quiet conversations</label>
+      <p class="note">Off unless you turn it on. Looking somebody up there tells those relays who you are talking to, which is what a direct message keeps from them. Names you have already seen stay.</p>
+      <p id="lookupHeld" class="note" hidden>Nothing is being looked up in this conversation.</p>
+      <p class="note">A new room identity may not have a public profile. It keeps its name and short code here. A name-only identity made in this browser is never looked up.</p>
     </dialog>
 
     <dialog id="relaySettings" class="profileSettings" aria-labelledby="relaySettingsTitle">

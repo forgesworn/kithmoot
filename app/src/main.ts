@@ -210,6 +210,7 @@ import {
 } from './call-prefs.js'
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type Profile } from './profiles.js'
+import { lookupHosts, lookupsAllowed, memberRoomsPreference, saveMemberRoomsPreference } from './profile-lookups.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay-settings.js'
 import { renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
@@ -894,7 +895,7 @@ async function signInWithNostr(): Promise<void> {
   nostrSession = account
   rememberAccount(account)
   startRoomBookmarks(account)
-  profiles.want([account.pubkey])
+  wantProfiles([account.pubkey])
   renderIdentity()
   if (previous && previous !== account.pubkey) {
     const now = shownAs(account.pubkey), before = shownAs(previous)
@@ -1740,20 +1741,83 @@ const profiles = new ProfileBook({
 })
 
 let profilesEnabled = profilePreference(relayStorage)
-profiles.setEnabled(profilesEnabled)
-;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
-$('roomProfileSettings').textContent = `Profile pictures: ${profilesEnabled ? 'on' : 'off'}`
-$('lookupProfiles').addEventListener('change', () => {
-  const enabled = ($('lookupProfiles') as HTMLInputElement).checked
-  profilesEnabled = enabled
-  try { localStorage.setItem('kithmoot.profiles.enabled', String(enabled)) } catch { /* The switch still applies to this visit. */ }
-  profiles.setEnabled(enabled)
-  $('roomProfileSettings').textContent = `Profile pictures: ${enabled ? 'on' : 'off'}`
+/** The second switch: lookups in a room that names its members, a direct
+ *  message or a quiet conversation. Off until asked for - see
+ *  `profile-lookups.ts`. */
+let profilesInMemberRooms = memberRoomsPreference(relayStorage)
+
+/** Whether lookups run where this page is now. `profilesEnabled` stays the
+ *  person's own choice and is what decides whether a remembered name is
+ *  shown; this is whether anything is asked of a relay. */
+function profilesActive(): boolean {
+  return lookupsAllowed({ enabled: profilesEnabled, inMemberRooms: profilesInMemberRooms, policy: roomPolicy })
+}
+
+function renderProfileChoice(): void {
+  ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
+  const second = $('lookupProfilesMemberRooms') as HTMLInputElement
+  second.checked = profilesInMemberRooms
+  second.disabled = !profilesEnabled
+  const held = profilesEnabled && !profilesActive()
+  $('roomProfileSettings').textContent = `Profile pictures: ${profilesActive() ? 'on' : held ? 'off in this conversation' : 'off'}`
+  $('lookupHeld').hidden = !held
+  const hosts = lookupHosts([...relays, ...PROFILE_RELAYS])
+  $('lookupRelays').textContent = profilesActive() && hosts.length ? `Lookups from here ask: ${hosts.join(', ')}.` : ''
+  $('lookupRelays').hidden = !$('lookupRelays').textContent
+}
+
+let madeHereFor: { secret: Uint8Array; pubkey: string } | undefined
+/** Whether a key is one this browser made for a visitor. It has no profile
+ *  to find, and asking for one hands the relays the participant key that
+ *  the room's own events keep inside the ciphertext. */
+function madeHere(pubkey: string): boolean {
+  if (nostrSession?.pubkey === pubkey) return false
+  const secret = loadParticipantKey()
+  if (!secret) return false
+  // Deriving the key is the dear part, and this runs on every render.
+  const known = madeHereFor?.secret
+  if (!madeHereFor || !known || known.length !== secret.length || !known.every((byte, i) => byte === secret[i])) {
+    madeHereFor = { secret, pubkey: getPublicKey(secret) }
+  }
+  return madeHereFor.pubkey === pubkey
+}
+
+/** Ask about these keys, where lookups run at all. Cheap on every render. */
+function wantProfiles(pubkeys: string[]): void {
+  const asked = pubkeys.filter((pubkey) => !madeHere(pubkey))
+  if (asked.length) profiles.want(asked)
+}
+
+/** Start the book again for where the page now is: the sockets opened for
+ *  the room being left are closed with the keys asked on them, and nothing
+ *  is asked in a room the rule keeps lookups out of. */
+function restartProfiles(): void {
+  profiles.setEnabled(false)
+  profiles.setEnabled(profilesActive())
+  renderProfileChoice()
+}
+
+function applyProfileChoice(): void {
+  profiles.setEnabled(profilesActive())
+  renderProfileChoice()
   if (session) {
     render(session.participants(), meParticipant)
     repaintActiveChat()
   }
   renderIdentity()
+}
+
+profiles.setEnabled(profilesActive())
+renderProfileChoice()
+$('lookupProfiles').addEventListener('change', () => {
+  profilesEnabled = ($('lookupProfiles') as HTMLInputElement).checked
+  try { localStorage.setItem('kithmoot.profiles.enabled', String(profilesEnabled)) } catch { /* The switch still applies to this visit. */ }
+  applyProfileChoice()
+})
+$('lookupProfilesMemberRooms').addEventListener('change', () => {
+  profilesInMemberRooms = ($('lookupProfilesMemberRooms') as HTMLInputElement).checked
+  saveMemberRoomsPreference(relayStorage, profilesInMemberRooms)
+  applyProfileChoice()
 })
 
 /**
@@ -2071,7 +2135,7 @@ function renderIdentity(): void {
   accountProfile.replaceChildren()
   accountProfile.hidden = !nostrSession
   if (nostrSession) {
-    profiles.want([nostrSession.pubkey])
+    wantProfiles([nostrSession.pubkey])
     accountProfile.append(identityRun(shownAs(nostrSession.pubkey), true, true, true))
   }
   renderHistoryRecovery()
@@ -2154,7 +2218,7 @@ function renderIdentity(): void {
 
   const name = joiningName()
   const participant = session ? meParticipant : loadCredential()?.pubkey ?? currentParticipant()
-  if (participant) profiles.want([participant])
+  if (participant) wantProfiles([participant])
 
   // Nothing to say until there is a name or a key to say it about. An
   // identity line that reads "nobody in particular yet" is two lines of the
@@ -2674,7 +2738,7 @@ async function roomFromLocation(): Promise<boolean> {
     invitationDelegation = []
   }
 
-  profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
+  restartProfiles()
   iceUrls = parsedLink.iceUrls.length ? parsedLink.iceUrls : DEFAULT_ICE_URLS
 
   if (parsedLink.pairingCode) {
@@ -3205,7 +3269,7 @@ async function startNewRoom(): Promise<void> {
   useRoomRelays()
   iceUrls = parseIceInput()
   roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
-  profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
+  restartProfiles()
   serveCurrentInvitation()
   history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
   rememberCurrentRoom()
@@ -5064,7 +5128,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
   // Ask about every key in the room, so anyone with a published Nostr
   // profile is shown as having one. Cheap to repeat - the book only looks
   // up a key it has not seen.
-  profiles.want(views.map((v) => v.participant))
+  wantProfiles(views.map((v) => v.participant))
 
   for (const view of views) {
     // An agent with nothing on screen - a keeper, a host, one that only
@@ -7356,7 +7420,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   // puts the thing you should know once at the head of the thread.
   if (session) log.append(introLines())
   pruneOpenedAttachments(logId, messages)
-  profiles.want(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
+  wantProfiles(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])))
 
   const namesOfMine = myNames()
   const roster = session?.participants() ?? []
@@ -9771,7 +9835,10 @@ function roomRowState(room: KnownRoom): RoomRowState {
 
   const present = watched.watch.present()
   const presence = present.length > 0 ? presenceText(present) : undefined
-  if (present.length) profiles.want(present.map((p) => p.participant))
+  // No lookup from here. The list holds several rooms at once, and asking
+  // about each one's people over the same sockets would hand a relay the
+  // member sets of rooms it has no other way to connect. A face shows
+  // here once the room it belongs to has been opened.
 
   const description = [unreadSpoken, preview, time, presence?.spoken].filter(Boolean).join('. ')
   return { preview, time, unreadVisible, unreadSpoken, unreadCount: split.people, agentCount: split.agents, presence, presenceCount: present.length, description }
@@ -10454,6 +10521,9 @@ function resetRoomState(): void {
   relays = RELAYS
   roomRelayConfig = relayConnections.configuration('default')
   iceUrls = DEFAULT_ICE_URLS
+  // The room's lookups end with the room, and the rule outside a room is
+  // the person's own switch again.
+  restartProfiles()
   // Carrying others, and this device's key, belong to the docked call.
   if (!docked()) {
     myDeviceId = ''
@@ -11353,7 +11423,7 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
     if (scope === roomRelayScope) {
       roomRelayConfig = entries
       relays = entries.map(relay => relay.url)
-      profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
+      restartProfiles()
       if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
       renderIdentity()
       if (currentRoomId()) {
@@ -13434,7 +13504,7 @@ const identityReady = restoreSessionWithExtensionGrace()
     nostrSession = session
     rememberAccount(session)
     startRoomBookmarks(session)
-    profiles.want([session.pubkey])
+    wantProfiles([session.pubkey])
     renderIdentity()
     renderNudgeChoice()
   })
@@ -13466,7 +13536,7 @@ Promise.all([roomArrival, identityReady]).then(([found]) => {
 // The pubkey we would join as, so the identity line is right before the
 // first room is ever opened.
 const known = currentParticipant()
-if (known) profiles.want([known])
+if (known) wantProfiles([known])
 
 // Restore only explicit discovery preferences after all screen state exists.
 boxDiscovery = new BoxDiscovery({

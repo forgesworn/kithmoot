@@ -294,6 +294,27 @@ Profile settings explains this beside the persistent switch. Disabling it closes
 subscriptions and clears loaded profiles. This limits this browser's
 disclosure, not what another member can choose to disclose.
 
+**Three places it does not run, since 28 September 2026.** A room with a
+member list, which is a direct message or a quiet conversation, exists to
+keep who is in it from the relays, and a lookup there names both people to
+every relay asked. So it waits for a second switch that starts off. A name
+already learned from a verified profile is still shown, because showing it
+asks nobody anything. The rooms list asks about nobody: it holds several
+rooms at once, and asking about each one's people over the same sockets
+hands a relay the member sets of rooms it had no other way to connect. And
+a browser never asks about a key it made itself for a name-only visitor:
+there is no profile to find, and the question tells the room's relays the
+participant key that the room's own events keep inside the ciphertext. The
+cost is fewer faces: no pictures in a direct message until the person asks
+for them, and none in the list for a room not yet opened on this visit.
+
+What this leaves open, stated so it is chosen: in an open room the lookup
+still goes to the room's own relays as well as the public ones, which is
+the relay best placed to use it. Asking only relays that do not carry the
+room, carrying a person's own signed profile inside the room so nobody has
+to ask, and loading pictures on a tap are the three answers, and each has
+a cost that is the owner's to weigh.
+
 It is deliberately never called "verified". A kind-0 `name` is self-asserted
 in exactly the way a typed name is. It says "the holder of this key calls
 themselves Robin", and the only difference is that the key is persistent and
