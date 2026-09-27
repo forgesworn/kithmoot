@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.24",
+  "currentRelease": "0.1.25",
   "releases": [
     {
-      "version": "0.1.24",
+      "version": "0.1.25",
       "updateTo": {
-        "version": "0.1.24",
-        "pub_date": "2026-09-27T13:00:00Z",
-        "notes": "Rooms you have been in open straight in, without asking for your name again. The start page keeps one shape as you resize the window, and no longer flashes the welcome screen while your sign-in loads.",
-        "name": "0.1.24",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.24/KithMoot-0.1.24-mac-arm64.zip",
-        "sha256": "1cb03654716f32293ca72e1c79ab6f5745bb90ce8e5935466f6cd91d88451731",
-        "size": 138923852
+        "version": "0.1.25",
+        "pub_date": "2026-09-27T20:00:00Z",
+        "notes": "Unmuting on a desktop while your phone is on the call keeps your microphone on. Sharing your whole screen no longer shows the share inside itself.",
+        "name": "0.1.25",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.25/KithMoot-0.1.25-mac-arm64.zip",
+        "sha256": "3ef9f9897cc6c584c92eb6e49039615c4385724321250cf4d4c540608610221c",
+        "size": 138924320
       }
     }
   ]
