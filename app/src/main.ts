@@ -3536,6 +3536,7 @@ function stopLocalMedia(): void {
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
+  sharingWholeDisplay = false
   clearShareError()
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
@@ -4506,6 +4507,7 @@ async function toggleScreen(area = false): Promise<void> {
     desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
+    sharingWholeDisplay = false
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
@@ -4559,6 +4561,7 @@ async function toggleScreen(area = false): Promise<void> {
         if (generation !== callGeneration) return
         desktopShareArea.stop()
         screenTrack = undefined
+        sharingWholeDisplay = false
         screenAudioTrack?.stop()
         screenAudioTrack = undefined
         localPreviewEls.get('screen')?.remove()
@@ -5832,6 +5835,7 @@ function muteRequested(by: string): void {
     desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
+    sharingWholeDisplay = false
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
