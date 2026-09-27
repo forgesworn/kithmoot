@@ -23,7 +23,7 @@ test('a device kept quiet still lights the tile of whoever is speaking', async (
     // Bob's device goes quiet: the sound is on his other device.
     await pageB.locator('#toggleCompanion').evaluate(el => (el as HTMLButtonElement).click())
     await expect(pageB.locator('#toggleCompanion')).toHaveAttribute('data-on', 'true')
-    await expect.poll(() => pageB.evaluate(() => [...document.querySelectorAll('#room audio')].every(el => (el as HTMLAudioElement).muted))).toBe(true)
+    await expect.poll(() => pageB.evaluate(() => Array.from(document.querySelectorAll('#room audio')).every(el => (el as HTMLAudioElement).muted))).toBe(true)
     // Give the detector time to drop and come back if it is going to.
     await pageB.waitForTimeout(3_000)
     await expect(adaOnBob, "Bob's quiet device lost Ada's speaking ring").toHaveClass(/speaking/, { timeout: 15_000 })
