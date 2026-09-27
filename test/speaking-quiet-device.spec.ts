@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, open } from './browser.js'
 
 /**
  * A device that is not playing the call's sound - its person listens on
@@ -27,6 +27,30 @@ test('a device kept quiet still lights the tile of whoever is speaking', async (
     // Give the detector time to drop and come back if it is going to.
     await pageB.waitForTimeout(3_000)
     await expect(adaOnBob, "Bob's quiet device lost Ada's speaking ring").toHaveClass(/speaking/, { timeout: 15_000 })
+  } finally {
+    await contextA.close()
+    await contextB.close()
+  }
+})
+
+test('a device with no microphone or camera, only watching, still shows who is speaking', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+  const contextA = await newDeviceContext(browser, baseURL!)
+  const contextB = await newDeviceContext(browser, baseURL!)
+  try {
+    const pageA = await contextA.newPage()
+    const pageB = await contextB.newPage()
+    const url = await createRoom(pageA, baseURL!)
+    await joinWithMedia(pageA, url, 'Ada')
+    // Bob only watches: in the call, nothing of his own turned on.
+    await open(pageB, url, 'Bob')
+    await pageB.locator('#join').click()
+    await expect(pageB.locator('#roomArea')).toBeVisible()
+    await pageB.locator('#callToggle:visible, #mobileCall:visible').first().click()
+    await expect(pageB.locator('#leaveCall')).toBeVisible({ timeout: 30_000 })
+    await pageB.locator('#toggleCompanion').evaluate(el => (el as HTMLButtonElement).click())
+    const adaOnBob = pageB.locator('#room .participant', { hasText: 'Ada' })
+    await expect(adaOnBob, "a watching device never saw Ada's speaking ring").toHaveClass(/speaking/, { timeout: 30_000 })
   } finally {
     await contextA.close()
     await contextB.close()
