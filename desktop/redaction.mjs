@@ -1,5 +1,5 @@
 import { screen } from 'electron'
-import { BOX_MIN, captureOf, clampBox, insideHole, moveTo, placeBox, resizeFrom } from './redaction-geometry.mjs'
+import { BOX_MIN, DisplaySettle, captureOf, clampBox, insideHole, moveTo, onOneDisplay, placeBox, resizeFrom } from './redaction-geometry.mjs'
 
 export const BOX_URL = 'about:blank#kithmoot-redaction-box-'
 const BOX_ID = /^[a-z0-9-]{1,40}$/
@@ -20,22 +20,26 @@ export class Redaction {
   boxes = new Map()
   capture = null
   cursorTimer
-  constructor(owner) { this.owner = owner }
+  constructor(owner) {
+    this.owner = owner
+    this.settle = new DisplaySettle({ report: () => this.report() })
+  }
   // A display added, removed or rescaled moves every box's place in the
-  // picture. `screen` exists only once the app is ready, so listen lazily.
+  // picture, and the OS may take a moment to finish moving windows: see
+  // `DisplaySettle`. `screen` exists only once the app is ready, so listen lazily.
   listen() {
     if (this.listening) return
     this.listening = true
-    const report = () => this.report()
-    screen.on('display-added', report)
-    screen.on('display-removed', report)
-    screen.on('display-metrics-changed', report)
+    const changed = () => this.settle.changed()
+    screen.on('display-added', changed)
+    screen.on('display-removed', changed)
+    screen.on('display-metrics-changed', changed)
   }
   anyOn() { return [...this.boxes.values()].some(box => box.on) }
   state() {
-    const displays = screen.getAllDisplays().map(display => ({ id: String(display.id), bounds: { ...display.bounds } }))
+    const displays = screen.getAllDisplays().map(display => ({ id: String(display.id), bounds: { ...display.bounds }, scaleFactor: display.scaleFactor }))
     const boxes = [...this.boxes].filter(([, box]) => !box.window.isDestroyed()).map(([id, box]) => ({ id, on: box.on, bounds: box.window.getBounds() }))
-    return { boxes, displays, source: this.capture }
+    return { boxes, displays, source: this.capture, settleUntil: this.settle.deadline }
   }
   report() { this.owner()?.webContents.send('desktop:redaction-state', this.state()) }
   /** A new share is about to be chosen: forget the last one's source. */
@@ -90,7 +94,7 @@ export class Redaction {
       const cursor = screen.getCursorScreenPoint()
       const { bounds, corner } = box.drag
       const next = corner ? resizeFrom(corner, bounds, cursor.x - box.drag.cursor.x, cursor.y - box.drag.cursor.y) : moveTo(cursor, { x: box.drag.cursor.x - bounds.x, y: box.drag.cursor.y - bounds.y }, bounds)
-      if (next) window.setBounds(next)
+      if (next) this.place(window, next, bounds, Boolean(corner))
       return
     }
     if (action === 'drag-end') { box.drag = undefined; return }
@@ -99,8 +103,17 @@ export class Redaction {
       const dx = Math.max(-50, Math.min(50, value.dx)), dy = Math.max(-50, Math.min(50, value.dy))
       const bounds = window.getBounds()
       const next = value.corner ? resizeFrom(value.corner, bounds, dx, dy) : clampBox({ ...bounds, x: bounds.x + dx, y: bounds.y + dy })
-      if (next) window.setBounds(next)
+      if (next) this.place(window, next, bounds, Boolean(value.corner))
     }
+  }
+  /**
+   * Moves or resizes a box, never letting it straddle two displays: a move
+   * lands on whichever display holds most of it, a resize stays on the
+   * display it started on.
+   */
+  place(window, next, from, resizing) {
+    const display = screen.getDisplayMatching(resizing ? from : next)
+    window.setBounds(display ? onOneDisplay(next, display.bounds, resizing) : next)
   }
   setIgnore(box, ignore) {
     if (box.ignoring === ignore || box.window.isDestroyed()) return
@@ -124,6 +137,7 @@ export class Redaction {
   closeAll() {
     for (const box of [...this.boxes.values()]) if (!box.window.isDestroyed()) box.window.close()
     this.boxes.clear()
+    this.settle.dispose()
     this.watchCursor()
     this.report()
   }

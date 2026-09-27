@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { HOLD_MS, PAD_DIP, RedactionTrail, cropPlan, effectiveSource, hull, planRedaction, refuseShare, type RedactionState } from './redaction-geometry.js'
+import { HOLD_MS, PAD_DIP, RedactionTrail, cropPlan, crossesScales, effectiveSource, hull, planRedaction, refuseShare, type RedactionState } from './redaction-geometry.js'
 
-const display = { id: '1', bounds: { x: 0, y: 0, width: 1440, height: 900 } }
-const right = { id: '2', bounds: { x: 1440, y: 0, width: 1920, height: 1080 } }
+const display = { id: '1', bounds: { x: 0, y: 0, width: 1440, height: 900 }, scaleFactor: 2 }
+const right = { id: '2', bounds: { x: 1440, y: 0, width: 1920, height: 1080 }, scaleFactor: 2 }
 const box = (id: string, x: number, y: number, width: number, height: number, on = true) => ({ id, on, bounds: { x, y, width, height } })
 const state = (over: Partial<RedactionState> = {}): RedactionState => ({ boxes: [], displays: [display, right], source: { kind: 'screen', displayId: '1' }, ...over })
 const held = (s: RedactionState) => new RedactionTrail().next(s.boxes, 0)
@@ -112,5 +112,48 @@ describe('starting a share with boxes on', () => {
     expect(refuseShare({ ...on, source: { kind: 'screen', displayId: '1' } }, 'window')).toMatch(/cannot follow a single app/)
     expect(refuseShare({ ...on, boxes: [box('a', 0, 0, 100, 100, false)] }, undefined)).toBeUndefined()
     expect(refuseShare({ ...on, source: { kind: 'screen', displayId: '1' } }, 'monitor')).toBeUndefined()
+  })
+})
+
+describe('mixed-scale displays', () => {
+  const hidpi = { ...display, scaleFactor: 2 }
+  const plain = { ...right, scaleFactor: 1 }
+  const frame = { width: 2880, height: 1800 }
+
+  it('goes black while an active box straddles displays at different scales', () => {
+    const s = state({ displays: [hidpi, plain], boxes: [box('a', 1400, 100, 200, 100)] })
+    expect(crossesScales(s.boxes[0]!.bounds, s.displays)).toBe(true)
+    expect(planRedaction(s, frame, held(s))).toEqual({ mode: 'black', reason: 'crossing' })
+    // An unreported scale counts as different.
+    const unknown = state({ displays: [hidpi, { ...plain, scaleFactor: undefined }], boxes: s.boxes })
+    expect(planRedaction(unknown, frame, held(unknown))).toEqual({ mode: 'black', reason: 'crossing' })
+  })
+
+  it('maps as usual when the box sits on one display, or straddles two at the same scale', () => {
+    const one = state({ displays: [hidpi, plain], boxes: [box('a', 100, 100, 200, 100)] })
+    expect(planRedaction(one, frame, held(one)).mode).toBe('boxes')
+    const same = state({ displays: [hidpi, { ...plain, scaleFactor: 2 }], boxes: [box('a', 1400, 100, 200, 100)] })
+    expect(planRedaction(same, frame, held(same)).mode).toBe('boxes')
+    // Touching an edge is not crossing.
+    expect(crossesScales({ x: 1240, y: 0, width: 200, height: 100 }, [hidpi, plain])).toBe(false)
+  })
+
+  it('is black while the hull of a move between them is still held', () => {
+    const trail = new RedactionTrail()
+    const displays = [hidpi, plain]
+    trail.next([box('a', 1000, 100, 200, 100)], 0)
+    const moved = trail.next([box('a', 1600, 100, 200, 100)], 16)
+    expect(planRedaction(state({ displays }), frame, moved)).toEqual({ mode: 'black', reason: 'crossing' })
+  })
+})
+
+describe('after a display change', () => {
+  it('is black until the settle deadline passes, then maps again', () => {
+    const s = state({ boxes: [box('a', 100, 100, 200, 100)], settleUntil: 5000 })
+    const frame = { width: 2880, height: 1800 }
+    expect(planRedaction(s, frame, held(s), undefined, 4999)).toEqual({ mode: 'black', reason: 'settling' })
+    expect(planRedaction(s, frame, held(s), undefined, 5000).mode).toBe('boxes')
+    // With no box on there is nothing to hide, settling or not.
+    expect(planRedaction({ ...s, boxes: [] }, frame, [], undefined, 4000)).toEqual({ mode: 'pass' })
   })
 })

@@ -9,15 +9,20 @@
 
 export interface Rect { x: number; y: number; width: number; height: number }
 export interface RedactionBox { id: string; on: boolean; bounds: Rect }
-export interface RedactionDisplay { id: string; bounds: Rect }
+export interface RedactionDisplay { id: string; bounds: Rect; scaleFactor?: number }
 /** What the main process answered the capture request with. `null` is unknown. */
 export type CaptureSource = { kind: 'screen'; displayId: string } | { kind: 'window' } | null
-/** Boxes and displays in DIP, as the main process reports them. */
-export interface RedactionState { boxes: RedactionBox[]; displays: RedactionDisplay[]; source: CaptureSource }
+/**
+ * Boxes and displays in DIP, as the main process reports them.
+ * `settleUntil` (epoch milliseconds) is set after a display change, while
+ * the OS may still be moving and rescaling windows.
+ */
+export interface RedactionState { boxes: RedactionBox[]; displays: RedactionDisplay[]; source: CaptureSource; settleUntil?: number }
 
+export type BlackReason = 'unknown' | 'window' | 'geometry' | 'settling' | 'crossing'
 export type RedactionPlan =
   | { mode: 'pass' }
-  | { mode: 'black'; reason: 'unknown' | 'window' | 'geometry' }
+  | { mode: 'black'; reason: BlackReason }
   | { mode: 'boxes'; rects: Rect[] }
 
 /** Extra margin round every box, in DIP, so rounding and scaling cannot leave a sliver. */
@@ -78,12 +83,28 @@ export function effectiveSource(source: CaptureSource, surface: string | undefin
   return source
 }
 
+const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+/**
+ * Whether a box straddles displays at different scales (or at a scale not
+ * reported). Windows converts such a window's bounds using the display
+ * holding most of it, so the DIP bounds misplace the part on the other one.
+ */
+export function crossesScales(box: Rect, displays: readonly RedactionDisplay[]): boolean {
+  const touched = displays.filter(display => finite(display.bounds) && overlaps(box, display.bounds))
+  if (touched.length < 2) return false
+  const scale = touched[0]!.scaleFactor
+  return touched.some(display => !Number.isFinite(display.scaleFactor) || display.scaleFactor !== scale)
+}
+
 /**
  * The plan for one frame of a whole-screen share, in that frame's pixels.
  * `held` is what `RedactionTrail#next` returned for this frame.
  */
-export function planRedaction(state: RedactionState, frame: { width: number; height: number }, held: readonly Rect[], surface?: string): RedactionPlan {
+export function planRedaction(state: RedactionState, frame: { width: number; height: number }, held: readonly Rect[], surface?: string, now = Date.now()): RedactionPlan {
   if (held.length === 0) return { mode: 'pass' }
+  if (Number.isFinite(state.settleUntil) && now < state.settleUntil!) return { mode: 'black', reason: 'settling' }
+  if (held.some(box => finite(box) && crossesScales(box, state.displays))) return { mode: 'black', reason: 'crossing' }
   const source = effectiveSource(state.source, surface)
   if (!source) return { mode: 'black', reason: 'unknown' }
   if (source.kind === 'window') return { mode: 'black', reason: 'window' }
@@ -136,7 +157,9 @@ export function refuseShare(state: RedactionState, surface: string | undefined):
 export const WINDOW_SHARE_COPY = 'Redaction boxes cannot follow a single app yet. Share your screen or an area instead, or turn the boxes off.'
 
 /** Plain words for a share painted black, for the line under the controls. */
-export function blackCopy(reason: 'unknown' | 'window' | 'geometry'): string {
+export function blackCopy(reason: BlackReason): string {
+  if (reason === 'settling') return 'Your share shows black for a moment while your displays change.'
+  if (reason === 'crossing') return 'Your share shows black while a redaction box spans two screens at different scales. Move it onto one screen.'
   if (reason === 'window') return 'Your app share shows black while a redaction box is on: boxes cannot follow a single app yet. Share your screen or an area instead.'
   if (reason === 'unknown') return 'Your share shows black while a redaction box is on, because KithMoot could not tell which screen is shared. Stop and share the screen again.'
   return 'Your share shows black while a redaction box is on, because the screen changed shape. Stop and share again.'

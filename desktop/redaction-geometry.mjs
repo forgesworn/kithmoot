@@ -65,3 +65,51 @@ export function captureOf(source, displays) {
   if (!source.display_id && displays.length === 1) return { kind: 'screen', displayId: String(displays[0].id) }
   return null
 }
+
+/**
+ * Keeps a box wholly on one display. On Windows a window straddling two
+ * displays at different scales has its DIP bounds converted by the display
+ * holding most of it, so the part on the other display is misplaced and
+ * could be under-covered. A box that never crosses cannot hit that. A move
+ * slides the box back inside; a resize stops at the display's edge, so the
+ * corner held still stays where it was.
+ */
+export function onOneDisplay(bounds, display, resizing = false) {
+  if (!finite(bounds) || !finite(display)) return bounds
+  if (resizing) {
+    const x = Math.max(bounds.x, display.x), y = Math.max(bounds.y, display.y)
+    const right = Math.min(bounds.x + bounds.width, display.x + display.width), bottom = Math.min(bounds.y + bounds.height, display.y + display.height)
+    if (right > x && bottom > y) return { x, y, width: right - x, height: bottom - y }
+  }
+  const width = Math.min(bounds.width, display.width), height = Math.min(bounds.height, display.height)
+  return {
+    x: clamp(bounds.x, display.x, display.x + display.width - width),
+    y: clamp(bounds.y, display.y, display.y + display.height - height),
+    width, height,
+  }
+}
+
+/** How long after a display change every box's place is distrusted. */
+export const SETTLE_MS = 1000
+
+/**
+ * After a display is added, removed or rescaled, the OS may still be moving
+ * and rescaling windows (a DPI change, relocation off a removed display)
+ * without Electron saying so, and frames in flight are the old size. So a
+ * change sets a deadline the page treats as black, and the state is read
+ * again part way through and just after it, in case no window event follows.
+ */
+export class DisplaySettle {
+  deadline = 0
+  timers = []
+  constructor({ report, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, ms = SETTLE_MS }) {
+    Object.assign(this, { report, now, setTimer, clearTimer, ms })
+  }
+  changed() {
+    this.dispose()
+    this.deadline = this.now() + this.ms
+    this.timers = [this.ms / 4, this.ms + 50].map(delay => this.setTimer(() => this.report(), delay))
+    this.report()
+  }
+  dispose() { for (const timer of this.timers) this.clearTimer(timer); this.timers = [] }
+}

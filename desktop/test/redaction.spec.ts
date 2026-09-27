@@ -176,6 +176,19 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     // The sharer's own preview shows the same black.
     console.log('PASS: whole-screen share published and received with the boxed area black')
 
+    // A display change: the whole picture is black until windows settle,
+    // then the boxed area alone is black again.
+    await native.evaluate(({ screen }) => { screen.emit('display-metrics-changed', {}, screen.getAllDisplays()[0], ['scaleFactor']) })
+    const settled = await published(mac, outside)
+    expect(settled?.pixels.every(black), 'black everywhere while displays settle').toBe(true)
+    await expect(mac.locator('#redactionNote')).toContainText('while your displays change')
+    await expect.poll(async () => {
+      const shot = await published(mac, [...inside, ...outside])
+      return shot ? shot.pixels.map((pixel, i) => (i < inside.length ? black(pixel) : !black(pixel)) ? '.' : 'x').join('') : 'none'
+    }, { message: 'box black and the rest back after the settle period' }).toBe('.'.repeat(inside.length + outside.length))
+    await expect(mac.locator('#redactionNote')).toBeHidden()
+    console.log('PASS: a display change sends black until it settles, then recovers')
+
     // Turned off on the box itself: the part is shown again.
     await box.getByRole('button', { name: 'Show', exact: true }).click()
     await expect(box.getByText('Shown')).toBeVisible()

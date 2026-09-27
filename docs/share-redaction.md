@@ -45,7 +45,22 @@ The path from capture to publish:
 6. The plan is black, and the raw frame is never drawn, when the source is
    unknown, when it is a window, when the track's own `displaySurface`
    disagrees with the main process, when the display is gone, or when the
-   picture's shape differs from the display's by more than 2%.
+   picture's shape differs from the display's by more than 2%. It is also
+   black for 1 s after any display is added, removed or rescaled, while the
+   OS may still be moving and rescaling windows; the main process reads the
+   state again at 250 ms and just after 1 s in case no window event follows.
+   And it is black while any held box touches two displays whose scale
+   factors differ (or are not reported): Windows converts a straddling
+   window's bounds by the display holding most of it, so the other part
+   would be misplaced.
+7. The main process keeps every box on one display: a move slides it back
+   onto whichever display holds most of it, and a resize stops at the edge of
+   the display it started on.
+
+Known rough edge: a share started through the macOS 15 system picker before
+any box existed has no recorded source, so it goes black (and stays black)
+once a box is turned on. That is the fail-closed answer; stopping and sharing
+again with a box present uses KithMoot's own chooser and works normally.
 
 A window share is refused while any box is on. A window share started with
 every box off goes black the moment one is turned on, and says why.

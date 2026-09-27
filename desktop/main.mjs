@@ -8,7 +8,7 @@ import { extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
 import { HOME, ORIGIN, CSP, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
-import { SCREEN_SETTINGS_URL, answerDisplayRequest, screenAccessGranted, refuse } from './screen-share.mjs'
+import { SCREEN_SETTINGS_URL, answerDisplayRequest, displayChoice, screenAccessGranted, refuse } from './screen-share.mjs'
 import platformFeatures from './platform-features.cjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -172,31 +172,15 @@ async function createWindow() {
         } catch { refuse(callback) }
         return
       }
-      await answerDisplayRequest(request, callback, {
-        allowed: () => true,
+      await answerDisplayRequest(request, callback, displayChoice({
+        request, platform: process.platform, areaMode, redaction,
         screenAccessGranted: hasScreenAccess,
         listSources: () => desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 120, height: 75 } }),
-        selection: source => {
-          redaction?.captured(source)
-          return { video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) }
-        },
-        choose: (sources, chosen) => {
-          let picked = false
-          // A box cannot follow another app's window yet, so while one is on
-          // only whole screens are offered.
-          const hiding = redaction?.anyOn() ?? false
-          const offered = hiding ? sources.filter(source => source.id.startsWith('screen:')) : sources
-          const pick = source => { if (!picked) { picked = true; chosen(hiding && source && !source.id.startsWith('screen:') ? undefined : source) } }
-          // On Wayland the portal already asked; a menu of its one answer is a second prompt.
-          if (areaMode === 'preview' && sources.length === 1) return pick(sources[0])
-          Menu.buildFromTemplate([
-          { label: 'Choose what to share', enabled: false },
-          ...(hiding ? [{ label: 'Single apps are hidden while a redaction box is on', enabled: false }] : []),
-          ...offered.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => pick(source) })),
-          { type: 'separator' }, { label: 'Cancel', click: () => pick() },
-          ]).popup({ window: win, callback: () => setTimeout(() => { if (!picked) pick() }, 250) })
-        },
-      })
+        showMenu: (items, cancel) => Menu.buildFromTemplate([
+          ...items.map(({ source, ...item }) => source ? { ...item, icon: source.thumbnail.resize({ width: 80 }) } : item),
+          { type: 'separator' }, { label: 'Cancel', click: cancel },
+        ]).popup({ window: win, callback: () => setTimeout(cancel, 250) }),
+      }))
     // The system picker never tells us what was chosen, so it is used only
     // while no redaction box exists; a box then shows black, not a guess.
     }, { useSystemPicker: !area && !(redaction?.boxes.size) })

@@ -1,6 +1,50 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { BOX_BAR, BOX_GRIP, BOX_MIN, captureOf, clampBox, insideHole, moveTo, placeBox, resizeFrom } from '../redaction-geometry.mjs'
+import { BOX_BAR, BOX_GRIP, BOX_MIN, DisplaySettle, SETTLE_MS, captureOf, clampBox, insideHole, moveTo, onOneDisplay, placeBox, resizeFrom } from '../redaction-geometry.mjs'
+
+test('a moved box slides back wholly onto one display', () => {
+  const left = { x: 0, y: 0, width: 1440, height: 900 }
+  const right = { x: 1440, y: 0, width: 1920, height: 1080 }
+  // Mostly on the left display: pulled back inside it.
+  assert.deepEqual(onOneDisplay({ x: 1300, y: 100, width: 300, height: 200 }, left), { x: 1140, y: 100, width: 300, height: 200 })
+  // Mostly on the right: pushed wholly onto it.
+  assert.deepEqual(onOneDisplay({ x: 1400, y: 100, width: 300, height: 200 }, right), { x: 1440, y: 100, width: 300, height: 200 })
+  // Off the bottom and taller than the display.
+  assert.deepEqual(onOneDisplay({ x: 10, y: 800, width: 300, height: 2000 }, left), { x: 10, y: 0, width: 300, height: 900 })
+  // Already inside: unchanged.
+  assert.deepEqual(onOneDisplay({ x: 10, y: 10, width: 300, height: 200 }, left), { x: 10, y: 10, width: 300, height: 200 })
+})
+
+test('a resized box stops at its display edge, keeping the corner held still', () => {
+  const left = { x: 0, y: 0, width: 1440, height: 900 }
+  assert.deepEqual(onOneDisplay({ x: 1200, y: 100, width: 400, height: 200 }, left, true), { x: 1200, y: 100, width: 240, height: 200 })
+  assert.deepEqual(onOneDisplay({ x: -50, y: -20, width: 400, height: 200 }, left, true), { x: 0, y: 0, width: 350, height: 180 })
+})
+
+test('a display change sets a deadline and re-reads the state part way through and just after it', () => {
+  let now = 10_000
+  const timers = []
+  let reports = 0
+  const settle = new DisplaySettle({
+    report: () => { reports++ }, now: () => now,
+    setTimer: (run, delay) => { const timer = { run, delay, cleared: false }; timers.push(timer); return timer },
+    clearTimer: timer => { timer.cleared = true },
+  })
+  assert.equal(settle.deadline, 0)
+  settle.changed()
+  assert.equal(settle.deadline, 10_000 + SETTLE_MS)
+  assert.equal(reports, 1)
+  assert.deepEqual(timers.map(timer => timer.delay), [SETTLE_MS / 4, SETTLE_MS + 50])
+  // A second change restarts the clock and drops the old re-reads.
+  now = 10_500
+  settle.changed()
+  assert.equal(settle.deadline, 10_500 + SETTLE_MS)
+  assert.deepEqual(timers.slice(0, 2).map(timer => timer.cleared), [true, true])
+  for (const timer of timers.slice(2)) timer.run()
+  assert.equal(reports, 4)
+  settle.dispose()
+  assert.ok(timers.slice(2).every(timer => timer.cleared))
+})
 
 test('a new box sits in the middle of the work area, stepped so boxes never stack', () => {
   const work = { x: -1920, y: 25, width: 1920, height: 1055 }
