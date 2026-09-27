@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.22",
+  "currentRelease": "0.1.23",
   "releases": [
     {
-      "version": "0.1.22",
+      "version": "0.1.23",
       "updateTo": {
-        "version": "0.1.22",
-        "pub_date": "2026-09-26T16:30:00Z",
-        "notes": "Drag the divider between the call and the chat to give either more room, and the Speaking line no longer names you.",
-        "name": "0.1.22",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.22/KithMoot-0.1.22-mac-arm64.zip",
-        "sha256": "07293181e3d27c2b02b502ff3773e87402239af84dc2b1203787645c7c6b5815",
-        "size": 138921690
+        "version": "0.1.23",
+        "pub_date": "2026-09-27T07:00:00Z",
+        "notes": "A new start page: your rooms, newest first, with a preview of the latest message, and Settings in the top bar.",
+        "name": "0.1.23",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.23/KithMoot-0.1.23-mac-arm64.zip",
+        "sha256": "7f5d15134cf59b6cf34527a5b93d380ba6780c853145d010e4894cce6e35fde1",
+        "size": 138924083
       }
     }
   ]
