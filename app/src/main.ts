@@ -5855,6 +5855,11 @@ async function shareRoomRelays(urls: string[]): Promise<string> {
   const record = { relays, version, sig: signRoomRelays({ roomId: s.roomId, version, relays, authoritySk: sk }) }
   storeRoomRelayRecord(s.roomId, record)
   await postRoomRelays(s, record)
+  // A group link admits newcomers from its invitation event alone, so the
+  // relays everyone now uses must hold it too, or somebody (or an agent
+  // host) that later reads only from them cannot get in.
+  const invitation = roomInvitationCapability
+  if (invitation?.persistent) await publishGroupInvitation(invitation, roomSecret, sk, relays)
   return 'Everyone in this room will add these relays the next time their app hears from it.'
 }
 

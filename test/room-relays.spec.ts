@@ -37,7 +37,8 @@ test('the maker shares a relay and a member already in the room starts using it'
   try {
     const makerContext = await newDeviceContext(browser, baseURL!)
     contexts.push(makerContext)
-    await fakeRelay(makerContext, [])
+    const makerFrames: unknown[][] = []
+    await fakeRelay(makerContext, makerFrames)
     const maker = await makerContext.newPage()
     const url = await createRoom(maker, baseURL!)
     if (await maker.locator('#join').isVisible()) await maker.locator('#join').click()
@@ -71,6 +72,9 @@ test('the maker shares a relay and a member already in the room starts using it'
     await maker.locator('#relayShare').click()
     await maker.getByRole('button', { name: 'Use for everyone', exact: true }).click()
     await expect(maker.locator('#relaySettingsStatus')).toContainText('Everyone in this room will add these relays')
+    // The group invitation goes with it, so a newcomer reading only the new
+    // relay can still get in.
+    await expect.poll(() => makerFrames.some(frame => frame[0] === 'EVENT' && (frame[1] as { kind: number }).kind === 1463)).toBe(true)
 
     // The member connects to it and subscribes, with nothing pressed.
     await expect.poll(() => memberFrames.some(frame => frame[0] === 'REQ'), { timeout: 30_000 }).toBe(true)
