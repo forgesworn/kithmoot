@@ -157,6 +157,43 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
     expect(pool.health().map(r => r.lastError)).toEqual(['Connection failed', 'Connection failed'])
   })
 
+  it('notices a relay that says OK to chat and keeps none of it, and says nothing about one that keeps it', async () => {
+    bad.forgetful = true
+    pool = new NostrRelayPool([GOOD, BAD])
+    await pool.publish(evt(1460))
+    expect(pool.health().every(r => r.unreturned === undefined)).toBe(true)
+    await vi.advanceTimersByTimeAsync(4_000)
+    const [kept, dropped] = pool.health()
+    expect(kept!.unreturned).toBeUndefined()
+    expect(dropped!.unreturned).toEqual([1460])
+    // Asked once per kind, not on every message.
+    const reads = bad.requestedFilters().length
+    await pool.publish(evt(1460))
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(bad.requestedFilters()).toHaveLength(reads)
+    // Ephemeral kinds are never kept by anybody, so never asked about.
+    await pool.publish(evt(20461))
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(bad.requestedFilters()).toHaveLength(reads)
+  })
+
+  it('claims nothing when the read-back itself goes unanswered', async () => {
+    pool = new NostrRelayPool([GOOD, BAD])
+    await pool.publish(evt(1460))
+    bad.silent = true
+    await vi.advanceTimersByTimeAsync(3_000 + 8_000 + 1)
+    expect(pool.health().every(r => r.unreturned === undefined)).toBe(true)
+  })
+
+  it('never reads back from a write-only relay', async () => {
+    bad.forgetful = true
+    pool = new NostrRelayPool([GOOD, { url: BAD, read: false, write: true }])
+    await pool.publish(evt(1460))
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(bad.requestedFilters()).toHaveLength(0)
+    expect(pool.health()[1]!.unreturned).toBeUndefined()
+  })
+
   it('refuses a flood of forged copies of a real event and hears the real one once', async () => {
     pool = new NostrRelayPool([GOOD, BAD])
     const seen: string[] = []

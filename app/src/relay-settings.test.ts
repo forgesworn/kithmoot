@@ -243,3 +243,24 @@ describe('scheduled liveness probing', () => {
     } finally { random.mockRestore(); vi.useRealTimers() }
   })
 })
+
+describe('relay health', () => {
+  it('reports a relay that accepted chat and did not return it, for the room it was seen in', async () => {
+    vi.useFakeTimers()
+    resetFakeRelays()
+    const kept = fakeRelay('wss://kept.test')
+    const dropped = fakeRelay('wss://dropped.test'); dropped.forgetful = true
+    const connections = new RelayConnections(storage(), defaults)
+    const hints = ['wss://kept.test', 'wss://dropped.test']
+    const pool = connections.pool(room, hints)
+    try {
+      await pool.publish(finalizeEvent({ kind: 1460, created_at: Math.floor(Date.now() / 1000), tags: [], content: 'x' }, generateSecretKey()))
+      await vi.advanceTimersByTimeAsync(4_000)
+      const health = connections.health(room, hints)
+      expect(health.find(r => r.url === 'wss://kept.test/')?.unreturned).toBeUndefined()
+      expect(health.find(r => r.url === 'wss://dropped.test/')?.unreturned).toEqual([1460])
+      expect(kept.stored).toHaveLength(1)
+      expect(connections.health('default').every(r => r.unreturned === undefined)).toBe(true)
+    } finally { pool.close(); vi.useRealTimers() }
+  })
+})

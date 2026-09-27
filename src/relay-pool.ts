@@ -42,6 +42,11 @@ export interface RelayHealth extends RelayConfig {
   publishLatencyMs?: number
   lastError?: string
   authentication?: 'allowed' | 'authenticated' | 'failed' | 'withdrawn'
+  /** Kinds this relay said OK to and then did not return when asked for by
+   *  id a few seconds later: a relay that accepts a kind and keeps none of
+   *  it. Only what was observed, once per kind per connection setup; a read
+   *  that timed out or was refused leaves this unchanged. */
+  unreturned?: number[]
 }
 
 
@@ -96,6 +101,8 @@ export class NostrRelayPool implements RelayTransport {
    *  attempt a second between them. */
   #dialFailures = new Map<string, number>()
   #dialAfter = new Map<string, number>()
+  /** Kinds already read back from each relay since the last setup. */
+  #readBack = new Map<string, Set<number>>()
   readonly #authTimeout: number
   readonly #verifyEvent = boundedEventVerifier()
 
@@ -243,6 +250,7 @@ export class NostrRelayPool implements RelayTransport {
     this.#attempted.clear()
     this.#dialFailures.clear()
     this.#dialAfter.clear()
+    this.#readBack.clear()
     this.#abort = new AbortController()
     this.#pool = this.#createPool()
     for (const sub of this.#subscriptions) this.#start(sub)
@@ -332,6 +340,7 @@ export class NostrRelayPool implements RelayTransport {
         if (generation === this.#generation) {
           this.#answered(url)
           this.#mark(url, { state: 'connected', lastPublishedAt: Date.now(), publishLatencyMs: Date.now() - start, lastError: undefined })
+          this.#scheduleReadBack(url, event, generation)
         }
         return
       } catch (error) {
@@ -385,6 +394,49 @@ export class NostrRelayPool implements RelayTransport {
    *  a timeout, a lost connection, or a dial held back by its backoff. */
   #unanswered(url: string, error: unknown): boolean {
     return isTimeoutError(error) || (error === DIAL_SKIPPED && !this.#authError(url))
+  }
+
+  /** Ask a relay that has just said OK to a stored kind for that event back,
+   *  once per kind: a relay that accepts chat and keeps none of it looks
+   *  healthy by every other measure. Only a real EOSE without the event
+   *  counts against it; a timeout, a refusal or a dropped socket proves
+   *  nothing, and the kind is tried again on a later write. */
+  #scheduleReadBack(url: string, event: Event, generation: number): void {
+    if (!isStoredKind(event.kind) || !this.#relays.some(relay => relay.url === url && relay.read)) return
+    const checked = this.#readBack.get(url) ?? new Set<number>()
+    if (checked.has(event.kind)) return
+    checked.add(event.kind)
+    this.#readBack.set(url, checked)
+    const stale = () => this.#closed || generation !== this.#generation
+    const timer = setTimeout(() => {
+      if (stale()) return
+      void this.#readBackOnce(url, event).then(returned => {
+        if (stale()) return
+        if (returned === undefined) { checked.delete(event.kind); return }
+        const previous = this.#health.get(url)?.unreturned ?? []
+        const unreturned = returned ? previous.filter(kind => kind !== event.kind) : [...new Set([...previous, event.kind])]
+        this.#mark(url, { unreturned: unreturned.length ? unreturned : undefined })
+      }, () => { if (!stale()) checked.delete(event.kind) })
+    }, READ_BACK_DELAY_MS)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+  }
+
+  async #readBackOnce(url: string, event: Event): Promise<boolean | undefined> {
+    if (this.#pool.listConnectionStatus().get(url) !== true) return undefined
+    const relay = await this.#pool.ensureRelay(url, { abort: this.#abort.signal })
+    return new Promise(resolve => {
+      let found = false
+      // The pool's own subscriptions fake an EOSE on a close or a timeout;
+      // a bare relay subscription with a far deadline only calls `oneose`
+      // for the relay's real answer before `timer` gives up.
+      const timer = setTimeout(() => { sub.close(); resolve(undefined) }, READ_BACK_TIMEOUT_MS)
+      const sub = relay.subscribe([{ ids: [event.id] }], {
+        eoseTimeout: READ_BACK_TIMEOUT_MS * 4,
+        onevent: received => { if (received.id === event.id) found = true },
+        oneose: () => { clearTimeout(timer); resolve(found); sub.close() },
+        onclose: () => { clearTimeout(timer); resolve(undefined) },
+      })
+    })
   }
 
   /** A cheap round trip per connected relay: a filter that can match
@@ -600,6 +652,16 @@ const DIAL_SKIPPED = 'connection skipped by allowConnectingToRelay'
 /** Delivered-event ids a subscription remembers so a second relay's copy is
  *  not handed on twice. Far above any one replay (chat asks for 500). */
 const MAX_SEEN_PER_SUBSCRIPTION = 8_192
+
+/** How long after a relay accepts a stored kind it is asked for it back,
+ *  and how long it has to answer before the check proves nothing. */
+const READ_BACK_DELAY_MS = 3_000
+const READ_BACK_TIMEOUT_MS = 8_000
+
+/** Regular kinds (NIP-01), which a relay that keeps anything keeps. */
+function isStoredKind(kind: number): boolean {
+  return kind === 1 || kind === 2 || (kind >= 4 && kind < 45) || (kind >= 1_000 && kind < 10_000)
+}
 
 /** How long the resend-on-stall watchdog keeps resending a `REQ` that never
  *  gets an `EOSE`, before it stops and leaves recovery to `#recoverSubscriptions`,
