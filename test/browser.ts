@@ -336,8 +336,13 @@ export async function newDeviceContext(browser: Browser, baseURL: string): Promi
  *  no-op on the cold, first-visit layout, where the form is already open
  *  and `#newRoom` does not exist on screen to click. */
 export async function openNewRoomForm(page: Page): Promise<void> {
+  // Home may still be drawing: wait until it shows either the form itself
+  // (first visit) or the rooms list's New room button, then open the form.
   const newRoom = page.locator('#newRoom')
-  if (await newRoom.isVisible()) await newRoom.click()
+  const name = page.locator('#roomName')
+  await expect(page.locator('#newRoom:visible, #roomName:visible').first()).toBeVisible({ timeout: 30_000 })
+  if (!await name.isVisible()) await newRoom.click()
+  await expect(name).toBeVisible()
 }
 
 export async function createRoom(page: Page, baseURL: string, relays = testRelays()): Promise<string> {

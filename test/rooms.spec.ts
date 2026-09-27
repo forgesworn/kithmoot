@@ -210,8 +210,6 @@ test('rows do not reorder while focus is inside the list', async ({ browser, bas
 
     // Focus leaves the list: the next render is free to catch up, and the
     // bumped room - now with an unread message - moves to the top.
-    // #openAppSettings rather than #newRoom, which this viewport's own
-    // width may hide (it disappears at 1100px and up).
     await page.locator('#openAppSettings').focus()
     await expect
       .poll(async () => (await page.locator('#roomList .roomName').allTextContents())[0], { timeout: 10_000 })
