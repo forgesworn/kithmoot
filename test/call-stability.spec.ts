@@ -877,6 +877,65 @@ test.describe('call stability', () => {
     }
   })
 
+  /**
+   * The 27 September 2026 call, between two browsers.
+   *
+   * One end of a pair decides its connection has failed, tears it down and
+   * offers from a new one; the other end's connection still says
+   * `connected`, and nothing on the roster changes, because the page session
+   * that rebuilt is the same one. The offer from the new connection reaches
+   * the old one. It has to be met on a new connection that answers with this
+   * side's microphone, or the side that did not rebuild is not heard.
+   *
+   * Measured before the fix: Chromium refused every copy of Bob's offer on
+   * Ada's old connection ("Failed to execute 'setRemoteDescription'"), and
+   * Bob went unheard until Ada's old connection noticed the transport had
+   * gone, disconnected and restarted ICE, about ten seconds later. A phone
+   * does not always leave that way out.
+   */
+  test('one side rebuilds its connection unseen by the other: both still hear each other', async ({ browser, baseURL }) => {
+    test.setTimeout(300_000)
+    const { people, contexts } = await joinAll(browser, baseURL!, ['Ada', 'Bob'])
+    try {
+      const base = await waitForMatrix(people, 'baseline', 90_000)
+      expect(base.ok, 'the room never came up whole').toBe(true)
+      const [A, B] = people as [Person, Person]
+      // Bob's camera goes off first, so the new connection he offers from
+      // carries fewer m-lines than the session Ada's connection holds: the
+      // shape a phone rejoining with only its microphone offers.
+      const bobUnseen: Want = (o, s) => ({ see: !(o === 'Ada' && s === 'Bob'), hear: true })
+      await setCamera(B.page, false)
+      expect((await waitForMatrix(people, 'Bob camera off', 30_000, bobUnseen)).ok, 'the camera toggle alone broke the pair').toBe(true)
+      const connections = (page: Page) =>
+        page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.map((pc) => pc.connectionState))
+      const adaBefore = await connections(A.page)
+
+      // Bob's connection to Ada reports `failed` on Bob's side only, with no
+      // ICE restart to try first, so Bob's mesh gives up on it and offers
+      // again from a new connection. Ada's connection is untouched.
+      const forced = await B.page.evaluate(() => {
+        const live = (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.filter((pc) => pc.connectionState === 'connected')
+        if (live.length !== 1) return live.length
+        const pc = live[0]!
+        Object.defineProperty(pc, 'restartIce', { configurable: true, value: undefined })
+        Object.defineProperty(pc, 'connectionState', { configurable: true, get: () => 'failed' })
+        pc.onconnectionstatechange?.(new Event('connectionstatechange'))
+        return 1
+      })
+      expect(forced, 'Bob should have exactly one live connection, to Ada').toBe(1)
+
+      const rebuilt = await waitForMatrix(people, 'Bob rebuilt, Ada did not notice', 20_000, bobUnseen)
+      const adaAfter = await connections(A.page)
+      console.log(`Ada's connections: before ${JSON.stringify(adaBefore)}, after ${JSON.stringify(adaAfter)}`)
+      verdict([rebuilt])
+      // Met on a new connection of Ada's, not waited out until Ada's old one
+      // failed by itself.
+      expect(adaAfter.length, "Ada never built a connection for Bob's new session").toBe(adaBefore.length + 1)
+    } finally {
+      for (const c of contexts) await c.close()
+    }
+  })
+
   test('Firefox receiver keeps seeing and hearing through camera and mic toggles', async ({ browser, baseURL }) => {
     test.setTimeout(600_000)
     // This case launches Firefox itself whatever project runs it. A machine

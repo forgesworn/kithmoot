@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sameShape, sdpShape } from './sdp-shape.js'
+import { isSessionMismatch, replacesSession, sameShape, sdpSession, sdpShape } from './sdp-shape.js'
 
 const SDP = [
   'v=0',
@@ -184,5 +184,33 @@ describe('a description re-read after gathering', () => {
   it('still differs when the media or its codecs changed', () => {
     expect(sameShape(CHROME_AFTER, CHROME_AFTER.replace('m=audio 51423 UDP/TLS/RTP/SAVPF 111 63 9 0 8 126', 'm=audio 51423 UDP/TLS/RTP/SAVPF 63 9 0 8 126'))).toBe(false)
     expect(sameShape(CHROME_AFTER, CHROME_AFTER.replace('m=audio', 'm=video'))).toBe(false)
+  })
+})
+
+describe('sdpSession', () => {
+  const NEW_SESSION = replace('o=- 4611731400430051336', 'o=- 7220984311150263447').replace('a=ice-ufrag:Kx9m', 'a=ice-ufrag:Zz41')
+
+  it('reads the session id and the first ufrag', () => {
+    expect(sdpSession(SDP)).toEqual({ id: '4611731400430051336', ufrag: 'Kx9m' })
+    expect(sdpSession(undefined)).toEqual({})
+  })
+
+  it('calls a description a new far-end session only when both have moved', () => {
+    expect(replacesSession(sdpSession(NEW_SESSION), sdpSession(SDP))).toBe(true)
+    // An ICE restart on the connection that exists.
+    expect(replacesSession(sdpSession(replace('a=ice-ufrag:Kx9m', 'a=ice-ufrag:Zz41')), sdpSession(SDP))).toBe(false)
+    // A session id alone is not enough to throw a connection away on.
+    expect(replacesSession(sdpSession(replace('o=- 4611731400430051336', 'o=- 7220984311150263447')), sdpSession(SDP))).toBe(false)
+    // Nothing is replaced on a guess.
+    expect(replacesSession(sdpSession(NEW_SESSION), undefined)).toBe(false)
+    expect(replacesSession(sdpSession('offer-sdp-1'), sdpSession(SDP))).toBe(false)
+  })
+
+  it("recognises libwebrtc's refusal of an offer from a different session", () => {
+    expect(
+      isSessionMismatch(new Error("Failed to set remote offer sdp: The order of m-lines in subsequent offer doesn't match order from previous offer/answer.")),
+    ).toBe(true)
+    expect(isSessionMismatch(new Error('Failed to set remote answer sdp: Called in wrong state: stable'))).toBe(false)
+    expect(isSessionMismatch(undefined)).toBe(false)
   })
 })
