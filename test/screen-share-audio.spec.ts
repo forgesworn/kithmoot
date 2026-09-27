@@ -220,6 +220,60 @@ test('a desktop sharing area sends only its crop and blanks invalid bounds', asy
   } finally { await context.close() }
 })
 
+test('a full-screen area withholds this device\'s own live preview to avoid a mirror, and restores it once the area shrinks', async ({ browser, baseURL }) => {
+  // Reported from a real call: an area sized to the whole screen captures
+  // the display it sits on, and this device's own preview tile of its own
+  // share - visible on that same display - was captured inside its own
+  // capture. See `applySelfMirrorGuard` and `self-mirror-guard.ts`.
+  const context = await newDeviceContext(browser, baseURL!)
+  await context.addInitScript(() => {
+    const w = window as any
+    let rect: any = { x: 0, y: 0, width: 1, height: 1 }
+    let listener: ((rect: any) => void) | undefined
+    w.kithmootDesktop = {
+      supportsShareArea: true,
+      armShareArea: async () => true,
+      shareAreaState: async () => rect,
+      shareAreaAction: () => {},
+      onShareAreaState: (fn: (rect: any) => void) => { listener = fn; return () => { listener = undefined } },
+      setCallActive: () => {}, setUnread: () => {}, notify: () => {}, onOpenRoom: () => () => {},
+    }
+    w.__areaBounds = (next: any) => { rect = next; listener?.(next) }
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480
+      canvas.getContext('2d')!.fillRect(0, 0, 640, 480)
+      const stream = canvas.captureStream(30)
+      w.__rawAreaTrack = stream.getVideoTracks()[0]
+      return stream
+    }
+  })
+  try {
+    const page = await context.newPage()
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openCall(page)
+    const popped = page.waitForEvent('popup')
+    await page.locator('#shareArea').click()
+    const popup = await popped
+    await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
+    await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    const preview = page.locator('video.screenPreview')
+    // Withheld while the area covers the whole display: no live picture
+    // behind the notice, which is exactly what stops the recursion.
+    await expect.poll(() => preview.evaluate((v: HTMLVideoElement) => v.classList.contains('selfMirrorGuard'))).toBe(true)
+    await expect.poll(() => preview.evaluate((v: HTMLVideoElement) => v.srcObject === null)).toBe(true)
+    // Shrinking the area to an ordinary crop is no longer a whole-display
+    // capture, and restores the live preview.
+    await page.evaluate(() => (window as any).__areaBounds({ x: .25, y: .25, width: .5, height: .5 }))
+    await expect.poll(() => preview.evaluate((v: HTMLVideoElement) => v.classList.contains('selfMirrorGuard'))).toBe(false)
+    await expect.poll(() => preview.evaluate((v: HTMLVideoElement) => v.srcObject !== null)).toBe(true)
+    await popup.evaluate(() => { (window.opener as any).__rawAreaTrack = (window as any).__rawAreaTrack })
+    await popup.getByRole('button', { name: 'Stop sharing' }).click()
+    await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+  } finally { await context.close() }
+})
+
 test('cancelling an area chooser stops screen and audio returned afterwards', async ({ browser, baseURL }) => {
   const context = await newDeviceContext(browser, baseURL!)
   await context.addInitScript(() => {

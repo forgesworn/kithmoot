@@ -47,7 +47,10 @@ export function floatingPreviewSupported(win: Window = window): boolean {
 }
 
 export interface FloatingSharePreviewOptions {
-  /** The live track to show, or undefined once sharing has stopped. */
+  /** The live track to show, or undefined once sharing has stopped, or
+   *  while the display carrying this window is itself being captured -
+   *  see `self-mirror-guard.ts`. The caller decides which; this window
+   *  just shows a placeholder instead of whatever it is not given. */
   track: () => MediaStreamTrack | undefined
   /** Paints the marks overlay on a preview video - `ShareViewer.overlay`,
    *  handed in so this module never reaches into `ShareViewer`'s own state. */
@@ -66,6 +69,8 @@ const PIP_HEIGHT = 240
 export class FloatingSharePreview {
   readonly #opts: FloatingSharePreviewOptions
   #pip?: FloatingPipWindow
+  #video?: HTMLVideoElement
+  #notice?: HTMLElement
   #dispose?: () => void
 
   constructor(opts: FloatingSharePreviewOptions) { this.#opts = opts }
@@ -96,13 +101,21 @@ export class FloatingSharePreview {
     for (const style of win.document.querySelectorAll('style[data-vite-dev-id]')) doc.head.append(style.cloneNode(true))
     const rules = doc.createElement('style')
     rules.textContent = 'body { margin: 0; background: #080b0d; overflow: hidden; position: relative; }' +
-      'video { display: block; width: 100%; height: 100%; object-fit: contain; }'
+      'video { display: block; width: 100%; height: 100%; object-fit: contain; }' +
+      '.notice { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; ' +
+      'padding: 1rem; text-align: center; font: 13px sans-serif; color: #fff; background: #080b0d; }' +
+      '.notice[hidden] { display: none; }'
     doc.head.append(rules)
     const video = doc.createElement('video')
     video.autoplay = true; video.muted = true; video.playsInline = true
-    doc.body.append(video)
-    const track = this.#opts.track()
-    if (track) { video.srcObject = new MediaStream([track]); void video.play().catch(() => {}) }
+    const notice = doc.createElement('div')
+    notice.className = 'notice'
+    notice.hidden = true
+    notice.textContent = 'Live view paused while you share your whole screen, to avoid a mirror. Marks still show below.'
+    doc.body.append(video, notice)
+    this.#video = video
+    this.#notice = notice
+    this.#applyTrack()
     const removeOverlay = this.#opts.overlay(video, () => this.#opts.source()?.id)
     // Fires when the person closes the floating window themselves, from its
     // own chrome rather than ours - the same event `ShareViewer#mount` uses
@@ -114,7 +127,39 @@ export class FloatingSharePreview {
       pip.removeEventListener('pagehide', onClose)
       video.pause()
       video.srcObject = null
+      this.#video = undefined
+      this.#notice = undefined
     }
+  }
+
+  /**
+   * Shows this device's own share, or withholds it in favour of the notice,
+   * exactly as `this.#opts.track()` says right now. Called once when the
+   * window opens and again by `sync()` whenever the caller's reason to
+   * withhold it changes - most importantly the recursion guard, which flips
+   * while the window stays open.
+   */
+  #applyTrack(): void {
+    const video = this.#video, notice = this.#notice
+    if (!video || !notice) return
+    const track = this.#opts.track()
+    if (!track) {
+      video.pause()
+      video.srcObject = null
+      notice.hidden = false
+      return
+    }
+    notice.hidden = true
+    const current = video.srcObject as MediaStream | null
+    if (current?.getVideoTracks()[0] === track) return
+    video.srcObject = new MediaStream([track])
+    void video.play().catch(() => {})
+  }
+
+  /** Re-reads `track()` against the window already open, if one is. A no-op
+   *  otherwise - there is nothing to sync until `open()` creates one. */
+  sync(): void {
+    this.#applyTrack()
   }
 
   /** Closes the window, if one is open. Safe to call at any time, including

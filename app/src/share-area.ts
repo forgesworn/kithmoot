@@ -1,5 +1,6 @@
 import type { ScreenAnnotation, AnnotationPoint } from '../../src/signal.js'
 import { minimumSelection, moveSelection, resizeSelection, videoBox, WHOLE_PICTURE } from './share-area-geometry.js'
+import { coversWholeDisplay } from './self-mirror-guard.js'
 
 export interface AreaRect { x: number; y: number; width: number; height: number }
 
@@ -17,7 +18,18 @@ export class DesktopShareArea {
     overlay: (canvas: HTMLCanvasElement, id: () => string | undefined) => () => void
     draw: (annotation: ScreenAnnotation) => void
     ended: () => void
+    /** Told whenever the area comes to cover, or stops covering, (near
+     *  enough) the whole display - see `self-mirror-guard.ts`. Lets the
+     *  caller withhold this device's own live preview of its own share
+     *  while the display carrying that preview is itself being captured. */
+    wholeDisplay?: (whole: boolean) => void
   }) {}
+
+  /** The only place `#rect` changes - so `wholeDisplay` always hears about it. */
+  #setRect(rect: AreaRect | null): void {
+    this.#rect = rect
+    this.opts.wholeDisplay?.(coversWholeDisplay(rect))
+  }
 
   async start(): Promise<MediaStream> {
     const bridge = window.kithmootDesktop
@@ -121,7 +133,7 @@ export class DesktopShareArea {
     }
     const gone = () => { this.stop(); this.opts.ended() }
     popup.addEventListener('pagehide', gone)
-    const unsubState = bridge.onShareAreaState(rect => { this.#rect = rect })
+    const unsubState = bridge.onShareAreaState(rect => this.#setRect(rect))
     const unsubMarks = this.opts.overlay(marks, () => this.#output?.id)
     let timer: ReturnType<typeof setInterval> | undefined
     let video: HTMLVideoElement | undefined
@@ -153,7 +165,7 @@ export class DesktopShareArea {
       stop.textContent = 'Stop sharing'
       if (this.#cancelled) { raw.getTracks().forEach(track => track.stop()); throw new Error('Sharing cancelled.') }
       this.#raw = raw
-      this.#rect = await bridge.shareAreaState()
+      this.#setRect(await bridge.shareAreaState())
       if (!this.#rect) throw new Error('Keep the whole sharing frame on one monitor.')
       const crop = await this.#crop(popup, raw, () => this.#rect, rect => {
         status.textContent = rect ? 'Sharing inside this frame · Drag corners to resize' : 'Keep the frame on its original monitor'
@@ -242,7 +254,7 @@ export class DesktopShareArea {
     status.textContent = 'Only the area inside the blue box is shared'
     doc.body.replaceChildren(bar, stage, status)
 
-    this.#rect = { ...WHOLE_PICTURE }
+    this.#setRect({ ...WHOLE_PICTURE })
     const picture = () => videoBox(stage.clientWidth, stage.clientHeight, preview.videoWidth, preview.videoHeight)
     const layout = () => {
       const box = picture()
@@ -253,7 +265,7 @@ export class DesktopShareArea {
         width: `${this.#rect.width * box.width}px`, height: `${this.#rect.height * box.height}px`,
       })
     }
-    const select = (next: AreaRect) => { this.#rect = next; layout() }
+    const select = (next: AreaRect) => { this.#setRect(next); layout() }
     const minimum = () => minimumSelection(preview.videoWidth, preview.videoHeight)
     const layoutObserver = new ResizeObserver(layout)
     layoutObserver.observe(stage)
@@ -429,7 +441,7 @@ export class DesktopShareArea {
     this.#raw?.getTracks().forEach(track => track.stop()); this.#raw = undefined
     this.#output?.stop(); this.#output = undefined
     this.#popup?.close(); this.#popup = undefined
-    this.#rect = null
+    this.#setRect(null)
     window.kithmootDesktop?.shareAreaAction('close')
   }
 }

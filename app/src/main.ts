@@ -32,6 +32,7 @@ import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
+import { isWholeDisplaySurface } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
 import type { MarkAuthor } from './share-marks.js'
@@ -272,8 +273,12 @@ const shareViewer = new ShareViewer({
 // see `notifyDrawingOnMyShare` and `floating-share-preview.ts`. Reuses
 // `shareViewer.overlay` on a video of its own rather than reaching into
 // `ShareViewer`'s state, so it stays clear of PR work on that class.
+//
+// `track` withholds the live picture while `sharingWholeDisplay` is set -
+// see `applySelfMirrorGuard` - so this window never shows a live copy of
+// itself sat inside the very screen it is being captured from.
 const floatingSharePreview = new FloatingSharePreview({
-  track: () => screenTrack,
+  track: () => (sharingWholeDisplay ? undefined : screenTrack),
   overlay: (video, shareId) => shareViewer.overlay(video, shareId),
   source: () => screenTrack ? screenSource(meParticipant, myDeviceId) : undefined,
 })
@@ -281,6 +286,7 @@ const desktopShareArea = new DesktopShareArea({
   overlay: (canvas, id) => shareViewer.areaOverlay(canvas, id),
   draw: annotation => shareViewer.draw(annotation),
   ended: () => screenTrack?.dispatchEvent(new Event('ended')),
+  wholeDisplay: whole => { sharingWholeDisplay = whole; applySelfMirrorGuard() },
 })
 const drawingNoticeGate = new DrawingNoticeGate()
 const emojiPicker = new EmojiPicker()
@@ -2472,6 +2478,11 @@ let screenTrack: MediaStreamTrack | undefined
  *  when the person unticked the box - a share still works with no audio, it
  *  is simply silent, which is what the note near the toggle says. */
 let screenAudioTrack: MediaStreamTrack | undefined
+/** Whether the display carrying this device's own share is itself being
+ *  captured right now - a full-screen area, or a plain full-screen share -
+ *  and so this device's own live preview of its own share is withheld; see
+ *  `applySelfMirrorGuard` and `self-mirror-guard.ts`. */
+let sharingWholeDisplay = false
 
 let camera: CameraPipeline | undefined
 let mic: MicPipeline | undefined
@@ -3525,6 +3536,7 @@ function stopLocalMedia(): void {
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
+  sharingWholeDisplay = false
   clearShareError()
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
@@ -4495,6 +4507,7 @@ async function toggleScreen(area = false): Promise<void> {
     desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
+    sharingWholeDisplay = false
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
@@ -4536,6 +4549,11 @@ async function toggleScreen(area = false): Promise<void> {
     if (generation !== callGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
+    // An area share already tracks this precisely, reactively, via the
+    // frame's own rect (see `wholeDisplay` above, on `desktopShareArea`); a
+    // plain share carries the standard hint directly on the track handed
+    // back, and needs checking only the once, here.
+    if (!area) sharingWholeDisplay = isWholeDisplaySurface(screenTrack?.getSettings().displaySurface)
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
@@ -4543,6 +4561,7 @@ async function toggleScreen(area = false): Promise<void> {
         if (generation !== callGeneration) return
         desktopShareArea.stop()
         screenTrack = undefined
+        sharingWholeDisplay = false
         screenAudioTrack?.stop()
         screenAudioTrack = undefined
         localPreviewEls.get('screen')?.remove()
@@ -4609,6 +4628,39 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
   video.playsInline = true
   localMediaEl.append(video)
   localPreviewEls.set(kind, video)
+  // A screen preview may be born already inside the recursion guard: the
+  // area frame can report a whole-display area before the share's own track
+  // exists (see `DesktopShareArea#setRect`), so nothing has applied the
+  // guard to this element yet.
+  if (kind === 'screen') applySelfMirrorGuard()
+}
+
+/**
+ * Withholds this device's own live picture of its own share from every one
+ * of KithMoot's surfaces that show it, whenever the display carrying that
+ * surface is itself being captured - see `sharingWholeDisplay` and
+ * `self-mirror-guard.ts`. Otherwise a full-screen area, or a plain
+ * full-screen share, captures the very tile or window showing the capture,
+ * which shows the capture, and so on: a hall of mirrors, reported from a
+ * real call.
+ *
+ * The marks overlay each of these carries (`shareMarkOverlays`,
+ * `ShareViewer#overlay`) is untouched - it paints on a canvas of its own,
+ * never a copy of the video's pixels - so drawing on a full-screen share
+ * still shows up for the sharer, just without a live picture behind it.
+ */
+function applySelfMirrorGuard(): void {
+  const preview = localPreviewEls.get('screen')
+  if (preview) {
+    if (sharingWholeDisplay) {
+      if (preview.srcObject) { preview.pause(); preview.srcObject = null }
+      preview.classList.add('selfMirrorGuard')
+    } else {
+      preview.classList.remove('selfMirrorGuard')
+      if (!preview.srcObject && screenTrack) { preview.srcObject = new MediaStream([screenTrack]); void preview.play().catch(() => {}) }
+    }
+  }
+  floatingSharePreview.sync()
 }
 
 /** Which of our own preview elements a track advert corresponds to, if any.
@@ -5783,6 +5835,7 @@ function muteRequested(by: string): void {
     desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
+    sharingWholeDisplay = false
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
