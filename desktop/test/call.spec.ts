@@ -86,6 +86,19 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
     const moved = area.getByLabel('Move sharing area with arrow keys')
     await moved.press('ArrowRight')
     await expect.poll(async () => (await areaBounds()).x).toBe(original.x + 10)
+    // Dragging the bar follows the real cursor, which synthetic mouse events
+    // do not move, so stand in for it in the main process.
+    const beforeDrag = await areaBounds()
+    const cursorAt = (x: number, y: number) => native.evaluate(({ screen }, point) => { screen.getCursorScreenPoint = () => point }, { x, y })
+    const grip = (await moved.boundingBox())!
+    await cursorAt(beforeDrag.x + 40, beforeDrag.y + 20)
+    await area.mouse.move(grip.x + 20, grip.y + 10)
+    await area.mouse.down()
+    await cursorAt(beforeDrag.x + 80, beforeDrag.y + 50)
+    await area.mouse.move(grip.x + 30, grip.y + 15)
+    await area.mouse.up()
+    await expect.poll(async () => (await areaBounds()).x).toBe(beforeDrag.x + 40)
+    expect(await areaBounds()).toEqual({ ...beforeDrag, x: beforeDrag.x + 40, y: beforeDrag.y + 30 })
     const northwest = area.getByRole('button', { name: 'Resize sharing area from top left', exact: true })
     const beforeNorthwest = await areaBounds()
     await northwest.press('ArrowLeft')

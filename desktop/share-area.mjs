@@ -63,6 +63,17 @@ export class ShareArea {
     if (action === 'owner') return this.showOwner()
     if (this.preview) return
     if (action === 'passthrough' && typeof value === 'boolean') this.passthrough(window, value)
+    // Moving follows the real cursor rather than renderer coordinates, which
+    // lag behind a window that moves under the pointer.
+    if (action === 'move-start') {
+      const cursor = screen.getCursorScreenPoint(), [x, y] = window.getPosition()
+      this.moveOffset = { x: cursor.x - x, y: cursor.y - y }
+    }
+    if (action === 'move' && this.moveOffset) {
+      const cursor = screen.getCursorScreenPoint()
+      window.setPosition(Math.max(-32000, Math.min(32000, cursor.x - this.moveOffset.x)), Math.max(-32000, Math.min(32000, cursor.y - this.moveOffset.y)))
+    }
+    if (action === 'move-end') this.moveOffset = undefined
     if (action === 'bounds' && value && ['x', 'y', 'width', 'height'].every(key => Number.isFinite(value[key]))) {
       window.setBounds({ x: Math.max(-32000, Math.min(32000, Math.round(value.x))), y: Math.max(-32000, Math.min(32000, Math.round(value.y))), width: Math.max(460, Math.min(8000, Math.round(value.width))), height: Math.max(200, Math.min(8000, Math.round(value.height))) })
     }
@@ -70,13 +81,14 @@ export class ShareArea {
       window.setSize(Math.max(460, Math.min(8000, Math.round(value.width))), Math.max(200, Math.min(8000, Math.round(value.height))))
     }
   }
-  // Linux cannot forward mouse moves to an ignoring window, so the renderer
-  // never learns the pointer has left the hole. Watch the cursor here instead.
+  // Linux cannot forward mouse moves to an ignoring window, and Windows does
+  // not reliably either, so the renderer may never learn the pointer has left
+  // the hole and the whole frame stays click-through. Watch the cursor here.
   passthrough(window, ignore) {
     clearInterval(this.passthroughTimer)
     this.passthroughTimer = undefined
     window.setIgnoreMouseEvents(ignore, { forward: true })
-    if (!ignore || process.platform !== 'linux') return
+    if (!ignore) return
     this.passthroughTimer = setInterval(() => {
       if (window.isDestroyed() || this.window !== window) return clearInterval(this.passthroughTimer)
       if (!insideArea(screen.getCursorScreenPoint(), window.getBounds())) this.passthrough(window, false)
@@ -120,6 +132,7 @@ export class ShareArea {
     const window = this.window
     this.window = undefined
     this.display = undefined
+    this.moveOffset = undefined
     if (window && !window.isDestroyed()) window.close()
   }
 }

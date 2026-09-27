@@ -48,9 +48,9 @@ export class DesktopShareArea {
     style.textContent = `
       html,body{margin:0;width:100%;height:100%;background:transparent!important;overflow:hidden;color:white;font:13px sans-serif}
       body{box-sizing:border-box;border:8px solid #4ecbff}
-      header{height:44px;display:flex;align-items:center;gap:8px;padding:0 24px;background:#101114;-webkit-app-region:drag}
-      button{padding:8px 12px;white-space:nowrap;-webkit-app-region:no-drag}
-      header span{flex:1;min-width:70px;font-weight:bold;cursor:move}
+      header{height:44px;display:flex;align-items:center;gap:8px;padding:0 24px;background:#101114;cursor:move;touch-action:none}
+      button{padding:8px 12px;white-space:nowrap;cursor:default}
+      header span{flex:1;min-width:70px;font-weight:bold}
       canvas{position:absolute;left:8px;top:52px;width:calc(100% - 16px);height:calc(100% - 92px);touch-action:none}
       footer{position:absolute;left:8px;right:8px;bottom:8px;height:32px;display:flex;align-items:center;justify-content:center;background:#101114;font-size:12px;padding:0 24px;white-space:nowrap;overflow:hidden}
       .resize{position:absolute;width:28px;height:28px;padding:0;border:0;background:#4ecbff;color:#101114;font-size:20px;touch-action:none}
@@ -103,8 +103,20 @@ export class DesktopShareArea {
     const pen = this.#pen(marks, () => drawing)
     draw.onclick = () => { pen.end(); drawing = !drawing; draw.setAttribute('aria-pressed', String(drawing)); bridge.shareAreaAction('passthrough', false) }
     doc.addEventListener('mousemove', event => {
-      bridge.shareAreaAction('passthrough', !drawing && !resizing && event.target === marks)
+      bridge.shareAreaAction('passthrough', !drawing && !resizing && !moving && event.target === marks)
     })
+    // Native drag regions were unreliable on this frame (dead on Windows,
+    // fiddly on macOS), so the main process moves it after the real cursor.
+    let moving = false
+    bar.onpointerdown = event => {
+      if (event.button !== 0 || (event.target as Element).closest('button')) return
+      bridge.shareAreaAction('passthrough', false)
+      bridge.shareAreaAction('move-start')
+      moving = true
+      bar.setPointerCapture(event.pointerId)
+    }
+    bar.onpointermove = event => { if (moving && bar.hasPointerCapture(event.pointerId)) bridge.shareAreaAction('move') }
+    bar.onpointerup = bar.onpointercancel = bar.onlostpointercapture = () => { if (moving) bridge.shareAreaAction('move-end'); moving = false }
     let resizing: { screenX: number; screenY: number; x: number; y: number; width: number; height: number } | undefined
     const resizeFrom = (corner: string, bounds: { x: number; y: number; width: number; height: number }, dx: number, dy: number) => {
       const west = corner.includes('w'), north = corner.includes('n')
