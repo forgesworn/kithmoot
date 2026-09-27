@@ -478,6 +478,10 @@ export const MAX_EXHAUSTED_RETRY_MS = 10 * 60_000
  * joined.
  */
 export const MAX_HELD_SIGNALS_PER_DEVICE = 32
+
+/** How many replaced far-end sessions are remembered per endpoint. A far end
+ *  rebuilds its connection a handful of times in a bad call, not hundreds. */
+export const MAX_RETIRED_REMOTE_SESSIONS = 8
 export const MAX_HELD_SIGNAL_DEVICES = 16
 
 /**
@@ -594,6 +598,11 @@ export class Mesh {
    *  is not mistaken for the rung failing. Same guard as
    *  `#tearingDownForwarder`, for the same reason. */
   readonly #closingEndpoints = new Set<string>()
+  /** Far-end session ids each endpoint has moved on from - see
+   *  `#replaceForRemoteSession`. A late copy of an offer from one of them is
+   *  a connection the far end has already closed, and must not cost a second
+   *  rebuild. Bounded by `MAX_RETIRED_REMOTE_SESSIONS`. */
+  readonly #retiredRemoteSessions = new Map<string, Set<string>>()
 
   #forwarders: ForwarderRef[]
   #forwarding: ForwardingState = 'off'
@@ -784,6 +793,7 @@ export class Mesh {
     for (const peer of this.#peers.values()) peer.close()
     this.#peers.clear()
     this.#peerSids.clear()
+    this.#retiredRemoteSessions.clear()
     this.#deviceProfiles.clear()
     this.#downgraded.clear()
     this.#profile2Evidence.clear()
@@ -1003,6 +1013,7 @@ export class Mesh {
         this.#controllers.get(device)?.close()
         this.#controllers.delete(device)
         this.#profile2Evidence.delete(device)
+        this.#retiredRemoteSessions.delete(device)
         // We may have been carrying this device for somebody. Holding the
         // slot open would cost a slot we could give somebody else.
         this.#stopRelayingFor(device)
@@ -1881,8 +1892,69 @@ export class Mesh {
     if (body.type === 'offer') this.#armRouteTimerForOffer(endpoint)
   }
 
+  /**
+   * The far end rebuilt its connection to this device and is offering from
+   * the new one. Meet it on a new connection of ours.
+   *
+   * Nothing on the roster says so. A web client whose page session is
+   * unchanged publishes the same `sid`, and an Android one publishes none, so
+   * `#sessionChanged` sees nothing and the old peer is kept - and the offer
+   * lands on a connection whose session it does not belong to. Measured on a
+   * real call: a phone that rejoined offered from a fresh connection, a
+   * browser applied it to its stale one, and the browser's answer marked
+   * every section not sending. The browser believed its tracks were already
+   * negotiated, so nothing ever offered them again, and that person was
+   * never heard while they still heard everybody.
+   *
+   * So the old peer goes and a new one is built exactly as `#downgradePeer`
+   * builds one: this side's tracks first, by the same audience rule, then the
+   * offer, so the answer carries them. The route loses its claim to be
+   * connected, which belonged to the old connection, so the new one gets a
+   * watchdog. The app keys everything it holds per person - volume, the
+   * speaking ring, roles, tiles - by device and follows a new track object on
+   * the same key, as it already does after any other rebuild.
+   */
+  #replaceForRemoteSession(endpoint: string, stale: Peer, offer: SignalBody, candidates: SignalBody[], retired?: string): void {
+    if (this.#closed || this.#quiet) return
+    // Only the endpoint's current peer may be replaced this way: an old one
+    // finishing a queued signal after some other rebuild has nothing to give.
+    if (this.#peers.get(endpoint) !== stale) return
+    if (retired !== undefined) {
+      const seen = this.#retiredRemoteSessions.get(endpoint) ?? new Set<string>()
+      seen.add(retired)
+      while (seen.size > MAX_RETIRED_REMOTE_SESSIONS) {
+        const oldest = seen.values().next().value
+        if (oldest === undefined) break
+        seen.delete(oldest)
+      }
+      this.#retiredRemoteSessions.set(endpoint, seen)
+    }
+    this.#diagnose({ kind: 'signal-received', device: endpoint, detail: 'offer: far end started a new session; rebuilding' })
+    this.#closePeer(endpoint, stale)
+    for (const [device, route] of this.#routes) {
+      if (route.endpoint !== endpoint || !route.connected) continue
+      route.connected = false
+      this.#announceRoute(device, route)
+    }
+    const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
+    this.#peers.set(endpoint, peer)
+    const sid = this.#deviceSids.get(endpoint)
+    if (sid === undefined) this.#peerSids.delete(endpoint)
+    else this.#peerSids.set(endpoint, sid)
+    this.#armRouteTimerIfNeeded(endpoint)
+    peer.start(this.#tracksFor(endpoint)).catch(() => {})
+    for (const body of [offer, ...candidates]) {
+      peer.handleSignal(body).catch((error) =>
+        this.#diagnose({ kind: 'signal-handling-failed', device: endpoint, detail: `${body.type}: ${describeError(error)}` }),
+      )
+    }
+    this.#armRouteTimerForOffer(endpoint)
+  }
+
   #createPeer(remoteDevice: string, forwarder = false, tier: RouteTier = 'direct'): Peer {
-    return new Peer({
+    const retired = this.#retiredRemoteSessions.get(remoteDevice) ?? new Set<string>()
+    if (!forwarder) this.#retiredRemoteSessions.set(remoteDevice, retired)
+    const peer: Peer = new Peer({
       factory: this.#opts.factory,
       localDevice: this.#opts.localDevice,
       remoteDevice,
@@ -1934,7 +2006,12 @@ export class Mesh {
             if (state === 'connected') this.#endpointConnected(remoteDevice)
             else if (state === 'failed' || state === 'closed') this.#endpointFailed(remoteDevice)
           },
+      onRemoteRestart: forwarder
+        ? undefined
+        : (offer, candidates, retiredSession) => this.#replaceForRemoteSession(remoteDevice, peer, offer, candidates, retiredSession),
+      retiredRemoteSessions: forwarder ? undefined : retired,
     })
+    return peer
   }
 
   /**
