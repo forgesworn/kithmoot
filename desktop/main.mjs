@@ -1,4 +1,5 @@
 import { ShareArea, AREA_URL } from './share-area.mjs'
+import { Redaction, BOX_WINDOW, boxId } from './redaction.mjs'
 import { createDesktopUpdater } from './updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
 import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
@@ -39,6 +40,12 @@ const updates = createDesktopUpdater({
   log: error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error'),
 })
 const shareArea = new ShareArea(() => win, areaMode)
+// Redaction boxes need a window placed on the real screen, which Wayland
+// forbids: there the preview area share is the way to keep things private.
+const redaction = areaMode === 'frame' ? new Redaction(() => win) : undefined
+// Unpackaged automation stands in for the capture source, which a synthetic
+// presentation never asks the main process to choose.
+if (testProfile) globalThis.kithmootTest = { redaction, shareArea }
 let configureDisplayCapture
 let callActive = false
 let powerBlock
@@ -49,6 +56,7 @@ const trusted = (contents) => contents && contents === win?.webContents && isApp
 
 function releaseCall() {
   shareArea.close()
+  redaction?.closeAll()
   callActive = false
   if (powerBlock !== undefined) powerSaveBlocker.stop(powerBlock)
   powerBlock = undefined
@@ -155,7 +163,12 @@ async function createWindow() {
         configureDisplayCapture()
         try {
           if (!await hasScreenAccess()) return refuse(callback)
-          await shareArea.capture(request, callback)
+          // The area's own monitor is what the page crops, and so what any
+          // redaction box has to be mapped onto.
+          await shareArea.capture(request, selection => {
+            if (selection?.video) redaction?.capturedDisplay(shareArea.display)
+            callback(selection)
+          })
         } catch { refuse(callback) }
         return
       }
@@ -163,20 +176,30 @@ async function createWindow() {
         allowed: () => true,
         screenAccessGranted: hasScreenAccess,
         listSources: () => desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 120, height: 75 } }),
-        selection: source => ({ video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) }),
+        selection: source => {
+          redaction?.captured(source)
+          return { video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) }
+        },
         choose: (sources, chosen) => {
           let picked = false
-          const pick = source => { if (!picked) { picked = true; chosen(source) } }
+          // A box cannot follow another app's window yet, so while one is on
+          // only whole screens are offered.
+          const hiding = redaction?.anyOn() ?? false
+          const offered = hiding ? sources.filter(source => source.id.startsWith('screen:')) : sources
+          const pick = source => { if (!picked) { picked = true; chosen(hiding && source && !source.id.startsWith('screen:') ? undefined : source) } }
           // On Wayland the portal already asked; a menu of its one answer is a second prompt.
           if (areaMode === 'preview' && sources.length === 1) return pick(sources[0])
           Menu.buildFromTemplate([
           { label: 'Choose what to share', enabled: false },
-          ...sources.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => pick(source) })),
+          ...(hiding ? [{ label: 'Single apps are hidden while a redaction box is on', enabled: false }] : []),
+          ...offered.map(source => ({ label: source.name, icon: source.thumbnail.resize({ width: 80 }), click: () => pick(source) })),
           { type: 'separator' }, { label: 'Cancel', click: () => pick() },
           ]).popup({ window: win, callback: () => setTimeout(() => { if (!picked) pick() }, 250) })
         },
       })
-    }, { useSystemPicker: !area })
+    // The system picker never tells us what was chosen, so it is used only
+    // while no redaction box exists; a box then shows black, not a guess.
+    }, { useSystemPicker: !area && !(redaction?.boxes.size) })
     configureDisplayCapture()
     ses.on('will-download', (_event, item) => {
       // Chromium's save dialog provides a destination for attachments.
@@ -203,6 +226,19 @@ async function createWindow() {
   // in the packaged app while it worked in a tab. An empty window inherits
   // this window's own sandbox and preload, and carries no remote content.
   win.webContents.setWindowOpenHandler(({ url }) => {
+    if (redaction && boxId(url)) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          ...BOX_WINDOW, title: 'Hidden from share',
+          webPreferences: {
+            session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
+            nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
+            backgroundThrottling: false,
+          },
+        },
+      }
+    }
     if (url === AREA_URL || windowOpenAction(url) === 'own-window') {
       return {
         action: 'allow',
@@ -221,7 +257,11 @@ async function createWindow() {
     void external(url)
     return { action: 'deny' }
   })
-  win.webContents.on('did-create-window', (child, details) => { if (details.url === AREA_URL) shareArea.attach(child) })
+  win.webContents.on('did-create-window', (child, details) => {
+    if (details.url === AREA_URL) shareArea.attach(child)
+    const id = boxId(details.url)
+    if (id && redaction) redaction.attach(child, id)
+  })
   win.webContents.on('will-navigate', (event, url) => {
     if (!isAppUrl(url)) { event.preventDefault(); void external(url) }
   })
@@ -252,6 +292,17 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     ipcMain.handle('desktop:area-state', event => trusted(event.sender) ? shareArea.state() : null)
     ipcMain.handle('desktop:update-state', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame ? updates.state() : { phase: 'disabled' })
     ipcMain.handle('desktop:update-install', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame && !callActive ? updates.install() : false)
+    ipcMain.handle('desktop:redaction-begin', event => {
+      if (!trusted(event.sender) || !redaction) return null
+      redaction.begin()
+      configureDisplayCapture()
+      return redaction.state()
+    })
+    ipcMain.handle('desktop:redaction-state', event => trusted(event.sender) && redaction ? redaction.state() : null)
+    ipcMain.on('desktop:redaction-action', (event, id, action, value) => {
+      if (!trusted(event.sender) || !redaction || typeof action !== 'string' || (id !== null && typeof id !== 'string')) return
+      redaction.action(id, action, value)
+    })
     ipcMain.on('desktop:area-action', (event, action, value) => { if (trusted(event.sender)) { shareArea.action(action, value); if (action === 'close') configureDisplayCapture() } })
     ipcMain.on('desktop:unread', (event, count) => {
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || !Number.isSafeInteger(count) || count < 0 || count > 1_000_000) return
