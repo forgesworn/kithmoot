@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.23",
+  "currentRelease": "0.1.24",
   "releases": [
     {
-      "version": "0.1.23",
+      "version": "0.1.24",
       "updateTo": {
-        "version": "0.1.23",
-        "pub_date": "2026-09-27T07:00:00Z",
-        "notes": "A new start page: your rooms, newest first, with a preview of the latest message, and Settings in the top bar.",
-        "name": "0.1.23",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.23/KithMoot-0.1.23-mac-arm64.zip",
-        "sha256": "7f5d15134cf59b6cf34527a5b93d380ba6780c853145d010e4894cce6e35fde1",
-        "size": 138924083
+        "version": "0.1.24",
+        "pub_date": "2026-09-27T13:00:00Z",
+        "notes": "Rooms you have been in open straight in, without asking for your name again. The start page keeps one shape as you resize the window, and no longer flashes the welcome screen while your sign-in loads.",
+        "name": "0.1.24",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.24/KithMoot-0.1.24-mac-arm64.zip",
+        "sha256": "1cb03654716f32293ca72e1c79ab6f5745bb90ce8e5935466f6cd91d88451731",
+        "size": 138923852
       }
     }
   ]
