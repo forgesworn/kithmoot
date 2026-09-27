@@ -58,6 +58,7 @@ import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivi
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
 import { RoomWatch } from './room-watch.js'
+import { BrowserRoomArchiveStorage, RoomArchive, deleteRoomArchive, reseedRelays, type ReseedTarget } from './room-archive.js'
 import { PresenceAnnouncements } from './presence-announcements.js'
 import { readAgentRequestStatuses, type RequestAgent } from './agent-request-status.js'
 import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
@@ -95,6 +96,9 @@ import {
   localIdentity,
   sanitiseDisplayName,
   MAX_CHAT_TEXT_LENGTH,
+  CHAT_RETENTION_SECONDS,
+  MAX_CHAT_MESSAGES,
+  KINDS,
   type ParticipantIdentity,
   type DeviceCredential,
   type RoomPolicy,
@@ -231,6 +235,10 @@ function slotWords(): string {
   return QUIET_SLOT >= 60 ? `${Math.ceil(QUIET_SLOT / 60)} minutes` : `${QUIET_SLOT} seconds`
 }
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
+/** This browser's copy of every room it has been in: the original signed
+ *  events, sealed under a device key. Undefined where the browser keeps no
+ *  storage, and the rooms then read from relays alone. See room-archive.ts. */
+const roomArchive = (() => { try { return new RoomArchive(new BrowserRoomArchiveStorage()) } catch { return undefined } })()
 const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
 installReactionHold($('chatLog'))
@@ -957,7 +965,7 @@ async function forgetThisBrowser(): Promise<void> {
     title: 'Forget this browser?',
     message: 'This removes, from this browser only:\n'
       + '- your visitor identity\n'
-      + '- every room kept here, and its keys\n'
+      + '- every room kept here, its keys and the history this browser kept of it\n'
       + '- contacts and verified people\n'
       + '- text size and volume choices\n'
       + '- the saved connection to a Nostr signer\n\n'
@@ -998,6 +1006,8 @@ async function forgetThisBrowser(): Promise<void> {
       if (key.startsWith('kithmoot.')) storage.removeItem(key)
     }
   }
+  // The rooms' kept history goes with the rooms.
+  await deleteRoomArchive()
 
   history.replaceState(null, '', joinLinkBase())
   approvedReload()
@@ -6449,6 +6459,50 @@ function renderChat(messages: ChatMessage[]): void {
   updateConversationSearch()
   if (currentChannel === undefined) noteChatRead(messages)
   markConversationRead()
+  requestAnimationFrame(() => pageBackFromArchive(true))
+}
+
+/**
+ * Step back through this device's archive: when the reader reaches the top
+ * of the conversation, or when what is shown does not fill the log, as in a
+ * room whose last word is older than the retention window. The log keeps
+ * the reader's place while older messages arrive above it; see chat-scroll.ts.
+ */
+function pageBackFromArchive(onlyToFill = false): void {
+  const log = currentChannel === undefined ? session?.chat : channelLogs.get(currentChannel)
+  if (!log?.hasOlder) return
+  const el = $('chatLog')
+  if ($('roomArea').hidden || el.clientHeight === 0) return
+  if (onlyToFill ? el.scrollHeight > el.clientHeight : el.scrollTop > 64) return
+  void log.loadOlder()
+}
+$('chatLog').addEventListener('scroll', () => pageBackFromArchive(), { passive: true })
+
+/**
+ * Put back on the room's relays what they forgot and this device kept.
+ *
+ * Late, so it never competes with joining. Never a quiet room's chat, which
+ * must not appear on a relay as bare room events; its rekeys ride in the
+ * open like any room's, so they still count. Only the room's own pool is
+ * written to. See `reseedRelays`.
+ */
+const RESEED_DELAY_MS = 5_000
+function scheduleReseed(s: RoomSession, pool: NostrRelayPool, quiet: boolean, authority: string | undefined): void {
+  const archive = roomArchive
+  if (!archive) return
+  const alive = (): boolean => !pool.closed && (session === s || dockedCall?.session === s)
+  setTimeout(() => {
+    if (!alive()) return
+    const since = nowSeconds() - CHAT_RETENTION_SECONDS
+    const logs = [s.chat, ...[AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL].map(name => s.channel(name))]
+    const targets: ReseedTarget[] = [
+      ...(quiet ? [] : logs.map(log => ({ kind: KINDS.CHAT, d: log.stream, since, limit: MAX_CHAT_MESSAGES }))),
+      ...(authority ? [{ kind: KINDS.ROOM_REKEY, d: s.roomId, limit: 1_000, authors: [authority] }] : []),
+    ]
+    reseedRelays(pool, archive, targets, { alive })
+      .then(report => { for (const [url, count] of report.reseeded) console.info(`room archive: returned ${count} event${count === 1 ? '' : 's'} to ${url}`) })
+      .catch(error => console.warn('room archive reseed', error))
+  }, RESEED_DELAY_MS)
 }
 
 function updateConversationSearch(): void {
@@ -9138,6 +9192,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
+          ...(roomArchive ? { archive: roomArchive } : {}),
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.
@@ -9179,6 +9234,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
+          ...(roomArchive ? { archive: roomArchive } : {}),
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.
@@ -9336,6 +9392,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     control.onChange((messages) => { if (session === s) ingestControl(messages) })
     ingestControl(control.messages())
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
+    scheduleReseed(s, pool, !!quietTransport, sessionAuthority)
     renderRoomLockState()
     renderHost()
     // Empty until the keeper answers the `catalogue?` above with its signed
