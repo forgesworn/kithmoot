@@ -139,6 +139,21 @@ describe('NostrRelayPool', () => {
     expect(b.stored.map((e) => e.id)).toEqual([event.id])
   })
 
+  it('says when every relay has answered, so a caller can close without cutting a slow one off', async () => {
+    await pool.publish(evt())
+    await pool.settled()
+    expect(pool.publishing).toBe(false)
+
+    // A relay that never answers holds the publish open; settling gives up
+    // at its deadline rather than waiting for ever.
+    b.silent = true
+    await pool.publish(evt())
+    expect(pool.publishing).toBe(true)
+    const started = Date.now()
+    await pool.settled(50)
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
   it('succeeds when one relay accepts and the other refuses', async () => {
     b.rejectPublishes = true
     const event = evt()
