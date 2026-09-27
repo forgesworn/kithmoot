@@ -250,11 +250,14 @@ export {
   CHAT_RETENTION_SECONDS,
   MAX_CHAT_MESSAGES,
   MAX_CHAT_MESSAGES_PER_MINUTE,
+  CHAT_ARCHIVE_PAGE,
   MAX_CHAT_ATTACHMENTS,
   MAX_ATTACHMENT_URL_LENGTH,
   MAX_ATTACHMENT_NAME_LENGTH,
   normaliseAttachment,
 } from './chat.js'
+export { archiveTag, compareArchived, olderThan, reseedCandidates, MAX_RESEED_EVENTS } from './archive.js'
+export type { EventArchive, ArchiveQuery, ArchiveCursor } from './archive.js'
 export type {
   ChatMessage,
   ChatMessageKind,

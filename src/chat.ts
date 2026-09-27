@@ -22,6 +22,7 @@ import { sanitiseDisplayName } from './display-name.js'
 import { evaluateAccess } from './access.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RelayTransport } from './relay-pool.js'
+import { olderThan, type ArchiveCursor, type EventArchive } from './archive.js'
 import { laneOfRelayUrl, laneOfRelays, type Lane } from './lane.js'
 import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from './types.js'
 
@@ -29,6 +30,8 @@ export const MAX_CHAT_TEXT_LENGTH = 2_000
 export const CHAT_RETENTION_SECONDS = 30 * 24 * 60 * 60
 export const MAX_CHAT_MESSAGES = 500
 export const MAX_CHAT_MESSAGES_PER_MINUTE = 30
+/** How many archived messages one step back through history reads. */
+export const CHAT_ARCHIVE_PAGE = 100
 
 const CHANNEL_ID_INFO = 'kithmoot/v1/channel-id/'
 const CHANNEL_KEY_INFO = 'kithmoot/v1/channel-key/'
@@ -643,6 +646,14 @@ export interface ChatLogOptions {
   owner?: AgentOwnership
   /** Historical signed claim; never current-owner authority. */
   ownerClaim?: AgentOwnership
+  /**
+   * This device's own copy of the room's events. Given one, the log shows
+   * what it holds before any relay answers, keeps every event it accepts,
+   * and can page back past the retention window with `loadOlder`. What it
+   * reads from the archive is decoded by exactly the rules a relay's events
+   * are. See `archive.ts`.
+   */
+  archive?: EventArchive
 }
 
 /** What `send` may say beyond the text. */
@@ -699,6 +710,17 @@ export class ChatLog {
   #unsub: () => void
   /** The epoch this log reads and writes. Undefined is epoch 0. */
   #epoch?: EpochRoot
+  /** How many messages the log holds: `MAX_CHAT_MESSAGES`, plus a page for
+   *  every step back through the archive a reader asked for. */
+  #window = MAX_CHAT_MESSAGES
+  /** The oldest send time a reader has paged back to, which moves the
+   *  retention cut for this log. Undefined until it pages. */
+  #pagedTo?: number
+  /** Where the next step back through the archive starts; undefined until
+   *  the archive has answered. */
+  #cursor?: ArchiveCursor
+  #archiveDone = false
+  #paging?: Promise<number>
 
   constructor(opts: ChatLogOptions) {
     this.#opts = opts
@@ -708,9 +730,18 @@ export class ChatLog {
     this.#unsub = this.#subscribe()
   }
 
-  #subscribe(): () => void {
+  /** The `d` tag this log reads and writes under now: public on the wire,
+   *  and what a caller asks a relay or the archive for. */
+  get stream(): string {
     const root = rootOf({ roomId: this.#opts.roomId, roomKey: this.#opts.roomKey, epoch: this.#epoch })
-    const { id } = deriveChannel(root.id, root.key, this.#opts.channel)
+    return deriveChannel(root.id, root.key, this.#opts.channel).id
+  }
+
+  #subscribe(): () => void {
+    const id = this.stream
+    this.#cursor = undefined
+    this.#archiveDone = !this.#opts.archive
+    if (this.#opts.archive) void this.#readArchive(id, this.#epoch)
     return this.#opts.transport.subscribe(
       // The newest the log can hold, not the whole retention window: the
       // rest would be decoded only to fall off the end.
@@ -750,6 +781,80 @@ export class ChatLog {
     this.#unsub()
     this.#epoch = next
     this.#unsub = this.#subscribe()
+  }
+
+  /** What this device holds, first: the same window a relay is asked for,
+   *  so a room opens on its history before any relay has answered. */
+  async #readArchive(d: string, epoch: EpochRoot | undefined): Promise<void> {
+    const since = this.#now() - CHAT_RETENTION_SECONDS
+    let events: Event[] = []
+    try {
+      events = await this.#opts.archive!.read({ kind: KINDS.CHAT, d, since, limit: MAX_CHAT_MESSAGES })
+    } catch {
+      // An archive that cannot be read is a device without one; relays still answer.
+    }
+    if (this.#closed || this.#epoch !== epoch) return
+    const oldest = events[events.length - 1]
+    this.#cursor = oldest ? { at: oldest.created_at, id: oldest.id } : { at: since, id: '' }
+    // Told even when nothing in the window was kept, so a reader can ask
+    // for what lies before it.
+    if (!this.#ingestAll(events)) this.#notify()
+  }
+
+  /** Whether the archive may hold messages older than the log shows. */
+  get hasOlder(): boolean {
+    return !this.#archiveDone && this.#cursor !== undefined
+  }
+
+  /**
+   * Step back through this device's archive: read the next page of older
+   * events and show them, past the retention window if need be. Resolves
+   * to how many events the archive handed over; zero means there are no
+   * more. The render window grows by what a reader asks for, never on its
+   * own.
+   */
+  loadOlder(count = CHAT_ARCHIVE_PAGE): Promise<number> {
+    if (this.#paging) return this.#paging
+    const archive = this.#opts.archive
+    const cursor = this.#cursor
+    if (!archive || !cursor || this.#archiveDone || this.#closed) return Promise.resolve(0)
+    const epoch = this.#epoch
+    const d = this.stream
+    const run = async (): Promise<number> => {
+      let events: Event[]
+      try {
+        events = (await archive.read({ kind: KINDS.CHAT, d, before: cursor, limit: count })).filter(e => olderThan(e, cursor))
+      } catch {
+        return 0
+      }
+      if (this.#closed || this.#epoch !== epoch) return 0
+      const oldest = events[events.length - 1]
+      if (!oldest) {
+        this.#archiveDone = true
+        return 0
+      }
+      this.#cursor = { at: oldest.created_at, id: oldest.id }
+      this.#window += events.length
+      this.#pagedTo = Math.min(this.#pagedTo ?? Infinity, oldest.created_at)
+      this.#ingestAll(events)
+      return events.length
+    }
+    this.#paging = run().finally(() => { this.#paging = undefined })
+    return this.#paging
+  }
+
+  /** Archived events in, one notification out. Returns whether any showed. */
+  #ingestAll(events: readonly Event[]): boolean {
+    let changed = false
+    for (const event of events) changed = this.#ingest(event, undefined, true) || changed
+    if (changed) this.#notify()
+    return changed
+  }
+
+  /** The oldest send time this log shows: the retention window, or further
+   *  back when a reader paged there. */
+  #floor(): number {
+    return Math.min(this.#now() - CHAT_RETENTION_SECONDS, this.#pagedTo ?? Infinity)
   }
 
   /** The channel this log is, or undefined for the main chat. */
@@ -862,6 +967,8 @@ export class ChatLog {
         throw new Error('This conversation has closed or changed its key. Copy your message into the current conversation to send it.')
       }
       await this.#opts.transport.publish(event)
+      // Kept once a relay has it, whether or not a relay echoes it back.
+      this.#opts.archive?.keep(event)
     }
   }
 
@@ -897,16 +1004,18 @@ export class ChatLog {
     this.#listeners.clear()
   }
 
-  #ingest(event: Event, via?: string): void {
-    if (this.#decoded.has(event.id)) return
+  /** Returns whether the log changed. `fromArchive` events are neither kept
+   *  again nor announced one by one; the caller notifies once. */
+  #ingest(event: Event, via?: string, fromArchive = false): boolean {
+    if (this.#decoded.has(event.id)) return false
     // Older than everything a full log keeps: it would be decoded and
     // dropped straight away. `encodeChatEvent` writes `sentAt` as
     // `created_at`; a sender who puts an earlier one on the outside only
     // loses their own message.
-    const oldest = this.#messages.length >= MAX_CHAT_MESSAGES ? this.#messages[0] : undefined
-    if (oldest && event.created_at < oldest.sentAt) return
+    const oldest = this.#messages.length >= this.#window ? this.#messages[0] : undefined
+    if (oldest && event.created_at < oldest.sentAt) return false
     this.#decoded.add(event.id)
-    if (this.#decoded.size > MAX_CHAT_MESSAGES * 4) {
+    if (this.#decoded.size > this.#window * 4) {
       const first = this.#decoded.values().next().value
       if (first !== undefined) this.#decoded.delete(first)
     }
@@ -918,19 +1027,24 @@ export class ChatLog {
       channel: this.#opts.channel,
       ...(this.#epoch ? { epoch: this.#epoch } : {}),
     })
-    if (!msg) return
-    msg.lane = this.#laneOf(via)
-    if (msg.sentAt < this.#now() - CHAT_RETENTION_SECONDS) return
-    if (this.#seen.has(msg.id)) return
+    if (!msg) return false
+    // Accepted by every rule the room has, so worth keeping whether or not
+    // this log has room to show it. An archived event has no relay to name,
+    // and the lane it once took is not recorded, so it claims none.
+    if (!fromArchive) this.#opts.archive?.keep(event)
+    msg.lane = fromArchive ? undefined : this.#laneOf(via)
+    const floor = this.#floor()
+    if (msg.sentAt < floor) return false
+    if (this.#seen.has(msg.id)) return false
 
     const senderTimes = (this.#senderTimes.get(msg.device) ?? [])
-      .filter((sentAt) => sentAt >= this.#now() - CHAT_RETENTION_SECONDS)
+      .filter((sentAt) => sentAt >= floor)
     if (senderTimes.filter((sentAt) => Math.abs(sentAt - msg.sentAt) < 60).length >= MAX_CHAT_MESSAGES_PER_MINUTE) {
-      return
+      return false
     }
     senderTimes.push(msg.sentAt)
     this.#senderTimes.set(msg.device, senderTimes)
-    while (this.#senderTimes.size > MAX_CHAT_MESSAGES) {
+    while (this.#senderTimes.size > this.#window) {
       const oldest = this.#senderTimes.keys().next().value
       if (oldest === undefined) break
       this.#senderTimes.delete(oldest)
@@ -939,11 +1053,16 @@ export class ChatLog {
 
     this.#messages.push(msg)
     this.#messages.sort(compareMessages)
-    while (this.#messages.length > MAX_CHAT_MESSAGES) {
+    while (this.#messages.length > this.#window) {
       const removed = this.#messages.shift()
       if (removed) this.#seen.delete(removed.id)
     }
 
+    if (!fromArchive) this.#notify()
+    return true
+  }
+
+  #notify(): void {
     const snapshot = this.messages()
     // Guarded: decodeChatEvent is written never to throw precisely because
     // this runs inside a relay subscription handler, and a throwing caller
