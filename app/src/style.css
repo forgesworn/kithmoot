@@ -987,6 +987,28 @@ video {
 .profileSettingsHeader button { min-height: 44px; }
 .shareExpand { min-height: 44px; padding: 0.45rem 0.7rem; margin: 0.5rem 0 0; }
 .media video.screenPreview { object-fit: contain; cursor: zoom-in; }
+/* Recursion guard: while the display carrying this share is itself being
+   captured (a full-screen area, or a plain full-screen share), the live
+   picture is withheld from this preview - see `applySelfMirrorGuard` in
+   main.ts - so it never shows a live copy of itself sat inside itself. The
+   marks overlay (`.shareMarks`) paints on its own canvas, not a copy of the
+   video, and stays visible over the notice. */
+.media:has(video.screenPreview.selfMirrorGuard) { position: relative; }
+video.screenPreview.selfMirrorGuard { visibility: hidden; }
+.media:has(video.screenPreview.selfMirrorGuard)::after {
+  content: 'Sharing your whole screen — live preview paused to avoid a mirror';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: .5rem 1rem;
+  font-size: .8rem;
+  color: #fff;
+  background: #101114;
+}
 dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100vw - 2rem); max-width: none; height: calc(100dvh - 2rem); max-height: none; padding: 0; border: 1px solid var(--border); border-radius: 14px; }
 .shareViewer { background: var(--panel); color: var(--text); }
 .shareViewer[open], main.shareViewer { display: flex; flex-direction: column; overflow: hidden; }
