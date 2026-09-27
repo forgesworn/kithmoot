@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
-import { archiveTag, compareArchived, olderThan, reseedCandidates, type ArchiveQuery, type EventArchive } from './archive.js'
-import { CHAT_RETENTION_SECONDS, ChatLog, MAX_CHAT_MESSAGES, encodeChatEvent, type ChatMessage } from './chat.js'
+import { archiveTag, compareArchived, olderThan, reseedCandidates, type ArchiveMeta, type ArchiveQuery, type EventArchive } from './archive.js'
+import { CHAT_RETENTION_SECONDS, ChatLog, MAX_CHAT_MESSAGES, MAX_CHAT_MESSAGES_PER_MINUTE, encodeChatEvent, type ChatMessage } from './chat.js'
+import type { Filter } from 'nostr-tools/filter'
+import type { RoomPolicy } from './types.js'
 import { createDeviceCredential } from './credential.js'
 import { localIdentity } from './identity.js'
 import { deriveRoom } from './room.js'
@@ -14,7 +16,10 @@ const NOW = 1_800_000_000
 /** The contract, in memory: what `app/src/room-archive.ts` does on disk. */
 class MemoryArchive implements EventArchive {
   readonly events = new Map<string, Event>()
-  keep(event: Event): void { this.events.set(event.id, event) }
+  readonly meta = new Map<string, ArchiveMeta | undefined>()
+  released: string[] = []
+  keep(event: Event, meta?: ArchiveMeta): void { this.events.set(event.id, event); this.meta.set(event.id, meta) }
+  release(q: { kind: number; d: string }): void { this.released.push(q.d) }
   async read(q: ArchiveQuery): Promise<Event[]> {
     return [...this.events.values()]
       .filter(e => e.kind === q.kind && archiveTag(e) === q.d && (q.since === undefined || e.created_at >= q.since) && (!q.before || olderThan(e, q.before)))
@@ -67,7 +72,7 @@ describe('a chat log over an archive', () => {
     const archive = new MemoryArchive()
     for (const text of ['one', 'two', 'three']) archive.keep(r.message(text))
     const log = new ChatLog({ ...r, transport: new SimTransport(new SimRelay()), archive, now: () => NOW })
-    await Promise.resolve(); await Promise.resolve()
+    await expect.poll(() => log.messages().length).toBe(3)
     expect(log.messages().map(m => m.text).sort()).toEqual(['one', 'three', 'two'])
     expect(log.messages()[0]!.lane).toBeUndefined()
     log.close()
@@ -88,15 +93,55 @@ describe('a chat log over an archive', () => {
     const stranger = generateSecretKey()
     archive.keep(finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: [['d', r.roomId]], content: forged.content }, stranger))
     const log = new ChatLog({ ...r, transport: new SimTransport(new SimRelay()), archive, now: () => NOW })
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await expect.poll(() => log.hasOlder).toBe(true)
     expect(log.messages().map(m => m.text)).toEqual(['good'])
 
     // A gated room refuses the same archived message it would refuse from a relay.
     const gated = new ChatLog({ ...r, transport: new SimTransport(new SimRelay()), archive, now: () => NOW,
       policy: { tier: 'kith', admitted: [getPublicKey(generateSecretKey())] } })
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await expect.poll(() => gated.hasOlder).toBe(true)
     expect(gated.messages()).toEqual([])
     log.close(); gated.close()
+  })
+
+  it('shows the lane once a relay copy of an archived message arrives', async () => {
+    const r = await room()
+    const archive = new MemoryArchive()
+    const event = r.message('seen before')
+    archive.keep(event)
+    const relay = new SimRelay()
+    const inner = new SimTransport(relay)
+    const transport = {
+      publish: (e: Event) => inner.publish(e),
+      subscribe: (fs: Filter[], on: (e: Event, via?: string) => void, eose?: () => void) => inner.subscribe(fs, e => on(e, 'wss://relay.example'), eose),
+      close: () => inner.close(),
+      describe: () => [{ url: 'wss://relay.example', read: true, write: true }],
+    }
+    const log = new ChatLog({ ...r, transport, archive, now: () => NOW })
+    await expect.poll(() => log.messages().length).toBe(1)
+    expect(log.messages()[0]!.lane).toBeUndefined()
+    relay.publish(event)
+    expect(log.messages()[0]!.lane).toBe('public')
+    log.close()
+    expect(archive.released).toEqual([r.roomId])
+  })
+
+  it('keeps nothing the rate limit refused, and marks what a quiet room said', async () => {
+    const r = await room()
+    const relay = new SimRelay()
+    const archive = new MemoryArchive()
+    const log = new ChatLog({ ...r, transport: new SimTransport(relay), archive, now: () => NOW })
+    for (let i = 0; i < MAX_CHAT_MESSAGES_PER_MINUTE + 5; i++) relay.publish(r.message(`flood ${i}`))
+    expect(log.messages()).toHaveLength(MAX_CHAT_MESSAGES_PER_MINUTE)
+    expect(archive.events.size).toBe(MAX_CHAT_MESSAGES_PER_MINUTE)
+    log.close()
+
+    const quietArchive = new MemoryArchive()
+    const policy: RoomPolicy = { tier: 'open', quiet: true, members: [r.credential.pubkey] }
+    const quiet = new ChatLog({ ...r, transport: new SimTransport(new SimRelay()), archive: quietArchive, policy, now: () => NOW })
+    await quiet.send('hush')
+    expect([...quietArchive.meta.values()]).toEqual([{ quiet: true }])
+    quiet.close()
   })
 
   it('keeps every event it accepts, its own sends included, and nothing it refused', async () => {
@@ -121,8 +166,7 @@ describe('a chat log over an archive', () => {
     // Three seconds apart, inside the per-sender rate every message obeys.
     for (let i = 0; i < total; i++) archive.keep(r.message(`n${i}`, i < total - 100 ? old + 3 * i : NOW - 3 * (total - i)))
     const log = new ChatLog({ ...r, transport: new SimTransport(new SimRelay()), archive, now: () => NOW })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(log.messages()).toHaveLength(100)
+    await expect.poll(() => log.messages().length, { timeout: 30_000 }).toBe(100)
     expect(log.hasOlder).toBe(true)
     let read = 0
     for (let step = 0; step < 20 && log.hasOlder; step++) read += await log.loadOlder()
@@ -159,7 +203,7 @@ describe('a chat log over an archive', () => {
     // Every relay forgot: the rekey and the chat are only on Alice's device.
     const again = new RoomSession({ ...base, ...aliceKeys, transport: new SimTransport(new SimRelay({ replay: true })), name: 'Alice', archive })
     await again.join([], {})
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await expect.poll(() => again.chat.messages().length).toBe(1)
     expect(again.epoch).toBe(1)
     expect(again.chat.messages().map(m => m.text)).toEqual(['said in epoch 1'])
     again.leave()

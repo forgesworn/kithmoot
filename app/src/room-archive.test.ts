@@ -16,7 +16,7 @@ class MemoryStorage implements RoomArchiveStorage {
   async keys(): Promise<ArchiveKeys | undefined> { return this.stored }
   async adoptKeys(candidate: ArchiveKeys): Promise<ArchiveKeys> { return this.stored ??= candidate }
   async stream(stream: string): Promise<ArchivedRecord[]> { return [...this.records.values()].filter(r => r.stream === stream) }
-  async put(records: readonly ArchivedRecord[]): Promise<void> { for (const r of records) this.records.set(r.key, r) }
+  async put(records: readonly ArchivedRecord[], remove: readonly string[] = []): Promise<void> { for (const k of remove) this.records.delete(k); for (const r of records) this.records.set(r.key, r) }
 }
 
 const chat = (text: string, at: number, d = ROOM, kind = 1460): Event =>
@@ -85,34 +85,87 @@ describe('room archive at rest', () => {
     await Promise.all([a.flushed(), b.flushed()])
     expect(await new RoomArchive(storage, crypt).read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(2)
   })
+
+  it('past the cap drops the oldest, on disk too, and keeps the newest', async () => {
+    const storage = new MemoryStorage()
+    const archive = new RoomArchive(storage, crypt, { perStream: 3 })
+    for (let i = 1; i <= 5; i++) archive.keep(chat(`m${i}`, i))
+    await archive.flushed()
+    archive.keep(chat('m6', 6))
+    await archive.flushed()
+    expect((await archive.read({ kind: 1460, d: ROOM, limit: 10 })).map(e => e.created_at)).toEqual([6, 5, 4])
+    expect(storage.records.size).toBe(3)
+    expect((await new RoomArchive(storage, crypt).read({ kind: 1460, d: ROOM, limit: 10 })).map(e => e.created_at)).toEqual([6, 5, 4])
+  })
+
+  it('lets a conversation go from memory when released, and reads it back from disk', async () => {
+    const storage = new MemoryStorage()
+    const archive = new RoomArchive(storage, crypt)
+    archive.keep(chat('a', 1))
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(1)
+    let loads = 0
+    const stream = storage.stream.bind(storage)
+    storage.stream = async (s: string) => { loads++; return stream(s) }
+    await archive.read({ kind: 1460, d: ROOM, limit: 10 })
+    expect(loads).toBe(0)
+    archive.release({ kind: 1460, d: ROOM })
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(1)
+    expect(loads).toBe(1)
+  })
+
+  it('a reader waits for its own conversation to be written, not for every room', async () => {
+    const storage = new MemoryStorage()
+    const archive = new RoomArchive(storage, crypt)
+    archive.keep(chat('here', 1))
+    // Another room's write that never finishes must not hold this read up.
+    const put = storage.put.bind(storage)
+    let stall: () => void = () => {}
+    const stalled = new Promise<void>(resolve => { stall = resolve })
+    let reached = false
+    await archive.read({ kind: 1460, d: ROOM, limit: 10 })
+    storage.put = async (records, remove) => { reached = true; await stalled; return put(records, remove) }
+    archive.keep(chat('elsewhere', 2, OTHER))
+    await expect.poll(() => reached).toBe(true)
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(1)
+    stall()
+    await archive.flushed()
+  })
 })
 
-/** A pool of named relays, each holding what it holds. */
+/** A pool of named relays, each holding what it holds. A relay in `forgets`
+ *  accepts and stores nothing; one in `caps` returns at most that many
+ *  events per request, newest first; one in `silent` never finishes. */
 class FakePool implements ReseedPool {
   published: { url: string; id: string }[] = []
-  keeps = new Map<string, boolean>()
-  constructor(public relays: Map<string, Event[]>, public config: RelayConfig[], public forgets = new Set<string>()) {}
+  asked: Filter[] = []
+  constructor(public relays: Map<string, Event[]>, public config: RelayConfig[], public forgets = new Set<string>(),
+    public caps = new Map<string, number>(), public silent = new Set<string>()) {}
   describe(): RelayConfig[] { return this.config }
-  async query(url: string, filters: Filter[]): Promise<Event[]> {
+  async query(url: string, filters: Filter[]): Promise<{ events: Event[]; complete: boolean }> {
     const f = filters[0]!
-    return (this.relays.get(url) ?? []).filter(e => f.kinds!.includes(e.kind) && e.tags.some(t => t[0] === 'd' && f['#d']!.includes(t[1]!)) &&
-      (f.since === undefined || e.created_at >= f.since) && (!f.authors || f.authors.includes(e.pubkey)))
+    this.asked.push(f)
+    if (this.silent.has(url)) return { events: [], complete: false }
+    const matching = (this.relays.get(url) ?? []).filter(e => (!f.ids || f.ids.includes(e.id)) &&
+      (!f.kinds || f.kinds.includes(e.kind)) && (!f['#d'] || e.tags.some(t => t[0] === 'd' && f['#d']!.includes(t[1]!))) &&
+      (f.since === undefined || e.created_at >= f.since) && (f.until === undefined || e.created_at <= f.until) &&
+      (!f.authors || f.authors.includes(e.pubkey)))
+    const limit = Math.min(f.limit ?? Infinity, this.caps.get(url) ?? Infinity)
+    return { events: matching.sort((a, b) => b.created_at - a.created_at).slice(0, limit), complete: true }
   }
-  async publishTo(url: string, event: Event): Promise<void> {
+  async publishQuietly(url: string, event: Event): Promise<void> {
     if (!this.config.some(r => r.url === url && r.write)) throw new Error('not a room relay')
     this.published.push({ url, id: event.id })
     if (!this.forgets.has(url)) this.relays.get(url)!.push(event)
   }
-  noteKeepsChat(url: string, keeps: boolean): void { this.keeps.set(url, keeps) }
 }
 
 describe('reseeding forgetful relays', () => {
   beforeEach(() => resetReseedHistory())
   const both = (url: string): RelayConfig => ({ url, read: true, write: true })
 
-  async function kept(...events: Event[]): Promise<RoomArchive> {
+  async function kept(...events: (Event | [Event, { quiet: true }])[]): Promise<RoomArchive> {
     const archive = new RoomArchive(new MemoryStorage(), crypt)
-    for (const event of events) archive.keep(event)
+    for (const event of events) Array.isArray(event) ? archive.keep(...event) : archive.keep(event)
     await archive.flushed()
     return archive
   }
@@ -126,11 +179,32 @@ describe('reseeding forgetful relays', () => {
     expect(pool.relays.get('wss://forgot')!.map(e => e.id).sort()).toEqual(events.map(e => e.id).sort())
     expect(pool.relays.get('wss://forgot')![1]).toEqual(JSON.parse(JSON.stringify(events[2])))
     expect(report.reseeded).toEqual(new Map([['wss://forgot', 2]]))
-    expect(pool.keeps.get('wss://forgot')).toBe(true)
 
     // Asked again at once, nobody is compared twice.
     await reseedRelays(pool, archive, [{ kind: 1460, d: ROOM, since: 0, limit: 500 }], { alive: () => true, gapMs: 0 })
     expect(pool.published).toHaveLength(2)
+  })
+
+  it('reads a relay that caps its answers to the end, and republishes nothing it holds', async () => {
+    const events = Array.from({ length: 12 }, (_, i) => chat(`m${i}`, 100 + i))
+    const archive = await kept(...events)
+    const pool = new FakePool(new Map([['wss://capped', [...events]]]), [both('wss://capped')], new Set(), new Map([['wss://capped', 5]]))
+    await reseedRelays(pool, archive, [{ kind: 1460, d: ROOM, since: 0, limit: 500 }], { alive: () => true, gapMs: 0 })
+    expect(pool.published).toEqual([])
+    expect(pool.asked.some(f => f.until !== undefined)).toBe(true)
+
+    // Missing one in the middle, it is found through the pages and only it goes back.
+    resetReseedHistory()
+    const gappy = new FakePool(new Map([['wss://capped', events.filter((_, i) => i !== 3)]]), [both('wss://capped')], new Set(), new Map([['wss://capped', 5]]))
+    await reseedRelays(gappy, archive, [{ kind: 1460, d: ROOM, since: 0, limit: 500 }], { alive: () => true, gapMs: 0 })
+    expect(gappy.published.map(p => p.id)).toEqual([events[3]!.id])
+  })
+
+  it('treats a relay that does not finish answering as unknown: nothing republished', async () => {
+    const archive = await kept(chat('a', 100), chat('b', 200))
+    const pool = new FakePool(new Map([['wss://slow', []]]), [both('wss://slow')], new Set(), new Map(), new Set(['wss://slow']))
+    await reseedRelays(pool, archive, [{ kind: 1460, d: ROOM, limit: 500 }], { alive: () => true, gapMs: 0 })
+    expect(pool.published).toEqual([])
   })
 
   it('stays inside the window and the budget, and skips anything whose signature fails', async () => {
@@ -147,13 +221,14 @@ describe('reseeding forgetful relays', () => {
     expect(clean.published).toEqual([])
   })
 
-  it('says a relay that accepts chat and returns none of it does not keep chat', async () => {
-    const archive = await kept(chat('a', 100), chat('b', 200))
-    const pool = new FakePool(new Map([['wss://primal', []]]), [both('wss://primal')], new Set(['wss://primal']))
-    const report = await reseedRelays(pool, archive, [{ kind: 1460, d: ROOM, limit: 500 }], { alive: () => true, gapMs: 0 })
-    expect(pool.published).toHaveLength(2)
-    expect(report.forgetful).toEqual(['wss://primal'])
-    expect(pool.keeps.get('wss://primal')).toBe(false)
+  it('never hands back what came through a quiet room', async () => {
+    const open = chat('open', 100)
+    const archive = await kept(open, [chat('quiet', 200), { quiet: true }])
+    const pool = new FakePool(new Map([['wss://r', []]]), [both('wss://r')])
+    await reseedRelays(pool, archive, [{ kind: 1460, d: ROOM, limit: 500 }], { alive: () => true, gapMs: 0 })
+    expect(pool.published.map(p => p.id)).toEqual([open.id])
+    // Still read back for the room itself.
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(2)
   })
 
   it('republishes a rekey only when the room authority signed it, and stops when the room closes', async () => {
@@ -164,7 +239,6 @@ describe('reseeding forgetful relays', () => {
     const pool = new FakePool(new Map([['wss://r', []]]), [both('wss://r')])
     await reseedRelays(pool, archive, [{ kind: 1462, d: ROOM, limit: 1000, authors: [authority] }], { alive: () => true, gapMs: 0 })
     expect(pool.published.map(p => p.id)).toEqual([genuine.id])
-    expect(pool.keeps.size).toBe(0)
 
     resetReseedHistory()
     const closed = new FakePool(new Map([['wss://r', []]]), [both('wss://r')])

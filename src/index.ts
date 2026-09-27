@@ -257,7 +257,7 @@ export {
   normaliseAttachment,
 } from './chat.js'
 export { archiveTag, compareArchived, olderThan, reseedCandidates, MAX_RESEED_EVENTS } from './archive.js'
-export type { EventArchive, ArchiveQuery, ArchiveCursor } from './archive.js'
+export type { EventArchive, ArchiveQuery, ArchiveCursor, ArchiveMeta } from './archive.js'
 export type {
   ChatMessage,
   ChatMessageKind,

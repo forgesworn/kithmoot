@@ -22,7 +22,8 @@ import { sanitiseDisplayName } from './display-name.js'
 import { evaluateAccess } from './access.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RelayTransport } from './relay-pool.js'
-import { olderThan, type ArchiveCursor, type EventArchive } from './archive.js'
+import { olderThan, type ArchiveCursor, type ArchiveMeta, type EventArchive } from './archive.js'
+import { isQuietPolicy } from './quiet.js'
 import { laneOfRelayUrl, laneOfRelays, type Lane } from './lane.js'
 import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from './types.js'
 
@@ -32,6 +33,9 @@ export const MAX_CHAT_MESSAGES = 500
 export const MAX_CHAT_MESSAGES_PER_MINUTE = 30
 /** How many archived messages one step back through history reads. */
 export const CHAT_ARCHIVE_PAGE = 100
+/** Archived events decoded between two yields to the page: a decode is a
+ *  signature, a credential and a decryption, a few milliseconds each. */
+const ARCHIVE_DECODE_CHUNK = 40
 
 const CHANNEL_ID_INFO = 'kithmoot/v1/channel-id/'
 const CHANNEL_KEY_INFO = 'kithmoot/v1/channel-key/'
@@ -721,6 +725,9 @@ export class ChatLog {
   #cursor?: ArchiveCursor
   #archiveDone = false
   #paging?: Promise<number>
+  /** Messages read from the archive, by event id, until a relay's copy says
+   *  which lane they travelled. Bounded like `#decoded`. */
+  readonly #laneless = new Map<string, ChatMessage>()
 
   constructor(opts: ChatLogOptions) {
     this.#opts = opts
@@ -779,6 +786,7 @@ export class ChatLog {
    */
   rekey(next: EpochRoot): void {
     this.#unsub()
+    this.#release()
     this.#epoch = next
     this.#unsub = this.#subscribe()
   }
@@ -798,7 +806,7 @@ export class ChatLog {
     this.#cursor = oldest ? { at: oldest.created_at, id: oldest.id } : { at: since, id: '' }
     // Told even when nothing in the window was kept, so a reader can ask
     // for what lies before it.
-    if (!this.#ingestAll(events)) this.#notify()
+    if (!await this.#ingestAll(events, epoch)) this.#notify()
   }
 
   /** Whether the archive may hold messages older than the log shows. */
@@ -836,19 +844,33 @@ export class ChatLog {
       this.#cursor = { at: oldest.created_at, id: oldest.id }
       this.#window += events.length
       this.#pagedTo = Math.min(this.#pagedTo ?? Infinity, oldest.created_at)
-      this.#ingestAll(events)
+      await this.#ingestAll(events, epoch)
       return events.length
     }
     this.#paging = run().finally(() => { this.#paging = undefined })
     return this.#paging
   }
 
-  /** Archived events in, one notification out. Returns whether any showed. */
-  #ingestAll(events: readonly Event[]): boolean {
-    let changed = false
-    for (const event of events) changed = this.#ingest(event, undefined, true) || changed
-    if (changed) this.#notify()
-    return changed
+  /** Archived events in, a chunk at a time with the page given a turn in
+   *  between, newest first, and one notification per chunk that showed
+   *  something. Stops if the log closes or changes key meanwhile. Returns
+   *  whether anything showed. */
+  async #ingestAll(events: readonly Event[], epoch: EpochRoot | undefined): Promise<boolean> {
+    let any = false
+    for (let i = 0; i < events.length; i += ARCHIVE_DECODE_CHUNK) {
+      if (i > 0) await new Promise(resolve => setTimeout(resolve, 0))
+      if (this.#closed || this.#epoch !== epoch) return any
+      let changed = false
+      for (const event of events.slice(i, i + ARCHIVE_DECODE_CHUNK)) changed = this.#ingest(event, undefined, true) || changed
+      if (changed) this.#notify()
+      any ||= changed
+    }
+    return any
+  }
+
+  /** Let the archive drop this conversation from memory. */
+  #release(): void {
+    this.#opts.archive?.release?.({ kind: KINDS.CHAT, d: this.stream })
   }
 
   /** The oldest send time this log shows: the retention window, or further
@@ -968,7 +990,7 @@ export class ChatLog {
       }
       await this.#opts.transport.publish(event)
       // Kept once a relay has it, whether or not a relay echoes it back.
-      this.#opts.archive?.keep(event)
+      this.#opts.archive?.keep(event, this.#archiveMeta())
     }
   }
 
@@ -1001,13 +1023,24 @@ export class ChatLog {
   close(): void {
     this.#closed = true
     this.#unsub()
+    this.#release()
     this.#listeners.clear()
   }
 
   /** Returns whether the log changed. `fromArchive` events are neither kept
    *  again nor announced one by one; the caller notifies once. */
   #ingest(event: Event, via?: string, fromArchive = false): boolean {
-    if (this.#decoded.has(event.id)) return false
+    if (this.#decoded.has(event.id)) {
+      // A message first read from the archive, now arriving from a relay:
+      // that relay is the lane it travelled.
+      const shown = fromArchive ? undefined : this.#laneless.get(event.id)
+      if (!shown) return false
+      this.#laneless.delete(event.id)
+      shown.lane = this.#laneOf(via)
+      if (shown.lane === undefined) return false
+      this.#notify()
+      return true
+    }
     // Older than everything a full log keeps: it would be decoded and
     // dropped straight away. `encodeChatEvent` writes `sentAt` as
     // `created_at`; a sender who puts an earlier one on the outside only
@@ -1028,10 +1061,8 @@ export class ChatLog {
       ...(this.#epoch ? { epoch: this.#epoch } : {}),
     })
     if (!msg) return false
-    // Accepted by every rule the room has, so worth keeping whether or not
-    // this log has room to show it. An archived event has no relay to name,
-    // and the lane it once took is not recorded, so it claims none.
-    if (!fromArchive) this.#opts.archive?.keep(event)
+    // An archived event has no relay to name, and the lane it once took is
+    // not recorded, so it claims none until a relay's copy arrives.
     msg.lane = fromArchive ? undefined : this.#laneOf(via)
     const floor = this.#floor()
     if (msg.sentAt < floor) return false
@@ -1050,6 +1081,13 @@ export class ChatLog {
       this.#senderTimes.delete(oldest)
     }
     this.#seen.add(msg.id)
+    // Accepted by every rule the room has, the rate limit included, so worth
+    // keeping whether or not this log has room to show it for long.
+    if (!fromArchive) this.#opts.archive?.keep(event, this.#archiveMeta())
+    else {
+      this.#laneless.set(event.id, msg)
+      if (this.#laneless.size > this.#window) this.#laneless.delete(this.#laneless.keys().next().value!)
+    }
 
     this.#messages.push(msg)
     this.#messages.sort(compareMessages)
@@ -1060,6 +1098,10 @@ export class ChatLog {
 
     if (!fromArchive) this.#notify()
     return true
+  }
+
+  #archiveMeta(): ArchiveMeta | undefined {
+    return isQuietPolicy(this.#opts.policy) ? { quiet: true } : undefined
   }
 
   #notify(): void {
