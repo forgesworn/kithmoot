@@ -119,6 +119,10 @@ import {
   decodeControl,
   verifyAdmins,
   verifyChannels,
+  signRoomRelays,
+  verifyRoomRelays,
+  canonicalRoomRelays,
+  MAX_ROOM_RELAYS,
   CHANNEL_NAME,
   type RekeyNotice,
   type ControlMessage,
@@ -5757,6 +5761,103 @@ const controlSeen = new Set<string>()
 // The first two are enforced by the key; the third is manners, and says so.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Room relays: the room's authority adding relays for everybody
+// ---------------------------------------------------------------------------
+//
+// A signed `relays` op on the control channel (see `room-relays.ts`). Every
+// member adds the listed relays to the ones this device already uses for
+// the room; nothing is taken away. The newest version is kept on the device,
+// so a record that has scrolled out of the control log's window can still
+// be reposted by anybody who holds it.
+
+interface RoomRelayRecord { relays: string[]; version: number; sig: string }
+const ROOM_RELAYS_PREFIX = 'kithmoot.room-relays.v1.'
+/** A record older than this in the log is posted again, so a newcomer
+ *  reading the last 30 days of the control channel still finds it. */
+const ROOM_RELAYS_REPOST_SECONDS = 20 * 24 * 60 * 60
+/** When the newest copy of the record in this room's log was sent. */
+let roomRelaysSeenAt = 0
+let roomRelaysRepostTimer: ReturnType<typeof setTimeout> | undefined
+
+function loadRoomRelayRecord(roomId: string): RoomRelayRecord | undefined {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ROOM_RELAYS_PREFIX + roomId) ?? 'null') as RoomRelayRecord | null
+    return raw && Array.isArray(raw.relays) && Number.isSafeInteger(raw.version) && typeof raw.sig === 'string' ? raw : undefined
+  } catch { return undefined }
+}
+
+function storeRoomRelayRecord(roomId: string, record: RoomRelayRecord): void {
+  try { localStorage.setItem(ROOM_RELAYS_PREFIX + roomId, JSON.stringify(record)) } catch { /* Still applies to this visit. */ }
+}
+
+/** This device holds the key pinned in the link, not a delegated one. */
+function isRoomAuthority(): boolean {
+  return !!invitationAuthoritySk && invitationDelegation.length === 0 && roomAuthority() === getPublicKey(invitationAuthoritySk)
+}
+
+/** Add the record's relays to this device's relays for the room. */
+function adoptRoomRelays(record: RoomRelayRecord): string[] {
+  const missing = record.relays.filter(url => !roomRelayConfig.some(relay => relay.url === url))
+  if (!missing.length || roomRelayScope === 'default') return []
+  // At most eight relays: the room's own list first, then as many of the
+  // ones this device already had as still fit.
+  const listed = roomRelayConfig.filter(relay => record.relays.includes(relay.url))
+  const others = roomRelayConfig.filter(relay => !record.relays.includes(relay.url))
+  const next = [...listed, ...missing.map(url => ({ url, read: true, write: true })), ...others].slice(0, MAX_ROOM_RELAYS)
+  try { relayConnections.save(roomRelayScope, next) } catch { return [] }
+  roomRelaysApplied(relayConnections.configuration(roomRelayScope))
+  return missing
+}
+
+function ingestRoomRelays(control: Extract<ControlMessage, { op: 'relays' }>, sentAt: number): void {
+  const authority = roomAuthority(), s = session
+  if (!authority || !s) return
+  if (!verifyRoomRelays({ roomId: s.roomId, version: control.version, relays: control.relays, sig: control.sig, authority })) return
+  const known = loadRoomRelayRecord(s.roomId)
+  if (known && known.version === control.version) roomRelaysSeenAt = Math.max(roomRelaysSeenAt, sentAt)
+  if (known && known.version >= control.version) return
+  const record = { relays: control.relays, version: control.version, sig: control.sig }
+  storeRoomRelayRecord(s.roomId, record)
+  roomRelaysSeenAt = sentAt
+  const added = adoptRoomRelays(record)
+  if (added.length && !isRoomAuthority()) setStatus(`This room now also uses ${added.join(', ')}, as its owner asked.`)
+}
+
+async function postRoomRelays(s: RoomSession, record: RoomRelayRecord): Promise<void> {
+  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'relays', ...record }))
+  roomRelaysSeenAt = nowSeconds()
+}
+
+/** A while after joining, once the control log has loaded, post the record
+ *  again if the log's newest copy is about to fall out of its window. */
+function scheduleRoomRelaysRepost(s: RoomSession): void {
+  clearTimeout(roomRelaysRepostTimer)
+  roomRelaysRepostTimer = setTimeout(() => {
+    if (session !== s) return
+    const record = loadRoomRelayRecord(s.roomId)
+    if (!record || roomRelaysSeenAt > nowSeconds() - ROOM_RELAYS_REPOST_SECONDS) return
+    postRoomRelays(s, record).catch(() => { /* Tried again on the next visit. */ })
+  }, 30_000 + Math.random() * 30_000)
+}
+
+/** The authority: every member should use these relays too. */
+async function shareRoomRelays(urls: string[]): Promise<string> {
+  const s = session, sk = invitationAuthoritySk
+  if (!s || !sk || !isRoomAuthority()) throw new Error('Only the person who made this room can change its relays for everyone.')
+  const relays = canonicalRoomRelays(urls)
+  if (!await confirmRoomAction({
+    title: 'Use these relays for everyone?',
+    message: `Everyone in this room will also connect to ${relays.join(', ')}. Whoever runs each relay will carry this room's messages and calls setup, encrypted, and can see when people are active. Nobody loses a relay they already use.`,
+    confirmLabel: 'Use for everyone', cancelLabel: 'Cancel',
+  })) return ''
+  const version = Math.max(nowSeconds(), (loadRoomRelayRecord(s.roomId)?.version ?? 0) + 1)
+  const record = { relays, version, sig: signRoomRelays({ roomId: s.roomId, version, relays, authoritySk: sk }) }
+  storeRoomRelayRecord(s.roomId, record)
+  await postRoomRelays(s, record)
+  return 'Everyone in this room will add these relays the next time their app hears from it.'
+}
+
 /** Who may act on this room, as the keeper last announced it. */
 let admins = new Set<string>()
 let adminsAt = 0
@@ -6155,6 +6256,9 @@ function ingestControl(messages: ChatMessage[]): void {
         break
       case 'error':
         if (control.host === m.participant && m.sentAt >= nowSeconds() - 30) setStatus(`Agent host: ${control.message}`)
+        break
+      case 'relays':
+        ingestRoomRelays(control, m.sentAt)
         break
       case 'channels': {
         // Only a list the room's authority signed, and only the newest. An
@@ -9493,6 +9597,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     ingestControl(control.messages())
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
     scheduleReseed(s, pool, !!quietTransport, sessionAuthority)
+    scheduleRoomRelaysRepost(s)
     renderRoomLockState()
     renderHost()
     // Empty until the keeper answers the `catalogue?` above with its signed
@@ -10563,6 +10668,8 @@ function resetRoomState(): void {
   controlSeen.clear()
   admins.clear()
   adminsAt = channelsAt = 0
+  roomRelaysSeenAt = 0
+  clearTimeout(roomRelaysRepostTimer)
   channels = []
   channelLogs.clear()
   channelCounts.clear()
@@ -10662,6 +10769,7 @@ function resumeDockedCall(): void {
   // only the screen stopped following them.
   for (const [name, log] of channelLogs) channelCounts.set(name, log.messages().length)
   ingestControl(s.channel(CONTROL_CHANNEL).messages())
+  scheduleRoomRelaysRepost(s)
   renderRoomLockState()
   renderHost()
   renderChannels()
@@ -11486,19 +11594,24 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
       RELAYS = relayConnections.configuration('default').map(relay => relay.url)
       boxDiscovery?.restart()
     }
-    if (scope === roomRelayScope) {
-      roomRelayConfig = entries
-      relays = entries.map(relay => relay.url)
-      profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
-      if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
-      renderIdentity()
-      if (currentRoomId()) {
-        ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
-        rememberCurrentRoom()
-      }
-    }
+    if (scope === roomRelayScope) roomRelaysApplied(entries)
+  },
+  share: {
+    available: scope => scope === roomRelayScope && isRoomAuthority() && !!session,
+    run: relays => shareRoomRelays(relays),
   },
 })
+function roomRelaysApplied(entries: RelayConfig[]): void {
+  roomRelayConfig = entries
+  relays = entries.map(relay => relay.url)
+  profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
+  if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
+  renderIdentity()
+  if (currentRoomId()) {
+    ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+    rememberCurrentRoom()
+  }
+}
 $('roomRelaySettings').addEventListener('click', () => { closeRoomSheet(); relaySettings.open($('roomMenu')) })
 $('defaultRelaySettings').addEventListener('click', () => closeAppSettingsFor(() => relaySettings.open($('defaultRelaySettings'))))
 $('appProfileSettings').addEventListener('click', () => closeAppSettingsFor(() => openProfileSettings($('appProfileSettings'))))

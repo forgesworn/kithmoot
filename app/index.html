@@ -1243,7 +1243,7 @@
       </div>
       <label for="relayScope">Configure</label>
       <select id="relayScope"></select>
-      <p class="note">Saved on this device. Room choices apply to your connection; other people keep theirs.</p>
+      <p class="note">Saved on this device. Room choices apply to your connection; other people keep theirs unless the room's maker shares them.</p>
       <ul id="relayList" class="relayList"></ul>
       <form id="relayAddForm" class="relayAddForm">
         <label for="relayUrl">Add a relay</label>
@@ -1255,6 +1255,10 @@
       <div class="toolRow">
         <button id="relaySave" type="button">Apply changes</button>
         <button id="relayReconnect" type="button" class="quiet">Reconnect</button>
+      </div>
+      <div id="relayShareRow" hidden>
+        <button id="relayShare" type="button">Use these relays for everyone in this room</button>
+        <p class="note">You made this room, so you can add relays for everyone. Each member's app adds them to its own; nobody loses a relay they already use.</p>
       </div>
       <p id="relaySettingsStatus" class="note" role="status"></p>
       <p class="note">Connected means the socket is open. Accepted writes show the latest relay acknowledgement; connection alone does not prove a message was saved.</p>

@@ -70,6 +70,7 @@ import { unwrapSignal } from '../dist/src/signal.js'
 import { evaluateAccess } from '../dist/src/access.js'
 import { mintTurnCredential } from '../dist/src/turn.js'
 import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
+import { verifyRoomRelays, canonicalRoomRelays } from '../dist/src/room-relays.js'
 import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, decodeEpochGrant, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from '../dist/src/ownership.js'
 import { decodeChatEvent } from '../dist/src/chat.js'
@@ -83,7 +84,7 @@ import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCa
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -2906,6 +2907,58 @@ for (const [name, roomKey, a, b, note] of [
   bellVector('wrong-version', 'negative',
     'A body with `v:2`, otherwise correctly signed: an unknown version is refused, never guessed at.',
     buildBell({ label: 'call-bell-v2', body: { v: 2 } }))
+}
+
+// ===========================================================================
+// Room relays: the authority adding relays for everybody
+// ===========================================================================
+//
+// A `relays` op on the control channel, signed by the authority pinned in the
+// link. Members union the list with the relays they already use and take only
+// the highest version. Signed by hand with a recorded aux-rand, as the admin
+// list is, and checked with the real `verifyRoomRelays` before it is written.
+{
+  const room = ROOM_1
+  const relays = ['wss://relay.example.org/', 'wss://nos.lol', 'wss://Relay.Example.org']
+  const canonical = canonicalRoomRelays(relays)
+  const version = fx.NOW
+  const message = `kithmoot/v1/relays:${room.roomId}:${version}:${JSON.stringify(canonical)}`
+  const auxRand = seed32('room-relays-auxrand')
+  const sig = bytesToHex(schnorr.sign(sha256(utf8Bytes(message)), fx.AUTHORITY_SK, auxRand))
+  const op = { op: 'relays', relays: canonical, version, sig }
+  vectors.roomRelays.push({
+    name: 'room-relays-signature',
+    kind: 'positive',
+    note: 'The relays everybody in the room should add. The message is `sha256("kithmoot/v1/relays:<roomId>:<version>:<JSON array of the canonical list>")`: each URL normalised as nostr-tools `normalizeURL` does (lower-case host, `/` after a bare host), duplicates removed, sorted, at most 8. Not bound to an epoch: a relay list grants nothing an epoch protects. `version` orders lists, newest wins, and a client ignores any version at or below one it has already taken. Carried as JSON in a chat message on the `control` channel; any member may repost it, so it names no host.',
+    input: { roomId: room.roomId, version, relays, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), canonicalMessage: message, auxRandHex: bytesToHex(auxRand) },
+    output: { canonical, sig, text: encodeControl(op), result: decodeControl(encodeControl(op)) },
+    expected: {
+      verify: { roomId: room.roomId, version, relays: canonical, authority: fx.AUTHORITY },
+      result: verifyRoomRelays({ roomId: room.roomId, version, relays: canonical, sig, authority: fx.AUTHORITY }),
+    },
+  })
+  vectors.roomRelays.push({
+    name: 'room-relays-another-version',
+    kind: 'negative',
+    note: 'The same signature offered with a higher version. Refused: the version is inside the signature, so a member cannot make an old list outrank a newer one.',
+    input: { roomId: room.roomId, version: version + 1, relays: canonical, sig, authority: fx.AUTHORITY },
+    output: { result: verifyRoomRelays({ roomId: room.roomId, version: version + 1, relays: canonical, sig, authority: fx.AUTHORITY }) },
+  })
+  const unsorted = [...canonical].reverse()
+  vectors.roomRelays.push({
+    name: 'room-relays-not-canonical',
+    kind: 'negative',
+    note: 'The signed list in another order. Refused rather than sorted: the list a client verifies is the list it uses, exactly as sent.',
+    input: { roomId: room.roomId, version, relays: unsorted, sig, authority: fx.AUTHORITY },
+    output: { result: verifyRoomRelays({ roomId: room.roomId, version, relays: unsorted, sig, authority: fx.AUTHORITY }) },
+  })
+  vectors.roomRelays.push({
+    name: 'room-relays-another-authority',
+    kind: 'negative',
+    note: 'The list and signature checked against a different key. Refused: only the inviter pinned in the link may change a room\'s relays.',
+    input: { roomId: room.roomId, version, relays: canonical, sig, authority: fx.PARTICIPANT_A },
+    output: { result: verifyRoomRelays({ roomId: room.roomId, version, relays: canonical, sig, authority: fx.PARTICIPANT_A }) },
+  })
 }
 
 // ===========================================================================
