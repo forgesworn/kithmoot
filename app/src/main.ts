@@ -11711,7 +11711,7 @@ $('addDevice').addEventListener('click', () => {
       identity,
       deviceSk: deviceKey(),
       approve: (device) => confirmRoomAction({ title: 'Add this device?', message: `Device ${device.slice(0, 12)}… will join this room as you for the next 12 hours. Only approve a device you are pairing.`, confirmLabel: 'Add device' }),
-      onPaired: (device) => setStatus(`Added ${device.slice(0, 12)}… to this room.`),
+      onPaired: (device) => { $('pairStatus').textContent = `Added ${device.slice(0, 12)}… to this room.`; setStatus(`Added ${device.slice(0, 12)}… to this room.`) },
     })
 
     const pairUrl = $('pairUrl') as HTMLInputElement
@@ -11725,7 +11725,9 @@ $('addDevice').addEventListener('click', () => {
     // this screen is the whole point of that trip.
     $('pairQrWrap').hidden = false
     renderQr($('pairQr') as HTMLCanvasElement, pairUrl.value).catch((err) => setStatus(describeError(err)))
-    setStatus('Waiting for your other device. Keep this page open.')
+    // Said beside the QR code, not on the room's status line, where it
+    // outlived the panel and read as something still going wrong.
+    $('pairStatus').textContent = 'Waiting for your other device. Keep this page open.'
   } catch (err) {
     setStatus(describeError(err))
   }
