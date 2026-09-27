@@ -7,7 +7,7 @@ import type { ForwarderMediaPipeline, MeshSession, RemoteAnnotation } from './me
 import type { ForwarderRef } from './types.js'
 import { wrapSignal, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import { MAX_SIGNALS_PER_WINDOW } from './signal-guard.js'
-import { createFakeFactory } from '../test/fake-rtc.js'
+import { createFakeFactory, fakeTrack, type FakeRTCPeerConnection } from '../test/fake-rtc.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import type { ParticipantView } from './session.js'
 import type { RelayTransport } from './relay-pool.js'
@@ -1392,5 +1392,168 @@ describe('call profile gate', () => {
     factory.instances[0]!.ontrack?.({ track: { id: 'x' } as MediaStreamTrack })
     expect(seen).toEqual([{ role: undefined }])
     mesh.close()
+  })
+})
+
+/**
+ * A far end that rebuilt its connection to this device and offers from the
+ * new one, with nothing on the roster to say so.
+ *
+ * The 27 September 2026 call: a phone rejoined and offered from a fresh
+ * connection. Android publishes no page session, so `#sessionChanged` saw no
+ * change, the browser kept its old peer, and the offer landed on a
+ * connection it did not belong to. Some people could no longer be heard at
+ * all while they still heard everybody else.
+ */
+describe('Mesh and a far end that starts a new session', () => {
+  function pairOfMeshes() {
+    const relay = new SimRelay()
+    const a = device()
+    const b = device()
+    const participantA = device().pub
+    const participantB = device().pub
+    const roster = [view(participantA, [a.pub]), view(participantB, [b.pub])]
+    const factoryA = createFakeFactory({ structuredSdp: true })
+    const sessionA = new FakeSession()
+    const diagnostics: { kind: string; device: string; detail: string }[] = []
+    const heardByA: MediaStreamTrack[] = []
+    const meshA = new Mesh({
+      session: sessionA,
+      factory: factoryA,
+      localDevice: a.pub,
+      localParticipant: participantA,
+      deviceSk: a.sk,
+      transport: new SimTransport(relay),
+      roomId: ROOM_ID,
+      offerRetry: { intervalMs: 60_000, wedgeMs: 60_000 },
+      onDiagnostic: (event) => diagnostics.push(event as never),
+    })
+    meshA.onRemoteTrack(({ track }) => heardByA.push(track))
+    const micA = fakeTrack('audio')
+    meshA.publish([micA])
+
+    /** Device B, as a whole new client: the same key, a new connection, and
+     *  no page session on the roster - which is what a phone looks like. */
+    function joinB(kinds: ('audio' | 'video')[]) {
+      const factory = createFakeFactory({ structuredSdp: true })
+      const session = new FakeSession()
+      const heard: MediaStreamTrack[] = []
+      const mesh = new Mesh({
+        session,
+        factory,
+        localDevice: b.pub,
+        localParticipant: participantB,
+        deviceSk: b.sk,
+        transport: new SimTransport(relay),
+        roomId: ROOM_ID,
+        offerRetry: { intervalMs: 60_000, wedgeMs: 60_000 },
+      })
+      mesh.onRemoteTrack(({ track }) => heard.push(track))
+      mesh.publish(kinds.map((kind) => fakeTrack(kind)))
+      session.setViews(roster)
+      return { mesh, factory, heard }
+    }
+
+    return { relay, a, b, roster, meshA, sessionA, factoryA, micA, diagnostics, heardByA, joinB }
+  }
+
+  /** What `pc` is negotiated to send and receive on its audio m-line. */
+  function audioDirection(pc: FakeRTCPeerConnection): RTCRtpTransceiverDirection | null | undefined {
+    return pc.getTransceivers().find((t) => t.kind === 'audio' && t.mid !== null)?.currentDirection
+  }
+
+  it('BUG: answers the new session from a new connection, carrying this side\'s microphone', async () => {
+    const pair = pairOfMeshes()
+    pair.sessionA.setViews(pair.roster)
+    const first = pair.joinB(['audio'])
+    await settle()
+    await settle()
+    const stale = pair.factoryA.instances[0]!
+    expect(audioDirection(stale), 'the first session never negotiated').toBe('sendrecv')
+
+    // B's connection is gone and B comes back on a new one - offering its
+    // camera first this time, so the m-lines do not line up with the old.
+    first.mesh.close()
+    const second = pair.joinB(['video', 'audio'])
+    await settle()
+    await settle()
+    await settle()
+
+    expect(stale.closed, 'the stale connection was kept').toBe(true)
+    expect(pair.factoryA.instances).toHaveLength(2)
+    const fresh = pair.factoryA.instances[1]!
+    expect(fresh.closed).toBe(false)
+    expect(pair.diagnostics.filter((d) => d.kind === 'signal-handling-failed')).toEqual([])
+    // Both directions: A sends its microphone to the new session, and B's
+    // new connection is receiving it.
+    expect(audioDirection(fresh)).toBe('sendrecv')
+    const farPc = second.factory.instances[0]!
+    expect(audioDirection(farPc)).toBe('sendrecv')
+    expect(second.heard.some((t) => t.kind === 'audio')).toBe(true)
+    // And A hears B's new microphone, reported against the same device so
+    // everything the app keeps per person follows it.
+    expect(pair.heardByA.filter((t) => t.kind === 'audio').length).toBeGreaterThanOrEqual(2)
+    expect(pair.meshA.directPeers).toBe(1)
+    second.mesh.close()
+    pair.meshA.close()
+  })
+
+  it('meets a browser that walked its own route ladder while this side still thought the pair was up', async () => {
+    const pair = pairOfMeshes()
+    pair.sessionA.setViews(pair.roster)
+    const b = pair.joinB(['audio'])
+    await settle()
+    await settle()
+    const stale = pair.factoryA.instances[0]!
+    stale.setConnectionState('connected')
+
+    // B's side of the same pair never came up, as far as B could tell, so B
+    // tears it down and offers again from a new connection on the next rung.
+    // A's connection says nothing has happened, and A has no page session
+    // change to go on either.
+    b.factory.instances[0]!.setConnectionState('failed')
+    await settle()
+    await settle()
+    await settle()
+
+    expect(b.factory.instances.length).toBe(2)
+    expect(stale.closed).toBe(true)
+    expect(pair.factoryA.instances).toHaveLength(2)
+    expect(audioDirection(pair.factoryA.instances[1]!)).toBe('sendrecv')
+    expect(audioDirection(b.factory.instances[1]!)).toBe('sendrecv')
+    expect(pair.diagnostics.filter((d) => d.kind === 'signal-handling-failed')).toEqual([])
+    b.mesh.close()
+    pair.meshA.close()
+  })
+
+  it('rebuilds once however many copies of the new session\'s offer arrive', async () => {
+    const pair = pairOfMeshes()
+    pair.sessionA.setViews(pair.roster)
+    const first = pair.joinB(['audio'])
+    await settle()
+    await settle()
+    first.mesh.close()
+    const second = pair.joinB(['audio'])
+    await settle()
+    await settle()
+    expect(pair.factoryA.instances).toHaveLength(2)
+
+    // The far end's retries, re-read off its connection, and a late copy of
+    // the offer from the session it has already closed.
+    const farPc = second.factory.instances[0]!
+    const farOffer = farPc.calls.filter((c) => c.method === 'setLocalDescription').map((c) => c.args[0] as RTCSessionDescriptionInit).find((d) => d.type === 'offer')!
+    const oldOffer = first.factory.instances[0]!.calls.map((c) => c.args[0] as RTCSessionDescriptionInit | undefined).find((d) => d?.type === 'offer')!
+    for (let copy = 0; copy < 5; copy++) {
+      pair.relay.publish(wrapSignal({ type: 'offer', roomId: ROOM_ID, sdp: farOffer.sdp }, { senderSk: pair.b.sk, recipientPubkey: pair.a.pub }))
+      await settle()
+    }
+    pair.relay.publish(wrapSignal({ type: 'offer', roomId: ROOM_ID, sdp: oldOffer.sdp }, { senderSk: pair.b.sk, recipientPubkey: pair.a.pub }))
+    await settle()
+
+    expect(pair.factoryA.instances, 'a copy cost another rebuild').toHaveLength(2)
+    expect(pair.factoryA.instances[1]!.closed).toBe(false)
+    expect(pair.diagnostics.filter((d) => d.kind === 'signal-handling-failed')).toEqual([])
+    second.mesh.close()
+    pair.meshA.close()
   })
 })

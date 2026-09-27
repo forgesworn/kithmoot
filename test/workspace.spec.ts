@@ -378,7 +378,8 @@ test('switching rooms restores independent reading places after delayed history 
     hold = true
     await switchTo('Reading room')
     await expect.poll(() => held.length).toBeGreaterThan(0)
-    await expect(log.locator('.msg')).toHaveCount(0)
+    // The room's saved history is on screen before the relays answer.
+    await expect(log.locator('.msg')).toHaveCount(12)
     await expect(page.locator('#newMessages')).toBeVisible()
     release()
     await expect(log.locator('.msg')).toHaveCount(13)

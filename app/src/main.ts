@@ -64,7 +64,7 @@ import { readAgentRequestStatuses, type RequestAgent } from './agent-request-sta
 import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
-import { describeShareError } from './share-error.js'
+import { describeShareError, isSystemRefusal } from './share-error.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
 import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
@@ -4041,7 +4041,7 @@ async function rotateRoomInvitation(): Promise<void> {
       now: nowSeconds(),
     }))
   } finally {
-    retirementTransport.close()
+    closeWhenSettled(retirementTransport)
   }
   stopInvitationHost()
   forgetInvitationOwner(retired)
@@ -4072,8 +4072,16 @@ async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8A
     ])
   } finally {
     if (timer !== undefined) clearTimeout(timer)
-    pool.close()
+    closeWhenSettled(pool)
   }
+}
+
+/** Close a pool used for one durable event once every relay has answered,
+ *  in the background. Closing at the first ack aborted the other relays'
+ *  writes, which left a group invitation on a single relay: a member or
+ *  agent that later used only another of the room's relays could not join. */
+function closeWhenSettled(pool: NostrRelayPool): void {
+  void pool.settled().finally(() => pool.close())
 }
 
 async function makeRoomPersistent(): Promise<void> {
@@ -4616,6 +4624,19 @@ async function toggleScreen(area = false): Promise<void> {
  * run at start-up.
  */
 function showShareError(err: unknown): void {
+  // The desktop app refuses a share the same way whether macOS withheld
+  // Screen Recording or the person closed the "Choose what to share" menu,
+  // and the page cannot tell which. With the permission granted it was the
+  // person, and a cancel needs no message at all.
+  const access = window.kithmootDesktop?.screenAccess
+  if (access && isSystemRefusal(err)) {
+    access().then(status => { if (status !== 'granted') reportShareError(err) }, () => reportShareError(err))
+    return
+  }
+  reportShareError(err)
+}
+
+function reportShareError(err: unknown): void {
   const text = describeShareError(err)
   setStatus(text.plain)
   // The browser's own words, for a bug report, kept off the page itself.
@@ -11768,7 +11789,7 @@ $('addDevice').addEventListener('click', () => {
       identity,
       deviceSk: deviceKey(),
       approve: (device) => confirmRoomAction({ title: 'Add this device?', message: `Device ${device.slice(0, 12)}… will join this room as you for the next 12 hours. Only approve a device you are pairing.`, confirmLabel: 'Add device' }),
-      onPaired: (device) => setStatus(`Added ${device.slice(0, 12)}… to this room.`),
+      onPaired: (device) => { $('pairStatus').textContent = `Added ${device.slice(0, 12)}… to this room.`; setStatus(`Added ${device.slice(0, 12)}… to this room.`) },
     })
 
     const pairUrl = $('pairUrl') as HTMLInputElement
@@ -11782,7 +11803,9 @@ $('addDevice').addEventListener('click', () => {
     // this screen is the whole point of that trip.
     $('pairQrWrap').hidden = false
     renderQr($('pairQr') as HTMLCanvasElement, pairUrl.value).catch((err) => setStatus(describeError(err)))
-    setStatus('Waiting for your other device. Keep this page open.')
+    // Said beside the QR code, not on the room's status line, where it
+    // outlived the panel and read as something still going wrong.
+    $('pairStatus').textContent = 'Waiting for your other device. Keep this page open.'
   } catch (err) {
     setStatus(describeError(err))
   }
@@ -11840,7 +11863,7 @@ async function endRoomForEveryone(): Promise<void> {
   try {
     await retirement.publish(encodeInvitationRetirement({ invitation, inviterSk: authoritySk, now: nowSeconds(), ended: true }))
   } finally {
-    retirement.close()
+    closeWhenSettled(retirement)
   }
   stopInvitationHost()
   endingRoom = true

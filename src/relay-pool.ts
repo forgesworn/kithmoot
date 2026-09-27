@@ -89,6 +89,7 @@ export class NostrRelayPool implements RelayTransport {
   #authentication = new Map<string, AuthenticationGrant | null>()
   #authFailures = new Map<string, string>()
   #publishing = 0
+  #whenIdle: (() => void)[] = []
   readonly #authTimeout: number
   readonly #verifyEvent = boundedEventVerifier()
 
@@ -236,6 +237,25 @@ export class NostrRelayPool implements RelayTransport {
    *  round trip against an event the caller is waiting on. */
   get publishing(): boolean { return this.#publishing > 0 }
 
+  /**
+   * Resolves once every relay has answered every publish in flight, or after
+   * `timeoutMs`, whichever is first. `publish` resolves at the first ack, so
+   * a caller about to `close()` the pool must wait for this or the slower
+   * relays' writes are aborted and a durable event lands on one relay only.
+   */
+  settled(timeoutMs = 20_000): Promise<void> {
+    if (this.#publishing === 0) return Promise.resolve()
+    return new Promise<void>(resolve => {
+      const done = () => { clearTimeout(timer); resolve() }
+      const timer = setTimeout(() => { this.#whenIdle = this.#whenIdle.filter(waiter => waiter !== done); resolve() }, timeoutMs)
+      this.#whenIdle.push(done)
+    })
+  }
+
+  #publishDone(): void {
+    if (--this.#publishing === 0) for (const waiter of this.#whenIdle.splice(0)) waiter()
+  }
+
   async publish(event: Event): Promise<void> {
     if (this.#closed) throw new Error('pool is closed')
     const urls = this.#relays.filter(relay => relay.write).map(relay => relay.url)
@@ -262,12 +282,12 @@ export class NostrRelayPool implements RelayTransport {
           () => {
             results[i] = { status: 'fulfilled', value: undefined }
             if (!settled) { settled = true; resolve() }
-            if (--remaining === 0) this.#publishing--
+            if (--remaining === 0) this.#publishDone()
           },
           (error: unknown) => {
             results[i] = { status: 'rejected', reason: error }
             const last = --remaining === 0
-            if (last) this.#publishing--
+            if (last) this.#publishDone()
             // Only the relay that finishes failing last can know whether
             // every relay refused: reporting on the first one to fail would
             // have called a publish that later succeeded elsewhere a total

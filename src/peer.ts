@@ -1,5 +1,5 @@
 import { normaliseHex } from './hex.js'
-import { sameShape, sdpShape } from './sdp-shape.js'
+import { isSessionMismatch, replacesSession, sameShape, sdpSession, sdpShape, type SdpSession } from './sdp-shape.js'
 import type { SignalBody } from './signal.js'
 import type { TrackRole } from './types.js'
 
@@ -333,6 +333,29 @@ export interface PeerOptions {
    * within a window.
    */
   random?: () => number
+  /**
+   * The far end has thrown its connection away and is offering from a new
+   * one. No offer from that connection can be applied to this one - a fresh
+   * session's m-lines need not line up with the old, and where they happen to
+   * the answer is written by senders that believe their tracks are already
+   * negotiated - so only the caller, which owns the factory, can give the
+   * pair a connection the offer fits. It is handed the offer, any candidates
+   * for it that overtook it, and the far-end session id this connection was
+   * negotiated with, which can never speak again.
+   *
+   * Raised at most once in this peer's life; the peer is finished with once
+   * it has. Absent, the peer behaves as it always did - which is right for a
+   * forwarder, whose sessions are its own business.
+   */
+  onRemoteRestart?: (offer: SignalBody, candidates: SignalBody[], retiredSession?: string) => void
+  /**
+   * Far-end session ids already given up on for a newer one. An offer still
+   * carrying one is a late copy from a connection the far end has closed, and
+   * is dropped rather than read as yet another new session - which is what
+   * keeps the handover to once per new session however the relays reorder
+   * things.
+   */
+  retiredRemoteSessions?: ReadonlySet<string>
 }
 
 /**
@@ -437,6 +460,11 @@ export class Peer implements NegotiatingPeer {
   /** A media-security hook rejected a newly-added sender. This connection
    * must never race ahead and offer an unprotected m-line. */
   #senderRefused = false
+  /** Which connection at the far end the last remote description applied
+   *  here came from. See `SdpSession`. */
+  #remoteSession?: SdpSession
+  /** `onRemoteRestart` has been raised. Once is all a peer gets. */
+  #remoteRestarted = false
 
   constructor(opts: PeerOptions) {
     this.#opts = opts
@@ -897,6 +925,7 @@ export class Peer implements NegotiatingPeer {
         return
       }
       await this.#pc.setRemoteDescription({ type: 'answer', sdp: body.sdp })
+      this.#remoteSession = sdpSession(body.sdp)
       this.#accountForAnswer(body.sdp)
       // The offer has been answered, so it is no longer anything to re-send.
       this.#clearNegotiationTimers()
@@ -997,6 +1026,20 @@ export class Peer implements NegotiatingPeer {
       return
     }
 
+    // Before anything about collisions: an offer from a connection the far
+    // end has since replaced is not a glare with ours, because the connection
+    // our offer was made to no longer exists. Ignoring it as the impolite
+    // side would wait for ever on an answer nobody can send; applying it here
+    // either fails on m-line order or, where the orders happen to agree, is
+    // answered by senders that think their tracks are already negotiated -
+    // every section not sending, and no `negotiationneeded` to put it right.
+    const offered = sdpSession(sdp)
+    if (offered.id !== undefined && this.#opts.retiredRemoteSessions?.has(offered.id)) return
+    if (this.#canHandOn() && replacesSession(offered, this.#remoteSession)) {
+      this.#handOnRemoteRestart(sdp)
+      return
+    }
+
     const collision = this.#makingOffer || this.#pc.signalingState !== 'stable'
     // A local, not a field: whether we ignored *this* offer governs nothing
     // beyond this call, and holding it across `await` points was one of the
@@ -1018,7 +1061,23 @@ export class Peer implements NegotiatingPeer {
       this.#hasRemoteDescription = false
     }
 
-    await this.#pc.setRemoteDescription({ type: 'offer', sdp })
+    try {
+      await this.#pc.setRemoteDescription({ type: 'offer', sdp })
+    } catch (error) {
+      // The fallback for a new far-end session the comparison above could
+      // not see: the connection's own refusal says the same thing. Only for
+      // an offer from a different session id, though. One from the session
+      // this connection is negotiated with is the far end's own connection
+      // contradicting itself, a new connection here would not fit it any
+      // better, and replacing on it is how two sides would take turns
+      // rebuilding for ever.
+      if (this.#canHandOn() && offered.id !== this.#remoteSession?.id && isSessionMismatch(error)) {
+        this.#handOnRemoteRestart(sdp)
+        return
+      }
+      throw error
+    }
+    this.#remoteSession = sdpSession(sdp)
     this.#hasRemoteDescription = true
     this.#remoteOffersApplied += 1
     // Whether this is an offer this side has answered before, held now
@@ -1069,7 +1128,14 @@ export class Peer implements NegotiatingPeer {
     if (!candidateJson) return
     const candidate = JSON.parse(candidateJson) as RTCIceCandidateInit
 
-    if (!this.#hasRemoteDescription) {
+    // A candidate naming credentials this connection has not been given
+    // belongs to a description still on its way - an ICE restart, or a new
+    // far-end session - and overtook it on the relay. Applied now it is
+    // refused and lost; held, it is applied once that description lands, or
+    // travels with the offer to the connection that replaces this one.
+    const applied = this.#remoteSession?.ufrag
+    const foreign = candidate.usernameFragment != null && applied !== undefined && candidate.usernameFragment !== applied
+    if (!this.#hasRemoteDescription || foreign) {
       // Trickle ICE routinely delivers candidates before the description
       // they belong to. Hold them rather than drop them - but only so many:
       // see `MAX_PENDING_CANDIDATES`. The oldest goes, because the newest
@@ -1106,6 +1172,41 @@ export class Peer implements NegotiatingPeer {
     } catch {
       // Deliberately swallowed - see above.
     }
+  }
+
+  /**
+   * Whether a new far-end session can be handed on from here at all: only
+   * with somebody to hand it to, only once, and only on a connection that
+   * has applied something from the far end - one that has not has no session
+   * for an offer to be different from.
+   */
+  #canHandOn(): boolean {
+    return this.#opts.onRemoteRestart !== undefined && !this.#remoteRestarted && !this.#closed && this.#remoteSession !== undefined
+  }
+
+  /**
+   * Give up this connection to the far end's new one, once.
+   *
+   * Nothing here is retried and nothing is offered: the replacement answers
+   * the offer that caused it, and every later copy of that offer reaches the
+   * replacement, which answers it from what it sent the first time.
+   * Candidates that overtook the offer were held rather than refused (see
+   * `#handleIce`) and go with it.
+   */
+  #handOnRemoteRestart(sdp: string | undefined): void {
+    const restart = this.#opts.onRemoteRestart
+    if (!restart) return
+    this.#remoteRestarted = true
+    this.#clearNegotiationTimers()
+    const ufrag = sdpSession(sdp).ufrag
+    const carried = this.#pendingCandidates.filter((candidate) => candidate.usernameFragment != null && candidate.usernameFragment === ufrag)
+    this.#pendingCandidates = []
+    const retired = this.#remoteSession?.id
+    restart(
+      { type: 'offer', roomId: '', sdp },
+      carried.map((candidate) => ({ type: 'ice', roomId: '', candidate: JSON.stringify(candidate) })),
+      retired !== undefined && retired !== sdpSession(sdp).id ? retired : undefined,
+    )
   }
 
   close(): void {

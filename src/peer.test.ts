@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Peer, MAX_PENDING_CANDIDATES } from './peer.js'
-import { createFakeFactory, fakeTrack as fakeMediaTrack } from '../test/fake-rtc.js'
+import { createFakeFactory, FakeRTCPeerConnection, fakeTrack as fakeMediaTrack } from '../test/fake-rtc.js'
 import type { SignalBody } from './signal.js'
 
 /** A track the fixture writes a real `m=audio` line for. The bare `{}` below
@@ -1749,5 +1749,189 @@ describe('Peer', () => {
 
     const pc = factory.instances[0]!
     expect(pc.calls.filter((c) => c.method === 'close')).toHaveLength(1)
+  })
+})
+
+/**
+ * A far end that rebuilt its connection and offers from the new one.
+ *
+ * Seen on a real call on 27 September 2026: after connections failed and
+ * were rebuilt, a phone offered from a fresh connection, and a browser
+ * applied that offer to its OLD connection, whose senders believed their
+ * tracks were already negotiated. Its answer marked every section not
+ * sending and nothing offered them again, so that person was never heard
+ * while they still heard everybody. Where the new session's m-lines do not
+ * line up with the old, libwebrtc refuses the offer outright instead, and
+ * every retransmission the same way. The roster says nothing either way: a
+ * phone publishes no page session.
+ */
+describe('Peer and a far end that starts a new session', () => {
+  interface Restart {
+    offer: SignalBody
+    candidates: SignalBody[]
+    retired?: string
+  }
+
+  /** The far end's connection, offering whatever tracks it is given in the
+   *  order it is given them. */
+  async function farOffer(pc: FakeRTCPeerConnection, kinds: ('audio' | 'video')[]): Promise<string> {
+    for (const kind of kinds) pc.addTrack(fakeMediaTrack(kind))
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    return offer.sdp!
+  }
+
+  function build(opts: { polite?: boolean; handOn?: boolean; retired?: Set<string> } = {}) {
+    const factory = createFakeFactory({ structuredSdp: true })
+    const sent: SignalBody[] = []
+    const restarts: Restart[] = []
+    const polite = opts.polite ?? true
+    const peer = new Peer({
+      factory,
+      localDevice: polite ? LOW : HIGH,
+      remoteDevice: polite ? HIGH : LOW,
+      onSignal: (body) => sent.push(body),
+      onTrack: () => {},
+      offerRetry: { intervalMs: 60_000, wedgeMs: 60_000 },
+      onRemoteRestart:
+        opts.handOn === false ? undefined : (offer, candidates, retired) => restarts.push({ offer, candidates, retired }),
+      retiredRemoteSessions: opts.retired,
+    })
+    return { factory, peer, sent, restarts, pc: () => factory.instances[0]! }
+  }
+
+  /** Negotiate the peer with a first far-end connection carrying audio. */
+  async function negotiated(built: ReturnType<typeof build>): Promise<FakeRTCPeerConnection> {
+    const far = new FakeRTCPeerConnection({ structuredSdp: true })
+    await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: await farOffer(far, ['audio']) })
+    await settle()
+    const answer = built.sent.filter((s) => s.type === 'answer').at(-1)!
+    await far.setRemoteDescription({ type: 'answer', sdp: answer.sdp })
+    return far
+  }
+
+  it("BUG: without anybody to hand it to, every copy of the new session's offer is refused", async () => {
+    const built = build({ handOn: false })
+    await negotiated(built)
+    const rebuilt = await farOffer(new FakeRTCPeerConnection({ structuredSdp: true }), ['video', 'audio'])
+
+    const failures: unknown[] = []
+    for (let copy = 0; copy < 3; copy++) {
+      await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: rebuilt }).catch((error) => failures.push(error))
+    }
+
+    // One answer, to the first session, and then only refusals.
+    expect(built.sent.filter((s) => s.type === 'answer')).toHaveLength(1)
+    expect(failures).toHaveLength(3)
+    built.peer.close()
+  })
+
+  it('hands an offer from a new far-end session on, before touching this connection', async () => {
+    const built = build()
+    await negotiated(built)
+    const pc = built.pc()
+    const remoteDescriptionsBefore = pc.calls.filter((c) => c.method === 'setRemoteDescription').length
+    const firstSession = /^o=- (\d+)/m.exec(pc.remoteDescription!.sdp!)![1]
+
+    // Same kinds in the same order: the case the old connection would have
+    // taken, and answered with every section not sending.
+    const rebuilt = await farOffer(new FakeRTCPeerConnection({ structuredSdp: true }), ['audio'])
+    await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: rebuilt })
+    await settle()
+
+    expect(built.restarts).toHaveLength(1)
+    expect(built.restarts[0]!.offer).toMatchObject({ type: 'offer', sdp: rebuilt })
+    expect(built.restarts[0]!.retired).toBe(firstSession)
+    expect(pc.calls.filter((c) => c.method === 'setRemoteDescription'), 'nothing was tried on the old connection').toHaveLength(
+      remoteDescriptionsBefore,
+    )
+    expect(built.sent.filter((s) => s.type === 'answer'), 'the old connection answered nothing').toHaveLength(1)
+
+    // Once only: every later copy is the replacement's to answer.
+    await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: rebuilt })
+    await settle()
+    expect(built.restarts).toHaveLength(1)
+    built.peer.close()
+  })
+
+  it("does not ignore a new session's offer as glare on the impolite side", async () => {
+    const built = build({ polite: false })
+    await negotiated(built)
+    const pc = built.pc()
+    // An offer of this side's own is out, to a connection the far end has
+    // since thrown away.
+    await built.peer.start([fakeMediaTrack('video')])
+    await settle()
+    expect(pc.signalingState).toBe('have-local-offer')
+
+    const rebuilt = await farOffer(new FakeRTCPeerConnection({ structuredSdp: true }), ['audio'])
+    await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: rebuilt })
+    await settle()
+
+    expect(built.restarts).toHaveLength(1)
+    built.peer.close()
+  })
+
+  it("falls back on the connection's own refusal when the comparison misses it", async () => {
+    const built = build()
+    const far = await negotiated(built)
+    // A new session id with the same credentials is not enough to be called
+    // a new session in advance, so the connection is left to refuse it.
+    const other = new FakeRTCPeerConnection({ structuredSdp: true })
+    other.ufrag = far.ufrag
+    const rebuilt = await farOffer(other, ['video', 'audio'])
+    await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: rebuilt })
+    await settle()
+
+    expect(built.restarts).toHaveLength(1)
+    expect(built.sent.filter((s) => s.type === 'answer')).toHaveLength(1)
+    built.peer.close()
+  })
+
+  it("takes an ICE restart on the far end's existing connection in its stride", async () => {
+    const built = build()
+    const far = await negotiated(built)
+    far.restartIce()
+    const restart = await far.createOffer()
+    await far.setLocalDescription(restart)
+    await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: restart.sdp })
+    await settle()
+
+    expect(built.restarts, 'an ICE restart is not a new session').toHaveLength(0)
+    expect(built.sent.filter((s) => s.type === 'answer')).toHaveLength(2)
+    built.peer.close()
+  })
+
+  it("holds candidates that overtook the new session's offer, and sends them with it", async () => {
+    const built = build()
+    await negotiated(built)
+    const pc = built.pc()
+    const next = new FakeRTCPeerConnection({ structuredSdp: true })
+    const rebuilt = await farOffer(next, ['audio'])
+    const early = { candidate: 'candidate:1 1 udp 2122 192.0.2.4 5000 typ host', sdpMid: '0', sdpMLineIndex: 0, usernameFragment: next.ufrag }
+    await built.peer.handleSignal({ type: 'ice', roomId: '', candidate: JSON.stringify(early) })
+    expect(pc.calls.filter((c) => c.method === 'addIceCandidate'), 'refused against the old session').toHaveLength(0)
+
+    await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: rebuilt })
+    await settle()
+
+    expect(built.restarts[0]!.candidates.map((c) => JSON.parse(c.candidate!))).toEqual([early])
+    built.peer.close()
+  })
+
+  it('drops a late copy of an offer from a session already given up on', async () => {
+    const retired = new Set<string>()
+    const built = build({ retired })
+    const old = new FakeRTCPeerConnection({ structuredSdp: true })
+    const stale = await farOffer(old, ['audio'])
+    retired.add(old.sessionId)
+    await negotiated(built)
+
+    await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: stale })
+    await settle()
+
+    expect(built.restarts).toHaveLength(0)
+    expect(built.sent.filter((s) => s.type === 'answer')).toHaveLength(1)
+    built.peer.close()
   })
 })
