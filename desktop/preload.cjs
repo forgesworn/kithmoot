@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
   shareAreaMode,
   armShareArea() { return ipcRenderer.invoke('desktop:area-arm') },
   shareAreaState() { return ipcRenderer.invoke('desktop:area-state') },
+  screenAccess() { return ipcRenderer.invoke('desktop:screen-access') },
   shareAreaAction(action, value) { ipcRenderer.send('desktop:area-action', action, value) },
   onShareAreaState(listener) {
     const handler = (_event, state) => listener(state)

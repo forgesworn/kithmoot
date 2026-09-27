@@ -63,7 +63,7 @@ import { readAgentRequestStatuses, type RequestAgent } from './agent-request-sta
 import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
-import { describeShareError } from './share-error.js'
+import { describeShareError, isSystemRefusal } from './share-error.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
 import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
@@ -4614,6 +4614,19 @@ async function toggleScreen(area = false): Promise<void> {
  * run at start-up.
  */
 function showShareError(err: unknown): void {
+  // The desktop app refuses a share the same way whether macOS withheld
+  // Screen Recording or the person closed the "Choose what to share" menu,
+  // and the page cannot tell which. With the permission granted it was the
+  // person, and a cancel needs no message at all.
+  const access = window.kithmootDesktop?.screenAccess
+  if (access && isSystemRefusal(err)) {
+    access().then(status => { if (status !== 'granted') reportShareError(err) }, () => reportShareError(err))
+    return
+  }
+  reportShareError(err)
+}
+
+function reportShareError(err: unknown): void {
   const text = describeShareError(err)
   setStatus(text.plain)
   // The browser's own words, for a bug report, kept off the page itself.

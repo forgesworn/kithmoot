@@ -221,3 +221,37 @@ test('a share error goes once a share works, and says what to do', async ({ brow
     await a.close()
   }
 })
+
+test('in the desktop app, cancelling the share picker is not a permission problem', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+  const a = await newDeviceContext(browser, baseURL!)
+  await a.addInitScript(PORTRAIT_SCREEN)
+  try {
+    const alex = await a.newPage()
+    const link = await createRoom(alex, baseURL!)
+    await enter(alex, link, 'Alex')
+    const status = alex.locator('#status')
+    // The desktop app refuses a cancelled picker with the same error macOS
+    // gives for a missing Screen Recording permission. It can say which.
+    const bridge = (access: string) => alex.evaluate(value => {
+      Object.assign(window, { kithmootDesktop: new Proxy({ screenAccess: async () => value }, {
+        get: (target, key) => key in target ? (target as Record<string, unknown>)[key as string]
+          : key === 'supportsShareArea' || key === 'shareAreaMode' ? undefined
+          : String(key).startsWith('on') ? () => () => {} : () => undefined,
+      }) })
+    }, access)
+
+    await bridge('granted')
+    await alex.evaluate(() => Object.assign(window, { __failShares: 1 }))
+    await alex.locator('#toggleScreen').click()
+    await alex.waitForTimeout(500)
+    await expect(status).not.toContainText('Screen Recording')
+
+    await bridge('denied')
+    await alex.evaluate(() => Object.assign(window, { __failShares: 1 }))
+    await alex.locator('#toggleScreen').click()
+    await expect(status).toContainText('Screen Recording')
+  } finally {
+    await a.close()
+  }
+})
