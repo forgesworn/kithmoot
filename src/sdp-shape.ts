@@ -102,3 +102,72 @@ export function sameShape(a: string | undefined | null, b: string | undefined | 
   if (left === undefined) return false
   return left === sdpShape(b)
 }
+
+/**
+ * Which connection at the far end a description came from.
+ *
+ * The `o=` session id is minted once per `RTCPeerConnection` and kept for its
+ * whole life, through every renegotiation and every ICE restart; `a=ice-ufrag`
+ * moves on an ICE restart and on nothing else. A far end that has thrown its
+ * connection away and opened another therefore changes both at once, and an
+ * ICE restart on the connection that exists changes only the second.
+ *
+ * Deliberately not part of the shape: whether the far end is still on the
+ * same connection is a different question from what that connection is
+ * proposing, and the answer decides whether a description can be applied
+ * here at all. The same rule as `SdpSession` in the Android client.
+ */
+export interface SdpSession {
+  id?: string
+  ufrag?: string
+}
+
+export function sdpSession(sdp: string | undefined | null): SdpSession {
+  const session: SdpSession = {}
+  if (!sdp) return session
+  for (const raw of sdp.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (session.id === undefined && line.startsWith('o=')) {
+      const id = line.slice(2).split(' ')[1]
+      if (id) session.id = id
+    }
+    // Max-bundle: every section carries the same credentials, so the first
+    // is the connection's.
+    if (session.ufrag === undefined && line.startsWith('a=ice-ufrag:')) {
+      const ufrag = line.slice('a=ice-ufrag:'.length)
+      if (ufrag) session.ufrag = ufrag
+    }
+    if (session.id !== undefined && session.ufrag !== undefined) break
+  }
+  return session
+}
+
+/**
+ * Whether `next` comes from a different connection at the far end than
+ * `previous` did.
+ *
+ * Both have to move. A session id alone could be a stack that renders it
+ * differently, and a ufrag alone is an ICE restart, which the connection that
+ * exists takes in its stride. Unknown on either side is never a new session:
+ * nothing is replaced on a guess.
+ */
+export function replacesSession(next: SdpSession, previous: SdpSession | undefined): boolean {
+  if (!previous) return false
+  if (next.id === undefined || next.ufrag === undefined || previous.id === undefined || previous.ufrag === undefined) return false
+  return next.id !== previous.id && next.ufrag !== previous.ufrag
+}
+
+/**
+ * Whether a connection refused a remote offer because it describes a
+ * different session from the one the connection holds.
+ *
+ * libwebrtc's words for it, in Chromium and on Android alike, and the only
+ * evidence left once the session id and ufrag have been missed: an offer
+ * whose m-lines do not line up with the previous negotiation cannot be
+ * applied to this connection however many times it is retransmitted.
+ */
+export function isSessionMismatch(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+  const lower = message.toLowerCase()
+  return lower.includes('m-lines') || lower.includes('subsequent offer')
+}

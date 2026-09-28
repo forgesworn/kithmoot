@@ -24,6 +24,7 @@ import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { encodeCallBellEvent, type CallBellState } from './call-bell.js'
 import { ChatLog } from './chat.js'
 import type { EpochRoot } from './chat.js'
+import type { EventArchive } from './archive.js'
 import {
   EpochRefusedError,
   decodeRekeyEvent,
@@ -131,6 +132,12 @@ export interface CallView {
 
 export interface RoomSessionBaseOptions {
   transport: RelayTransport
+  /** This device's own copy of the room's events: every chat log keeps and
+   *  reads through it, and the authority's rekeys are kept and replayed at
+   *  join, so a room a relay forgot still opens where this device left it.
+   *  Everything read back is checked by the same rules as a relay's events.
+   *  See `archive.ts`. */
+  archive?: EventArchive
   secret: Uint8Array
   /** This endpoint's own key. Never the participant's. */
   deviceSk: Uint8Array
@@ -614,6 +621,10 @@ export class RoomSession {
         (event) => this.#ingestRekey(event),
       )
       try {
+        // The rekeys this device kept, through the same door as a relay's:
+        // a relay that forgot them cannot put this device back in epoch 0.
+        const kept = await this.#opts.archive?.read({ kind: KINDS.ROOM_REKEY, d: this.roomId, limit: 1_000 }).catch(() => [])
+        for (const event of kept ?? []) this.#ingestRekey(event)
         await this.#settleEpoch()
       } catch (err) {
         this.#unsubRekey?.()
@@ -749,6 +760,7 @@ export class RoomSession {
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
+      ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
     })
 
     // Presence is live state, so it has to be restated and it has to lapse -
@@ -896,7 +908,9 @@ export class RoomSession {
   #ingestRekey(event: Event): void {
     if (!this.#opts.authority) return
     const epoch = peekRekeyEvent(event, { roomId: this.roomId, authority: this.#opts.authority })
-    if (epoch === null || epoch <= this.#epoch.epoch) return
+    if (epoch === null) return
+    this.#opts.archive?.keep(event)
+    if (epoch <= this.#epoch.epoch) return
     this.#pendingRekeys.set(epoch, event)
     // During join the settle step drains; after it, every rekey is acted on
     // the moment it arrives.
@@ -1735,6 +1749,7 @@ export class RoomSession {
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
+      ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
     })
     this.#channels.set(name, log)
     return log

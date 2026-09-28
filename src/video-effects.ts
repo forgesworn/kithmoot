@@ -934,6 +934,16 @@ export class VideoEffect {
     return mask ? { width: mask.width, height: mask.height } : null
   }
 
+  /**
+   * The mask the last frame was composited with, or null when the last frame
+   * was not a composite. For framing the person in the picture: it only ever
+   * says where somebody is, never what gets painted. The buffer is reused, so
+   * read it before the next `renderFrame`.
+   */
+  get personMask(): SegmentationMask | null {
+    return this.#lastAction === 'composite' ? this.#lastMask : null
+  }
+
   /** Resolves when the current load attempt has settled, whichever way. Not
    *  a success signal: check `status` for that. */
   ready(): Promise<void> {

@@ -357,6 +357,12 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
   #pendingLocalOffer: ParsedMedia[] | null = null
   #announced = new Set<string>()
   #streamId = `stream-${++sdpCounter}`
+  /** The `o=` session id: minted once per connection and kept for its life,
+   *  as a browser does. A far end that rebuilt its connection is recognised
+   *  by this and the ufrag moving together. */
+  readonly sessionId = String(4611731400430051336n + BigInt(++sdpCounter))
+  /** The ICE username fragment, which only `restartIce` moves. */
+  ufrag = `uf${++sdpCounter}`
 
   constructor(options: FakeConnectionOptions = {}) {
     this.options = {
@@ -434,13 +440,13 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
     if (!this.#structured) return `${type}-sdp-${version}`
     const lines = [
       'v=0',
-      `o=- 4611731400430051336 ${version} IN IP4 127.0.0.1`,
+      `o=- ${this.sessionId} ${version} IN IP4 127.0.0.1`,
       's=-',
       't=0 0',
     ]
     const mids: string[] = []
     const sections: string[] = []
-    for (const transceiver of this.#transceivers) {
+    for (const transceiver of this.#inSessionOrder()) {
       const mid = transceiver.mid ?? transceiver.pendingMid ?? String(this.#nextMid++)
       transceiver.pendingMid = mid
       mids.push(mid)
@@ -455,6 +461,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
           : transceiver.direction
       sections.push(`m=${transceiver.kind} 9 UDP/TLS/RTP/SAVPF 111`)
       sections.push('c=IN IP4 0.0.0.0')
+      sections.push(`a=ice-ufrag:${this.ufrag}`)
       sections.push(`a=mid:${mid}`)
       sections.push(`a=${direction}`)
       // Fixed at negotiation, exactly as a browser does it: `replaceTrack`
@@ -465,6 +472,31 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
     }
     if (mids.length > 0) lines.push(`a=group:BUNDLE ${mids.join(' ')}`)
     return [...lines, ...sections, ''].join('\n')
+  }
+
+  /**
+   * The transceivers in the order their m-lines appear in the session.
+   *
+   * Not always the order they were made in: an answerer's own `addTrack`
+   * transceiver can be adopted by the offer's SECOND m-line after a remote
+   * one was created for the first. A browser writes every later description
+   * in the negotiated m-line order regardless, and so must this, or a
+   * connection that answered first and offers later would contradict its own
+   * session.
+   */
+  #inSessionOrder(): FakeRtpTransceiver[] {
+    const established = this.#established
+    const pending = this.#pendingRemoteOffer
+    const order = pending ?? established
+    if (!order) return this.#transceivers
+    const rank = (t: FakeRtpTransceiver) => {
+      const index = t.mid === null ? -1 : order.findIndex((m) => m.mid === t.mid)
+      return index === -1 ? Number.MAX_SAFE_INTEGER : index
+    }
+    return this.#transceivers
+      .map((transceiver, index) => ({ transceiver, index }))
+      .sort((x, y) => rank(x.transceiver) - rank(y.transceiver) || x.index - y.index)
+      .map(({ transceiver }) => transceiver)
   }
 
   async createOffer(): Promise<RTCSessionDescriptionInit> {
@@ -495,7 +527,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
       // An answer applied locally completes the exchange, so this is where
       // `currentDirection` first becomes real for the answerer.
       if (parsed && this.#pendingRemoteOffer) this.#settleDirections(parsed, this.#pendingRemoteOffer)
-      if (parsed) this.#establish()
+      if (parsed) this.#establish(parsed)
       this.#pendingRemoteOffer = null
       this.signalingState = 'stable'
     }
@@ -524,7 +556,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
       if (parsed && this.#pendingLocalOffer) this.#settleDirections(this.#pendingLocalOffer, parsed)
       if (parsed) {
         this.#associateRemote(parsed)
-        this.#establish()
+        this.#establish(parsed)
       }
       this.#pendingLocalOffer = null
       this.signalingState = 'stable'
@@ -631,10 +663,18 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
     }
   }
 
-  #establish(): void {
+  /** Fix the session's m-lines in the order the completing description
+   *  lists them, which is the order every later offer has to keep. */
+  #establish(parsed: ParsedMedia[]): void {
+    const rank = (mid: string) => {
+      const index = parsed.findIndex((m) => m.mid === mid)
+      return index === -1 ? Number.MAX_SAFE_INTEGER : index
+    }
     this.#established = this.#transceivers
       .filter((t) => t.mid !== null)
-      .map((t) => ({ kind: t.kind, mid: t.mid! }))
+      .map((t, index) => ({ kind: t.kind, mid: t.mid!, index }))
+      .sort((x, y) => rank(x.mid) - rank(y.mid) || x.index - y.index)
+      .map(({ kind, mid }) => ({ kind, mid }))
   }
 
   #announceTracks(parsed: ParsedMedia[]): void {
@@ -676,6 +716,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
       candidate: `candidate:${this.gathered.length + 1} 1 udp 2130706431 127.0.0.1 ${9000 + this.gathered.length} typ host`,
       sdpMid: this.#transceivers.find((t) => t.mid !== null)?.mid ?? '0',
       sdpMLineIndex: 0,
+      usernameFragment: this.ufrag,
     }
     this.gathered.push(value)
     this.#rewriteLocalDescription()
@@ -791,6 +832,7 @@ export class FakeRTCPeerConnection implements RTCPeerConnectionLike {
    *  a restart was asked for. */
   restartIce(): void {
     this.calls.push({ method: 'restartIce', args: [] })
+    this.ufrag = `uf${++sdpCounter}`
   }
 
   close(): void {

@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { answerDisplayRequest, screenAccessGranted, refuse } from '../screen-share.mjs'
+import { answerDisplayRequest, displayChoice, screenAccessGranted, refuse } from '../screen-share.mjs'
+import { captureOf } from '../redaction-geometry.mjs'
 
 const source = { id: 'screen:1', name: 'Entire screen' }
 const recorder = () => {
@@ -64,4 +65,49 @@ test('granted macOS and other platforms go straight to the picker', async () => 
   const never = async () => { throw new Error('should not ask') }
   assert.equal(await screenAccessGranted({ platform: 'darwin', status: () => 'granted', askToOpenSettings: never }), true)
   assert.equal(await screenAccessGranted({ platform: 'linux', status: () => 'denied', askToOpenSettings: never }), true)
+})
+
+// The desktop chooser, driven with fake sources and a menu that clicks for us.
+const displays = [{ id: 1 }, { id: 2 }]
+const screens = [{ id: 'screen:1:0', display_id: '1', name: 'Screen 1' }, { id: 'screen:2:0', display_id: '2', name: 'Screen 2' }]
+const windows = [{ id: 'window:77:0', display_id: '', name: 'Notes' }]
+const fakeRedaction = on => ({ capture: 'untouched', anyOn: () => on, captured(chosen) { this.capture = captureOf(chosen, displays) } })
+const chooser = (redaction, click) => {
+  const shown = []
+  const deps = displayChoice({
+    request: {}, platform: 'darwin', areaMode: 'frame', redaction,
+    screenAccessGranted: async () => true, listSources: async () => [...screens, ...windows],
+    showMenu: (items, cancel) => { shown.push(...items); const item = click(items); if (item) item.click(); else cancel() },
+  })
+  return { deps, shown }
+}
+
+test('while a box is on, only whole screens are offered and the chosen display is recorded', async () => {
+  const redaction = fakeRedaction(true)
+  const { deps, shown } = chooser(redaction, items => items.find(item => item.source?.id === 'screen:2:0'))
+  const { calls, callback } = recorder()
+  await answerDisplayRequest({}, callback, deps)
+  assert.deepEqual(shown.filter(item => item.source).map(item => item.source.id), ['screen:1:0', 'screen:2:0'])
+  assert.ok(shown.some(item => item.label.includes('Single apps are hidden')))
+  assert.deepEqual(calls, [[{ video: screens[1] }]])
+  assert.deepEqual(redaction.capture, { kind: 'screen', displayId: '2' })
+})
+
+test('with no box on, windows are offered, and a chosen window is recorded as a window', async () => {
+  const redaction = fakeRedaction(false)
+  const { deps, shown } = chooser(redaction, items => items.find(item => item.source?.id === 'window:77:0'))
+  const { calls, callback } = recorder()
+  await answerDisplayRequest({}, callback, deps)
+  assert.ok(!shown.some(item => item.label.includes('Single apps are hidden')))
+  assert.deepEqual(calls, [[{ video: windows[0] }]])
+  assert.deepEqual(redaction.capture, { kind: 'window' })
+})
+
+test('cancelling the chooser refuses and records nothing', async () => {
+  const redaction = fakeRedaction(true)
+  const { deps } = chooser(redaction, () => undefined)
+  const { calls, callback } = recorder()
+  await answerDisplayRequest({}, callback, deps)
+  assert.deepEqual(calls, [[]])
+  assert.equal(redaction.capture, 'untouched')
 })

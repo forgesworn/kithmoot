@@ -1,4 +1,5 @@
 import { DesktopShareArea } from './share-area.js'
+import { DesktopRedaction } from './redaction.js'
 import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
@@ -58,12 +59,13 @@ import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivi
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
 import { RoomWatch } from './room-watch.js'
+import { BrowserRoomArchiveStorage, RoomArchive, deleteRoomArchive, reseedRelays, type ReseedTarget } from './room-archive.js'
 import { PresenceAnnouncements } from './presence-announcements.js'
 import { readAgentRequestStatuses, type RequestAgent } from './agent-request-status.js'
 import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
-import { describeShareError } from './share-error.js'
+import { describeShareError, isSystemRefusal } from './share-error.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
 import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
@@ -95,6 +97,9 @@ import {
   localIdentity,
   sanitiseDisplayName,
   MAX_CHAT_TEXT_LENGTH,
+  CHAT_RETENTION_SECONDS,
+  MAX_CHAT_MESSAGES,
+  KINDS,
   type ParticipantIdentity,
   type DeviceCredential,
   type RoomPolicy,
@@ -231,6 +236,10 @@ function slotWords(): string {
   return QUIET_SLOT >= 60 ? `${Math.ceil(QUIET_SLOT / 60)} minutes` : `${QUIET_SLOT} seconds`
 }
 const chatScroll = new ChatScroll(document.getElementById('chatLog')!, document.getElementById('newMessages') as HTMLButtonElement)
+/** This browser's copy of every room it has been in: the original signed
+ *  events, sealed under a device key. Undefined where the browser keeps no
+ *  storage, and the rooms then read from relays alone. See room-archive.ts. */
+const roomArchive = (() => { try { return new RoomArchive(new BrowserRoomArchiveStorage()) } catch { return undefined } })()
 const conversationSearch = new ConversationSearch(document, selectChannel)
 const messageActions = new MessageActions()
 installReactionHold($('chatLog'))
@@ -282,7 +291,11 @@ const floatingSharePreview = new FloatingSharePreview({
   overlay: (video, shareId) => shareViewer.overlay(video, shareId),
   source: () => screenTrack ? screenSource(meParticipant, myDeviceId) : undefined,
 })
+// Redaction boxes (desktop app, not on Wayland): parts of the real screen
+// that are painted black in every outgoing screen or area share.
+const desktopRedaction = new DesktopRedaction(window.kithmootDesktop)
 const desktopShareArea = new DesktopShareArea({
+  redaction: desktopRedaction,
   overlay: (canvas, id) => shareViewer.areaOverlay(canvas, id),
   draw: annotation => shareViewer.draw(annotation),
   ended: () => screenTrack?.dispatchEvent(new Event('ended')),
@@ -957,7 +970,7 @@ async function forgetThisBrowser(): Promise<void> {
     title: 'Forget this browser?',
     message: 'This removes, from this browser only:\n'
       + '- your visitor identity\n'
-      + '- every room kept here, and its keys\n'
+      + '- every room kept here, its keys and the history this browser kept of it\n'
       + '- contacts and verified people\n'
       + '- text size and volume choices\n'
       + '- the saved connection to a Nostr signer\n\n'
@@ -998,6 +1011,8 @@ async function forgetThisBrowser(): Promise<void> {
       if (key.startsWith('kithmoot.')) storage.removeItem(key)
     }
   }
+  // The rooms' kept history goes with the rooms.
+  await deleteRoomArchive()
 
   history.replaceState(null, '', joinLinkBase())
   approvedReload()
@@ -2496,6 +2511,12 @@ const FISH_STORAGE_KEY = 'kithmoot.fish.enabled'
 let fishEnabled = (() => {
   try { return localStorage.getItem(FISH_STORAGE_KEY) === 'true' } catch { return false }
 })()
+/** Keeping you in the middle of your own picture - see `auto-frame.ts`. On
+ *  unless turned off, remembered on this device. */
+const FRAMING_STORAGE_KEY = 'kithmoot.camera.framing'
+let framingEnabled = (() => {
+  try { return localStorage.getItem(FRAMING_STORAGE_KEY) !== 'false' } catch { return true }
+})()
 let videoInputs: MediaDeviceInfo[] = []
 
 const localPreviewEls = new Map<'camera' | 'screen', HTMLVideoElement>()
@@ -3527,6 +3548,7 @@ async function joinCall(): Promise<void> {
  *  Shared by leaving a call and closing the room. */
 function stopLocalMedia(): void {
   desktopShareArea.stop()
+  desktopRedaction.closeAll()
   micTrack?.removeEventListener('ended', onMicEnded)
   for (const track of activeTracks()) track.stop()
   mic?.stop()
@@ -4031,7 +4053,7 @@ async function rotateRoomInvitation(): Promise<void> {
       now: nowSeconds(),
     }))
   } finally {
-    retirementTransport.close()
+    closeWhenSettled(retirementTransport)
   }
   stopInvitationHost()
   forgetInvitationOwner(retired)
@@ -4062,8 +4084,16 @@ async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8A
     ])
   } finally {
     if (timer !== undefined) clearTimeout(timer)
-    pool.close()
+    closeWhenSettled(pool)
   }
+}
+
+/** Close a pool used for one durable event once every relay has answered,
+ *  in the background. Closing at the first ack aborted the other relays'
+ *  writes, which left a group invitation on a single relay: a member or
+ *  agent that later used only another of the room's relays could not join. */
+function closeWhenSettled(pool: NostrRelayPool): void {
+  void pool.settled().finally(() => pool.close())
 }
 
 async function makeRoomPersistent(): Promise<void> {
@@ -4236,6 +4266,7 @@ async function toggleCamera(): Promise<void> {
     const pipeline = new CameraPipeline({
       mode: savedEffectMode,
       strength: savedBlurStrength,
+      framing: framingEnabled,
       onStateChange: state => { if (generation === callGeneration) renderEffectState(state) },
       onSourceEnded: () => {
         if (generation !== callGeneration) return
@@ -4323,6 +4354,9 @@ function renderEffectState(state: VideoEffectState): void {
   $('backgroundChoices').hidden = state.mode !== 'replace'
   // Only over a sea. Offering fish over Slate would be a question with no
   // sensible answer.
+  // Framing follows the effect's picture of where you are, so there is
+  // nothing to follow with the effect off.
+  $('framingRow').hidden = state.mode === 'off'
   $('fishRow').hidden =
     state.mode !== 'replace' || !BACKGROUNDS.find((b) => b.id === backgroundId)?.sea
 
@@ -4544,16 +4578,30 @@ async function toggleScreen(area = false): Promise<void> {
     }
     screenStarting = true
     let stream: MediaStream
-    try { stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options) }
+    let surface: string | undefined
+    try {
+      // The desktop app sends every whole-screen share through the redaction
+      // canvas, boxes or not, so the raw capture itself is never published.
+      // Awaited only in the desktop app: a browser's own chooser keeps the
+      // click's activation without a round trip in front of it.
+      if (desktopRedaction.supported) await desktopRedaction.begin()
+      stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
+      surface = stream.getVideoTracks()[0]?.getSettings().displaySurface
+      if (!area && desktopRedaction.supported) {
+        const raw = stream
+        stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
+      }
+    }
     finally { screenStarting = false }
     if (generation !== callGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
     // An area share already tracks this precisely, reactively, via the
     // frame's own rect (see `wholeDisplay` above, on `desktopShareArea`); a
-    // plain share carries the standard hint directly on the track handed
-    // back, and needs checking only the once, here.
-    if (!area) sharingWholeDisplay = isWholeDisplaySurface(screenTrack?.getSettings().displaySurface)
+    // plain share carries the standard hint on the captured track, read
+    // before any redaction canvas stood in for it, and needs checking only
+    // the once, here.
+    if (!area) sharingWholeDisplay = isWholeDisplaySurface(surface)
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
@@ -4606,6 +4654,19 @@ async function toggleScreen(area = false): Promise<void> {
  * run at start-up.
  */
 function showShareError(err: unknown): void {
+  // The desktop app refuses a share the same way whether macOS withheld
+  // Screen Recording or the person closed the "Choose what to share" menu,
+  // and the page cannot tell which. With the permission granted it was the
+  // person, and a cancel needs no message at all.
+  const access = window.kithmootDesktop?.screenAccess
+  if (access && isSystemRefusal(err)) {
+    access().then(status => { if (status !== 'granted') reportShareError(err) }, () => reportShareError(err))
+    return
+  }
+  reportShareError(err)
+}
+
+function reportShareError(err: unknown): void {
   const text = describeShareError(err)
   setStatus(text.plain)
   // The browser's own words, for a bug report, kept off the page itself.
@@ -4866,6 +4927,23 @@ function updateScreenAudioNote(): void {
   $('screenAudioNote').textContent = window.kithmootDesktop
     ? 'No sound was captured. Check screen and system audio recording permissions, then restart sharing.'
     : 'No sound is shared. To share sound, share a browser tab and tick Share tab audio.'
+}
+
+/** Says why this device's own share is black, while it is. */
+function renderRedactionNote(note: string | undefined): void {
+  const line = document.getElementById('redactionNote')
+  if (!line) return
+  line.textContent = note ?? ''
+  line.hidden = !note
+}
+
+function updateRedactionControls(): void {
+  const all = document.getElementById('toggleRedaction')
+  if (!all) return
+  all.hidden = desktopRedaction.count === 0
+  setToggle('toggleRedaction', desktopRedaction.anyOn())
+  all.textContent = desktopRedaction.anyOn() ? 'Redaction on' : 'Redaction off'
+  all.title = desktopRedaction.anyOn() ? 'Show every boxed part of the screen in the share' : 'Black out every boxed part of the screen again'
 }
 
 function updateUi(): void {
@@ -6449,6 +6527,50 @@ function renderChat(messages: ChatMessage[]): void {
   updateConversationSearch()
   if (currentChannel === undefined) noteChatRead(messages)
   markConversationRead()
+  requestAnimationFrame(() => pageBackFromArchive(true))
+}
+
+/**
+ * Step back through this device's archive: when the reader reaches the top
+ * of the conversation, or when what is shown does not fill the log, as in a
+ * room whose last word is older than the retention window. The log keeps
+ * the reader's place while older messages arrive above it; see chat-scroll.ts.
+ */
+function pageBackFromArchive(onlyToFill = false): void {
+  const log = currentChannel === undefined ? session?.chat : channelLogs.get(currentChannel)
+  if (!log?.hasOlder) return
+  const el = $('chatLog')
+  if ($('roomArea').hidden || el.clientHeight === 0) return
+  if (onlyToFill ? el.scrollHeight > el.clientHeight : el.scrollTop > 64) return
+  void log.loadOlder()
+}
+$('chatLog').addEventListener('scroll', () => pageBackFromArchive(), { passive: true })
+
+/**
+ * Put back on the room's relays what they forgot and this device kept.
+ *
+ * Late, so it never competes with joining. Never a quiet room's chat, which
+ * must not appear on a relay as bare room events; its rekeys ride in the
+ * open like any room's, so they still count. Only the room's own pool is
+ * written to. See `reseedRelays`.
+ */
+const RESEED_DELAY_MS = 5_000
+function scheduleReseed(s: RoomSession, pool: NostrRelayPool, quiet: boolean, authority: string | undefined): void {
+  const archive = roomArchive
+  if (!archive) return
+  const alive = (): boolean => !pool.closed && (session === s || dockedCall?.session === s)
+  setTimeout(() => {
+    if (!alive()) return
+    const since = nowSeconds() - CHAT_RETENTION_SECONDS
+    const logs = [s.chat, ...[AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL].map(name => s.channel(name))]
+    const targets: ReseedTarget[] = [
+      ...(quiet ? [] : logs.map(log => ({ kind: KINDS.CHAT, d: log.stream, since, limit: MAX_CHAT_MESSAGES }))),
+      ...(authority ? [{ kind: KINDS.ROOM_REKEY, d: s.roomId, limit: 1_000, authors: [authority] }] : []),
+    ]
+    reseedRelays(pool, archive, targets, { alive })
+      .then(report => { for (const [url, count] of report.reseeded) console.info(`room archive: returned ${count} event${count === 1 ? '' : 's'} to ${url}`) })
+      .catch(error => console.warn('room archive reseed', error))
+  }, RESEED_DELAY_MS)
 }
 
 function updateConversationSearch(): void {
@@ -9138,6 +9260,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
+          ...(roomArchive ? { archive: roomArchive } : {}),
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.
@@ -9179,6 +9302,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           trackRole: activeTrackRole,
           ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
+          ...(roomArchive ? { archive: roomArchive } : {}),
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.
@@ -9336,6 +9460,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     control.onChange((messages) => { if (session === s) ingestControl(messages) })
     ingestControl(control.messages())
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
+    scheduleReseed(s, pool, !!quietTransport, sessionAuthority)
     renderRoomLockState()
     renderHost()
     // Empty until the keeper answers the `catalogue?` above with its signed
@@ -11711,7 +11836,7 @@ $('addDevice').addEventListener('click', () => {
       identity,
       deviceSk: deviceKey(),
       approve: (device) => confirmRoomAction({ title: 'Add this device?', message: `Device ${device.slice(0, 12)}… will join this room as you for the next 12 hours. Only approve a device you are pairing.`, confirmLabel: 'Add device' }),
-      onPaired: (device) => setStatus(`Added ${device.slice(0, 12)}… to this room.`),
+      onPaired: (device) => { $('pairStatus').textContent = `Added ${device.slice(0, 12)}… to this room.`; setStatus(`Added ${device.slice(0, 12)}… to this room.`) },
     })
 
     const pairUrl = $('pairUrl') as HTMLInputElement
@@ -11725,7 +11850,9 @@ $('addDevice').addEventListener('click', () => {
     // this screen is the whole point of that trip.
     $('pairQrWrap').hidden = false
     renderQr($('pairQr') as HTMLCanvasElement, pairUrl.value).catch((err) => setStatus(describeError(err)))
-    setStatus('Waiting for your other device. Keep this page open.')
+    // Said beside the QR code, not on the room's status line, where it
+    // outlived the panel and read as something still going wrong.
+    $('pairStatus').textContent = 'Waiting for your other device. Keep this page open.'
   } catch (err) {
     setStatus(describeError(err))
   }
@@ -11783,7 +11910,7 @@ async function endRoomForEveryone(): Promise<void> {
   try {
     await retirement.publish(encodeInvitationRetirement({ invitation, inviterSk: authoritySk, now: nowSeconds(), ended: true }))
   } finally {
-    retirement.close()
+    closeWhenSettled(retirement)
   }
   stopInvitationHost()
   endingRoom = true
@@ -11879,6 +12006,30 @@ if (window.kithmootDesktop?.supportsShareArea) {
   area.onclick = () => { toggleScreen(true).catch(showShareError) }
   $('toggleScreen').after(area)
 }
+// Boxes live on the real screen, so Wayland (which forbids placing a window)
+// never shows these: there the preview area share keeps things private.
+if (desktopRedaction.supported) {
+  const add = document.createElement('button')
+  add.id = 'addRedaction'
+  add.className = 'toggle'
+  add.textContent = 'Hide part of the screen'
+  add.title = 'Add a box on your screen; whatever is inside it is black in your share and never leaves this computer'
+  add.onclick = () => { try { desktopRedaction.add() } catch (error) { setStatus(describeError(error)) } }
+  const all = document.createElement('button')
+  all.id = 'toggleRedaction'
+  all.className = 'toggle'
+  all.textContent = 'Redaction on'
+  all.hidden = true
+  all.onclick = () => desktopRedaction.setAll(!desktopRedaction.anyOn())
+  const note = document.createElement('p')
+  note.id = 'redactionNote'
+  note.className = 'indicator'
+  note.setAttribute('role', 'status')
+  note.hidden = true
+  ;(document.getElementById('shareArea') ?? $('toggleScreen')).after(add, all)
+  $('screenAudioNote').after(note)
+  desktopRedaction.onChange(updateRedactionControls)
+}
 $('toggleScreen').addEventListener('click', () => {
   toggleScreen().catch(showShareError)
 })
@@ -11904,6 +12055,13 @@ $('fishToggle').addEventListener('change', () => {
   fishEnabled = ($('fishToggle') as HTMLInputElement).checked
   try { localStorage.setItem(FISH_STORAGE_KEY, String(fishEnabled)) } catch { /* Still applies to this visit. */ }
   camera?.setFish(fishEnabled).catch((err) => setStatus(describeError(err)))
+})
+
+;($('framingToggle') as HTMLInputElement).checked = framingEnabled
+$('framingToggle').addEventListener('change', () => {
+  framingEnabled = ($('framingToggle') as HTMLInputElement).checked
+  try { localStorage.setItem(FRAMING_STORAGE_KEY, String(framingEnabled)) } catch { /* Still applies to this visit. */ }
+  camera?.setFraming(framingEnabled)
 })
 
 $('switchCamera').addEventListener('click', () => {

@@ -37,8 +37,12 @@ test('Wayland preview: the far end receives only the area drawn on the preview',
       await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
     }
     expect(await mac.evaluate(() => (window as any).kithmootDesktop.shareAreaMode)).toBe('preview')
+    // Wayland cannot place a box on the real screen, so none is offered.
+    expect(await mac.evaluate(() => (window as any).kithmootDesktop.supportsRedaction)).toBe(false)
     const url = await createRoom(mac, HOME, relays)
     await joinWithMedia(mac, url, 'Desktop test')
+    await expect(mac.locator('#toggleScreen')).toBeVisible()
+    await expect(mac.locator('#addRedaction')).toHaveCount(0)
     await joinWithMedia(web, url, 'Browser test')
 
     const popupReady = native.waitForEvent('window')

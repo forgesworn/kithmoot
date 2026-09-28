@@ -1,4 +1,5 @@
 import type { AreaRect } from './share-area.js'
+import type { RedactionState } from './redaction-geometry.js'
 
 export {}
 declare global {
@@ -8,8 +9,15 @@ declare global {
       shareAreaMode?: 'frame' | 'preview' | null
       armShareArea(): Promise<boolean>
       shareAreaState(): Promise<AreaRect | null>
+      /** macOS's Screen Recording status for the app; 'granted' elsewhere. */
+      screenAccess?(): Promise<string>
       shareAreaAction(action: string, value?: unknown): void
       onShareAreaState(listener: (state: AreaRect | null) => void): () => void
+      supportsRedaction?: boolean
+      redactionBegin?(): Promise<RedactionState | null>
+      redactionState?(): Promise<RedactionState | null>
+      redactionAction?(id: string | null, action: string, value?: unknown): void
+      onRedactionState?(listener: (state: RedactionState | null) => void): () => void
       setCallActive(active: boolean): void
       updateState(): Promise<{ phase: 'disabled' | 'idle' | 'checking' | 'downloading' | 'ready' | 'error'; version?: string; message?: string }>
       installUpdate(): Promise<boolean>
