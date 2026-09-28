@@ -88,6 +88,15 @@ export function finalizeDeterministic(template, secretKey, auxRand) {
  * settles - a queue entry is never reused between calls, and a caller that
  * draws more than `queue.length` times fails loudly rather than silently
  * reading real randomness.
+ *
+ * On a SUCCESSFUL call (`fn` returns or resolves without throwing) the whole
+ * queue must be drawn - a recorded value that the real function never
+ * actually asked for is a vector that pins the wrong thing (a stray or
+ * miscounted entry that happens not to matter, rather than every byte a
+ * real call draws), so this throws rather than silently ignoring it. Not
+ * enforced on a throw: a call that fails partway through is expected to
+ * have drawn fewer than the recorded queue, and the caller's own error is
+ * the one worth seeing.
  */
 export function withStubbedRandomness(queue, fn) {
   const values = [...queue]
@@ -105,6 +114,11 @@ export function withStubbedRandomness(queue, fn) {
     return arr
   }
   const restore = () => { target.getRandomValues = original }
+  const checkFullyConsumed = () => {
+    if (i !== values.length) {
+      throw new Error(`withStubbedRandomness: queue had ${values.length} entr${values.length === 1 ? 'y' : 'ies'} but the real call only drew ${i}`)
+    }
+  }
   let result
   try {
     result = fn()
@@ -114,11 +128,12 @@ export function withStubbedRandomness(queue, fn) {
   }
   if (result instanceof Promise) {
     return result.then(
-      (value) => { restore(); return value },
+      (value) => { restore(); checkFullyConsumed(); return value },
       (err) => { restore(); throw err },
     )
   }
   restore()
+  checkFullyConsumed()
   return result
 }
 

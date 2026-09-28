@@ -8,10 +8,10 @@
 // for: a vector's bytes are not merely internally self-consistent, they are
 // what the ACTUAL implementation in `src/` produces from the ACTUAL inputs.
 //
-// See `vectors/generate-circle.mjs`'s header for the two documented
-// exceptions (person-credential's over-30-days refusal, and the two
-// room-mismatch negatives) where no real encoder can produce the vector's
-// bytes by design, and for what each mutation ID (M1-M22) below refers to.
+// See `vectors/generate-circle.mjs`'s header for the full, itemised list of
+// documented exceptions - vectors signed directly because no real encoder
+// call can reach the state being pinned - and for what each mutation ID
+// (M1-M22, N2/N7-N11 in the Opus round-two review) below refers to.
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -50,10 +50,16 @@ import {
   deriveEpoch,
   decodeEpochGrant,
   encodeEpochGrant,
+  encodeEpochRequest,
+  decodeEpochRequest,
+  epochRequestAdmission,
+  peekRekeyEvent,
   canonicalChannels,
   verifyChannels,
   signChannels,
+  MAX_EPOCH,
 } from '../src/epoch.js'
+import { evaluateAccess, issueKindredProof } from '../src/access.js'
 
 interface Vector {
   name: string
@@ -121,6 +127,60 @@ describe('vector file shape', () => {
 })
 
 // ===========================================================================
+// Test infrastructure self-checks: `withStubbedRandomness` itself (item 7,
+// Opus round-two review) - a recorded queue entry the real call never drew
+// is a vector pinning the wrong thing, so a successful call must consume
+// its whole queue.
+// ===========================================================================
+
+describe('withStubbedRandomness (vectors/lib/determinism.mjs)', () => {
+  it('throws if a successful call leaves an unconsumed queue entry', () => {
+    expect(() => withStubbedRandomness([new Uint8Array(32), new Uint8Array(32)], () => {
+      // Only draws once, but the queue has two entries.
+      const arr = new Uint8Array(32)
+      globalThis.crypto.getRandomValues(arr)
+      return arr
+    })).toThrow(/queue had 2 entr.* but the real call only drew 1/)
+  })
+
+  it('does not throw when the call draws exactly the whole queue', () => {
+    const result = withStubbedRandomness([new Uint8Array(32).fill(7)], () => {
+      const arr = new Uint8Array(32)
+      globalThis.crypto.getRandomValues(arr)
+      return arr
+    })
+    expect(bytesToHex(result)).toBe(bytesToHex(new Uint8Array(32).fill(7)))
+  })
+
+  it('does not enforce full consumption when the call throws partway through', () => {
+    expect(() => withStubbedRandomness([new Uint8Array(32), new Uint8Array(32)], () => {
+      throw new Error('caller-own-error')
+    })).toThrow('caller-own-error')
+  })
+
+  it('restores real randomness afterwards, on both success and failure', () => {
+    // `withStubbedRandomness` rebinds `getRandomValues` to `target` on
+    // restore (`original = target.getRandomValues.bind(target)`), which is
+    // a fresh function object each time - not the exact reference
+    // `globalThis.crypto.getRandomValues` held before the call - so this
+    // checks the OBSERVABLE property that actually matters: two draws made
+    // after the stub is removed are real (and so differ), not the queue's
+    // fixed values.
+    withStubbedRandomness([new Uint8Array(32)], () => globalThis.crypto.getRandomValues(new Uint8Array(32)))
+    const a = globalThis.crypto.getRandomValues(new Uint8Array(32))
+    const b = globalThis.crypto.getRandomValues(new Uint8Array(32))
+    expect(bytesToHex(a)).not.toBe(bytesToHex(b))
+
+    try {
+      withStubbedRandomness([new Uint8Array(32)], () => { throw new Error('x') })
+    } catch { /* expected */ }
+    const c = globalThis.crypto.getRandomValues(new Uint8Array(32))
+    const d = globalThis.crypto.getRandomValues(new Uint8Array(32))
+    expect(bytesToHex(c)).not.toBe(bytesToHex(d))
+  })
+})
+
+// ===========================================================================
 // 1. Link envelope
 // ===========================================================================
 
@@ -182,6 +242,37 @@ describe('link envelope', () => {
   it('nine-relay-hints-refused: the real encoder throws before filtering, not after', () => {
     const v = vec('linkEnvelope', 'nine-relay-hints-refused')
     expect(v.input.relays.length).toBe(MAX_RELAY_HINTS + 1)
+    expect(() => encodeRoomLink(fx.BASE_URL, { invitation: { bearer: fx.ROOM_SECRET_1, inviter: fx.HOST }, relays: v.input.relays, iceUrls: [] })).toThrow(v.output.error)
+  })
+
+  it('quiet-room-without-members-refused: the real parser throws (room.ts:83)', () => {
+    const v = vec('linkEnvelope', 'quiet-room-without-members-refused')
+    expect(() => parseRoomLink(v.input.url)).toThrow(v.output.error)
+  })
+
+  it('unknown-agent-rule-refused: the real parser throws (room.ts:77)', () => {
+    const v = vec('linkEnvelope', 'unknown-agent-rule-refused')
+    expect(() => parseRoomLink(v.input.url)).toThrow(v.output.error)
+  })
+
+  it('encoder-normalises-hostile-input: the real encodeRoomLink itself normalises hostile caller input', () => {
+    const v = vec('linkEnvelope', 'encoder-normalises-hostile-input')
+    const invitation = invitationOf(v.input.invitation)
+    const url = encodeRoomLink(v.input.base, { invitation, relays: v.input.rawRelays, iceUrls: v.input.rawIceUrls, name: v.input.rawName })
+    expect(url).toBe(v.output.url)
+    const decoded = parseRoomLink(url)
+    expect(decoded.relays).toEqual(v.output.decoded.relays)
+    expect(decoded.iceUrls).toEqual(v.output.decoded.iceUrls)
+    expect(decoded.name ?? null).toEqual(v.output.decoded.name)
+    // Cross-checked against the real filters directly.
+    expect(safeRelayUrls(v.input.rawRelays)).toEqual(decoded.relays)
+    expect(safeIceUrls(v.input.rawIceUrls)).toEqual(decoded.iceUrls)
+    expect(sanitiseDisplayName(v.input.rawName) ?? null).toEqual(decoded.name ?? null)
+  })
+
+  it('encoder-oversize-fragment-refused: the real encoder throws on the write side too (link.ts:147)', () => {
+    const v = vec('linkEnvelope', 'encoder-oversize-fragment-refused')
+    expect(v.input.relays.length).toBe(MAX_RELAY_HINTS)
     expect(() => encodeRoomLink(fx.BASE_URL, { invitation: { bearer: fx.ROOM_SECRET_1, inviter: fx.HOST }, relays: v.input.relays, iceUrls: [] })).toThrow(v.output.error)
   })
 })
@@ -450,6 +541,28 @@ describe('persistent group invitation', () => {
     expect(result).toBeNull()
     expect(result).toEqual(v.output.result)
   })
+
+  it('wrong-signer-refused: the real encodePersistentInvitation, called by a genuine but wrong signer - refused (N7)', () => {
+    const v = vec('persistentInvitation', 'wrong-signer-refused')
+    const valid = vec('persistentInvitation', 'valid')
+    // Same bearer as the `valid` vector's invitation (so the welcome key and
+    // `d` tag match), but the invitation handed to the real encoder names
+    // the actual signer as its own inviter - self-consistent, so the real
+    // function signs it without complaint.
+    const impostorInvitation: RoomInvitation = { bearer: hexToBytes(v.input.bearerHex), inviter: v.input.actualSigner, persistent: true }
+    const event = withStubbedRandomness(randomnessQueue(v), () =>
+      encodePersistentInvitation({ invitation: impostorInvitation, inviterSk: hexToBytes(v.input.actualSignerSkHex), roomSecret: hexToBytes(v.input.roomSecretHex), now: v.input.createdAt }),
+    ) as Event
+    expect(plain(event)).toEqual(v.input.event)
+    expect(event.pubkey).toBe(v.input.actualSigner)
+    // Decoded back against the ORIGINAL invitation (the `valid` vector's
+    // own, with the pinned inviter): the signer disagrees with it.
+    const originalInvitation = invitationOf({ ...valid.input.invitation, persistent: true })
+    expect(originalInvitation.inviter).not.toBe(v.input.actualSigner)
+    const result = decodePersistentInvitation(event, originalInvitation)
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.result)
+  })
 })
 
 // ===========================================================================
@@ -544,6 +657,24 @@ describe('epoch grant', () => {
     expect(result).toBeNull()
     expect(result).toEqual(v.output.result)
   })
+
+  it('grant-epoch-above-max-refused: genuinely signed and sealed, one past MAX_EPOCH - refused on decode (item 7, epoch.ts:571)', () => {
+    const v = vec('epochGrant', 'grant-epoch-above-max-refused')
+    expect(v.input.epoch).toBe(MAX_EPOCH + 1)
+    // The real encoder refuses to build this itself.
+    expect(() => encodeEpochGrant({ roomId: v.input.roomId, authoritySk: fx.AUTHORITY_SK, device: fx.KEPT_DEVICE, request: v.input.request, now: fx.EPOCH_CREATED_AT, epoch: { epoch: MAX_EPOCH + 1, secret: fx.EPOCH_SECRET_1 }, removed: [] })).toThrow()
+    const result = decodeEpochGrant(v.input.event as Event, { roomId: v.input.roomId, authority: fx.AUTHORITY, deviceSk: fx.KEPT_DEVICE_SK, request: v.input.request, now: fx.EPOCH_CREATED_AT })
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.result)
+  })
+
+  it('rekey-epoch-tag-zero-refused: genuinely signed, epoch tag "0" fails the regex - refused (item 7, epoch.ts:258)', () => {
+    const v = vec('epochGrant', 'rekey-epoch-tag-zero-refused')
+    expect((v.input.event as Event).tags.find((t) => t[0] === 'epoch')?.[1]).toBe('0')
+    const result = peekRekeyEvent(v.input.event as Event, { roomId: v.input.roomId, authority: fx.AUTHORITY })
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.peek)
+  })
 })
 
 // ===========================================================================
@@ -624,6 +755,29 @@ describe('person credential', () => {
     expect(result).toEqual(v.output.result)
     expect(result).toEqual({ ok: false, reason: 'longer than 30 days' })
   })
+
+  it('wrong-person-identity-path-refused: genuinely signed by B, `d` names A - refused on the identity path (N9)', () => {
+    const v = vec('personCredential', 'wrong-person-identity-path-refused')
+    const event = finalizeDeterministic(
+      { kind: KINDS.CREDENTIAL, created_at: v.input.createdAt, tags: [['d', v.input.claimedIdentity], ['device', v.input.devicePubkey], ['expiration', String(v.input.expiresAt)], ['scope', 'person']], content: '' },
+      hexToBytes(v.input.participantSkHex),
+      hexToBytes(v.input.auxRandHex),
+    ) as Event
+    expect(plain(event)).toEqual(v.output.event)
+    expect(event.pubkey).not.toBe(v.input.claimedIdentity)
+    const result = verifyDeviceCredential(event, { identity: v.input.claimedIdentity, now: v.input.createdAt })
+    expect(result).toEqual(v.output.result)
+    expect(result).toEqual({ ok: false, reason: 'wrong person' })
+  })
+
+  it('wrong-person-acceptperson-path-refused: the SAME event, refused on the acceptPerson path too (N9b)', () => {
+    const v = vec('personCredential', 'wrong-person-acceptperson-path-refused')
+    const sibling = vec('personCredential', 'wrong-person-identity-path-refused')
+    expect(v.input.event).toEqual(sibling.output.event)
+    const result = verifyDeviceCredential(v.input.event as Event, { roomId: v.input.roomId, now: sibling.input.createdAt, acceptPerson: true })
+    expect(result).toEqual(v.output.result)
+    expect(result).toEqual({ ok: false, reason: 'wrong person' })
+  })
 })
 
 // ===========================================================================
@@ -668,5 +822,108 @@ describe('channels signature', () => {
   it('refused-reserved-channel-name: canonicalChannels refuses a reserved name', () => {
     const v = vec('channelsSignature', 'refused-reserved-channel-name')
     expect(() => canonicalChannels(v.input.channels)).toThrow(v.output.error)
+  })
+})
+
+// ===========================================================================
+// 7. Epoch request
+// ===========================================================================
+
+describe('epoch request', () => {
+  it('credential-device-not-signer-refused: a real credential for a real, different device - refused (N2)', () => {
+    const v = vec('epochRequest', 'credential-device-not-signer-refused')
+    const event = withStubbedRandomness(randomnessQueue(v), () =>
+      encodeEpochRequest({
+        roomId: v.input.roomId,
+        authority: v.input.authority,
+        deviceSk: hexToBytes(v.input.deviceSkHex),
+        roomKey: hexToBytes(v.input.roomKeyHex),
+        credential: v.input.credential,
+        now: v.input.createdAt,
+      }),
+    ) as Event
+    expect(plain(event)).toEqual(v.output.event)
+    // The credential really does name a different device than whoever
+    // signed the outer request.
+    const credDevice = (v.input.credential.tags as string[][]).find((t) => t[0] === 'device')?.[1]
+    expect(credDevice).not.toBe(event.pubkey)
+    const result = decodeEpochRequest(event, { roomId: v.input.roomId, authoritySk: hexToBytes(v.input.authoritySkHex), roomKey: hexToBytes(v.input.roomKeyHex), now: v.input.createdAt })
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.result)
+  })
+
+  it('credential-device-not-signer-refused-admission-matches: isolates the device check from the admission check (N2, epoch.ts:457)', () => {
+    const v = vec('epochRequest', 'credential-device-not-signer-refused-admission-matches')
+    // The admission proof genuinely matches what the real, exported
+    // `epochRequestAdmission` computes for the credential's claimed device -
+    // so if the device check at epoch.ts:457 were the only thing removed,
+    // this vector alone would tell you: the admission check does NOT catch
+    // this one.
+    const recomputed = epochRequestAdmission({ roomKey: hexToBytes(v.input.roomKeyHex), roomId: v.input.roomId, authority: v.input.authority, device: (v.input.credential.tags as string[][]).find((t) => t[0] === 'device')![1]!, createdAt: v.input.createdAt })
+    expect(recomputed).toBe(v.input.admission)
+    const result = decodeEpochRequest(v.input.event as Event, { roomId: v.input.roomId, authoritySk: hexToBytes(v.input.authoritySkHex), roomKey: hexToBytes(v.input.roomKeyHex), now: v.input.createdAt })
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.result)
+  })
+})
+
+// ===========================================================================
+// 8. Access evaluation: kindred proof and device credential boundaries
+// ===========================================================================
+
+describe('access evaluation', () => {
+  it('kindred-proof-names-another-participant-refused: a real proof for GUEST, checked against a different participant - refused (N11)', () => {
+    const v = vec('accessEvaluation', 'kindred-proof-names-another-participant-refused')
+    expect(v.input.proof.participant).not.toBe(v.input.checkedParticipant)
+    const result = evaluateAccess(v.input.policy, v.input.checkedParticipant, v.input.proof, v.input.now, v.input.roomId)
+    expect(result).toEqual(v.output.result)
+    expect(result).toEqual({ admitted: false, reason: 'proof names another participant' })
+  })
+
+  it('kindred-proof-expiry-at-boundary-refused / one-second-before-expiry-accepted: the exact <= boundary, both sides (N8)', () => {
+    const refused = vec('accessEvaluation', 'kindred-proof-expiry-at-boundary-refused')
+    const accepted = vec('accessEvaluation', 'kindred-proof-one-second-before-expiry-accepted')
+    expect(refused.input.proof).toEqual(accepted.input.proof)
+    expect(refused.input.now).toBe(accepted.input.now + 1)
+    expect(refused.input.now).toBe(refused.input.proof.expiresAt)
+
+    // The proof itself is reproduced by calling the real issueKindredProof,
+    // with an explicit nonce (reproduces the message) and
+    // `crypto.getRandomValues` stubbed to the recorded aux-rand (reproduces
+    // the schnorr signature over it, which the nonce option alone does not).
+    const reissued = withStubbedRandomness(randomnessQueue(refused), () =>
+      issueKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'kith', roomId: refused.input.roomId, expiresAt: refused.input.proof.expiresAt, nonce: refused.input.proof.nonce }),
+    )
+    expect(reissued).toEqual(refused.input.proof)
+
+    const refusedResult = evaluateAccess(refused.input.policy, fx.GUEST, refused.input.proof, refused.input.now, refused.input.roomId)
+    expect(refusedResult).toEqual(refused.output.result)
+    expect(refusedResult).toEqual({ admitted: false, reason: 'expired' })
+
+    const acceptedResult = evaluateAccess(accepted.input.policy, fx.GUEST, accepted.input.proof, accepted.input.now, accepted.input.roomId)
+    expect(acceptedResult).toEqual(accepted.output.result)
+    expect(acceptedResult).toEqual({ admitted: true, reason: 'kindred proof accepted' })
+  })
+
+  it('device-credential-expiry-at-boundary-refused / one-second-before-expiry-accepted: the exact <= boundary, both sides (N10)', () => {
+    const refused = vec('accessEvaluation', 'device-credential-expiry-at-boundary-refused')
+    const accepted = vec('accessEvaluation', 'device-credential-one-second-before-expiry-accepted')
+    expect(refused.input.event).toEqual(accepted.input.event)
+    expect(refused.input.now).toBe(accepted.input.now + 1)
+
+    const rebuilt = finalizeDeterministic(
+      { kind: (refused.input.event as Event).kind, created_at: (refused.input.event as Event).created_at, tags: (refused.input.event as Event).tags, content: '' },
+      fx.PARTICIPANT_A_SK,
+      hexToBytes(refused.input.auxRandHex),
+    ) as Event
+    expect(plain(rebuilt)).toEqual(refused.input.event)
+
+    const refusedResult = verifyDeviceCredential(refused.input.event as Event, { roomId: refused.input.roomId, now: refused.input.now })
+    expect(refusedResult).toEqual(refused.output.result)
+    expect(refusedResult).toEqual({ ok: false, reason: 'expired' })
+
+    const acceptedResult = verifyDeviceCredential(accepted.input.event as Event, { roomId: accepted.input.roomId, now: accepted.input.now })
+    expect(acceptedResult).toEqual(accepted.output.result)
+    expect(acceptedResult).toMatchObject({ ok: true })
   })
 })

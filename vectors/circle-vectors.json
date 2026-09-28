@@ -300,6 +300,97 @@
           ],
           "name": "Robinadminxxxxxxxxxxxxxxxxxxxxxx"
         }
+      },
+      {
+        "name": "quiet-room-without-members-refused",
+        "kind": "negative",
+        "note": "A policy asking for a quiet room (room.ts:83) but naming no members list: refused. A quiet room derives its per-pair keys from the members list, and with none there is nobody to derive them for.",
+        "input": {
+          "url": "https://kithmoot.com/j#eyJ2IjoyLCJqIjoieGZGVHQwcTZOZ1cxdktFR1NqRlU0WXZ6S3BMb0FGQk5qZ1lDQmUzc1JsUSIsImgiOiJiNWM1ZWM3OGYxZWI1NmMwYmQ0ZDczZjEzN2MwOGZjNDlmYzQxYTIyMjU3YTk1YTM4NGU2MDU5M2NiNmFjMGJmIiwiciI6W10sImkiOltdLCJhIjp7InRpZXIiOiJraXRoIiwicXVpZXQiOnRydWV9fQ"
+        },
+        "output": {
+          "throws": true,
+          "error": "join URL asks for a quiet room without a members list"
+        }
+      },
+      {
+        "name": "unknown-agent-rule-refused",
+        "kind": "negative",
+        "note": "A policy naming an agent rule this reader does not know (room.ts:77): refused for the same reason an unknown tier is - dropping it would admit what the room meant to keep out.",
+        "input": {
+          "url": "https://kithmoot.com/j#eyJ2IjoyLCJqIjoieGZGVHQwcTZOZ1cxdktFR1NqRlU0WXZ6S3BMb0FGQk5qZ1lDQmUzc1JsUSIsImgiOiJiNWM1ZWM3OGYxZWI1NmMwYmQ0ZDczZjEzN2MwOGZjNDlmYzQxYTIyMjU3YTk1YTM4NGU2MDU5M2NiNmFjMGJmIiwiciI6W10sImkiOltdLCJhIjp7InRpZXIiOiJraXRoIiwiYWdlbnRzIjoidW5oZWFyZC1vZi1ydWxlIn19"
+        },
+        "output": {
+          "throws": true,
+          "error": "join URL carries an access policy with an unknown agent rule"
+        }
+      },
+      {
+        "name": "encoder-normalises-hostile-input",
+        "kind": "positive",
+        "note": "The real `encodeRoomLink` (link.ts:135-147) filters an unsafe ws:// relay, deduplicates the repeated one, drops an unrecognised ICE scheme, and sanitises an overlong/bidi-override/zero-width name - before the bytes ever reach a QR code, not only when a stranger's link is decoded. Fed the same kind of hostile input `hostile-input-normalised` (above) fakes directly on the wire; the output here is what the real encoder itself already wrote.",
+        "input": {
+          "base": "https://kithmoot.com/j",
+          "invitation": {
+            "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+            "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+          },
+          "rawRelays": [
+            "wss://relay.damus.io",
+            "wss://relay.damus.io",
+            "ws://tracker.example",
+            "wss://nos.lol"
+          ],
+          "rawIceUrls": [
+            "not-a-real-scheme:nope",
+            "stun:stun.kithmoot.example:3478"
+          ],
+          "rawName": "Rowan‮txet​nedihyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+        },
+        "output": {
+          "url": "https://kithmoot.com/j#eyJ2IjoyLCJqIjoieGZGVHQwcTZOZ1cxdktFR1NqRlU0WXZ6S3BMb0FGQk5qZ1lDQmUzc1JsUSIsImgiOiJiNWM1ZWM3OGYxZWI1NmMwYmQ0ZDczZjEzN2MwOGZjNDlmYzQxYTIyMjU3YTk1YTM4NGU2MDU5M2NiNmFjMGJmIiwiciI6WyJ3c3M6Ly9yZWxheS5kYW11cy5pbyIsIndzczovL25vcy5sb2wiXSwiaSI6WyJzdHVuOnN0dW4ua2l0aG1vb3QuZXhhbXBsZTozNDc4Il0sIm4iOiJSb3dhbnR4ZXRuZWRpaHl5eXl5eXl5eXl5eXl5eXl5eSJ9",
+          "decoded": {
+            "relays": [
+              "wss://relay.damus.io",
+              "wss://nos.lol"
+            ],
+            "iceUrls": [
+              "stun:stun.kithmoot.example:3478"
+            ],
+            "name": "Rowantxetnedihyyyyyyyyyyyyyyyyyy"
+          }
+        },
+        "expected": {
+          "relays": [
+            "wss://relay.damus.io",
+            "wss://nos.lol"
+          ],
+          "iceUrls": [
+            "stun:stun.kithmoot.example:3478"
+          ],
+          "name": "Rowantxetnedihyyyyyyyyyyyyyyyyyy"
+        }
+      },
+      {
+        "name": "encoder-oversize-fragment-refused",
+        "kind": "negative",
+        "note": "8 relay hints, each near the 2048 per-hint character ceiling, push the WRITTEN fragment past MAX_ROOM_LINK_FRAGMENT_LENGTH: refused at the point of encoding, not only on the way back in.",
+        "input": {
+          "relays": [
+            "wss://rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-0.example",
+            "wss://rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-1.example",
+            "wss://rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-2.example",
+            "wss://rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-3.example",
+            "wss://rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-4.example",
+            "wss://rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-5.example",
+            "wss://rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-6.example",
+            "wss://rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr-7.example"
+          ]
+        },
+        "output": {
+          "throws": true,
+          "error": "room link fragment is too large"
+        }
       }
     ],
     "invitationEnvelope": [
@@ -931,6 +1022,39 @@
         "output": {
           "result": null
         }
+      },
+      {
+        "name": "wrong-signer-refused",
+        "kind": "negative",
+        "note": "N7: genuinely signed and genuinely encrypted (the SAME bearer as INVITATION_3, so the same welcome key and `d` tag) - but by OTHER_INVITER_SK rather than the pinned inviter. `decodePersistentInvitation` (persistent-invitation.ts:49) checks `event.pubkey === invitation.inviter` and refuses: holding the bearer is not authority to publish as the inviter.",
+        "input": {
+          "event": {
+            "kind": 1463,
+            "created_at": 1797408000,
+            "tags": [
+              [
+                "d",
+                "6ed1ec2f259cf24b084ff980423a112fc7b5e4407c933836cca0c2a64a1189a3"
+              ]
+            ],
+            "content": "AhWNtyV9JmzgrVGWT3x2PTuSFxJAZqtC2i+LWN+16lzDN9XZeZ5CK7kOc62oWMGnwDPmyc/9ta3qhSFk1vM9UGTzkdijGF8sz4SGLg0c/mzyTNoDhHzaLnd/oVquD+ohxJZy6o9xjQV3QSEK81x1cDI6UTNK5qZRYPqKD2LM3UVmKqL3VJndlf5N4B3JDCkWyEQdw2oaWVYcApwpdxtkxrjsLcjMgQaAoaTwrwfCR6ErPqGTzL1XVMDwrEl+0ptRjNh/obWGNhAVMWO+5MF8KivIn1dSt1zTqkP/XVjSPQCOwew=",
+            "pubkey": "cb948cc3faaf18b2db04bc0970c26bc79d56b0f9a32cf0cdb197597f2a6164e1",
+            "id": "e695387048ea034b5663f07c0a74fb4275e0e842f094473b3c512ea9672ad558",
+            "sig": "e98c97ca4554b45400f96d1652cd5c12bd6be463989f576d90031d59cbac8f9a7a5befd383e67ace6563e35053560455010245a4c7f473d3b7a2ef20a758c0fe"
+          },
+          "actualSigner": "cb948cc3faaf18b2db04bc0970c26bc79d56b0f9a32cf0cdb197597f2a6164e1",
+          "actualSignerSkHex": "ae14893547df6477321935808b939d737035acf2013e84731dc9931b445c6c61",
+          "bearerHex": "fe6a6ac8150838c9b16e1bec51ee1006210d73bbaa7530ed7029907f15ed0645",
+          "roomSecretHex": "3235bdb7cf4e08d8eb9f1441bd2158825c0e84150ac0fc123a106455130eeecf",
+          "createdAt": 1797408000,
+          "randomnessQueueHex": [
+            "158db7257d266ce0ad51964f7c763d3b9217124066ab42da2f8b58dfb5ea5cc3",
+            "19b025f0e56f8b711fda5c92e8b8cfc45b92fd879e77bd23a606a793248c689f"
+          ]
+        },
+        "output": {
+          "result": null
+        }
       }
     ],
     "epochGrant": [
@@ -1261,6 +1385,202 @@
           "id": "73ff3428fa59018aeea0bbdbb768a208f305736c1f3702a99406c7e6a39836ea",
           "keyHex": "1376c99d11c91603ba3904328d3fd6c857b098c62a187e4a1322c84e832d63b7"
         }
+      },
+      {
+        "name": "grant-epoch-above-max-refused",
+        "kind": "negative",
+        "note": "Genuinely signed and genuinely sealed by the real authority key, naming epoch 1000001 - one past MAX_EPOCH (1000000). The real `encodeEpochGrant` refuses to build this itself (`requireEpochNumber` throws at encode time), so this pins the decode-side bound (epoch.ts:571) directly: an authority that was tricked, or a second implementation with a looser encoder, must still be refused on read.",
+        "input": {
+          "event": {
+            "kind": 20469,
+            "created_at": 1799999950,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe"
+              ]
+            ],
+            "content": "AkrtvKmYDlDkNrpx/apt+4pUq7xEN87WRrxPca1aiqA7EObxSHliihQOM//jH/SJyenNgOU/8xKuDcjdHoJCwfBMpEfOGRAJo39LU0KXqsR0L2muURJSdXesx6y4FnjVBwskn/K/JPL0ekq0FbcxNTgosjLadW08z7y0+VL+3sPtZ21ENReBBj3W6Ng8cp0KDDwf2thzFrATrwjvQoo7nIdT1Byv4ScdAtXGbu2QJTikQMk+txCIEpCzcdaDvVvkvt1ZUHoxDap6jMPybc6geW3b117Zz0kUSb6hymzXsePgtfDAXfzqnheAN+qGbMI7SuZ5yjkC9dNqKs2Vqk22YDyDDA==",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "e3aedcd1107728c70fe571429fbea82768fa7d0be4b193f632fd323a73d07a33",
+            "sig": "2baaee2f0d40e6e450b6d4a8c6e73509f1882dcf0e40d3b99d927b39c4a1b41329a5ae0a4977c36716bfc1363d01eb455643a6f0433f8a37277b6475dd3529d9"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "request": "287540adb10059739e98e187d5cc2bb4ea4cb795b8621e29b68d75b3a7f919b2",
+          "epoch": 1000001
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "rekey-epoch-tag-zero-refused",
+        "kind": "negative",
+        "note": "Genuinely signed by the real authority key, but its `epoch` tag is the literal string \"0\" - epoch 0 is the room's own secret, byte-identical to before any rekey, and is never itself announced by a rekey event. `peekRekeyEvent`'s regex (`/^[1-9][0-9]{0,6}$/`) refuses a leading zero outright, before the signature is even checked.",
+        "input": {
+          "event": {
+            "kind": 1462,
+            "created_at": 1799999000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "epoch",
+                "0"
+              ]
+            ],
+            "content": "AA==",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "54f5a5bc4e1c0f87ac2414aa8c1e8bfe3b0fec7829801cf6165dd37bbe7869ae",
+            "sig": "0db0c9008e28c5130d4bd11085adf01edf6089f60d1ec4da6b280047d218c6438c1df97da6165850a38367631ad9768e998994ca57f3d4e45a608f3c8c6747fc"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "peek": null
+        }
+      }
+    ],
+    "epochRequest": [
+      {
+        "name": "credential-device-not-signer-refused",
+        "kind": "negative",
+        "note": "N2: the outer event is genuinely signed by KEPT_DEVICE_SK, and the embedded credential is genuinely signed by PARTICIPANT_A_SK and genuinely names REMOVED_DEVICE. Refused by TWO independent checks: the device check (epoch.ts:457) and the admission proof, which `encodeEpochRequest` always binds to its own real signer and so also disagrees with REMOVED_DEVICE. See `credential-device-not-signer-refused-admission-matches` below for a vector that isolates the device check alone.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "deviceSkHex": "751627289895e0df520a348eed03006ac69522989ce970c8a4926268de6f69de",
+          "credential": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "device",
+                "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+              ],
+              [
+                "expiration",
+                "1800003550"
+              ]
+            ],
+            "content": "",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "8e56120d8e0a8d1ad2443d84b6779c1d608ddff75f0b178f95664fd74d9abf78",
+            "sig": "2815bc32c327bea9b421db1d7bd731a7a68aa3d0b1f2a4ada91c1a035411969e8aa4ef58c7cf579992638cb92ca39d1f06276f3433c5200b334f95bf778e7161"
+          },
+          "createdAt": 1799999950,
+          "randomnessQueueHex": [
+            "a461013c41ed09fd4a950828969475e6279b64077662803f271b49015b6ff229",
+            "146d474c119dcae2d9c3e4694f9cf8457c2a8b31f23436ce0a9113e60c0727ee"
+          ]
+        },
+        "output": {
+          "event": {
+            "kind": 20468,
+            "created_at": 1799999950,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+              ]
+            ],
+            "content": "AqRhATxB7Qn9SpUIKJaUdeYnm2QHdmKAPycbSQFbb/Ip8d9PNLoK5YZTjPxR0RcPFd5bKWN/i77IGTqnQk4KQ2OX5bQZdNdyK0L2NhnIFmWTpBFdhJotHbF8CE5HhRRkCw5w9/2EQD+OTuOl6Ac8Vwr59nyWwgnR2aVRwVa+TVURQ2og6vU3XmnVbiAMBDgqu7EvUWKUU9ycZFrgB1fNrl2ZjLAKu4s1ydyjlUNHxAP/pc/8L+69YjUDf3hbKFA9hcMAx/RRL6/RsULUhAHNjrO74LI/NyiVMBZhH1Gd8U3m541AmU955ShTTGJ5zE5QhyYRBh2YLiNTRjmaDI3/aSk1rwg9aK+nmiYA/yVSPDgtb/YRzVoMtxCvqKwx8OR2dtUzvux1k8K15RSoKXt65JLMkh/u5D94oZiwKfFKZrjeUzV3Xt0MvjOynV0UUAkMA2k6cUsfzHLsl8KWErjNkzF8B4RBmVUpnFUKtIF5pZtNGR2MppkjPBwtMKca3SOpwxqzFij6m/hNYxwEHk5+uslet8EquKHn6NFyrQyENHfGlkPY7Pa+LpvhNqLVkJBxro+p2nALYlsf5T560qhtnvyfp41yCUTzi3SoqQVNxVEx+YyJ55THQMtsZMjYxCNpdgpNQKFM7FQ+iXxEEhE2Nz6e28uQJgP8+9GmlpjABrFh6Oyw95yClYbmavHMlYf+JVOvJ+VoDikBIH3yXMP+lnEsmRrGiOBq9ILpachm9JkqVdn4dGKA/l/y0j6E/atBdozO6pz+9IoD0hc0Y8y9F2Y2YTwnYKprwZz2PT/vCDUxfZ6bsnuyeyrblS8d1Qm10x9SDdUiHJomy4G5S1WQSdnek2+ys6Bohke4fwE66Mso+G7R2W2oop3JAcRFfK8BwcfRQQ/WiVYO7E5d1V+Sa/PxuthKTqvNiAr5sxlc/uZgCZA=",
+            "pubkey": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+            "id": "fa3cd10bb899f073a7ec835f61d0d0105143344c0cb1fd333e822959748ef4ad",
+            "sig": "01d1328ca976b00eb9df7baa4768c9ab96d6e982ff55b4087eaa68cc1f2ab33095a712a6f90d939b351bfad8772bee2024c5302008da5140aabd1902a24ea1c6"
+          },
+          "result": null
+        }
+      },
+      {
+        "name": "credential-device-not-signer-refused-admission-matches",
+        "kind": "negative",
+        "note": "N2 (isolated): the SAME credential-device mismatch as above, but the admission proof is hand-computed to match REMOVED_DEVICE (the credential's claim) rather than the real signer - so the admission check alone would pass this. Only `decodeEpochRequest`'s device check (epoch.ts:457) refuses it. Genuinely signed and genuinely encrypted throughout; only the admission field is deliberately built to defeat the OTHER check, isolating this one.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "credential": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "device",
+                "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+              ],
+              [
+                "expiration",
+                "1800003550"
+              ]
+            ],
+            "content": "",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "8e56120d8e0a8d1ad2443d84b6779c1d608ddff75f0b178f95664fd74d9abf78",
+            "sig": "2815bc32c327bea9b421db1d7bd731a7a68aa3d0b1f2a4ada91c1a035411969e8aa4ef58c7cf579992638cb92ca39d1f06276f3433c5200b334f95bf778e7161"
+          },
+          "admission": "441aa5cda04213dbc1d91f05ac3e7a07c6fe49b7932f167dcf1d7ed045bd4c73",
+          "createdAt": 1799999950,
+          "event": {
+            "kind": 20468,
+            "created_at": 1799999950,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+              ]
+            ],
+            "content": "Avu7RLJLwchbWSJiyC7PNN01LPAz961dhiJjc0MqiG/d4EmpY1QVyoewJRxrKBM5jWaTX7KiIEdtCytl0RW9T1mvGGc/MRwsIgRpi7FGNjM/G2EzjJ8pT3rDcQiev0dExbiZJ1wKfUy5nWnRXtlfh7mcz72eFJ+bxZdDxgmM4a8UmdOFvG7zzclaqVmIEVRASOqE8ai/gNJ5DaBd2BKEHRltJmbTZZCHku4PmFVaZ6R0sJnoVIaR7xodJD7RCeDzl7PJAgKh3J79/DDGgUFhKul8VP0AcukmrHKehTDbvHUygULIMJx7NOSLjnl+JLNpyEBgvJMlyQRF2diSIKAMpGLzTWZVKvt3y9N2YGHOxyG09Zmu3QBThBWPlXDoMq26zphSvNRCjFuyd3zoouzM6MhY38II25ETsEJGCwG0zvxJyGXlvPy53ZK4eWyHiv6CgiXlq61pTJN2kD9TJnOc6neV09qcGwLh45mJEYKzQDgY5mS13xCvncluIgUSwqC/HqBXDBi7z7zaG6Jr1c8lB3EiBfXG1rnW1daTt7eHUwRKL39aw/c5QB1JAyKgoBK3wR4wS7Rk4jYl5OZRm6v8k7Urk0su/t+m6V2OnIQa/hAcGhM6ka3HWvXVXsOnbS+a9Ua5m8cFSgJr4rt5yB5fVkowrL6mwyAqRy2pIBO2U/xTs8ArJq0wjlAzINkH59W6mZpnnRtuqsduX6BljJtDKHdLXKGLMQpcjCujmXBnuV70ByKtP+4IaZMZaetCL312qBgUJk5FhmphbzFHQYNJoCA023GIcCQ60U1mHqPvlsPxmCPLU3qD18tpMune5s7PUzrD9dtyCugezWSCh797P2ul4GDZ/nQ2f7XdjApx0N1+5igvyb0xBq7kakye/K7CVFhVDxH89TILRKiJmsexLyqLP77fv6r7+K3mJxFhElQbdmE=",
+            "pubkey": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+            "id": "3a73c74859a9ecca1eb43c88fa839a8bfaf70c470161b08d1c719f1361a095e9",
+            "sig": "d15219cf30123c4544f37ee08cd7e6222d76ab9a1c8b6875ad124fa4cf8522ba4686187ac9064cc81e632e5f0d110cd425235be66134b9500a99e3142a6b976e"
+          }
+        },
+        "output": {
+          "event": {
+            "kind": 20468,
+            "created_at": 1799999950,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+              ]
+            ],
+            "content": "Avu7RLJLwchbWSJiyC7PNN01LPAz961dhiJjc0MqiG/d4EmpY1QVyoewJRxrKBM5jWaTX7KiIEdtCytl0RW9T1mvGGc/MRwsIgRpi7FGNjM/G2EzjJ8pT3rDcQiev0dExbiZJ1wKfUy5nWnRXtlfh7mcz72eFJ+bxZdDxgmM4a8UmdOFvG7zzclaqVmIEVRASOqE8ai/gNJ5DaBd2BKEHRltJmbTZZCHku4PmFVaZ6R0sJnoVIaR7xodJD7RCeDzl7PJAgKh3J79/DDGgUFhKul8VP0AcukmrHKehTDbvHUygULIMJx7NOSLjnl+JLNpyEBgvJMlyQRF2diSIKAMpGLzTWZVKvt3y9N2YGHOxyG09Zmu3QBThBWPlXDoMq26zphSvNRCjFuyd3zoouzM6MhY38II25ETsEJGCwG0zvxJyGXlvPy53ZK4eWyHiv6CgiXlq61pTJN2kD9TJnOc6neV09qcGwLh45mJEYKzQDgY5mS13xCvncluIgUSwqC/HqBXDBi7z7zaG6Jr1c8lB3EiBfXG1rnW1daTt7eHUwRKL39aw/c5QB1JAyKgoBK3wR4wS7Rk4jYl5OZRm6v8k7Urk0su/t+m6V2OnIQa/hAcGhM6ka3HWvXVXsOnbS+a9Ua5m8cFSgJr4rt5yB5fVkowrL6mwyAqRy2pIBO2U/xTs8ArJq0wjlAzINkH59W6mZpnnRtuqsduX6BljJtDKHdLXKGLMQpcjCujmXBnuV70ByKtP+4IaZMZaetCL312qBgUJk5FhmphbzFHQYNJoCA023GIcCQ60U1mHqPvlsPxmCPLU3qD18tpMune5s7PUzrD9dtyCugezWSCh797P2ul4GDZ/nQ2f7XdjApx0N1+5igvyb0xBq7kakye/K7CVFhVDxH89TILRKiJmsexLyqLP77fv6r7+K3mJxFhElQbdmE=",
+            "pubkey": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+            "id": "3a73c74859a9ecca1eb43c88fa839a8bfaf70c470161b08d1c719f1361a095e9",
+            "sig": "d15219cf30123c4544f37ee08cd7e6222d76ab9a1c8b6875ad124fa4cf8522ba4686187ac9064cc81e632e5f0d110cd425235be66134b9500a99e3142a6b976e"
+          },
+          "result": null
+        }
       }
     ],
     "personCredential": [
@@ -1417,6 +1737,92 @@
             "reason": "longer than 30 days"
           }
         }
+      },
+      {
+        "name": "wrong-person-identity-path-refused",
+        "kind": "negative",
+        "note": "N9: genuinely signed by PARTICIPANT_B_SK, but its `d` tag names PARTICIPANT_A - claiming to be a device credential for someone else while signing with your own key. Checked via the `identity` path (credential.ts:136): refused, because `d` must equal BOTH the identity asked for AND the credential's own real signer - checking only the first half would accept this.",
+        "input": {
+          "participantSkHex": "da87e41f0507d613d2c2c7885821e4eda3d64ecc24f941c12ffcb97760273645",
+          "claimedIdentity": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "devicePubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+          "createdAt": 1799990000,
+          "expiresAt": 1800594800,
+          "auxRandHex": "6ce217723d4f68cdea507f48d799cdb854f797dbfdc15e4a57b42770f963b932"
+        },
+        "output": {
+          "event": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              ],
+              [
+                "device",
+                "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+              ],
+              [
+                "expiration",
+                "1800594800"
+              ],
+              [
+                "scope",
+                "person"
+              ]
+            ],
+            "content": "",
+            "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "id": "a5975b01beef501b5dccd85dbfc9b717df7699dadfdedb73aeef5be0ca0b5b6e",
+            "sig": "04c51c485c94eadc3077c2ed606e0d3b2ef67b0f9048dcc3f8966badef044defd26797829fb6eb80857b892eeebde1100e7acfa2a81dbeeccf91fdf1b6a4288e"
+          },
+          "result": {
+            "ok": false,
+            "reason": "wrong person"
+          }
+        }
+      },
+      {
+        "name": "wrong-person-acceptperson-path-refused",
+        "kind": "negative",
+        "note": "N9b: the SAME event, checked via the room-credential-with-acceptPerson path instead (credential.ts:139): refused for the same reason - `d` (PARTICIPANT_A) does not match the real signer (PARTICIPANT_B), and this path checks nothing else about `d`.",
+        "input": {
+          "event": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              ],
+              [
+                "device",
+                "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+              ],
+              [
+                "expiration",
+                "1800594800"
+              ],
+              [
+                "scope",
+                "person"
+              ]
+            ],
+            "content": "",
+            "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "id": "a5975b01beef501b5dccd85dbfc9b717df7699dadfdedb73aeef5be0ca0b5b6e",
+            "sig": "04c51c485c94eadc3077c2ed606e0d3b2ef67b0f9048dcc3f8966badef044defd26797829fb6eb80857b892eeebde1100e7acfa2a81dbeeccf91fdf1b6a4288e"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "acceptPerson": true
+        },
+        "output": {
+          "result": {
+            "ok": false,
+            "reason": "wrong person"
+          }
+        }
       }
     ],
     "channelsSignature": [
@@ -1516,6 +1922,181 @@
         "output": {
           "throws": true,
           "error": "reserved channel name: agents"
+        }
+      }
+    ],
+    "accessEvaluation": [
+      {
+        "name": "kindred-proof-names-another-participant-refused",
+        "kind": "negative",
+        "note": "N11: a real, validly-signed kindred proof for GUEST, checked against PARTICIPANT_A instead. `evaluateAccess` (access.ts:96) refuses before it ever reaches the signature check - a proof is a grant to the one participant it names, not a bearer token any holder can present.",
+        "input": {
+          "policy": {
+            "tier": "kith",
+            "admitted": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+            ]
+          },
+          "proof": {
+            "tier": "kith",
+            "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sig": "41549a6d0928ed383c2f9df776516b6bb98f7eebe62298fa6b116203adf5b8ffefefa5718be6bce0e4cac2ddb97fb684ed3088cacff28e5b0bc0662d5af85d86",
+            "expiresAt": 1800003600
+          },
+          "checkedParticipant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "randomnessQueueHex": [
+            "167d7a20c55fb2439ccf6fffba15cc37848c55cf47459f6f4e9e84e8ea3eead1"
+          ]
+        },
+        "output": {
+          "result": {
+            "admitted": false,
+            "reason": "proof names another participant"
+          }
+        }
+      },
+      {
+        "name": "kindred-proof-expiry-at-boundary-refused",
+        "kind": "negative",
+        "note": "N8 (refused side): a real kindred proof checked at exactly its own `expiresAt`: refused. Proves the check is `<=`, not `<` - a boundary shifted by one would accept this.",
+        "input": {
+          "policy": {
+            "tier": "kith",
+            "admitted": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+            ]
+          },
+          "proof": {
+            "tier": "kith",
+            "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sig": "5fe58ba856bbe03d0b17be0a0e8313dc330c10bbfa314e19b59f8993d487cf944a1ae503efb95006bf0a058518eb2e5b90255fe2159b61d3c8dcf53e8cd82811",
+            "expiresAt": 1800000000
+          },
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "randomnessQueueHex": [
+            "d097fd12b45c061caded195862ae92bdbae982cbe55fffbbeafa358dd8203d97"
+          ]
+        },
+        "output": {
+          "result": {
+            "admitted": false,
+            "reason": "expired"
+          }
+        }
+      },
+      {
+        "name": "kindred-proof-one-second-before-expiry-accepted",
+        "kind": "positive",
+        "note": "N8 (accepted side): the SAME proof, checked one second before its own `expiresAt`: accepted. Together with the refused-side vector above, this pins the boundary exactly, in both directions.",
+        "input": {
+          "policy": {
+            "tier": "kith",
+            "admitted": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+            ]
+          },
+          "proof": {
+            "tier": "kith",
+            "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sig": "5fe58ba856bbe03d0b17be0a0e8313dc330c10bbfa314e19b59f8993d487cf944a1ae503efb95006bf0a058518eb2e5b90255fe2159b61d3c8dcf53e8cd82811",
+            "expiresAt": 1800000000
+          },
+          "now": 1799999999,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "result": {
+            "admitted": true,
+            "reason": "kindred proof accepted"
+          }
+        }
+      },
+      {
+        "name": "device-credential-expiry-at-boundary-refused",
+        "kind": "negative",
+        "note": "N10 (refused side): a real room-scope device credential checked at exactly its own `expiration`: refused (credential.ts:155, the same `<=` rule the kindred proof uses).",
+        "input": {
+          "event": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "device",
+                "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+              ],
+              [
+                "expiration",
+                "1800000000"
+              ]
+            ],
+            "content": "",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "fd90215d7918c90444bff0a76aad33f610d89009b14f4f5bbfb564c3ba9fe99a",
+            "sig": "b6b8288debc3091305e3dcc62dfa7161603a31918978da3a63216c6e5676a1c2d9749d54a5d5ff9e493e63248bf98a123cec67180d3588bec96ca55594dede51"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "now": 1800000000,
+          "auxRandHex": "b5b4f354069404c441b6eba79c0c47847eb6cd77627b67d419268ec7b04f352d"
+        },
+        "output": {
+          "result": {
+            "ok": false,
+            "reason": "expired"
+          }
+        }
+      },
+      {
+        "name": "device-credential-one-second-before-expiry-accepted",
+        "kind": "positive",
+        "note": "N10 (accepted side): the SAME credential, checked one second before its own `expiration`: accepted.",
+        "input": {
+          "event": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "device",
+                "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+              ],
+              [
+                "expiration",
+                "1800000000"
+              ]
+            ],
+            "content": "",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "fd90215d7918c90444bff0a76aad33f610d89009b14f4f5bbfb564c3ba9fe99a",
+            "sig": "b6b8288debc3091305e3dcc62dfa7161603a31918978da3a63216c6e5676a1c2d9749d54a5d5ff9e493e63248bf98a123cec67180d3588bec96ca55594dede51"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "now": 1799999999
+        },
+        "output": {
+          "result": {
+            "ok": true,
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+          }
         }
       }
     ]

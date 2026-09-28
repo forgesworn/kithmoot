@@ -36,20 +36,60 @@
 // `decodeInvitationRetirementNotice`, `decodePersistentInvitation`) are
 // called directly, same as before.
 //
-// Two exceptions, both documented at their use site: `personCredential`'s
-// `refused-over-30-days` is signed directly with `finalizeDeterministic`
-// rather than through `createDeviceCredential`, because that function
-// refuses to mint an over-long person credential at mint time - the vector
-// exists precisely to pin what a VERIFIER does when handed one anyway (a
-// looser or buggy signer's output), so driving the real minting function is
-// not possible for this one case. `persistentInvitation`'s
-// `room-mismatch-refused` and `invitationEnvelope`'s
-// `grant-secret-room-mismatch-refused` sign a body whose internal room
-// binding was altered after real encryption, because no real encoder can be
-// asked to produce an internally-inconsistent body - both are signed with
-// `finalizeDeterministic` and the real signer's own key, so the signature
-// itself is genuine and only the body's internal consistency is what the
-// real decoder's binding check has to catch.
+// Ten exceptions (eight distinct reasons - two vectors share one event and
+// one reason, and one pair of vectors together isolate one check from
+// another), each documented at its own use site too, because in every
+// case the negative vector's whole point is a state no real encoder call can
+// reach - the real function either refuses to build it (correctly) or always
+// keeps the two things the vector needs to disagree in lock-step. Every one
+// is signed directly with `finalizeDeterministic` and the REAL signer's own
+// key, so the signature itself is always genuine; only the body it signs
+// over is hand-built.
+//
+//   - `invitationEnvelope`'s `request-device-mismatched-signer-refused`:
+//     `encodeInvitationRequest` always sets `body.device` to its own
+//     signer's pubkey, so no real call can produce a body that names a
+//     different device than the key that actually signed it.
+//   - `invitationEnvelope`'s `delegation-hop-wrong-issuer-refused`: a
+//     genuine hop 2, but issued by `IMPOSTOR_SK` rather than hop 1's real
+//     delegate - `encodeInvitationGrant` calls `verifyInvitationDelegation`
+//     on its own chain first and throws unless its signer is exactly who the
+//     chain authorises, so no real call lets a non-delegate extend somebody
+//     else's chain.
+//   - `invitationEnvelope`'s `grant-signer-not-final-issuer-refused`: same
+//     reason - `encodeInvitationGrant` refuses to let `IMPOSTOR_SK` sign a
+//     grant carrying a chain that does not authorise it.
+//   - `invitationEnvelope`'s `grant-secret-room-mismatch-refused`: the real
+//     encoder always derives the sealed secret's room and the chain's room
+//     from the same `roomSecret` argument, so the two can never disagree in
+//     real output.
+//   - `persistentInvitation`'s `room-mismatch-refused`: `encodePersistentInvitation`
+//     always writes `room: deriveRoom(opts.roomSecret).roomId` alongside that
+//     same secret, so the two can never disagree either.
+//   - `personCredential`'s `refused-over-30-days`: `createDeviceCredential`
+//     refuses to mint an over-long person credential at mint time - the
+//     vector exists precisely to pin what a VERIFIER does when handed one
+//     anyway (a looser or buggy signer's output), which by definition no
+//     call to the real minting function can produce.
+//   - `personCredential`'s `wrong-person-identity-path-refused` and
+//     `wrong-person-acceptperson-path-refused` (one event, two checks):
+//     `createDeviceCredential` always sets `d` to its own signer's pubkey
+//     for a person credential, so no real call can produce a `d` naming
+//     someone other than whoever actually signed it.
+//   - `epochGrant`'s `grant-epoch-above-max-refused`: the real
+//     `encodeEpochGrant` refuses to build a grant above `MAX_EPOCH` itself
+//     (`requireEpochNumber` throws at encode time), so the DECODE-side bound
+//     this vector pins can only be reached by a body the real encoder would
+//     never produce.
+//   - `epochGrant`'s `rekey-epoch-tag-zero-refused`: `encodeRekeyEvent`
+//     always moves the room forward from `current.epoch` (never negative),
+//     so no real call can write an `epoch` tag of `"0"`.
+//   - `epochRequest`'s `credential-device-not-signer-refused-admission-matches`:
+//     `encodeEpochRequest` always computes its admission proof for its own
+//     real signer, so no real call can produce an admission that matches a
+//     DIFFERENT device (the credential's claimed one) - needed here to
+//     isolate the device check (epoch.ts:457) from the admission check,
+//     which the vector above it fails independently of the device check.
 //
 // Non-exported message shapes mirrored here byte for byte, because nothing
 // outside their own module has business constructing them: the invitation
@@ -99,10 +139,16 @@ import {
   deriveEpoch,
   decodeEpochGrant,
   encodeEpochGrant,
+  encodeEpochRequest,
+  decodeEpochRequest,
+  epochRequestAdmission,
+  peekRekeyEvent,
   canonicalChannels,
   verifyChannels,
   signChannels,
+  MAX_EPOCH,
 } from '../dist/src/epoch.js'
+import { evaluateAccess, issueKindredProof } from '../dist/src/access.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'circle-vectors.json')
@@ -112,8 +158,10 @@ const vectors = {
   invitationEnvelope: [],
   persistentInvitation: [],
   epochGrant: [],
+  epochRequest: [],
   personCredential: [],
   channelsSignature: [],
+  accessEvaluation: [],
 }
 
 // ===========================================================================
@@ -1061,6 +1109,353 @@ vectors.epochGrant.push({
     note: '`agents`, `minutes` and `transcript` are reserved: the room already means something else by them, so `canonicalChannels` throws rather than letting them into a signed registry.',
     input: { channels: ['planning', 'agents'] },
     output: { throws: true, error: (() => { try { canonicalChannels(['planning', 'agents']); return null } catch (e) { return e.message } })() },
+  })
+}
+
+// ===========================================================================
+// 7. Person credential identity mismatch - N9/N9b (Opus round-two review).
+// ===========================================================================
+
+{
+  // N9/N9b: a person credential genuinely signed by PARTICIPANT_B_SK, but
+  // whose `d` tag names PARTICIPANT_A - "I'll claim to be someone else's
+  // device credential while signing with my own key". `createDeviceCredential`
+  // always sets `d` to its own signer's pubkey for a person credential, so no
+  // real minting call can produce this; signed directly with the real
+  // participant key (a seventh documented exception - see the header).
+  const auxRand = seed32('person-credential-wrong-person')
+  const createdAt = fx.CREDENTIAL_CREATED_AT
+  const expiresAt = createdAt + 7 * 24 * 3600
+  const tags = [['d', fx.PARTICIPANT_A], ['device', fx.DEVICE_A], ['expiration', String(expiresAt)], ['scope', 'person']]
+  const event = finalizeDeterministic({ kind: KINDS.CREDENTIAL, created_at: createdAt, tags, content: '' }, fx.PARTICIPANT_B_SK, auxRand)
+  const roomId = fx_roomId()
+  vectors.personCredential.push({
+    name: 'wrong-person-identity-path-refused',
+    kind: 'negative',
+    note: "N9: genuinely signed by PARTICIPANT_B_SK, but its `d` tag names PARTICIPANT_A - claiming to be a device credential for someone else while signing with your own key. Checked via the `identity` path (credential.ts:136): refused, because `d` must equal BOTH the identity asked for AND the credential's own real signer - checking only the first half would accept this.",
+    input: { participantSkHex: bytesToHex(fx.PARTICIPANT_B_SK), claimedIdentity: fx.PARTICIPANT_A, devicePubkey: fx.DEVICE_A, createdAt, expiresAt, auxRandHex: bytesToHex(auxRand) },
+    output: { event, result: verifyDeviceCredential(event, { identity: fx.PARTICIPANT_A, now: createdAt }) },
+  })
+  vectors.personCredential.push({
+    name: 'wrong-person-acceptperson-path-refused',
+    kind: 'negative',
+    note: 'N9b: the SAME event, checked via the room-credential-with-acceptPerson path instead (credential.ts:139): refused for the same reason - `d` (PARTICIPANT_A) does not match the real signer (PARTICIPANT_B), and this path checks nothing else about `d`.',
+    input: { event, roomId, acceptPerson: true },
+    output: { result: verifyDeviceCredential(event, { roomId, now: createdAt, acceptPerson: true }) },
+  })
+}
+
+// ===========================================================================
+// 8. Epoch request whose credential names a different device than its
+//    signer - N2 (Opus round-two review).
+// ===========================================================================
+
+{
+  const roomId = fx_roomId()
+  const roomKey = deriveRoom(fx.ROOM_SECRET_1).roomKey
+  // The embedded credential: genuinely signed by PARTICIPANT_A_SK, genuinely
+  // naming REMOVED_DEVICE - a real credential for a real, different device
+  // than the one about to sign the outer request.
+  const credAuxRand = seed32('epoch-request-device-mismatch-credential')
+  const credential = finalizeDeterministic(
+    { kind: KINDS.CREDENTIAL, created_at: fx.CREDENTIAL_CREATED_AT, tags: [['d', roomId], ['device', fx.REMOVED_DEVICE], ['expiration', String(fx.EPOCH_CREATED_AT + 3600)]], content: '' },
+    fx.PARTICIPANT_A_SK,
+    credAuxRand,
+  )
+  const nonce = seed32('epoch-request-device-mismatch-nonce')
+  const auxRand = seed32('epoch-request-device-mismatch')
+  // `encodeEpochRequest` embeds whatever credential it is handed without
+  // checking that credential names its own signer - so this IS driven
+  // through the real encoder, with KEPT_DEVICE_SK as the actual signer.
+  // Its OWN admission proof binds to KEPT_DEVICE (the real signer), which
+  // independently disagrees with the credential's REMOVED_DEVICE - so this
+  // vector is refused by the admission check as well as the device check,
+  // real defence in depth.
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodeEpochRequest({ roomId, authority: fx.AUTHORITY, deviceSk: fx.KEPT_DEVICE_SK, roomKey, credential, now: fx.EPOCH_CREATED_AT }),
+  )
+  vectors.epochRequest.push({
+    name: 'credential-device-not-signer-refused',
+    kind: 'negative',
+    note: "N2: the outer event is genuinely signed by KEPT_DEVICE_SK, and the embedded credential is genuinely signed by PARTICIPANT_A_SK and genuinely names REMOVED_DEVICE. Refused by TWO independent checks: the device check (epoch.ts:457) and the admission proof, which `encodeEpochRequest` always binds to its own real signer and so also disagrees with REMOVED_DEVICE. See `credential-device-not-signer-refused-admission-matches` below for a vector that isolates the device check alone.",
+    input: { roomId, roomKeyHex: bytesToHex(roomKey), authority: fx.AUTHORITY, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK), credential, createdAt: fx.EPOCH_CREATED_AT, randomnessQueueHex: [bytesToHex(nonce), bytesToHex(auxRand)] },
+    output: { event, result: decodeEpochRequest(event, { roomId, authoritySk: fx.AUTHORITY_SK, roomKey, now: fx.EPOCH_CREATED_AT }) },
+  })
+
+  // The isolating vector: the admission proof is hand-computed for
+  // REMOVED_DEVICE (the credential's claimed device) rather than
+  // KEPT_DEVICE (the real signer) - genuinely computed by the real,
+  // exported `epochRequestAdmission`, just not the one `encodeEpochRequest`
+  // would have produced for its own signer. The body is otherwise real and
+  // real-encrypted, and the outer event is genuinely signed by
+  // KEPT_DEVICE_SK. With the admission now matching what a decoder expects
+  // for REMOVED_DEVICE, the ONLY thing left to catch this is the device
+  // check at epoch.ts:457 - a documented exception (no real encoder call
+  // produces a self-consistent-but-forged admission like this).
+  const matchingAdmission = epochRequestAdmission({ roomKey, roomId, authority: fx.AUTHORITY, device: fx.REMOVED_DEVICE, createdAt: fx.EPOCH_CREATED_AT })
+  const body2 = { v: 1, credential, admission: matchingAdmission }
+  const conversationKey2 = nip44.v2.utils.getConversationKey(fx.KEPT_DEVICE_SK, fx.AUTHORITY)
+  const nonce2 = seed32('epoch-request-device-mismatch-isolated-nonce')
+  const auxRand2 = seed32('epoch-request-device-mismatch-isolated')
+  const event2 = finalizeDeterministic(
+    { kind: KINDS.EPOCH_REQUEST, created_at: fx.EPOCH_CREATED_AT, tags: [['d', roomId], ['p', fx.AUTHORITY]], content: nip44.v2.encrypt(JSON.stringify(body2), conversationKey2, nonce2) },
+    fx.KEPT_DEVICE_SK,
+    auxRand2,
+  )
+  vectors.epochRequest.push({
+    name: 'credential-device-not-signer-refused-admission-matches',
+    kind: 'negative',
+    note: "N2 (isolated): the SAME credential-device mismatch as above, but the admission proof is hand-computed to match REMOVED_DEVICE (the credential's claim) rather than the real signer - so the admission check alone would pass this. Only `decodeEpochRequest`'s device check (epoch.ts:457) refuses it. Genuinely signed and genuinely encrypted throughout; only the admission field is deliberately built to defeat the OTHER check, isolating this one.",
+    input: { roomId, roomKeyHex: bytesToHex(roomKey), authority: fx.AUTHORITY, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), credential, admission: matchingAdmission, createdAt: fx.EPOCH_CREATED_AT, event: event2 },
+    output: { event: event2, result: decodeEpochRequest(event2, { roomId, authoritySk: fx.AUTHORITY_SK, roomKey, now: fx.EPOCH_CREATED_AT }) },
+  })
+}
+
+// ===========================================================================
+// 9. Persistent invitation signed by someone other than the pinned inviter -
+//    N7 (Opus round-two review).
+// ===========================================================================
+
+{
+  // Same bearer as INVITATION_3 (so the welcome key and `d` tag both still
+  // match), but the invitation object handed to the real encoder names
+  // OTHER_INVITER as its own inviter - self-consistent, so the real
+  // function happily signs it. Decoded back against the ORIGINAL
+  // INVITATION_3 (inviter INVITER_A), the signer disagrees with the pinned
+  // inviter.
+  const impostorInvitation = { bearer: INVITATION_3.bearer, inviter: OTHER_INVITER, persistent: true }
+  const nonce = seed32('persistent-invitation-wrong-signer-nonce')
+  const auxRand = seed32('persistent-invitation-wrong-signer-auxrand')
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodePersistentInvitation({ invitation: impostorInvitation, inviterSk: OTHER_INVITER_SK, roomSecret: fx.ROOM_SECRET_1, now: fx.NOW - 86_400 * 30 }),
+  )
+  vectors.persistentInvitation.push({
+    name: 'wrong-signer-refused',
+    kind: 'negative',
+    note: "N7: genuinely signed and genuinely encrypted (the SAME bearer as INVITATION_3, so the same welcome key and `d` tag) - but by OTHER_INVITER_SK rather than the pinned inviter. `decodePersistentInvitation` (persistent-invitation.ts:49) checks `event.pubkey === invitation.inviter` and refuses: holding the bearer is not authority to publish as the inviter.",
+    input: {
+      event,
+      actualSigner: OTHER_INVITER,
+      actualSignerSkHex: bytesToHex(OTHER_INVITER_SK),
+      bearerHex: bytesToHex(INVITATION_3.bearer),
+      roomSecretHex: bytesToHex(fx.ROOM_SECRET_1),
+      createdAt: fx.NOW - 86_400 * 30,
+      randomnessQueueHex: [bytesToHex(nonce), bytesToHex(auxRand)],
+    },
+    output: { result: decodePersistentInvitation(event, INVITATION_3) },
+  })
+}
+
+// ===========================================================================
+// 10. Access evaluation: a kindred proof naming another participant, and the
+//     proof/credential expiry boundaries - N11, N8, N10 (Opus round-two
+//     review). issueKindredProof and verifyDeviceCredential are pure/real
+//     calls throughout; no stubbing or hand-signing needed.
+// ===========================================================================
+
+{
+  const roomId = fx_roomId()
+  const policy = { tier: 'kith', admitted: [fx.HOST] }
+
+  // `issueKindredProof` signs with random aux-rand when not stubbed (its
+  // `nonce` option makes the MESSAGE reproducible, but not the schnorr
+  // signature over it) - stubbed here so the recorded `sig` is exactly
+  // reproducible, the same as every other real-encoder vector in this file.
+  const proofForGuestAuxRand = seed32('kindred-proof-for-guest-auxrand')
+  const proofForGuest = withStubbedRandomness([proofForGuestAuxRand], () =>
+    issueKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'kith', roomId, expiresAt: NOW + 3600, nonce: 'aa'.repeat(32) }),
+  )
+  vectors.accessEvaluation.push({
+    name: 'kindred-proof-names-another-participant-refused',
+    kind: 'negative',
+    note: 'N11: a real, validly-signed kindred proof for GUEST, checked against PARTICIPANT_A instead. `evaluateAccess` (access.ts:96) refuses before it ever reaches the signature check - a proof is a grant to the one participant it names, not a bearer token any holder can present.',
+    input: { policy, proof: proofForGuest, checkedParticipant: fx.PARTICIPANT_A, now: NOW, roomId, randomnessQueueHex: [bytesToHex(proofForGuestAuxRand)] },
+    output: { result: evaluateAccess(policy, fx.PARTICIPANT_A, proofForGuest, NOW, roomId) },
+  })
+
+  // N8: the expiry boundary. `proof.expiresAt <= now` refuses (access.ts:101)
+  // - so AT the instant of expiry it is already refused, and one second
+  // earlier it still verifies. Both vectors check the SAME proof, so the
+  // only variable is `now`.
+  const boundaryProofAuxRand = seed32('kindred-proof-boundary-auxrand')
+  const boundaryProof = withStubbedRandomness([boundaryProofAuxRand], () =>
+    issueKindredProof({ hostSk: fx.HOST_SK, participant: fx.GUEST, tier: 'kith', roomId, expiresAt: NOW, nonce: 'bb'.repeat(32) }),
+  )
+  vectors.accessEvaluation.push({
+    name: 'kindred-proof-expiry-at-boundary-refused',
+    kind: 'negative',
+    note: 'N8 (refused side): a real kindred proof checked at exactly its own `expiresAt`: refused. Proves the check is `<=`, not `<` - a boundary shifted by one would accept this.',
+    input: { policy, proof: boundaryProof, now: NOW, roomId, randomnessQueueHex: [bytesToHex(boundaryProofAuxRand)] },
+    output: { result: evaluateAccess(policy, fx.GUEST, boundaryProof, NOW, roomId) },
+  })
+  vectors.accessEvaluation.push({
+    name: 'kindred-proof-one-second-before-expiry-accepted',
+    kind: 'positive',
+    note: 'N8 (accepted side): the SAME proof, checked one second before its own `expiresAt`: accepted. Together with the refused-side vector above, this pins the boundary exactly, in both directions.',
+    input: { policy, proof: boundaryProof, now: NOW - 1, roomId },
+    output: { result: evaluateAccess(policy, fx.GUEST, boundaryProof, NOW - 1, roomId) },
+  })
+
+  // N10: the same boundary, one level down - a plain (room-scope) device
+  // credential's own `expiration` tag, not the 30-day person cap.
+  const credAuxRand = seed32('credential-expiry-boundary')
+  const credCreatedAt = fx.CREDENTIAL_CREATED_AT
+  const credExpiresAt = NOW
+  const boundaryCred = finalizeDeterministic(
+    { kind: KINDS.CREDENTIAL, created_at: credCreatedAt, tags: [['d', roomId], ['device', fx.DEVICE_A], ['expiration', String(credExpiresAt)]], content: '' },
+    fx.PARTICIPANT_A_SK,
+    credAuxRand,
+  )
+  vectors.accessEvaluation.push({
+    name: 'device-credential-expiry-at-boundary-refused',
+    kind: 'negative',
+    note: 'N10 (refused side): a real room-scope device credential checked at exactly its own `expiration`: refused (credential.ts:155, the same `<=` rule the kindred proof uses).',
+    input: { event: boundaryCred, roomId, now: credExpiresAt, auxRandHex: bytesToHex(credAuxRand) },
+    output: { result: verifyDeviceCredential(boundaryCred, { roomId, now: credExpiresAt }) },
+  })
+  vectors.accessEvaluation.push({
+    name: 'device-credential-one-second-before-expiry-accepted',
+    kind: 'positive',
+    note: 'N10 (accepted side): the SAME credential, checked one second before its own `expiration`: accepted.',
+    input: { event: boundaryCred, roomId, now: credExpiresAt - 1 },
+    output: { result: verifyDeviceCredential(boundaryCred, { roomId, now: credExpiresAt - 1 }) },
+  })
+}
+
+// ===========================================================================
+// 11. Room policy negatives: a quiet room with no members list, and an
+//     unrecognised agent rule (Opus round-two review, item 5).
+// ===========================================================================
+
+{
+  const payload = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify({
+    v: 2, j: base64urlnopad.encode(BEARER_A), h: INVITER_A, r: [], i: [], a: { tier: 'kith', quiet: true },
+  })))
+  const url = `${BASE_URL}#${payload}`
+  let error
+  try { parseRoomLink(url) } catch (e) { error = e.message }
+  vectors.linkEnvelope.push({
+    name: 'quiet-room-without-members-refused',
+    kind: 'negative',
+    note: 'A policy asking for a quiet room (room.ts:83) but naming no members list: refused. A quiet room derives its per-pair keys from the members list, and with none there is nobody to derive them for.',
+    input: { url },
+    output: { throws: true, error },
+  })
+}
+
+{
+  const payload = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify({
+    v: 2, j: base64urlnopad.encode(BEARER_A), h: INVITER_A, r: [], i: [], a: { tier: 'kith', agents: 'unheard-of-rule' },
+  })))
+  const url = `${BASE_URL}#${payload}`
+  let error
+  try { parseRoomLink(url) } catch (e) { error = e.message }
+  vectors.linkEnvelope.push({
+    name: 'unknown-agent-rule-refused',
+    kind: 'negative',
+    note: 'A policy naming an agent rule this reader does not know (room.ts:77): refused for the same reason an unknown tier is - dropping it would admit what the room meant to keep out.',
+    input: { url },
+    output: { throws: true, error },
+  })
+}
+
+// ===========================================================================
+// 12. The real encodeRoomLink normalising hostile caller input, and the
+//     encode-side (not just decode-side) oversize-fragment refusal - the
+//     M22 survivor and item 6 of the Opus round-two review.
+// ===========================================================================
+
+{
+  // `hostile-input-normalised` (group 1, above) proves what `parseRoomLink`
+  // does with a link nobody's own encoder produced. This proves the other
+  // half: `encodeRoomLink` ITSELF - not a caller, not the decoder - filters
+  // and sanitises the same kind of hostile input before it is ever written
+  // to a URL. Real function, real inputs, no hand-building.
+  const hostileRelays = ['wss://relay.damus.io', 'wss://relay.damus.io', 'ws://tracker.example', 'wss://nos.lol']
+  const hostileIce = ['not-a-real-scheme:nope', 'stun:stun.kithmoot.example:3478']
+  const hostileName = `Rowan‮txet​nedih${'y'.repeat(40)}`
+  const url = encodeRoomLink(BASE_URL, { invitation: INVITATION_2, relays: hostileRelays, iceUrls: hostileIce, name: hostileName })
+  const decoded = parseRoomLink(url)
+  vectors.linkEnvelope.push({
+    name: 'encoder-normalises-hostile-input',
+    kind: 'positive',
+    note: "The real `encodeRoomLink` (link.ts:135-147) filters an unsafe ws:// relay, deduplicates the repeated one, drops an unrecognised ICE scheme, and sanitises an overlong/bidi-override/zero-width name - before the bytes ever reach a QR code, not only when a stranger's link is decoded. Fed the same kind of hostile input `hostile-input-normalised` (above) fakes directly on the wire; the output here is what the real encoder itself already wrote.",
+    input: { base: BASE_URL, invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A }, rawRelays: hostileRelays, rawIceUrls: hostileIce, rawName: hostileName },
+    output: { url, decoded: { relays: decoded.relays, iceUrls: decoded.iceUrls, name: decoded.name ?? null } },
+    expected: { relays: safeRelayUrls(hostileRelays), iceUrls: safeIceUrls(hostileIce), name: sanitiseDisplayName(hostileName) ?? null },
+  })
+}
+
+{
+  // The ENCODE-side fragment-size refusal (link.ts:147's
+  // MAX_ROOM_LINK_FRAGMENT_LENGTH check, at the point of WRITING a link,
+  // distinct from `oversize-fragment-refused` above which is the
+  // decode-side check on an already-written fragment): MAX_RELAY_HINTS
+  // hints each near the per-hint length ceiling, real inputs, real call.
+  const bigRelays = Array.from({ length: MAX_RELAY_HINTS }, (_, i) => `wss://${'r'.repeat(2000)}-${i}.example`)
+  let error
+  try { encodeRoomLink(BASE_URL, { invitation: INVITATION_2, relays: bigRelays, iceUrls: [] }) } catch (e) { error = e.message }
+  vectors.linkEnvelope.push({
+    name: 'encoder-oversize-fragment-refused',
+    kind: 'negative',
+    note: `${MAX_RELAY_HINTS} relay hints, each near the ${2048} per-hint character ceiling, push the WRITTEN fragment past MAX_ROOM_LINK_FRAGMENT_LENGTH: refused at the point of encoding, not only on the way back in.`,
+    input: { relays: bigRelays },
+    output: { throws: true, error },
+  })
+}
+
+// ===========================================================================
+// 13. Optional, cheap additions (Opus round-two review, item 7): an epoch
+//     grant above MAX_EPOCH refused on decode, and a rekey epoch tag that
+//     fails the epoch-number regex.
+// ===========================================================================
+
+{
+  // The real `encodeEpochGrant` already refuses to build a grant above
+  // MAX_EPOCH (`requireEpochNumber` throws first) - so the decode-side
+  // bound at epoch.ts:571 can only be exercised by a body the real encoder
+  // itself would never produce. Encrypted for real (a real conversation
+  // key), signed for real (the real authority key); only the JSON body's
+  // `epoch` number is hand-built past what the encoder would ever allow
+  // through - an eighth documented exception, same shape as the other six.
+  const roomId = fx_roomId()
+  const overMaxBody = { v: 1, request: EPOCH_GRANT_REQUEST, epoch: MAX_EPOCH + 1, secret: base64urlnopad.encode(fx.EPOCH_SECRET_1), removed: [] }
+  const conversationKey = nip44.v2.utils.getConversationKey(fx.AUTHORITY_SK, fx.KEPT_DEVICE)
+  const nonce = seed32('epoch-grant-over-max-epoch-nonce')
+  const auxRand = seed32('epoch-grant-over-max-epoch')
+  const event = finalizeDeterministic(
+    { kind: KINDS.EPOCH_GRANT, created_at: fx.EPOCH_CREATED_AT, tags: [['d', roomId], ['p', fx.KEPT_DEVICE]], content: nip44.v2.encrypt(JSON.stringify(overMaxBody), conversationKey, nonce) },
+    fx.AUTHORITY_SK,
+    auxRand,
+  )
+  vectors.epochGrant.push({
+    name: 'grant-epoch-above-max-refused',
+    kind: 'negative',
+    note: `Genuinely signed and genuinely sealed by the real authority key, naming epoch ${MAX_EPOCH + 1} - one past MAX_EPOCH (${MAX_EPOCH}). The real \`encodeEpochGrant\` refuses to build this itself (\`requireEpochNumber\` throws at encode time), so this pins the decode-side bound (epoch.ts:571) directly: an authority that was tricked, or a second implementation with a looser encoder, must still be refused on read.`,
+    input: { event, roomId, request: EPOCH_GRANT_REQUEST, epoch: MAX_EPOCH + 1 },
+    output: { result: decodeEpochGrant(event, { roomId, authority: fx.AUTHORITY, deviceSk: fx.KEPT_DEVICE_SK, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT }) },
+  })
+}
+
+{
+  // The rekey epoch-tag regex (epoch.ts:258, `/^[1-9][0-9]{0,6}$/`): no
+  // real `encodeRekeyEvent` call can write `epoch: 0` (it always moves the
+  // room forward from `current.epoch`, which is never negative), so this is
+  // hand-built - genuinely signed by the real authority key, with only the
+  // `epoch` tag set to a string the regex was written to refuse.
+  const roomId = fx_roomId()
+  const auxRand = seed32('rekey-epoch-tag-zero-auxrand')
+  const event = finalizeDeterministic(
+    { kind: KINDS.ROOM_REKEY, created_at: fx.REKEY_CREATED_AT, tags: [['d', roomId], ['epoch', '0']], content: 'AA==' },
+    fx.AUTHORITY_SK,
+    auxRand,
+  )
+  vectors.epochGrant.push({
+    name: 'rekey-epoch-tag-zero-refused',
+    kind: 'negative',
+    note: "Genuinely signed by the real authority key, but its `epoch` tag is the literal string \"0\" - epoch 0 is the room's own secret, byte-identical to before any rekey, and is never itself announced by a rekey event. `peekRekeyEvent`'s regex (`/^[1-9][0-9]{0,6}$/`) refuses a leading zero outright, before the signature is even checked.",
+    input: { event, roomId },
+    output: { peek: peekRekeyEvent(event, { roomId, authority: fx.AUTHORITY }) },
   })
 }
 
