@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.24",
+  "currentRelease": "0.1.26",
   "releases": [
     {
-      "version": "0.1.24",
+      "version": "0.1.26",
       "updateTo": {
-        "version": "0.1.24",
-        "pub_date": "2026-09-27T13:00:00Z",
-        "notes": "Rooms you have been in open straight in, without asking for your name again. The start page keeps one shape as you resize the window, and no longer flashes the welcome screen while your sign-in loads.",
-        "name": "0.1.24",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.24/KithMoot-0.1.24-mac-arm64.zip",
-        "sha256": "1cb03654716f32293ca72e1c79ab6f5745bb90ce8e5935466f6cd91d88451731",
-        "size": 138923852
+        "version": "0.1.26",
+        "pub_date": "2026-09-28T10:30:00Z",
+        "notes": "Black out parts of your screen while you share it. Rooms keep their history on this device, so an old room opens with its messages even when a relay has forgotten them. A slow or broken relay no longer holds the others up. Unmuting on a desktop while your phone is on the call keeps your microphone on, and sharing your whole screen no longer shows the share inside itself.",
+        "name": "0.1.26",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.26/KithMoot-0.1.26-mac-arm64.zip",
+        "sha256": "31798182dee41fc75e5e788a8c708b69fea06ef75f945124bd2ac4ee2b7c005d",
+        "size": 138937492
       }
     }
   ]
