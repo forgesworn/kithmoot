@@ -36,15 +36,19 @@
 // `decodeInvitationRetirementNotice`, `decodePersistentInvitation`) are
 // called directly, same as before.
 //
-// Ten exceptions (eight distinct reasons - two vectors share one event and
-// one reason, and one pair of vectors together isolate one check from
-// another), each documented at its own use site too, because in every
-// case the negative vector's whole point is a state no real encoder call can
-// reach - the real function either refuses to build it (correctly) or always
-// keeps the two things the vector needs to disagree in lock-step. Every one
-// is signed directly with `finalizeDeterministic` and the REAL signer's own
-// key, so the signature itself is always genuine; only the body it signs
-// over is hand-built.
+// 11 vectors across 10 distinct reasons are signed directly with
+// `finalizeDeterministic` and the REAL signer's own key, rather than driven
+// through a real top-level encoder call (one reason covers two vectors that
+// share a single event; a different pair of vectors together isolate one
+// check from another). In every case the negative vector's whole point is a
+// state no real encoder call can reach - the real function either refuses
+// to build it (correctly) or always keeps the two things the vector needs
+// to disagree in lock-step - so the signature itself is always genuine and
+// only the body it signs over is hand-built. (Two states that look like
+// this at first glance are NOT actually unreachable, and are driven through
+// the real encoder instead: see `rekey-epoch-tag-zero-refused` and
+// `refused-over-30-days` below, both exploiting real, separately
+// documented quirks rather than being hand-built.)
 //
 //   - `invitationEnvelope`'s `request-device-mismatched-signer-refused`:
 //     `encodeInvitationRequest` always sets `body.device` to its own
@@ -66,24 +70,24 @@
 //   - `persistentInvitation`'s `room-mismatch-refused`: `encodePersistentInvitation`
 //     always writes `room: deriveRoom(opts.roomSecret).roomId` alongside that
 //     same secret, so the two can never disagree either.
-//   - `personCredential`'s `refused-over-30-days`: `createDeviceCredential`
-//     refuses to mint an over-long person credential at mint time - the
-//     vector exists precisely to pin what a VERIFIER does when handed one
-//     anyway (a looser or buggy signer's output), which by definition no
-//     call to the real minting function can produce.
 //   - `personCredential`'s `wrong-person-identity-path-refused` and
-//     `wrong-person-acceptperson-path-refused` (one event, two checks):
-//     `createDeviceCredential` always sets `d` to its own signer's pubkey
-//     for a person credential, so no real call can produce a `d` naming
-//     someone other than whoever actually signed it.
+//     `wrong-person-acceptperson-path-refused` (one event, two checks, one
+//     reason): `createDeviceCredential` always sets `d` to its own signer's
+//     pubkey for a person credential, so no real call can produce a `d`
+//     naming someone other than whoever actually signed it.
 //   - `epochGrant`'s `grant-epoch-above-max-refused`: the real
 //     `encodeEpochGrant` refuses to build a grant above `MAX_EPOCH` itself
 //     (`requireEpochNumber` throws at encode time), so the DECODE-side bound
 //     this vector pins can only be reached by a body the real encoder would
 //     never produce.
-//   - `epochGrant`'s `rekey-epoch-tag-zero-refused`: `encodeRekeyEvent`
-//     always moves the room forward from `current.epoch` (never negative),
-//     so no real call can write an `epoch` tag of `"0"`.
+//   - `epochGrant`'s `rekey-epoch-tag-leading-zero-refused`: `encodeRekeyEvent`
+//     always writes `String(epoch)`, which JavaScript never renders with a
+//     leading zero for a non-negative integer, so no real call can write an
+//     `epoch` tag of `"01"`.
+//   - `epochGrant`'s `rekey-epoch-tag-above-max-refused`: the real
+//     `encodeRekeyEvent` refuses to build an epoch above `MAX_EPOCH` itself
+//     (same `requireEpochNumber` guard as the grant above), so this DECODE-side
+//     bound can only be reached by a tag the real encoder would never write.
 //   - `epochRequest`'s `credential-device-not-signer-refused-admission-matches`:
 //     `encodeEpochRequest` always computes its admission proof for its own
 //     real signer, so no real call can produce an admission that matches a
@@ -143,6 +147,7 @@ import {
   decodeEpochRequest,
   epochRequestAdmission,
   peekRekeyEvent,
+  encodeRekeyEvent,
   canonicalChannels,
   verifyChannels,
   signChannels,
@@ -1036,28 +1041,51 @@ vectors.epochGrant.push({
   vectors.personCredential.push({
     name: 'valid-at-exactly-30-day-boundary',
     kind: 'positive',
-    note: `M15 (accepted side): expiresAt is exactly ${PERSON_CREDENTIAL_MAX_SECONDS} seconds (30 days) past createdAt - the boundary itself. Both \`createDeviceCredential\` (mint time) and \`verifyDeviceCredential\` (read time) use a strict \`>\`, so this is accepted; one second later ("refused-over-30-days" below) is refused. Minted through the real, async \`createDeviceCredential\`.`,
+    note: `M15 (accepted side): expiresAt is exactly ${PERSON_CREDENTIAL_MAX_SECONDS} seconds (30 days) past createdAt - the boundary itself. Both \`createDeviceCredential\` (mint time) and \`verifyDeviceCredential\` (read time) use a strict \`>\`, so this is accepted; past the boundary ("refused-over-30-days" below) is refused. Minted through the real, async \`createDeviceCredential\`.`,
     input: { participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK), devicePubkey: fx.DEVICE_A, createdAt, expiresAt, auxRandHex: bytesToHex(auxRand) },
     output: { event: cred, result: verifyDeviceCredential(cred, { identity: fx.PARTICIPANT_A, now: createdAt }) },
   })
 }
 
 {
-  // Signed directly (not through `createDeviceCredential`, which refuses
-  // this at mint time) so the vector pins what a VERIFIER does when handed
-  // one anyway - a looser or buggy signer's output. Documented exception to
-  // "drive the real encoder": there is no real encoder path that produces
-  // this event, by design.
-  const longExpiry = fx.CREDENTIAL_CREATED_AT + PERSON_CREDENTIAL_MAX_SECONDS + 1
+  // Driven through the REAL, async `createDeviceCredential` - not hand-
+  // signed. `created_at` is deliberately never compared against what the
+  // identity's `signEvent` actually returns (see `credential.ts`'s own
+  // comment on that), so an identity that restamps the signed event's
+  // `created_at` EARLIER than what it was asked to sign defeats the
+  // mint-time 30-day check without the credential's own tags disagreeing
+  // with anything: `expiresAt` is set to exactly `now + PERSON_CREDENTIAL_MAX_SECONDS`
+  // (the mint-time check is `expiresAt - now > MAX`, which a plain equality
+  // does not trip), but the identity restamps `created_at` to ten seconds
+  // BEFORE `now` - so the credential that actually comes back runs for
+  // `PERSON_CREDENTIAL_MAX_SECONDS + 10` seconds, measured from its own,
+  // real, persisted `created_at`. `verifyDeviceCredential` reads that real
+  // `created_at` and refuses it. This is a known runtime quirk in
+  // `createDeviceCredential` (raised separately, not fixed by this vector
+  // work), not something this generator works around by hand-signing.
+  const mintTimeNow = fx.CREDENTIAL_CREATED_AT
+  const restampedCreatedAt = mintTimeNow - 10
+  const expiresAt = mintTimeNow + PERSON_CREDENTIAL_MAX_SECONDS
   const auxRand = seed32('person-credential-over-30-days')
-  const tags = [['d', fx.PARTICIPANT_A], ['device', fx.DEVICE_A], ['expiration', String(longExpiry)], ['scope', 'person']]
-  const event = finalizeDeterministic({ kind: KINDS.CREDENTIAL, created_at: fx.CREDENTIAL_CREATED_AT, tags, content: '' }, fx.PARTICIPANT_A_SK, auxRand)
+  const restampingIdentity = {
+    pubkey: getPublicKey(fx.PARTICIPANT_A_SK),
+    async signEvent(unsigned) {
+      return finalizeDeterministic({ ...unsigned, created_at: restampedCreatedAt }, fx.PARTICIPANT_A_SK, auxRand)
+    },
+  }
+  const event = await createDeviceCredential({
+    identity: restampingIdentity,
+    devicePubkey: fx.DEVICE_A,
+    scope: 'person',
+    expiresAt,
+    now: () => mintTimeNow,
+  })
   vectors.personCredential.push({
     name: 'refused-over-30-days',
     kind: 'negative',
-    note: 'M15 (refused side): a person credential whose expiry is one second past the 30-day maximum, measured from its own `created_at`. `createDeviceCredential` refuses to mint this (see the header comment); this vector pins the separate check `verifyDeviceCredential` makes on anything it is handed regardless, signed directly with the real participant key.',
-    input: { participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK), devicePubkey: fx.DEVICE_A, createdAt: fx.CREDENTIAL_CREATED_AT, expiresAt: longExpiry, auxRandHex: bytesToHex(auxRand), verify: { identity: fx.PARTICIPANT_A, now: fx.CREDENTIAL_CREATED_AT } },
-    output: { event, result: verifyDeviceCredential(event, { identity: fx.PARTICIPANT_A, now: fx.CREDENTIAL_CREATED_AT }) },
+    note: `M15 (refused side): the real \`createDeviceCredential\`'s mint-time check passes (expiry is exactly ${PERSON_CREDENTIAL_MAX_SECONDS} seconds past the requested \`now\`, not more) - but the injected identity restamps the signed event's \`created_at\` ten seconds earlier than \`now\`, so the credential that actually results runs ${PERSON_CREDENTIAL_MAX_SECONDS + 10} seconds from its own real \`created_at\`. \`verifyDeviceCredential\` refuses it on read.`,
+    input: { participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK), devicePubkey: fx.DEVICE_A, mintTimeNow, restampedCreatedAt, expiresAt, auxRandHex: bytesToHex(auxRand), verify: { identity: fx.PARTICIPANT_A, now: restampedCreatedAt } },
+    output: { event, result: verifyDeviceCredential(event, { identity: fx.PARTICIPANT_A, now: restampedCreatedAt }) },
   })
 }
 
@@ -1155,13 +1183,18 @@ vectors.epochGrant.push({
   const roomKey = deriveRoom(fx.ROOM_SECRET_1).roomKey
   // The embedded credential: genuinely signed by PARTICIPANT_A_SK, genuinely
   // naming REMOVED_DEVICE - a real credential for a real, different device
-  // than the one about to sign the outer request.
+  // than the one about to sign the outer request. Minted through the real,
+  // async `createDeviceCredential`, the same as every other room-scope
+  // credential in this file.
   const credAuxRand = seed32('epoch-request-device-mismatch-credential')
-  const credential = finalizeDeterministic(
-    { kind: KINDS.CREDENTIAL, created_at: fx.CREDENTIAL_CREATED_AT, tags: [['d', roomId], ['device', fx.REMOVED_DEVICE], ['expiration', String(fx.EPOCH_CREATED_AT + 3600)]], content: '' },
-    fx.PARTICIPANT_A_SK,
-    credAuxRand,
-  )
+  const credCreatedAt = fx.CREDENTIAL_CREATED_AT
+  const credential = await createDeviceCredential({
+    identity: deterministicIdentity(fx.PARTICIPANT_A_SK, credAuxRand),
+    devicePubkey: fx.REMOVED_DEVICE,
+    roomId,
+    expiresAt: fx.EPOCH_CREATED_AT + 3600,
+    now: () => credCreatedAt,
+  })
   const nonce = seed32('epoch-request-device-mismatch-nonce')
   const auxRand = seed32('epoch-request-device-mismatch')
   // `encodeEpochRequest` embeds whatever credential it is handed without
@@ -1248,7 +1281,7 @@ vectors.epochGrant.push({
 
 // ===========================================================================
 // 10. Access evaluation: a kindred proof naming another participant, and the
-//     proof/credential expiry boundaries - N11, N8, N10 (Opus round-two
+//     proof/credential expiry boundaries - N11, N10, N8 (Opus round-two
 //     review). issueKindredProof and verifyDeviceCredential are pure/real
 //     calls throughout; no stubbing or hand-signing needed.
 // ===========================================================================
@@ -1273,7 +1306,7 @@ vectors.epochGrant.push({
     output: { result: evaluateAccess(policy, fx.PARTICIPANT_A, proofForGuest, NOW, roomId) },
   })
 
-  // N8: the expiry boundary. `proof.expiresAt <= now` refuses (access.ts:101)
+  // N10: the expiry boundary. `proof.expiresAt <= now` refuses (access.ts:101)
   // - so AT the instant of expiry it is already refused, and one second
   // earlier it still verifies. Both vectors check the SAME proof, so the
   // only variable is `now`.
@@ -1284,39 +1317,42 @@ vectors.epochGrant.push({
   vectors.accessEvaluation.push({
     name: 'kindred-proof-expiry-at-boundary-refused',
     kind: 'negative',
-    note: 'N8 (refused side): a real kindred proof checked at exactly its own `expiresAt`: refused. Proves the check is `<=`, not `<` - a boundary shifted by one would accept this.',
+    note: 'N10 (refused side): a real kindred proof checked at exactly its own `expiresAt`: refused. Proves the check is `<=`, not `<` - a boundary shifted by one would accept this.',
     input: { policy, proof: boundaryProof, now: NOW, roomId, randomnessQueueHex: [bytesToHex(boundaryProofAuxRand)] },
     output: { result: evaluateAccess(policy, fx.GUEST, boundaryProof, NOW, roomId) },
   })
   vectors.accessEvaluation.push({
     name: 'kindred-proof-one-second-before-expiry-accepted',
     kind: 'positive',
-    note: 'N8 (accepted side): the SAME proof, checked one second before its own `expiresAt`: accepted. Together with the refused-side vector above, this pins the boundary exactly, in both directions.',
+    note: 'N10 (accepted side): the SAME proof, checked one second before its own `expiresAt`: accepted. Together with the refused-side vector above, this pins the boundary exactly, in both directions.',
     input: { policy, proof: boundaryProof, now: NOW - 1, roomId },
     output: { result: evaluateAccess(policy, fx.GUEST, boundaryProof, NOW - 1, roomId) },
   })
 
-  // N10: the same boundary, one level down - a plain (room-scope) device
-  // credential's own `expiration` tag, not the 30-day person cap.
+  // N8: the same boundary, one level down - a plain (room-scope) device
+  // credential's own `expiration` tag, not the 30-day person cap. Minted
+  // through the real, async `createDeviceCredential`.
   const credAuxRand = seed32('credential-expiry-boundary')
   const credCreatedAt = fx.CREDENTIAL_CREATED_AT
   const credExpiresAt = NOW
-  const boundaryCred = finalizeDeterministic(
-    { kind: KINDS.CREDENTIAL, created_at: credCreatedAt, tags: [['d', roomId], ['device', fx.DEVICE_A], ['expiration', String(credExpiresAt)]], content: '' },
-    fx.PARTICIPANT_A_SK,
-    credAuxRand,
-  )
+  const boundaryCred = await createDeviceCredential({
+    identity: deterministicIdentity(fx.PARTICIPANT_A_SK, credAuxRand),
+    devicePubkey: fx.DEVICE_A,
+    roomId,
+    expiresAt: credExpiresAt,
+    now: () => credCreatedAt,
+  })
   vectors.accessEvaluation.push({
     name: 'device-credential-expiry-at-boundary-refused',
     kind: 'negative',
-    note: 'N10 (refused side): a real room-scope device credential checked at exactly its own `expiration`: refused (credential.ts:155, the same `<=` rule the kindred proof uses).',
-    input: { event: boundaryCred, roomId, now: credExpiresAt, auxRandHex: bytesToHex(credAuxRand) },
+    note: 'N8 (refused side): a real room-scope device credential checked at exactly its own `expiration`: refused (credential.ts:155, the same `<=` rule the kindred proof uses).',
+    input: { event: boundaryCred, roomId, now: credExpiresAt, createdAt: credCreatedAt, expiresAt: credExpiresAt, devicePubkey: fx.DEVICE_A, auxRandHex: bytesToHex(credAuxRand) },
     output: { result: verifyDeviceCredential(boundaryCred, { roomId, now: credExpiresAt }) },
   })
   vectors.accessEvaluation.push({
     name: 'device-credential-one-second-before-expiry-accepted',
     kind: 'positive',
-    note: 'N10 (accepted side): the SAME credential, checked one second before its own `expiration`: accepted.',
+    note: 'N8 (accepted side): the SAME credential, checked one second before its own `expiration`: accepted.',
     input: { event: boundaryCred, roomId, now: credExpiresAt - 1 },
     output: { result: verifyDeviceCredential(boundaryCred, { roomId, now: credExpiresAt - 1 }) },
   })
@@ -1438,23 +1474,84 @@ vectors.epochGrant.push({
 }
 
 {
-  // The rekey epoch-tag regex (epoch.ts:258, `/^[1-9][0-9]{0,6}$/`): no
-  // real `encodeRekeyEvent` call can write `epoch: 0` (it always moves the
-  // room forward from `current.epoch`, which is never negative), so this is
-  // hand-built - genuinely signed by the real authority key, with only the
-  // `epoch` tag set to a string the regex was written to refuse.
+  // The rekey epoch-tag regex (epoch.ts:258, `/^[1-9][0-9]{0,6}$/`) and the
+  // separate `epoch > MAX_EPOCH` bound (epoch.ts:260).
+  //
+  // `epoch: 0` IS reachable through the real `encodeRekeyEvent`: it only
+  // checks `next.epoch === current.epoch + 1` (epoch.ts:193), so a
+  // `current` naming epoch -1 - a value nothing in the real epoch-following
+  // path ever produces, but not one `encodeRekeyEvent` itself refuses -
+  // makes it write a real `epoch: 0` tag. Genuinely signed, genuinely
+  // sealed (no recipients, so no seal nonce needed).
   const roomId = fx_roomId()
-  const auxRand = seed32('rekey-epoch-tag-zero-auxrand')
-  const event = finalizeDeterministic(
-    { kind: KINDS.ROOM_REKEY, created_at: fx.REKEY_CREATED_AT, tags: [['d', roomId], ['epoch', '0']], content: 'AA==' },
-    fx.AUTHORITY_SK,
-    auxRand,
+  const zeroNonce = seed32('rekey-epoch-tag-zero-nonce')
+  const zeroAuxRand = seed32('rekey-epoch-tag-zero-auxrand')
+  const zeroEvent = withStubbedRandomness([zeroNonce, zeroAuxRand], () =>
+    encodeRekeyEvent({
+      roomId,
+      authoritySk: fx.AUTHORITY_SK,
+      current: { epoch: -1, id: 'unused-by-the-real-encoder', key: fx.EPOCH_SECRET_1 },
+      next: { epoch: 0, secret: fx.EPOCH_SECRET_2 },
+      recipients: [],
+      removed: [],
+      now: fx.REKEY_CREATED_AT,
+    }),
   )
   vectors.epochGrant.push({
     name: 'rekey-epoch-tag-zero-refused',
     kind: 'negative',
-    note: "Genuinely signed by the real authority key, but its `epoch` tag is the literal string \"0\" - epoch 0 is the room's own secret, byte-identical to before any rekey, and is never itself announced by a rekey event. `peekRekeyEvent`'s regex (`/^[1-9][0-9]{0,6}$/`) refuses a leading zero outright, before the signature is even checked.",
+    note: "Genuinely signed and sealed by the real `encodeRekeyEvent`, called with a `current` naming epoch -1 (a value the real epoch-following path never holds, but that `encodeRekeyEvent` itself does not refuse) so that `next.epoch` (0) satisfies its `current.epoch + 1` check. Epoch 0 is the room's own secret, byte-identical to before any rekey, and is never itself announced by a rekey event. `peekRekeyEvent`'s regex (`/^[1-9][0-9]{0,6}$/`) refuses a leading zero outright, before the signature is even checked.",
+    input: { roomId, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), createdAt: fx.REKEY_CREATED_AT, randomnessQueueHex: [bytesToHex(zeroNonce), bytesToHex(zeroAuxRand)] },
+    output: { event: zeroEvent, peek: peekRekeyEvent(zeroEvent, { roomId, authority: fx.AUTHORITY }) },
+  })
+}
+
+{
+  // A leading zero: real signature, hand-built tag (`encodeRekeyEvent`
+  // always writes `String(epoch)`, which JavaScript never renders with a
+  // leading zero for a non-negative integer, so no real call can produce
+  // this literal tag text). Kills two different weakenings of the regex at
+  // once: one that allows a leading zero (e.g. `^0*[1-9][0-9]{0,6}$`), and
+  // one that drops the `^`/`$` anchors (`[1-9][0-9]{0,6}` unanchored still
+  // finds a match inside "01", starting at its second character).
+  const roomId = fx_roomId()
+  const auxRand = seed32('rekey-epoch-tag-leading-zero-auxrand')
+  const event = finalizeDeterministic(
+    { kind: KINDS.ROOM_REKEY, created_at: fx.REKEY_CREATED_AT, tags: [['d', roomId], ['epoch', '01']], content: 'AA==' },
+    fx.AUTHORITY_SK,
+    auxRand,
+  )
+  vectors.epochGrant.push({
+    name: 'rekey-epoch-tag-leading-zero-refused',
+    kind: 'negative',
+    note: 'Genuinely signed by the real authority key, `epoch` tag the literal string "01". No real `encodeRekeyEvent` call writes this (`String(epoch)` never carries a leading zero for a non-negative integer), so this is hand-built. Refused by the regex\'s `^[1-9]` requirement - a leading-zero-tolerant regex, or an unanchored one, would wrongly accept it.',
     input: { event, roomId },
+    output: { peek: peekRekeyEvent(event, { roomId, authority: fx.AUTHORITY }) },
+  })
+}
+
+{
+  // One past MAX_EPOCH, in a tag that still matches the digit-count shape
+  // the regex allows (7 digits, leading digit non-zero): real signature,
+  // hand-built tag, because `encodeRekeyEvent` refuses to build an epoch
+  // this large itself (`requireEpochNumber` throws at encode time, same
+  // reason `grant-epoch-above-max-refused` above is hand-built). Refused by
+  // the SEPARATE `epoch > MAX_EPOCH` bound (epoch.ts:260), not by the
+  // regex - a mutation that dropped only that bound, leaving the regex
+  // intact, would wrongly accept this.
+  const roomId = fx_roomId()
+  const auxRand = seed32('rekey-epoch-tag-above-max-auxrand')
+  const aboveMaxTag = String(MAX_EPOCH + 1)
+  const event = finalizeDeterministic(
+    { kind: KINDS.ROOM_REKEY, created_at: fx.REKEY_CREATED_AT, tags: [['d', roomId], ['epoch', aboveMaxTag]], content: 'AA==' },
+    fx.AUTHORITY_SK,
+    auxRand,
+  )
+  vectors.epochGrant.push({
+    name: 'rekey-epoch-tag-above-max-refused',
+    kind: 'negative',
+    note: `Genuinely signed by the real authority key, \`epoch\` tag "${aboveMaxTag}" - one past MAX_EPOCH (${MAX_EPOCH}), and a shape (7 digits, no leading zero) the regex alone accepts. Hand-built because the real \`encodeRekeyEvent\` refuses to build an epoch this large itself. Refused by the separate epoch.ts:260 bound, independent of the regex.`,
+    input: { event, roomId, epoch: MAX_EPOCH + 1 },
     output: { peek: peekRekeyEvent(event, { roomId, authority: fx.AUTHORITY }) },
   })
 }

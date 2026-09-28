@@ -54,6 +54,7 @@ import {
   decodeEpochRequest,
   epochRequestAdmission,
   peekRekeyEvent,
+  encodeRekeyEvent,
   canonicalChannels,
   verifyChannels,
   signChannels,
@@ -668,9 +669,40 @@ describe('epoch grant', () => {
     expect(result).toEqual(v.output.result)
   })
 
-  it('rekey-epoch-tag-zero-refused: genuinely signed, epoch tag "0" fails the regex - refused (item 7, epoch.ts:258)', () => {
+  it('rekey-epoch-tag-zero-refused: the real encodeRekeyEvent, called with current epoch -1, writes a real "0" tag - refused (item 7, epoch.ts:258)', () => {
     const v = vec('epochGrant', 'rekey-epoch-tag-zero-refused')
-    expect((v.input.event as Event).tags.find((t) => t[0] === 'epoch')?.[1]).toBe('0')
+    const event = withStubbedRandomness(randomnessQueue(v), () =>
+      encodeRekeyEvent({
+        roomId: v.input.roomId,
+        authoritySk: hexToBytes(v.input.authoritySkHex),
+        current: { epoch: -1, id: 'unused-by-the-real-encoder', key: fx.EPOCH_SECRET_1 },
+        next: { epoch: 0, secret: fx.EPOCH_SECRET_2 },
+        recipients: [],
+        removed: [],
+        now: v.input.createdAt,
+      }),
+    ) as Event
+    expect(plain(event)).toEqual(v.output.event)
+    expect(event.tags.find((t) => t[0] === 'epoch')?.[1]).toBe('0')
+    const result = peekRekeyEvent(event, { roomId: v.input.roomId, authority: fx.AUTHORITY })
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.peek)
+  })
+
+  it('rekey-epoch-tag-leading-zero-refused: genuinely signed, epoch tag "01" fails the regex - refused (item 1, epoch.ts:258)', () => {
+    const v = vec('epochGrant', 'rekey-epoch-tag-leading-zero-refused')
+    expect((v.input.event as Event).tags.find((t) => t[0] === 'epoch')?.[1]).toBe('01')
+    const result = peekRekeyEvent(v.input.event as Event, { roomId: v.input.roomId, authority: fx.AUTHORITY })
+    expect(result).toBeNull()
+    expect(result).toEqual(v.output.peek)
+  })
+
+  it('rekey-epoch-tag-above-max-refused: genuinely signed, epoch tag one past MAX_EPOCH - refused by the separate bound, not the regex (item 1, epoch.ts:260)', () => {
+    const v = vec('epochGrant', 'rekey-epoch-tag-above-max-refused')
+    const tagValue = (v.input.event as Event).tags.find((t) => t[0] === 'epoch')?.[1]
+    expect(tagValue).toBe(String(MAX_EPOCH + 1))
+    expect(/^[1-9][0-9]{0,6}$/.test(tagValue!)).toBe(true) // the regex alone accepts this shape
+    expect(() => encodeRekeyEvent({ roomId: v.input.roomId, authoritySk: fx.AUTHORITY_SK, current: { epoch: MAX_EPOCH, id: 'x', key: fx.EPOCH_SECRET_1 }, next: { epoch: MAX_EPOCH + 1, secret: fx.EPOCH_SECRET_2 }, recipients: [], removed: [], now: fx.REKEY_CREATED_AT })).toThrow()
     const result = peekRekeyEvent(v.input.event as Event, { roomId: v.input.roomId, authority: fx.AUTHORITY })
     expect(result).toBeNull()
     expect(result).toEqual(v.output.peek)
@@ -736,21 +768,31 @@ describe('person credential', () => {
     expect(result).toEqual({ ok: true, participant: getPublicKey(sk), device: v.input.devicePubkey })
   })
 
-  it('refused-over-30-days: the verifier refuses an expiry more than 30 days past mint, regardless of who minted it (M15, refused side)', () => {
+  it('refused-over-30-days: the real createDeviceCredential, given an identity that restamps created_at earlier, mints an over-long credential - refused on read (M15, refused side)', async () => {
     const v = vec('personCredential', 'refused-over-30-days')
-    expect(v.input.expiresAt - v.input.createdAt).toBe(PERSON_CREDENTIAL_MAX_SECONDS + 1)
-    const tags = [
-      ['d', getPublicKey(hexToBytes(v.input.participantSkHex))],
-      ['device', v.input.devicePubkey],
-      ['expiration', String(v.input.expiresAt)],
-      ['scope', 'person'],
-    ]
-    const event = finalizeDeterministic(
-      { kind: KINDS.CREDENTIAL, created_at: v.input.createdAt, tags, content: '' },
-      hexToBytes(v.input.participantSkHex),
-      hexToBytes(v.input.auxRandHex),
-    ) as Event
+    // The mint-time check passes: exactly MAX, not over it.
+    expect(v.input.expiresAt - v.input.mintTimeNow).toBe(PERSON_CREDENTIAL_MAX_SECONDS)
+    // But the identity restamps ten seconds earlier, so the real duration is over.
+    expect(v.input.mintTimeNow - v.input.restampedCreatedAt).toBe(10)
+    expect(v.input.expiresAt - v.input.restampedCreatedAt).toBe(PERSON_CREDENTIAL_MAX_SECONDS + 10)
+
+    const sk = hexToBytes(v.input.participantSkHex)
+    const restampingIdentity = {
+      pubkey: getPublicKey(sk),
+      async signEvent(unsigned: { kind: number; created_at: number; tags: string[][]; content: string }) {
+        return finalizeDeterministic({ ...unsigned, created_at: v.input.restampedCreatedAt }, sk, hexToBytes(v.input.auxRandHex)) as Event
+      },
+    }
+    const event = await createDeviceCredential({
+      identity: restampingIdentity,
+      devicePubkey: v.input.devicePubkey,
+      scope: 'person',
+      expiresAt: v.input.expiresAt,
+      now: () => v.input.mintTimeNow,
+    })
     expect(plain(event)).toEqual(v.output.event)
+    expect(event.created_at).toBe(v.input.restampedCreatedAt)
+
     const result = verifyDeviceCredential(event, { identity: v.input.verify.identity, now: v.input.verify.now })
     expect(result).toEqual(v.output.result)
     expect(result).toEqual({ ok: false, reason: 'longer than 30 days' })
@@ -880,7 +922,7 @@ describe('access evaluation', () => {
     expect(result).toEqual({ admitted: false, reason: 'proof names another participant' })
   })
 
-  it('kindred-proof-expiry-at-boundary-refused / one-second-before-expiry-accepted: the exact <= boundary, both sides (N8)', () => {
+  it('kindred-proof-expiry-at-boundary-refused / one-second-before-expiry-accepted: the exact <= boundary, both sides (N10)', () => {
     const refused = vec('accessEvaluation', 'kindred-proof-expiry-at-boundary-refused')
     const accepted = vec('accessEvaluation', 'kindred-proof-one-second-before-expiry-accepted')
     expect(refused.input.proof).toEqual(accepted.input.proof)
@@ -905,17 +947,24 @@ describe('access evaluation', () => {
     expect(acceptedResult).toEqual({ admitted: true, reason: 'kindred proof accepted' })
   })
 
-  it('device-credential-expiry-at-boundary-refused / one-second-before-expiry-accepted: the exact <= boundary, both sides (N10)', () => {
+  it('device-credential-expiry-at-boundary-refused / one-second-before-expiry-accepted: the exact <= boundary, both sides (N8)', async () => {
     const refused = vec('accessEvaluation', 'device-credential-expiry-at-boundary-refused')
     const accepted = vec('accessEvaluation', 'device-credential-one-second-before-expiry-accepted')
     expect(refused.input.event).toEqual(accepted.input.event)
     expect(refused.input.now).toBe(accepted.input.now + 1)
 
-    const rebuilt = finalizeDeterministic(
-      { kind: (refused.input.event as Event).kind, created_at: (refused.input.event as Event).created_at, tags: (refused.input.event as Event).tags, content: '' },
-      fx.PARTICIPANT_A_SK,
-      hexToBytes(refused.input.auxRandHex),
-    ) as Event
+    const rebuilt = await createDeviceCredential({
+      identity: {
+        pubkey: getPublicKey(fx.PARTICIPANT_A_SK),
+        async signEvent(unsigned) {
+          return finalizeDeterministic(unsigned, fx.PARTICIPANT_A_SK, hexToBytes(refused.input.auxRandHex)) as Event
+        },
+      },
+      devicePubkey: refused.input.devicePubkey,
+      roomId: refused.input.roomId,
+      expiresAt: refused.input.expiresAt,
+      now: () => refused.input.createdAt,
+    })
     expect(plain(rebuilt)).toEqual(refused.input.event)
 
     const refusedResult = verifyDeviceCredential(refused.input.event as Event, { roomId: refused.input.roomId, now: refused.input.now })

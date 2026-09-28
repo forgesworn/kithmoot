@@ -1420,8 +1420,17 @@
       {
         "name": "rekey-epoch-tag-zero-refused",
         "kind": "negative",
-        "note": "Genuinely signed by the real authority key, but its `epoch` tag is the literal string \"0\" - epoch 0 is the room's own secret, byte-identical to before any rekey, and is never itself announced by a rekey event. `peekRekeyEvent`'s regex (`/^[1-9][0-9]{0,6}$/`) refuses a leading zero outright, before the signature is even checked.",
+        "note": "Genuinely signed and sealed by the real `encodeRekeyEvent`, called with a `current` naming epoch -1 (a value the real epoch-following path never holds, but that `encodeRekeyEvent` itself does not refuse) so that `next.epoch` (0) satisfies its `current.epoch + 1` check. Epoch 0 is the room's own secret, byte-identical to before any rekey, and is never itself announced by a rekey event. `peekRekeyEvent`'s regex (`/^[1-9][0-9]{0,6}$/`) refuses a leading zero outright, before the signature is even checked.",
         "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "createdAt": 1799999000,
+          "randomnessQueueHex": [
+            "2fbc4fdee70858dacbb0923b43973ea8d3fb438670f0ec49f53d409d72bfaf03",
+            "61692ffe419fc79b62572943c32dff1585aefe999e594374a3dcb1aafccfde7a"
+          ]
+        },
+        "output": {
           "event": {
             "kind": 1462,
             "created_at": 1799999000,
@@ -1435,12 +1444,68 @@
                 "0"
               ]
             ],
+            "content": "Ai+8T97nCFjay7CSO0OXPqjT+0OGcPDsSfU9QJ1yv68DdsVWTk7K9B1elQuiYvHFPpYmZ5Zj+mxQPA2z5c9PZUyG/VUu0U2EiFodYbAJ6EA2s1+yrz3gSDmGdC+63ILty3BIPhdrRXP31Q7ysXmGp7XYUumfDf1G2ielvPLTXzzfiQA=",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "5607d788211092d50ebf097de05e4ae774dc23dc8a54e4a39934f7c56aa1c5cf",
+            "sig": "2a379fbc3d270a130f0041d839fc00454b253a5261fcdb4541e3e21699565145e7dba07ad523d4f491818d999259be62fcb4b9fb2063258227ae80b1064f6894"
+          },
+          "peek": null
+        }
+      },
+      {
+        "name": "rekey-epoch-tag-leading-zero-refused",
+        "kind": "negative",
+        "note": "Genuinely signed by the real authority key, `epoch` tag the literal string \"01\". No real `encodeRekeyEvent` call writes this (`String(epoch)` never carries a leading zero for a non-negative integer), so this is hand-built. Refused by the regex's `^[1-9]` requirement - a leading-zero-tolerant regex, or an unanchored one, would wrongly accept it.",
+        "input": {
+          "event": {
+            "kind": 1462,
+            "created_at": 1799999000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "epoch",
+                "01"
+              ]
+            ],
             "content": "AA==",
             "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
-            "id": "54f5a5bc4e1c0f87ac2414aa8c1e8bfe3b0fec7829801cf6165dd37bbe7869ae",
-            "sig": "0db0c9008e28c5130d4bd11085adf01edf6089f60d1ec4da6b280047d218c6438c1df97da6165850a38367631ad9768e998994ca57f3d4e45a608f3c8c6747fc"
+            "id": "10252a005149e73b72445cec0ba7553f312bc306fa2ca3cd26f125bbdc7ddf1f",
+            "sig": "cc49db967d84bd71ea1024b0a3a31f9f91f7f6134402942754a877f193bcfddbbcb9f09d95ad9aacc0040f8a7994d87f0d893d037408cbd05709b32c5c759546"
           },
           "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "peek": null
+        }
+      },
+      {
+        "name": "rekey-epoch-tag-above-max-refused",
+        "kind": "negative",
+        "note": "Genuinely signed by the real authority key, `epoch` tag \"1000001\" - one past MAX_EPOCH (1000000), and a shape (7 digits, no leading zero) the regex alone accepts. Hand-built because the real `encodeRekeyEvent` refuses to build an epoch this large itself. Refused by the separate epoch.ts:260 bound, independent of the regex.",
+        "input": {
+          "event": {
+            "kind": 1462,
+            "created_at": 1799999000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "epoch",
+                "1000001"
+              ]
+            ],
+            "content": "AA==",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "10c5d21dcd2351c17ca0690fc7a9b34def33dad8762eec86e0da886364dfe796",
+            "sig": "4b9247aa8b7ab0d95bb84a4d4b13e45b151a4846707c4c1bfac2cd009252720eac90739ec0da2303749b2469972af62a3bb844d72fb1bc06449739a19177fe30"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "epoch": 1000001
         },
         "output": {
           "peek": null
@@ -1648,7 +1713,7 @@
       {
         "name": "valid-at-exactly-30-day-boundary",
         "kind": "positive",
-        "note": "M15 (accepted side): expiresAt is exactly 2592000 seconds (30 days) past createdAt - the boundary itself. Both `createDeviceCredential` (mint time) and `verifyDeviceCredential` (read time) use a strict `>`, so this is accepted; one second later (\"refused-over-30-days\" below) is refused. Minted through the real, async `createDeviceCredential`.",
+        "note": "M15 (accepted side): expiresAt is exactly 2592000 seconds (30 days) past createdAt - the boundary itself. Both `createDeviceCredential` (mint time) and `verifyDeviceCredential` (read time) use a strict `>`, so this is accepted; past the boundary (\"refused-over-30-days\" below) is refused. Minted through the real, async `createDeviceCredential`.",
         "input": {
           "participantSkHex": "826f7335cca1f25633dbc6efc43131a651feb9b7d419c9b1fdc35b2e115d2180",
           "devicePubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
@@ -1693,22 +1758,23 @@
       {
         "name": "refused-over-30-days",
         "kind": "negative",
-        "note": "M15 (refused side): a person credential whose expiry is one second past the 30-day maximum, measured from its own `created_at`. `createDeviceCredential` refuses to mint this (see the header comment); this vector pins the separate check `verifyDeviceCredential` makes on anything it is handed regardless, signed directly with the real participant key.",
+        "note": "M15 (refused side): the real `createDeviceCredential`'s mint-time check passes (expiry is exactly 2592000 seconds past the requested `now`, not more) - but the injected identity restamps the signed event's `created_at` ten seconds earlier than `now`, so the credential that actually results runs 2592010 seconds from its own real `created_at`. `verifyDeviceCredential` refuses it on read.",
         "input": {
           "participantSkHex": "826f7335cca1f25633dbc6efc43131a651feb9b7d419c9b1fdc35b2e115d2180",
           "devicePubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
-          "createdAt": 1799990000,
-          "expiresAt": 1802582001,
+          "mintTimeNow": 1799990000,
+          "restampedCreatedAt": 1799989990,
+          "expiresAt": 1802582000,
           "auxRandHex": "1a6b3cb1178e0a776ae079a8354df951446dc8c430939c91f98f126ae5f6f772",
           "verify": {
             "identity": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
-            "now": 1799990000
+            "now": 1799989990
           }
         },
         "output": {
           "event": {
             "kind": 20460,
-            "created_at": 1799990000,
+            "created_at": 1799989990,
             "tags": [
               [
                 "d",
@@ -1720,7 +1786,7 @@
               ],
               [
                 "expiration",
-                "1802582001"
+                "1802582000"
               ],
               [
                 "scope",
@@ -1729,8 +1795,8 @@
             ],
             "content": "",
             "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
-            "id": "a32374b909d58447d871e2b16182b60d25167859a3b11cef7d663087b4a10642",
-            "sig": "3b7aacc12c4c580f2469c4f9cffafd6465a6439232d8e48b5df95dd7cb77544f2b5a80a19dde9a0abd95253e9367c92b1086dca5aa82acf50c57b13f4d906682"
+            "id": "9bd88ebb54f04e165750c068de3de21d0c1066b9533ccc5cb769884ac50fdcf1",
+            "sig": "dbe6ab29a8eee6c163b16273f7953920cb5b51140edfc954db42892214c601415ddb315e44144ffacdaceaca2670c0e8d8a07e70c3d7c32c92d9a541ff76fe13"
           },
           "result": {
             "ok": false,
@@ -1963,7 +2029,7 @@
       {
         "name": "kindred-proof-expiry-at-boundary-refused",
         "kind": "negative",
-        "note": "N8 (refused side): a real kindred proof checked at exactly its own `expiresAt`: refused. Proves the check is `<=`, not `<` - a boundary shifted by one would accept this.",
+        "note": "N10 (refused side): a real kindred proof checked at exactly its own `expiresAt`: refused. Proves the check is `<=`, not `<` - a boundary shifted by one would accept this.",
         "input": {
           "policy": {
             "tier": "kith",
@@ -1996,7 +2062,7 @@
       {
         "name": "kindred-proof-one-second-before-expiry-accepted",
         "kind": "positive",
-        "note": "N8 (accepted side): the SAME proof, checked one second before its own `expiresAt`: accepted. Together with the refused-side vector above, this pins the boundary exactly, in both directions.",
+        "note": "N10 (accepted side): the SAME proof, checked one second before its own `expiresAt`: accepted. Together with the refused-side vector above, this pins the boundary exactly, in both directions.",
         "input": {
           "policy": {
             "tier": "kith",
@@ -2026,7 +2092,7 @@
       {
         "name": "device-credential-expiry-at-boundary-refused",
         "kind": "negative",
-        "note": "N10 (refused side): a real room-scope device credential checked at exactly its own `expiration`: refused (credential.ts:155, the same `<=` rule the kindred proof uses).",
+        "note": "N8 (refused side): a real room-scope device credential checked at exactly its own `expiration`: refused (credential.ts:155, the same `<=` rule the kindred proof uses).",
         "input": {
           "event": {
             "kind": 20460,
@@ -2052,6 +2118,9 @@
           },
           "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
           "now": 1800000000,
+          "createdAt": 1799990000,
+          "expiresAt": 1800000000,
+          "devicePubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
           "auxRandHex": "b5b4f354069404c441b6eba79c0c47847eb6cd77627b67d419268ec7b04f352d"
         },
         "output": {
@@ -2064,7 +2133,7 @@
       {
         "name": "device-credential-one-second-before-expiry-accepted",
         "kind": "positive",
-        "note": "N10 (accepted side): the SAME credential, checked one second before its own `expiration`: accepted.",
+        "note": "N8 (accepted side): the SAME credential, checked one second before its own `expiration`: accepted.",
         "input": {
           "event": {
             "kind": 20460,
