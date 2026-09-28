@@ -165,3 +165,14 @@ export function decodeCallBellEvent(event: Event, opts: DecodeCallBellOptions): 
     return null
   }
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const CALL_BELL_LABELS = [
+  "kithmoot/v1/call-bell",
+  "kithmoot/v1/call-bell-key",
+  "kithmoot/v1/call-bell-tag",
+  "kithmoot/v1/call-bell:",
+] as const

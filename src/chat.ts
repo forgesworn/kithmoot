@@ -37,8 +37,8 @@ export const CHAT_ARCHIVE_PAGE = 100
  *  signature, a credential and a decryption, a few milliseconds each. */
 const ARCHIVE_DECODE_CHUNK = 40
 
-const CHANNEL_ID_INFO = 'kithmoot/v1/channel-id/'
-const CHANNEL_KEY_INFO = 'kithmoot/v1/channel-key/'
+export const CHANNEL_ID_INFO = 'kithmoot/v1/channel-id/'
+export const CHANNEL_KEY_INFO = 'kithmoot/v1/channel-key/'
 /** Bounds a channel name, which rides only in an HKDF info string and
  *  never on the wire; long enough for any sensible name. */
 export const MAX_CHANNEL_NAME_LENGTH = 64
@@ -1134,3 +1134,12 @@ function compareMessages(a: ChatMessage, b: ChatMessage): number {
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const CHAT_LABELS = [
+  "kithmoot/v1/channel-id/",
+  "kithmoot/v1/channel-key/",
+] as const

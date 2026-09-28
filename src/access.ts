@@ -145,3 +145,11 @@ export function evaluateAgentAccess(
   if (!isMember(entry.owner.principal)) return { admitted: false, reason: 'principal is not in the room' }
   return { admitted: true, reason: 'owned by a member' }
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const ACCESS_LABELS = [
+  "kithmoot/v1/kindred:",
+] as const

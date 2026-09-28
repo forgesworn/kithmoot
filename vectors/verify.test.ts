@@ -28,14 +28,15 @@ import { schnorr } from '@noble/curves/secp256k1.js'
 import { nip44 } from 'nostr-tools'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
 
-import { finalizeDeterministic, kindredCanonicalMessage } from './lib/determinism.mjs'
+import { finalizeDeterministic, kindredCanonicalMessage, withStubbedRandomness } from './lib/determinism.mjs'
 import * as fx from './lib/fixtures.mjs'
 
 import { decodeMemberPass, decodeServicePolicy, deriveServiceKey, deriveServiceRoom, normaliseServiceAudience } from '../src/service-admission.js'
 import { KINDS } from '../src/kinds.js'
 import { deriveRoom, decodeJoinUrl, encodeJoinUrl } from '../src/room.js'
 import { deriveChannel } from '../src/chat.js'
-import { verifyDeviceCredential } from '../src/credential.js'
+import { verifyDeviceCredential, createDeviceCredential } from '../src/credential.js'
+import type { ParticipantIdentity } from '../src/identity.js'
 import { decodeRosterEvent } from '../src/roster.js'
 import { sanitiseAssistOffer } from '../src/peer-assist.js'
 import { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from '../src/display-name.js'
@@ -43,7 +44,7 @@ import { unwrapSignalEvent, unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
 import { decodeDescriptorEvent } from '../src/descriptor.js'
-import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../src/epoch.js'
+import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins, encodeRekeyEvent, encodeEpochRequest } from '../src/epoch.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from '../src/ownership.js'
 import { decodeChatEvent } from '../src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
@@ -200,6 +201,36 @@ describe('device credential', () => {
     const result = verifyDeviceCredential(v.input.event as Event, v.input.verify)
     expect(result).toEqual(v.output.result)
     expect(result).toEqual({ ok: false, reason: 'bad signature' })
+  })
+
+  it('valid: the REAL createDeviceCredential (not just a hand rebuild) reproduces the exact event', async () => {
+    // Finding 1's fix, applied to this file too: `rebuildCredential` above
+    // hand-rebuilds the event template exactly as `generate.mjs` did, which
+    // pins internal self-consistency but never calls the actual minting
+    // function. This drives `createDeviceCredential` itself - via the
+    // `ParticipantIdentity` seam it already takes as a dependency, with a
+    // `signEvent` that signs deterministically under the vector's own
+    // recorded aux-rand - and asserts it reproduces this room credential
+    // byte for byte. No randomness stubbing needed: unlike `finalizeEvent`,
+    // `createDeviceCredential` never draws randomness of its own.
+    const v = vec('deviceCredential', 'valid')
+    const sk = hexToBytes(v.input.participantSkHex as string)
+    const identity: ParticipantIdentity = {
+      pubkey: getPublicKey(sk),
+      async signEvent(unsigned) {
+        return finalizeDeterministic(unsigned, sk, hexToBytes(v.input.auxRandHex as string)) as Event
+      },
+    }
+    const cred = await createDeviceCredential({
+      identity,
+      devicePubkey: v.input.devicePubkey as string,
+      roomId: v.input.roomId as string,
+      expiresAt: v.input.expiresAt as number,
+      now: () => v.input.createdAt as number,
+    })
+    expect(JSON.parse(JSON.stringify(cred))).toEqual(v.output.event)
+    const result = verifyDeviceCredential(cred, v.expected!.verify)
+    expect(result).toEqual(v.expected!.result)
   })
 })
 
@@ -618,6 +649,51 @@ describe('epoch request admission', () => {
     )
   })
 
+  it('request: the REAL encodeEpochRequest (not just a hand rebuild) reproduces the exact event', () => {
+    // Finding 1's fix, applied to this file too. `crypto.getRandomValues`
+    // stubbed to the vector's own recorded [nonce, auxRand] queue - the
+    // NIP-44 nonce (part of building `content`, evaluated before signing)
+    // then the signature aux-rand, the same order every other real-encoder
+    // reconstruction in this suite uses.
+    const v = vec('epochRequestAdmission', 'request')
+    const authority = getPublicKey(hexToBytes(v.expected!.decode.authoritySkHex as string))
+    const event = withStubbedRandomness(
+      [hexToBytes(v.input.nonceHex as string), hexToBytes(v.input.auxRandHex as string)],
+      () =>
+        encodeEpochRequest({
+          roomId: v.expected!.decode.roomId as string,
+          authority,
+          deviceSk: hexToBytes(v.input.deviceSkHex as string),
+          roomKey: hexToBytes(v.expected!.decode.roomKeyHex as string),
+          credential: (v.input.body as { credential: unknown }).credential as never,
+          now: (v.input.event as Event).created_at,
+        }),
+    )
+    expect(JSON.parse(JSON.stringify(event))).toEqual(v.input.event)
+  })
+
+  it('request: the REAL encodeEpochRequest actually carries a kindred proof when one is given (M17, no committed vector carries one)', () => {
+    // None of `epochRequestAdmission`'s committed vectors pass `proof` (a
+    // request needs one only in a kith/kin-gated room), so the
+    // reconstruction above cannot catch `proof` being silently dropped from
+    // the body. This builds a request with one, decrypts the body with the
+    // same conversation key the real device and authority would use, and
+    // checks it is actually there - independent of any committed vector.
+    const roomId = deriveRoom(fx.ROOM_SECRET_1).roomId
+    const authority = fx.AUTHORITY
+    const proof = { tier: 'kith', participant: fx.PARTICIPANT_A, issuer: fx.HOST, room: roomId, nonce: 'ab'.repeat(32), sig: 'cd'.repeat(64) } as const
+    const credential = { kind: KINDS.CREDENTIAL, created_at: fx.CREDENTIAL_CREATED_AT, tags: [['d', roomId], ['device', fx.KEPT_DEVICE], ['expiration', String(fx.CREDENTIAL_EXPIRES_AT)]], content: '', pubkey: fx.PARTICIPANT_A, id: '00'.repeat(32), sig: '00'.repeat(64) }
+    const event = encodeEpochRequest({
+      roomId, authority, deviceSk: fx.KEPT_DEVICE_SK, roomKey: deriveRoom(fx.ROOM_SECRET_1).roomKey,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      credential: credential as any, proof: proof as any, now: fx.EPOCH_CREATED_AT,
+    })
+    const conversationKey = nip44.v2.utils.getConversationKey(fx.KEPT_DEVICE_SK, authority)
+    const body = JSON.parse(nip44.v2.decrypt(event.content, conversationKey)) as { proof?: { nonce: string } }
+    expect(body.proof).toBeDefined()
+    expect(body.proof!.nonce).toBe(proof.nonce)
+  })
+
   for (const v of groups.epochRequestAdmission.filter((x) => x.name.startsWith('request'))) {
     it(v.name, () => {
       const decode = v.expected!.decode as Record<string, unknown>
@@ -689,6 +765,33 @@ describe('room epoch', () => {
     expect(JSON.stringify(v.input.event)).not.toContain(bytesToHex(fx.EPOCH_SECRET_1))
   })
 
+  it('rekey: the REAL encodeRekeyEvent (not just a hand rebuild) reproduces the exact event', () => {
+    // Finding 1's fix, applied to this file too: this vector's event was
+    // never reconstructed at all before (only decoded), so nothing proved
+    // it really came from `encodeRekeyEvent`. Driven here with
+    // `crypto.getRandomValues` stubbed to the vector's own recorded
+    // 3-value queue: a NIP-44 nonce per recipient the successor secret is
+    // sealed to (one, for KEPT_DEVICE), then the rekey body's own NIP-44
+    // nonce, then the outer event's signature aux-rand - the order
+    // `encodeRekeyEvent` draws them in.
+    const v = vec('roomEpoch', 'rekey')
+    const event = withStubbedRandomness(
+      [hexToBytes(v.input.sealNonceHex as string), hexToBytes(v.input.nonceHex as string), hexToBytes(v.input.auxRandHex as string)],
+      () =>
+        encodeRekeyEvent({
+          roomId: (v.input.event as Event).tags.find((t) => t[0] === 'd')![1]!,
+          authoritySk: hexToBytes(v.input.authoritySkHex as string),
+          current: { epoch: v.input.currentEpoch as number, id: deriveRoom(fx.ROOM_SECRET_1).roomId, key: hexToBytes(v.input.currentKeyHex as string) },
+          next: { epoch: (v.input.next as { epoch: number }).epoch, secret: hexToBytes((v.input.next as { secretHex: string }).secretHex) },
+          recipients: v.input.recipients as string[],
+          removed: v.input.removed as string[],
+          by: v.input.by as string,
+          now: v.input.createdAt as number,
+        }),
+    )
+    expect(JSON.parse(JSON.stringify(event))).toEqual(v.input.event)
+  })
+
   it('rekey: the removed device reads the notice and gets no secret', () => {
     const v = vec('roomEpoch', 'rekey-read-by-the-removed-device')
     const result = decodeRekeyEvent(v.input.event as Event, rekeyArgs(v.expected!.decode as Record<string, unknown>))
@@ -703,6 +806,38 @@ describe('room epoch', () => {
     expect(noticeJson(result)).toEqual(v.expected!.result)
     expect(result!.closed).toBe(true)
     expect(result!.secret).toBeUndefined()
+  })
+
+  it('rekey-closed: the REAL encodeRekeyEvent actually writes `closed: true` and seals no copies, round-tripped independently of any recorded vector', () => {
+    // `rekey-closed`'s own recorded vector (above) only pins the DECODE
+    // side against a fixed, pre-generated event - it cannot catch a bug in
+    // `encodeRekeyEvent`'s closed-room branch itself, because the bytes it
+    // decodes were already correct when they were generated. This drives
+    // the real encoder, with fresh keys local to this test (not tied to any
+    // committed vector, so it never touches `kithmoot-vectors.json`), and
+    // checks the round trip end to end: a closed rekey seals nothing, and a
+    // still-open one seals a copy to every recipient.
+    const authoritySk = fx.PARTICIPANT_A_SK
+    const authority = getPublicKey(authoritySk)
+    const roomId = deriveRoom(fx.ROOM_SECRET_1).roomId
+    const current = deriveEpoch({ epoch: 0, secret: fx.ROOM_SECRET_1 })
+    const closedEvent = encodeRekeyEvent({
+      roomId, authoritySk, current, next: { epoch: 1, secret: fx.EPOCH_SECRET_2 }, recipients: [], removed: [], closed: true, now: fx.REKEY_CREATED_AT,
+    })
+    const decoded = decodeRekeyEvent(closedEvent, { roomId, authority, current, deviceSk: fx.KEPT_DEVICE_SK })
+    expect(decoded).not.toBeNull()
+    expect(decoded!.closed).toBe(true)
+    expect(decoded!.secret).toBeUndefined()
+
+    // The control: the same call, NOT closed, with KEPT_DEVICE as a
+    // recipient, DOES seal a copy - so this is exercising the `closed`
+    // branch specifically, not merely "no recipients were listed".
+    const openEvent = encodeRekeyEvent({
+      roomId, authoritySk, current, next: { epoch: 1, secret: fx.EPOCH_SECRET_2 }, recipients: [fx.KEPT_DEVICE], removed: [], closed: false, now: fx.REKEY_CREATED_AT,
+    })
+    const openDecoded = decodeRekeyEvent(openEvent, { roomId, authority, current, deviceSk: fx.KEPT_DEVICE_SK })
+    expect(openDecoded!.closed).toBe(false)
+    expect(openDecoded!.secret).toBeDefined()
   })
 
   for (const name of ['rekey-not-the-authority', 'rekey-skips-an-epoch']) {

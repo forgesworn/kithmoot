@@ -187,3 +187,11 @@ export function mergeReadPositions(local: ReadPositions, remote: ReadPositions):
   }
   return { merged, localAhead, remoteAhead }
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const READ_POSITION_LABELS = [
+  "kithmoot/v1/read-position-id",
+] as const

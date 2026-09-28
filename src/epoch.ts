@@ -62,8 +62,8 @@ import type { DeviceCredential, KindredProof, RoomPolicy } from './types.js'
  * proves which participant it speaks for when it asks.
  */
 
-const EPOCH_ID_INFO = 'kithmoot/v1/epoch-id'
-const EPOCH_KEY_INFO = 'kithmoot/v1/epoch-key'
+export const EPOCH_ID_INFO = 'kithmoot/v1/epoch-id'
+export const EPOCH_KEY_INFO = 'kithmoot/v1/epoch-key'
 const EPOCH_MAX_AGE_SECONDS = 90
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_RETRY_MS = 2_000
@@ -880,3 +880,16 @@ export function verifyAdmins(opts: VerifyAdminsOptions): boolean {
     return false
   }
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const EPOCH_LABELS = [
+  "kithmoot/v1/admins:",
+  "kithmoot/v1/channels:",
+  "kithmoot/v1/epoch-id",
+  "kithmoot/v1/epoch-key",
+  "kithmoot/v1/epoch-request-key",
+  "kithmoot/v1/epoch-request:",
+] as const
