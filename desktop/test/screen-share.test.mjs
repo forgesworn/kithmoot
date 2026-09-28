@@ -88,7 +88,8 @@ test('while a box is on, only whole screens are offered and the chosen display i
   const { calls, callback } = recorder()
   await answerDisplayRequest({}, callback, deps)
   assert.deepEqual(shown.filter(item => item.source).map(item => item.source.id), ['screen:1:0', 'screen:2:0'])
-  assert.ok(shown.some(item => item.label.includes('Single apps are hidden')))
+  // The windows left out are counted, so the list does not look complete.
+  assert.ok(shown.some(item => item.enabled === false && item.label.startsWith('1 window is not listed')))
   assert.deepEqual(calls, [[{ video: screens[1] }]])
   assert.deepEqual(redaction.capture, { kind: 'screen', displayId: '2' })
 })
@@ -98,7 +99,7 @@ test('with no box on, windows are offered, and a chosen window is recorded as a 
   const { deps, shown } = chooser(redaction, items => items.find(item => item.source?.id === 'window:77:0'))
   const { calls, callback } = recorder()
   await answerDisplayRequest({}, callback, deps)
-  assert.ok(!shown.some(item => item.label.includes('Single apps are hidden')))
+  assert.ok(!shown.some(item => item.label.includes('not listed')))
   assert.deepEqual(calls, [[{ video: windows[0] }]])
   assert.deepEqual(redaction.capture, { kind: 'window' })
 })

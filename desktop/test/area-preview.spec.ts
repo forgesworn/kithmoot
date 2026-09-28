@@ -117,8 +117,11 @@ test('Wayland preview: the far end receives only the area drawn on the preview',
     await expect.poll(async () => (await received()).some(ratio => Math.abs(ratio - 32 / 9) < 0.1)).toBe(false)
     console.log('PASS: Wayland preview window, whole-picture default, corner resize, keyboard move, crop received by the far end, live reselection, drawing without dragging, stop closes the preview')
   } finally {
+    // Closing a window on a call raises a dialog that waits for an answer, so
+    // the windows are destroyed rather than closed.
+    await native.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy() }).catch(() => {})
     await context.close()
-    await native.close()
+    await native.close().catch(() => {})
     await rm(profile, { recursive: true, force: true })
   }
 })

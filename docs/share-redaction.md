@@ -9,9 +9,14 @@ picture, it sends black, never the raw frame.
 
 A box is a frameless, transparent, always-on-top window on the real screen
 (`desktop/redaction.mjs`). The sharer sees through it, and clicks inside it
-pass through to whatever is beneath; the main process watches the real cursor
-to decide when, because forwarded mouse moves are unreliable on Windows and
-Linux. The bar across the top moves it, the corners resize it (both follow
+pass through to whatever is beneath. On macOS and Windows the main process
+watches the real cursor to decide when, because forwarded mouse moves are
+unreliable. On Linux (X11) the window is given a shape instead, its bar,
+edge and grips and nothing else, so the X server itself sends a click in the
+middle to whatever is beneath: Electron's reading of the cursor there stops
+moving once the pointer is over another program's window, which is where a
+box usually sits, so a watched box went click-through and stayed so
+(`docs/decisions.md`, 28 September 2026). The bar across the top moves it, the corners resize it (both follow
 `screen.getCursorScreenPoint()` in the main process, not a CSS drag region),
 and arrow keys nudge it. Each box can be turned off ("Shown") and on
 ("Hidden from share"), and the call controls turn every box on or off at

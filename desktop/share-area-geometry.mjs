@@ -16,3 +16,20 @@ export function insideArea(point, bounds) {
   return point.x >= bounds.x + AREA_INSET.left && point.x < bounds.x + bounds.width - AREA_INSET.right &&
     point.y >= bounds.y + AREA_INSET.top && point.y < bounds.y + bounds.height - AREA_INSET.bottom
 }
+
+/**
+ * The frame's own controls, as a window shape in DIP from the window's top
+ * left: everything but the hole. On X11 the server then sends clicks in the
+ * hole to whatever is beneath, with nothing here watching the cursor.
+ */
+export function areaShape(size) {
+  const width = Math.round(size.width), height = Math.round(size.height)
+  const middle = height - AREA_INSET.top - AREA_INSET.bottom
+  if (!(width > AREA_INSET.left + AREA_INSET.right) || !(middle > 0)) return [{ x: 0, y: 0, width: Math.max(1, width), height: Math.max(1, height) }]
+  return [
+    { x: 0, y: 0, width, height: AREA_INSET.top },
+    { x: 0, y: height - AREA_INSET.bottom, width, height: AREA_INSET.bottom },
+    { x: 0, y: AREA_INSET.top, width: AREA_INSET.left, height: middle },
+    { x: width - AREA_INSET.right, y: AREA_INSET.top, width: AREA_INSET.right, height: middle },
+  ]
+}

@@ -72,7 +72,15 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
     const area = await popupReady
     const areaBounds = () => native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!.getBounds())
     await expect(area.getByRole('button', { name: 'Start sharing', exact: true })).toBeEnabled()
+    // A frame hanging off its screen cannot be shared. It says so, and Start
+    // is off, before anyone presses it: it used to close without a word.
+    const screenEdge = await native.evaluate(({ screen }) => { const { x, y, width } = screen.getPrimaryDisplay().bounds; return { x: x + width - 300, y: y + 100 } })
+    await native.evaluate(({ BrowserWindow }, at) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!.setBounds({ ...at, width: 900, height: 600 }), screenEdge)
+    await expect(area.getByRole('button', { name: 'Start sharing', exact: true })).toBeDisabled()
+    await expect(area.locator('footer')).toHaveText('Move the whole frame onto one screen to share it')
     await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!.setBounds({ x: 100, y: 100, width: 900, height: 600 }))
+    await expect(area.getByRole('button', { name: 'Start sharing', exact: true })).toBeEnabled()
+    await expect(area.locator('footer')).toHaveText('Drag the bar to move · Drag a corner to resize')
     const original = await areaBounds()
     const corner = area.getByRole('button', { name: 'Resize sharing area from bottom right', exact: true })
     const handle = (await corner.boundingBox())!

@@ -5,6 +5,12 @@ import { RedactionTrail } from './redaction-geometry.js'
 import { paintPlan, type DesktopRedaction } from './redaction.js'
 
 export interface AreaRect { x: number; y: number; width: number; height: number }
+/** Where the frame stands: `refusal` is why the desktop app last refused to share it. */
+export interface AreaCheck { fits: boolean; refusal: 'placement' | 'source' | null }
+
+const FRAME_IDLE = 'Drag the bar to move · Drag a corner to resize'
+const FRAME_OFF_SCREEN = 'Move the whole frame onto one screen to share it'
+const FRAME_NO_SCREEN = 'KithMoot could not tell which screen the frame is on, so nothing was shared. Share the whole screen instead.'
 
 /** The raw monitor track stays local. Only the canvas crop is published. */
 export class DesktopShareArea {
@@ -92,7 +98,8 @@ export class DesktopShareArea {
     const marks = doc.createElement('canvas')
     marks.setAttribute('aria-label', 'Draw on the sharing area')
     const status = doc.createElement('footer')
-    status.textContent = 'Drag the bar to move · Drag a corner to resize'
+    status.textContent = FRAME_IDLE
+    status.setAttribute('role', 'status')
     const handles = ['nw', 'ne', 'sw', 'se'].map(corner => {
       const handle = doc.createElement('button')
       handle.className = `resize ${corner}`
@@ -105,10 +112,21 @@ export class DesktopShareArea {
     doc.body.replaceChildren(bar, marks, status, ...handles)
     let drawing = false
     const pen = this.#pen(marks, () => drawing)
-    draw.onclick = () => { pen.end(); drawing = !drawing; draw.setAttribute('aria-pressed', String(drawing)); bridge.shareAreaAction('passthrough', false) }
+    draw.onclick = () => { pen.end(); drawing = !drawing; draw.setAttribute('aria-pressed', String(drawing)); bridge.shareAreaAction('drawing', drawing); bridge.shareAreaAction('passthrough', false) }
     doc.addEventListener('mousemove', event => {
       bridge.shareAreaAction('passthrough', !drawing && !resizing && !moving && event.target === marks)
     })
+    // Until the share begins the bar says whether it can: a frame hanging
+    // off its screen is refused, and used to close without a word.
+    let armed = false, fits = true, sharing = false
+    const ready = () => {
+      if (sharing) return
+      start.disabled = !armed || !fits
+      status.textContent = fits ? FRAME_IDLE : FRAME_OFF_SCREEN
+    }
+    const placed = (check: AreaCheck | null) => { fits = check?.fits !== false; ready() }
+    const unsubCheck = bridge.onShareAreaCheck?.(placed)
+    void bridge.shareAreaCheck?.().then(placed, () => {})
     // Native drag regions were unreliable on this frame (dead on Windows,
     // fiddly on macOS), so the main process moves it after the real cursor.
     let moving = false
@@ -153,15 +171,26 @@ export class DesktopShareArea {
     const unsubMarks = this.opts.overlay(marks, () => this.#output?.id)
     let timer: ReturnType<typeof setInterval> | undefined
     let video: HTMLVideoElement | undefined
-    this.#dispose = () => { popup.removeEventListener('pagehide', gone); unsubState(); unsubMarks(); if (timer) clearInterval(timer); if (video) { video.pause(); video.srcObject = null } }
+    this.#dispose = () => { popup.removeEventListener('pagehide', gone); unsubState(); unsubCheck?.(); unsubMarks(); if (timer) clearInterval(timer); if (video) { video.pause(); video.srcObject = null } }
     try {
       if (!await bridge.armShareArea()) throw new Error('The sharing frame is unavailable. Try again.')
       if (this.#cancelled) throw new Error('Sharing cancelled.')
       const raw = await new Promise<MediaStream>((resolve, reject) => {
         this.#rejectStart = reject
-        start.disabled = false
+        armed = true; ready()
+        const refused = async (error: unknown) => {
+          const check = await bridge.shareAreaCheck?.().catch(() => null) ?? null
+          const open = !this.#cancelled && this.#popup === popup && !popup.closed
+          // Moving the frame puts this right, so keep it and say so.
+          if (check?.refusal === 'placement' && open && await bridge.armShareArea().catch(() => false)) {
+            armed = true
+            placed(check)
+            return
+          }
+          reject(check?.refusal === 'source' ? new Error(FRAME_NO_SCREEN) : error)
+        }
         start.onclick = () => {
-          start.disabled = true
+          armed = false; ready()
           // Capture is requested by the focused frame's own user gesture.
           popup.navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true } as MediaTrackConstraints & { restrictOwnAudio: boolean } }).then(stream => {
             // Cancelling rejects the waiting promise immediately. A chooser
@@ -173,10 +202,11 @@ export class DesktopShareArea {
               return
             }
             resolve(stream)
-          }, reject)
+          }, error => { void refused(error) })
         }
       })
       this.#rejectStart = undefined
+      sharing = true
       start.remove()
       stop.textContent = 'Stop sharing'
       if (this.#cancelled) { raw.getTracks().forEach(track => track.stop()); throw new Error('Sharing cancelled.') }

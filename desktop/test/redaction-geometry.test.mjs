@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { BOX_BAR, BOX_GRIP, BOX_MIN, DisplaySettle, SETTLE_MS, captureOf, clampBox, insideHole, moveTo, onOneDisplay, placeBox, resizeFrom } from '../redaction-geometry.mjs'
+import { BOX_BAR, BOX_EDGE, BOX_GRIP, BOX_MIN, DisplaySettle, SETTLE_MS, boxShape, captureOf, clampBox, insideHole, moveTo, onOneDisplay, placeBox, resizeFrom } from '../redaction-geometry.mjs'
 
 test('a moved box slides back wholly onto one display', () => {
   const left = { x: 0, y: 0, width: 1440, height: 900 }
@@ -52,7 +52,29 @@ test('a new box sits in the middle of the work area, stepped so boxes never stac
   assert.deepEqual(first, { x: -1920 + 780, y: 25 + 418, width: 360, height: 220 })
   assert.deepEqual(placeBox(work, 1), { ...first, x: first.x + 24, y: first.y + 24 })
   // A tiny work area still gets a usable box.
-  assert.deepEqual(placeBox({ x: 0, y: 0, width: 100, height: 50 }, 0), { x: -10, y: -7, width: BOX_MIN.width, height: BOX_MIN.height })
+  assert.deepEqual(placeBox({ x: 0, y: 0, width: 100, height: 50 }, 0), { x: (100 - BOX_MIN.width) / 2, y: -7, width: BOX_MIN.width, height: BOX_MIN.height })
+})
+
+const within = (point, rects) => rects.some(rect => point.x >= rect.x && point.x < rect.x + rect.width && point.y >= rect.y && point.y < rect.y + rect.height)
+
+test('the shape of a box is its bar, its edge and its grips, and never its middle', () => {
+  for (const size of [{ width: 360, height: 220 }, BOX_MIN, { width: 1200, height: 700 }]) {
+    const shape = boxShape(size)
+    // Every rectangle lies inside the window.
+    for (const rect of shape) assert.ok(rect.x >= 0 && rect.y >= 0 && rect.width > 0 && rect.height > 0 && rect.x + rect.width <= size.width && rect.y + rect.height <= size.height, JSON.stringify(rect))
+    // The controls are in it.
+    for (const point of [{ x: 40, y: 15 }, { x: size.width - 20, y: 4 }, { x: 5, y: size.height - 5 }, { x: size.width - 5, y: size.height - 5 }, { x: 2, y: BOX_BAR + 10 }, { x: size.width - 2, y: BOX_BAR + 10 }, { x: size.width / 2, y: size.height - 2 }]) assert.ok(within(point, shape), JSON.stringify(point))
+    // The middle is not, so clicks there reach whatever is beneath.
+    for (const point of [{ x: size.width / 2, y: BOX_BAR + 1 }, { x: size.width / 2, y: size.height - BOX_EDGE - 1 }, { x: BOX_GRIP + 1, y: size.height - BOX_GRIP }, { x: BOX_EDGE, y: BOX_BAR + 2 }]) assert.ok(!within(point, shape), JSON.stringify(point))
+    // It agrees with the hole the cursor watch uses elsewhere, away from the edge.
+    for (let x = BOX_EDGE; x < size.width - BOX_EDGE; x += 7) for (let y = 0; y < size.height - BOX_EDGE; y += 5) {
+      assert.equal(within({ x, y }, shape), !insideHole({ x, y }, { x: 0, y: 0, ...size }), `${x},${y}`)
+    }
+  }
+})
+
+test('a box too small to have a middle is all control', () => {
+  assert.deepEqual(boxShape({ width: 30, height: 30 }), [{ x: 0, y: 0, width: 30, height: 30 }])
 })
 
 test('only the see-through middle lets clicks through', () => {
