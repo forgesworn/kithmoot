@@ -18,7 +18,7 @@
 <main id="main" class="wrap">
 <section class="legal-page">
 <h1>Privacy notice</h1>
-<p class="dated">Draft published for review. Last updated 25 September 2026.</p>
+<p class="dated">Draft published for review. Last updated 28 September 2026.</p>
 <div class="draft-note">
 <p><strong>This page is a draft.</strong> It has not been reviewed by a lawyer and it is not final.</p>
 </div>
@@ -28,20 +28,30 @@
 
 <h2>2. The short version</h2>
 <ul>
-<li>KithMoot's rooms are end-to-end encrypted. We do not hold, and cannot read, your messages, your files, or your calls.</li>
+<li>KithMoot's rooms are end-to-end encrypted. For a room we do not keep, we do not hold, and cannot read, your messages, your files, or your calls. A room kept on a keeper we run is different: the keeper holds that room's key, so we can read that room the way any member can (section 4.6).</li>
 <li>Joining a room needs only its link. We do not run accounts, and most people never give us anything we would call personal data.</li>
+<li>Some defaults in the app make your device contact other parties: relays asked for people's public profiles, the domains in people's Nostr addresses, and the hosts of their profile pictures (section 7). You can turn this off.</li>
 <li>Our default infrastructure (a TURN server, a file store, a drop tier, and, for rooms whose links name it, a relay we also run) sees connection-level information while helping your room connect or store a sealed file, and is designed to keep as little of it as possible.</li>
-<li>We keep no server-side account, session or membership record for a room. There is nothing to delete on request because there is nothing held.</li>
+<li>We keep no server-side account, session or membership record for a room we do not keep. There is nothing to delete on request because there is nothing held. A keeper we run is a member of its room and sees who is in it, as any member does (section 4.6).</li>
 <li>We do not sell your data, we do not show adverts, and we do not run analytics or tracking.</li>
 </ul>
 
 <h2>3. Things we never collect</h2>
 <ul>
 <li><strong>Your private key.</strong> Never sent to us in any KithMoot flow.</li>
-<li><strong>Room content.</strong> Messages, files and call media are end-to-end encrypted; the traffic key lives in the room's own link, not on our servers.</li>
-<li><strong>A membership list.</strong> There is no server-side record of who is in a room.</li>
-<li><strong>Card or bank details.</strong> KithMoot has no payments functionality.</li>
+<li><strong>Room content</strong>, for a room we do not keep. Messages, files and call media are end-to-end encrypted; the traffic key lives in the room's own link, not on our servers. The exception is a room kept on a keeper we run (section 4.6).</li>
+<li><strong>A membership list</strong>, for a room we do not keep. There is no server-side record of who is in a room. A keeper we run holds its room's membership as any member does.</li>
+<li><strong>Card or bank details.</strong> The KithMoot app never asks for them and takes no payments: nobody is asked to pay to be in a room.</li>
 </ul>
+<p><strong>What the app keeps on your device.</strong> To work, the web and desktop app stores these in your browser's storage for the site:</p>
+<ul>
+<li>keys: the device key and credential it uses in each room, and, if you sign in with Nostr, which account and sign-in method you last used;</li>
+<li>settings: text size, call devices and effects, notification and sound choices, your relay list, and whether profile lookups are on (section 7);</li>
+<li>saved rooms: the rooms you have been in, with their links and what this device needs to rejoin them, and how far you have read;</li>
+<li>history: an encrypted archive of the still-encrypted events of rooms you have been in, and an encrypted index of any history you import;</li>
+<li>your contacts and projects.</li>
+</ul>
+<p>This stays on your device. We never receive it. Two things leave it: if you sign in with a Nostr account, your saved rooms and read positions are published to your relays, encrypted, so your other devices can find them; and a room's relay that has lost some of that room's events can be handed back the original encrypted copies. Clearing the site's data in your browser removes it from the device.</p>
 
 <h2>4. What our default infrastructure sees, and why</h2>
 <h3>4.1 The default TURN server</h3>
@@ -54,21 +64,34 @@
 <p>The relays KithMoot suggests by default are independent public relays we do not operate. Until September 2026 one of the defaults was a relay we run, and a room whose link was written then still names it. On that relay we can see, for events that pass through it: event kinds, device public keys, opaque room selectors, timing and message size, never plaintext content, which is encrypted before it reaches any relay. A room's link shows which relays it uses, and a room's creator can remove that relay from them.</p>
 <h3>4.5 Access and error logs on our web server</h3>
 <p>Our web server is configured to discard access logs for the KithMoot site. <strong>Known gap, stated honestly:</strong> the automatic redirect from plain HTTP to HTTPS may still be recorded by the operating system's own connection logging even though the site's own access log is discarded. We have not independently verified this is fully suppressed, and we say so rather than claim a guarantee we have not checked.</p>
+<h3>4.6 A room kept on a keeper we run</h3>
+<p>A keeper is a program that holds a standing room open, so the room keeps admitting people who present its link while nobody else is online. It made the room, and it holds the room's key, on its server's disk and in memory. Whoever runs a keeper can read that room the way any member can: its messages, the files shared in it, and who is in it. The keeper is also the room's admission desk and the only party that can remove a member. A keeper as we ship it publishes no media and joins no call. If we run the keeper for a room, we can read that room. A room whose creator runs their own keeper, on their own machine, is their business, not ours. This notice does not yet say which rooms, if any, we keep for other people.</p>
+<h3>4.7 Update checks from the desktop app</h3>
+<p>The signed desktop app for Macs with Apple silicon checks our site for updates, 30 seconds after it starts and then every ten minutes, and downloads any update from our site too. Other desktop builds do not check, and there is no setting to turn it off. Each check is an ordinary web request, so our web server sees the address it came from, the time, and that it is the Mac app asking. The site's access log is discarded (section 4.5), so these requests are not kept.</p>
 
 <h2>5. How long we keep information</h2>
-<p>We hold almost nothing described in section 4 for long, by design: TURN rate-limit counters live in memory only; the default file store keeps a file up to 90 days from last fetch; the default drop tier keeps a delivery up to 30 days; and system logs on the box that runs our default services are bounded to two weeks, or 500 MB, whichever comes first.</p>
+<p>We hold almost nothing described in section 4 for long, by design: TURN rate-limit counters live in memory only; the default file store keeps a file up to 90 days from last fetch; the default drop tier keeps a delivery up to 30 days; system logs on the box that runs our default services are bounded to two weeks, or 500 MB, whichever comes first; and a keeper we run keeps its room's key for as long as it keeps the room.</p>
 <p>We keep no server-side account record to delete, because we do not run accounts. If you have contacted us by email, that correspondence is kept for as long as we reasonably need it, and you can ask us to delete it (section 6).</p>
 
 <h2>6. Your rights</h2>
 <p>Because we hold so little that identifies anyone, most requests will come back "we do not hold that", which is itself the answer to a request, not a failure to respond to one. Where we do hold something identifiable to you, you can ask us to give you a copy, correct it, delete it, or restrict or stop using it. Write to <a href="mailto:abuse@safety.forgesworn.dev">abuse@safety.forgesworn.dev</a>. We will answer within one month.</p>
-<p><strong>Content in a room.</strong> We cannot delete a message, a file, or a call from a room, because we never held it. If you want something removed from a room you are in, leave the room, ask a keeper who runs it to remove you or close it, or, for your own signed public events, use the in-app tool that asks relays to delete them.</p>
-<p>You can complain to the Information Commissioner's Office (<a href="https://ico.org.uk">ico.org.uk</a>). We would like the chance to put things right first.</p>
+<p><strong>Content in a room.</strong> We cannot delete a message, a file, or a call from a room, because we never held it; a keeper we run holds a room's key, not its messages. If you want something removed from a room you are in, leave the room, ask a keeper who runs it to remove you or close it, or, for your own signed public events, use the in-app tool that asks relays to delete them.</p>
+<p><strong>Complaints.</strong> You have the right to complain to us about how we use your personal data. Email <a href="mailto:abuse@safety.forgesworn.dev">abuse@safety.forgesworn.dev</a>; no form or account is needed. We will acknowledge your complaint within 30 days and answer it without undue delay.</p>
+<p>You can also complain to the Information Commissioner's Office (<a href="https://ico.org.uk">ico.org.uk</a>). We would like the chance to put things right first.</p>
 
 <h2>7. Who else receives data</h2>
 <ul>
-<li><strong>Public Nostr relays</strong>, including the two independent defaults and any a room's creator adds, receive the ciphertext, device keys and timing any room necessarily produces to function.</li>
+<li><strong>Public Nostr relays</strong>, including the independent relays the app suggests by default and any a room's creator adds, receive the ciphertext, device keys and timing any room necessarily produces to function.</li>
 <li><strong>Our hosting provider</strong>, which hosts the box our default TURN server, file store, drop tier and relay run on.</li>
 </ul>
+<p>The app also makes your device contact the following, because of defaults it ships. Each learns your device's IP address and the time, as any web request does.</p>
+<ul>
+<li><strong>Relays asked for public profiles.</strong> To show people's chosen names and pictures, the app asks for the public Nostr profile of each person in the room. It asks the room's own relays and four public relays: purplepag.es (a relay that gathers profiles), relay.damus.io, nos.lol and relay.primal.net. Each learns the public keys of the people in the room and the address the question came from. The room itself keeps those keys inside its encryption; this lookup is what hands them to relays in the clear, and a relay that also carries the room can link them to it.</li>
+<li><strong>The domain in a Nostr address.</strong> If a person's profile names a Nostr address (name@domain), the app asks that domain to confirm it. The domain learns the name asked about and the address the question came from, and can infer that somebody is looking at that person. No cookies or referrer are sent.</li>
+<li><strong>The host of a profile picture.</strong> A picture in a person's profile is loaded from whatever host that person chose. The host learns the address it was fetched from and when, and so that somebody is looking at that person. No referrer is sent. The picture's owner may run that host.</li>
+</ul>
+<p>These three are <strong>on by default</strong>. Turn them off under Settings, Connections, "Profile pictures and names" (also in a room's menu), by clearing "Show public profile pictures, names and Nostr addresses". The choice is saved on your device. Turning it off stops further lookups and removes loaded profiles and pictures; it cannot recall a request already sent.</p>
+<p><strong>Agents.</strong> A room can have agents (programs) as members. An agent reads what any member of the room can read, and hears a call if it is set to listen. The person who runs the agent decides where that goes: to a model on their own machine, to a model provider such as Anthropic, to another program of their choosing, or, for a listening agent, to a transcriber they choose, on their own machine by default. We are not that person unless we run the agent, and we do not see what an agent run by somebody else sends.</p>
 <p>We do not use an email marketing service, an analytics company or an error-tracking company for this site.</p>
 
 <h2>8. Children</h2>

@@ -1,9 +1,13 @@
 # Children's access assessment
 
-> **DRAFT for legal review, 25 September 2026.** Drafted from the code on
+> **DRAFT for legal review, 28 September 2026.** Drafted from the code on
 > `main` for the owner to check and sign. It is not legal advice and it has
 > not been reviewed by a lawyer. Evidence marked `[INPUT]` is needed before
 > signing.
+>
+> Changed on 28 September 2026: the deadline is dated, the record is
+> described as kept rather than sent, and the claim that the operator sees
+> no content is narrowed to rooms it does not keep.
 >
 > **Conclusion: we cannot show that children do not or will not access the
 > service.** There is no age check anywhere in the code. Whether the child
@@ -29,11 +33,30 @@
 | --- | --- |
 | Service | KithMoot, at `kithmoot.forgesworn.dev` and its clients |
 | Provider | ForgeSworn |
-| Date completed | `[date signed]` (draft of 25 September 2026) |
+| Date completed | `[date signed]` (draft of 28 September 2026) |
 | Completed by | Drafted from the code by an AI assistant; checked by `[name]` |
 | Named person responsible | `[the role named in the illegal content risk assessment]` |
 | Approved by | `[Operator]` |
 | Next review | At least once a year, and before any change to how a room is created or joined |
+
+## When this must be done, and what happens to it
+
+The law this record applies is written up in
+[the online services law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md);
+this record holds only this project's facts and decisions.
+
+A new service has three months from launch to carry out a children's access
+assessment (law note, section 2.4, marked `[S]` there). Counting from the
+first deploy commit in the repository, 24 August 2026, three calendar months
+run to **24 November 2026**. `[INPUT: the date the service launched to
+users other than the maintainers. If it is not 24 August 2026, count three
+months from that date instead.]`
+<!-- git log: first deploy commit 2026-08-24, "feat: add deploy kit for a default TURN server and PWA hosting" -->
+
+The assessment is carried out and recorded, and the record is kept in
+version control. Nothing read for the law note asks a small service to send
+it to Ofcom unless Ofcom asks for it; the note marks that unchecked `[U]`
+(section 2.3).
 
 ## Part A: the assessment
 
@@ -144,18 +167,20 @@ Ofcom's four steps.
 ### B1. Content to assess
 
 Ofcom's primary priority and priority content kinds apply in principle, but
-KithMoot carries no content the operator can see (section 2.1 of the
-illegal content risk assessment), so this assessment is necessarily about
+KithMoot carries no content the operator can see, except in a room the
+operator keeps on a keeper it runs, which holds the room key (section 2.1
+of the illegal content risk assessment). So this assessment is mainly about
 **what a room's own design permits**, not about content the operator could
 review and rate.
+<!-- deploy/keeper@.service: "this process DOES hold the room key" -->
 
 ### B2. Where each could appear here
 
 | Surface | Kinds most relevant | Notes |
 | --- | --- | --- |
-| Direct messaging (a room of two) | Grooming; bullying; self-harm encouragement | Private, encrypted, no operator visibility |
+| Direct messaging (a room of two) | Grooming; bullying; self-harm encouragement | Private, encrypted, no operator visibility unless the operator keeps the room |
 | Group rooms | Bullying; hate; abuse | Same |
-| Calls (audio/video) | Any of the above, live | No recording by the service; a keeper-run room may record separately (out of scope here) |
+| Calls (audio/video) | Any of the above, live | No recording by the service. A listening agent, including a keeper started to listen, writes into a transcript what is said by people who have switched on "Let agents hear me" |
 | File sharing (opt-in) | Cannot itself carry viewable media through the default store (illegal content risk assessment, 2.3) | The exchange risk, if any, is anonymous bulk storage, not on-service viewing |
 | Agents in a room | Content an agent might generate or relay | `docs/agents.md` governs agent consent and scope; not separately assessed here |
 

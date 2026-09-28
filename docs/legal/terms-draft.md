@@ -1,9 +1,17 @@
 # Terms of use
 
-> **DRAFT for legal review, 25 September 2026.** It has not been reviewed
+> **DRAFT for legal review, 28 September 2026.** It has not been reviewed
 > by a lawyer and it is not legal advice. HTML comments name the code
 > behind each statement about the service. Text in `[square brackets]` is
 > a placeholder or a decision still open.
+>
+> Changed on 28 September 2026: "we cannot read your room" is narrowed to
+> rooms we do not keep; a new section 7 covers agents and transcription;
+> payments are described as they are; later sections renumbered.
+>
+> The law behind these terms is written up in
+> [the online services law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md)
+> (section 2.3 for what terms must explain).
 
 ## 1. About these terms
 
@@ -21,6 +29,17 @@ instead.
 By using KithMoot you agree to these terms. If we change them, we will say
 so on the site before the change takes effect. If you do not agree to a
 change, stop using the service.
+
+**Payment.** Nothing in the service we run by default asks
+you for payment. The source code also contains a kit for a separately run
+TURN server that charges a room's keeper, never a person in the room, and
+a feature that shows on a profile picture how much a person has donated
+to the project, worked out from public receipts; that feature takes no
+payment and is switched off as shipped.
+<!-- deploy/l402/README.md, "What this does not change": the default /turn stays free; "A participant must never be asked to pay to be in a room"; src/node/l402.ts is imported only by its test; app/src/main.ts DONATION_RECIPIENT = '' leaves src/donations.ts disabled -->
+`[INPUT: whether the paid TURN endpoint or the donor ring is switched on
+anywhere. If either is, the trading rules in section 8 of the law note apply
+and this paragraph changes.]`
 
 These terms do not take away any rights you have by law as a consumer.
 
@@ -52,9 +71,17 @@ These terms do not take away any rights you have by law as a consumer.
   name hosts who remove members or close the room. Removal changes the
   room's key for everyone still in it, but it cannot erase a message
   someone already received on their device.
-- **We cannot see who is in your room, or what your room contains.**
-  Everything meaningful in a room is end-to-end encrypted; we have no
-  membership list and no content to review (section 6).
+- **A keeper holds the room's key.** It made the room, it is a member of
+  it, and whoever runs the computer it runs on can read the room as any
+  member can: its messages, its files, and who is in it.
+  <!-- deploy/keeper@.service: "It holds the room's traffic secret and the root inviter key"; deploy/README.md, "Running a keeper": "the operator of the box can read that room the way any member can" -->
+- **Unless we keep your room, we cannot see who is in it or what it
+  contains.** Everything meaningful in a room is end-to-end encrypted; for
+  a room we do not keep, we have no membership list and no content to
+  review (section 6). If we run the keeper for a room, we can read that
+  room.
+  `[INPUT: whether the operator keeps any room that people other than the
+  maintainers use; if so, say which rooms, or how their members are told.]`
 
 ## 4. Your identity and your keys
 
@@ -93,10 +120,16 @@ it (relays, TURN, the default file store, the default drop tier), for:
 Read this section before relying on anything else in these terms about
 reports or removal.
 
-- **We cannot read your messages, your files, or your calls.** Rooms are
-  end-to-end encrypted; the traffic key never leaves the room's own link
-  and the devices in it.
+- **We cannot read your messages, your files, or your calls, unless we
+  keep your room.** Rooms are end-to-end encrypted; the traffic key never
+  leaves the room's own link, the devices in it, and its keeper if it has
+  one. The relays, forwarders, TURN server and file store we run never
+  get the key.
   <!-- docs/protocol.md, "Identities and trust boundaries": "Participant secrets never go to relays, forwarders or stores. ... Encryption hides payloads, not these observations." -->
+- **If we run the keeper for a room, we hold that room's key** and can
+  read it the way any member can (section 3). A key we hold is one the law
+  can require us to hand over.
+  <!-- deploy/README.md, "Running a keeper"; law note section 5.4 (RIPA s49) -->
 - **What relays, forwarders and TURN servers see instead:** event kinds,
   device public keys, opaque room selectors, timing and the size of what
   is sent. Not who a person is, and not what was said.
@@ -115,7 +148,32 @@ reports or removal.
   document under any circumstances; what is stored there is meaningless
   bytes without a room's own key.
 
-## 7. Reporting content and complaints
+## 7. Agents in a room
+
+A room can have agents as members: programs that read the room and can
+write in it. Each is marked "agent" beside its name, because it says it is
+one.
+<!-- src/agent.ts (RoomAgent); app/src/main.ts renders an "agent" badge for a participant whose roster entry says agent -->
+
+- **An agent reads what members can read.** It is a member, so it has
+  the room's key for as long as it is in the room: the chat, the files
+  shared there, and the agents' channel.
+- **A listening agent transcribes speech.** An agent that listens writes
+  what people say on a call into the room's transcript channel, where
+  every member can read it. It hears only people who have switched on
+  "Let agents hear me", which is off until each person turns it on for
+  their own device. The transcript is what the agent reckons was said,
+  not a record anyone vouches for.
+  <!-- src/agent.ts TRANSCRIPT_CHANNEL; src/node/transcriber.ts; app/src/main.ts setAgentsMayHear ("Off: nothing that says it is an agent is sent your camera or microphone") and the transcript channel note -->
+- **An agent may send what it reads elsewhere.** Depending on how it is
+  set up, it passes room content to a model on its own machine, to a
+  program its owner chose, or to an online model provider.
+  <!-- src/node/brains.ts: StdioBrain, OllamaBrain (default http://127.0.0.1:11434), AnthropicBrain; src/node/transcriber.ts: WhisperX, loopback by default -->
+- **Whoever brings an agent into a room is responsible for it**: for
+  telling the people in the room, and for where the agent sends what it
+  reads or hears. We are not that person unless we run the agent.
+
+## 8. Reporting content and complaints
 
 Write to **`abuse@safety.forgesworn.dev`**, or use the `/report/` page, to report
 illegal content or abuse connected with KithMoot. Tell us:
@@ -135,25 +193,28 @@ same address and say what happened. We acknowledge, look at it again, and
 tell you what we decided. If you are not satisfied, you can contact Ofcom,
 which regulates online safety, or seek independent advice.
 
-## 8. Removing access
+## 9. Removing access
 
 We may take default infrastructure we control offline for a room, a
 credential, or a specific hash, or block a pubkey where the underlying
 software allows it, at our discretion, for example to act on a report or
 to protect people. This is a metadata-level action, described precisely in
-`docs/legal/report-handling.md`; it never involves us reading room content,
-because we cannot. We will tell you why unless the law or safety prevents
-it. Nothing here reaches a room's own key holders, a keeper's own
-infrastructure, or a self-hosted deployment of KithMoot, none of which we
-control.
+`docs/legal/report-handling.md`; for a room we do not keep, it never
+involves us reading room content, because we cannot. For a room we keep,
+we can also act as its keeper: remove a member or close the room. We will
+tell you why unless the law or safety prevents it. Nothing here reaches a
+room's own key holders, a keeper someone else runs, or a self-hosted
+deployment of KithMoot, none of which we control.
+<!-- deploy/README.md, "Hosts: who may remove people": a keeper is "the only party that can remove a member" -->
 
-## 9. Our responsibility to you
+## 10. Our responsibility to you
 
 - We provide the service as it is, and we are improving it all the time.
   We do our best to keep the default infrastructure running, but we
   cannot promise it will always be available.
 - We are not responsible for what other people say, share or do in a room,
-  because we cannot see it and cannot pre-review it.
+  because we cannot pre-review it, and outside rooms we keep we cannot see
+  it.
 - If you self-host KithMoot or run your own keeper, relay, TURN server or
   file store, these terms cover only the default infrastructure we run;
   your own deployment is your own responsibility.
@@ -165,17 +226,17 @@ control.
   users (a self-hosting keeper, an agency running rooms for clients) need
   different wording.]`
 
-## 10. Privacy
+## 11. Privacy
 
 How we handle personal data is in our privacy notice
 (`docs/legal/privacy-notice-draft.md`).
 
-## 11. Law
+## 12. Law
 
 These terms are governed by the law of England and Wales.
 `[LEGAL REVIEW: governing law and courts, given users outside the UK.]`
 
-## 12. Contact
+## 13. Contact
 
 **ForgeSworn.** Content, safety and reports: `abuse@safety.forgesworn.dev`.
 `[general contact address]`.

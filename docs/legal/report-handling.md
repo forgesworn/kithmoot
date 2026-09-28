@@ -1,16 +1,22 @@
 # Report handling runbook
 
-> **DRAFT for legal review, 25 September 2026.** The operator's own runbook
+> **DRAFT for legal review, 28 September 2026.** The operator's own runbook
 > for acting on a notice of illegal content or abuse connected with
 > KithMoot. Checked against the code on `main`. Where a removal capability
 > does not exist, this says so plainly and does not promise it in the
 > terms or elsewhere. **This is not legal advice.**
+>
+> Changed on 28 September 2026: child sexual abuse content now goes to the
+> NCA's Industry Reporting Portal under the statutory timing (sections 4 and
+> 6), and the abuse mailbox is recorded as existing.
 
 ## 1. How a notice arrives
 
-- **Email: `abuse@safety.forgesworn.dev`.** `[OWNER TO DO: create this mailbox
-  before this runbook, the terms or the privacy notice can be relied on.
-  Nothing in this repository creates it.]`
+- **Email: `abuse@safety.forgesworn.dev`.** The mailbox exists (Email
+  Routing forwarding to the owner's inbox, set up 25 September 2026; see
+  `docs/legal/README.md`). `[OWNER TO DO: send it a test message and confirm
+  reports sent to it are read, before this runbook, the terms or the privacy
+  notice can be relied on.]`
 - **The `/report/` page** (`site/report/index.html`, this PR), which tells
   someone what to send and to that same address. It needs no account.
 - There is no in-app button for this, because there is no in-app content
@@ -175,9 +181,10 @@ owner to confirm:]`
   working days for our own default infrastructure; immediately, with an
   honest "we cannot act on this" and any onward referral, where the
   notice concerns a relay or store we do not operate.
-- Suspected CSAM, or anything suggesting a child is at immediate risk: see
-  section 6, acted on as fast as physically possible, not on the ordinary
-  timescale above.
+- Suspected child sexual abuse content: none of the timescales above
+  apply. The report to the NCA follows the statutory timing in section 6
+  (immediately where a child faces an immediate threat), and any
+  infrastructure action is taken as fast as it can be.
 
 ## 5. Record keeping
 
@@ -188,45 +195,99 @@ action was a **manual, undocumented host-level intervention** (section
 3.2), record that explicitly, since it bypasses the deployed software's
 own authorisation and audit trail. `[DECISION: where this record is kept
 and for how long. A reasonable starting point is at least three years,
-matching the risk assessment's own record retention.]`
+matching the risk assessment's own record retention.]` A report to the
+NCA carries its own statutory retention periods, set out in section 6.2.
 
 ## 6. Child sexual abuse material (CSAM)
 
-**Do not view, download, forward, store or otherwise handle suspected
-CSAM beyond what is unavoidable to receive a notice of it.** This is a
-matter of UK law, not only good practice: possessing or distributing such
-material is itself an offence, with narrow exceptions.
+**Do not view, download, copy, forward, store or otherwise handle
+suspected CSAM beyond what is unavoidable to receive a notice of it.**
+Possessing or distributing such material is itself an offence, and the law
+note's guidance is not to view, copy or forward it to check a report
+(marked unverified in the note).
 
-If a notice describes, or you otherwise encounter, suspected CSAM:
+A regulated user-to-user service must report child sexual exploitation and
+abuse content it becomes aware of to the National Crime Agency (Online
+Safety Act 2023, section 66, and SI 2026/268, in force 7 April 2026); see
+[law note section 2.6](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md).
+The duty covers content we become aware of however that happens, including
+a report sent to the abuse mailbox. It does not require us to detect or
+scan for anything, and nothing here asks us to.
+
+### 6.1 Before any report arrives
+
+The provider must register with the NCA before submitting its first report
+(regulation 4). `[DECISION: whether to register with the NCA's Industry
+Reporting Portal now, in advance, so that a first report is not delayed by
+registration.]`
+
+### 6.2 When a notice describes, or you otherwise encounter, suspected CSAM
 
 1. **Do not attempt to verify it by viewing the material.** Act on the
    sender's description and any metadata (room link, event id, hash)
    alone.
-2. **Report it to the relevant authority without delay:**
-   - The **National Crime Agency (NCA)**, via the **CEOP** reporting
-     route: <https://www.ceop.police.uk/safety-centre/> (for anyone,
-     including a child, to report abuse or exploitation of a child).
-   - The **Internet Watch Foundation (IWF)**, for reporting a URL or
-     online location believed to host CSAM: <https://report.iwf.org.uk/>.
-   `[LEGAL REVIEW: confirm the correct routing given this is a small UK
-   operator rather than a hosting platform with an existing IWF or NCA
-   relationship, and whether direct engagement with either body ahead of
-   time is advisable.]`
-3. **Take the narrowest infrastructure action available** (section 3) to
+2. **Report it to the NCA through its Industry Reporting Portal.** This is
+   the statutory route for a provider. Timing (regulation 6):
+   - **immediately** where a child faces an immediate threat;
+   - **as soon as reasonably practicable** where there is a risk of serious
+     harm;
+   - otherwise **without undue delay**.
+
+   If a child is in immediate danger, also call the police on 999.
+3. **Report only what we actually hold, and nothing we have not checked
+   is true.** Reporting false information is a criminal offence. A report
+   is meant to include the detected content and its metadata, but we
+   cannot see room content and must not view such material to verify it.
+   In practice what we hold is:
+   - the reporter's own account, in their words;
+   - a room link, if they gave one;
+   - an event id, if they gave one;
+   - a file hash, if they gave one;
+   - whatever our own servers logged about that item (for example the
+     stored, encrypted blob on the default file store, or the event on the
+     relay we operate), without opening or decrypting it.
+
+   `[LEGAL REVIEW: what a report to the NCA should contain, and whether the
+   duty is met, when the provider holds no readable content and cannot see
+   the material without committing an offence; and whether a small UK
+   operator with no existing NCA relationship should contact the NCA
+   before its first report.]`
+4. **Take the narrowest infrastructure action available** (section 3) to
    stop our default infrastructure continuing to relay or store the
    material, without inspecting it further than necessary to identify
    what to act on (a hash or event id given in the notice is normally
-   enough).
-4. **Do not discuss the material's content** in any internal record beyond
+   enough). How this interacts with the retention in step 5 is an open
+   legal question, marked there.
+5. **Keep what the regulations require** (regulation 8): the NCA's report
+   reference number for five years; the content, the information submitted
+   and the user data for one year. `[LEGAL REVIEW: how "the content" is to
+   be retained for a year when we hold only encrypted blobs or events we
+   cannot read and must not copy or view, and whether removing an item
+   under step 4 conflicts with that retention.]`
+6. **Do not discuss the material's content** in any internal record beyond
    what is needed to identify it (a hash, an id, the sender's own words).
    Do not describe or reproduce it.
-5. **Preserve, do not delete, our own metadata about the notice itself**
-   (not the material) pending any request from the NCA or IWF, unless told
+7. **Preserve, do not delete, our own metadata about the notice itself**
+   (not the material) pending any request from the NCA, unless told
    otherwise by them.
+
+### 6.3 What to tell a member of the public
+
+CEOP and the Internet Watch Foundation are routes for the public, not the
+provider's statutory route. When a member of the public reports child
+abuse to us, tell them they can also report it directly:
+
+- to **CEOP**, part of the NCA, for anyone, including a child, to report
+  abuse or exploitation of a child: <https://www.ceop.police.uk/safety-centre/>;
+- to the **Internet Watch Foundation**, for a URL or online location
+  believed to host such material: <https://report.iwf.org.uk/>;
+- to the police on 999 if a child is in immediate danger.
+
+Tell them not to send the material itself to us.
 
 This runbook deliberately does not describe how to examine, categorise or
 triage the material itself. That is not this project's or this operator's
-role; it is the NCA's and the IWF's.
+role; it is the NCA's.
 
 ## 7. Who does this
 
