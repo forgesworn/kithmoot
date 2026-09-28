@@ -90,7 +90,8 @@ try {
     return points.map(([x, y]) => Math.max(...context.getImageData(x - 208, y - 202, 1, 1).data.slice(0, 3)))
   }, points)
   const inside = await sample([[400, 350], [310, 310], [490, 390], [820, 510], [710, 460], [930, 560]]), beside = await sample([[560, 640], [1000, 300]])
-  check('two boxes: both are black in the shared picture and the rest is not', Boolean(inside?.every(value => value < 30) && beside?.some(value => value > 60)), `inside ${inside}, beside ${beside}`)
+  // The cover is a pattern in two dark colours, both under 60 in every channel.
+  check('two boxes: both are covered in the shared picture and the rest is not', Boolean(inside?.every(value => value < 60) && beside?.some(value => value > 100)), `inside ${inside}, beside ${beside}`)
   console.log(`${results.filter(Boolean).length} of ${results.length} passed`)
 } catch (error) { results.push(false); console.log('FAILED', error.message) } finally {
   // Closing a window on a call raises a dialog that waits for an answer.

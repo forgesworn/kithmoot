@@ -1,28 +1,33 @@
-import { EMPTY_STATE, RedactionTrail, blackCopy, cropPlan, planRedaction, refuseShare, type Rect, type RedactionPlan, type RedactionState } from './redaction-geometry.js'
+import { EMPTY_STATE, HIDDEN_PLAN, RedactionTrail, coverCopy, cropPlan, planRedaction, refuseShare, type Rect, type RedactionPlan, type RedactionState } from './redaction-geometry.js'
+import { coverFill } from './share-cover.js'
 
 type Bridge = NonNullable<Window['kithmootDesktop']>
 const BOX_URL = 'about:blank#kithmoot-redaction-box-'
 /** How long a share waits for its first picture before starting without one. */
 export const FIRST_PICTURE_MS = 3000
-export const WAITING_COPY = 'Your share has no picture yet. If it stays black, bring what you are sharing to the front.'
+export const WAITING_COPY = 'Your share has no picture yet. If none comes, bring what you are sharing to the front.'
 
-/** Black over every rectangle the plan names, or over everything. */
+/** The cover over every rectangle the plan names, or over everything. */
 export function paintPlan(context: CanvasRenderingContext2D, plan: RedactionPlan, width: number, height: number): void {
-  context.fillStyle = '#000'
-  if (plan.mode === 'black') context.fillRect(0, 0, width, height)
-  else if (plan.mode === 'boxes') for (const rect of plan.rects) context.fillRect(rect.x, rect.y, rect.width, rect.height)
+  if (plan.mode === 'pass') return
+  context.fillStyle = coverFill(context)
+  if (plan.mode === 'cover') context.fillRect(0, 0, width, height)
+  else for (const rect of plan.rects) context.fillRect(rect.x, rect.y, rect.width, rect.height)
 }
 
 /**
  * Redaction boxes in the desktop app: see-through windows on the real
  * screen, each drawn here and placed by the main process, whose areas are
- * painted black in every outgoing screen or area share (`redact` below and
- * `DesktopShareArea`). Nothing here exists in a browser tab.
+ * covered in every outgoing screen or area share (`redact` below and
+ * `DesktopShareArea`). The same canvas hides a whole share on purpose.
+ * Nothing here exists in a browser tab.
  */
 export class DesktopRedaction {
   #state: RedactionState = EMPTY_STATE
   #popups = new Map<string, { popup: Window; render: () => void }>()
   #listeners = new Set<() => void>()
+  #paints = new Set<() => void>()
+  #hidden = false
   #count = 0
 
   constructor(private readonly bridge: Bridge | undefined) {
@@ -36,6 +41,19 @@ export class DesktopRedaction {
   get count(): number { return this.#state.boxes.length }
   anyOn(): boolean { return this.#state.boxes.some(box => box.on) }
   onChange(listener: () => void): () => void { this.#listeners.add(listener); return () => this.#listeners.delete(listener) }
+
+  /** A share hidden on purpose: every picture going out is wholly covered until it is shown again. */
+  get hidden(): boolean { return this.#hidden }
+  setHidden(hidden: boolean): void {
+    if (this.#hidden === hidden) return
+    this.#hidden = hidden
+    // Painted now, not at the next tick: nothing more of the picture goes
+    // out once hiding is asked for, and nothing at all before the plan says so.
+    for (const paint of this.#paints) paint()
+    for (const listener of this.#listeners) listener()
+  }
+  /** A share's paint loop, run the moment the share is hidden or shown. */
+  onPaint(paint: () => void): () => void { this.#paints.add(paint); return () => this.#paints.delete(paint) }
 
   #set(state: RedactionState | null): void {
     this.#state = state ?? EMPTY_STATE
@@ -152,8 +170,9 @@ export class DesktopRedaction {
   }
 
   /**
-   * A whole-screen share, routed through a canvas that paints every active
-   * box black before the picture is published. The raw capture never leaves
+   * A whole-screen or window share, routed through a canvas that covers
+   * every active box, or all of it while hidden, before the picture is
+   * published. The raw capture never leaves
    * this page: only the canvas track goes to the call, always, so a box can
    * appear mid-share without swapping tracks and no raw frame slips out.
    */
@@ -169,7 +188,7 @@ export class DesktopRedaction {
     // A window that sends no picture (one that has gone, or sits where macOS
     // does not draw it) never starts playing, and waiting on it left the
     // share neither started nor refused. Start without a picture instead:
-    // the canvas stays black until one arrives.
+    // the canvas stays covered until one arrives.
     const playing = video.play()
     playing.catch(() => {})
     const began = await Promise.race([playing.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), FIRST_PICTURE_MS))])
@@ -181,15 +200,19 @@ export class DesktopRedaction {
     if (!began) { note = WAITING_COPY; report(note) }
     const paint = () => {
       const width = video.videoWidth, height = video.videoHeight
-      // The plan comes first: when it is black the raw frame is never drawn.
-      const plan = width && height ? planRedaction(this.#state, { width, height }, trail.next(this.#state.boxes, performance.now()), surface) : { mode: 'black', reason: 'geometry' } as const
+      // The trail is kept up even while hidden, so a box that moved in the
+      // meantime is still held when the share is shown again.
+      const held = trail.next(this.#state.boxes, performance.now())
+      // The plan comes first: when it covers everything the raw frame is never drawn.
+      const plan: RedactionPlan = this.#hidden ? HIDDEN_PLAN : width && height ? planRedaction(this.#state, { width, height }, held, surface) : { mode: 'cover', reason: 'geometry' }
       if (width && height && (canvas.width !== width || canvas.height !== height)) { canvas.width = width; canvas.height = height }
-      if (plan.mode !== 'black') context.drawImage(video, 0, 0, canvas.width, canvas.height)
+      if (plan.mode !== 'cover') context.drawImage(video, 0, 0, canvas.width, canvas.height)
       paintPlan(context, plan, canvas.width, canvas.height)
-      const next = plan.mode === 'black' && video.videoWidth ? blackCopy(plan.reason) : !began && !video.videoWidth ? WAITING_COPY : undefined
+      const next = plan.mode === 'cover' && (video.videoWidth || plan.reason === 'hidden') ? coverCopy(plan.reason) : !began && !video.videoWidth ? WAITING_COPY : undefined
       if (next !== note) { note = next; report(note) }
     }
     paint()
+    const unpaint = this.onPaint(paint)
     const output = canvas.captureStream(30).getVideoTracks()[0]!
     const timer = setInterval(paint, 33)
     let stopped = false
@@ -198,6 +221,7 @@ export class DesktopRedaction {
       if (stopped) return
       stopped = true
       clearInterval(timer)
+      unpaint()
       video.pause(); video.srcObject = null
       source.stop()
       stopOutput()
@@ -215,7 +239,9 @@ export class DesktopRedaction {
    * carried into the crop. `crop` is in fractions of the frame.
    */
   areaPlan(trail: RedactionTrail, frame: { width: number; height: number }, crop: Rect, output: { width: number; height: number }): RedactionPlan {
-    const plan = planRedaction(this.#state, frame, trail.next(this.#state.boxes, performance.now()))
+    const held = trail.next(this.#state.boxes, performance.now())
+    if (this.#hidden) return HIDDEN_PLAN
+    const plan = planRedaction(this.#state, frame, held)
     return cropPlan(plan, { x: crop.x * frame.width, y: crop.y * frame.height, width: crop.width * frame.width, height: crop.height * frame.height }, output)
   }
 }
