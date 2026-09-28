@@ -4,7 +4,7 @@
 // queue (see `vectors/lib/determinism.mjs`'s `withStubbedRandomness`), or the
 // decoder/verifier directly for everything else - and asserting the result
 // equals what is recorded on disk. This is the strongest form the review in
-// `docs/plans/2026-09-28-circle-kit-extraction.md` (girnel repository) asked
+// the extraction review asked
 // for: a vector's bytes are not merely internally self-consistent, they are
 // what the ACTUAL implementation in `src/` produces from the ACTUAL inputs.
 //

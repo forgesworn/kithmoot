@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // Generates `vectors/circle-vectors.json` - the wire-compatibility proof for
 // the circle-layer gaps identified before extracting KithMoot's circle code
-// into a shared kit (see docs/plans/2026-09-28-circle-kit-extraction.md §3.2
-// in the girnel repository). This file is separate from
+// into a shared kit (see @forgesworn/fold-kit's EXTRACTION.md). This file is separate from
 // `vectors/kithmoot-vectors.json` on purpose: running this generator never
 // touches that file, so the Android client's contract is untouched.
 //

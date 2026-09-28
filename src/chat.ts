@@ -1,7 +1,5 @@
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
-import { hkdf } from '@noble/hashes/hkdf'
-import { sha256 } from '@noble/hashes/sha2'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
 import { normaliseReaction, type ChatReaction } from './reactions.js'
@@ -26,6 +24,15 @@ import { olderThan, type ArchiveCursor, type ArchiveMeta, type EventArchive } fr
 import { isQuietPolicy } from './quiet.js'
 import { laneOfRelayUrl, laneOfRelays, type Lane } from './lane.js'
 import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from './types.js'
+// `deriveChannel`, `CHANNEL_ID_INFO`, `CHANNEL_KEY_INFO` and
+// `MAX_CHANNEL_NAME_LENGTH` moved to @forgesworn/fold-kit's `channel.ts`
+// (see the T2.1 codec cutover); `ChatLog` and the chat event codecs below
+// stay here. Re-exported under their existing names so every import of
+// `./chat.js` keeps working - but NOT `CHANNEL_LABELS`: that name does not
+// exist in KithMoot today (this file's own label is `CHAT_LABELS`, below).
+import { deriveChannel, CHANNEL_ID_INFO, CHANNEL_KEY_INFO, MAX_CHANNEL_NAME_LENGTH } from '@forgesworn/fold-kit'
+
+export { deriveChannel, CHANNEL_ID_INFO, CHANNEL_KEY_INFO, MAX_CHANNEL_NAME_LENGTH }
 
 export const MAX_CHAT_TEXT_LENGTH = 2_000
 export const CHAT_RETENTION_SECONDS = 30 * 24 * 60 * 60
@@ -36,31 +43,6 @@ export const CHAT_ARCHIVE_PAGE = 100
 /** Archived events decoded between two yields to the page: a decode is a
  *  signature, a credential and a decryption, a few milliseconds each. */
 const ARCHIVE_DECODE_CHUNK = 40
-
-export const CHANNEL_ID_INFO = 'kithmoot/v1/channel-id/'
-export const CHANNEL_KEY_INFO = 'kithmoot/v1/channel-key/'
-/** Bounds a channel name, which rides only in an HKDF info string and
- *  never on the wire; long enough for any sensible name. */
-export const MAX_CHANNEL_NAME_LENGTH = 64
-
-/**
- * The room id and key a named channel lives under.
- *
- * Both derived from the room KEY, never the room id, so a party that holds
- * the id and not the key - a forwarder, a relay - cannot find the channel
- * from the room, let alone read it. Two separate HKDF expansions for the
- * same reason `deriveRoom` uses two: publishing the id reveals nothing about
- * the key. The main chat is the unnamed channel and is untouched by this:
- * its id is the room id and its key the room key, byte for byte as before.
- */
-export function deriveChannel(roomId: string, roomKey: Uint8Array, channel?: string): { id: string; key: Uint8Array } {
-  if (channel === undefined) return { id: roomId, key: roomKey }
-  if (channel.length === 0 || channel.length > MAX_CHANNEL_NAME_LENGTH) throw new Error('channel name out of range')
-  const idBytes = hkdf(sha256, roomKey, undefined, CHANNEL_ID_INFO + channel, 32)
-  const key = hkdf(sha256, roomKey, undefined, CHANNEL_KEY_INFO + channel, 32)
-  const id = Array.from(idBytes, (b) => b.toString(16).padStart(2, '0')).join('')
-  return { id, key }
-}
 
 /** What a message is, when it is not simply something somebody typed. */
 export type ChatMessageKind = 'transcript' | 'directive'
@@ -1138,8 +1120,9 @@ function hex(bytes: Uint8Array): string {
 /** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
  *  `src/labels.test.ts`, which checks each module against its own exported
  *  list rather than scanning file text for matching comments. Pure data -
- *  adding this export changes no runtime behaviour. */
-export const CHAT_LABELS = [
-  "kithmoot/v1/channel-id/",
-  "kithmoot/v1/channel-key/",
-] as const
+ *  adding this export changes no runtime behaviour.
+ *
+ *  Empty since the T2.1 codec cutover: this file's only two labels,
+ *  `CHANNEL_ID_INFO` and `CHANNEL_KEY_INFO`, moved to @forgesworn/fold-kit's
+ *  `channel.ts` along with `deriveChannel`. */
+export const CHAT_LABELS = [] as const

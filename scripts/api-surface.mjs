@@ -14,7 +14,7 @@
 // re-export through to the real, underlying names, so the kit's shim and
 // the file it replaces snapshot identically - which is the whole point of
 // a snapshot meant to survive that extraction (see
-// docs/plans/2026-09-28-circle-kit-extraction.md T0.2, girnel repository).
+// @forgesworn/fold-kit's EXTRACTION.md).
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
