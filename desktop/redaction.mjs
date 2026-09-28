@@ -47,7 +47,14 @@ export class Redaction {
     const boxes = [...this.boxes].filter(([, box]) => !box.window.isDestroyed()).map(([id, box]) => ({ id, on: box.on, bounds: box.window.getBounds() }))
     return { boxes, displays, source: this.capture, settleUntil: this.settle.deadline }
   }
-  report() { this.owner()?.webContents.send('desktop:redaction-state', this.state()) }
+  // Closing the main window is what takes the boxes away, so the owner may
+  // already be gone by the time there is something to tell it. Reaching into
+  // a destroyed window throws, and an error thrown here stopped the app
+  // closing behind an error box.
+  report() {
+    const owner = this.owner()
+    if (owner && !owner.isDestroyed()) owner.webContents.send('desktop:redaction-state', this.state())
+  }
   /** A new share is about to be chosen: forget the last one's source. */
   begin() { this.capture = null; this.report() }
   /** The source the display handler actually answered with. */

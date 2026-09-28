@@ -34,7 +34,7 @@ export class ShareArea {
     if (process.platform === 'linux') window.setAlwaysOnTop(true)
     else window.setAlwaysOnTop(true, 'screen-saver')
     if (process.platform === 'darwin') window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-    const report = () => { this.owner()?.webContents.send('desktop:area-state', this.state()); this.reportCheck() }
+    const report = () => { this.tell('desktop:area-state', this.state()); this.reportCheck() }
     window.on('move', report)
     window.on('resize', () => { this.shape(window); report() })
     window.on('closed', () => { if (this.window === window) { this.window = undefined; this.display = undefined; report() } })
@@ -56,7 +56,13 @@ export class ShareArea {
   }
   /** Where the frame stands, and why the last request to share was refused. */
   check() { return { fits: this.fits(), refusal: this.refusal ?? null } }
-  reportCheck() { this.owner()?.webContents.send('desktop:area-check', this.check()) }
+  reportCheck() { this.tell('desktop:area-check', this.check()) }
+  // The frame outlives the main window by a moment when that window closes;
+  // reaching into a destroyed window throws.
+  tell(channel, value) {
+    const owner = this.owner()
+    if (owner && !owner.isDestroyed()) owner.webContents.send(channel, value)
+  }
   // A refusal the person can put right is remembered, so the page can say
   // what to do rather than close the frame without a word.
   refused(reason, callback) {
@@ -89,7 +95,7 @@ export class ShareArea {
     if (this.window !== window || window.isDestroyed()) return refuse(callback)
     if (this.display !== display || !this.state()) return this.refused('placement', callback)
     if (!source) return this.refused('source', callback)
-    this.owner()?.webContents.send('desktop:area-state', this.state())
+    this.tell('desktop:area-state', this.state())
     callback({ video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) })
   }
   action(action, value) {
