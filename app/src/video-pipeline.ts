@@ -8,6 +8,7 @@ import {
 } from '../../src/video-effects.js'
 import { ReefBackground, type FishSprite } from '../../src/reef-scene.js'
 import { createSegmenter } from './mediapipe-segmenter.js'
+import { AutoFramer, personBox } from './auto-frame.js'
 
 /**
  * The camera, with the effect wired into it.
@@ -173,6 +174,8 @@ export interface CameraPipelineOptions {
   mode?: EffectMode
   /** Start at this blur strength rather than `DEFAULT_BLUR_STRENGTH`. */
   strength?: number
+  /** Keep the person in the middle of the picture - see `auto-frame.ts`. */
+  framing?: boolean
 }
 
 export interface CameraStats {
@@ -197,8 +200,14 @@ type FrameCallbackHost = HTMLVideoElement & {
 
 export class CameraPipeline {
   readonly #video: HTMLVideoElement
+  /** The published picture: a crop of `#stage`, never of the camera. */
   readonly #canvas: HTMLCanvasElement
+  readonly #canvasCtx: CanvasRenderingContext2D
+  /** What the effect paints: the whole frame, already safe to send. */
+  readonly #stage: HTMLCanvasElement
   readonly #effect: VideoEffect
+  readonly #framer = new AutoFramer()
+  #framing: boolean
   readonly #onStateChange?: (state: VideoEffectState) => void
   readonly #onSourceEnded?: () => void
 
@@ -237,9 +246,14 @@ export class CameraPipeline {
     this.#canvas = document.createElement('canvas')
     this.#canvas.width = 640
     this.#canvas.height = 480
+    const ctx = this.#canvas.getContext('2d')
+    if (!ctx) throw new Error('the camera canvas has no 2D context')
+    this.#canvasCtx = ctx
+    this.#stage = document.createElement('canvas')
+    this.#framing = opts.framing ?? true
 
     this.#effect = new VideoEffect({
-      output: this.#canvas,
+      output: this.#stage,
       createCanvas: (width, height) => {
         const canvas = document.createElement('canvas')
         canvas.width = width
@@ -399,6 +413,16 @@ export class CameraPipeline {
 
   setMode(mode: EffectMode): void {
     this.#effect.setMode(mode)
+  }
+
+  /** Keep the person centred, or send the whole frame. */
+  setFraming(on: boolean): void {
+    this.#framing = on
+    if (!on) this.#framer.reset()
+  }
+
+  get framing(): boolean {
+    return this.#framing
   }
 
   setStrength(strength: number): void {
@@ -566,6 +590,15 @@ export class CameraPipeline {
     })
   }
 
+  /** Copy the effect's finished frame out, cropped around the person. */
+  #frame(width: number, height: number): void {
+    if (this.#stage.width !== width || this.#stage.height !== height) return
+    if (this.#canvas.width !== width) this.#canvas.width = width
+    if (this.#canvas.height !== height) this.#canvas.height = height
+    const crop = this.#framing ? this.#framer.next(personBox(this.#effect.personMask)) : { x: 0, y: 0, width: 1, height: 1 }
+    this.#canvasCtx.drawImage(this.#stage, crop.x * width, crop.y * height, crop.width * width, crop.height * height, 0, 0, width, height)
+  }
+
   #cancelSchedule(): void {
     const host = this.#video as FrameCallbackHost
     if (this.#vfcHandle && host.cancelVideoFrameCallback) host.cancelVideoFrameCallback(this.#vfcHandle)
@@ -582,6 +615,7 @@ export class CameraPipeline {
 
     const startedAt = performance.now()
     const action = this.#effect.renderFrame(this.#video, width, height, startedAt)
+    this.#frame(width, height)
     const cost = performance.now() - startedAt
 
     this.#lastDrawAt = startedAt

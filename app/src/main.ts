@@ -2501,6 +2501,12 @@ const FISH_STORAGE_KEY = 'kithmoot.fish.enabled'
 let fishEnabled = (() => {
   try { return localStorage.getItem(FISH_STORAGE_KEY) === 'true' } catch { return false }
 })()
+/** Keeping you in the middle of your own picture - see `auto-frame.ts`. On
+ *  unless turned off, remembered on this device. */
+const FRAMING_STORAGE_KEY = 'kithmoot.camera.framing'
+let framingEnabled = (() => {
+  try { return localStorage.getItem(FRAMING_STORAGE_KEY) !== 'false' } catch { return true }
+})()
 let videoInputs: MediaDeviceInfo[] = []
 
 const localPreviewEls = new Map<'camera' | 'screen', HTMLVideoElement>()
@@ -4250,6 +4256,7 @@ async function toggleCamera(): Promise<void> {
     const pipeline = new CameraPipeline({
       mode: savedEffectMode,
       strength: savedBlurStrength,
+      framing: framingEnabled,
       onStateChange: state => { if (generation === callGeneration) renderEffectState(state) },
       onSourceEnded: () => {
         if (generation !== callGeneration) return
@@ -4337,6 +4344,9 @@ function renderEffectState(state: VideoEffectState): void {
   $('backgroundChoices').hidden = state.mode !== 'replace'
   // Only over a sea. Offering fish over Slate would be a question with no
   // sensible answer.
+  // Framing follows the effect's picture of where you are, so there is
+  // nothing to follow with the effect off.
+  $('framingRow').hidden = state.mode === 'off'
   $('fishRow').hidden =
     state.mode !== 'replace' || !BACKGROUNDS.find((b) => b.id === backgroundId)?.sea
 
@@ -11988,6 +11998,13 @@ $('fishToggle').addEventListener('change', () => {
   fishEnabled = ($('fishToggle') as HTMLInputElement).checked
   try { localStorage.setItem(FISH_STORAGE_KEY, String(fishEnabled)) } catch { /* Still applies to this visit. */ }
   camera?.setFish(fishEnabled).catch((err) => setStatus(describeError(err)))
+})
+
+;($('framingToggle') as HTMLInputElement).checked = framingEnabled
+$('framingToggle').addEventListener('change', () => {
+  framingEnabled = ($('framingToggle') as HTMLInputElement).checked
+  try { localStorage.setItem(FRAMING_STORAGE_KEY, String(framingEnabled)) } catch { /* Still applies to this visit. */ }
+  camera?.setFraming(framingEnabled)
 })
 
 $('switchCamera').addEventListener('click', () => {
