@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Bump `@forgesworn/fold-kit` to 0.2.0: `createDeviceCredential` now refuses
+  a person-scope credential a restamping signer pushed over the 30-day cap,
+  throwing the new, re-exported `RestampedCredentialExpiryError` at mint
+  time instead of minting a credential refused everywhere it is presented
+  (#205).
 - **Call bell, kind 1464.** Wire change, additive: the first device on a
   call publishes one `start` bell and the last one off publishes one `end`,
   so a phone with the app closed can wait for a call on an idle socket
