@@ -1,0 +1,975 @@
+{
+  "protocolVersion": "kithmoot/v1",
+  "generatedBy": "vectors/generate-circle.mjs",
+  "nostrToolsVersion": "2.25.0",
+  "groups": {
+    "linkEnvelope": [
+      {
+        "name": "v2-live-full-envelope",
+        "kind": "positive",
+        "note": "A version 2 live-rendezvous link carrying every optional field at once: relay and ICE hints, a kith-gated policy, a pairing code (adding a device) and a room name.",
+        "input": {
+          "base": "https://kithmoot.com/j",
+          "link": {
+            "invitation": {
+              "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+              "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+              "persistent": null
+            },
+            "relays": [
+              "wss://relay.damus.io",
+              "wss://nos.lol"
+            ],
+            "iceUrls": [
+              "stun:stun.kithmoot.example:3478"
+            ],
+            "policy": {
+              "tier": "kith",
+              "admitted": [
+                "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+              ]
+            },
+            "pairingCodeHex": "91cc040984694a4a4c4701172ddbc693",
+            "name": "Weekly town hall"
+          }
+        },
+        "output": {
+          "url": "https://kithmoot.com/j#eyJ2IjoyLCJqIjoieGZGVHQwcTZOZ1cxdktFR1NqRlU0WXZ6S3BMb0FGQk5qZ1lDQmUzc1JsUSIsImgiOiJiNWM1ZWM3OGYxZWI1NmMwYmQ0ZDczZjEzN2MwOGZjNDlmYzQxYTIyMjU3YTk1YTM4NGU2MDU5M2NiNmFjMGJmIiwiciI6WyJ3c3M6Ly9yZWxheS5kYW11cy5pbyIsIndzczovL25vcy5sb2wiXSwiaSI6WyJzdHVuOnN0dW4ua2l0aG1vb3QuZXhhbXBsZTozNDc4Il0sImEiOnsidGllciI6ImtpdGgiLCJhZG1pdHRlZCI6WyIwMGEwYjhiNTc4ZGUzNjdlNjVjNDAwY2NjZGI3NzQzZTgyNDAzZDQ1NzQ2OWQwMjAyM2IxNTY4YTkyZmFhZGQ4Il19LCJjIjoiOTFjYzA0MDk4NDY5NGE0YTRjNDcwMTE3MmRkYmM2OTMiLCJuIjoiV2Vla2x5IHRvd24gaGFsbCJ9",
+          "decoded": {
+            "invitation": {
+              "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+              "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+              "persistent": null
+            },
+            "relays": [
+              "wss://relay.damus.io",
+              "wss://nos.lol"
+            ],
+            "iceUrls": [
+              "stun:stun.kithmoot.example:3478"
+            ],
+            "policy": {
+              "tier": "kith",
+              "admitted": [
+                "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+              ]
+            },
+            "pairingCodeHex": "91cc040984694a4a4c4701172ddbc693",
+            "name": "Weekly town hall"
+          }
+        }
+      },
+      {
+        "name": "v3-persistent-named-no-pairing-code",
+        "kind": "positive",
+        "note": "A version 3 stored group link: no pairing code, an open policy, and a name. Persistent invitations round-trip through the same envelope as v2, only the version number and the invitation.persistent flag differ.",
+        "input": {
+          "base": "https://kithmoot.com/j",
+          "link": {
+            "invitation": {
+              "bearerHex": "fe6a6ac8150838c9b16e1bec51ee1006210d73bbaa7530ed7029907f15ed0645",
+              "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+              "persistent": true
+            },
+            "relays": [
+              "wss://relay.damus.io"
+            ],
+            "iceUrls": [],
+            "policy": {
+              "tier": "open"
+            },
+            "pairingCodeHex": null,
+            "name": "Family"
+          }
+        },
+        "output": {
+          "url": "https://kithmoot.com/j#eyJ2IjozLCJqIjoiX21wcXlCVUlPTW14Ymh2c1VlNFFCaUVOYzd1cWRURHRjQ21RZnhYdEJrVSIsImgiOiJiNWM1ZWM3OGYxZWI1NmMwYmQ0ZDczZjEzN2MwOGZjNDlmYzQxYTIyMjU3YTk1YTM4NGU2MDU5M2NiNmFjMGJmIiwiciI6WyJ3c3M6Ly9yZWxheS5kYW11cy5pbyJdLCJpIjpbXSwiYSI6eyJ0aWVyIjoib3BlbiJ9LCJuIjoiRmFtaWx5In0",
+          "decoded": {
+            "invitation": {
+              "bearerHex": "fe6a6ac8150838c9b16e1bec51ee1006210d73bbaa7530ed7029907f15ed0645",
+              "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+              "persistent": true
+            },
+            "relays": [
+              "wss://relay.damus.io"
+            ],
+            "iceUrls": [],
+            "policy": {
+              "tier": "open"
+            },
+            "pairingCodeHex": null,
+            "name": "Family"
+          }
+        }
+      },
+      {
+        "name": "v2-live-no-optional-fields",
+        "kind": "positive",
+        "note": "A version 2 link with none of the optional fields: no policy, no pairing code, no name. The fragment must carry none of their keys.",
+        "input": {
+          "base": "https://kithmoot.com/j",
+          "link": {
+            "invitation": {
+              "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+              "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+              "persistent": null
+            },
+            "relays": [],
+            "iceUrls": [],
+            "policy": null,
+            "pairingCodeHex": null,
+            "name": null
+          }
+        },
+        "output": {
+          "url": "https://kithmoot.com/j#eyJ2IjoyLCJqIjoieGZGVHQwcTZOZ1cxdktFR1NqRlU0WXZ6S3BMb0FGQk5qZ1lDQmUzc1JsUSIsImgiOiJiNWM1ZWM3OGYxZWI1NmMwYmQ0ZDczZjEzN2MwOGZjNDlmYzQxYTIyMjU3YTk1YTM4NGU2MDU5M2NiNmFjMGJmIiwiciI6W10sImkiOltdfQ",
+          "decoded": {
+            "invitation": {
+              "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+              "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+              "persistent": null
+            },
+            "relays": [],
+            "iceUrls": [],
+            "policy": null,
+            "pairingCodeHex": null,
+            "name": null
+          }
+        }
+      },
+      {
+        "name": "v3-unknown-policy-tier-refused",
+        "kind": "negative",
+        "note": "A v3 (persistent) link naming an access tier outside open/ken/kith/kin is refused before the invitation itself is even read - a dropped rule would be an open room.",
+        "input": {
+          "url": "https://kithmoot.com/j#eyJ2IjozLCJqIjoiX21wcXlCVUlPTW14Ymh2c1VlNFFCaUVOYzd1cWRURHRjQ21RZnhYdEJrVSIsImgiOiJiNWM1ZWM3OGYxZWI1NmMwYmQ0ZDczZjEzN2MwOGZjNDlmYzQxYTIyMjU3YTk1YTM4NGU2MDU5M2NiNmFjMGJmIiwiciI6W10sImkiOltdLCJhIjp7InRpZXIiOiJhcmNob24ifX0"
+        },
+        "output": {
+          "throws": true,
+          "error": "join URL carries an access policy at an unknown tier"
+        }
+      }
+    ],
+    "invitationEnvelope": [
+      {
+        "name": "invitation-id-derivation",
+        "kind": "positive",
+        "note": "The public rendezvous id: HKDF-SHA256 of the bearer alone. Pure - the real function is called directly.",
+        "input": {
+          "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+          "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+        },
+        "output": {
+          "id": "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba"
+        }
+      },
+      {
+        "name": "request-valid",
+        "kind": "positive",
+        "note": "A request proving possession of the bearer, carrying an asking name and a participant pubkey.",
+        "input": {
+          "invitation": {
+            "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+            "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+          },
+          "requesterSkHex": "87a68ed405197e7910559300549798b288b9215bbcaf5f1d740bb1233bc6691c",
+          "createdAt": 1799999970,
+          "body": {
+            "v": 1,
+            "device": "bea24e3c816957292748b718431d23eb94e2529633aa36840ad70fbb3f44228b",
+            "name": "Rowan",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+          },
+          "nonceHex": "d9782ea5832d39bedd8880d5183b13b087b3d36471d5a15a95bd16c70eacc91e",
+          "auxRandHex": "3de767cd22c16f77eef7ec5046a6ae6db63155f2195745c07d02999398051449"
+        },
+        "output": {
+          "event": {
+            "kind": 20466,
+            "created_at": 1799999970,
+            "tags": [
+              [
+                "d",
+                "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba"
+              ],
+              [
+                "p",
+                "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+              ]
+            ],
+            "content": "Atl4LqWDLTm+3YiA1Rg7E7CHs9NkcdWhWpW9FscOrMkele3rPICChNNZaQXx5FkQzgJBoRF4uXbylYkzZfca3iRcp4zevZytQzCV3aRt/hHVpjaot+tVh2zI5ZLvDkbAu5Mat0pAgY6GBJtHdX/XIb5n8pbY/i2u1QR/0HWmMZoaOoctAlC1ffc5vfQ7Q9Nu9iu/UrLR582aMjdGJT8YpCN1c+uiOlJs0h3Rg8pO1+Pkbr0/eDRV6PhrjtgO5PSyWmmaHmlDTnx8pImp0e8HokWkvhaXKczdcc4ZhjQ26bO5lKPAtHJC5KN4+cwB+ZILJN5DRJC8OCKzBP8QkdHwz94z1Q==",
+            "pubkey": "bea24e3c816957292748b718431d23eb94e2529633aa36840ad70fbb3f44228b",
+            "id": "cfb190d9bdac0fdeda33efb74740e3f8b44f2c9f38028080a0bcd2439a61038c",
+            "sig": "e4f0050b11203a4bef8a47d30ad00af9494af542593027a56f9f9eb6e938cb576a9bdf51c5b9e9eaa8ffc39da09da0160762498678537926bc897c9a82baa6b2"
+          }
+        },
+        "expected": {
+          "decode": {
+            "invitation": {
+              "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+              "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+            },
+            "now": 1800000000
+          },
+          "result": {
+            "device": "bea24e3c816957292748b718431d23eb94e2529633aa36840ad70fbb3f44228b",
+            "request": "cfb190d9bdac0fdeda33efb74740e3f8b44f2c9f38028080a0bcd2439a61038c",
+            "name": "Rowan",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+          }
+        }
+      },
+      {
+        "name": "request-stale-refused",
+        "kind": "negative",
+        "note": "The same request, read long after its 90-second window: refused as stale.",
+        "input": {
+          "event": {
+            "kind": 20466,
+            "created_at": 1799999970,
+            "tags": [
+              [
+                "d",
+                "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba"
+              ],
+              [
+                "p",
+                "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+              ]
+            ],
+            "content": "Ap+6DnJhGPDjda4NwWrlJc4wueQgI897WswV82KqAnGbbY+mW8BKsJ0pPU12WDdC8gSkHgkw4ghMT0OVbX1UOtZ3nLWtasTXz8nfXFE/2VdaWzdDQHZCRX5JW5k4/LJ8orUOZ0sGzR00G78Ld93zs9gC3cBqHEyMAqQzcggVICGZNqFg4kvT1GeK2b8AZw0dByyZtCuXEFku2B0Ks9XMH3FuZw==",
+            "pubkey": "bea24e3c816957292748b718431d23eb94e2529633aa36840ad70fbb3f44228b",
+            "id": "60472d77cf1ff3df3167cf9f0c4bf5738f63dbe1e5226cd00d92fe96f2a7440a",
+            "sig": "60d3638a2ebc2d9e70a65ad554c4fc70e4408921f8c81a279422f33c103a2183b5746cf1bebe1d62fecf3e3b1cc6a3500cd38c303bf16843954d0234ee818fe4"
+          },
+          "invitation": {
+            "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+            "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+          },
+          "decode": {
+            "now": 1800000061
+          }
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "grant-two-hop-delegation",
+        "kind": "positive",
+        "note": "A grant signed by a delegated responder (not the root inviter), carrying the full two-hop chain rooted at the inviter. The real decoder verifies the whole chain and returns the room secret and a fresh delegate capability.",
+        "input": {
+          "chain": [
+            {
+              "invitation": "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba",
+              "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "issuer": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+              "delegate": "0869c418f37accb59f93d6e42327004379d49791e6254d5146fcfe0d6be4b924",
+              "expiresAt": 1800003600,
+              "sig": "a81e0b855a626a639a39a9ae701ec983c7a23a4b0ca6d97925e4e4fa738b4bcc5f9a6c3ff5265a59e1ed42bfcb42ce2f5579dd19cc0ef6c2a1d7287d36a7d043"
+            },
+            {
+              "invitation": "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba",
+              "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "issuer": "0869c418f37accb59f93d6e42327004379d49791e6254d5146fcfe0d6be4b924",
+              "delegate": "bea24e3c816957292748b718431d23eb94e2529633aa36840ad70fbb3f44228b",
+              "expiresAt": 1800001800,
+              "sig": "83a689d7f0148c90a8fc74a55cab4b5d1e722f039d008501c2a780bc877203d03f26a937fe4b91f5fe641f6c4ff56bcf9bc344bf0d339be0dc481801454e5385"
+            }
+          ],
+          "delegationMessageHop1": "kithmoot/v2/invitation-delegation:a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba:2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b:b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf:0869c418f37accb59f93d6e42327004379d49791e6254d5146fcfe0d6be4b924:1800003600",
+          "hop1AuxRandHex": "50f06c12a6e32bba97301178adc57da87245100e23616261a5842506d81a126e",
+          "hop2AuxRandHex": "1c380d65b7d6246b0445717bbaa1066897e4664c5eff014496cda95271446881",
+          "request": "abababababababababababababababababababababababababababababababab",
+          "nonceHex": "139e3df3d634ffe10ea9d767e0d2372edb53cb817e6bfa265220bdcde8350d62",
+          "auxRandHex": "c4166c36a02f9628685685d4cefe8239f8e3f0ddabff7bc3a8e9219ae8ab7ff2"
+        },
+        "output": {
+          "event": {
+            "kind": 20467,
+            "created_at": 1799999990,
+            "tags": [
+              [
+                "d",
+                "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba"
+              ],
+              [
+                "p",
+                "bea24e3c816957292748b718431d23eb94e2529633aa36840ad70fbb3f44228b"
+              ]
+            ],
+            "content": "AhOePfPWNP/hDqnXZ+DSNy7bU8uBfmv6JlIgvc3oNQ1ir1bDwHZbY1Vr1bbUZBl+bFHoSYFGFw35abC2YvO/NBUP52Bz5kQYWohAUjSIvW/qBtBw3sQdkidIi/Lry1jgEx50Up+Dv+dxIvVNbBkMlcaSfH6Og2bLhBO0x9zVdB4Mi91A/bUl6u9sJMM9jLcRYvfJ1u6Q+wfvUdXYkVvMSodEKXjkmnTm1CoRoPckKUlrkcZn8bI66t0WcCij5wtILeA2poNn9/qG+pheWy/6oBZZyWccz9FWkFqxRECMwHBUIhg0SfKqLcTTDz8kqnQsdBudFi1jSUmF7EK4dyTgv6A2EZvx3OS1kLW9dCnnVetTStPrXzIK9s7sNgA3KG8rzsmxu3Domvy+Lb4yB+t9ZDpzYz4MyGTruokF9hIQ9NXa+fYYxAiSP2xj3SuuMZEulPM0fWCDv9b/Y6wQUbpfUVHqk9avpJTIG6bYf5+oTcsDZF77XHLVui+qOSDLwqXZK1R9ELHStgEItPHO4YyiyhP8q6J1N4CjVPog86gYIV/Q+uoYN/XhbSuBzsYGVuiw2im14u0XUDfdB/hrHd6DEeZ8u4s94FtXUQ8w/690+K0CWuu2k4xrLXDCRVxXsDVMz1zFenHfavm3fACZ4CLdo15/InG0XrxRVY7Lo8mSLcJfmvS+diEIleFMIpdfHSeplXvgusp8eq1ImhCT3ijdIkuahm75Nw26QtAB3Aqcp5jJrVyEb6EOQqJvd2K13KZFBA3XOBkGHSyQmSZuMKIA1Umpj5RLChyVD+vGB4FWcVh/deRVQ+oWw2YmAINNZtangDLSw7xgykKGkLb49awAzooNMzF5DiBE9czwYFw/m0os0pGe2PuBS8eHT/fEMF6jv/1WoR2YgCl9Ls2x/PFOA39K1l/Ye33F6FJAJrEvqUc+2t6Po/REnKdMuJXSm5HWXsSQPOA5fFraNui0jqKZQ9S4mdGr1Du1PyhEmWVTaCwKBYuv6xp1sHKbnq+XrmHlJ8aRommxpyEMgWd4jY2m6E7U0jx1Gho/gqjvHxhe06OMNrkS2kT6n8IMK+3PjIAo3DXZeQ7C2IOkA/+qnFFeC1q6nCVZhGLSZxFE6cVZ4Kbk96NQ9Aik+KKO2Tvxo3FHDfJNLvo8IUSmGrYyTxrXonWoOPEBH9/sRccuTsmW7c6oly4WjTuI1JHV5hZ9BMZ+1M1HVK/KUctuauUE14ZyovilZaHYeWxLcgpRd0TrqWuqWfAS0eWmd53EA/0sQ4dv6aCbh3sBtEi2JXV7/621vI5IQwEkYcTrJFcJDzrOCvsaLPz7KHy6/mF3slqZbLGdN8xLymnnK53V0FYqhlqrymqgbApA3UC8KZKtNKrWirR5bRidgNVnA6vgXabK7Bkc3Sgl/zSQ36DAnduURsYmjs3/oLNhgrnV1Szjxfi4xf8OqjitLBQc4DyV6laSEZTZeYObl2YQtQPcgtR7mu5Kr3VFQY8wM0a5Yoe2fvtlzEFbi+Qu11PXq6leglcGAet6Ml2ETHO4dUqw9MwCvRMa/I6+Py6wDl5DALAJMBFfN/gecoAqALDt0diWFIR7SOybgsbqSUhpyupNmsEUwo4CoqsNUc00VDHzvsyDsCwp2YGb/2VpemexqhXPyGK5KQbqgee8SEIo3ruQ+w34fPD5c7xgS5hnzf5+Axf9gmEiujwXO34XKRY6tCq36CAIJPjSY5d9QA4fuDcRVdiHggpx0O7yQfdPDkNCXShm9jOPHW9ZeZHNlpcNXQPAbzobQvPbHnLF",
+            "pubkey": "0869c418f37accb59f93d6e42327004379d49791e6254d5146fcfe0d6be4b924",
+            "id": "b5382b6e01cdc02dc573e090ea97f6c957df5b84fe073afb5f47de7096e20db8",
+            "sig": "ae739930bfb84514252fd63099f1196d5cde67c71a219e80cf4740822127a4c8e34c328b1acdaa1f989e22d5be434050f6a58ec95971e071a91f00c3bd4efeec"
+          }
+        },
+        "expected": {
+          "decode": {
+            "invitation": {
+              "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+              "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+            },
+            "requesterSkHex": "87a68ed405197e7910559300549798b288b9215bbcaf5f1d740bb1233bc6691c",
+            "request": "abababababababababababababababababababababababababababababababab",
+            "now": 1799999990
+          },
+          "result": {
+            "secretHex": "3235bdb7cf4e08d8eb9f1441bd2158825c0e84150ac0fc123a106455130eeecf",
+            "delegateSkHex": "87a68ed405197e7910559300549798b288b9215bbcaf5f1d740bb1233bc6691c",
+            "chain": [
+              {
+                "invitation": "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba",
+                "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+                "issuer": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+                "delegate": "0869c418f37accb59f93d6e42327004379d49791e6254d5146fcfe0d6be4b924",
+                "expiresAt": 1800003600,
+                "sig": "a81e0b855a626a639a39a9ae701ec983c7a23a4b0ca6d97925e4e4fa738b4bcc5f9a6c3ff5265a59e1ed42bfcb42ce2f5579dd19cc0ef6c2a1d7287d36a7d043"
+              },
+              {
+                "invitation": "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba",
+                "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+                "issuer": "0869c418f37accb59f93d6e42327004379d49791e6254d5146fcfe0d6be4b924",
+                "delegate": "bea24e3c816957292748b718431d23eb94e2529633aa36840ad70fbb3f44228b",
+                "expiresAt": 1800001800,
+                "sig": "83a689d7f0148c90a8fc74a55cab4b5d1e722f039d008501c2a780bc877203d03f26a937fe4b91f5fe641f6c4ff56bcf9bc344bf0d339be0dc481801454e5385"
+              }
+            ],
+            "epoch": 0
+          },
+          "chainVerifiesTo": "bea24e3c816957292748b718431d23eb94e2529633aa36840ad70fbb3f44228b"
+        }
+      },
+      {
+        "name": "delegation-chain-tampered-second-hop",
+        "kind": "negative",
+        "note": "The two-hop chain above with hop 2's signature zeroed out. The whole chain is refused - a member cannot forge the last hop and admit themselves.",
+        "input": {
+          "chain": [
+            {
+              "invitation": "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba",
+              "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "issuer": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+              "delegate": "0869c418f37accb59f93d6e42327004379d49791e6254d5146fcfe0d6be4b924",
+              "expiresAt": 1800003600,
+              "sig": "a81e0b855a626a639a39a9ae701ec983c7a23a4b0ca6d97925e4e4fa738b4bcc5f9a6c3ff5265a59e1ed42bfcb42ce2f5579dd19cc0ef6c2a1d7287d36a7d043"
+            },
+            {
+              "invitation": "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba",
+              "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "issuer": "0869c418f37accb59f93d6e42327004379d49791e6254d5146fcfe0d6be4b924",
+              "delegate": "bea24e3c816957292748b718431d23eb94e2529633aa36840ad70fbb3f44228b",
+              "expiresAt": 1800001800,
+              "sig": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            }
+          ]
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "retirement-plain",
+        "kind": "positive",
+        "note": "An ordinary retirement: the link was replaced, not the room ended.",
+        "input": {
+          "invitation": {
+            "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+            "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+          },
+          "inviterSkHex": "251d103ba0f97308ca785a911e558a49ec9006940b235ab4fb12b9fbd492c6a5",
+          "createdAt": 1800000100,
+          "auxRandHex": "38e9efe888bb9c463cd1a6ed93604b58de99e6882d646e54c39401a8d4387cf8"
+        },
+        "output": {
+          "event": {
+            "kind": 1461,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba"
+              ]
+            ],
+            "content": "{\"v\":1}",
+            "pubkey": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+            "id": "880531840c250ee3f58e2ce97aa8dca5125a2684d9469e13b0b23feda42ca7b0",
+            "sig": "204e8f9685596ab822eaaa92c97c2fc4d3dd902e57409ab1c36844f0b4a5e1188d94b4d189f96beb15a73b7b1f0d8d8ee591ce11346cf122494c78ee65612937"
+          }
+        },
+        "expected": {
+          "result": {
+            "ended": false
+          }
+        }
+      },
+      {
+        "name": "retirement-room-ended",
+        "kind": "positive",
+        "note": "A retirement that also says the room itself was ended, not just this link replaced.",
+        "input": {
+          "invitation": {
+            "bearerHex": "c5f153b74aba3605b5bca1064a3154e18bf32a92e800504d8e060205edec4654",
+            "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+          },
+          "inviterSkHex": "251d103ba0f97308ca785a911e558a49ec9006940b235ab4fb12b9fbd492c6a5",
+          "createdAt": 1800000100,
+          "auxRandHex": "21691ccd0c845ab6f743b4794697c94a56021a25fa34063602fa691adf0867e3"
+        },
+        "output": {
+          "event": {
+            "kind": 1461,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba"
+              ]
+            ],
+            "content": "{\"v\":1,\"ended\":true}",
+            "pubkey": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+            "id": "c81e4d448b2cc8736fb1c1796006398e3ffeed6dae453b1aaf4fac0bc6db1b70",
+            "sig": "8c5047d60d12e08bd1fce0bd70d6592807645d5f3ff5dc7ff056856920b1563ce30fd4b9909b14e442c8ad71218c08ad7bede7d544c79459d8cf388c4d207258"
+          }
+        },
+        "expected": {
+          "result": {
+            "ended": true
+          }
+        }
+      },
+      {
+        "name": "retirement-wrong-signer-refused",
+        "kind": "negative",
+        "note": "A retirement signed by somebody other than the inviter pinned in the link: refused, even though the event itself verifies.",
+        "input": {
+          "event": {
+            "kind": 1461,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "a652671ef5a7edd3f45a472b7456f1711bcfdfa60cdcbae2c5ff3ba08c86f7ba"
+              ]
+            ],
+            "content": "{\"v\":1}",
+            "pubkey": "cb948cc3faaf18b2db04bc0970c26bc79d56b0f9a32cf0cdb197597f2a6164e1",
+            "id": "d30a0cf32c79b0c5b706199137d3bee4ad1641188a1e8b92cddc13f3ecf9d165",
+            "sig": "630fcb4e5b1fd1ae91bf878236812877db93f1d81f467d8855f764ea59f60b9c08a8a2308669fc381e4059ad96e72c8648f77f07414bb3e0f5d4d0b930f09260"
+          }
+        },
+        "output": {
+          "result": null
+        }
+      }
+    ],
+    "persistentInvitation": [
+      {
+        "name": "valid",
+        "kind": "positive",
+        "note": "A stored group invitation (kind 1463), published once and readable weeks later with nobody online.",
+        "input": {
+          "invitation": {
+            "bearerHex": "fe6a6ac8150838c9b16e1bec51ee1006210d73bbaa7530ed7029907f15ed0645",
+            "inviter": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf"
+          },
+          "inviterSkHex": "251d103ba0f97308ca785a911e558a49ec9006940b235ab4fb12b9fbd492c6a5",
+          "roomSecretHex": "3235bdb7cf4e08d8eb9f1441bd2158825c0e84150ac0fc123a106455130eeecf",
+          "createdAt": 1797408000,
+          "nonceHex": "8bf9a9191fefbadaf122e0dd8dffdf2120d2769575aa35515810d1821af8b0d8",
+          "auxRandHex": "61bda7113bc18d3ab3d75a49c44f99e9720b6f5a29e3f7409f0c6d82f0b5fa79"
+        },
+        "output": {
+          "event": {
+            "kind": 1463,
+            "created_at": 1797408000,
+            "tags": [
+              [
+                "d",
+                "6ed1ec2f259cf24b084ff980423a112fc7b5e4407c933836cca0c2a64a1189a3"
+              ]
+            ],
+            "content": "Aov5qRkf77ra8SLg3Y3/3yEg0naVdao1UVgQ0YIa+LDYu1YThimv8PPsLeOMBRB+6T39yZVh/3TEwS+jbDyfngQaxc7HXgY9krKnRLj7qmaWWzSeiETKDvtb0KcSpZhO+PTHcWFshByvdwc6GjzZBErFRIrTcAVJZMKZ0pOvbHh9Wu/Tm5vF6MyEqVmZxwi1N0fzsAFrrPTGpiMTN3kIal8BZVlbgHDXJ3tcmZZXXZieYA3NGVp6+wedc0I7/xFKdgCm0js8GJ9ax2FMfEELKq6uwucnrUkV6D7sYqZgPaFWZDo=",
+            "pubkey": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+            "id": "ed024a9678e2ec1727ecdb8c2fda35574d4908948a36809ab710151724a54e66",
+            "sig": "ed8b713e38a01d8ab31fc9b51a54538a7bed94c0e52fe8448122271fef1b2c07406fa925251477afbd13667f59eaba58245aec95ef9746668256a37dd16873c4"
+          }
+        },
+        "expected": {
+          "result": {
+            "secretHex": "3235bdb7cf4e08d8eb9f1441bd2158825c0e84150ac0fc123a106455130eeecf",
+            "persistent": true,
+            "epoch": 0
+          }
+        }
+      },
+      {
+        "name": "tampered-ciphertext-refused",
+        "kind": "negative",
+        "note": "The valid event above with its final ciphertext bytes flipped: NIP-44's MAC check fails and the decoder must return null.",
+        "input": {
+          "event": {
+            "kind": 1463,
+            "created_at": 1797408000,
+            "tags": [
+              [
+                "d",
+                "6ed1ec2f259cf24b084ff980423a112fc7b5e4407c933836cca0c2a64a1189a3"
+              ]
+            ],
+            "content": "Aov5qRkf77ra8SLg3Y3/3yEg0naVdao1UVgQ0YIa+LDYu1YThimv8PPsLeOMBRB+6T39yZVh/3TEwS+jbDyfngQaxc7HXgY9krKnRLj7qmaWWzSeiETKDvtb0KcSpZhO+PTHcWFshByvdwc6GjzZBErFRIrTcAVJZMKZ0pOvbHh9Wu/Tm5vF6MyEqVmZxwi1N0fzsAFrrPTGpiMTN3kIal8BZVlbgHDXJ3tcmZZXXZieYA3NGVp6+wedc0I7/xFKdgCm0js8GJ9ax2FMfEELKq6uwucnrUkV6D7sYqZgPaFWAAAA",
+            "pubkey": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+            "id": "ed024a9678e2ec1727ecdb8c2fda35574d4908948a36809ab710151724a54e66",
+            "sig": "ed8b713e38a01d8ab31fc9b51a54538a7bed94c0e52fe8448122271fef1b2c07406fa925251477afbd13667f59eaba58245aec95ef9746668256a37dd16873c4"
+          }
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "non-persistent-invitation-refused",
+        "kind": "negative",
+        "note": "The same event, decoded against the same bearer and inviter but without the `persistent` flag set: refused - a v2 (live) invitation must never be readable as a stored v3 group welcome.",
+        "input": {
+          "event": {
+            "kind": 1463,
+            "created_at": 1797408000,
+            "tags": [
+              [
+                "d",
+                "6ed1ec2f259cf24b084ff980423a112fc7b5e4407c933836cca0c2a64a1189a3"
+              ]
+            ],
+            "content": "Aov5qRkf77ra8SLg3Y3/3yEg0naVdao1UVgQ0YIa+LDYu1YThimv8PPsLeOMBRB+6T39yZVh/3TEwS+jbDyfngQaxc7HXgY9krKnRLj7qmaWWzSeiETKDvtb0KcSpZhO+PTHcWFshByvdwc6GjzZBErFRIrTcAVJZMKZ0pOvbHh9Wu/Tm5vF6MyEqVmZxwi1N0fzsAFrrPTGpiMTN3kIal8BZVlbgHDXJ3tcmZZXXZieYA3NGVp6+wedc0I7/xFKdgCm0js8GJ9ax2FMfEELKq6uwucnrUkV6D7sYqZgPaFWZDo=",
+            "pubkey": "b5c5ec78f1eb56c0bd4d73f137c08fc49fc41a22257a95a384e60593cb6ac0bf",
+            "id": "ed024a9678e2ec1727ecdb8c2fda35574d4908948a36809ab710151724a54e66",
+            "sig": "ed8b713e38a01d8ab31fc9b51a54538a7bed94c0e52fe8448122271fef1b2c07406fa925251477afbd13667f59eaba58245aec95ef9746668256a37dd16873c4"
+          },
+          "invitationPersistent": false
+        },
+        "output": {
+          "result": null
+        }
+      }
+    ],
+    "epochGrant": [
+      {
+        "name": "grant-with-secret-at-epoch-1",
+        "kind": "positive",
+        "note": "The authority answers a caught-up request: the room has moved to epoch 1, and the secret that opens it is sealed to the asking device. Every field the real decoder needs rides in this vector's own `input`.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "device": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+          "deviceSkHex": "751627289895e0df520a348eed03006ac69522989ce970c8a4926268de6f69de",
+          "request": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "createdAt": 1799999950,
+          "body": {
+            "v": 1,
+            "request": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "epoch": 1,
+            "secret": "PTSAeCvZ6ryiS2-aVBUxqiyk3FNTQtir8cI0fVirJss",
+            "removed": [
+              "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+            ]
+          },
+          "nonceHex": "c813887618a0763964f1a2a6d2bb03619b31fc1fb52abba11b771ccb1c7fc8d3",
+          "auxRandHex": "8280023fb5c6ece513190e157577b3f266f66c9b90e05493473ac270cbacdb33"
+        },
+        "output": {
+          "event": {
+            "kind": 20469,
+            "created_at": 1799999950,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe"
+              ]
+            ],
+            "content": "AsgTiHYYoHY5ZPGiptK7A2GbMfwftSq7oRt3HMscf8jTM89VlEdtW+5ApFpOKm8E6jmGpLkQvt/6P+Oz3RKOeo+ccWkr7s94BT2WXApHuhSRHNFDNUy/ebWo5xqrNIfP8Pwv5smYZX0XDVPKFZSLZJmxJwnCPAgHq74/yA99uj53aZQvH/oEp2CfhnI3AEVEX9VEIBjD8JAftiN0gdWq6o9MqaV7LAFCJqgvi035tk0lwIQuIEE+fwR8BwTKVFnhcV+sBLti8zwHhlv8qxsz6FhMtjJiFGfFM/JxFrt2c2bMnX7jxwhjnX3Ik+Wg6Yqiab1zIokUpdv38yHHLuNtK5SFTFn3evAm0yBWtIVbadwUSQqI11kKyQlXf0Huy6V/uM0HswrB+4fGNri5QUzXgYxMNo4P9IpDZxUpKWpEEPRtfuY=",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "322d0d3899a5b9b5d05fed3211e5502d7de24212b0414ee64f4801be5423109f",
+            "sig": "a2f25b0dce1a90566943807c0c76ba43e163dc9b13df1dd2ef6cf5b544ec7b1be600c4507202ad7ba108ab201b2594cb6f8a23f9170cc5371889cd8a04209260"
+          }
+        },
+        "expected": {
+          "result": {
+            "epoch": {
+              "epoch": 1,
+              "secretHex": "3d3480782bd9eabca24b6f9a541531aa2ca4dc535342d8abf1c2347d58ab26cb"
+            },
+            "removed": [
+              "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+            ]
+          }
+        }
+      },
+      {
+        "name": "grant-wrong-request-id-refused",
+        "kind": "negative",
+        "note": "The same event, but the device asked with a different request id than the one the grant answers: refused.",
+        "input": {
+          "event": {
+            "kind": 20469,
+            "created_at": 1799999950,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe"
+              ]
+            ],
+            "content": "AsgTiHYYoHY5ZPGiptK7A2GbMfwftSq7oRt3HMscf8jTM89VlEdtW+5ApFpOKm8E6jmGpLkQvt/6P+Oz3RKOeo+ccWkr7s94BT2WXApHuhSRHNFDNUy/ebWo5xqrNIfP8Pwv5smYZX0XDVPKFZSLZJmxJwnCPAgHq74/yA99uj53aZQvH/oEp2CfhnI3AEVEX9VEIBjD8JAftiN0gdWq6o9MqaV7LAFCJqgvi035tk0lwIQuIEE+fwR8BwTKVFnhcV+sBLti8zwHhlv8qxsz6FhMtjJiFGfFM/JxFrt2c2bMnX7jxwhjnX3Ik+Wg6Yqiab1zIokUpdv38yHHLuNtK5SFTFn3evAm0yBWtIVbadwUSQqI11kKyQlXf0Huy6V/uM0HswrB+4fGNri5QUzXgYxMNo4P9IpDZxUpKWpEEPRtfuY=",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "322d0d3899a5b9b5d05fed3211e5502d7de24212b0414ee64f4801be5423109f",
+            "sig": "a2f25b0dce1a90566943807c0c76ba43e163dc9b13df1dd2ef6cf5b544ec7b1be600c4507202ad7ba108ab201b2594cb6f8a23f9170cc5371889cd8a04209260"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "deviceSkHex": "751627289895e0df520a348eed03006ac69522989ce970c8a4926268de6f69de",
+          "request": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "now": 1799999950
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "grant-epoch-zero-no-secret",
+        "kind": "positive",
+        "note": "A grant answering \"the room is still at epoch 0\": no secret rides in the body, because the epoch-0 room key is already what the link handed out.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "device": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+          "deviceSkHex": "751627289895e0df520a348eed03006ac69522989ce970c8a4926268de6f69de",
+          "request": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "createdAt": 1799999950,
+          "body": {
+            "v": 1,
+            "request": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "epoch": 0,
+            "removed": []
+          },
+          "nonceHex": "4795a4da22aba367a0bd5e20ad0ecc293b1173c70bc7eaa7913203683f268b33",
+          "auxRandHex": "b59b83a97def9f1c46d8efa9673d8caee0812fba4c2b84150e174d97f7116d46"
+        },
+        "output": {
+          "event": {
+            "kind": 20469,
+            "created_at": 1799999950,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe"
+              ]
+            ],
+            "content": "AkeVpNoiq6NnoL1eIK0OzCk7EXPHC8fqp5EyA2g/JoszPvtjyBs8pr0HAlMX8nrGszy2LzSsxkpAAfXRDr3Puxg7/tt2UDfTmC+RWuwoOiuHLvNCTxJ131eqkpj4xtq9MqeoEOIzVqlWo3Fjh/8yHAv3YiwiIgh7FGGMv0aeoW1R7Nn6as+ChhS6Grs0suhDqKZz6wUdsZeVBfGiwjSHrnTsxbZsWfK0J+IBq0mxRfM0GemXd1wwOGmNZH6Nm7GEF2DS",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "91b5da7e982c238dea32571d14e3364ab8b70f82b023a184449b3cb8ff7a19a3",
+            "sig": "2f3ceb56eaee531902c9992b8f0acf2fd762bd3bf10ab775df1984d9fc86fa7b736a6a63c352cf902ae50808d191f3fed00921f2bb7800283d3f2522acc05ace"
+          }
+        },
+        "expected": {
+          "result": {
+            "epoch": {
+              "epoch": 0
+            },
+            "removed": []
+          }
+        }
+      },
+      {
+        "name": "grant-refused-removed",
+        "kind": "negative",
+        "note": "The authority refuses the epoch request because the device's participant was removed from the room. Sealed like an ordinary grant, so only the asking device learns why.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "device": "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428",
+          "deviceSkHex": "f785badbca3915e8138c6bb54bc5cf69e8798485d7ea084daec5bae58db6d9e6",
+          "request": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "createdAt": 1799999950,
+          "body": {
+            "v": 1,
+            "request": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "refused": "removed"
+          },
+          "nonceHex": "917d2cb1d60554d7d47906cf446d6acc8ab16a87f17b2d16ba7b8ea1182ccad0",
+          "auxRandHex": "825ad03b5cb99487691ab5a5aa3ce9048d4a073883ca9d307ddac4dd9ab36838"
+        },
+        "output": {
+          "event": {
+            "kind": 20469,
+            "created_at": 1799999950,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+              ]
+            ],
+            "content": "ApF9LLHWBVTX1HkGz0RtasyKsWqH8XstFrp7jqEYLMrQ/oReYcTUv0i+IYK3NX+TZ1Nw3xW4vcKEMMZK1IOzK79tRehVKjDts0YBWWs6zY59FigifvskzglCmNFppUfHLace68QMOvWXvKDjrL3d6eIkP+YeqgvcpFMFY/9g+Tmvoay7odwhGtHTN38iV/vLuQGt9Npp3LhoybLea8cBFeD0BuzxfzbLCjCLzZkPTrBIkx1aRPncgIbYsAtsyo9zoqaE",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "8666f68c5b0452f74405a90a425d5198d96e381433b3c01681bcddb5f157aaeb",
+            "sig": "40f9da7a06fbb9dfb2d00a57cac2e7ea0de0df728341e8d309f2dae8b3b1decf10acb53b10995d97ea1abef110d5b3a7a38af347bb1d424a3e9bf4f21e78bf28"
+          }
+        },
+        "expected": {
+          "result": {
+            "refused": "removed"
+          }
+        }
+      },
+      {
+        "name": "grant-refused-closed",
+        "kind": "negative",
+        "note": "The authority refuses the epoch request because the device's participant was the room has been closed. Sealed like an ordinary grant, so only the asking device learns why.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "device": "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428",
+          "deviceSkHex": "f785badbca3915e8138c6bb54bc5cf69e8798485d7ea084daec5bae58db6d9e6",
+          "request": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "createdAt": 1799999950,
+          "body": {
+            "v": 1,
+            "request": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "refused": "closed"
+          },
+          "nonceHex": "09c6d6dec8da84f34df923c79eb8f8a52e3b43d1e15c8634b9a1f026cdc352a2",
+          "auxRandHex": "46dfffd5fa3d38477939ba69e445bc2075579f42b3818d4e1e244fd9ab7d11b5"
+        },
+        "output": {
+          "event": {
+            "kind": 20469,
+            "created_at": 1799999950,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+              ]
+            ],
+            "content": "AgnG1t7I2oTzTfkjx564+KUuO0PR4VyGNLmh8CbNw1KiCQlZz+yi9Kl6S73oqLm7R3J/mFjU08v4PAnjgPvLjjGFFKJQvetvInqjF1W2PPW9Wdc7JnT8VNX8sF9wpa4S38Ow18UHKk8qaTg2UrAbnFXgp3Q+OFP89Bg6jM9XobFyfx3bDdj11KHl5L5e2NWwjyeyr/0vJ3gSCFrrmPQ4v+AYd+3gOcr5Yg81Whb6nsV6U005iMFHDfhQzWgZa24Um+8I",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "e82e7f4c0aff673729415b2fb4143b3c2b6a97f71f51b30ba16a7c50624a889f",
+            "sig": "fd19a8b5ae387643cceb65aa8e3ef926ed773cd5bf2df54d45e914c2bc8794259210fd4d22024a6602eb782915983807b3367addb268a1edc84fa9e4fb39576b"
+          }
+        },
+        "expected": {
+          "result": {
+            "refused": "closed"
+          }
+        }
+      },
+      {
+        "name": "epoch-1-id-independent-check",
+        "kind": "positive",
+        "note": "`deriveEpoch` for epoch 1 from EPOCH_SECRET_1, called directly (pure, no signing) - confirms the secret sealed in `grant-with-secret-at-epoch-1` really does derive to that epoch's id and key.",
+        "input": {
+          "epoch": 1,
+          "secretHex": "3d3480782bd9eabca24b6f9a541531aa2ca4dc535342d8abf1c2347d58ab26cb"
+        },
+        "output": {
+          "id": "73ff3428fa59018aeea0bbdbb768a208f305736c1f3702a99406c7e6a39836ea",
+          "keyHex": "1376c99d11c91603ba3904328d3fd6c857b098c62a187e4a1322c84e832d63b7"
+        }
+      }
+    ],
+    "personCredential": [
+      {
+        "name": "valid-accepted-with-acceptPerson",
+        "kind": "positive",
+        "note": "A person-scope credential (device authorised for every room, not one) is refused as a room credential by default, and accepted only when the caller opts in with `acceptPerson`.",
+        "input": {
+          "participantSkHex": "826f7335cca1f25633dbc6efc43131a651feb9b7d419c9b1fdc35b2e115d2180",
+          "devicePubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+          "createdAt": 1799990000,
+          "expiresAt": 1800594800,
+          "label": "phone",
+          "auxRandHex": "74686fc1c937eed1cfead9975cd9c2dd250d1343f7c17c498d1d3a3b55a6b262"
+        },
+        "output": {
+          "event": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              ],
+              [
+                "device",
+                "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+              ],
+              [
+                "expiration",
+                "1800594800"
+              ],
+              [
+                "scope",
+                "person"
+              ],
+              [
+                "label",
+                "phone"
+              ]
+            ],
+            "content": "",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "3207aab2f8e17686635271bce3fc905676494ea2b043dc38477adb2a02c1a28f",
+            "sig": "1dff8e09bedbee097e7f1b3fde7303fe5c3e15b43b492f2ed93f5dc7c98d4e236f697eab067f63ac0ac98a46940556ec0c106e123729fea97f10e5f292a04dfb"
+          }
+        },
+        "expected": {
+          "asPerson": {
+            "ok": true,
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+          },
+          "asRoomWithoutAcceptPerson": {
+            "ok": false,
+            "reason": "person credential where a room credential was expected"
+          },
+          "asRoomWithAcceptPerson": {
+            "ok": true,
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+          }
+        }
+      },
+      {
+        "name": "refused-over-30-days",
+        "kind": "negative",
+        "note": "A person credential whose expiry is one second past the 30-day maximum, measured from its own `created_at`. `createDeviceCredential` refuses to mint this; this vector pins the separate check `verifyDeviceCredential` makes on anything it is handed regardless.",
+        "input": {
+          "participantSkHex": "826f7335cca1f25633dbc6efc43131a651feb9b7d419c9b1fdc35b2e115d2180",
+          "devicePubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+          "createdAt": 1799990000,
+          "expiresAt": 1802582001,
+          "auxRandHex": "1a6b3cb1178e0a776ae079a8354df951446dc8c430939c91f98f126ae5f6f772",
+          "verify": {
+            "identity": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "now": 1799990000
+          }
+        },
+        "output": {
+          "event": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              ],
+              [
+                "device",
+                "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+              ],
+              [
+                "expiration",
+                "1802582001"
+              ],
+              [
+                "scope",
+                "person"
+              ]
+            ],
+            "content": "",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "a32374b909d58447d871e2b16182b60d25167859a3b11cef7d663087b4a10642",
+            "sig": "3b7aacc12c4c580f2469c4f9cffafd6465a6439232d8e48b5df95dd7cb77544f2b5a80a19dde9a0abd95253e9367c92b1086dca5aa82acf50c57b13f4d906682"
+          },
+          "result": {
+            "ok": false,
+            "reason": "longer than 30 days"
+          }
+        }
+      }
+    ],
+    "channelsSignature": [
+      {
+        "name": "valid-at-epoch-1",
+        "kind": "positive",
+        "note": "The authority signs the room's channel list at epoch 1. Canonicalised (deduplicated, sorted) before signing, and verified with the real `verifyChannels`, in either list order.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "epoch": 1,
+          "channels": [
+            "planning",
+            "social"
+          ],
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "auxRandHex": "0b34d41dbe7b9e9d49c1f430f6cb26c7c44162cbdbe8a7522f48fbc313e329ac"
+        },
+        "output": {
+          "canonical": [
+            "planning",
+            "social"
+          ],
+          "sig": "b1456ad9a47fc4436bc4073e24a783277afdd5606bb888b47837c6e2eecae8efae221b586a8c0bc5983c95c842e345d79fc20edc9cfaf56ca3db918532140293"
+        },
+        "expected": {
+          "verifiesInGivenOrder": true,
+          "verifiesReversed": true
+        }
+      },
+      {
+        "name": "refused-at-another-epoch",
+        "kind": "negative",
+        "note": "The same signature, checked against epoch 2 instead of the epoch it was made for: refused - a channel list valid at one epoch is not replayable into the next.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "epoch": 2,
+          "channels": [
+            "planning",
+            "social"
+          ],
+          "sig": "b1456ad9a47fc4436bc4073e24a783277afdd5606bb888b47837c6e2eecae8efae221b586a8c0bc5983c95c842e345d79fc20edc9cfaf56ca3db918532140293",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "refused-reserved-channel-name",
+        "kind": "negative",
+        "note": "`agents`, `minutes` and `transcript` are reserved: the room already means something else by them, so `canonicalChannels` throws rather than letting them into a signed registry.",
+        "input": {
+          "channels": [
+            "planning",
+            "agents"
+          ]
+        },
+        "output": {
+          "throws": true,
+          "error": "reserved channel name: agents"
+        }
+      }
+    ]
+  }
+}
