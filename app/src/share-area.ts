@@ -1,6 +1,8 @@
 import type { ScreenAnnotation, AnnotationPoint } from '../../src/signal.js'
 import { minimumSelection, moveSelection, resizeSelection, videoBox, WHOLE_PICTURE } from './share-area-geometry.js'
 import { coversWholeDisplay } from './self-mirror-guard.js'
+import { RedactionTrail } from './redaction-geometry.js'
+import { paintPlan, type DesktopRedaction } from './redaction.js'
 
 export interface AreaRect { x: number; y: number; width: number; height: number }
 
@@ -23,6 +25,8 @@ export class DesktopShareArea {
      *  caller withhold this device's own live preview of its own share
      *  while the display carrying that preview is itself being captured. */
     wholeDisplay?: (whole: boolean) => void
+    /** Redaction boxes on the real screen, painted black inside the crop. */
+    redaction?: DesktopRedaction
   }) {}
 
   /** The only place `#rect` changes - so `wholeDisplay` always hears about it. */
@@ -428,6 +432,8 @@ export class DesktopShareArea {
     if (this.#cancelled) throw new Error('Sharing cancelled.')
     const canvas = document.createElement('canvas')
     const context = canvas.getContext('2d')!
+    const redaction = this.opts.redaction?.supported ? this.opts.redaction : undefined
+    const trail = new RedactionTrail()
     const paint = () => {
       if (popup.closed) { this.stop(); this.opts.ended(); return }
       const area = rect()
@@ -438,7 +444,11 @@ export class DesktopShareArea {
       const width = Math.max(2, Math.round(area.width * video.videoWidth / 2) * 2)
       const height = Math.max(2, Math.round(area.height * video.videoHeight / 2) * 2)
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height }
-      context.drawImage(video, area.x * video.videoWidth, area.y * video.videoHeight, area.width * video.videoWidth, area.height * video.videoHeight, 0, 0, width, height)
+      // Redaction is planned before anything is drawn: a black plan never
+      // draws the raw frame at all.
+      const plan = redaction ? redaction.areaPlan(trail, { width: video.videoWidth, height: video.videoHeight }, area, { width, height }) : { mode: 'pass' } as const
+      if (plan.mode !== 'black') context.drawImage(video, area.x * video.videoWidth, area.y * video.videoHeight, area.width * video.videoWidth, area.height * video.videoHeight, 0, 0, width, height)
+      paintPlan(context, plan, width, height)
     }
     paint()
     this.#output = canvas.captureStream(30).getVideoTracks()[0]!

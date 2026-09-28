@@ -25,6 +25,40 @@ export async function screenAccessGranted({ platform, status, listSources, askTo
   return false
 }
 
+const isScreen = source => typeof source?.id === 'string' && source.id.startsWith('screen:')
+
+/**
+ * The desktop chooser's half of `answerDisplayRequest`. `showMenu(items,
+ * cancel)` shows the items (a `source` on those that pick one) and calls
+ * `cancel` when dismissed; a second answer after a pick is ignored.
+ * `redaction` records the source actually answered with, and while any box
+ * is on only whole screens are offered: a box cannot follow an app's window.
+ */
+export function displayChoice({ request, platform, areaMode, redaction, screenAccessGranted, listSources, showMenu }) {
+  return {
+    allowed: () => true,
+    screenAccessGranted,
+    listSources,
+    selection: source => {
+      redaction?.captured(source)
+      return { video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(platform) ? { audio: 'loopback' } : {}) }
+    },
+    choose: (sources, chosen) => {
+      let picked = false
+      const hiding = redaction?.anyOn() ?? false
+      const offered = hiding ? sources.filter(isScreen) : sources
+      const pick = source => { if (!picked) { picked = true; chosen(hiding && source && !isScreen(source) ? undefined : source) } }
+      // On Wayland the portal already asked; a menu of its one answer is a second prompt.
+      if (areaMode === 'preview' && sources.length === 1) return pick(sources[0])
+      showMenu([
+        { label: 'Choose what to share', enabled: false },
+        ...(hiding ? [{ label: 'Single apps are hidden while a redaction box is on', enabled: false }] : []),
+        ...offered.map(source => ({ label: source.name, source, click: () => pick(source) })),
+      ], () => pick())
+    },
+  }
+}
+
 export async function answerDisplayRequest(request, callback, deps) {
   let answered = false
   const finish = (selection) => {

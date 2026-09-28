@@ -1,4 +1,5 @@
 import { DesktopShareArea } from './share-area.js'
+import { DesktopRedaction } from './redaction.js'
 import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
@@ -282,7 +283,11 @@ const floatingSharePreview = new FloatingSharePreview({
   overlay: (video, shareId) => shareViewer.overlay(video, shareId),
   source: () => screenTrack ? screenSource(meParticipant, myDeviceId) : undefined,
 })
+// Redaction boxes (desktop app, not on Wayland): parts of the real screen
+// that are painted black in every outgoing screen or area share.
+const desktopRedaction = new DesktopRedaction(window.kithmootDesktop)
 const desktopShareArea = new DesktopShareArea({
+  redaction: desktopRedaction,
   overlay: (canvas, id) => shareViewer.areaOverlay(canvas, id),
   draw: annotation => shareViewer.draw(annotation),
   ended: () => screenTrack?.dispatchEvent(new Event('ended')),
@@ -3527,6 +3532,7 @@ async function joinCall(): Promise<void> {
  *  Shared by leaving a call and closing the room. */
 function stopLocalMedia(): void {
   desktopShareArea.stop()
+  desktopRedaction.closeAll()
   micTrack?.removeEventListener('ended', onMicEnded)
   for (const track of activeTracks()) track.stop()
   mic?.stop()
@@ -4552,16 +4558,30 @@ async function toggleScreen(area = false): Promise<void> {
     }
     screenStarting = true
     let stream: MediaStream
-    try { stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options) }
+    let surface: string | undefined
+    try {
+      // The desktop app sends every whole-screen share through the redaction
+      // canvas, boxes or not, so the raw capture itself is never published.
+      // Awaited only in the desktop app: a browser's own chooser keeps the
+      // click's activation without a round trip in front of it.
+      if (desktopRedaction.supported) await desktopRedaction.begin()
+      stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
+      surface = stream.getVideoTracks()[0]?.getSettings().displaySurface
+      if (!area && desktopRedaction.supported) {
+        const raw = stream
+        stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
+      }
+    }
     finally { screenStarting = false }
     if (generation !== callGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
     // An area share already tracks this precisely, reactively, via the
     // frame's own rect (see `wholeDisplay` above, on `desktopShareArea`); a
-    // plain share carries the standard hint directly on the track handed
-    // back, and needs checking only the once, here.
-    if (!area) sharingWholeDisplay = isWholeDisplaySurface(screenTrack?.getSettings().displaySurface)
+    // plain share carries the standard hint on the captured track, read
+    // before any redaction canvas stood in for it, and needs checking only
+    // the once, here.
+    if (!area) sharingWholeDisplay = isWholeDisplaySurface(surface)
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
@@ -4887,6 +4907,23 @@ function updateScreenAudioNote(): void {
   $('screenAudioNote').textContent = window.kithmootDesktop
     ? 'No sound was captured. Check screen and system audio recording permissions, then restart sharing.'
     : 'No sound is shared. To share sound, share a browser tab and tick Share tab audio.'
+}
+
+/** Says why this device's own share is black, while it is. */
+function renderRedactionNote(note: string | undefined): void {
+  const line = document.getElementById('redactionNote')
+  if (!line) return
+  line.textContent = note ?? ''
+  line.hidden = !note
+}
+
+function updateRedactionControls(): void {
+  const all = document.getElementById('toggleRedaction')
+  if (!all) return
+  all.hidden = desktopRedaction.count === 0
+  setToggle('toggleRedaction', desktopRedaction.anyOn())
+  all.textContent = desktopRedaction.anyOn() ? 'Redaction on' : 'Redaction off'
+  all.title = desktopRedaction.anyOn() ? 'Show every boxed part of the screen in the share' : 'Black out every boxed part of the screen again'
 }
 
 function updateUi(): void {
@@ -11901,6 +11938,30 @@ if (window.kithmootDesktop?.supportsShareArea) {
   area.textContent = 'Share an area'
   area.onclick = () => { toggleScreen(true).catch(showShareError) }
   $('toggleScreen').after(area)
+}
+// Boxes live on the real screen, so Wayland (which forbids placing a window)
+// never shows these: there the preview area share keeps things private.
+if (desktopRedaction.supported) {
+  const add = document.createElement('button')
+  add.id = 'addRedaction'
+  add.className = 'toggle'
+  add.textContent = 'Hide part of the screen'
+  add.title = 'Add a box on your screen; whatever is inside it is black in your share and never leaves this computer'
+  add.onclick = () => { try { desktopRedaction.add() } catch (error) { setStatus(describeError(error)) } }
+  const all = document.createElement('button')
+  all.id = 'toggleRedaction'
+  all.className = 'toggle'
+  all.textContent = 'Redaction on'
+  all.hidden = true
+  all.onclick = () => desktopRedaction.setAll(!desktopRedaction.anyOn())
+  const note = document.createElement('p')
+  note.id = 'redactionNote'
+  note.className = 'indicator'
+  note.setAttribute('role', 'status')
+  note.hidden = true
+  ;(document.getElementById('shareArea') ?? $('toggleScreen')).after(add, all)
+  $('screenAudioNote').after(note)
+  desktopRedaction.onChange(updateRedactionControls)
 }
 $('toggleScreen').addEventListener('click', () => {
   toggleScreen().catch(showShareError)
