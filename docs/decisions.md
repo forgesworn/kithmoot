@@ -1743,3 +1743,36 @@ published 0.1.26 package fails it at the faults above and a package built
 from this change passes. Not checked: a person's own Linux desktop, and
 Windows, where nothing was changed but the box's least width.
 
+## A share can be hidden on purpose, and a cover is a pattern, 28 September 2026
+
+Two things the owner asked for after using redaction boxes on a call.
+
+**Hide my share.** Until now the only way to stop showing a share was to
+stop it, which ends the track and takes a fresh choice of screen, a fresh
+frame and a renegotiation to come back. And when a box could not be placed
+(a window share, an unknown screen) the whole picture went black without the
+sharer having asked for that. Hiding is now a control of its own. It uses
+the canvas every desktop share already goes through: the plan for a hidden
+share covers everything, and a plan that covers everything never draws the
+raw frame. The track stays live, so showing again needs nothing from the
+network and nothing of the hidden picture goes out on the way in or back.
+The share's sound is silenced with it. A share that ends while hidden does
+not leave the next one hidden.
+
+**The cover is a pattern.** Plain black reads as a fault: a dead camera, a
+lost screen. The cover is a quiet diagonal hatch in KithMoot's own dark
+colours, drawn in code. It is used everywhere black was: a box, a hidden
+share, and every case where the page is not sure where a box falls.
+
+**What the cover must never be.** It is never derived from the captured
+picture. Blur and pixelation are both reversible enough to be worth a
+researcher's afternoon, and both need the raw frame drawn somewhere first.
+And it never falls back to the raw frame: if a pattern cannot be made the
+cover is a solid colour.
+
+**Not decided here.** A drawn pattern from an image model in place of the
+hatch was asked for; it costs money to generate and waits for the owner's
+word. `share-cover.ts` is the one place that would change. Hiding is not
+offered on Wayland or in a browser, where a share does not go through the
+canvas.
+

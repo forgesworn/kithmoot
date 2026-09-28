@@ -1,9 +1,37 @@
-# Redaction boxes on shares
+# Redaction boxes and hidden shares
 
-Redaction boxes let a person black out parts of their screen in a desktop
-share. The rule they serve: pixels inside an active box are never encoded or
-sent. Whenever KithMoot cannot be sure where a box falls in the outgoing
-picture, it sends black, never the raw frame.
+Redaction boxes let a person cover parts of their screen in a desktop share,
+and Hide my share covers all of it. The rule they serve: pixels inside an
+active box, and every pixel of a hidden share, are never encoded or sent.
+Whenever KithMoot cannot be sure where a box falls in the outgoing picture,
+it covers the whole picture, never the raw frame.
+
+## What a cover looks like
+
+A pattern, not plain black, which reads as a fault (`app/src/share-cover.ts`).
+It is drawn in code, so there is nothing to load and nothing that can fail to
+arrive; if a pattern cannot be made the cover is a solid colour, never
+nothing. It is never made from the captured picture (no blur, no
+pixelation), so nothing of what it covers can be worked back out of it. The
+same cover is used for a box, for a hidden share, and for every case below
+where the page is not sure.
+
+## Hiding a share on purpose
+
+While a share is on, Hide my share in the call controls covers the whole
+outgoing picture until Show my share is pressed. It uses the canvas every
+desktop share already goes through:
+
+- The plan for a hidden share covers everything, and a plan that covers
+  everything never draws the raw frame. Hiding is painted at once, not at the
+  next tick, and so is showing.
+- The track is never swapped or stopped, so nothing is renegotiated and the
+  far end sees no gap, only the cover.
+- The share's sound is silenced while hidden and comes back when shown.
+- A share that ends while hidden does not leave the next one hidden.
+- It works for a whole screen, a window and an area. It is offered where the
+  canvas is: the desktop app on macOS, Windows and Linux X11. Not on Wayland,
+  and not in a browser.
 
 ## Stage 1 (desktop app: whole screen and area)
 
@@ -45,16 +73,16 @@ The path from capture to publish:
    `cropPlan` in `app/src/redaction-geometry.ts`): box bounds are mapped from
    DIP to frame pixels by frame size over display size, padded by 3 DIP and
    rounded outwards. A box on another display does not intersect. While a box
-   moves, the hull of its old and new places stays black for 400 ms, and a
-   box turned off or closed keeps its last place black as long.
-6. The plan is black, and the raw frame is never drawn, when the source is
+   moves, the hull of its old and new places stays covered for 400 ms, and a
+   box turned off or closed keeps its last place covered as long.
+6. The plan covers everything, and the raw frame is never drawn, when the source is
    unknown, when it is a window, when the track's own `displaySurface`
    disagrees with the main process, when the display is gone, or when the
-   picture's shape differs from the display's by more than 2%. It is also
-   black for 1 s after any display is added, removed or rescaled, while the
+   picture's shape differs from the display's by more than 2%. It also covers
+   everything for 1 s after any display is added, removed or rescaled, while the
    OS may still be moving and rescaling windows; the main process reads the
    state again at 250 ms and just after 1 s in case no window event follows.
-   And it is black while any held box touches two displays whose scale
+   And it covers everything while any held box touches two displays whose scale
    factors differ (or are not reported): Windows converts a straddling
    window's bounds by the display holding most of it, so the other part
    would be misplaced.
@@ -63,12 +91,12 @@ The path from capture to publish:
    the display it started on.
 
 Known rough edge: a share started through the macOS 15 system picker before
-any box existed has no recorded source, so it goes black (and stays black)
+any box existed has no recorded source, so it is wholly covered (and stays so)
 once a box is turned on. That is the fail-closed answer; stopping and sharing
 again with a box present uses KithMoot's own chooser and works normally.
 
 A window share is refused while any box is on. A window share started with
-every box off goes black the moment one is turned on, and says why.
+every box off is wholly covered the moment one is turned on, and says why.
 
 Boxes are not offered on Wayland, where an app cannot place its own window or
 read screen coordinates; the preview area share is the way to keep things
@@ -76,7 +104,8 @@ private there. Browsers get no boxes and behave as before.
 
 `desktop/test/redaction.spec.ts` reads the pixels of the published RTP sender
 track, and of the picture the far end decodes, to check the boxed region is
-black and the rest is not, for a screen share and an area share.
+covered and the rest is not, for a screen share and an area share, and that a
+hidden share is covered everywhere, here and at the far end, on one track.
 
 ## Stage 2 design note: single-app shares
 
@@ -105,7 +134,7 @@ The same fail-closed rules apply: the window's bounds must be fresh (a
 timestamped answer no older than a few frames), the picture's shape must match
 the window's, and the window must be on one display with a known scale; a
 minimised, off-screen, mid-resize or unanswered window sends
-black while any box is on. Box geometry would then map by window origin
+the cover while any box is on. Box geometry would then map by window origin
 rather than display origin, reusing `planRedaction` with the window standing
 in for the display. Occluding windows are the sharer's own concern: the
 capture of a single app does not include what is on top of it.
