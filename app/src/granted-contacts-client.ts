@@ -11,6 +11,19 @@ const HEX = /^[0-9a-f]{64}$/
 /** Shows the code and resolves true only once the person says Signet matched it. */
 export type PairingConfirm = (code: string) => Promise<boolean>
 export type PairingOutcome = 'paired' | 'no-approval' | 'not-confirmed'
+/** How long a relay has to answer before a pairing looks elsewhere. */
+export const RELAY_ANSWER_MS = 4000
+/** The first relay that answers, in the order the person keeps them. Signet
+ * replies on the one relay the link names, so a relay that is down would leave
+ * both sides waiting with nothing said. All are asked at once: the wait is one
+ * relay's, not the sum. */
+export async function firstReachableRelay(relays: readonly string[], reachable: (relay: string) => Promise<boolean>, timeoutMs = RELAY_ANSWER_MS): Promise<string | undefined> {
+  const answers = await Promise.all(relays.map(relay => new Promise<boolean>(resolve => {
+    const timer = setTimeout(() => resolve(false), timeoutMs)
+    void Promise.resolve().then(() => reachable(relay)).then(ok => ok === true, () => false).then(ok => { clearTimeout(timer); resolve(ok) })
+  })))
+  return relays.find((_, index) => answers[index])
+}
 interface Options {
   signer: ContactsSigner; relay: RelayIo; store: DeviceStore
   current(): boolean; changed(view: GrantedContactsView): void
@@ -176,7 +189,10 @@ export class GrantedContactsClient {
       const pairing = await client.awaitPairingAck({ challenge, relays: [relay], requestedCapabilities: scopes, signal: abort.signal })
       this.#current()
       if (!pairing || this.#generation !== generation) return 'no-approval'
-      if (BASIC_CONTACT_SCOPES.some(scope => !pairing.grantedCapabilities.includes(scope))) throw new Error('Names, keys and blocks are required to use these contacts')
+      // Signet ticks names and keys alone until the person ticks more, so
+      // say which box was left, not only that something is missing.
+      if (!pairing.grantedCapabilities.includes('signet.contacts.read:directory')) throw new Error('Signet did not share names and keys, so nothing was linked. Start again and tick that box in Signet.')
+      if (!pairing.grantedCapabilities.includes('signet.contacts.blocks.read')) throw new Error('Signet did not share who you have blocked, which KithMoot needs to hide them. Nothing was linked. Start again and tick that box in Signet.')
       const code = formatPairingCode(pairingCode({ appPubkey: this.#options.signer.pubkey, challenge,
         grantId: pairing.grantId, railPubkey: pairing.railPubkey }))
       const confirmed = await confirm(code)

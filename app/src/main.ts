@@ -2090,7 +2090,7 @@ function contactIsBlocked(participant: string): boolean {
 }
 function renderIdentity(): void {
   grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
-    relay: () => relayConnections.configuration('default').find(relay => relay.read && relay.write)?.url,
+    relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
     store: deviceStore, qr: renderQr,
     changed: view => { grantedContactView = view; session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals() },
   })

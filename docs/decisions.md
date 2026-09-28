@@ -1779,6 +1779,27 @@ owner approved, and refuses the projection. The view follows: no names and
 no tiers are used from it, the covered ones included. The per-field checks
 in `app/src/granted-contacts.ts` stay as a second line.
 
+**A pairing meets on a relay that answers.** Signet replies on the one relay
+the link names. The panel used to name the first read and write relay in
+settings, up or not, and on 28 September that relay was returning 502: Signet
+said it could not connect the app and this side said nothing. The panel now
+asks every read and write relay at once, waits four seconds, and names the
+first in the person's order that answered. When none does it says so and
+shows no link. A relay that answers may still refuse the event; that case is
+left to the wait for an approval, which ends by saying none arrived.
+
+**Signet ticks names and keys alone.** Its approval screen leaves the other
+four boxes for the person, the one for blocks among them, and this side still
+requires blocks. An approval without them links nothing. The panel says
+before the pairing which two boxes to tick, and afterwards which one was
+left. Whether blocks should stay required is the owner's decision.
+
+**Tried against the real thing, 28 September.** A throwaway identity in the
+Signet web app and a throwaway key here, over public relays, driven by a
+script: the pairing, the code, the contact arriving, the copy surviving a
+restart, and a disconnect in Signet hiding it. Signet's Android app at 0.14.0
+has no screen for the code, so this was the web app only.
+
 **What this does not do.** A block is local. It filters this device's roster,
 chat and invitations, and closes its media peers. It does not remove anybody
 from the room, revoke a room key, or change what another member sees. Tier

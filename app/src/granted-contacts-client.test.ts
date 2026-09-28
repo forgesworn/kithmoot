@@ -3,7 +3,7 @@ import { getPublicKey, finalizeEvent } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { sealVaultPayload, projectionEventTemplate, projectionTag, proposalTag, buildPairingAckV2, ackEventTemplate, pairingCode, formatPairingCode,
   type ContactProjectionV2, type ContactsSigner, type PairingV2, type SignedNostrEvent } from '@forgesworn/signet-contacts'
-import { GrantedContactsClient, BASIC_CONTACT_SCOPES } from './granted-contacts-client.js'
+import { GrantedContactsClient, BASIC_CONTACT_SCOPES, firstReachableRelay } from './granted-contacts-client.js'
 import { memoryDeviceStore } from './device-store.js'
 const now = 1800000000, appKey = new Uint8Array(32).fill(1), railKey = new Uint8Array(32).fill(2)
 const account = getPublicKey(appKey), rail = getPublicKey(railKey), grantId = '3'.repeat(32), peer = '4'.repeat(64)
@@ -85,7 +85,7 @@ it('emits expiry before network work and keeps known blocks when the cache becom
 })
 
 /** Signet's side of a pairing: an approval sealed to the app by a throwaway key. */
-function pairingScene(approver = railKey) {
+function pairingScene(approver = railKey, granted = BASIC_CONTACT_SCOPES) {
   const store = memoryDeviceStore(), changed = vi.fn(), throwaway = new Uint8Array(32).fill(9)
   let acks: SignedNostrEvent[] = [], tail = Promise.resolve()
   const lock = <T>(task: () => Promise<T>) => { const next = tail.then(task); tail = next.then(() => {}, () => {}); return next }
@@ -96,7 +96,7 @@ function pairingScene(approver = railKey) {
     const challenge = new URL(uri.replace('signet-grant:', 'https:')).searchParams.get('challenge')!
     const railPubkey = getPublicKey(approver)
     const plain = buildPairingAckV2({ v: 2, grantId, railPubkey, projectionTag: projectionTag(grantId), proposalTag: proposalTag(grantId, account),
-      relay: 'wss://relay.example/', grantedCapabilities: BASIC_CONTACT_SCOPES, maxStalenessSeconds: 21600, challenge })
+      relay: 'wss://relay.example/', grantedCapabilities: granted, maxStalenessSeconds: 21600, challenge })
     const content = nip44.v2.encrypt(plain, nip44.v2.utils.getConversationKey(throwaway, account))
     acks = [finalizeEvent(ackEventTemplate(getPublicKey(throwaway), account, now, content), throwaway)]
     return formatPairingCode(pairingCode({ appPubkey: account, challenge, grantId, railPubkey }))
@@ -123,4 +123,24 @@ it('discards a confirmation that arrives after the pairing was cancelled', async
   t.approve(pairing.uri)
   expect(await pairing.wait(async () => { pairing.cancel(); return true })).toBe('not-confirmed')
   expect(t.saved()).toBeNull()
+})
+it('says which box was left when Signet approves with names and keys alone, and links nothing', async () => {
+  const t = pairingScene(railKey, ['signet.contacts.read:directory']), pairing = t.client.beginPairing('wss://relay.example/')
+  t.approve(pairing.uri)
+  const confirm = vi.fn(async () => true)
+  await expect(pairing.wait(confirm)).rejects.toThrow(/who you have blocked/)
+  expect(confirm).not.toHaveBeenCalled()
+  expect(t.saved()).toBeNull()
+})
+it('pairs on the first relay that answers, in the order the person keeps them', async () => {
+  const up = new Set(['wss://b.example/', 'wss://c.example/']), asked: string[] = []
+  const reachable = async (relay: string) => { asked.push(relay); if (relay === 'wss://a.example/') throw new Error('502'); return up.has(relay) }
+  expect(await firstReachableRelay(['wss://a.example/', 'wss://b.example/', 'wss://c.example/'], reachable)).toBe('wss://b.example/')
+  expect(asked).toHaveLength(3)
+  expect(await firstReachableRelay(['wss://a.example/'], reachable)).toBeUndefined()
+  expect(await firstReachableRelay([], reachable)).toBeUndefined()
+})
+it('counts a relay that never answers as down, without waiting on it for ever', async () => {
+  const never = () => new Promise<boolean>(() => {})
+  expect(await firstReachableRelay(['wss://silent.example/', 'wss://b.example/'], relay => relay === 'wss://b.example/' ? Promise.resolve(true) : never(), 20)).toBe('wss://b.example/')
 })

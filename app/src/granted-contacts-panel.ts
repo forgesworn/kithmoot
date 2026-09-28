@@ -2,13 +2,14 @@ import { SimplePool } from 'nostr-tools/pool'
 import { createSimplePoolRelayIo } from '@forgesworn/signet-contacts/adapters/nostr-tools'
 import type { Capability } from '@forgesworn/signet-contacts'
 import type { SignetSession } from 'signet-login'
-import { GrantedContactsClient } from './granted-contacts-client.js'
+import { GrantedContactsClient, firstReachableRelay, RELAY_ANSWER_MS } from './granted-contacts-client.js'
 import type { GrantedContactsView } from './granted-contacts.js'
 import type { DeviceStore } from './device-store.js'
 
 interface Options {
   account(): SignetSession | undefined
-  relay(): string | undefined
+  /** The person's read and write relays, in the order they keep them. */
+  relays(): string[]
   store: DeviceStore
   qr(canvas: HTMLCanvasElement, value: string): Promise<unknown>
   changed(view: GrantedContactsView): void
@@ -22,6 +23,8 @@ export class GrantedContactsPanel {
   #pool: SimplePool | undefined
   #cancel: (() => void) | undefined
   #pairing = false
+  /** True while a relay is being found, before there is a link to show. */
+  #looking = false
   /** Settles the code step. Set only while the code is on screen. */
   #answer: ((matched: boolean) => void) | undefined
   #message = ''
@@ -41,7 +44,7 @@ export class GrantedContactsPanel {
   reconcile(): void {
     const account = this.#options.account()
     if (account !== this.#account) {
-      this.#cancel?.(); this.#cancel = undefined; this.#pairing = false; this.#answer?.(false)
+      this.#cancel?.(); this.#cancel = undefined; this.#pairing = false; this.#looking = false; this.#answer?.(false)
       this.#client?.stop(); this.#pool?.destroy(); this.#client = undefined; this.#pool = undefined
       this.#account = account; this.#message = ''
       this.#view = { status: 'disconnected', contacts: [], blocked: new Set(), truncated: false }
@@ -63,7 +66,7 @@ export class GrantedContactsPanel {
     const available = !!this.#client
     this.#el<HTMLButtonElement>('signetContactsConnect').disabled = !available || this.#pairing
     this.#el<HTMLButtonElement>('signetContactsRefresh').disabled = !available || this.#pairing
-    this.#el('signetContactsPairing').hidden = !this.#pairing || !!this.#answer
+    this.#el('signetContactsPairing').hidden = !this.#pairing || this.#looking || !!this.#answer
     this.#el('signetContactsConfirm').hidden = !this.#answer
     this.#el('signetContactsState').textContent = this.#message || (!available
       ? 'Connect a Nostr signer with encryption support to link your Signet contacts. This browser also needs support for coordinating tabs.'
@@ -89,12 +92,17 @@ export class GrantedContactsPanel {
     })
   }
   async #connect(): Promise<void> {
-    const client = this.#client, account = this.#account, relay = this.#options.relay()
-    if (!client || this.#pairing) return
-    if (!relay) { this.#message = 'Choose a read/write relay in relay settings first.'; this.#paint(); return }
-    this.#message = ''; this.#pairing = true; this.#paint()
+    const client = this.#client, account = this.#account, pool = this.#pool, relays = this.#options.relays()
+    if (!client || !pool || this.#pairing) return
+    if (!relays.length) { this.#message = 'Choose a read/write relay in relay settings first.'; this.#paint(); return }
+    this.#message = 'Looking for a relay that answers.'; this.#pairing = true; this.#looking = true; this.#paint()
     let cancel: (() => void) | undefined
     try {
+      const relay = await firstReachableRelay(relays, url => pool.ensureRelay(url, { connectionTimeout: RELAY_ANSWER_MS }).then(() => true))
+      if (this.#account !== account) return
+      this.#looking = false
+      if (!relay) { this.#message = 'None of your relays answered, so Signet could not reply. Check relay settings and try again.'; return }
+      this.#message = ''; this.#paint()
       const extras: Capability[] = []
       if (this.#el<HTMLInputElement>('signetContactsTiers').checked) extras.push('signet.contacts.read:tier')
       if (this.#el<HTMLInputElement>('signetContactsChecks').checked) extras.push('signet.contacts.read:checks', 'signet.contacts.read:check-records')
@@ -113,7 +121,7 @@ export class GrantedContactsPanel {
     } finally {
       cancel?.(); this.#answer?.(false)
       if (this.#account === account && (this.#cancel === cancel || !cancel)) {
-        this.#cancel = undefined; this.#pairing = false; this.#paint()
+        this.#cancel = undefined; this.#pairing = false; this.#looking = false; this.#paint()
       }
     }
   }
