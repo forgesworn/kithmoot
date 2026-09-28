@@ -133,9 +133,14 @@ test('public profiles start enabled and an opt-out survives a new visit', async 
       upstream.send(raw)
     })
   })
+  // Somebody to look up. A browser alone in a room asks nothing: the only
+  // key there is the one it made itself, which it never asks about.
+  const other = await contextFor(browser, baseURL!)
   try {
+    const link = encodeJoinUrl(baseURL!, generateRoomSecret(), [relay])
+    await join(await other.newPage(), link, 'Somebody else')
     const page = await context.newPage()
-    await join(page, encodeJoinUrl(baseURL!, generateRoomSecret(), [relay]), 'Private reader')
+    await join(page, link, 'Private reader')
     await page.locator('#chatInput').fill('No public lookup needed')
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('No public lookup needed')
@@ -152,5 +157,5 @@ test('public profiles start enabled and an opt-out survives a new visit', async 
     expect(queries).toHaveLength(count)
     await page.locator('#lookupProfiles').check()
     await expect.poll(() => queries.length).toBeGreaterThan(count)
-  } finally { await context.close() }
+  } finally { await context.close(); await other.close() }
 })
