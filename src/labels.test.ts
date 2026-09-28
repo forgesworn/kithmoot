@@ -17,6 +17,23 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { ACCESS_LABELS } from './access.js'
+import { ASSIGNMENT_LABELS } from './assignments.js'
+import { CALL_BELL_LABELS } from './call-bell.js'
+import { CHAT_LABELS, CHANNEL_ID_INFO, CHANNEL_KEY_INFO } from './chat.js'
+import { DEN_CLIENT_LABELS } from './den-client.js'
+import { EPOCH_LABELS, EPOCH_ID_INFO, EPOCH_KEY_INFO } from './epoch.js'
+import { FORWARDER_LABELS } from './forwarder.js'
+import { INVITATION_LABELS } from './invitation.js'
+import { MEDIA_CRYPTO_LABELS } from './media-crypto.js'
+import { OWNERSHIP_LABELS } from './ownership.js'
+import { PEER_ASSIST_LABELS } from './peer-assist.js'
+import { PAIRING_LABELS } from './pairing.js'
+import { PERSISTENT_INVITATION_LABELS } from './persistent-invitation.js'
+import { READ_POSITION_LABELS } from './read-position.js'
+import { ROOM_LABELS } from './room.js'
+import { VERIFICATION_LABELS } from './verification.js'
+
 const here = dirname(fileURLToPath(import.meta.url))
 
 /** Matches a `kithmoot/...` literal up to (but not including) the next
@@ -91,5 +108,108 @@ describe('kithmoot/ wire-format labels', () => {
 
   it('the frozen list itself has no duplicates', () => {
     expect(new Set(FROZEN_LABELS).size).toBe(FROZEN_LABELS.length)
+  })
+})
+
+// ===========================================================================
+// Per-module: each label-bearing module exports its own frozen list
+// (`ACCESS_LABELS`, `INVITATION_LABELS`, ...), and this checks each one
+// against a scan of THAT module's own file, rather than scanning `src/*.ts`
+// as a whole (which the tests above do, and which is blind to comments: a
+// label renamed in code but left quoted in a stale comment still passes
+// there). A label moved out of a file during the circle-kit extraction has
+// to be removed from that file's own exported list at the same time, or this
+// fails - unlike a whole-directory scan, which cannot tell "moved to another
+// file in src/" from "renamed everywhere it is quoted".
+// ===========================================================================
+
+const MODULE_LABEL_LISTS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['access.ts', ACCESS_LABELS],
+  ['assignments.ts', ASSIGNMENT_LABELS],
+  ['call-bell.ts', CALL_BELL_LABELS],
+  ['chat.ts', CHAT_LABELS],
+  ['den-client.ts', DEN_CLIENT_LABELS],
+  ['epoch.ts', EPOCH_LABELS],
+  ['forwarder.ts', FORWARDER_LABELS],
+  ['invitation.ts', INVITATION_LABELS],
+  ['media-crypto.ts', MEDIA_CRYPTO_LABELS],
+  ['ownership.ts', OWNERSHIP_LABELS],
+  ['peer-assist.ts', PEER_ASSIST_LABELS],
+  ['pairing.ts', PAIRING_LABELS],
+  ['persistent-invitation.ts', PERSISTENT_INVITATION_LABELS],
+  ['read-position.ts', READ_POSITION_LABELS],
+  ['room.ts', ROOM_LABELS],
+  ['verification.ts', VERIFICATION_LABELS],
+]
+
+function findLabelsInFile(file: string): string[] {
+  const text = readFileSync(join(here, file), 'utf8')
+  const found = new Set<string>()
+  for (const match of text.matchAll(LABEL_PATTERN)) found.add(match[0])
+  return [...found].sort()
+}
+
+describe('per-module label exports (checked against exported constants, not comment text)', () => {
+  for (const [file, exported] of MODULE_LABEL_LISTS) {
+    it(`${file}'s exported label list matches a fresh scan of ${file} alone`, () => {
+      expect([...exported].sort()).toEqual(findLabelsInFile(file))
+    })
+  }
+
+  it('the union of every module\'s own exported list is exactly the frozen, directory-wide set above', () => {
+    const union = new Set<string>()
+    for (const [, exported] of MODULE_LABEL_LISTS) for (const label of exported) union.add(label)
+    expect([...union].sort()).toEqual([...FROZEN_LABELS].sort())
+  })
+
+  it('no label is claimed by more than one module\'s exported list, except the bare namespace prefix', () => {
+    // 'kithmoot/v1/' is the one deliberate exception: den-client.ts uses it
+    // on its own inside `den/kithmoot/v1/${purpose}`, and it is also the
+    // literal prefix of every OTHER `kithmoot/v1/*` label - see the comment
+    // on FROZEN_LABELS above. Every module using it as a genuine standalone
+    // literal (rather than as a substring of a longer, versioned label)
+    // legitimately owns it.
+    // 'kithmoot/v1/room-id' and 'kithmoot/v1/room-key' are ALSO genuinely
+    // duplicated: `media-crypto.ts` derives the media key from the same two
+    // HKDF info strings `room.ts`'s `deriveRoom` uses for the room id/key
+    // themselves, by design (see media-crypto.ts's own header comment).
+    const SHARED_EXCEPTIONS = new Set(['kithmoot/v1/', 'kithmoot/v1/room-id', 'kithmoot/v1/room-key'])
+    const owners = new Map<string, string[]>()
+    for (const [file, exported] of MODULE_LABEL_LISTS) {
+      for (const label of exported) {
+        const existing = owners.get(label) ?? []
+        if (existing.length > 0 && !SHARED_EXCEPTIONS.has(label)) {
+          expect.fail(`"${label}" is claimed by both ${existing.join(', ')} and ${file}`)
+        }
+        owners.set(label, [...existing, file])
+      }
+    }
+  })
+})
+
+// ===========================================================================
+// Composed labels: `deriveEpoch`'s per-epoch info strings and
+// `deriveChannel`'s per-channel info strings are built by string
+// concatenation at their call site (`` `${EPOCH_ID_INFO}/${n}` ``,
+// `CHANNEL_ID_INFO + channel`), so neither the whole-file scan above nor a
+// module's own frozen list (which records only the fixed PREFIX) pins the
+// exact bytes a real epoch or channel derivation signs/encrypts under. These
+// check the real exported constants compose to exactly what
+// `vectors/kithmoot-vectors.json` and `vectors/circle-vectors.json` already
+// exercise, independent of any vector file.
+// ===========================================================================
+
+describe('composed labels (info strings built by concatenation, not a fixed literal)', () => {
+  it('deriveEpoch composes EPOCH_ID_INFO/EPOCH_KEY_INFO with "/" + the epoch number', () => {
+    expect(`${EPOCH_ID_INFO}/1`).toBe('kithmoot/v1/epoch-id/1')
+    expect(`${EPOCH_KEY_INFO}/1`).toBe('kithmoot/v1/epoch-key/1')
+    expect(`${EPOCH_ID_INFO}/2`).toBe('kithmoot/v1/epoch-id/2')
+    expect(`${EPOCH_ID_INFO}/1`).not.toBe(`${EPOCH_ID_INFO}/2`)
+  })
+
+  it('deriveChannel composes CHANNEL_ID_INFO/CHANNEL_KEY_INFO directly with the channel name (no separator)', () => {
+    expect(CHANNEL_ID_INFO + 'planning').toBe('kithmoot/v1/channel-id/planning')
+    expect(CHANNEL_KEY_INFO + 'planning').toBe('kithmoot/v1/channel-key/planning')
+    expect(CHANNEL_ID_INFO + 'planning').not.toBe(CHANNEL_ID_INFO + 'social')
   })
 })

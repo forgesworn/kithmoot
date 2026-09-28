@@ -18,32 +18,17 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { moduleExports } from '../scripts/api-surface.mjs'
+import { moduleExports, MODULES } from '../scripts/api-surface.mjs'
+import { KINDS } from './kinds.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const snapshotPath = join(here, 'api-surface.snapshot.json')
 const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8')) as Record<string, string[]>
 
-/** Name in the snapshot -> file the plan's §1.1 table names it from. */
-const MODULES: Record<string, string> = {
-  index: 'index.ts',
-  hex: 'hex.ts',
-  verify: 'verify.ts',
-  identity: 'identity.ts',
-  kinds: 'kinds.ts',
-  types: 'types.ts',
-  credential: 'credential.ts',
-  room: 'room.ts',
-  'network-hints': 'network-hints.ts',
-  'display-name': 'display-name.ts',
-  access: 'access.ts',
-  invitation: 'invitation.ts',
-  'persistent-invitation': 'persistent-invitation.ts',
-  link: 'link.ts',
-  epoch: 'epoch.ts',
-  chat: 'chat.ts',
-  lane: 'lane.ts',
-}
+// `MODULES` (name in the snapshot -> file the plan's §1.1 table names it
+// from) is imported from `scripts/api-surface.mjs` rather than duplicated
+// here, so the tracked module list can never drift between this check and
+// the script that (deliberately) regenerates the snapshot.
 
 describe('API surface snapshot', () => {
   it('the snapshot names exactly the modules T0.2 tracks, no more and no fewer', () => {
@@ -62,5 +47,49 @@ describe('API surface snapshot', () => {
       expect(names, name).toEqual([...names].sort())
       expect(new Set(names).size, name).toBe(names.length)
     }
+  })
+})
+
+// ===========================================================================
+// KINDS: the snapshot above records that the `KINDS` NAME is exported from
+// `kinds.ts`, but not its keys or numeric values - a kind silently renumbered
+// or renamed would still pass every check above. Kept as a plain literal
+// test rather than folded into a vector file, because there is nothing here
+// to sign, encrypt or decode: a kind number is read directly off the object,
+// never derived.
+// ===========================================================================
+
+/** The circle-layer subset: kinds T1's vector work exercises (credential,
+ *  invitation request/grant/retirement, persistent group invitation, rekey,
+ *  epoch request/grant) - as opposed to presence, chat, signalling, pairing
+ *  and the rest, which `KINDS` also carries and this test deliberately does
+ *  not pin. */
+const CIRCLE_KIND_NAMES = [
+  'CREDENTIAL',
+  'INVITATION_REQUEST',
+  'INVITATION_GRANT',
+  'INVITATION_RETIREMENT',
+  'GROUP_INVITATION',
+  'ROOM_REKEY',
+  'EPOCH_REQUEST',
+  'EPOCH_GRANT',
+] as const
+
+describe('circle-layer kind numbers', () => {
+  it('names exactly the 8 circle kinds this vector work covers, frozen to their current numbers', () => {
+    expect(CIRCLE_KIND_NAMES).toHaveLength(8)
+    expect(CIRCLE_KIND_NAMES.map((name) => KINDS[name])).toEqual([20460, 20466, 20467, 1461, 1463, 1462, 20468, 20469])
+  })
+
+  it('every circle kind number is unique, among themselves and across the whole KINDS registry', () => {
+    const circleValues = CIRCLE_KIND_NAMES.map((name) => KINDS[name])
+    expect(new Set(circleValues).size).toBe(circleValues.length)
+
+    const allValues = Object.values(KINDS)
+    expect(new Set(allValues).size, 'KINDS has two names sharing one wire kind number').toBe(allValues.length)
+  })
+
+  it('every circle kind name named here is actually present in KINDS, so a rename here fails loudly rather than silently comparing undefined to undefined', () => {
+    for (const name of CIRCLE_KIND_NAMES) expect(Object.prototype.hasOwnProperty.call(KINDS, name), name).toBe(true)
   })
 })

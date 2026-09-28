@@ -127,3 +127,11 @@ export class DenAssignmentClient {
   async retry(room: string): Promise<void> { const r = this.#rooms.get(room); if (!r) throw new Error('Room is not connected'); await r.log.retry() }
   close(): void { this.#closed = true; for (const r of this.#rooms.values()) r.member.leave(); this.#rooms.clear(); this.#key.fill(0) }
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const DEN_CLIENT_LABELS = [
+  "kithmoot/v1/",
+] as const

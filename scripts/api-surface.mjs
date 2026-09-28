@@ -1,47 +1,97 @@
 // Shared by `src/api-surface.test.ts` and by hand when the committed
 // snapshot needs a deliberate update (`node scripts/api-surface.mjs`).
 //
-// Walks a TypeScript source file's top-level statements with the real
-// TypeScript compiler (not a regex) and returns every name it exports:
-// function/const/class/interface/type/enum declarations carrying an
-// `export` modifier, named exports from an `export { a, b }` or
-// `export type { a, b }` statement, and `export * from '<module>'`
-// statements (recorded as `*:<module>`, since a wildcard re-export has no
-// names of its own to list - see docs/plans/2026-09-28-circle-kit-extraction.md
-// T0.2 in the girnel repository).
-import { readFileSync } from 'node:fs'
+// Resolves a module's export list SEMANTICALLY, via the TypeScript type
+// checker's `getExportsOfModule` - not by walking the file's own AST for
+// `export` keywords. The two disagree on exactly the case this snapshot
+// exists to catch: `export * from './x.js'` has no names of its own to
+// record syntactically, so an AST walk can only note that the re-export
+// statement exists (as `*:<module>`, the previous approach here) - which
+// means a module extracted into a shared kit and re-exported through a thin
+// `export * from '@forgesworn/circle-kit'` shim records a DIFFERENT
+// snapshot than the original file did, even though every name a consumer
+// can import is identical. `getExportsOfModule` resolves the wildcard
+// re-export through to the real, underlying names, so the kit's shim and
+// the file it replaces snapshot identically - which is the whole point of
+// a snapshot meant to survive that extraction (see
+// docs/plans/2026-09-28-circle-kit-extraction.md T0.2, girnel repository).
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
-/** @param {string} filePath @returns {string[]} sorted, deduplicated export names */
-export function moduleExports(filePath) {
-  const text = readFileSync(filePath, 'utf8')
-  const source = ts.createSourceFile(filePath, text, ts.ScriptTarget.Latest, true)
-  const names = new Set()
+const here = dirname(fileURLToPath(import.meta.url))
 
-  const hasExportModifier = (node) =>
-    ts.canHaveModifiers(node) && (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+/** One TypeScript `Program` for the whole project, built once and reused
+ *  across every `moduleExports` call in a process - rebuilding it per file
+ *  would mean re-parsing and re-binding every file in `src/` and `test/`
+ *  on every single lookup. */
+let cachedProgram
 
-  for (const statement of source.statements) {
-    if (ts.isExportDeclaration(statement)) {
-      if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
-        for (const spec of statement.exportClause.elements) names.add(spec.name.text)
-      } else if (!statement.exportClause && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)) {
-        // `export * from './x.js'` - no individual names to record.
-        names.add(`*:${statement.moduleSpecifier.text}`)
-      }
-      continue
-    }
-    if (!hasExportModifier(statement)) continue
-    if (ts.isFunctionDeclaration(statement) && statement.name) names.add(statement.name.text)
-    else if (ts.isClassDeclaration(statement) && statement.name) names.add(statement.name.text)
-    else if (ts.isInterfaceDeclaration(statement)) names.add(statement.name.text)
-    else if (ts.isTypeAliasDeclaration(statement)) names.add(statement.name.text)
-    else if (ts.isEnumDeclaration(statement)) names.add(statement.name.text)
-    else if (ts.isVariableStatement(statement)) {
-      for (const decl of statement.declarationList.declarations) {
-        if (ts.isIdentifier(decl.name)) names.add(decl.name.text)
-      }
-    }
+function getProgram() {
+  if (cachedProgram) return cachedProgram
+  const configPath = join(here, '..', 'tsconfig.json')
+  const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
+  if (configFile.error) {
+    throw new Error(`api-surface.mjs: could not read ${configPath}: ${ts.flattenDiagnosticMessageText(configFile.error.messageText, '\n')}`)
   }
-  return [...names].sort()
+  const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, dirname(configPath))
+  cachedProgram = ts.createProgram({ rootNames: parsed.fileNames, options: parsed.options })
+  return cachedProgram
+}
+
+/** @param {string} filePath @returns {string[]} sorted, deduplicated export names, resolved through any `export *` re-export. */
+export function moduleExports(filePath) {
+  const program = getProgram()
+  const checker = program.getTypeChecker()
+  const sourceFile = program.getSourceFile(filePath)
+  if (!sourceFile) {
+    throw new Error(`api-surface.mjs: ${filePath} is not part of the tsconfig's program (check its include/exclude)`)
+  }
+  const moduleSymbol = checker.getSymbolAtLocation(sourceFile)
+  // A file with no `export` statement at all (impossible for anything in
+  // MODULES today, but not for a hypothetical future entry) has no module
+  // symbol, and so exports nothing.
+  if (!moduleSymbol) return []
+  const exports = checker.getExportsOfModule(moduleSymbol)
+  return [...new Set(exports.map((symbol) => symbol.name))].sort()
+}
+
+/** Snapshot name -> file the plan's §1.1 table names it from. Shared with
+ *  `src/api-surface.test.ts`, which imports this rather than keeping its own
+ *  copy, so the tracked module list can never drift between the check and
+ *  the thing that (deliberately) updates it. */
+export const MODULES = {
+  index: 'index.ts',
+  hex: 'hex.ts',
+  verify: 'verify.ts',
+  identity: 'identity.ts',
+  kinds: 'kinds.ts',
+  types: 'types.ts',
+  credential: 'credential.ts',
+  room: 'room.ts',
+  'network-hints': 'network-hints.ts',
+  'display-name': 'display-name.ts',
+  access: 'access.ts',
+  invitation: 'invitation.ts',
+  'persistent-invitation': 'persistent-invitation.ts',
+  link: 'link.ts',
+  epoch: 'epoch.ts',
+  chat: 'chat.ts',
+  lane: 'lane.ts',
+}
+
+// Run directly (`node scripts/api-surface.mjs`) to deliberately regenerate
+// the committed snapshot from the CURRENT export lists - never done as a
+// side effect of running the test suite, only by hand, the same way
+// `vectors/generate.mjs` is only ever run by hand or by `npm run vectors`.
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  const { writeFileSync } = await import('node:fs')
+  const snapshotPath = join(here, '..', 'src', 'api-surface.snapshot.json')
+  /** @type {Record<string, string[]>} */
+  const snapshot = {}
+  for (const [name, file] of Object.entries(MODULES)) snapshot[name] = moduleExports(join(here, '..', 'src', file))
+  const ordered = Object.fromEntries(Object.keys(MODULES).sort().map((name) => [name, snapshot[name]]))
+  writeFileSync(snapshotPath, JSON.stringify(ordered, null, 2) + '\n')
+  console.log(`wrote ${snapshotPath}`)
+  for (const [name, names] of Object.entries(ordered)) console.log(`  ${name}: ${names.length} export(s)`)
 }
