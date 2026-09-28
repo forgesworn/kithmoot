@@ -1,4 +1,5 @@
 import { NostrRelayPool, normaliseRelayConfig, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
+import { KINDS } from '../../src/kinds.js'
 
 import type { ParticipantIdentity } from '../../src/identity.js'
 
@@ -190,7 +191,8 @@ export class RelayConnections {
       const connected = matches.some(health => health.state === 'connected')
       const lastWrite = matches.filter(health => health.lastPublishedAt).sort((a, b) => b.lastPublishedAt! - a.lastPublishedAt!)[0]
       const failed = matches.find(health => health.lastError)
-      return { ...lastWrite, ...relay, lastError: failed?.lastError,
+      const unreturned = [...new Set(matches.flatMap(health => health.unreturned ?? []))]
+      return { ...lastWrite, ...relay, lastError: failed?.lastError, unreturned: unreturned.length ? unreturned : undefined,
         authentication: matches.find(health => health.authentication === 'authenticated')?.authentication ?? matches.find(health => health.authentication)?.authentication,
         state: connected ? 'connected' : matches.some(health => health.state === 'connecting') ? 'connecting'
           : matches.some(health => health.state === 'disconnected') ? 'disconnected' : 'idle' }
@@ -323,6 +325,8 @@ export class RelaySettingsPanel {
       else if (found?.authentication === 'allowed' && found.state === 'connecting') text.textContent = 'Authenticating…'
       if (found?.lastPublishedAt) text.textContent += ` · Last accepted write ${new Date(found.lastPublishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} (${found.publishLatencyMs} ms)`
       if (found?.lastError) text.textContent += ` · ${found.lastError}`
+      // Seen, not inferred: it said OK to one and had nothing when asked.
+      if (found?.unreturned?.length) text.textContent += found.unreturned.includes(KINDS.CHAT) ? ' · Does not keep chat: accepted a message, then did not return it' : ' · Accepted an event, then did not return it'
     }
   }
 }

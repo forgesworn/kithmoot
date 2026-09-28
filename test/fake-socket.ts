@@ -28,6 +28,18 @@ export class FakeRelayServer {
    *  open, but the far end has already gone quiet on, behaves: `send()`
    *  succeeds into the void. */
   silent = false
+  /** Answer `OK true` to every publish, then keep nothing: the event is
+   *  neither stored nor passed to any subscription. How a relay that drops
+   *  a kind it does not care for looks from the outside. */
+  forgetful = false
+  /** Refuse every connection outright, the way a host with nothing
+   *  listening does: the socket errors before it ever opens. */
+  refuseConnections = false
+  /** Open every connection and drop it straight away, the way an
+   *  overloaded relay behind a proxy that accepts the upgrade does. */
+  dropOnOpen = false
+  /** Every connection attempt this relay has seen, refused or not. */
+  attempts = 0
 
   readonly #subscriptions = new Map<string, { socket: FakeWebSocket; subId: string; filters: Filter[] }>()
   readonly #sockets = new Set<FakeWebSocket>()
@@ -90,6 +102,10 @@ export class FakeRelayServer {
 
     if (message[0] === 'EVENT') {
       const event = message[1] as Event
+      if (this.forgetful) {
+        socket.deliver(JSON.stringify(['OK', event.id, true, '']))
+        return
+      }
       if (this.rejectPublishes) {
         socket.deliver(JSON.stringify(['OK', event.id, false, 'blocked: this relay refuses everything']))
         return
@@ -115,6 +131,15 @@ export class FakeRelayServer {
 
     if (message[0] === 'CLOSE') {
       this.#subscriptions.delete(this.#key(socket, message[1] as string))
+    }
+  }
+
+  /** Send `frame(subId)` down every open subscription, as they stand: junk,
+   *  forged or oversized events a hostile or broken relay pushes at a reader. */
+  inject(frame: (subId: string) => unknown): void {
+    for (const sub of [...this.#subscriptions.values()]) {
+      const value = frame(sub.subId)
+      sub.socket.deliver(typeof value === 'string' ? value : JSON.stringify(value))
     }
   }
 
@@ -167,10 +192,17 @@ export class FakeWebSocket {
         this.onerror?.()
         return
       }
+      this.#server.attempts++
+      if (this.#server.refuseConnections) {
+        this.readyState = FakeWebSocket.CLOSED
+        this.onerror?.()
+        return
+      }
       if (this.#server.stallConnections) return
       this.readyState = FakeWebSocket.OPEN
       this.#server.attach(this)
       this.onopen?.()
+      if (this.#server.dropOnOpen) queueMicrotask(() => this.dropped())
     })
   }
 
