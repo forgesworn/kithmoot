@@ -13,6 +13,21 @@ const glide = async (from, to, steps = 10) => { for (let i = 0; i <= steps; i++)
 const results = []
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` (${detail})` : ''}`) }
 
+// Closing the window the ordinary way must end the app. An error thrown in
+// the main process on the way out raises an error box instead, and the app
+// stays behind it.
+{
+  const closing = await electron.launch({ executablePath: exe, args: ['--no-sandbox', `--user-data-dir=/tmp/kithmoot-close-${Date.now()}`], timeout: 60000 })
+  const home = await closing.firstWindow()
+  await home.locator('#newRoom:visible, #roomName:visible').first().waitFor({ timeout: 30000 })
+  const pid = closing.process().pid
+  await closing.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; setTimeout(() => window.close(), 50) }).catch(() => {})
+  await sleep(4000)
+  const errorBox = /"Error"/.test(sh('xwininfo -root -tree')), running = !sh(`ps -p ${pid} -o comm=`).startsWith('ERR')
+  check('closing the window ends the app, with no error box', !errorBox && !running, `error box ${errorBox}, still running ${running}`)
+  try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+}
+
 const app = await electron.launch({ executablePath: exe, args: ['--no-sandbox', `--user-data-dir=/tmp/kithmoot-share-${Date.now()}`, '--use-fake-device-for-media-stream'], timeout: 60000 })
 const page = await app.firstWindow()
 const child = mark => app.evaluate(({ BrowserWindow }, mark) => BrowserWindow.getAllWindows().filter(window => window.webContents.getURL().includes(mark)).sort((a, b) => a.id - b.id).map(window => ({ id: window.id, ...window.getBounds() })), mark)

@@ -31,12 +31,12 @@ const notices = new DesktopNotices({
   supported: () => Notification.isSupported(),
   shown: applyUnreadBadge,
   create: options => new Notification({ ...options, icon: join(here, 'web/pwa-512x512.png') }),
-  open: roomId => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); win.webContents.send('desktop:open-room', roomId) } },
+  open: roomId => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); win.webContents.send('desktop:open-room', roomId) } },
 })
 let win
 const updates = createDesktopUpdater({
   autoUpdater, platform: process.platform, arch: process.arch, packaged: app.isPackaged,
-  notify: state => win?.webContents.send('desktop:update-state', state),
+  notify: state => { if (win && !win.isDestroyed()) win.webContents.send('desktop:update-state', state) },
   log: error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error'),
 })
 const shareArea = new ShareArea(() => win, areaMode)
