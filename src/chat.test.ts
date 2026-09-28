@@ -978,5 +978,7 @@ describe('opening an old room', () => {
       expect(decrypts).toBe(MAX_CHAT_MESSAGES)
       log.close()
     } finally { nip44.v2.decrypt = decrypt }
-  })
+  // Signs 520 events and publishes 1,560 copies before it asks anything. On
+  // a busy machine or a shared CI runner that alone runs past five seconds.
+  }, 15_000)
 })
