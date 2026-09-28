@@ -19,7 +19,8 @@
 //   RELAY_PORT=7778 node test/ws-relay.mjs
 //
 // A plain HTTP GET answers 200, which is what lets Playwright's `webServer`
-// wait on it. The same test-only server accepts encrypted Blossom uploads in
+// wait on it. `/__stored?kind=&d=` counts stored events, and DELETE on it
+// forgets them. The same test-only server accepts encrypted Blossom uploads in
 // memory, capped at the production endpoint's 270 MiB request limit. Nothing
 // here is a product or a persistent store.
 
@@ -102,6 +103,21 @@ const http = createServer((req, res) => {
       'content-length': String(bytes.length),
     })
     res.end(bytes)
+    return
+  }
+  // Test-only: make this relay forget, or count, the stored events of one
+  // kind under one `d` tag, as a public relay that drops a room's history
+  // does. `room-archive.spec.ts` uses it to prove a device puts back what a
+  // relay forgot.
+  if (url.pathname === '/__stored') {
+    const kind = Number(url.searchParams.get('kind'))
+    const d = url.searchParams.get('d')
+    const matching = (e) => e.kind === kind && (!d || e.tags.some((t) => t[0] === 'd' && t[1] === d))
+    if (req.method === 'DELETE') {
+      for (let i = stored.length - 1; i >= 0; i--) if (matching(stored[i])) stored.splice(i, 1)
+    }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ count: stored.filter(matching).length }))
     return
   }
   res.writeHead(200, { 'content-type': 'text/plain' })

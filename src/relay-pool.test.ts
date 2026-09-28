@@ -139,6 +139,37 @@ describe('NostrRelayPool', () => {
     expect(b.stored.map((e) => e.id)).toEqual([event.id])
   })
 
+  it('asks one relay alone and writes to one relay alone, quietly', async () => {
+    // A room's shared subscription hides which relay held what; a device
+    // putting history back has to ask, and write to, each one separately.
+    const onlyA = evt(1460, [['d', 'room']])
+    const onBoth = evt(1460, [['d', 'room']])
+    a.seed(onlyA); a.seed(onBoth); b.seed(onBoth)
+    const fromB = await pool.query(URL_B, [{ kinds: [1460], '#d': ['room'] }], 2_000)
+    expect(fromB.complete).toBe(true)
+    expect(fromB.events.map(e => e.id)).toEqual([onBoth.id])
+    const fromA = await pool.query(URL_A, [{ kinds: [1460], '#d': ['room'] }], 2_000)
+    expect(fromA.complete).toBe(true)
+    expect(fromA.events.map(e => e.id).sort()).toEqual([onlyA.id, onBoth.id].sort())
+    await pool.publishQuietly(URL_B, onlyA)
+    expect(b.stored.map(e => e.id)).toContain(onlyA.id)
+    expect(a.stored.filter(e => e.id === onlyA.id)).toHaveLength(1)
+    // Quiet: neither a refusal nor an acceptance is shown as the relay's health.
+    b.rejectPublishes = true
+    await expect(pool.publishQuietly(URL_B, evt(1460, [['d', 'room']]))).rejects.toBeTruthy()
+    expect(pool.health()[1]!.lastError).toBeUndefined()
+    expect(pool.health()[1]!.lastPublishedAt).toBeUndefined()
+    expect(pool.publishing).toBe(false)
+    await expect(pool.publishQuietly('wss://elsewhere.test', onlyA)).rejects.toThrow(/not a writable relay/)
+    await expect(pool.query('wss://elsewhere.test', [{ kinds: [1460] }])).rejects.toThrow(/not a readable relay/)
+  })
+
+  it('says a query that timed out is unknown, not empty', async () => {
+    a.silent = true
+    a.seed(evt(1460, [['d', 'room']]))
+    expect(await pool.query(URL_A, [{ kinds: [1460], '#d': ['room'] }], 200)).toEqual({ events: [], complete: false })
+  })
+
   it('says when every relay has answered, so a caller can close without cutting a slow one off', async () => {
     await pool.publish(evt())
     await pool.settled()
