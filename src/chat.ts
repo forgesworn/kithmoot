@@ -620,6 +620,8 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
 }
 
 export interface ChatLogOptions {
+  /** Local filtering at ingress and display; independent of room admission. */
+  isBlocked?: (participant: string) => boolean
   transport: RelayTransport
   roomId: string
   roomKey: Uint8Array
@@ -1011,8 +1013,20 @@ export class ChatLog {
     this.#credential = credential
   }
 
+  #blocked(participant: string): boolean {
+    try { return this.#opts.isBlocked?.(participant) === true } catch { return true }
+  }
+
   messages(): ChatMessage[] {
-    return [...this.#messages]
+    return this.#messages.filter(message => !this.#blocked(message.participant)
+      && (!message.speaker || !this.#blocked(message.speaker)))
+  }
+
+  refreshPolicy(): void {
+    const snapshot = this.messages()
+    for (const listener of this.#listeners) {
+      try { listener(snapshot) } catch { /* A consumer cannot break filtering. */ }
+    }
   }
 
   onChange(cb: (messages: ChatMessage[]) => void): () => void {
@@ -1060,7 +1074,7 @@ export class ChatLog {
       channel: this.#opts.channel,
       ...(this.#epoch ? { epoch: this.#epoch } : {}),
     })
-    if (!msg) return false
+    if (!msg || this.#blocked(msg.participant) || (msg.speaker && this.#blocked(msg.speaker))) return false
     // An archived event has no relay to name, and the lane it once took is
     // not recorded, so it claims none until a relay's copy arrives.
     msg.lane = fromArchive ? undefined : this.#laneOf(via)

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { memoryDeviceStore } from './device-store.js'
 import {
   MAX_VERIFIED,
+  scopedVerificationStore,
   VERIFIED_PREFIX,
   forgetVerified,
   participantVerification,
@@ -129,4 +130,18 @@ describe('verified-store', () => {
     // The newest survive; the first five verified are gone.
     expect(all.at(-1)!.name).toBe('P5')
   })
+})
+
+it('isolates local comparisons by observing identity without inheriting unscoped legacy memory', () => {
+  const raw = memoryDeviceStore(), owner = scopedVerificationStore(raw, 'c'.repeat(64)), other = scopedVerificationStore(raw, 'd'.repeat(64))
+  rememberVerified(raw, ADA, 'Legacy Ada', NOW)
+  expect(verifiedParticipants(owner)).toEqual([])
+  rememberVerified(owner, BOB, 'Bob', NOW)
+  expect(participantVerification(owner, BOB, 'Bob').status).toBe('verified')
+  expect(participantVerification(other, BOB, 'Bob').status).toBe('unknown')
+  expect(participantVerification(scopedVerificationStore(raw, 'c'.repeat(64)), BOB, 'Bob').status).toBe('verified')
+  forgetVerified(other, BOB)
+  expect(verifiedParticipants(owner)).toHaveLength(1)
+  expect(verifiedParticipants(raw)).toEqual([{ participant: ADA, name: 'Legacy Ada', verifiedAt: NOW / 1000 }])
+  expect(() => scopedVerificationStore(raw, '')).toThrow('observing identity')
 })

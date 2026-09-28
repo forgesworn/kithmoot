@@ -131,6 +131,9 @@ export interface CallView {
 }
 
 export interface RoomSessionBaseOptions {
+  /** Fresh local safety decision. Does not remove a participant from anybody
+   * else's room or revoke their room key. Exceptions refuse the remote peer. */
+  isBlocked?: (participant: string) => boolean
   transport: RelayTransport
   /** This device's own copy of the room's events: every chat log keeps and
    *  reads through it, and the authority's rekeys are kept and replayed at
@@ -748,6 +751,7 @@ export class RoomSession {
     }
 
     this.#chat = new ChatLog({
+      isBlocked: participant => this.#blocked(participant),
       transport: this.#opts.transport,
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -798,6 +802,7 @@ export class RoomSession {
    *  asks. This session's own participant is, whatever the roster says. */
   #isMember(participant: string): boolean {
     if (participant === this.participant) return true
+    if (this.#blocked(participant)) return false
     for (const entry of this.#entries.values()) if (entry.participant === participant) return true
     return false
   }
@@ -1736,6 +1741,7 @@ export class RoomSession {
     const existing = this.#channels.get(name)
     if (existing) return existing
     const log = new ChatLog({
+      isBlocked: participant => this.#blocked(participant),
       transport: this.#opts.transport,
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -1762,7 +1768,7 @@ export class RoomSession {
       now: this.#now(),
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
     })
-    if (!entry) return
+    if (!entry || this.#blocked(entry.participant)) return
     // Removed is removed, whatever key an entry arrived under.
     if (this.#removed.has(entry.participant)) return
 
@@ -1855,8 +1861,23 @@ export class RoomSession {
     }
   }
 
+  #blocked(participant: string): boolean {
+    if (participant === this.participant) return false
+    try { return this.#opts.isBlocked?.(participant) === true } catch { return true }
+  }
+
+  /** Re-evaluate live media peers and retained chat after a local block change.
+   * The mesh subscribes to this same roster notification and closes the peer. */
+  refreshContactPolicy(): void {
+    if (this.#left) return
+    this.#chat?.refreshPolicy()
+    for (const log of this.#channels.values()) log.refreshPolicy()
+    this.#notify()
+  }
+
   /** The verified proof carried by an agent, for explicit context grants. */
   agentOwnership(participant: string): AgentOwnership | undefined {
+    if (this.#blocked(participant)) return undefined
     const proof = [...this.#entries.values()].find(e => e.participant === participant && e.agent && e.owner && verifyAgentOwnership(e.owner, { agent: participant, now: this.#now() }).ok)?.owner
     return proof ? structuredClone(proof) : undefined
   }
@@ -1866,7 +1887,7 @@ export class RoomSession {
     // never sees a device that lapsed since the last sweep. No notification
     // from here: the caller is reading the fresh answer already.
     this.#evictLapsed()
-    const fresh = [...this.#entries.values()]
+    const fresh = [...this.#entries.values()].filter(entry => !this.#blocked(entry.participant))
     const present = new Set(fresh.map((entry) => entry.participant))
     // A proof can expire while its roster entry is still fresh. In rooms
     // requiring an owned agent, expiry must end admission on this read.

@@ -1586,6 +1586,16 @@ button.primary:hover:not(:disabled) {
   margin: 0.4rem 0;
 }
 
+/* Read off one screen and typed into another, so it is large, evenly spaced
+   and never wraps in the middle of a group. */
+.pairingCode {
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  margin: 0.4rem 0;
+}
+
 .note.inline {
   display: block;
   width: 100%;
