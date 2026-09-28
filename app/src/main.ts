@@ -7998,8 +7998,14 @@ function verifyChip(view: ParticipantView, name: string): HTMLElement {
   const chip = document.createElement('button')
   chip.type = 'button'
   chip.className = 'verifyChip'
+  // A tile can be painted while this device has no identity in the room on
+  // screen: a docked call's tiles outlive the room they came from. With no
+  // observer there is no record to read, and a chip is never worth a throw
+  // that takes the rest of the paint with it.
   const observer = meParticipant
-  const seen = participantVerification(scopedVerificationStore(deviceStore, observer), view.participant, name)
+  const seen: ReturnType<typeof participantVerification> = /^[0-9a-f]{64}$/.test(observer)
+    ? participantVerification(scopedVerificationStore(deviceStore, observer), view.participant, name)
+    : { status: 'unknown' }
   const shown = contactCheckView(grantedContactView, view.participant, seen)
   chip.classList.add(shown.status)
   chip.textContent = shown.label
