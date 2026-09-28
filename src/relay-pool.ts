@@ -375,6 +375,11 @@ export class NostrRelayPool implements RelayTransport {
   }
 
   #dialFailed(url: string): void {
+    // One silence is one failure. Several publishes that timed out on the
+    // same dead socket would otherwise double the backoff once each, and a
+    // join (which publishes a few events at once) would spend its whole
+    // retry budget waiting on a relay that has already come back.
+    if (Date.now() < (this.#dialAfter.get(url) ?? 0)) return
     const failures = (this.#dialFailures.get(url) ?? 0) + 1
     this.#dialFailures.set(url, failures)
     this.#dialAfter.set(url, Date.now() + Math.min(DIAL_BACKOFF_MS * 2 ** (failures - 1), DIAL_BACKOFF_MAX_MS))

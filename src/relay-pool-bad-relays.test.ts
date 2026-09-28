@@ -147,6 +147,21 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
     expect(bad.stored.map(e => e.id)).toEqual([event.id])
   })
 
+  it('gets a join through a relay that went quiet for a moment, though the join sent several events into the silence', async () => {
+    // Each publish that timed out on the one silent socket used to count as
+    // its own failure, so three at once doubled the backoff three times and
+    // the join spent its retry budget waiting on a relay that was back.
+    bad.silent = true
+    pool = new NostrRelayPool([BAD])
+    const settled: string[] = []
+    const events = [evt(20461), evt(1460), evt(1460)]
+    for (const event of events) pool.publish(event).then(() => settled.push('ok'), () => settled.push('failed'))
+    await vi.advanceTimersByTimeAsync(10_000)
+    bad.silent = false
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(settled).toEqual(['ok', 'ok', 'ok'])
+  })
+
   it('reports an unreachable relay as unreachable, not as a timed-out or refused publish', async () => {
     bad.refuseConnections = true
     good.refuseConnections = true
