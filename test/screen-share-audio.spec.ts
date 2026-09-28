@@ -163,7 +163,7 @@ test('a screen share with no captured audio still shares video, with a note by t
   }
 })
 
-test('a desktop sharing area sends only its crop and blanks invalid bounds', async ({ browser, baseURL }) => {
+test('a desktop sharing area sends only its crop and covers invalid bounds', async ({ browser, baseURL }) => {
   const context = await newDeviceContext(browser, baseURL!)
   await context.addInitScript(() => {
     const w = window as any
@@ -210,7 +210,9 @@ test('a desktop sharing area sends only its crop and blanks invalid bounds', asy
     })
     await expect.poll(pixels).toEqual(Array.from({ length: 9 }, () => [0, 255, 0]).flat())
     await page.evaluate(() => (window as any).__areaBounds(null))
-    await expect.poll(pixels).toEqual(new Array(27).fill(0))
+    // The cover (app/src/share-cover.ts) is a pattern in two dark colours,
+    // and nothing of the picture, which here is pure red and pure green.
+    await expect.poll(async () => Math.max(...await pixels())).toBeLessThan(60)
     await page.evaluate(() => (window as any).__areaBounds({ x: .25, y: .25, width: .5, height: .5 }))
     await expect.poll(pixels).toEqual(Array.from({ length: 9 }, () => [0, 255, 0]).flat())
     await popup.evaluate(() => { (window.opener as any).__rawAreaTrack = (window as any).__rawAreaTrack })
