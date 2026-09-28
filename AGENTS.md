@@ -49,6 +49,14 @@ vectors/        protocol test vectors
   silently kill long-lived subscriptions, which a room depends on.
 - `npm run demo` serves over HTTPS with a self-signed certificate;
   `getUserMedia`/`getDisplayMedia` need a secure context.
+- The circle layer (identity, credentials, rooms, links, invitations,
+  epochs, channel derivation, lane) now lives in `@forgesworn/fold-kit`;
+  `src/hex.ts`, `verify.ts`, `identity.ts`, `credential.ts`, `room.ts`,
+  `network-hints.ts`, `display-name.ts`, `link.ts`, `lane.ts`, `invitation.ts`,
+  `persistent-invitation.ts` and `epoch.ts` are re-export shims, and
+  `kinds.ts`, `types.ts`, `access.ts` and `chat.ts` re-export part of their
+  surface from it. Changes to that layer land in `forgesworn/fold-kit` first,
+  then this repository bumps its pinned version.
 
 ## Key Files
 

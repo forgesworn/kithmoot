@@ -1,4 +1,4 @@
-// T0.2 of docs/plans/2026-09-28-circle-kit-extraction.md (girnel repository):
+// Extraction guard for @forgesworn/fold-kit:
 // a snapshot of the export names of `src/index.ts` (the whole public
 // library surface) and of each module the plan's §1.1 table names as
 // moving to the shared kit - `hex`, `verify`, `identity`, `kinds`, `types`,
