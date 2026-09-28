@@ -4940,6 +4940,9 @@ function renderRedactionNote(note: string | undefined): void {
 function updateRedactionControls(): void {
   const all = document.getElementById('toggleRedaction')
   if (!all) return
+  // Each press adds a box, and the button says so once there is one.
+  const add = document.getElementById('addRedaction')
+  if (add) add.textContent = desktopRedaction.count === 0 ? 'Hide part of the screen' : 'Hide another part'
   all.hidden = desktopRedaction.count === 0
   setToggle('toggleRedaction', desktopRedaction.anyOn())
   all.textContent = desktopRedaction.anyOn() ? 'Redaction on' : 'Redaction off'
@@ -12013,7 +12016,7 @@ if (desktopRedaction.supported) {
   add.id = 'addRedaction'
   add.className = 'toggle'
   add.textContent = 'Hide part of the screen'
-  add.title = 'Add a box on your screen; whatever is inside it is black in your share and never leaves this computer'
+  add.title = 'Add a box on your screen; whatever is inside it is black in your share and never leaves this computer. Press again for another box'
   add.onclick = () => { try { desktopRedaction.add() } catch (error) { setStatus(describeError(error)) } }
   const all = document.createElement('button')
   all.id = 'toggleRedaction'

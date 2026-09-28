@@ -1689,3 +1689,57 @@ client cannot catch up after a removal through a new desk until it updates,
 which for the web is one reload. The `epochRequestAdmission` vectors pin the
 derivation, the message and the three refusals; the Android client moves in
 step on its own branch.
+
+## On X11 the share frame and the redaction boxes are shaped windows, 28 September 2026
+
+The area frame and the redaction boxes are windows with a see-through
+middle. Until desktop 0.1.26 every platform made the middle click-through
+the same way: the window was told to ignore the mouse while the pointer was
+over the middle, and the main process polled `screen.getCursorScreenPoint()`
+every 50 ms to take that back once the pointer had left.
+
+On Linux that reading is not the pointer. It moves only while one of
+KithMoot's own windows is receiving mouse events. Over another program's
+window, or with KithMoot minimised, it stays at the last place one of our
+windows saw. So the pointer entered the middle, the window went
+click-through, no window of ours saw the pointer again, the poll went on
+believing the pointer was in the middle, and the frame or box never took
+input again. A tester met it as "after a short while you can't move or
+control it". It did not show in our own runs because the KithMoot window was
+beneath the box, and kept the reading fresh.
+
+**Decision.** On Linux the frame and the boxes are given a window shape
+(`setShape`): their controls, and not the middle. The X server then sends a
+click in the middle to whatever is beneath, and nothing watches the cursor.
+macOS and Windows keep the poll: `setShape` does not exist on macOS, the
+cursor reading is true on both, and neither was reported broken.
+
+**What it costs.** A shape cuts the middle out of the window altogether, so
+nothing can be drawn there. The area frame's marks canvas fills the middle.
+On Linux the marks are therefore visible in the frame only while Draw is on,
+when the whole window is restored so the pen can land. They still show on the
+sharer's own preview in the call window. Keeping them would take a second,
+permanently click-through window over the hole; not built.
+
+**What else the same work found.**
+
+- A frame whose shared part was not wholly on one display was refused by the
+  main process, the frame closed, and nothing was said: on Linux and Windows,
+  and on macOS once Screen Recording is granted, the page takes a refusal for
+  the person cancelling. The frame now says so before Start is pressed, keeps
+  Start off until it is put right, and stays open if a request is refused all
+  the same.
+- A share waited for its first picture before starting. A window that sends
+  none (one that has gone, or one macOS is not drawing) left the share neither
+  started nor refused, again with nothing said. After three seconds it now
+  starts without a picture and says so; the canvas stays black until one
+  arrives, so nothing unplanned is drawn.
+- At its smallest a box had no room left on its bar to take hold of. Its
+  least width went from 120 to 160, and the bar always keeps a handle.
+
+**Checked how.** `desktop/test/linux-x11/` drives the packaged app with the
+real pointer on Xorg, two monitors, under Cinnamon's window manager. The
+published 0.1.26 package fails it at the faults above and a package built
+from this change passes. Not checked: a person's own Linux desktop, and
+Windows, where nothing was changed but the box's least width.
+

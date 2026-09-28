@@ -274,6 +274,7 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     ipcMain.handle('desktop:area-arm', event => { if (!trusted(event.sender) || !shareArea.window) return false; configureDisplayCapture(true); return true })
     ipcMain.handle('desktop:area-state', event => trusted(event.sender) ? shareArea.state() : null)
+    ipcMain.handle('desktop:area-check', event => trusted(event.sender) ? shareArea.check() : null)
     // A refused share reads the same to the page whether macOS withheld
     // Screen Recording or the person cancelled the picker, so the page asks.
     ipcMain.handle('desktop:screen-access', event => !trusted(event.sender) ? 'unknown' : process.platform === 'darwin' && !testProfile ? systemPreferences.getMediaAccessStatus('screen') : 'granted')

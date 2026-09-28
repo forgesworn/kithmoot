@@ -2,6 +2,9 @@ import { EMPTY_STATE, RedactionTrail, blackCopy, cropPlan, planRedaction, refuse
 
 type Bridge = NonNullable<Window['kithmootDesktop']>
 const BOX_URL = 'about:blank#kithmoot-redaction-box-'
+/** How long a share waits for its first picture before starting without one. */
+export const FIRST_PICTURE_MS = 3000
+export const WAITING_COPY = 'Your share has no picture yet. If it stays black, bring what you are sharing to the front.'
 
 /** Black over every rectangle the plan names, or over everything. */
 export function paintPlan(context: CanvasRenderingContext2D, plan: RedactionPlan, width: number, height: number): void {
@@ -82,9 +85,9 @@ export class DesktopRedaction {
       html,body{margin:0;width:100%;height:100%;background:transparent!important;overflow:hidden;font:12px sans-serif;color:#fff}
       body{box-sizing:border-box;border:3px dashed #ffd21f;outline:1px solid #000;outline-offset:-4px;box-shadow:inset 0 0 0 1px #000}
       body.off{border-color:#9aa0a6;border-style:dotted}
-      header{position:absolute;left:0;right:0;top:0;height:30px;display:flex;align-items:center;gap:6px;padding:0 20px 0 20px;box-sizing:border-box;background:#111c;cursor:move;touch-action:none}
+      header{position:absolute;left:0;right:0;top:0;height:30px;display:flex;align-items:center;gap:6px;padding:0 18px;box-sizing:border-box;background:#111c;cursor:move;touch-action:none}
       body.off header{background:#1118}
-      header span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:bold}
+      header span{flex:1;min-width:28px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:bold}
       header span:focus-visible{outline:2px solid #ffd21f}
       button{padding:3px 8px;font:inherit;white-space:nowrap;cursor:default}
       .grip{position:absolute;width:18px;height:18px;padding:0;border:0;background:#ffd21f;touch-action:none}
@@ -163,12 +166,19 @@ export class DesktopRedaction {
     const video = document.createElement('video')
     video.muted = true; video.playsInline = true
     video.srcObject = new MediaStream([source])
-    await video.play()
+    // A window that sends no picture (one that has gone, or sits where macOS
+    // does not draw it) never starts playing, and waiting on it left the
+    // share neither started nor refused. Start without a picture instead:
+    // the canvas stays black until one arrives.
+    const playing = video.play()
+    playing.catch(() => {})
+    const began = await Promise.race([playing.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), FIRST_PICTURE_MS))])
     const canvas = document.createElement('canvas')
     canvas.width = Math.max(2, video.videoWidth || 2); canvas.height = Math.max(2, video.videoHeight || 2)
     const context = canvas.getContext('2d')!
     const trail = new RedactionTrail()
     let note: string | undefined
+    if (!began) { note = WAITING_COPY; report(note) }
     const paint = () => {
       const width = video.videoWidth, height = video.videoHeight
       // The plan comes first: when it is black the raw frame is never drawn.
@@ -176,7 +186,7 @@ export class DesktopRedaction {
       if (width && height && (canvas.width !== width || canvas.height !== height)) { canvas.width = width; canvas.height = height }
       if (plan.mode !== 'black') context.drawImage(video, 0, 0, canvas.width, canvas.height)
       paintPlan(context, plan, canvas.width, canvas.height)
-      const next = plan.mode === 'black' && video.videoWidth ? blackCopy(plan.reason) : undefined
+      const next = plan.mode === 'black' && video.videoWidth ? blackCopy(plan.reason) : !began && !video.videoWidth ? WAITING_COPY : undefined
       if (next !== note) { note = next; report(note) }
     }
     paint()

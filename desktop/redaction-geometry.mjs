@@ -5,7 +5,10 @@
 // Everything else is see-through and lets clicks reach whatever is beneath.
 export const BOX_BAR = 30
 export const BOX_GRIP = 18
-export const BOX_MIN = { width: 120, height: 64 }
+// Wide enough that the bar keeps a place to take hold of beside its buttons.
+export const BOX_MIN = { width: 160, height: 64 }
+// The dashed edge and its dark outline.
+export const BOX_EDGE = 5
 export const BOX_MAX = 8000
 const LIMIT = 32000
 
@@ -33,6 +36,26 @@ export function insideHole(point, bounds) {
   const bottom = point.y >= bounds.y + bounds.height - BOX_GRIP
   const side = point.x < bounds.x + BOX_GRIP || point.x >= bounds.x + bounds.width - BOX_GRIP
   return !(bottom && side)
+}
+
+/**
+ * The box's own controls, as a window shape in DIP from the window's top
+ * left: the bar, the edge and the two lower grips. On X11 the server then
+ * sends clicks in the middle to whatever is beneath, with nothing here
+ * watching the cursor.
+ */
+export function boxShape(size) {
+  const width = Math.round(size.width), height = Math.round(size.height)
+  const middle = height - BOX_BAR - BOX_EDGE
+  if (!(width > 2 * BOX_GRIP) || !(middle > 0)) return [{ x: 0, y: 0, width: Math.max(1, width), height: Math.max(1, height) }]
+  return [
+    { x: 0, y: 0, width, height: BOX_BAR },
+    { x: 0, y: height - BOX_EDGE, width, height: BOX_EDGE },
+    { x: 0, y: BOX_BAR, width: BOX_EDGE, height: middle },
+    { x: width - BOX_EDGE, y: BOX_BAR, width: BOX_EDGE, height: middle },
+    { x: 0, y: height - BOX_GRIP, width: BOX_GRIP, height: BOX_GRIP },
+    { x: width - BOX_GRIP, y: height - BOX_GRIP, width: BOX_GRIP, height: BOX_GRIP },
+  ]
 }
 
 /** Follows the cursor from where a drag began, so the box stays under the pointer. */

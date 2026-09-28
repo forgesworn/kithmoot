@@ -1,5 +1,5 @@
 import { screen } from 'electron'
-import { BOX_MIN, DisplaySettle, captureOf, clampBox, insideHole, moveTo, onOneDisplay, placeBox, resizeFrom } from './redaction-geometry.mjs'
+import { BOX_MIN, DisplaySettle, boxShape, captureOf, clampBox, insideHole, moveTo, onOneDisplay, placeBox, resizeFrom } from './redaction-geometry.mjs'
 
 export const BOX_URL = 'about:blank#kithmoot-redaction-box-'
 const BOX_ID = /^[a-z0-9-]{1,40}$/
@@ -20,8 +20,14 @@ export class Redaction {
   boxes = new Map()
   capture = null
   cursorTimer
-  constructor(owner) {
+  // X11 is given each box's shape, so the server itself sends clicks in the
+  // middle to whatever is beneath. Watching the cursor cannot do that job
+  // there: Electron's cursor position stops updating once the pointer is
+  // over another program's window, which is where a box usually sits, so a
+  // box that went click-through stayed so and could not be moved again.
+  constructor(owner, { shaped = process.platform === 'linux' } = {}) {
     this.owner = owner
+    this.shaped = shaped
     this.settle = new DisplaySettle({ report: () => this.report() })
   }
   // A display added, removed or rescaled moves every box's place in the
@@ -63,8 +69,10 @@ export class Redaction {
     window.setContentProtection(true)
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
     window.setBounds(placeBox(display.workArea, this.boxes.size - 1))
+    const shape = () => { if (this.shaped && !window.isDestroyed()) window.setShape(boxShape(window.getBounds())) }
+    shape()
     window.on('move', () => this.report())
-    window.on('resize', () => this.report())
+    window.on('resize', () => { shape(); this.report() })
     window.on('closed', () => { if (this.boxes.get(id) === box) this.boxes.delete(id); this.watchCursor(); this.report() })
     this.watchCursor()
     this.report()
@@ -116,7 +124,7 @@ export class Redaction {
     window.setBounds(display ? onOneDisplay(next, display.bounds, resizing) : next)
   }
   setIgnore(box, ignore) {
-    if (box.ignoring === ignore || box.window.isDestroyed()) return
+    if (this.shaped || box.ignoring === ignore || box.window.isDestroyed()) return
     box.ignoring = ignore
     box.window.setIgnoreMouseEvents(ignore, { forward: true })
   }
@@ -124,6 +132,7 @@ export class Redaction {
   // cannot be trusted to say when the pointer leaves the see-through middle.
   // Watch the real cursor here instead, as the area frame does.
   watchCursor() {
+    if (this.shaped) return
     if (this.boxes.size === 0) { clearInterval(this.cursorTimer); this.cursorTimer = undefined; return }
     if (this.cursorTimer) return
     this.cursorTimer = setInterval(() => {

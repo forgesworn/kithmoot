@@ -81,6 +81,22 @@ async function standIn(native: ElectronApplication, source: { id: string; displa
   }, { display: DISPLAY, source })
 }
 
+// A capture that has sent no picture yet: a window that has gone, or one macOS
+// is not drawing. Its first frame is pushed by hand, some time after it starts.
+const SILENT_SCREEN = () => {
+  navigator.mediaDevices.getDisplayMedia = async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 1600; canvas.height = 900
+    const stream = canvas.captureStream(0)
+    const track = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame(): void }
+    ;(window as unknown as { pushFrame(): void }).pushFrame = () => {
+      const context = canvas.getContext('2d')!
+      context.fillStyle = '#65dfba'; context.fillRect(0, 0, 1600, 900)
+      track.requestFrame()
+    }
+    return stream
+  }
+}
+
 const boxWindow = (native: ElectronApplication) => native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => window.webContents.getURL().includes('kithmoot-redaction-box')).map(window => ({ bounds: window.getBounds(), top: window.isAlwaysOnTop(), protectedContent: window.isContentProtected?.() })))
 
 test('Redaction boxes: the boxed part of a screen or area share is black in the published picture', async ({ browser }) => {
@@ -118,10 +134,13 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
 
     // A box is added from the share controls, before any share.
     await expect(mac.locator('#toggleRedaction')).toBeHidden()
+    await expect(mac.locator('#addRedaction')).toHaveText('Hide part of the screen')
     const opened = native.waitForEvent('window')
     await mac.locator('#addRedaction').click()
     const box = await opened
     await expect(box.getByText('Hidden from share')).toBeVisible()
+    // Each press adds a box, and the button says so once there is one.
+    await expect(mac.locator('#addRedaction')).toHaveText('Hide another part')
     await expect(mac.locator('#toggleRedaction')).toBeVisible()
     await expect(mac.locator('#toggleRedaction')).toHaveAttribute('aria-pressed', 'true')
     const [placed] = await boxWindow(native)
@@ -225,6 +244,23 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     await mac.locator('#toggleScreen').click()
     await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
 
+    // A capture whose picture has not arrived: waiting on it used to leave
+    // the share neither started nor refused, with nothing said.
+    await mac.evaluate(SILENT_SCREEN)
+    await mac.locator('#toggleScreen').click()
+    await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await expect(mac.locator('#redactionNote')).toContainText('no picture yet')
+    await mac.evaluate(() => (window as unknown as { pushFrame(): void }).pushFrame())
+    await expect(mac.locator('#redactionNote')).toBeHidden()
+    await expect.poll(async () => {
+      const shot = await published(mac, [...inside, ...outside])
+      return shot ? shot.pixels.map((pixel, i) => (i < inside.length ? black(pixel) : !black(pixel)) ? '.' : 'x').join('') : 'none'
+    }, { message: 'once the picture arrives it is published, the box still black' }).toBe('.'.repeat(inside.length + outside.length))
+    await mac.locator('#toggleScreen').click()
+    await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    await mac.evaluate(SYNTHETIC_SCREEN)
+    console.log('PASS: a share with no picture yet starts, says so, and publishes the picture when it arrives')
+
     // A single app cannot carry boxes: refused while one is on.
     await standIn(native, { id: 'window:77:0', display_id: '' })
     await mac.locator('#toggleScreen').click()
@@ -256,11 +292,12 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     await mac.locator('#shareArea').click()
     const area = await popupReady
     await area.evaluate(SYNTHETIC_SCREEN)
-    await expect(area.getByRole('button', { name: 'Start sharing', exact: true })).toBeEnabled()
+    // Start is on only while the frame sits wholly on its display, so place it first.
     await native.evaluate(({ BrowserWindow, screen }, bounds) => {
       BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!.setBounds(bounds)
       ;(globalThis as unknown as { kithmootTest: { shareArea: { display: unknown } } }).kithmootTest.shareArea.display = screen.getAllDisplays()[0]
     }, AREA)
+    await expect(area.getByRole('button', { name: 'Start sharing', exact: true })).toBeEnabled()
     await area.getByRole('button', { name: 'Start sharing', exact: true }).click()
     await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
     // The crop is the frame's hole: 8px in, 52px down, 16 and 92 smaller.
@@ -290,3 +327,4 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     await rm(profile, { recursive: true, force: true })
   }
 })
+
