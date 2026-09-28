@@ -6,69 +6,102 @@
 // `vectors/kithmoot-vectors.json` on purpose: running this generator never
 // touches that file, so the Android client's contract is untouched.
 //
-// Same method as `vectors/generate.mjs` (see its header comment for the
-// full rationale):
+// Unlike `vectors/generate.mjs`, every signed/encrypted event here is built
+// by calling the REAL encoder exported from `dist/` - `encodeInvitationRequest`,
+// `encodeInvitationGrant`, `encodeInvitationRetirement`, `encodePersistentInvitation`,
+// `encodeEpochGrant`, `createDeviceCredential`, `signChannels` - rather than
+// hand-rebuilt from a template. Two ways in, both needed because the two
+// kinds of randomness those functions draw are surfaced differently:
 //
-//   1. Pure functions with no hidden randomness (`encodeRoomLink`,
-//      `parseRoomLink`, `deriveInvitationId`, `deriveEpoch`,
-//      `epochRequestAdmission`, `canonicalAdmins`, `canonicalChannels`,
-//      `verifyAdmins`, `verifyChannels`, `verifyDeviceCredential`) are
-//      called directly from the real, built implementation in `dist/`.
+//   1. `createDeviceCredential` takes an injected `ParticipantIdentity`
+//      (`identity.ts`), so its `signEvent` is given straight to
+//      `finalizeDeterministic` with the recorded aux-rand - no stubbing
+//      needed, because the seam is already there in production code.
 //
-//   2. Signing/encrypting functions default to random BIP-340 aux-rand or a
-//      random NIP-44 nonce, so they cannot produce the same bytes twice.
-//      Those are rebuilt by hand with explicit, recorded randomness, using
-//      the same low-level primitives `vectors/lib/determinism.mjs` already
-//      exposes (`finalizeDeterministic`, `seed32`, `deriveSecretKey`), and
-//      every rebuilt event is then run through the real decode/verify
-//      function before being written out.
+//   2. Everything else signs with `finalizeEvent`/`nip44.v2.encrypt` with no
+//      explicit nonce or aux-rand, which is right for production and means
+//      two calls never produce the same bytes twice. `withStubbedRandomness`
+//      (`vectors/lib/determinism.mjs`) replaces `globalThis.crypto.getRandomValues`
+//      for the duration of one call with a queue of recorded 32-byte values,
+//      which is what `@noble/hashes`' `randomBytes` reads on every draw - so
+//      every signature and every NIP-44 nonce the real function makes comes
+//      out byte-identical on every run, and the queue's order is recorded in
+//      each vector's `input` so a second implementation can check its own
+//      derivation without needing to read this file's source.
 //
-// Two non-exported message shapes are mirrored here, byte for byte, because
-// nothing outside their own module has business constructing them: the
-// invitation-delegation message (`src/invitation.ts` `delegationMessage`)
-// and the admins/channels signature messages (`src/epoch.ts`
-// `adminsMessage`/`channelsMessage`, the latter already mirrored in
-// `kindredCanonicalMessage`'s spirit). If any of the four disagree with
-// their real module, the matching `verifyXxx`/`decodeXxx` assertion below
-// fails.
+// Pure functions with no hidden randomness (`encodeRoomLink`, `parseRoomLink`,
+// `deriveInvitationId`, `deriveEpoch`, `canonicalChannels`, `verifyChannels`,
+// `verifyInvitationDelegation`, `verifyDeviceCredential`, `decodeEpochGrant`,
+// `decodeInvitationRequest`, `decodeRoomAdmissionGrant`,
+// `decodeInvitationRetirementNotice`, `decodePersistentInvitation`) are
+// called directly, same as before.
+//
+// Two exceptions, both documented at their use site: `personCredential`'s
+// `refused-over-30-days` is signed directly with `finalizeDeterministic`
+// rather than through `createDeviceCredential`, because that function
+// refuses to mint an over-long person credential at mint time - the vector
+// exists precisely to pin what a VERIFIER does when handed one anyway (a
+// looser or buggy signer's output), so driving the real minting function is
+// not possible for this one case. `persistentInvitation`'s
+// `room-mismatch-refused` and `invitationEnvelope`'s
+// `grant-secret-room-mismatch-refused` sign a body whose internal room
+// binding was altered after real encryption, because no real encoder can be
+// asked to produce an internally-inconsistent body - both are signed with
+// `finalizeDeterministic` and the real signer's own key, so the signature
+// itself is genuine and only the body's internal consistency is what the
+// real decoder's binding check has to catch.
+//
+// Non-exported message shapes mirrored here byte for byte, because nothing
+// outside their own module has business constructing them: the invitation
+// request key and delegation message (`src/invitation.ts`'s unexported
+// `requestKey`/`delegationMessage`) and the epoch/persistent-invitation
+// welcome keys (`src/invitation.ts` `INVITATION_REQUEST_KEY_INFO`,
+// `src/persistent-invitation.ts` `welcomeKey`'s info string). Every mirror is
+// checked against its real module by running the built event through the
+// matching `verifyXxx`/`decodeXxx` before it is written out.
 //
 // Running this script twice produces byte-identical output: no
-// `Date.now()`, no `Math.random()`, no `randomBytes()` below this comment.
+// `Date.now()`, no `Math.random()`, no unrecorded `randomBytes()`.
 
 import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hkdf } from '@noble/hashes/hkdf'
-import { bytesToHex } from '@noble/hashes/utils'
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { sha256 } from '@noble/hashes/sha2'
 import { base64urlnopad } from '@scure/base'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { nip44 } from 'nostr-tools'
 import { getPublicKey } from 'nostr-tools/pure'
 
-import { deriveSecretKey, finalizeDeterministic, seed32 } from './lib/determinism.mjs'
+import { deriveSecretKey, finalizeDeterministic, seed32, withStubbedRandomness } from './lib/determinism.mjs'
 import * as fx from './lib/fixtures.mjs'
 
 // The real implementation, built to `dist/` by `npm run build:lib`.
 import { KINDS } from '../dist/src/kinds.js'
 import { deriveRoom } from '../dist/src/room.js'
-import { encodeRoomLink, parseRoomLink } from '../dist/src/link.js'
+import { encodeRoomLink, parseRoomLink, MAX_ROOM_LINK_FRAGMENT_LENGTH } from '../dist/src/link.js'
+import { MAX_RELAY_HINTS, safeIceUrls, safeRelayUrls } from '../dist/src/network-hints.js'
+import { sanitiseDisplayName } from '../dist/src/display-name.js'
 import {
   deriveInvitationId,
   decodeInvitationRequest,
   decodeRoomAdmissionGrant,
   decodeInvitationRetirementNotice,
   verifyInvitationDelegation,
+  encodeInvitationRequest,
+  encodeInvitationGrant,
+  encodeInvitationRetirement,
 } from '../dist/src/invitation.js'
-import { decodePersistentInvitation } from '../dist/src/persistent-invitation.js'
-import { verifyDeviceCredential, PERSON_CREDENTIAL_MAX_SECONDS } from '../dist/src/credential.js'
+import { decodePersistentInvitation, encodePersistentInvitation } from '../dist/src/persistent-invitation.js'
+import { verifyDeviceCredential, createDeviceCredential, PERSON_CREDENTIAL_MAX_SECONDS } from '../dist/src/credential.js'
 import {
   deriveEpoch,
   decodeEpochGrant,
-  canonicalAdmins,
-  verifyAdmins,
+  encodeEpochGrant,
   canonicalChannels,
   verifyChannels,
+  signChannels,
 } from '../dist/src/epoch.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -97,6 +130,8 @@ const DELEGATE_A_SK = deriveSecretKey('circle-vectors/delegate-a')
 const DELEGATE_A = getPublicKey(DELEGATE_A_SK)
 const OTHER_INVITER_SK = deriveSecretKey('circle-vectors/inviter-other')
 const OTHER_INVITER = getPublicKey(OTHER_INVITER_SK)
+const IMPOSTOR_SK = deriveSecretKey('circle-vectors/impostor')
+const IMPOSTOR = getPublicKey(IMPOSTOR_SK)
 
 const BEARER_A = seed32('circle-vectors/bearer-a')
 const BEARER_B = seed32('circle-vectors/bearer-b')
@@ -110,9 +145,23 @@ const REQUEST_CREATED_AT = fx.NOW - 30
 const GRANT_CREATED_AT = fx.NOW - 10
 const RETIREMENT_CREATED_AT = fx.NOW + 100
 
+/** `identity.ts`'s `ParticipantIdentity` seam, driven with a fixed aux-rand:
+ *  `createDeviceCredential` already takes its signer as an injected
+ *  dependency, so this is the documented way to make it deterministic - no
+ *  randomness stubbing needed for this one function. */
+function deterministicIdentity(sk, auxRand) {
+  return {
+    pubkey: getPublicKey(sk),
+    async signEvent(unsigned) {
+      return finalizeDeterministic(unsigned, sk, auxRand)
+    },
+  }
+}
+
+async function main() {
 // ===========================================================================
-// 1. Link envelope - v2 (live) and v3 (persistent) round trips, including
-//    name, pairing code and access policy together (`src/link.ts:133-149`).
+// 1. Link envelope - v1 (legacy secret), v2 (live) and v3 (persistent) round
+//    trips, refusals, and normalisation of hostile input (`src/link.ts`).
 // ===========================================================================
 
 function linkRoundTrip(name, note, link) {
@@ -128,6 +177,7 @@ function linkRoundTrip(name, note, link) {
         invitation: link.invitation
           ? { bearerHex: bytesToHex(link.invitation.bearer), inviter: link.invitation.inviter, persistent: link.invitation.persistent ?? null }
           : null,
+        secretHex: link.secret ? bytesToHex(link.secret) : null,
         relays: link.relays,
         iceUrls: link.iceUrls,
         policy: link.policy ?? null,
@@ -141,6 +191,7 @@ function linkRoundTrip(name, note, link) {
         invitation: decoded.invitation
           ? { bearerHex: bytesToHex(decoded.invitation.bearer), inviter: decoded.invitation.inviter, persistent: decoded.invitation.persistent ?? null }
           : null,
+        secretHex: decoded.secret ? bytesToHex(decoded.secret) : null,
         relays: decoded.relays,
         iceUrls: decoded.iceUrls,
         policy: decoded.policy ?? null,
@@ -182,6 +233,12 @@ linkRoundTrip(
   { invitation: INVITATION_2, relays: [], iceUrls: [] },
 )
 
+linkRoundTrip(
+  'v1-legacy-secret-link',
+  "The version-1 shape from before invitations existed: the room traffic secret rides directly in the fragment (`s`), with no `j`/`h` invitation pair. `encodeRoomLink` writes this branch whenever `link.invitation` is absent, and a v1 URL carries no `v` key at all - `parseRoomLink` reads that absence the same way it reads `v: 1` would, which is the whole compatibility story for a link written before versioning existed.",
+  { secret: fx.ROOM_SECRET_1, relays: ['wss://relay.damus.io'], iceUrls: [] },
+)
+
 {
   // A v3 link is still refused if its admission rule cannot be read - the
   // version number changes nothing about that rule (`link.ts:85-93` runs
@@ -201,9 +258,133 @@ linkRoundTrip(
   })
 }
 
+{
+  // A version this parser has never heard of: v:4 must never be silently
+  // treated as v2/v3 (which would read `j`/`h` and admit off a made-up
+  // scheme) nor as v1 (which would look for `s` and find nothing).
+  const payload = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify({
+    v: 4, j: base64urlnopad.encode(BEARER_A), h: INVITER_A, r: [], i: [],
+  })))
+  const url = `${BASE_URL}#${payload}`
+  let error
+  try { parseRoomLink(url) } catch (e) { error = e.message }
+  vectors.linkEnvelope.push({
+    name: 'v4-unsupported-version-refused',
+    kind: 'negative',
+    note: 'A link naming a version number this parser does not know (`v: 4`, one past the newest it understands): refused outright rather than guessed at as v1, v2 or v3.',
+    input: { url },
+    output: { throws: true, error },
+  })
+}
+
+{
+  // A 31-byte bearer: one byte short of the 32 `roomInvitation` requires.
+  // Caught on decode, not silently zero-padded or truncated to fit.
+  const shortBearer = seed32('circle-vectors/short-bearer').slice(0, 31)
+  const payload = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify({
+    v: 2, j: base64urlnopad.encode(shortBearer), h: INVITER_A, r: [], i: [],
+  })))
+  const url = `${BASE_URL}#${payload}`
+  let error
+  try { parseRoomLink(url) } catch (e) { error = e.message }
+  vectors.linkEnvelope.push({
+    name: 'bearer-31-bytes-refused',
+    kind: 'negative',
+    note: 'A bearer one byte short of the required 32: `roomInvitation` refuses it rather than accepting a link whose rendezvous derivation would not match what a correctly-sized bearer produces.',
+    input: { url, bearerHex: bytesToHex(shortBearer) },
+    output: { throws: true, error },
+  })
+}
+
+{
+  // An odd-length, non-hex pairing code: `hexToBytes` on `payload.c` throws,
+  // and `parseRoomLink` turns that into its own named error rather than
+  // letting a low-level parse error leak through.
+  const payload = base64urlnopad.encode(new TextEncoder().encode(JSON.stringify({
+    v: 2, j: base64urlnopad.encode(BEARER_A), h: INVITER_A, r: [], i: [], c: 'not-hex-zz',
+  })))
+  const url = `${BASE_URL}#${payload}`
+  let error
+  try { parseRoomLink(url) } catch (e) { error = e.message }
+  vectors.linkEnvelope.push({
+    name: 'pairing-code-malformed-refused',
+    kind: 'negative',
+    note: 'A pairing code field that is not valid hex at all: refused with a named error, not an uncaught parse exception.',
+    input: { url },
+    output: { throws: true, error },
+  })
+}
+
+{
+  // Nine relay hints: one past MAX_RELAY_HINTS. Refused on ENCODE as well as
+  // decode - `assertNetworkHintBounds` runs before `safeRelayUrls` would
+  // otherwise just quietly keep the first eight.
+  const nineRelays = Array.from({ length: MAX_RELAY_HINTS + 1 }, (_, i) => `wss://relay-${i}.kithmoot.example`)
+  let error
+  try { encodeRoomLink(BASE_URL, { invitation: INVITATION_2, relays: nineRelays, iceUrls: [] }) } catch (e) { error = e.message }
+  vectors.linkEnvelope.push({
+    name: 'nine-relay-hints-refused',
+    kind: 'negative',
+    note: `One more than MAX_RELAY_HINTS (${MAX_RELAY_HINTS}) relay hint: refused outright on encode, rather than silently keeping the first ${MAX_RELAY_HINTS} and dropping the rest without saying so.`,
+    input: { relays: nineRelays },
+    output: { throws: true, error },
+  })
+}
+
+{
+  // A fragment past MAX_ROOM_LINK_FRAGMENT_LENGTH: the length check runs on
+  // the raw fragment text, before any base64/JSON decoding is attempted, so
+  // an oversized fragment cannot even reach the parser proper.
+  const oversized = 'A'.repeat(MAX_ROOM_LINK_FRAGMENT_LENGTH + 1)
+  const url = `${BASE_URL}#${oversized}`
+  let error
+  try { parseRoomLink(url) } catch (e) { error = e.message }
+  vectors.linkEnvelope.push({
+    name: 'oversize-fragment-refused',
+    kind: 'negative',
+    note: `A fragment one character past MAX_ROOM_LINK_FRAGMENT_LENGTH (${MAX_ROOM_LINK_FRAGMENT_LENGTH}): refused on length alone, before the fragment is treated as base64 or JSON at all.`,
+    input: { url, fragmentLength: oversized.length },
+    output: { throws: true, error },
+  })
+}
+
+{
+  // Hostile input the real link envelope has to normalise on the way in:
+  // duplicate relay hints, a non-loopback ws:// hint (unsafe - must be
+  // dropped), a loopback ws:// hint (safe - must be kept), and a name
+  // carrying control characters and overlong text. Built by hand rather
+  // than through `encodeRoomLink`, which would filter these before they
+  // ever reached the wire - the point here is what `parseRoomLink` itself
+  // does when handed a link nobody's own encoder would have produced.
+  const hostileRelays = ['wss://relay.damus.io', 'wss://relay.damus.io', 'ws://tracker.example', 'ws://localhost:4869']
+  const hostileIce = ['stun:stun.kithmoot.example:3478', 'stun:stun.kithmoot.example:3478']
+  const hostileName = `Robin‮admin​${'x'.repeat(40)}`
+  const payload = { v: 2, j: base64urlnopad.encode(BEARER_A), h: INVITER_A, r: hostileRelays, i: hostileIce, n: hostileName }
+  const url = `${BASE_URL}#${base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload)))}`
+  const decoded = parseRoomLink(url)
+  vectors.linkEnvelope.push({
+    name: 'hostile-input-normalised',
+    kind: 'positive',
+    note: "A link nobody's own encoder produced: duplicate relay and ICE hints, a non-loopback ws:// relay (unsafe - the room requires wss:// off loopback), a loopback ws:// relay (safe - kept for local development and tests), and a name carrying a bidirectional override, a zero-width space and overlong text. `parseRoomLink` is still readable, and every hostile byte is normalised away rather than rejected outright: the invitation itself is genuine, only its envelope is adversarial.",
+    input: { url, rawRelays: hostileRelays, rawIceUrls: hostileIce, rawName: hostileName },
+    output: {
+      decoded: {
+        relays: decoded.relays,
+        iceUrls: decoded.iceUrls,
+        name: decoded.name ?? null,
+      },
+    },
+    expected: {
+      relays: safeRelayUrls(hostileRelays),
+      iceUrls: safeIceUrls(hostileIce),
+      name: sanitiseDisplayName(hostileName) ?? null,
+    },
+  })
+}
+
 // ===========================================================================
 // 2. Invitation envelope (v2) - id, request, grant with a delegation chain,
-//    the delegation message bytes, and retirement with and without `ended`.
+//    delegation-chain and grant-body security refusals, and retirement.
 // ===========================================================================
 
 vectors.invitationEnvelope.push({
@@ -214,172 +395,183 @@ vectors.invitationEnvelope.push({
   output: { id: deriveInvitationId(INVITATION_2) },
 })
 
-// --- Request (kind 20466) --------------------------------------------------
-
-function buildInvitationRequest({ invitation, requesterSk, createdAt, body, nonceLabel, auxRandLabel }) {
-  const requestKeyInfo = 'kithmoot/v2/invitation-request-key'
-  const requestKey = (() => {
-    // Mirrors `requestKey` in `src/invitation.ts` (not exported): HKDF of the
-    // bearer under a fixed info string.
-    return hkdfSha256(invitation.bearer, requestKeyInfo)
-  })()
-  const nonce = seed32(nonceLabel)
-  const auxRand = seed32(auxRandLabel)
-  const event = finalizeDeterministic(
-    {
-      kind: KINDS.INVITATION_REQUEST,
-      created_at: createdAt,
-      tags: [['d', deriveInvitationId(invitation)], ['p', invitation.inviter]],
-      content: nip44.v2.encrypt(JSON.stringify(body), requestKey, nonce),
-    },
-    requesterSk,
-    auxRand,
-  )
-  return { event, nonceHex: bytesToHex(nonce), auxRandHex: bytesToHex(auxRand) }
-}
-
-// Small local HKDF helper, mirroring `src/invitation.ts`'s unexported
-// `requestKey`/`welcomeKey` shape (HKDF-SHA256, no salt, 32 bytes).
-function hkdfSha256(ikm, info) {
-  return hkdf(sha256, ikm, undefined, info, 32)
-}
+// --- Request (kind 20466), driven through the real encoder -----------------
 
 {
-  const body = { v: 1, device: REQUESTER_A, name: 'Rowan', participant: fx.PARTICIPANT_A }
-  const built = buildInvitationRequest({
-    invitation: INVITATION_2,
-    requesterSk: REQUESTER_A_SK,
-    createdAt: REQUEST_CREATED_AT,
-    body,
-    nonceLabel: 'invitation-request-valid-nonce',
-    auxRandLabel: 'invitation-request-valid',
-  })
+  const nonce = seed32('invitation-request-valid-nonce')
+  const auxRand = seed32('invitation-request-valid')
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodeInvitationRequest({ invitation: INVITATION_2, requesterSk: REQUESTER_A_SK, now: REQUEST_CREATED_AT, name: 'Rowan', participant: fx.PARTICIPANT_A }),
+  )
+  const decoded = decodeInvitationRequest(event, { invitation: INVITATION_2, now: NOW })
   vectors.invitationEnvelope.push({
     name: 'request-valid',
     kind: 'positive',
-    note: 'A request proving possession of the bearer, carrying an asking name and a participant pubkey.',
+    note: 'A request proving possession of the bearer, carrying an asking name and a participant pubkey. Built by calling the real `encodeInvitationRequest` with `crypto.getRandomValues` stubbed to the recorded [nonce, auxRand] queue - the NIP-44 nonce is drawn first (it is part of building `content`, which is evaluated before `finalizeEvent` signs), then the signature aux-rand.',
     input: {
       invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A },
       requesterSkHex: bytesToHex(REQUESTER_A_SK),
       createdAt: REQUEST_CREATED_AT,
-      body,
-      nonceHex: built.nonceHex,
-      auxRandHex: built.auxRandHex,
+      name: 'Rowan',
+      participant: fx.PARTICIPANT_A,
+      randomnessQueueHex: [bytesToHex(nonce), bytesToHex(auxRand)],
     },
-    output: { event: built.event },
-    expected: {
-      decode: { invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A }, now: NOW },
-      result: decodeInvitationRequest(built.event, { invitation: INVITATION_2, now: NOW }),
-    },
+    output: { event },
+    expected: { decode: { invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A }, now: NOW }, result: decoded },
   })
 }
 
 {
-  const built = buildInvitationRequest({
-    invitation: INVITATION_2,
-    requesterSk: REQUESTER_A_SK,
-    createdAt: REQUEST_CREATED_AT,
-    body: { v: 1, device: REQUESTER_A },
-    nonceLabel: 'invitation-request-stale-nonce',
-    auxRandLabel: 'invitation-request-stale',
-  })
+  const nonce = seed32('invitation-request-stale-nonce')
+  const auxRand = seed32('invitation-request-stale')
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodeInvitationRequest({ invitation: INVITATION_2, requesterSk: REQUESTER_A_SK, now: REQUEST_CREATED_AT }),
+  )
   vectors.invitationEnvelope.push({
     name: 'request-stale-refused',
     kind: 'negative',
     note: 'The same request, read long after its 90-second window: refused as stale.',
     input: {
-      event: built.event,
+      event,
       invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A },
       decode: { now: REQUEST_CREATED_AT + 91 },
     },
-    output: { result: decodeInvitationRequest(built.event, { invitation: INVITATION_2, now: REQUEST_CREATED_AT + 91 }) },
+    output: { result: decodeInvitationRequest(event, { invitation: INVITATION_2, now: REQUEST_CREATED_AT + 91 }) },
   })
 }
 
-// --- Grant (kind 20467), with a two-hop delegation chain -------------------
-
-function invitationDelegationMessage(invitationId, room, issuer, delegate, expiresAt) {
-  // Mirrors `delegationMessage` in `src/invitation.ts` (not exported).
-  return sha256(new TextEncoder().encode(`kithmoot/v2/invitation-delegation:${invitationId}:${room}:${issuer}:${delegate}:${expiresAt}`))
+{
+  // M13: a request whose signer is a genuine device (its own real key
+  // signs the event), but whose body names a DIFFERENT device than its
+  // signer - what an attacker who controls the requester process but wants
+  // to attribute a request to somebody else's device would send. The
+  // real `requestKey` HKDF is mirrored (not exported) so the body can be
+  // built by hand; the signature itself is real, made by `REQUESTER_A_SK`.
+  const impersonatedDevice = OTHER_INVITER
+  const requestKeyInfo = 'kithmoot/v2/invitation-request-key'
+  const requestKey = hkdfSha256(INVITATION_2.bearer, requestKeyInfo)
+  const nonce = seed32('invitation-request-device-mismatch-nonce')
+  const auxRand = seed32('invitation-request-device-mismatch')
+  const body = { v: 1, device: impersonatedDevice }
+  const event = finalizeDeterministic(
+    {
+      kind: KINDS.INVITATION_REQUEST,
+      created_at: REQUEST_CREATED_AT,
+      tags: [['d', deriveInvitationId(INVITATION_2)], ['p', INVITATION_2.inviter]],
+      content: nip44.v2.encrypt(JSON.stringify(body), requestKey, nonce),
+    },
+    REQUESTER_A_SK,
+    auxRand,
+  )
+  vectors.invitationEnvelope.push({
+    name: 'request-device-mismatched-signer-refused',
+    kind: 'negative',
+    note: "M13: the event is genuinely signed by REQUESTER_A_SK - a real signature, not a zeroed or forged one - but the encrypted body claims a different device (`OTHER_INVITER`'s pubkey) than the key that actually signed it. `decodeInvitationRequest` checks `body.device` against `event.pubkey` and refuses the mismatch, or a stolen signing key could request admission in somebody else's device's name.",
+    input: { event, body, signerIsReallyDevice: REQUESTER_A },
+    output: { result: decodeInvitationRequest(event, { invitation: INVITATION_2, now: REQUEST_CREATED_AT }) },
+  })
 }
 
-function signDelegation({ invitationId, room, issuerSk, delegate, expiresAt, auxRandLabel }) {
-  const issuer = getPublicKey(issuerSk)
-  const auxRand = seed32(auxRandLabel)
-  const sig = bytesToHex(schnorr.sign(invitationDelegationMessage(invitationId, room, issuer, delegate, expiresAt), issuerSk, auxRand))
-  return { invitation: invitationId, room, issuer, delegate, expiresAt, sig, auxRandHex: bytesToHex(auxRand) }
-}
+// --- Grant (kind 20467), with a real two-hop delegation chain --------------
 
 const GRANT_ROOM_ID = deriveRoom(fx.ROOM_SECRET_1).roomId
-const INVITATION_2_ID = deriveInvitationId(INVITATION_2)
+const OTHER_ROOM_ID = deriveRoom(fx.ROOM_SECRET_2).roomId
 
-// Hop 1: root inviter delegates to DELEGATE_A (the first admitted member).
-const delegationHop1 = signDelegation({
-  invitationId: INVITATION_2_ID,
-  room: GRANT_ROOM_ID,
-  issuerSk: INVITER_A_SK,
-  delegate: DELEGATE_A,
-  expiresAt: NOW + 3600,
-  auxRandLabel: 'delegation-hop-1',
+function requestIdFor(label) {
+  // A stand-in request id: `decodeRoomAdmissionGrant` only checks it
+  // against the value the caller supplies, so any 32-byte hex is fine.
+  return bytesToHex(seed32(label))
+}
+
+// Hop 1, through the real encoder: the root inviter grants DELEGATE_A
+// directly (an empty incoming chain), and the resulting admission's own
+// `delegate.chain` - decoded by the real `decodeRoomAdmissionGrant` - IS
+// hop 1. Nothing about hop 1's bytes is hand-built.
+const hop1Nonce = seed32('grant-hop1-nonce')
+const hop1DelegationAuxRand = seed32('grant-hop1-delegation-auxrand')
+const hop1OuterAuxRand = seed32('grant-hop1-outer-auxrand')
+const request1Id = requestIdFor('grant-hop1-request')
+const grant1Event = withStubbedRandomness([hop1DelegationAuxRand, hop1Nonce, hop1OuterAuxRand], () =>
+  encodeInvitationGrant({
+    invitation: INVITATION_2,
+    inviterSk: INVITER_A_SK,
+    requester: DELEGATE_A,
+    request: request1Id,
+    roomSecret: fx.ROOM_SECRET_1,
+    now: GRANT_CREATED_AT - 20,
+    delegation: [],
+    epoch: 0,
+  }),
+)
+const admission1 = decodeRoomAdmissionGrant(grant1Event, {
+  invitation: INVITATION_2,
+  requesterSk: DELEGATE_A_SK,
+  request: request1Id,
+  now: GRANT_CREATED_AT - 20,
+})
+if (!admission1) throw new Error('hop-1 grant must decode - it is the scaffolding for every two-hop vector below')
+const chainHop1 = admission1.delegate.chain[0]
+
+// Hop 2: DELEGATE_A (now a responder, holding hop 1's chain) grants
+// REQUESTER_A. Again entirely through the real encoder.
+const hop2Nonce = seed32('grant-hop2-nonce')
+const hop2DelegationAuxRand = seed32('grant-hop2-delegation-auxrand')
+const hop2OuterAuxRand = seed32('grant-hop2-outer-auxrand')
+const request2Id = requestIdFor('grant-hop2-request')
+const grant2Event = withStubbedRandomness([hop2DelegationAuxRand, hop2Nonce, hop2OuterAuxRand], () =>
+  encodeInvitationGrant({
+    invitation: INVITATION_2,
+    inviterSk: DELEGATE_A_SK,
+    requester: REQUESTER_A,
+    request: request2Id,
+    roomSecret: fx.ROOM_SECRET_1,
+    now: GRANT_CREATED_AT,
+    delegation: admission1.delegate.chain,
+    epoch: 0,
+  }),
+)
+const admission2 = decodeRoomAdmissionGrant(grant2Event, {
+  invitation: INVITATION_2,
+  requesterSk: REQUESTER_A_SK,
+  request: request2Id,
+  now: GRANT_CREATED_AT,
+})
+
+vectors.invitationEnvelope.push({
+  name: 'grant-two-hop-delegation',
+  kind: 'positive',
+  note: 'A grant signed by a delegated responder (not the root inviter), carrying the full two-hop chain rooted at the inviter. Both hops and both grant events are produced by calling the real `encodeInvitationGrant` twice - hop 1 by the creator, hop 2 by the responder hop 1 itself admitted - with `crypto.getRandomValues` stubbed to each call\'s own recorded 3-value queue: the new delegation hop\'s signature aux-rand (drawn inside the not-exported `issueInvitationDelegation`), then the grant body\'s NIP-44 nonce, then the outer event\'s signature aux-rand.',
+  input: {
+    hop1: {
+      grantEvent: grant1Event,
+      randomnessQueueHex: [bytesToHex(hop1DelegationAuxRand), bytesToHex(hop1Nonce), bytesToHex(hop1OuterAuxRand)],
+      inviterSkHex: bytesToHex(INVITER_A_SK),
+      requester: DELEGATE_A,
+      request: request1Id,
+      createdAt: GRANT_CREATED_AT - 20,
+    },
+    hop2: {
+      randomnessQueueHex: [bytesToHex(hop2DelegationAuxRand), bytesToHex(hop2Nonce), bytesToHex(hop2OuterAuxRand)],
+      inviterSkHex: bytesToHex(DELEGATE_A_SK),
+      requester: REQUESTER_A,
+      request: request2Id,
+      createdAt: GRANT_CREATED_AT,
+    },
+  },
+  output: { event: grant2Event },
+  expected: {
+    decode: { invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A }, requesterSkHex: bytesToHex(REQUESTER_A_SK), request: request2Id, now: GRANT_CREATED_AT },
+    result: admission2 && { secretHex: bytesToHex(admission2.secret), delegateSkHex: bytesToHex(admission2.delegate.delegateSk), chain: admission2.delegate.chain, epoch: admission2.epoch ?? null },
+    chainVerifiesTo: verifyInvitationDelegation(INVITATION_2, admission2.delegate.chain, NOW),
+  },
 })
 
 {
-  // Hop 2: DELEGATE_A (now a responder) grants REQUESTER_A, and its own
-  // grant event names the two-hop chain. This is the shape
-  // `encodeInvitationGrant` produces for the SECOND joiner - the plan's gap
-  // list calls out "a delegation chain" explicitly.
-  const chainHop1 = { invitation: delegationHop1.invitation, room: delegationHop1.room, issuer: delegationHop1.issuer, delegate: delegationHop1.delegate, expiresAt: delegationHop1.expiresAt, sig: delegationHop1.sig }
-  const delegationHop2 = signDelegation({
-    invitationId: INVITATION_2_ID,
-    room: GRANT_ROOM_ID,
-    issuerSk: DELEGATE_A_SK,
-    delegate: REQUESTER_A,
-    expiresAt: NOW + 1800,
-    auxRandLabel: 'delegation-hop-2',
-  })
-  const chainHop2 = { invitation: delegationHop2.invitation, room: delegationHop2.room, issuer: delegationHop2.issuer, delegate: delegationHop2.delegate, expiresAt: delegationHop2.expiresAt, sig: delegationHop2.sig }
-  const chain = [chainHop1, chainHop2]
-
-  const grantBody = { v: 2, request: 'ab'.repeat(32), secret: base64urlnopad.encode(fx.ROOM_SECRET_1), delegation: chain, epoch: 0 }
-  const conversationKey = nip44.v2.utils.getConversationKey(DELEGATE_A_SK, REQUESTER_A)
-  const grantNonce = seed32('invitation-grant-two-hop-nonce')
-  const auxRand = seed32('invitation-grant-two-hop')
-  const grantEvent = finalizeDeterministic(
-    { kind: KINDS.INVITATION_GRANT, created_at: GRANT_CREATED_AT, tags: [['d', INVITATION_2_ID], ['p', REQUESTER_A]], content: nip44.v2.encrypt(JSON.stringify(grantBody), conversationKey, grantNonce) },
-    DELEGATE_A_SK,
-    auxRand,
-  )
-
-  vectors.invitationEnvelope.push({
-    name: 'grant-two-hop-delegation',
-    kind: 'positive',
-    note: 'A grant signed by a delegated responder (not the root inviter), carrying the full two-hop chain rooted at the inviter. The real decoder verifies the whole chain and returns the room secret and a fresh delegate capability.',
-    input: {
-      chain,
-      delegationMessageHop1: `kithmoot/v2/invitation-delegation:${delegationHop1.invitation}:${delegationHop1.room}:${delegationHop1.issuer}:${delegationHop1.delegate}:${delegationHop1.expiresAt}`,
-      hop1AuxRandHex: delegationHop1.auxRandHex,
-      hop2AuxRandHex: delegationHop2.auxRandHex,
-      request: grantBody.request,
-      nonceHex: bytesToHex(grantNonce),
-      auxRandHex: bytesToHex(auxRand),
-    },
-    output: { event: grantEvent },
-    expected: {
-      decode: { invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A }, requesterSkHex: bytesToHex(REQUESTER_A_SK), request: grantBody.request, now: GRANT_CREATED_AT },
-      result: (() => {
-        const r = decodeRoomAdmissionGrant(grantEvent, { invitation: INVITATION_2, requesterSk: REQUESTER_A_SK, request: grantBody.request, now: GRANT_CREATED_AT })
-        return r && { secretHex: bytesToHex(r.secret), delegateSkHex: bytesToHex(r.delegate.delegateSk), chain: r.delegate.chain, epoch: r.epoch ?? null }
-      })(),
-      chainVerifiesTo: verifyInvitationDelegation(INVITATION_2, chain, NOW),
-    },
-  })
-}
-
-{
   // Tamper one byte of the second hop's signature: the whole chain must be
-  // refused, not just the tampered hop.
-  const chainHop1 = { invitation: delegationHop1.invitation, room: delegationHop1.room, issuer: delegationHop1.issuer, delegate: delegationHop1.delegate, expiresAt: delegationHop1.expiresAt, sig: delegationHop1.sig }
-  const tamperedHop2 = { invitation: INVITATION_2_ID, room: GRANT_ROOM_ID, issuer: DELEGATE_A, delegate: REQUESTER_A, expiresAt: NOW + 1800, sig: '00'.repeat(64) }
+  // refused, not just the tampered hop. (Kept alongside the validly-signed
+  // negatives below, which prove the app-level checks rather than only the
+  // schnorr verification this one exercises.)
+  const tamperedHop2 = { ...admission2.delegate.chain[1], sig: '00'.repeat(64) }
   const chain = [chainHop1, tamperedHop2]
   vectors.invitationEnvelope.push({
     name: 'delegation-chain-tampered-second-hop',
@@ -390,104 +582,174 @@ const delegationHop1 = signDelegation({
   })
 }
 
-// --- Retirement (kind 1461), with and without `ended` -----------------------
-
-function buildRetirement({ invitation, inviterSk, createdAt, ended, auxRandLabel }) {
-  const auxRand = seed32(auxRandLabel)
-  const content = JSON.stringify(ended ? { v: 1, ended: true } : { v: 1 })
-  const event = finalizeDeterministic(
-    { kind: KINDS.INVITATION_RETIREMENT, created_at: createdAt, tags: [['d', deriveInvitationId(invitation)]], content },
-    inviterSk,
-    auxRand,
-  )
-  return { event, auxRandHex: bytesToHex(auxRand) }
-}
-
 {
-  const plain = buildRetirement({ invitation: INVITATION_2, inviterSk: INVITER_A_SK, createdAt: RETIREMENT_CREATED_AT, ended: false, auxRandLabel: 'retirement-plain' })
+  // M5: hop 2 genuinely signed, but by somebody who is NOT hop 1's
+  // delegate - i.e. the issuer chain is broken. `IMPOSTOR_SK` holds a real
+  // keypair and signs a real, validly-formed delegation hop; it is simply
+  // not the pubkey hop 1 named as its delegate.
+  const invitationId = deriveInvitationId(INVITATION_2)
+  const forgedHop2ExpiresAt = NOW + 1800
+  const forgedAuxRand = seed32('delegation-hop2-wrong-issuer-auxrand')
+  const forgedSig = bytesToHex(schnorr.sign(
+    delegationMessageBytes(invitationId, GRANT_ROOM_ID, IMPOSTOR, REQUESTER_A, forgedHop2ExpiresAt),
+    IMPOSTOR_SK,
+    forgedAuxRand,
+  ))
+  const forgedHop2 = { invitation: invitationId, room: GRANT_ROOM_ID, issuer: IMPOSTOR, delegate: REQUESTER_A, expiresAt: forgedHop2ExpiresAt, sig: forgedSig }
+  const chain = [chainHop1, forgedHop2]
   vectors.invitationEnvelope.push({
-    name: 'retirement-plain',
-    kind: 'positive',
-    note: 'An ordinary retirement: the link was replaced, not the room ended.',
-    input: { invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A }, inviterSkHex: bytesToHex(INVITER_A_SK), createdAt: RETIREMENT_CREATED_AT, auxRandHex: plain.auxRandHex },
-    output: { event: plain.event },
-    expected: { result: decodeInvitationRetirementNotice(plain.event, INVITATION_2) },
+    name: 'delegation-hop-wrong-issuer-refused',
+    kind: 'negative',
+    note: 'M5: hop 2 carries a genuine, validly-verifying schnorr signature - by IMPOSTOR_SK, a real keypair unrelated to this invitation - but IMPOSTOR is not hop 1\'s delegate (DELEGATE_A is). `verifyInvitationDelegation` walks the chain checking each hop\'s issuer against the PREVIOUS hop\'s delegate, so a validly-signed hop from the wrong signer is refused; only checking each hop\'s own signature in isolation would accept it.',
+    input: { chain, forgedByPubkey: IMPOSTOR },
+    output: { result: verifyInvitationDelegation(INVITATION_2, chain, NOW) },
   })
 }
 
 {
-  const ended = buildRetirement({ invitation: INVITATION_2, inviterSk: INVITER_A_SK, createdAt: RETIREMENT_CREATED_AT, ended: true, auxRandLabel: 'retirement-ended' })
+  // M9: an outer grant event genuinely signed by somebody OTHER than the
+  // chain's final issuer. The body (delegation chain, secret, request,
+  // epoch) is exactly hop 2's real body, encrypted with a REAL conversation
+  // key between IMPOSTOR_SK and the requester, and the outer event is REALLY
+  // signed by IMPOSTOR_SK - so both the encryption and the signature verify.
+  // `decodeRoomAdmissionGrant` still refuses it because the chain's last
+  // hop names DELEGATE_A as issuer, not the event's actual signer.
+  // The delegation chain is exactly admission2's own real, valid two-hop
+  // chain - unmodified - so the mismatch below is only ever the SIGNER,
+  // never the chain or the body.
+  const grantBody = { v: 2, request: request2Id, secret: base64urlnopad.encode(fx.ROOM_SECRET_1), delegation: admission2.delegate.chain, epoch: 0 }
+  const conversationKey = nip44.v2.utils.getConversationKey(IMPOSTOR_SK, REQUESTER_A)
+  const nonce = seed32('grant-wrong-signer-nonce')
+  const auxRand = seed32('grant-wrong-signer-auxrand')
+  const event = finalizeDeterministic(
+    { kind: KINDS.INVITATION_GRANT, created_at: GRANT_CREATED_AT, tags: [['d', deriveInvitationId(INVITATION_2)], ['p', REQUESTER_A]], content: nip44.v2.encrypt(JSON.stringify(grantBody), conversationKey, nonce) },
+    IMPOSTOR_SK,
+    auxRand,
+  )
+  vectors.invitationEnvelope.push({
+    name: 'grant-signer-not-final-issuer-refused',
+    kind: 'negative',
+    note: "M9: the outer event is REALLY signed by IMPOSTOR_SK (a genuine schnorr signature that verifies), and the NIP-44 content REALLY decrypts under the requester's real conversation key with IMPOSTOR - but the delegation chain inside names DELEGATE_A as its final issuer. `decodeRoomAdmissionGrant` checks `body.delegation.at(-1).issuer` against `event.pubkey` and refuses the mismatch; without it, anybody could wrap somebody else's real, valid delegation chain in an event of their own and be believed.",
+    input: { event, body: grantBody, actualSigner: IMPOSTOR },
+    output: { result: decodeRoomAdmissionGrant(event, { invitation: INVITATION_2, requesterSk: REQUESTER_A_SK, request: request2Id, now: GRANT_CREATED_AT }) },
+  })
+}
+
+{
+  // M19: a grant whose delegation chain is correctly rooted and signed for
+  // fx.ROOM_SECRET_1's room, but whose SECRET is fx.ROOM_SECRET_2's - i.e.
+  // the chain and the room the grant actually opens disagree. Produced by
+  // taking the real hop-1 grant's genuine chain and secret-encrypting body,
+  // then swapping only the `secret` field and re-signing for real with the
+  // same real inviter key (the signature is genuine; only the body's
+  // internal consistency is what is being attacked).
+  const mismatchedBody = { v: 2, request: request1Id, secret: base64urlnopad.encode(fx.ROOM_SECRET_2), delegation: admission1.delegate.chain, epoch: 0 }
+  const conversationKey = nip44.v2.utils.getConversationKey(INVITER_A_SK, DELEGATE_A)
+  const nonce = seed32('grant-room-mismatch-nonce')
+  const auxRand = seed32('grant-room-mismatch-auxrand')
+  const event = finalizeDeterministic(
+    { kind: KINDS.INVITATION_GRANT, created_at: GRANT_CREATED_AT - 20, tags: [['d', deriveInvitationId(INVITATION_2)], ['p', DELEGATE_A]], content: nip44.v2.encrypt(JSON.stringify(mismatchedBody), conversationKey, nonce) },
+    INVITER_A_SK,
+    auxRand,
+  )
+  vectors.invitationEnvelope.push({
+    name: 'grant-secret-room-mismatch-refused',
+    kind: 'negative',
+    note: "M19: genuinely signed by the real root inviter, carrying the real hop-1 delegation chain (rooted and bound to fx.ROOM_SECRET_1's room) - but the sealed secret is fx.ROOM_SECRET_2's, a different room entirely. `decodeRoomAdmissionGrant` checks `body.delegation[0].room` against `deriveRoom(secret).roomId` and refuses the mismatch; without it, a chain authorised for one room could be reused to open a different one.",
+    input: { event, body: mismatchedBody, chainRoom: GRANT_ROOM_ID, secretDerivesToRoom: OTHER_ROOM_ID },
+    output: { result: decodeRoomAdmissionGrant(event, { invitation: INVITATION_2, requesterSk: DELEGATE_A_SK, request: request1Id, now: GRANT_CREATED_AT - 20 }) },
+  })
+}
+
+{
+  // M21: hop 1's own recorded expiry, checked at a `now` past it. The chain
+  // and event are exactly the real hop-1 grant above; only the decode-time
+  // clock differs.
+  const pastExpiry = chainHop1.expiresAt + 1
+  vectors.invitationEnvelope.push({
+    name: 'grant-delegation-expired-refused',
+    kind: 'negative',
+    note: `M21: hop 1's real, validly-signed delegation names an expiry of ${chainHop1.expiresAt}. Checked one second after that instant, the whole chain is refused - an expired hop is no hop, however good its signature.`,
+    input: { chain: [chainHop1], now: pastExpiry },
+    output: { result: verifyInvitationDelegation(INVITATION_2, [chainHop1], pastExpiry) },
+  })
+}
+
+// --- Retirement (kind 1461), driven through the real encoder ---------------
+
+{
+  const auxRand = seed32('retirement-plain')
+  const event = withStubbedRandomness([auxRand], () =>
+    encodeInvitationRetirement({ invitation: INVITATION_2, inviterSk: INVITER_A_SK, now: RETIREMENT_CREATED_AT, ended: false }),
+  )
+  vectors.invitationEnvelope.push({
+    name: 'retirement-plain',
+    kind: 'positive',
+    note: 'An ordinary retirement: the link was replaced, not the room ended. Built by calling the real `encodeInvitationRetirement`.',
+    input: { invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A }, inviterSkHex: bytesToHex(INVITER_A_SK), createdAt: RETIREMENT_CREATED_AT, randomnessQueueHex: [bytesToHex(auxRand)] },
+    output: { event },
+    expected: { result: decodeInvitationRetirementNotice(event, INVITATION_2) },
+  })
+}
+
+{
+  const auxRand = seed32('retirement-ended')
+  const event = withStubbedRandomness([auxRand], () =>
+    encodeInvitationRetirement({ invitation: INVITATION_2, inviterSk: INVITER_A_SK, now: RETIREMENT_CREATED_AT, ended: true }),
+  )
   vectors.invitationEnvelope.push({
     name: 'retirement-room-ended',
     kind: 'positive',
     note: 'A retirement that also says the room itself was ended, not just this link replaced.',
-    input: { invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A }, inviterSkHex: bytesToHex(INVITER_A_SK), createdAt: RETIREMENT_CREATED_AT, auxRandHex: ended.auxRandHex },
-    output: { event: ended.event },
-    expected: { result: decodeInvitationRetirementNotice(ended.event, INVITATION_2) },
+    input: { invitation: { bearerHex: bytesToHex(BEARER_A), inviter: INVITER_A }, inviterSkHex: bytesToHex(INVITER_A_SK), createdAt: RETIREMENT_CREATED_AT, randomnessQueueHex: [bytesToHex(auxRand)] },
+    output: { event },
+    expected: { result: decodeInvitationRetirementNotice(event, INVITATION_2) },
   })
 }
 
 {
-  const forged = buildRetirement({ invitation: INVITATION_2, inviterSk: OTHER_INVITER_SK, createdAt: RETIREMENT_CREATED_AT, ended: false, auxRandLabel: 'retirement-forged' })
+  const auxRand = seed32('retirement-forged')
+  const event = withStubbedRandomness([auxRand], () =>
+    encodeInvitationRetirement({ invitation: { ...INVITATION_2, inviter: OTHER_INVITER }, inviterSk: OTHER_INVITER_SK, now: RETIREMENT_CREATED_AT, ended: false }),
+  )
   vectors.invitationEnvelope.push({
     name: 'retirement-wrong-signer-refused',
     kind: 'negative',
     note: 'A retirement signed by somebody other than the inviter pinned in the link: refused, even though the event itself verifies.',
-    input: { event: forged.event },
-    output: { result: decodeInvitationRetirementNotice(forged.event, INVITATION_2) ?? null },
+    input: { event },
+    output: { result: decodeInvitationRetirementNotice(event, INVITATION_2) ?? null },
   })
 }
 
 // ===========================================================================
-// 3. Persistent (v3) group invitation - encode/decode both ways, plus a
-//    tampered ciphertext and a non-persistent invitation refused.
+// 3. Persistent (v3) group invitation - encode/decode both ways, a tampered
+//    ciphertext, a room-body mismatch and a non-persistent invitation refused.
 // ===========================================================================
-
-function buildPersistentInvitation({ invitation, inviterSk, roomSecret, createdAt, nonceLabel, auxRandLabel }) {
-  const welcomeKey = hkdfSha256(invitation.bearer, 'kithmoot/v3/group-invitation-key')
-  const nonce = seed32(nonceLabel)
-  const auxRand = seed32(auxRandLabel)
-  const room = deriveRoom(roomSecret).roomId
-  const content = nip44.v2.encrypt(JSON.stringify({ v: 3, room, secret: base64urlnopad.encode(roomSecret) }), welcomeKey, nonce)
-  const event = finalizeDeterministic(
-    { kind: KINDS.GROUP_INVITATION, created_at: createdAt, tags: [['d', deriveInvitationId(invitation)]], content },
-    inviterSk,
-    auxRand,
-  )
-  return { event, nonceHex: bytesToHex(nonce), auxRandHex: bytesToHex(auxRand) }
-}
 
 {
-  const built = buildPersistentInvitation({
-    invitation: INVITATION_3,
-    inviterSk: INVITER_A_SK,
-    roomSecret: fx.ROOM_SECRET_1,
-    createdAt: fx.NOW - 86_400 * 30,
-    nonceLabel: 'persistent-invitation-valid-nonce',
-    auxRandLabel: 'persistent-invitation-valid-auxrand',
-  })
+  const nonce = seed32('persistent-invitation-valid-nonce')
+  const auxRand = seed32('persistent-invitation-valid-auxrand')
+  const createdAt = fx.NOW - 86_400 * 30
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodePersistentInvitation({ invitation: INVITATION_3, inviterSk: INVITER_A_SK, roomSecret: fx.ROOM_SECRET_1, now: createdAt }),
+  )
+  const decoded = decodePersistentInvitation(event, INVITATION_3)
   vectors.persistentInvitation.push({
     name: 'valid',
     kind: 'positive',
-    note: 'A stored group invitation (kind 1463), published once and readable weeks later with nobody online.',
+    note: 'A stored group invitation (kind 1463), published once and readable weeks later with nobody online. Built by calling the real `encodePersistentInvitation`.',
     input: {
       invitation: { bearerHex: bytesToHex(BEARER_B), inviter: INVITER_A },
       inviterSkHex: bytesToHex(INVITER_A_SK),
       roomSecretHex: bytesToHex(fx.ROOM_SECRET_1),
-      createdAt: fx.NOW - 86_400 * 30,
-      nonceHex: built.nonceHex,
-      auxRandHex: built.auxRandHex,
+      createdAt,
+      randomnessQueueHex: [bytesToHex(nonce), bytesToHex(auxRand)],
     },
-    output: { event: built.event },
-    expected: {
-      result: (() => {
-        const r = decodePersistentInvitation(built.event, INVITATION_3)
-        return r && { secretHex: bytesToHex(r.secret), persistent: r.persistent, epoch: r.epoch }
-      })(),
-    },
+    output: { event },
+    expected: { result: decoded && { secretHex: bytesToHex(decoded.secret), persistent: decoded.persistent, epoch: decoded.epoch } },
   })
 
-  const tampered = { ...built.event, content: built.event.content.slice(0, -4) + 'AAAA' }
+  const tampered = { ...event, content: event.content.slice(0, -4) + 'AAAA' }
   vectors.persistentInvitation.push({
     name: 'tampered-ciphertext-refused',
     kind: 'negative',
@@ -501,43 +763,69 @@ function buildPersistentInvitation({ invitation, inviterSk, roomSecret, createdA
     name: 'non-persistent-invitation-refused',
     kind: 'negative',
     note: 'The same event, decoded against the same bearer and inviter but without the `persistent` flag set: refused - a v2 (live) invitation must never be readable as a stored v3 group welcome.',
-    input: { event: built.event, invitationPersistent: false },
-    output: { result: decodePersistentInvitation(built.event, temporary) },
+    input: { event, invitationPersistent: false },
+    output: { result: decodePersistentInvitation(event, temporary) },
+  })
+
+  // M20: the same real inviter key, the same real welcome key, but the
+  // ENCRYPTED body's `room` field is patched to a room the sealed secret
+  // does not derive to. Re-encrypted with the same key and a fresh nonce,
+  // and genuinely re-signed by INVITER_A_SK - the signature is real; only
+  // the body's internal room binding is wrong.
+  const welcomeKey = hkdfSha256(INVITATION_3.bearer, 'kithmoot/v3/group-invitation-key')
+  const mismatchedNonce = seed32('persistent-invitation-room-mismatch-nonce')
+  const mismatchedAuxRand = seed32('persistent-invitation-room-mismatch-auxrand')
+  const mismatchedContent = nip44.v2.encrypt(
+    JSON.stringify({ v: 3, room: OTHER_ROOM_ID, secret: base64urlnopad.encode(fx.ROOM_SECRET_1) }),
+    welcomeKey,
+    mismatchedNonce,
+  )
+  const mismatchedEvent = finalizeDeterministic(
+    { kind: KINDS.GROUP_INVITATION, created_at: createdAt, tags: [['d', deriveInvitationId(INVITATION_3)]], content: mismatchedContent },
+    INVITER_A_SK,
+    mismatchedAuxRand,
+  )
+  vectors.persistentInvitation.push({
+    name: 'room-mismatch-refused',
+    kind: 'negative',
+    note: `M20: genuinely signed by the real inviter, genuinely encrypted under the real welcome key - but the body's \`room\` field (${OTHER_ROOM_ID}) does not match what its own sealed secret derives to (${GRANT_ROOM_ID}). \`decodePersistentInvitation\` checks \`deriveRoom(secret).roomId === body.room\` and refuses the mismatch.`,
+    input: { event: mismatchedEvent, roomInBody: OTHER_ROOM_ID, roomFromSecret: GRANT_ROOM_ID },
+    output: { result: decodePersistentInvitation(mismatchedEvent, INVITATION_3) },
   })
 }
 
 // ===========================================================================
-// 4. Epoch grant - secret at a later epoch, an epoch-0 grant carrying none,
-//    both refusals, and a wrong request id.
+// 4. Epoch grant - secret at a later epoch, epoch-0, both refusals, a wrong
+//    request id, a wrong authority signer, a wrong room, and staleness.
 // ===========================================================================
-
-function buildEpochGrant({ authoritySk, device, createdAt, body, nonceLabel, auxRandLabel }) {
-  const nonce = seed32(nonceLabel)
-  const auxRand = seed32(auxRandLabel)
-  const conversationKey = nip44.v2.utils.getConversationKey(authoritySk, device)
-  const event = finalizeDeterministic(
-    { kind: KINDS.EPOCH_GRANT, created_at: createdAt, tags: [['d', fx_roomId()], ['p', device]], content: nip44.v2.encrypt(JSON.stringify(body), conversationKey, nonce) },
-    authoritySk,
-    auxRand,
-  )
-  return { event, nonceHex: bytesToHex(nonce), auxRandHex: bytesToHex(auxRand) }
-}
 
 function fx_roomId() {
   return deriveRoom(fx.ROOM_SECRET_1).roomId
 }
 
 const EPOCH_1 = deriveEpoch({ epoch: 1, secret: fx.EPOCH_SECRET_1 })
-const EPOCH_GRANT_REQUEST = 'cd'.repeat(32)
+const EPOCH_GRANT_REQUEST = requestIdFor('epoch-grant-request')
 
 {
-  const body = { v: 1, request: EPOCH_GRANT_REQUEST, epoch: 1, secret: base64urlnopad.encode(fx.EPOCH_SECRET_1), removed: [fx.REMOVED_DEVICE] }
-  const built = buildEpochGrant({ authoritySk: fx.AUTHORITY_SK, device: fx.KEPT_DEVICE, createdAt: fx.EPOCH_CREATED_AT, body, nonceLabel: 'epoch-grant-with-secret-nonce', auxRandLabel: 'epoch-grant-with-secret' })
+  const nonce = seed32('epoch-grant-with-secret-nonce')
+  const auxRand = seed32('epoch-grant-with-secret')
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodeEpochGrant({
+      roomId: fx_roomId(),
+      authoritySk: fx.AUTHORITY_SK,
+      device: fx.KEPT_DEVICE,
+      request: EPOCH_GRANT_REQUEST,
+      now: fx.EPOCH_CREATED_AT,
+      epoch: { epoch: 1, secret: fx.EPOCH_SECRET_1 },
+      removed: [fx.REMOVED_DEVICE],
+    }),
+  )
   const decodeArgs = { roomId: fx_roomId(), authority: fx.AUTHORITY, deviceSk: fx.KEPT_DEVICE_SK, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT }
+  const decoded = decodeEpochGrant(event, decodeArgs)
   vectors.epochGrant.push({
     name: 'grant-with-secret-at-epoch-1',
     kind: 'positive',
-    note: 'The authority answers a caught-up request: the room has moved to epoch 1, and the secret that opens it is sealed to the asking device. Every field the real decoder needs rides in this vector\'s own `input`.',
+    note: 'The authority answers a caught-up request: the room has moved to epoch 1, and the secret that opens it is sealed to the asking device. Built by calling the real `encodeEpochGrant`.',
     input: {
       roomId: fx_roomId(),
       authoritySkHex: bytesToHex(fx.AUTHORITY_SK),
@@ -546,85 +834,97 @@ const EPOCH_GRANT_REQUEST = 'cd'.repeat(32)
       deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK),
       request: EPOCH_GRANT_REQUEST,
       createdAt: fx.EPOCH_CREATED_AT,
-      body,
-      nonceHex: built.nonceHex,
-      auxRandHex: built.auxRandHex,
+      epoch: 1,
+      secretHex: bytesToHex(fx.EPOCH_SECRET_1),
+      removed: [fx.REMOVED_DEVICE],
+      randomnessQueueHex: [bytesToHex(nonce), bytesToHex(auxRand)],
     },
-    output: { event: built.event },
-    expected: {
-      result: (() => {
-        const r = decodeEpochGrant(built.event, decodeArgs)
-        return r && ('refused' in r ? r : { epoch: 'secret' in r.epoch ? { epoch: r.epoch.epoch, secretHex: bytesToHex(r.epoch.secret) } : r.epoch, removed: r.removed })
-      })(),
-    },
+    output: { event },
+    expected: { result: decoded && ('refused' in decoded ? decoded : { epoch: 'secret' in decoded.epoch ? { epoch: decoded.epoch.epoch, secretHex: bytesToHex(decoded.epoch.secret) } : decoded.epoch, removed: decoded.removed }) },
   })
   vectors.epochGrant.push({
     name: 'grant-wrong-request-id-refused',
     kind: 'negative',
     note: 'The same event, but the device asked with a different request id than the one the grant answers: refused.',
-    input: {
-      event: built.event,
-      roomId: fx_roomId(),
-      authority: fx.AUTHORITY,
-      deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK),
-      request: 'ff'.repeat(32),
-      now: fx.EPOCH_CREATED_AT,
-    },
-    output: {
-      result: decodeEpochGrant(built.event, { roomId: fx_roomId(), authority: fx.AUTHORITY, deviceSk: fx.KEPT_DEVICE_SK, request: 'ff'.repeat(32), now: fx.EPOCH_CREATED_AT }),
-    },
+    input: { event, roomId: fx_roomId(), authority: fx.AUTHORITY, deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK), request: 'ff'.repeat(32), now: fx.EPOCH_CREATED_AT },
+    output: { result: decodeEpochGrant(event, { roomId: fx_roomId(), authority: fx.AUTHORITY, deviceSk: fx.KEPT_DEVICE_SK, request: 'ff'.repeat(32), now: fx.EPOCH_CREATED_AT }) },
+  })
+  vectors.epochGrant.push({
+    name: 'grant-stale-refused',
+    kind: 'negative',
+    note: 'M18: the same genuinely-signed, genuinely-sealed grant, read 91 seconds after it was made (one past the 90-second window `decodeEpochGrant` allows): refused as stale, the same freshness rule `decodeInvitationRequest` applies.',
+    input: { event, decode: { roomId: decodeArgs.roomId, authority: decodeArgs.authority, deviceSkHex: bytesToHex(decodeArgs.deviceSk), request: decodeArgs.request, now: fx.EPOCH_CREATED_AT + 91 } },
+    output: { result: decodeEpochGrant(event, { ...decodeArgs, now: fx.EPOCH_CREATED_AT + 91 }) },
   })
 }
 
 {
   // Epoch 0: the room has never been rekeyed, so the grant carries no
   // secret at all - the requester already holds what it needs from the link.
-  const body = { v: 1, request: EPOCH_GRANT_REQUEST, epoch: 0, removed: [] }
-  const built = buildEpochGrant({ authoritySk: fx.AUTHORITY_SK, device: fx.KEPT_DEVICE, createdAt: fx.EPOCH_CREATED_AT, body, nonceLabel: 'epoch-grant-epoch-zero-nonce', auxRandLabel: 'epoch-grant-epoch-zero' })
+  const nonce = seed32('epoch-grant-epoch-zero-nonce')
+  const auxRand = seed32('epoch-grant-epoch-zero')
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodeEpochGrant({ roomId: fx_roomId(), authoritySk: fx.AUTHORITY_SK, device: fx.KEPT_DEVICE, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT, epoch: { epoch: 0, secret: fx.ROOM_SECRET_1 }, removed: [] }),
+  )
   const decodeArgs = { roomId: fx_roomId(), authority: fx.AUTHORITY, deviceSk: fx.KEPT_DEVICE_SK, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT }
   vectors.epochGrant.push({
     name: 'grant-epoch-zero-no-secret',
     kind: 'positive',
     note: 'A grant answering "the room is still at epoch 0": no secret rides in the body, because the epoch-0 room key is already what the link handed out.',
-    input: {
-      roomId: fx_roomId(),
-      authoritySkHex: bytesToHex(fx.AUTHORITY_SK),
-      authority: fx.AUTHORITY,
-      device: fx.KEPT_DEVICE,
-      deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK),
-      request: EPOCH_GRANT_REQUEST,
-      createdAt: fx.EPOCH_CREATED_AT,
-      body,
-      nonceHex: built.nonceHex,
-      auxRandHex: built.auxRandHex,
-    },
-    output: { event: built.event },
-    expected: { result: decodeEpochGrant(built.event, decodeArgs) },
+    input: { roomId: fx_roomId(), authoritySkHex: bytesToHex(fx.AUTHORITY_SK), authority: fx.AUTHORITY, device: fx.KEPT_DEVICE, deviceSkHex: bytesToHex(fx.KEPT_DEVICE_SK), request: EPOCH_GRANT_REQUEST, createdAt: fx.EPOCH_CREATED_AT, randomnessQueueHex: [bytesToHex(nonce), bytesToHex(auxRand)] },
+    output: { event },
+    expected: { result: decodeEpochGrant(event, decodeArgs) },
   })
 }
 
 for (const refused of ['removed', 'closed']) {
-  const body = { v: 1, request: EPOCH_GRANT_REQUEST, refused }
-  const built = buildEpochGrant({ authoritySk: fx.AUTHORITY_SK, device: fx.REMOVED_DEVICE, createdAt: fx.EPOCH_CREATED_AT, body, nonceLabel: `epoch-grant-refused-${refused}-nonce`, auxRandLabel: `epoch-grant-refused-${refused}` })
+  const nonce = seed32(`epoch-grant-refused-${refused}-nonce`)
+  const auxRand = seed32(`epoch-grant-refused-${refused}`)
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodeEpochGrant({ roomId: fx_roomId(), authoritySk: fx.AUTHORITY_SK, device: fx.REMOVED_DEVICE, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT, refused }),
+  )
   const decodeArgs = { roomId: fx_roomId(), authority: fx.AUTHORITY, deviceSk: fx.REMOVED_DEVICE_SK, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT }
   vectors.epochGrant.push({
     name: `grant-refused-${refused}`,
     kind: 'negative',
     note: `The authority refuses the epoch request because the device's participant was ${refused === 'removed' ? 'removed from the room' : 'the room has been closed'}. Sealed like an ordinary grant, so only the asking device learns why.`,
-    input: {
-      roomId: fx_roomId(),
-      authoritySkHex: bytesToHex(fx.AUTHORITY_SK),
-      authority: fx.AUTHORITY,
-      device: fx.REMOVED_DEVICE,
-      deviceSkHex: bytesToHex(fx.REMOVED_DEVICE_SK),
-      request: EPOCH_GRANT_REQUEST,
-      createdAt: fx.EPOCH_CREATED_AT,
-      body,
-      nonceHex: built.nonceHex,
-      auxRandHex: built.auxRandHex,
-    },
-    output: { event: built.event },
-    expected: { result: decodeEpochGrant(built.event, decodeArgs) },
+    input: { roomId: fx_roomId(), authoritySkHex: bytesToHex(fx.AUTHORITY_SK), authority: fx.AUTHORITY, device: fx.REMOVED_DEVICE, deviceSkHex: bytesToHex(fx.REMOVED_DEVICE_SK), request: EPOCH_GRANT_REQUEST, createdAt: fx.EPOCH_CREATED_AT, randomnessQueueHex: [bytesToHex(nonce), bytesToHex(auxRand)] },
+    output: { event },
+    expected: { result: decodeEpochGrant(event, decodeArgs) },
+  })
+}
+
+{
+  // M6: genuinely signed by IMPOSTOR_SK - real schnorr signature, real
+  // conversation key with the device - but the decoder is checking against
+  // the room's actual authority, fx.AUTHORITY, which IMPOSTOR is not.
+  const nonce = seed32('epoch-grant-wrong-authority-nonce')
+  const auxRand = seed32('epoch-grant-wrong-authority')
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodeEpochGrant({ roomId: fx_roomId(), authoritySk: IMPOSTOR_SK, device: fx.KEPT_DEVICE, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT, epoch: { epoch: 1, secret: fx.EPOCH_SECRET_1 }, removed: [] }),
+  )
+  vectors.epochGrant.push({
+    name: 'grant-wrong-authority-signer-refused',
+    kind: 'negative',
+    note: 'M6: a grant genuinely signed and genuinely sealed by IMPOSTOR_SK - a real keypair, not the room authority. `decodeEpochGrant` checks `event.pubkey` against the caller-supplied `authority` and refuses before decryption is even attempted; holding a valid signature over SOME key is not holding authority over this room.',
+    input: { event, actualSigner: IMPOSTOR, request: EPOCH_GRANT_REQUEST },
+    output: { result: decodeEpochGrant(event, { roomId: fx_roomId(), authority: fx.AUTHORITY, deviceSk: fx.KEPT_DEVICE_SK, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT }) },
+  })
+}
+
+{
+  // M18 (`d` check): a grant genuinely made for a DIFFERENT room's id.
+  const nonce = seed32('epoch-grant-wrong-room-nonce')
+  const auxRand = seed32('epoch-grant-wrong-room')
+  const event = withStubbedRandomness([nonce, auxRand], () =>
+    encodeEpochGrant({ roomId: OTHER_ROOM_ID, authoritySk: fx.AUTHORITY_SK, device: fx.KEPT_DEVICE, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT, epoch: { epoch: 1, secret: fx.EPOCH_SECRET_1 }, removed: [] }),
+  )
+  vectors.epochGrant.push({
+    name: 'grant-wrong-room-refused',
+    kind: 'negative',
+    note: `M18: a genuinely-signed grant whose \`d\` tag names a different room (${OTHER_ROOM_ID}) than the one being asked about (${fx_roomId()}). Refused on the tag alone, before decryption.`,
+    input: { event, grantedForRoom: OTHER_ROOM_ID, askedAboutRoom: fx_roomId(), request: EPOCH_GRANT_REQUEST },
+    output: { result: decodeEpochGrant(event, { roomId: fx_roomId(), authority: fx.AUTHORITY, deviceSk: fx.KEPT_DEVICE_SK, request: EPOCH_GRANT_REQUEST, now: fx.EPOCH_CREATED_AT }) },
   })
 }
 
@@ -639,79 +939,77 @@ vectors.epochGrant.push({
 })
 
 // ===========================================================================
-// 5. Person-scope credential - valid, over 30 days, refused without
-//    acceptPerson.
+// 5. Person-scope credential - valid, exactly-at-boundary, over 30 days,
+//    refused without acceptPerson.
 // ===========================================================================
 
-function buildPersonCredential({ participantSk, devicePubkey, createdAt, expiresAt, label, auxRandLabel }) {
-  const participant = getPublicKey(participantSk)
-  const auxRand = seed32(auxRandLabel)
-  const tags = [
-    ['d', participant],
-    ['device', devicePubkey],
-    ['expiration', String(expiresAt)],
-    ['scope', 'person'],
-    ...(label !== undefined ? [['label', label]] : []),
-  ]
-  const event = finalizeDeterministic({ kind: KINDS.CREDENTIAL, created_at: createdAt, tags, content: '' }, participantSk, auxRand)
-  return { event, auxRandHex: bytesToHex(auxRand) }
-}
-
 {
-  const built = buildPersonCredential({
-    participantSk: fx.PARTICIPANT_A_SK,
+  const auxRand = seed32('person-credential-valid')
+  const createdAt = fx.CREDENTIAL_CREATED_AT
+  const expiresAt = createdAt + 7 * 24 * 3600
+  const cred = await createDeviceCredential({
+    identity: deterministicIdentity(fx.PARTICIPANT_A_SK, auxRand),
     devicePubkey: fx.DEVICE_A,
-    createdAt: fx.CREDENTIAL_CREATED_AT,
-    expiresAt: fx.CREDENTIAL_CREATED_AT + 7 * 24 * 3600,
+    scope: 'person',
     label: 'phone',
-    auxRandLabel: 'person-credential-valid',
+    expiresAt,
+    now: () => createdAt,
   })
   vectors.personCredential.push({
     name: 'valid-accepted-with-acceptPerson',
     kind: 'positive',
-    note: 'A person-scope credential (device authorised for every room, not one) is refused as a room credential by default, and accepted only when the caller opts in with `acceptPerson`.',
-    input: {
-      participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK),
-      devicePubkey: fx.DEVICE_A,
-      createdAt: fx.CREDENTIAL_CREATED_AT,
-      expiresAt: fx.CREDENTIAL_CREATED_AT + 7 * 24 * 3600,
-      label: 'phone',
-      auxRandHex: built.auxRandHex,
-    },
-    output: { event: built.event },
+    note: 'A person-scope credential (device authorised for every room, not one) is refused as a room credential by default, and accepted only when the caller opts in with `acceptPerson`. Built by calling the real, async `createDeviceCredential` with an injected `ParticipantIdentity` whose `signEvent` is `finalizeDeterministic` under the recorded aux-rand.',
+    input: { participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK), devicePubkey: fx.DEVICE_A, createdAt, expiresAt, label: 'phone', auxRandHex: bytesToHex(auxRand) },
+    output: { event: cred },
     expected: {
-      asPerson: verifyDeviceCredential(built.event, { identity: fx.PARTICIPANT_A, now: fx.NOW }),
-      asRoomWithoutAcceptPerson: verifyDeviceCredential(built.event, { roomId: deriveRoom(fx.ROOM_SECRET_1).roomId, now: fx.NOW }),
-      asRoomWithAcceptPerson: verifyDeviceCredential(built.event, { roomId: deriveRoom(fx.ROOM_SECRET_1).roomId, now: fx.NOW, acceptPerson: true }),
+      asPerson: verifyDeviceCredential(cred, { identity: fx.PARTICIPANT_A, now: fx.NOW }),
+      asRoomWithoutAcceptPerson: verifyDeviceCredential(cred, { roomId: deriveRoom(fx.ROOM_SECRET_1).roomId, now: fx.NOW }),
+      asRoomWithAcceptPerson: verifyDeviceCredential(cred, { roomId: deriveRoom(fx.ROOM_SECRET_1).roomId, now: fx.NOW, acceptPerson: true }),
     },
+  })
+}
+
+{
+  // M15 (boundary, accepted side): expiresAt exactly `createdAt +
+  // PERSON_CREDENTIAL_MAX_SECONDS`. `createDeviceCredential`'s own guard is
+  // `expiresAt - now > PERSON_CREDENTIAL_MAX_SECONDS` (strictly greater), so
+  // exactly-at-the-boundary is minted without refusal, and the verifier's
+  // matching check must accept it too.
+  const auxRand = seed32('person-credential-exactly-max')
+  const createdAt = fx.CREDENTIAL_CREATED_AT
+  const expiresAt = createdAt + PERSON_CREDENTIAL_MAX_SECONDS
+  const cred = await createDeviceCredential({
+    identity: deterministicIdentity(fx.PARTICIPANT_A_SK, auxRand),
+    devicePubkey: fx.DEVICE_A,
+    scope: 'person',
+    expiresAt,
+    now: () => createdAt,
+  })
+  vectors.personCredential.push({
+    name: 'valid-at-exactly-30-day-boundary',
+    kind: 'positive',
+    note: `M15 (accepted side): expiresAt is exactly ${PERSON_CREDENTIAL_MAX_SECONDS} seconds (30 days) past createdAt - the boundary itself. Both \`createDeviceCredential\` (mint time) and \`verifyDeviceCredential\` (read time) use a strict \`>\`, so this is accepted; one second later ("refused-over-30-days" below) is refused. Minted through the real, async \`createDeviceCredential\`.`,
+    input: { participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK), devicePubkey: fx.DEVICE_A, createdAt, expiresAt, auxRandHex: bytesToHex(auxRand) },
+    output: { event: cred, result: verifyDeviceCredential(cred, { identity: fx.PARTICIPANT_A, now: createdAt }) },
   })
 }
 
 {
   // Signed directly (not through `createDeviceCredential`, which refuses
   // this at mint time) so the vector pins what a VERIFIER does when handed
-  // one anyway - a looser or buggy signer's output.
+  // one anyway - a looser or buggy signer's output. Documented exception to
+  // "drive the real encoder": there is no real encoder path that produces
+  // this event, by design.
   const longExpiry = fx.CREDENTIAL_CREATED_AT + PERSON_CREDENTIAL_MAX_SECONDS + 1
-  const built = buildPersonCredential({
-    participantSk: fx.PARTICIPANT_A_SK,
-    devicePubkey: fx.DEVICE_A,
-    createdAt: fx.CREDENTIAL_CREATED_AT,
-    expiresAt: longExpiry,
-    auxRandLabel: 'person-credential-over-30-days',
-  })
+  const auxRand = seed32('person-credential-over-30-days')
+  const tags = [['d', fx.PARTICIPANT_A], ['device', fx.DEVICE_A], ['expiration', String(longExpiry)], ['scope', 'person']]
+  const event = finalizeDeterministic({ kind: KINDS.CREDENTIAL, created_at: fx.CREDENTIAL_CREATED_AT, tags, content: '' }, fx.PARTICIPANT_A_SK, auxRand)
   vectors.personCredential.push({
     name: 'refused-over-30-days',
     kind: 'negative',
-    note: 'A person credential whose expiry is one second past the 30-day maximum, measured from its own `created_at`. `createDeviceCredential` refuses to mint this; this vector pins the separate check `verifyDeviceCredential` makes on anything it is handed regardless.',
-    input: {
-      participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK),
-      devicePubkey: fx.DEVICE_A,
-      createdAt: fx.CREDENTIAL_CREATED_AT,
-      expiresAt: longExpiry,
-      auxRandHex: built.auxRandHex,
-      verify: { identity: fx.PARTICIPANT_A, now: fx.CREDENTIAL_CREATED_AT },
-    },
-    output: { event: built.event, result: verifyDeviceCredential(built.event, { identity: fx.PARTICIPANT_A, now: fx.CREDENTIAL_CREATED_AT }) },
+    note: 'M15 (refused side): a person credential whose expiry is one second past the 30-day maximum, measured from its own `created_at`. `createDeviceCredential` refuses to mint this (see the header comment); this vector pins the separate check `verifyDeviceCredential` makes on anything it is handed regardless, signed directly with the real participant key.',
+    input: { participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK), devicePubkey: fx.DEVICE_A, createdAt: fx.CREDENTIAL_CREATED_AT, expiresAt: longExpiry, auxRandHex: bytesToHex(auxRand), verify: { identity: fx.PARTICIPANT_A, now: fx.CREDENTIAL_CREATED_AT } },
+    output: { event, result: verifyDeviceCredential(event, { identity: fx.PARTICIPANT_A, now: fx.CREDENTIAL_CREATED_AT }) },
   })
 }
 
@@ -720,21 +1018,16 @@ function buildPersonCredential({ participantSk, devicePubkey, createdAt, expires
 //    sibling: signed by the authority, bound to the room and the epoch.
 // ===========================================================================
 
-function channelsMessage(roomId, epoch, channels) {
-  // Mirrors `channelsMessage` in `src/epoch.ts` (not exported).
-  return sha256(new TextEncoder().encode(`kithmoot/v1/channels:${roomId}:${epoch}:${channels.join(',')}`))
-}
-
 {
   const roomId = fx_roomId()
   const channels = ['planning', 'social']
   const auxRand = seed32('channels-signature-valid')
-  const sig = bytesToHex(schnorr.sign(channelsMessage(roomId, 1, canonicalChannels(channels)), fx.AUTHORITY_SK, auxRand))
+  const sig = withStubbedRandomness([auxRand], () => signChannels({ roomId, epoch: 1, channels, authoritySk: fx.AUTHORITY_SK }))
   vectors.channelsSignature.push({
     name: 'valid-at-epoch-1',
     kind: 'positive',
-    note: 'The authority signs the room\'s channel list at epoch 1. Canonicalised (deduplicated, sorted) before signing, and verified with the real `verifyChannels`, in either list order.',
-    input: { roomId, epoch: 1, channels, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), auxRandHex: bytesToHex(auxRand) },
+    note: "The authority signs the room's channel list at epoch 1. Canonicalised (deduplicated, sorted) before signing, and verified with the real `verifyChannels`, in either list order. Built by calling the real `signChannels` with `crypto.getRandomValues` stubbed to the recorded aux-rand.",
+    input: { roomId, epoch: 1, channels, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), randomnessQueueHex: [bytesToHex(auxRand)] },
     output: { canonical: canonicalChannels(channels), sig },
     expected: {
       verifiesInGivenOrder: verifyChannels({ roomId, epoch: 1, channels, sig, authority: fx.AUTHORITY }),
@@ -749,6 +1042,20 @@ function channelsMessage(roomId, epoch, channels) {
     output: { result: verifyChannels({ roomId, epoch: 2, channels, sig, authority: fx.AUTHORITY }) },
   })
   vectors.channelsSignature.push({
+    name: 'refused-wrong-authority',
+    kind: 'negative',
+    note: 'The same genuinely-signed message, checked against a different (real) pubkey than the one that actually signed it: refused. A member who holds the room key cannot present somebody else\'s signed channel list as if the authority had signed it for them.',
+    input: { roomId, epoch: 1, channels, sig, wrongAuthority: OTHER_INVITER },
+    output: { result: verifyChannels({ roomId, epoch: 1, channels, sig, authority: OTHER_INVITER }) },
+  })
+  vectors.channelsSignature.push({
+    name: 'refused-wrong-room',
+    kind: 'negative',
+    note: "The same genuinely-signed message, checked against a different room's id: refused. A channel list signed for one room is not replayable into another, even under the same authority and epoch number.",
+    input: { roomId, epoch: 1, channels, sig, authority: fx.AUTHORITY, wrongRoomId: OTHER_ROOM_ID },
+    output: { result: verifyChannels({ roomId: OTHER_ROOM_ID, epoch: 1, channels, sig, authority: fx.AUTHORITY }) },
+  })
+  vectors.channelsSignature.push({
     name: 'refused-reserved-channel-name',
     kind: 'negative',
     note: '`agents`, `minutes` and `transcript` are reserved: the room already means something else by them, so `canonicalChannels` throws rather than letting them into a signed registry.',
@@ -757,9 +1064,26 @@ function channelsMessage(roomId, epoch, channels) {
   })
 }
 
+} // end main()
+
 // ===========================================================================
-// Write the file.
+// Small local mirrors of non-exported message shapes - see the header
+// comment for why each exists and how it is checked against its real module.
 // ===========================================================================
+
+function hkdfSha256(ikm, info) {
+  return hkdf(sha256, ikm, undefined, info, 32)
+}
+
+function delegationMessageBytes(invitationId, room, issuer, delegate, expiresAt) {
+  return sha256(new TextEncoder().encode(`kithmoot/v2/invitation-delegation:${invitationId}:${room}:${issuer}:${delegate}:${expiresAt}`))
+}
+
+// ===========================================================================
+// Run, then write the file.
+// ===========================================================================
+
+await main()
 
 const document = {
   protocolVersion: 'kithmoot/v1',
