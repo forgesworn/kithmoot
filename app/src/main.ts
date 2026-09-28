@@ -1,5 +1,6 @@
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
+import { coverCopy } from './redaction-geometry.js'
 import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
@@ -3549,6 +3550,7 @@ async function joinCall(): Promise<void> {
 function stopLocalMedia(): void {
   desktopShareArea.stop()
   desktopRedaction.closeAll()
+  desktopRedaction.setHidden(false)
   micTrack?.removeEventListener('ended', onMicEnded)
   for (const track of activeTracks()) track.stop()
   mic?.stop()
@@ -4542,6 +4544,7 @@ async function toggleScreen(area = false): Promise<void> {
     screenTrack.stop()
     screenTrack = undefined
     sharingWholeDisplay = false
+    desktopRedaction.setHidden(false)
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
@@ -4610,6 +4613,7 @@ async function toggleScreen(area = false): Promise<void> {
         desktopShareArea.stop()
         screenTrack = undefined
         sharingWholeDisplay = false
+        desktopRedaction.setHidden(false)
         screenAudioTrack?.stop()
         screenAudioTrack = undefined
         localPreviewEls.get('screen')?.remove()
@@ -4937,7 +4941,30 @@ function renderRedactionNote(note: string | undefined): void {
   line.hidden = !note
 }
 
+/**
+ * Hides or shows this device's whole outgoing share. The track stays live
+ * and is never swapped, so nothing is renegotiated and no raw frame goes out
+ * on the way in or the way back: the canvas simply covers the picture. The
+ * share's sound is silenced with it.
+ */
+function setShareHidden(hidden: boolean): void {
+  desktopRedaction.setHidden(hidden && !!screenTrack)
+  if (screenAudioTrack) screenAudioTrack.enabled = !desktopRedaction.hidden
+}
+
 function updateRedactionControls(): void {
+  const hide = document.getElementById('hideShare')
+  if (hide) {
+    const hidden = desktopRedaction.hidden
+    hide.hidden = !screenTrack
+    setToggle('hideShare', hidden)
+    hide.textContent = hidden ? 'Show my share' : 'Hide my share'
+    hide.title = hidden ? 'Let people see your share again' : 'Cover your whole share, and silence its sound, until you show it again'
+    // An area share has no note of its own; a screen share says the same words.
+    const line = document.getElementById('redactionNote')
+    if (hidden) renderRedactionNote(coverCopy('hidden'))
+    else if (line?.textContent === coverCopy('hidden')) renderRedactionNote(undefined)
+  }
   const all = document.getElementById('toggleRedaction')
   if (!all) return
   // Each press adds a box, and the button says so once there is one.
@@ -4954,6 +4981,7 @@ function updateUi(): void {
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  updateRedactionControls()
   const areaButton = document.getElementById('shareArea') as HTMLButtonElement | null
   if (areaButton) areaButton.disabled = !!screenTrack
   const share = $('toggleScreen')
@@ -5926,6 +5954,7 @@ function muteRequested(by: string): void {
     screenTrack.stop()
     screenTrack = undefined
     sharingWholeDisplay = false
+    desktopRedaction.setHidden(false)
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
@@ -12018,6 +12047,12 @@ if (desktopRedaction.supported) {
   add.textContent = 'Hide part of the screen'
   add.title = 'Add a box on your screen; whatever is inside it is black in your share and never leaves this computer. Press again for another box'
   add.onclick = () => { try { desktopRedaction.add() } catch (error) { setStatus(describeError(error)) } }
+  const hide = document.createElement('button')
+  hide.id = 'hideShare'
+  hide.className = 'toggle'
+  hide.textContent = 'Hide my share'
+  hide.hidden = true
+  hide.onclick = () => setShareHidden(!desktopRedaction.hidden)
   const all = document.createElement('button')
   all.id = 'toggleRedaction'
   all.className = 'toggle'
@@ -12029,7 +12064,7 @@ if (desktopRedaction.supported) {
   note.className = 'indicator'
   note.setAttribute('role', 'status')
   note.hidden = true
-  ;(document.getElementById('shareArea') ?? $('toggleScreen')).after(add, all)
+  ;(document.getElementById('shareArea') ?? $('toggleScreen')).after(hide, add, all)
   $('screenAudioNote').after(note)
   desktopRedaction.onChange(updateRedactionControls)
 }

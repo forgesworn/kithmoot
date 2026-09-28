@@ -1,10 +1,12 @@
 /**
  * Where redaction boxes fall in an outgoing screen or area share, and when
- * the only safe answer is a black picture. Pure, so every rule is tested.
+ * the only safe answer is to cover the whole picture. Pure, so every rule is
+ * tested.
  *
  * The rule the whole module serves: pixels inside an active box are never
  * encoded or sent. Whenever the page cannot be sure where a box lands in the
- * picture, the plan is black, never the raw frame.
+ * picture, the plan covers all of it, never the raw frame. What a cover
+ * looks like is `share-cover.ts`.
  */
 
 export interface Rect { x: number; y: number; width: number; height: number }
@@ -19,15 +21,16 @@ export type CaptureSource = { kind: 'screen'; displayId: string } | { kind: 'win
  */
 export interface RedactionState { boxes: RedactionBox[]; displays: RedactionDisplay[]; source: CaptureSource; settleUntil?: number }
 
-export type BlackReason = 'unknown' | 'window' | 'geometry' | 'settling' | 'crossing'
+/** `hidden` is the sharer's own choice; the rest are the page not being sure. */
+export type CoverReason = 'unknown' | 'window' | 'geometry' | 'settling' | 'crossing' | 'hidden'
 export type RedactionPlan =
   | { mode: 'pass' }
-  | { mode: 'black'; reason: BlackReason }
+  | { mode: 'cover'; reason: CoverReason }
   | { mode: 'boxes'; rects: Rect[] }
 
 /** Extra margin round every box, in DIP, so rounding and scaling cannot leave a sliver. */
 export const PAD_DIP = 3
-/** How long a box's old place stays black after it moves, resizes or turns off. */
+/** How long a box's old place stays covered after it moves, resizes or turns off. */
 export const HOLD_MS = 400
 /** A picture whose shape differs from its display by more than this is not trusted. */
 const ASPECT_TOLERANCE = 0.02
@@ -48,15 +51,15 @@ const same = (a: Rect, b: Rect) => a.x === b.x && a.y === b.y && a.width === b.w
 /**
  * Remembers where each box has been, so a lagging geometry update cannot
  * leak a sliver: while a box moves, the hull of its old and new places stays
- * black for `HOLD_MS`, and a box turned off or closed keeps its last place
- * black for as long again.
+ * covered for `HOLD_MS`, and a box turned off or closed keeps its last place
+ * covered for as long again.
  */
 export class RedactionTrail {
   #last = new Map<string, Rect>()
   #held: { rect: Rect; until: number }[] = []
   constructor(private readonly holdMs = HOLD_MS) {}
 
-  /** Every DIP rectangle to black out now: the boxes that are on, and recent places. */
+  /** Every DIP rectangle to cover now: the boxes that are on, and recent places. */
   next(boxes: readonly RedactionBox[], now: number): Rect[] {
     const current = new Map<string, Rect>()
     for (const box of boxes) if (box.on && finite(box.bounds)) current.set(box.id, box.bounds)
@@ -103,19 +106,19 @@ export function crossesScales(box: Rect, displays: readonly RedactionDisplay[]):
  */
 export function planRedaction(state: RedactionState, frame: { width: number; height: number }, held: readonly Rect[], surface?: string, now = Date.now()): RedactionPlan {
   if (held.length === 0) return { mode: 'pass' }
-  if (Number.isFinite(state.settleUntil) && now < state.settleUntil!) return { mode: 'black', reason: 'settling' }
-  if (held.some(box => finite(box) && crossesScales(box, state.displays))) return { mode: 'black', reason: 'crossing' }
+  if (Number.isFinite(state.settleUntil) && now < state.settleUntil!) return { mode: 'cover', reason: 'settling' }
+  if (held.some(box => finite(box) && crossesScales(box, state.displays))) return { mode: 'cover', reason: 'crossing' }
   const source = effectiveSource(state.source, surface)
-  if (!source) return { mode: 'black', reason: 'unknown' }
-  if (source.kind === 'window') return { mode: 'black', reason: 'window' }
+  if (!source) return { mode: 'cover', reason: 'unknown' }
+  if (source.kind === 'window') return { mode: 'cover', reason: 'window' }
   const display = state.displays.find(item => item.id === source.displayId)?.bounds
-  if (!finite(display) || display.width <= 0 || display.height <= 0) return { mode: 'black', reason: 'geometry' }
-  if (!(frame.width > 0 && frame.height > 0)) return { mode: 'black', reason: 'geometry' }
+  if (!finite(display) || display.width <= 0 || display.height <= 0) return { mode: 'cover', reason: 'geometry' }
+  if (!(frame.width > 0 && frame.height > 0)) return { mode: 'cover', reason: 'geometry' }
   const sx = frame.width / display.width, sy = frame.height / display.height
-  if (Math.abs(sx - sy) / Math.max(sx, sy) > ASPECT_TOLERANCE) return { mode: 'black', reason: 'geometry' }
+  if (Math.abs(sx - sy) / Math.max(sx, sy) > ASPECT_TOLERANCE) return { mode: 'cover', reason: 'geometry' }
   const rects: Rect[] = []
   for (const box of held) {
-    if (!finite(box)) return { mode: 'black', reason: 'geometry' }
+    if (!finite(box)) return { mode: 'cover', reason: 'geometry' }
     const left = Math.max(0, Math.floor((box.x - PAD_DIP - display.x) * sx))
     const top = Math.max(0, Math.floor((box.y - PAD_DIP - display.y) * sy))
     const right = Math.min(frame.width, Math.ceil((box.x + box.width + PAD_DIP - display.x) * sx))
@@ -133,7 +136,7 @@ export function planRedaction(state: RedactionState, frame: { width: number; hei
  */
 export function cropPlan(plan: RedactionPlan, crop: Rect, output: { width: number; height: number }): RedactionPlan {
   if (plan.mode !== 'boxes') return plan
-  if (!finite(crop) || crop.width <= 0 || crop.height <= 0 || !(output.width > 0 && output.height > 0)) return { mode: 'black', reason: 'geometry' }
+  if (!finite(crop) || crop.width <= 0 || crop.height <= 0 || !(output.width > 0 && output.height > 0)) return { mode: 'cover', reason: 'geometry' }
   const sx = output.width / crop.width, sy = output.height / crop.height
   const rects: Rect[] = []
   for (const rect of plan.rects) {
@@ -156,11 +159,15 @@ export function refuseShare(state: RedactionState, surface: string | undefined):
 
 export const WINDOW_SHARE_COPY = 'Redaction boxes cannot follow a single app yet. Share your screen or an area instead, or turn the boxes off.'
 
-/** Plain words for a share painted black, for the line under the controls. */
-export function blackCopy(reason: BlackReason): string {
-  if (reason === 'settling') return 'Your share shows black for a moment while your displays change.'
-  if (reason === 'crossing') return 'Your share shows black while a redaction box spans two screens at different scales. Move it onto one screen.'
-  if (reason === 'window') return 'Your app share shows black while a redaction box is on: boxes cannot follow a single app yet. Share your screen or an area instead.'
-  if (reason === 'unknown') return 'Your share shows black while a redaction box is on, because KithMoot could not tell which screen is shared. Stop and share the screen again.'
-  return 'Your share shows black while a redaction box is on, because the screen changed shape. Stop and share again.'
+/** A share hidden on purpose: all of it covered, whatever else is so. */
+export const HIDDEN_PLAN: RedactionPlan = { mode: 'cover', reason: 'hidden' }
+
+/** Plain words for a share that is wholly covered, for the line under the controls. */
+export function coverCopy(reason: CoverReason): string {
+  if (reason === 'hidden') return 'Your share is hidden. People see a cover, and hear nothing from it, until you show it again.'
+  if (reason === 'settling') return 'Your share is covered for a moment while your displays change.'
+  if (reason === 'crossing') return 'Your share is covered while a redaction box spans two screens at different scales. Move it onto one screen.'
+  if (reason === 'window') return 'Your app share is covered while a redaction box is on: boxes cannot follow a single app yet. Share your screen or an area instead.'
+  if (reason === 'unknown') return 'Your share is covered while a redaction box is on, because KithMoot could not tell which screen is shared. Stop and share the screen again.'
+  return 'Your share is covered while a redaction box is on, because the screen changed shape. Stop and share again.'
 }

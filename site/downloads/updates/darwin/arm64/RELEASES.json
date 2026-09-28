@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.27",
+  "currentRelease": "0.1.28",
   "releases": [
     {
-      "version": "0.1.27",
+      "version": "0.1.28",
       "updateTo": {
-        "version": "0.1.27",
-        "pub_date": "2026-09-28T13:42:00Z",
-        "notes": "A share that cannot start now says why, instead of doing nothing. Sharing a window starts even when its picture is slow to arrive. Each press of Hide part of the screen adds another box, and a small box can still be moved. On Linux, the Share an area frame and the boxes keep answering after the pointer has crossed them.",
-        "name": "0.1.27",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.27/KithMoot-0.1.27-mac-arm64.zip",
-        "sha256": "e6e5e02e18124335b0ab3a8cd2d9337b75317db96179499c21d30f73e1f5be1f",
-        "size": 138939313
+        "version": "0.1.28",
+        "pub_date": "2026-09-28T22:41:00Z",
+        "notes": "Hide your whole share with one press, and bring it back without stopping it. What is hidden now goes out as a pattern rather than plain black. Closing the window no longer raises an error.",
+        "name": "0.1.28",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.28/KithMoot-0.1.28-mac-arm64.zip",
+        "sha256": "19a3cb990fe14be6fc42d01ff64ec31717fedfe897b082a035057d1efd2df227",
+        "size": 138940124
       }
     }
   ]
