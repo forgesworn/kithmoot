@@ -1,5 +1,19 @@
 # Deploying KithMoot
 
+## Whoever deploys it runs it
+
+If you deploy anything in this directory, you are the operator of your
+deployment. The people who wrote the software do not run it for you, do not
+see what passes through it, and cannot answer for it. You answer for it under
+the law where you are and where your users are: what you log, who can reach
+it, what you do when somebody reports content, and whatever registration or
+assessment your law asks of a service like yours.
+
+For the United Kingdom, the written-up notes on what a small online service
+owes are in
+[jurisdiction-kit's GB law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md).
+They are notes, not legal advice, and they will not fit every deployment.
+
 This directory is a deploy *kit*, not a deploy. Nothing in it runs on its
 own - you run `deploy/deploy.sh` yourself, by hand, when you mean to.
 
