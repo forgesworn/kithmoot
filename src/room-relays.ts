@@ -77,3 +77,11 @@ export function verifyRoomRelays(opts: VerifyRoomRelaysOptions): boolean {
     return false
   }
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const ROOM_RELAYS_LABELS = [
+  "kithmoot/v1/relays:",
+] as const

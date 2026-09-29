@@ -37,6 +37,7 @@ import { PAIRING_LABELS } from './pairing.js'
 import { PERSISTENT_INVITATION_LABELS } from './persistent-invitation.js'
 import { READ_POSITION_LABELS } from './read-position.js'
 import { ROOM_LABELS } from './room.js'
+import { ROOM_RELAYS_LABELS } from './room-relays.js'
 import { VERIFICATION_LABELS } from './verification.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -85,6 +86,7 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
   'kithmoot/v1/media-key',
   'kithmoot/v1/pairing',
   'kithmoot/v1/read-position-id',
+  'kithmoot/v1/relays:',
   'kithmoot/v1/room-id',
   'kithmoot/v1/room-key',
   'kithmoot/v1/verify',
@@ -182,6 +184,7 @@ const MODULE_LABEL_LISTS: ReadonlyArray<readonly [string, readonly string[]]> = 
   ['peer-assist.ts', PEER_ASSIST_LABELS],
   ['pairing.ts', PAIRING_LABELS],
   ['read-position.ts', READ_POSITION_LABELS],
+  ['room-relays.ts', ROOM_RELAYS_LABELS],
   ['verification.ts', VERIFICATION_LABELS],
 ]
 
