@@ -137,7 +137,12 @@ import {
   encodeInvitationRetirement,
 } from '../dist/src/invitation.js'
 import { decodePersistentInvitation, encodePersistentInvitation } from '../dist/src/persistent-invitation.js'
-import { verifyDeviceCredential, createDeviceCredential, PERSON_CREDENTIAL_MAX_SECONDS } from '../dist/src/credential.js'
+import {
+  verifyDeviceCredential,
+  createDeviceCredential,
+  PERSON_CREDENTIAL_MAX_SECONDS,
+  RestampedCredentialExpiryError,
+} from '../dist/src/credential.js'
 import {
   deriveEpoch,
   decodeEpochGrant,
@@ -1048,20 +1053,23 @@ vectors.epochGrant.push({
 
 {
   // Driven through the REAL, async `createDeviceCredential` - not hand-
-  // signed. `created_at` is deliberately never compared against what the
-  // identity's `signEvent` actually returns (see `credential.ts`'s own
-  // comment on that), so an identity that restamps the signed event's
-  // `created_at` EARLIER than what it was asked to sign defeats the
-  // mint-time 30-day check without the credential's own tags disagreeing
-  // with anything: `expiresAt` is set to exactly `now + PERSON_CREDENTIAL_MAX_SECONDS`
-  // (the mint-time check is `expiresAt - now > MAX`, which a plain equality
-  // does not trip), but the identity restamps `created_at` to ten seconds
-  // BEFORE `now` - so the credential that actually comes back runs for
-  // `PERSON_CREDENTIAL_MAX_SECONDS + 10` seconds, measured from its own,
-  // real, persisted `created_at`. `verifyDeviceCredential` reads that real
-  // `created_at` and refuses it. This is a known runtime quirk in
-  // `createDeviceCredential` (raised separately, not fixed by this vector
-  // work), not something this generator works around by hand-signing.
+  // signed. The injected identity restamps the signed event's `created_at`
+  // EARLIER than what it was asked to sign: `expiresAt` is set to exactly
+  // `now + PERSON_CREDENTIAL_MAX_SECONDS` (the requested duration is not
+  // over the cap), but the identity restamps `created_at` to ten seconds
+  // BEFORE `now` - so a credential built from its own, real, persisted
+  // `created_at` would run for `PERSON_CREDENTIAL_MAX_SECONDS + 10` seconds.
+  //
+  // Fixed for forgesworn/kithmoot#205: `createDeviceCredential` now
+  // re-checks the cap after signing, against the same signed `created_at`
+  // `verifyDeviceCredential` measures from, and throws
+  // `RestampedCredentialExpiryError` at mint time instead of returning a
+  // credential doomed to be refused everywhere. `output.event`/`output.result`
+  // keep M15's original coverage: the exact over-cap event a pre-#205 mint
+  // would have returned (built deterministically, the same bytes as
+  // before), and `verifyDeviceCredential`'s own refusal of it, unchanged by
+  // #205 (its measurement was already correct - only the mint side was
+  // checking the wrong clock).
   const mintTimeNow = fx.CREDENTIAL_CREATED_AT
   const restampedCreatedAt = mintTimeNow - 10
   const expiresAt = mintTimeNow + PERSON_CREDENTIAL_MAX_SECONDS
@@ -1072,19 +1080,43 @@ vectors.epochGrant.push({
       return finalizeDeterministic({ ...unsigned, created_at: restampedCreatedAt }, fx.PARTICIPANT_A_SK, auxRand)
     },
   }
-  const event = await createDeviceCredential({
-    identity: restampingIdentity,
-    devicePubkey: fx.DEVICE_A,
-    scope: 'person',
-    expiresAt,
-    now: () => mintTimeNow,
-  })
+  let mintThrew
+  try {
+    await createDeviceCredential({
+      identity: restampingIdentity,
+      devicePubkey: fx.DEVICE_A,
+      scope: 'person',
+      expiresAt,
+      now: () => mintTimeNow,
+    })
+  } catch (err) {
+    if (!(err instanceof RestampedCredentialExpiryError)) throw err
+    mintThrew = err.message
+  }
+  if (mintThrew === undefined) {
+    throw new Error('refused-over-30-days: createDeviceCredential did not throw RestampedCredentialExpiryError')
+  }
+  const event = finalizeDeterministic(
+    {
+      kind: KINDS.CREDENTIAL,
+      created_at: restampedCreatedAt,
+      tags: [
+        ['d', getPublicKey(fx.PARTICIPANT_A_SK)],
+        ['device', fx.DEVICE_A],
+        ['expiration', String(expiresAt)],
+        ['scope', 'person'],
+      ],
+      content: '',
+    },
+    fx.PARTICIPANT_A_SK,
+    auxRand,
+  )
   vectors.personCredential.push({
     name: 'refused-over-30-days',
     kind: 'negative',
-    note: `M15 (refused side): the real \`createDeviceCredential\`'s mint-time check passes (expiry is exactly ${PERSON_CREDENTIAL_MAX_SECONDS} seconds past the requested \`now\`, not more) - but the injected identity restamps the signed event's \`created_at\` ten seconds earlier than \`now\`, so the credential that actually results runs ${PERSON_CREDENTIAL_MAX_SECONDS + 10} seconds from its own real \`created_at\`. \`verifyDeviceCredential\` refuses it on read.`,
+    note: `M15 (refused side); updated for forgesworn/kithmoot#205: the real createDeviceCredential now measures the same way verifyDeviceCredential does - against the SIGNED created_at, not the requested now - and throws RestampedCredentialExpiryError at mint time instead of returning a credential. output.event/output.result keep M15's original coverage: the exact over-cap event a pre-#205 mint would have returned (built deterministically, the same bytes as before), and verifyDeviceCredential's own refusal of it, which is unchanged by #205 (its measurement was already correct - only the mint side was checking the wrong clock).`,
     input: { participantSkHex: bytesToHex(fx.PARTICIPANT_A_SK), devicePubkey: fx.DEVICE_A, mintTimeNow, restampedCreatedAt, expiresAt, auxRandHex: bytesToHex(auxRand), verify: { identity: fx.PARTICIPANT_A, now: restampedCreatedAt } },
-    output: { event, result: verifyDeviceCredential(event, { identity: fx.PARTICIPANT_A, now: restampedCreatedAt }) },
+    output: { mintThrew, event, result: verifyDeviceCredential(event, { identity: fx.PARTICIPANT_A, now: restampedCreatedAt }) },
   })
 }
 
