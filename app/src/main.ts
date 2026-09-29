@@ -34,7 +34,7 @@ import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
-import { isWholeDisplaySurface } from './self-mirror-guard.js'
+import { mayShowItself } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
 import type { MarkAuthor } from './share-marks.js'
@@ -284,11 +284,11 @@ const shareViewer = new ShareViewer({
 // `shareViewer.overlay` on a video of its own rather than reaching into
 // `ShareViewer`'s state, so it stays clear of PR work on that class.
 //
-// `track` withholds the live picture while `sharingWholeDisplay` is set -
+// `track` withholds the live picture while `shareMayShowItself` is set -
 // see `applySelfMirrorGuard` - so this window never shows a live copy of
-// itself sat inside the very screen it is being captured from.
+// itself sat inside the very picture it is being captured into.
 const floatingSharePreview = new FloatingSharePreview({
-  track: () => (sharingWholeDisplay ? undefined : screenTrack),
+  track: () => (shareMayShowItself ? undefined : screenTrack),
   overlay: (video, shareId) => shareViewer.overlay(video, shareId),
   source: () => screenTrack ? screenSource(meParticipant, myDeviceId) : undefined,
 })
@@ -300,7 +300,7 @@ const desktopShareArea = new DesktopShareArea({
   overlay: (canvas, id) => shareViewer.areaOverlay(canvas, id),
   draw: annotation => shareViewer.draw(annotation),
   ended: () => screenTrack?.dispatchEvent(new Event('ended')),
-  wholeDisplay: whole => { sharingWholeDisplay = whole; applySelfMirrorGuard() },
+  wholeDisplay: whole => { shareMayShowItself = whole; applySelfMirrorGuard() },
 })
 const drawingNoticeGate = new DrawingNoticeGate()
 const emojiPicker = new EmojiPicker()
@@ -2494,11 +2494,11 @@ let screenTrack: MediaStreamTrack | undefined
  *  when the person unticked the box - a share still works with no audio, it
  *  is simply silent, which is what the note near the toggle says. */
 let screenAudioTrack: MediaStreamTrack | undefined
-/** Whether the display carrying this device's own share is itself being
- *  captured right now - a full-screen area, or a plain full-screen share -
+/** Whether this device's own share may be capturing KithMoot itself right
+ *  now - a full-screen area, a whole screen, or a window that may be ours -
  *  and so this device's own live preview of its own share is withheld; see
  *  `applySelfMirrorGuard` and `self-mirror-guard.ts`. */
-let sharingWholeDisplay = false
+let shareMayShowItself = false
 
 let camera: CameraPipeline | undefined
 let mic: MicPipeline | undefined
@@ -3560,7 +3560,7 @@ function stopLocalMedia(): void {
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
-  sharingWholeDisplay = false
+  shareMayShowItself = false
   clearShareError()
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
@@ -4543,7 +4543,7 @@ async function toggleScreen(area = false): Promise<void> {
     desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
-    sharingWholeDisplay = false
+    shareMayShowItself = false
     desktopRedaction.setHidden(false)
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
@@ -4604,7 +4604,7 @@ async function toggleScreen(area = false): Promise<void> {
     // plain share carries the standard hint on the captured track, read
     // before any redaction canvas stood in for it, and needs checking only
     // the once, here.
-    if (!area) sharingWholeDisplay = isWholeDisplaySurface(surface)
+    if (!area) shareMayShowItself = mayShowItself(surface)
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
@@ -4612,7 +4612,7 @@ async function toggleScreen(area = false): Promise<void> {
         if (generation !== callGeneration) return
         desktopShareArea.stop()
         screenTrack = undefined
-        sharingWholeDisplay = false
+        shareMayShowItself = false
         desktopRedaction.setHidden(false)
         screenAudioTrack?.stop()
         screenAudioTrack = undefined
@@ -4702,10 +4702,10 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
 
 /**
  * Withholds this device's own live picture of its own share from every one
- * of KithMoot's surfaces that show it, whenever the display carrying that
- * surface is itself being captured - see `sharingWholeDisplay` and
- * `self-mirror-guard.ts`. Otherwise a full-screen area, or a plain
- * full-screen share, captures the very tile or window showing the capture,
+ * of KithMoot's surfaces that show it, whenever the share may be capturing
+ * one of those surfaces - see `shareMayShowItself` and
+ * `self-mirror-guard.ts`. Otherwise a full-screen area, a whole screen, or
+ * KithMoot's own window captures the very tile or window showing the capture,
  * which shows the capture, and so on: a hall of mirrors, reported from a
  * real call.
  *
@@ -4717,7 +4717,7 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
 function applySelfMirrorGuard(): void {
   const preview = localPreviewEls.get('screen')
   if (preview) {
-    if (sharingWholeDisplay) {
+    if (shareMayShowItself) {
       if (preview.srcObject) { preview.pause(); preview.srcObject = null }
       preview.classList.add('selfMirrorGuard')
     } else {
@@ -5119,7 +5119,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
     const twoDevices = (mine?.devices.length ?? 0) > 1
     const monEl = $('monitorIndicator')
     monEl.hidden = !twoDevices
-    monEl.textContent = !twoDevices ? '' : monitorHere ? 'Sound plays on this device.' : 'Sound plays on your other device, so this one stays quiet.'
+    monEl.textContent = !twoDevices ? '' : monitorHere ? 'Sound plays on this device.' : 'Sound plays on your other device.'
     ;($('listenHere') as HTMLButtonElement).hidden = !twoDevices || monitorHere
   }
   const micEl = $('micIndicator')
@@ -5953,7 +5953,7 @@ function muteRequested(by: string): void {
     desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
-    sharingWholeDisplay = false
+    shareMayShowItself = false
     desktopRedaction.setHidden(false)
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
@@ -13081,8 +13081,9 @@ function blossomServer(): string {
 function renderFileStorage(): void {
   const server = blossomServer()
   $('fileStorageStatus').textContent = server
-    ? `Uploads go to ${server} (shared storage, explicitly allowed on this device; not verified private Bothy storage).`
-    : 'File uploads are off. Private Bothy storage is not connected in this app yet.'
+    ? `Uploads go to ${server}. Files are encrypted on this device first.`
+    : 'File uploads are off. Choose where files go to turn them on.'
+  $('fileStorageSummary').textContent = server ? 'Change where files go' : 'Choose where files go'
   $('stopFileUploads').hidden = !server
 }
 
@@ -13310,6 +13311,8 @@ $('saveFileStorage').addEventListener('click', () => {
   try {
     input.value = allowSharedFileServer(localStorage, input.value, ($('allowSharedFiles') as HTMLInputElement).checked)
     draft.status = ''
+    // The choice is made; the status line says where files go from here.
+    ;($('fileStorageOptions') as HTMLDetailsElement).open = false
   } catch (err) {
     draft.status = describeError(err)
   }

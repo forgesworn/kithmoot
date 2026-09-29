@@ -124,6 +124,10 @@ html[data-desktop][data-call-first] .desktopRoomContent {
 }
 html[data-desktop][data-call-first] .desktopRoomContent #callStage {
   flex: 1 1 auto;
+  /* A flex item will not shrink below its content by default, and a share's
+     picture is placed at its own pixel width: without this a wide share
+     pushed the conversation beside it off the right of the window. */
+  min-width: 0;
   max-height: none;
   overflow: visible;
 }
@@ -240,12 +244,23 @@ html[data-call-first] #deviceControls > .callBarEnd {
   gap: .4rem;
 }
 /* What only sometimes needs saying: a line of its own above the buttons. */
-html[data-call-first] #deviceControls > :is(#mediaRecoveryNote, #effectDegradedNotice, #screenAudioNote, #monitorIndicator) {
-  order: -1;
+html[data-call-first] #deviceControls > :is(#mediaRecoveryNote, #effectDegradedNotice, #screenAudioNote) {
+  order: -3;
   flex: 1 0 100%;
   margin: 0;
 }
-html[data-call-first] #deviceControls > :is(#claimMic, #listenHere) { order: -1; margin: 0; }
+/* Two of your own devices on the call: where the sound and the microphone
+   are, and the buttons that move them here, share one line above the bar.
+   Each used to take a line, or a slice of the bar that squeezed the status
+   beside it down to a letter. The `::after` ends that line. */
+html[data-call-first] #deviceControls > #monitorIndicator { order: -2; flex: 0 1 auto; margin: 0; }
+html[data-call-first] #deviceControls > :is(#claimMic, #listenHere) { order: -2; margin: 0; }
+html[data-call-first] #deviceControls:has(> #monitorIndicator:not([hidden]):not(:empty), > #claimMic:not([hidden]), > #listenHere:not([hidden]))::after {
+  content: '';
+  order: -1;
+  flex: 1 0 100%;
+  height: 0;
+}
 /* This device's own picture, before its tile comes back from the relay. */
 html[data-call-first] #deviceControls > #local:not(:has(video)) { display: none; }
 html[data-call-first] #deviceControls > #local:has(video) {

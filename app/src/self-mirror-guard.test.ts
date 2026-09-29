@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { coversWholeDisplay, isWholeDisplaySurface } from './self-mirror-guard.js'
+import { coversWholeDisplay, mayShowItself } from './self-mirror-guard.js'
 
 describe('coversWholeDisplay', () => {
   it('is false with no area', () => {
@@ -24,11 +24,14 @@ describe('coversWholeDisplay', () => {
   })
 })
 
-describe('isWholeDisplaySurface', () => {
-  it('is true only for a monitor surface', () => {
-    expect(isWholeDisplaySurface('monitor')).toBe(true)
-    expect(isWholeDisplaySurface('window')).toBe(false)
-    expect(isWholeDisplaySurface('browser')).toBe(false)
-    expect(isWholeDisplaySurface(undefined)).toBe(false)
+describe('mayShowItself', () => {
+  it('is false only for a single tab', () => {
+    expect(mayShowItself('browser')).toBe(false)
+  })
+
+  it('is true for a whole screen, any window, and a capture with no hint', () => {
+    expect(mayShowItself('monitor')).toBe(true)
+    expect(mayShowItself('window')).toBe(true)
+    expect(mayShowItself(undefined)).toBe(true)
   })
 })

@@ -987,8 +987,8 @@ video {
 .profileSettingsHeader button { min-height: 44px; }
 .shareExpand { min-height: 44px; padding: 0.45rem 0.7rem; margin: 0.5rem 0 0; }
 .media video.screenPreview { object-fit: contain; cursor: zoom-in; }
-/* Recursion guard: while the display carrying this share is itself being
-   captured (a full-screen area, or a plain full-screen share), the live
+/* Recursion guard: while this share may be capturing KithMoot itself (a
+   full-screen area, a whole screen, or a window that may be ours), the live
    picture is withheld from this preview - see `applySelfMirrorGuard` in
    main.ts - so it never shows a live copy of itself sat inside itself. The
    marks overlay (`.shareMarks`) paints on its own canvas, not a copy of the
@@ -996,7 +996,7 @@ video {
 .media:has(video.screenPreview.selfMirrorGuard) { position: relative; }
 video.screenPreview.selfMirrorGuard { visibility: hidden; }
 .media:has(video.screenPreview.selfMirrorGuard)::after {
-  content: 'Sharing your whole screen — live preview paused to avoid a mirror';
+  content: 'You are sharing. The preview is paused here so it cannot show itself.';
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -1222,6 +1222,17 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   margin: 0;
   white-space: nowrap;
 }
+
+/* One height for the row's buttons. An emoji glyph's line box is taller
+   than a "+", so the emoji button stood a head above the two beside it. */
+#chatForm > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  line-height: 1;
+}
+#emojiToggle { font-size: 1.1rem; }
 
 #chatForm input {
   min-width: 0;
@@ -3559,7 +3570,8 @@ button.primary:hover:not(:disabled) {
 .attachOptions > * + * { margin-top: .4rem; }
 .attachOptions input { width: 100%; box-sizing: border-box; }
 #fileStorageOptions { min-width: 0; }
-#fileStorageOptions summary { cursor: pointer; }
+#fileStorageOptions summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+#fileStorageOptions input[type="url"] { width: 100%; box-sizing: border-box; }
 #fileStorageOptions > * + * { margin-top: .5rem; }
 #fileStorageOptions label { display: block; }
 #attachServer { width: 100%; box-sizing: border-box; }

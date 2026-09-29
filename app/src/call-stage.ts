@@ -125,10 +125,13 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     }
     if (shown.length === 0 && shares.length === 0) shown = everyone
 
-    // A share starting puts it on the stage; the last one ending hands the
-    // room back to whatever this device was using before.
+    // Somebody else's share starting puts it on the stage; the last one
+    // ending hands the room back to whatever this device was using before.
+    // This device's own share never takes the stage by itself: the sharer
+    // is looking at what they share, and a stage-sized copy of their own
+    // window, captured, is a picture of itself inside itself.
     const shareIds = new Set(shares.map(share => share.id))
-    if ([...shareIds].some(id => !knownShares.has(id))) view = 'share'
+    if (shares.some(share => !share.owner.self && !knownShares.has(share.id))) view = 'share'
     if (shareIds.size === 0 && view === 'share') view = prefs.view
     knownShares = shareIds
 
