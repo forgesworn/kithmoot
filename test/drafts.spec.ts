@@ -61,6 +61,9 @@ test('legacy settings, picker and drop cannot upload without consent; editing re
     await expect(page.locator('#attachFile')).toBeEnabled()
     expect(uploads).toBe(0)
     await allowTestFileStorage(page, new URL(baseURL!).origin)
+    // Saving folds the choice away; changing it means opening it again.
+    await expect(page.locator('#fileStorageOptions')).not.toHaveAttribute('open')
+    await page.locator('#fileStorageOptions summary').click()
     await page.locator('#attachServer').fill('not a URL')
     await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
     await expect(page.locator('#allowSharedFiles')).not.toBeChecked()
@@ -85,6 +88,7 @@ test('turning uploads off in another tab blocks subsequent files without deletin
     await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
     expect(uploads).toBe(0)
     await allowTestFileStorage(page, new URL(baseURL!).origin)
+    await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await page.locator('#stopFileUploads').click()
     await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
     await page.reload()

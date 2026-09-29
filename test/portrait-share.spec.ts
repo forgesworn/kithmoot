@@ -41,6 +41,9 @@ const PORTRAIT_SCREEN = () => {
     const track = stream.getVideoTracks()[0]!
     const stop = track.stop.bind(track)
     track.stop = () => { clearInterval(timer); stop() }
+    // A shared tab: with no `displaySurface` the app withholds its own
+    // preview (`mayShowItself`, app/src/self-mirror-guard.ts).
+    { const settings = track.getSettings.bind(track); track.getSettings = () => ({ ...settings(), displaySurface: 'browser' }) as MediaTrackSettings }
     return stream
   }
 }

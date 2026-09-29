@@ -4,7 +4,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
-import { SYNTHETIC_MIC, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, remoteAudioCount, turnOnMedia, TEST_RELAY_WS } from './browser.js'
+import { SYNTHETIC_MIC, SYNTHETIC_SCREEN, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, remoteAudioCount, turnOnMedia, TEST_RELAY_WS } from './browser.js'
 
 /**
  * Two screens on the stage, faces beside them, and a chat that slides.
@@ -137,6 +137,11 @@ test('two people each share a screen: both on the stage, faces one size beside t
 
   const a = await newDeviceContext(browser, baseURL!)
   const b = await newDeviceContext(browser, baseURL!)
+  // A shared tab each. The fake desktop capture shares a whole screen, and
+  // a whole screen's own preview is withheld from the sharer so it cannot
+  // show itself (`mayShowItself`); this is about laying out two pictures.
+  await a.addInitScript(SYNTHETIC_SCREEN)
+  await b.addInitScript(SYNTHETIC_SCREEN)
   try {
     const pageA = await a.newPage()
     const pageB = await b.newPage()

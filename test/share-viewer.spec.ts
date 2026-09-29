@@ -136,9 +136,14 @@ test('the sharer is told when somebody draws on their screen, and the notice bri
     await presenter.evaluate(() => {
       const spacer = document.createElement('div')
       spacer.style.height = '3000px'
+      // A call puts the page in a column the height of the window, which
+      // would squash a spacer that is allowed to shrink.
+      spacer.style.flex = 'none'
       document.body.prepend(spacer)
     })
     const myPreview = presenter.locator('video.screenPreview')
+    // Settled, not merely at first paint: the stage lays out a frame later.
+    await presenter.waitForTimeout(1500)
     await expect(myPreview).not.toBeInViewport()
 
     const notice = presenter.locator('#sharerMarksNotice')

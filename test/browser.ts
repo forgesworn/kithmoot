@@ -75,9 +75,15 @@ export const SYNTHETIC_SCREEN = () => {
     const track = stream.getVideoTracks()[0]!
     const stop = track.stop.bind(track)
     track.stop = () => { clearInterval(timer); stop() }
+    // A canvas capture has no `displaySurface`, and a share with no hint is
+    // treated as one that may show KithMoot itself, which withholds its own
+    // preview (`mayShowItself`, app/src/self-mirror-guard.ts). These stand
+    // for a shared tab, so they say so.
+    { const settings = track.getSettings.bind(track); track.getSettings = () => ({ ...settings(), displaySurface: 'browser' }) as MediaTrackSettings }
     return stream
   }
 }
+
 
 /**
  * The same synthetic presentation, with sound: a canvas capture combined
@@ -106,6 +112,11 @@ export const SYNTHETIC_SCREEN_WITH_AUDIO = () => {
     const videoTrack = canvas.captureStream(12).getVideoTracks()[0]!
     const stopVideo = videoTrack.stop.bind(videoTrack)
     videoTrack.stop = () => { clearInterval(timer); stopVideo() }
+    // A canvas capture has no `displaySurface`, and a share with no hint is
+    // treated as one that may show KithMoot itself, which withholds its own
+    // preview (`mayShowItself`, app/src/self-mirror-guard.ts). These stand
+    // for a shared tab, so they say so.
+    { const settings = videoTrack.getSettings.bind(videoTrack); videoTrack.getSettings = () => ({ ...settings(), displaySurface: 'browser' }) as MediaTrackSettings }
 
     const audioCtx = new AudioContext()
     await audioCtx.resume().catch(() => {})
