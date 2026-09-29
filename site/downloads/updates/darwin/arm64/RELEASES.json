@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.28",
+  "currentRelease": "0.1.29",
   "releases": [
     {
-      "version": "0.1.28",
+      "version": "0.1.29",
       "updateTo": {
-        "version": "0.1.28",
-        "pub_date": "2026-09-28T22:41:00Z",
-        "notes": "Hide your whole share with one press, and bring it back without stopping it. What is hidden now goes out as a pattern rather than plain black. Closing the window no longer raises an error.",
-        "name": "0.1.28",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.28/KithMoot-0.1.28-mac-arm64.zip",
-        "sha256": "19a3cb990fe14be6fc42d01ff64ec31717fedfe897b082a035057d1efd2df227",
-        "size": 138940124
+        "version": "0.1.29",
+        "pub_date": "2026-09-29T12:40:00Z",
+        "notes": "Sharing the KithMoot window, or a whole screen, no longer shows the share inside itself. Chat stays in the window beside a wide share. Tidier call bar and files panel.",
+        "name": "0.1.29",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.29/KithMoot-0.1.29-mac-arm64.zip",
+        "sha256": "7dbc1297eb037a20bd1c43599a0df50738102322eeabbb16ae0433000713b188",
+        "size": 138938565
       }
     }
   ]
