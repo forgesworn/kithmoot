@@ -1,5 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { createRoom, newDeviceContext, open } from './browser.js'
+import { testRelaysFor } from './relays.js'
 
 /**
  * The room's maker adds a relay for everybody.
@@ -40,7 +41,9 @@ test('the maker shares a relay and a member already in the room starts using it'
     const makerFrames: unknown[][] = []
     await fakeRelay(makerContext, makerFrames)
     const maker = await makerContext.newPage()
-    const url = await createRoom(maker, baseURL!)
+    // WebKit blocks a plain ws:// relay from an https page, so use the
+    // test relay through the page's own origin.
+    const url = await createRoom(maker, baseURL!, testRelaysFor(baseURL!))
     if (await maker.locator('#join').isVisible()) await maker.locator('#join').click()
     await expect(maker.locator('#roomArea')).toBeVisible()
 
