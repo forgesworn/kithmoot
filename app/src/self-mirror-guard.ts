@@ -22,12 +22,19 @@ export function coversWholeDisplay(rect: Pick<AreaRect, 'width' | 'height'> | nu
 }
 
 /**
- * The same risk from a plain (non-area) screen share: `displaySurface` is
- * the standard `getDisplayMedia` hint for what kind of surface was picked -
- * https://developer.mozilla.org/docs/Web/API/MediaTrackSettings/displaySurface -
- * and `'monitor'` means a whole screen, exactly the case a window or a tab
- * share is not.
+ * The same risk from a plain (non-area) share. `displaySurface` is the
+ * standard `getDisplayMedia` hint for what was picked -
+ * https://developer.mozilla.org/docs/Web/API/MediaTrackSettings/displaySurface.
+ * A whole screen (`'monitor'`) carries every KithMoot window on it, and a
+ * window (`'window'`) may be KithMoot's own: the desktop app's own window,
+ * or the browser window this tab sits in. Neither the system picker nor the
+ * browser says which window was chosen, so any window counts. The hint is
+ * also missing from some captures (the macOS system picker in the desktop
+ * app among them), and a missing hint counts too. Only a single tab
+ * (`'browser'`) is safe, because the request excludes this tab
+ * (`selfBrowserSurface: 'exclude'`). Reported from a real call on the Mac
+ * desktop app: sharing the KithMoot window put the share inside itself.
  */
-export function isWholeDisplaySurface(displaySurface: string | undefined): boolean {
-  return displaySurface === 'monitor'
+export function mayShowItself(displaySurface: string | undefined): boolean {
+  return displaySurface !== 'browser'
 }

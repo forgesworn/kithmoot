@@ -171,7 +171,7 @@
             <!-- Another of this device's own tabs holds the microphone.
                  Filled in by `render` in app/src/main.ts alongside
                  `micIndicator`; hidden whenever this tab holds it. -->
-            <button id="claimMic" type="button" class="quiet" hidden>Use the microphone on this device instead</button>
+            <button id="claimMic" type="button" class="quiet" hidden>Use my mic here</button>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <!-- The background effect has failed and is covering or blurring
                  the whole frame while it retries. Shown here, next to the
@@ -186,7 +186,7 @@
             <!-- Two of your devices on one call: sound comes out of one of
                  them, and the newest microphone does not take it. -->
             <p id="monitorIndicator" class="indicator" hidden></p>
-            <button id="listenHere" type="button" class="quiet" hidden>Play sound on this device instead</button>
+            <button id="listenHere" type="button" class="quiet" hidden>Play sound here</button>
             <!-- Everything past the four controls. Open, with no summary
                  shown, on a wide screen; one "More" fold on a phone, where
                  it would otherwise push the conversation off the screen.
@@ -380,31 +380,33 @@
         </form>
         <div id="attachStaged"></div>
         <div id="attachPanel" class="attachPanel" hidden>
-          <p id="fileStorageStatus" class="note" role="status">File uploads are off. Private Bothy storage is not connected in this app yet.</p>
+          <p id="fileStorageStatus" class="note" role="status">File uploads are off. Choose where files go to turn them on.</p>
           <p id="pendingFileNames" class="note" hidden></p>
           <div id="pendingFileActions" hidden><button type="button" id="uploadPendingFiles">Upload selected files</button> <button type="button" id="clearPendingFiles">Remove selected files</button></div>
-          <details id="fileStorageOptions">
-            <summary>Use shared storage instead</summary>
-            <p class="note">This is not verified private Bothy storage. Anyone with a file’s storage URL may download its encrypted bytes; the key is needed to read it. The host can observe upload and download metadata.</p>
-            <label for="attachServer" class="note">Shared storage destination</label>
-            <input id="attachServer" type="url" placeholder="https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
-            <label><input id="allowSharedFiles" type="checkbox" /> I accept that encrypted files may be publicly downloadable from this server.</label>
-            <button type="button" id="saveFileStorage">Allow shared storage on this device</button>
-          </details>
-          <button type="button" id="stopFileUploads" hidden>Turn off file uploads</button>
-          <p class="note">Changing this setting does not move or delete existing files. Selecting or dropping a file uploads it immediately when shared storage is allowed, before you press Send.</p>
           <div class="attachRow">
             <input id="attachFile" type="file" multiple aria-label="Choose a file to share" />
-            <span class="note inline">Files are encrypted on this device before they leave it.</span>
           </div>
+          <!-- Where uploads go. Closed once a server is chosen: the status
+               line above already says which, and the choice is made once
+               per device, not once per file. Its summary is set by
+               `renderFileStorage` in app/src/main.ts. -->
+          <details id="fileStorageOptions">
+            <summary id="fileStorageSummary">Choose where files go</summary>
+            <p class="note">Anyone with a file's link can download its encrypted copy from this server. Only people with the key can open it. The server can see when files are uploaded and fetched, and how big they are.</p>
+            <label for="attachServer" class="note">File server</label>
+            <input id="attachServer" type="url" placeholder="https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
+            <label><input id="allowSharedFiles" type="checkbox" /> I accept that encrypted files may be publicly downloadable from this server.</label>
+            <div class="attachRow">
+              <button type="button" id="saveFileStorage">Use this server</button>
+              <button type="button" id="stopFileUploads" class="quiet" hidden>Turn off file uploads</button>
+            </div>
+            <p class="note">Changing this does not move or delete files already sent. With uploads on, a file uploads as soon as you choose or drop it, before you press Send.</p>
+          </details>
           <details id="attachOptions" class="attachOptions">
-            <summary>File options</summary>
-            <p class="note">
-              A file already shared through Wildbloom: paste what Wildbloom
-              gave you, and the key that opens it.
-            </p>
-            <input id="attachEvent" aria-label="Wildbloom file event" placeholder="Wildbloom id, note1, nevent1 or JSON" autocomplete="off" spellcheck="false" />
-            <input id="attachKey" type="password" aria-label="File recovery key" placeholder="Key that opens it (wbk1_…)" autocomplete="off" spellcheck="false" />
+            <summary>Add a file already on Wildbloom</summary>
+            <p class="note">Paste the link or id Wildbloom gave you, and the key that opens it.</p>
+            <input id="attachEvent" aria-label="Wildbloom file event" placeholder="Wildbloom link or id" autocomplete="off" spellcheck="false" />
+            <input id="attachKey" type="password" aria-label="File recovery key" placeholder="Key (starts wbk1_)" autocomplete="off" spellcheck="false" />
             <button type="button" id="attachAdd">Add to message</button>
           </details>
           <div class="attachRow">

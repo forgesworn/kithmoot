@@ -222,6 +222,54 @@ test('a desktop sharing area sends only its crop and covers invalid bounds', asy
   } finally { await context.close() }
 })
 
+test('a window or unlabelled share withholds this device\'s own preview and never takes its own stage; a tab share keeps it', async ({ browser, baseURL }) => {
+  // Reported from a real call on the Mac desktop app: sharing the KithMoot
+  // window put the share on the sharer's own stage, inside itself. The
+  // system picker does not say which window was chosen, so any window, and
+  // any share with no hint at all, is withheld. See `mayShowItself`.
+  const context = await newDeviceContext(browser, baseURL!)
+  await context.addInitScript(() => {
+    const w = window as any
+    w.__surface = 'window'
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480
+      const ctx = canvas.getContext('2d')!
+      const paint = () => { ctx.fillStyle = '#00ff00'; ctx.fillRect(0, 0, 640, 480) }
+      paint()
+      const timer = setInterval(paint, 33)
+      const stream = canvas.captureStream(30)
+      const track = stream.getVideoTracks()[0]!
+      track.addEventListener('ended', () => clearInterval(timer))
+      const surface = w.__surface
+      const settings = track.getSettings.bind(track)
+      track.getSettings = () => ({ ...settings(), ...(surface ? { displaySurface: surface } : {}) }) as MediaTrackSettings
+      return stream
+    }
+  })
+  try {
+    const page = await context.newPage()
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openCall(page)
+    const preview = page.locator('video.screenPreview')
+    const guarded = () => preview.evaluate((v: HTMLVideoElement) => v.classList.contains('selfMirrorGuard') && v.srcObject === null)
+    for (const surface of ['window', undefined, 'monitor']) {
+      await page.evaluate(next => { (window as any).__surface = next }, surface)
+      await page.locator('#toggleScreen').click()
+      await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+      await expect.poll(guarded, { message: `${surface ?? 'no hint'}: own preview withheld` }).toBe(true)
+      await page.locator('#toggleScreen').click()
+      await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    }
+    await page.evaluate(() => { (window as any).__surface = 'browser' })
+    await page.locator('#toggleScreen').click()
+    await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await expect.poll(guarded).toBe(false)
+    await expect.poll(() => preview.evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+  } finally { await context.close() }
+})
+
 test('a full-screen area withholds this device\'s own live preview to avoid a mirror, and restores it once the area shrinks', async ({ browser, baseURL }) => {
   // Reported from a real call: an area sized to the whole screen captures
   // the display it sits on, and this device's own preview tile of its own
