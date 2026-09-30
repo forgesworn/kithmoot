@@ -3300,6 +3300,18 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
     gap: 1.5rem;
     align-items: stretch;
   }
+  /* A room that would not open leaves the sidebar up with no room beside
+     it (the list is kept within reach). Give that page the same two
+     columns rather than stacking the sidebar across the top of it. */
+  main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) {
+    max-width: none;
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+  main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) > #workspaceNav { grid-column: 1; grid-row: 1 / span 20; }
+  main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) > :not(#workspaceNav) { grid-column: 2; }
   #workspaceNav:not([hidden]) { display: flex; flex-direction: column; min-width: 0; padding-right: 1rem; border-right: 1px solid var(--border); }
   .workspaceBrand { font-size: 1.3rem; font-weight: 750; letter-spacing: -.035em; margin: .2rem 0 1.25rem; }
   #workspaceSwitch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .3rem; margin: 0 0 .75rem; font-size: .9rem; }
