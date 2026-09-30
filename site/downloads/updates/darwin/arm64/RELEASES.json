@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.29",
+  "currentRelease": "0.1.30",
   "releases": [
     {
-      "version": "0.1.29",
+      "version": "0.1.30",
       "updateTo": {
-        "version": "0.1.29",
-        "pub_date": "2026-09-29T12:40:00Z",
-        "notes": "Sharing the KithMoot window, or a whole screen, no longer shows the share inside itself. Chat stays in the window beside a wide share. Tidier call bar and files panel.",
-        "name": "0.1.29",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.29/KithMoot-0.1.29-mac-arm64.zip",
-        "sha256": "7dbc1297eb037a20bd1c43599a0df50738102322eeabbb16ae0433000713b188",
-        "size": 138938565
+        "version": "0.1.30",
+        "pub_date": "2026-09-30T02:00:00Z",
+        "notes": "The person who made a room can now add relays for everyone in it. Each member's app adds them to the relays it already uses, and a group's invitation is copied to them too.",
+        "name": "0.1.30",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.30/KithMoot-0.1.30-mac-arm64.zip",
+        "sha256": "b8bac2936b6618cb04b6ca853f1dd8f58b984327ae4ed9a94781ce59c4e986d4",
+        "size": 138940258
       }
     }
   ]
