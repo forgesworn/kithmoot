@@ -207,6 +207,61 @@ describe('private Nostr room bookmarks', () => {
     a.library.close(); b.library.close()
   })
 
+  it('asks the signer once for a bookmark however many relays deliver it', async () => {
+    const sk = generateSecretKey()
+    const a = harness(signer(sk))
+    a.library.save(room())
+    await saved(a)
+    const s = signer(sk)
+    const decrypt = vi.fn(s.nip44!.decrypt)
+    const b = harness({ ...s, nip44: { ...s.nip44!, decrypt } })
+    await Promise.all([0, 1, 2, 3].map(() => b.library.receive(a.events[0])))
+    expect(decrypt).toHaveBeenCalledOnce()
+    expect(knownRooms(b.library.rooms)).toHaveLength(1)
+    a.library.close(); b.library.close()
+  })
+
+  it('decrypts many bookmarks a few at a time, each once', async () => {
+    const sk = generateSecretKey()
+    const a = harness(signer(sk))
+    for (let i = 0; i < 8; i++) a.library.save(room(`Room ${i}`))
+    await saved(a, 8)
+    const s = signer(sk)
+    let calls = 0, active = 0, peak = 0
+    const decrypt = async (peer: string, ciphertext: string) => {
+      calls++; peak = Math.max(peak, ++active)
+      try { await new Promise(resolve => setTimeout(resolve, 5)); return await s.nip44!.decrypt(peer, ciphertext) } finally { active-- }
+    }
+    const b = harness({ ...s, nip44: { ...s.nip44!, decrypt } })
+    await Promise.all(a.events.flatMap(event => [0, 1, 2, 3].map(() => b.library.receive(event))))
+    expect(calls).toBe(8)
+    expect(peak).toBeLessThanOrEqual(3)
+    expect(knownRooms(b.library.rooms)).toHaveLength(8)
+    a.library.close(); b.library.close()
+  })
+
+  it('stops asking a signer that refuses, until the person retries', async () => {
+    const sk = generateSecretKey()
+    const a = harness(signer(sk))
+    for (let i = 0; i < 8; i++) a.library.save(room(`Room ${i}`))
+    await saved(a, 8)
+    const s = signer(sk)
+    const decrypt = vi.fn(async () => { throw new Error('rejected by signer policy') })
+    const b = harness({ ...s, nip44: { ...s.nip44!, decrypt } })
+    await Promise.all(a.events.map(event => b.library.receive(event)))
+    // Bounded by the refusal limit plus what was already in flight, not one
+    // request per bookmark per relay.
+    const first = decrypt.mock.calls.length
+    expect(first).toBeLessThan(8)
+    expect(b.status).toHaveBeenCalledWith(expect.stringContaining('refused to decrypt'))
+    await Promise.all(a.events.map(event => b.library.receive(event)))
+    expect(decrypt.mock.calls.length).toBe(first)
+    await b.library.retry()
+    await Promise.all(a.events.map(event => b.library.receive(event)))
+    expect(decrypt.mock.calls.length).toBeGreaterThan(first)
+    a.library.close(); b.library.close()
+  })
+
   it('stops pending encryption and incoming decryptions from crossing sign-out', async () => {
     const a = harness()
     let release!: (value: string) => void

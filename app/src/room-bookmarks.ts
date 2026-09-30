@@ -12,6 +12,11 @@ import { ROOM_PREFIX, rememberRoom, forgetRoom, type KnownRoom } from './rooms-s
 
 const APP = 'kithmoot.rooms.v1'
 const KIND = 30078
+/** Signer requests in flight at once, and how many refusals in a row end a
+ *  lookup's asking until the person retries. A remote signer is reached over
+ *  the same relays that carry the bookmarks, and they rate-limit a burst. */
+const DECRYPT_CONCURRENCY = 3
+const REFUSAL_LIMIT = 3
 interface RecordValue { roomId: string; at: number; room?: KnownRoom }
 interface RecordEntry extends RecordValue { d: string; id: string }
 interface Pending { value: RecordValue; d: string; event?: Event }
@@ -46,6 +51,18 @@ export class RoomBookmarks {
   #reports = 0
   #off?: () => void
   #prefix: string
+  /** Bookmark events the signer is being asked about. Every relay sends its
+   *  own copy of a bookmark, and a remote signer answers each request over
+   *  those same relays, so a copy must not become another request. */
+  #decrypting = new Set<string>()
+  /** Bookmark events the signer could not decrypt. Not asked again until an
+   *  explicit retry, so a refusing signer is not hammered on every
+   *  reconnect. */
+  #undecryptable = new Set<string>()
+  /** Decryptions in a row the signer has refused, reset by any success. */
+  #refusals = 0
+  #active = 0
+  #queued: Array<() => void> = []
   constructor(
     private store: DeviceStore,
     private signer: SignetSigner,
@@ -91,8 +108,12 @@ export class RoomBookmarks {
     // Returning on the same browser does not need another signer prompt
     // for an event already decrypted into this account's local cache.
     if ([...this.#records.values()].some(record => record.id === event.id)) return
+    if (this.#decrypting.has(event.id) || this.#undecryptable.has(event.id)) return
+    this.#decrypting.add(event.id)
     try {
-      const value = JSON.parse(await this.signer.nip44!.decrypt(this.signer.pubkey, event.content)) as RecordValue
+      const plaintext = await this.#decrypt(event)
+      if (plaintext === undefined) return
+      const value = JSON.parse(plaintext) as RecordValue
       if (this.#closed || !/^[0-9a-f]{64}$/.test(value.roomId) || !Number.isSafeInteger(value.at) ||
           Math.floor(value.at / 1000) !== event.created_at || event.created_at > Date.now() / 1000 + 60) return
       if (value.room) {
@@ -112,6 +133,30 @@ export class RoomBookmarks {
       this.changed()
       if (!this.#pending.size) this.status('Encrypted room bookmarks loaded. Opening a room may still need an online member to let this device in.')
     } catch { /* Unreadable, malformed or foreign data never reaches the UI. */ }
+    finally { this.#decrypting.delete(event.id) }
+  }
+
+  /** One decryption, with a few at a time. Undefined when it was skipped
+   *  or the signer would not do it. */
+  async #decrypt(event: Event): Promise<string | undefined> {
+    if (this.#active < DECRYPT_CONCURRENCY) this.#active++
+    else await new Promise<void>(resolve => this.#queued.push(resolve))
+    try {
+      if (this.#closed) return undefined
+      if (this.#refusals >= REFUSAL_LIMIT) { this.#undecryptable.add(event.id); return undefined }
+      try {
+        const plaintext = await this.signer.nip44!.decrypt(this.signer.pubkey, event.content)
+        this.#refusals = 0
+        return plaintext
+      } catch {
+        this.#undecryptable.add(event.id)
+        if (++this.#refusals === REFUSAL_LIMIT && !this.#closed) this.#report('Your signer refused to decrypt your room bookmarks. Allow NIP-44 decryption for KithMoot in your signer, then retry room sync.')
+        return undefined
+      }
+    } finally {
+      const next = this.#queued.shift()
+      if (next) next(); else this.#active--
+    }
   }
 
   save(room: KnownRoom): void {
@@ -190,7 +235,13 @@ export class RoomBookmarks {
 
   async retry(): Promise<void> {
     if (this.#closed || this.#busy) return
-    if (!this.#pending.size) { this.start(); return }
+    if (!this.#pending.size) {
+      // An explicit retry is the person saying the signer has changed.
+      this.#undecryptable.clear()
+      this.#refusals = 0
+      this.start()
+      return
+    }
     if (!this.signer.nip44) {
       this.#report('Saved in this browser only. Use a signer with NIP-44 encryption to sync your rooms.')
       return
