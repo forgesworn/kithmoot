@@ -219,6 +219,9 @@ export class RelaySettingsPanel {
     circleChanged?: () => void
     canAuthenticate?: () => boolean
     authenticate?: (scope: string, url: string) => Promise<boolean>
+    /** The room's authority asking every member to use this scope's relays.
+     *  `run` resolves to what to tell the person, or '' if they cancelled. */
+    share?: { available: (scope: string) => boolean; run: (relays: string[]) => Promise<string> }
   }) {
     this.el('relaySettingsClose').addEventListener('click', () => this.dialog.close())
     this.dialog.addEventListener('close', () => { clearInterval(this.#timer); this.#returnFocus?.focus() })
@@ -239,6 +242,18 @@ export class RelaySettingsPanel {
         this.#load(); this.#message('Saved on this device. Connections updated.')
       } catch (error) { this.#message((error as Error).message) }
     })
+    this.el('relayShare').addEventListener('click', async () => {
+      const scope = this.#scope
+      const saved = this.connections.configuration(scope, this.#hints())
+      if (JSON.stringify(saved) !== JSON.stringify(this.#draft)) { this.#message('Apply changes first, then share them.'); return }
+      const button = this.el('relayShare') as HTMLButtonElement
+      button.disabled = true
+      try {
+        const done = await this.opts.share!.run(saved.map(relay => relay.url))
+        if (done && scope === this.#scope) this.#message(done)
+      } catch (error) { this.#message((error as Error).message) }
+      button.disabled = false
+    })
     this.el('relayReconnect').addEventListener('click', () => {
       this.connections.reconnect(this.#scope); this.#health(); this.#message('Retrying the saved relay connections.')
     })
@@ -257,7 +272,10 @@ export class RelaySettingsPanel {
     clearInterval(this.#timer); this.#timer = setInterval(() => this.#health(), 1000)
   }
   #hints(): RelayHints { const room = this.opts.room(); return room?.scope === this.#scope ? room.hints : [] }
-  #load(): void { this.#draft = this.connections.configuration(this.#scope, this.#hints()); this.#render(); this.#message('') }
+  #load(): void {
+    this.#draft = this.connections.configuration(this.#scope, this.#hints()); this.#render(); this.#message('')
+    this.el('relayShareRow').hidden = !this.opts.share?.available(this.#scope)
+  }
   #message(text: string): void { this.el('relaySettingsStatus').textContent = text }
   #render(): void {
     const list = this.el('relayList'); list.replaceChildren()

@@ -1,5 +1,6 @@
 import { MAX_CHAT_TEXT_LENGTH } from './chat.js'
 import { canonicalChannels } from './epoch.js'
+import { MAX_ROOM_RELAYS } from './room-relays.js'
 import { validateAssignmentActions, type AssignmentAction } from './assignments.js'
 
 /**
@@ -86,6 +87,15 @@ export type ControlMessage =
    * `deriveChannel` already spells that `undefined`.
    */
   | { op: 'channels'; host: string; channels: string[]; epoch: number; sig: string }
+  /**
+   * The relays everybody in the room should use, besides the ones they
+   * already do. Signed by the authority over the room id, `version` and the
+   * list (`signRoomRelays` in `room-relays.ts`); a client checks it against
+   * the inviter pinned in its link and takes only the highest version. Any
+   * member may repost it, since the signature, not the sender, is what
+   * counts, so it has no `host`.
+   */
+  | { op: 'relays'; relays: string[]; version: number; sig: string }
   /** An admin: keeper, remove this participant. Acted on only when the
    *  sender is on the announced list; the keeper checks. */
   | { op: 'remove'; participant: string }
@@ -300,6 +310,15 @@ export function decodeControl(text: string): ControlMessage | null {
         return null
       }
       return { op: 'channels', host: host!, channels, epoch: m.epoch as number, sig: m.sig.toLowerCase() }
+    }
+    case 'relays': {
+      if (!Array.isArray(m.relays) || m.relays.length === 0 || m.relays.length > MAX_ROOM_RELAYS) return null
+      if (!m.relays.every((url) => typeof url === 'string' && url.length <= 256)) return null
+      if (!Number.isSafeInteger(m.version) || (m.version as number) < 0) return null
+      if (typeof m.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(m.sig)) return null
+      // Kept as sent: the signature is over the canonical list, and one that
+      // is not canonical fails `verifyRoomRelays` rather than being mended.
+      return { op: 'relays', relays: [...(m.relays as string[])], version: m.version as number, sig: m.sig.toLowerCase() }
     }
     case 'remove':
     case 'mute': {

@@ -25,6 +25,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { schnorr } from '@noble/curves/secp256k1.js'
+import { sha256 } from '@noble/hashes/sha2'
 import { nip44 } from 'nostr-tools'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
 
@@ -49,6 +50,7 @@ import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwn
 import { decodeChatEvent } from '../src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
 import { encodeControl, decodeControl } from '../src/control.js'
+import { canonicalRoomRelays, verifyRoomRelays } from '../src/room-relays.js'
 import type { RoomPolicy } from '../src/types.js'
 import { verificationWords } from '../src/verification.js'
 import { resolveConversation, mentionsOf, mentionedBy, type ResolvedMessage, type Named } from '../src/messages.js'
@@ -1035,6 +1037,27 @@ describe('approval control', () => {
       }),
     ).toBe(false)
   })
+})
+
+describe('room relays', () => {
+  it('room-relays-signature', () => {
+    const v = vec('roomRelays', 'room-relays-signature')
+    const input = v.input as { roomId: string; version: number; relays: string[]; authoritySkHex: string; canonicalMessage: string; auxRandHex: string }
+    const canonical = canonicalRoomRelays(input.relays)
+    expect(canonical).toEqual(v.output.canonical)
+    expect(input.canonicalMessage).toBe(`kithmoot/v1/relays:${input.roomId}:${input.version}:${JSON.stringify(canonical)}`)
+    const sig = bytesToHex(schnorr.sign(sha256(new TextEncoder().encode(input.canonicalMessage)), hexToBytes(input.authoritySkHex), hexToBytes(input.auxRandHex)))
+    expect(sig).toBe(v.output.sig)
+    expect(verifyRoomRelays({ ...(v.expected!.verify as { roomId: string; version: number; relays: string[]; authority: string }), sig })).toBe(true)
+    expect(encodeControl(JSON.parse(v.output.text as string))).toBe(v.output.text)
+    expect(decodeControl(v.output.text as string)).toEqual(v.output.result)
+  })
+  for (const v of groups.roomRelays.filter((x) => x.kind === 'negative')) {
+    it(v.name, () => {
+      expect(verifyRoomRelays(v.input as { roomId: string; version: number; relays: string[]; sig: string; authority: string })).toBe(false)
+      expect(v.output.result).toBe(false)
+    })
+  }
 })
 
 describe('verification words', () => {
