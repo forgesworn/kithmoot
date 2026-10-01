@@ -2,13 +2,24 @@
  * Random addressable identifiers keep room ids out of public tags. Separate
  * records prevent two devices saving different rooms from overwriting a list.
  * Encrypted tombstones prevent an older relay copy resurrecting a removal.
+ *
+ * A record may also carry `admission`: the room secret of a group this
+ * account is already a member of, so a new device opens the room without
+ * the group's signed invitation, which public relays drop after a day or
+ * two. It sits beside `room`, not inside it, and is encrypted to the
+ * account's own key with the rest of the record. The cost, stated plainly:
+ * a relay may keep an old copy of a replaceable record, so a tombstone no
+ * longer removes the secret from every relay, only from the record the
+ * account reads. Only the account's signer can decrypt it.
  */
 import type { SignetSigner } from 'signet-login'
 import type { Event } from 'nostr-tools/pure'
+import { hexToBytes } from '@noble/hashes/utils'
 import type { RelayTransport } from '../../src/relay-pool.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import { memoryDeviceStore, type DeviceStore } from './device-store.js'
 import { ROOM_PREFIX, rememberRoom, forgetRoom, type KnownRoom } from './rooms-store.js'
+import { deriveRoom } from '../../src/room.js'
 
 const APP = 'kithmoot.rooms.v1'
 const KIND = 30078
@@ -17,7 +28,23 @@ const KIND = 30078
  *  the same relays that carry the bookmarks, and they rate-limit a burst. */
 const DECRYPT_CONCURRENCY = 3
 const REFUSAL_LIMIT = 3
-interface RecordValue { roomId: string; at: number; room?: KnownRoom }
+/** The room secret, hex, of a group the account belongs to. */
+interface RecordAdmission { secret: string }
+interface RecordValue { roomId: string; at: number; room?: KnownRoom; admission?: RecordAdmission }
+/** How a bookmark's admission meets this device's own kept memberships.
+ *  `current` is what to attach when saving a room; `adopt` takes in a secret
+ *  that arrived with a bookmark, and must not overwrite one already kept. */
+export interface BookmarkAdmissions {
+  current(room: KnownRoom): string | undefined
+  adopt(room: KnownRoom, secret: string): void
+}
+const SECRET_HEX = /^[0-9a-f]{64}$/
+/** An admission is kept only when the secret it names is the room's own. */
+function validAdmission(value: unknown, roomId: string): RecordAdmission | undefined {
+  const secret = (value as RecordAdmission | undefined)?.secret
+  if (typeof secret !== 'string' || !SECRET_HEX.test(secret)) return undefined
+  try { return deriveRoom(hexToBytes(secret)).roomId === roomId ? { secret } : undefined } catch { return undefined }
+}
 interface RecordEntry extends RecordValue { d: string; id: string }
 interface Pending { value: RecordValue; d: string; event?: Event }
 
@@ -69,6 +96,7 @@ export class RoomBookmarks {
     private relay: RelayTransport,
     private changed: () => void,
     private status: (message: string) => void,
+    private admissions?: BookmarkAdmissions,
   ) {
     this.rooms = accountRoomStore(store, signer.pubkey)
     this.#prefix = `kithmoot.bookmarks.${signer.pubkey}.`
@@ -121,6 +149,8 @@ export class RoomBookmarks {
         // Validate links and names through the same rules as local visits.
         value.room = rememberRoom(memoryDeviceStore(), value.room)
       }
+      const admission = value.room ? validAdmission(value.admission, value.roomId) : undefined
+      if (admission) value.admission = admission; else delete value.admission
       const incoming = { ...value, d, id: event.id }
       const previous = this.#records.get(value.roomId)
       if (previous && !newer(incoming, previous)) return
@@ -129,6 +159,7 @@ export class RoomBookmarks {
       if (pending && (pending.event ? newer(incoming, { at: pending.value.at, id: pending.event.id })
         : Math.floor(value.at / 1000) > Math.floor(pending.value.at / 1000))) this.#pending.delete(value.roomId)
       if (!this.#pending.has(value.roomId)) this.#apply(value)
+      if (value.room && admission) try { this.admissions?.adopt(value.room, admission.secret) } catch { /* The room still lists; only the way back in goes unwritten. */ }
       this.#persist(value.roomId)
       this.changed()
       if (!this.#pending.size) this.status('Encrypted room bookmarks loaded. Opening a room may still need an online member to let this device in.')
@@ -161,8 +192,11 @@ export class RoomBookmarks {
 
   save(room: KnownRoom): void {
     const previous = this.#pending.get(room.roomId)?.value ?? this.#records.get(room.roomId)
-    if (previous?.room?.link === room.link && previous.room.name === room.name) return
-    this.#queue({ roomId: room.roomId, at: Date.now(), room })
+    // Keep the secret a record already carries when this device has none of
+    // its own: a save from a device that lacks it must not drop it.
+    const secret = this.admissions?.current(room) ?? previous?.admission?.secret
+    if (previous?.room?.link === room.link && previous.room.name === room.name && previous.admission?.secret === secret) return
+    this.#queue({ roomId: room.roomId, at: Date.now(), room, ...(secret ? { admission: { secret } } : {}) })
   }
 
   remove(roomId: string): void {

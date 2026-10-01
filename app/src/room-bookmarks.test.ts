@@ -6,7 +6,8 @@ import type { RelayTransport } from '../../src/relay-pool.js'
 import { encodeJoinUrl, generateRoomSecret, deriveRoom } from '../../src/room.js'
 import { memoryDeviceStore } from './device-store.js'
 import { knownRooms, rememberRoom, type KnownRoom } from './rooms-store.js'
-import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
+import { bytesToHex } from '@noble/hashes/utils'
+import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room-bookmarks.js'
 
 function signer(sk = generateSecretKey()): SignetSigner {
   const pubkey = getPublicKey(sk)
@@ -26,7 +27,7 @@ function room(name = 'Private room'): KnownRoom {
     openedAt: Math.floor(Date.now() / 1000), readAt: 123, keep: true }
 }
 
-function harness(identity = signer(), store = memoryDeviceStore()) {
+function harness(identity = signer(), store = memoryDeviceStore(), admissions?: BookmarkAdmissions) {
   const events: Event[] = []
   let incoming: ((event: Event) => void) | undefined
   let finished: (() => void) | undefined
@@ -36,13 +37,31 @@ function harness(identity = signer(), store = memoryDeviceStore()) {
     close: vi.fn(),
   }
   const status = vi.fn()
-  const library = new RoomBookmarks(store, identity, relay, vi.fn(), status)
+  const library = new RoomBookmarks(store, identity, relay, vi.fn(), status, admissions)
   library.start()
   return { library, store, events, relay, status, identity, incoming: (event: Event) => incoming?.(event), eose: () => finished?.() }
 }
 
 async function saved(h: ReturnType<typeof harness>, expected = 1) {
   await vi.waitFor(() => expect(h.events).toHaveLength(expected))
+}
+
+/** A device's kept group memberships, as the app keeps them: room id to secret. */
+function kept(initial: Record<string, string> = {}) {
+  const held = new Map(Object.entries(initial))
+  const admissions: BookmarkAdmissions = {
+    current: room => held.get(room.roomId),
+    adopt: vi.fn((room, secret) => { if (!held.has(room.roomId)) held.set(room.roomId, secret) }),
+  }
+  return { held, admissions }
+}
+
+function roomWithSecret(name = 'Private chat') {
+  const secret = generateRoomSecret()
+  const r: KnownRoom = { roomId: deriveRoom(secret).roomId, name,
+    link: encodeJoinUrl('https://example.test/j/', secret, ['wss://relay.example']),
+    openedAt: Math.floor(Date.now() / 1000), readAt: 0, keep: true }
+  return { r, secret: bytesToHex(secret) }
 }
 
 describe('private Nostr room bookmarks', () => {
@@ -73,6 +92,88 @@ describe('private Nostr room bookmarks', () => {
     expect(knownRooms(accountRoomStore(b.store, signer().pubkey))).toEqual([])
     expect(b.events).toEqual([])
     a.library.close(); b.library.close()
+  })
+
+  describe('group admission', () => {
+    it('carries the room secret beside the room, encrypted, and opens it on a second device', async () => {
+      const { r, secret } = roomWithSecret()
+      const first = kept({ [r.roomId]: secret })
+      const a = harness(signer(), memoryDeviceStore(), first.admissions)
+      a.library.save(r)
+      await saved(a)
+      expect(JSON.stringify(a.events[0])).not.toContain(secret)
+      const value = JSON.parse(await a.identity.nip44!.decrypt(a.identity.pubkey, a.events[0].content))
+      expect(value.admission).toEqual({ secret })
+      expect(value.room.admission).toBeUndefined()
+      const second = kept()
+      const b = harness(a.identity, memoryDeviceStore(), second.admissions)
+      await b.library.receive(a.events[0])
+      expect(second.held.get(r.roomId)).toBe(secret)
+      a.library.close(); b.library.close()
+    })
+
+    it('does not replace a membership the device already keeps', async () => {
+      const { r, secret } = roomWithSecret()
+      const a = harness(signer(), memoryDeviceStore(), kept({ [r.roomId]: secret }).admissions)
+      a.library.save(r)
+      await saved(a)
+      const own = kept({ [r.roomId]: 'a'.repeat(64) })
+      const b = harness(a.identity, memoryDeviceStore(), own.admissions)
+      await b.library.receive(a.events[0])
+      expect(own.held.get(r.roomId)).toBe('a'.repeat(64))
+      a.library.close(); b.library.close()
+    })
+
+    it('ignores a secret that is not the room\'s own, but still lists the room', async () => {
+      const { r } = roomWithSecret()
+      const wrong = bytesToHex(generateRoomSecret())
+      const a = harness(signer(), memoryDeviceStore(), kept({ [r.roomId]: wrong }).admissions)
+      a.library.save(r)
+      await saved(a)
+      const second = kept()
+      const b = harness(a.identity, memoryDeviceStore(), second.admissions)
+      await b.library.receive(a.events[0])
+      expect(second.held.size).toBe(0)
+      expect(knownRooms(b.library.rooms).map(x => x.name)).toEqual(['Private chat'])
+      a.library.close(); b.library.close()
+    })
+
+    it('leaves a bookmark without a secret alone, and keeps a secret a save from a device without one would drop', async () => {
+      const { r, secret } = roomWithSecret()
+      const plain = harness(signer(), memoryDeviceStore(), kept().admissions)
+      plain.library.save(r)
+      await saved(plain)
+      const nothing = kept()
+      const b = harness(plain.identity, memoryDeviceStore(), nothing.admissions)
+      await b.library.receive(plain.events[0])
+      expect(nothing.admissions.adopt).not.toHaveBeenCalled()
+      const a = harness(signer(), memoryDeviceStore(), kept({ [r.roomId]: secret }).admissions)
+      a.library.save(r)
+      await saved(a)
+      // A device with no secret of its own renames the room: the record keeps the one it holds.
+      const c = harness(a.identity, memoryDeviceStore(), kept().admissions)
+      await c.library.receive(a.events[0])
+      c.library.save({ ...r, name: 'Renamed' })
+      await vi.waitFor(() => expect(c.events).toHaveLength(1))
+      const value = JSON.parse(await c.identity.nip44!.decrypt(c.identity.pubkey, c.events[0].content))
+      expect(value.room.name).toBe('Renamed')
+      expect(value.admission).toEqual({ secret })
+      plain.library.close(); a.library.close(); b.library.close(); c.library.close()
+    })
+
+    it('saves again when a room gains a secret it was bookmarked without', async () => {
+      const { r, secret } = roomWithSecret()
+      const mine = kept()
+      const a = harness(signer(), memoryDeviceStore(), mine.admissions)
+      a.library.save(r)
+      await saved(a)
+      mine.held.set(r.roomId, secret)
+      a.library.save(r)
+      await saved(a, 2)
+      const value = JSON.parse(await a.identity.nip44!.decrypt(a.identity.pubkey, a.events[1].content))
+      expect(value.admission).toEqual({ secret })
+      a.library.close()
+    })
   })
 
   it('merges different rooms saved concurrently without replacing either list', async () => {

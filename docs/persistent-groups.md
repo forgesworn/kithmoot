@@ -68,6 +68,27 @@ use the existing keeper.  This change removes the keeper requirement for
 basic group membership, chat and calls; it does not add distributed group
 administration or mobile push delivery.
 
+## A group follows its member to their other devices
+
+A signed-in account's room bookmarks carry the room secret of each group it has
+joined (`admission: { secret }`, beside `room` in the bookmark record). Without
+it a second device had only the link, and opening the room meant fetching the
+group invitation from the link's relays, which public relays drop within a day
+or two. With it the device keeps the membership as if it had joined itself
+and opens the room without that event.
+
+- The record is encrypted to the account's own key like the rest of it; only
+  the account's signer can read the secret. Group memberships only: a
+  temporary admission is a delegated, expiring permission and never syncs.
+- A secret is taken in only when it derives the room's own id, and never
+  replaces a membership the device already keeps.
+- A save from a device that holds no secret keeps the one the record carries,
+  because the record is last-writer-wins and would otherwise drop it.
+- Consequence for tidying up: the bookmark is replaceable and relays may keep
+  older copies, so the tombstone no longer removes the secret from every relay,
+  only from the record the account reads. The room itself is ended by the
+  retirement notice and a closing rekey, not by the bookmark.
+
 ## Ending a room and tidying up
 
 The browser holding a browser room's authority can end it for everyone. It

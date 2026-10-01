@@ -63,7 +63,7 @@ import { RoomWatch } from './room-watch.js'
 import { BrowserRoomArchiveStorage, RoomArchive, deleteRoomArchive, reseedRelays, type ReseedTarget } from './room-archive.js'
 import { PresenceAnnouncements } from './presence-announcements.js'
 import { readAgentRequestStatuses, type RequestAgent } from './agent-request-status.js'
-import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
+import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
@@ -1059,6 +1059,30 @@ function refreshAccountRooms(): void {
   else if (window.kithmootDesktop) for (const room of knownRooms(roomStore())) watchKnownRoom(room)
 }
 
+/** What a room bookmark carries of a group this account has joined: the room
+ *  secret, so another device opens the room without the group's signed
+ *  invitation, which public relays do not keep for long. Group memberships
+ *  only: a temporary admission is a delegated, expiring permission and never
+ *  leaves this device. A secret arriving with a bookmark is kept only where
+ *  this device has none of its own. */
+function groupAdmissions(): BookmarkAdmissions {
+  const invitationIdOf = (link: string): string | undefined => {
+    try { const { invitation } = parseRoomLink(link); return invitation?.persistent ? deriveInvitationId(invitation) : undefined } catch { return undefined }
+  }
+  return {
+    current: room => {
+      const id = invitationIdOf(room.link)
+      const kept = id && loadKeptAdmission(deviceStore, id, nowSeconds())
+      return kept && 'persistent' in kept && kept.persistent ? bytesToHex(kept.secret) : undefined
+    },
+    adopt: (room, secret) => {
+      const id = invitationIdOf(room.link)
+      if (!id || loadKeptAdmission(deviceStore, id, nowSeconds())) return
+      storeKeptAdmission(deviceStore, id, { secret: hexToBytes(secret), persistent: true, epoch: 0 }, nowSeconds())
+    },
+  }
+}
+
 function startRoomBookmarks(account: SignetSession): void {
   const crypt = account.signer.nip44
   if (crypt) void sharedProjects.attach({ pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event),
@@ -1085,7 +1109,7 @@ function startRoomBookmarks(account: SignetSession): void {
       if (details) details.open = true
       if (!roomsListShown) setStatus(message)
     }
-  })
+  }, groupAdmissions())
   refreshAccountRooms()
   bookmarks.start()
   readSync?.close()
