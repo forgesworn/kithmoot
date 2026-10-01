@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.35",
+  "currentRelease": "0.1.36",
   "releases": [
     {
-      "version": "0.1.35",
+      "version": "0.1.36",
       "updateTo": {
-        "version": "0.1.35",
-        "pub_date": "2026-10-01T12:56:00Z",
-        "notes": "The new KithMoot icon, the turquoise and blue vortex. Nothing else changes.",
-        "name": "0.1.35",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.35/KithMoot-0.1.35-mac-arm64.zip",
-        "sha256": "2f57a3a10585fc696a027b0034088c4c5715f9cc9a1767bcf3b4fa79ee2fc983",
-        "size": 136406437
+        "version": "0.1.36",
+        "pub_date": "2026-10-01T15:40:00Z",
+        "notes": "Rooms shared through a project show the project's name for them instead of Untitled room, and a project's invitation reaches its members on the relays they read, so nobody has to add the owner's relay first.",
+        "name": "0.1.36",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.36/KithMoot-0.1.36-mac-arm64.zip",
+        "sha256": "2004ac915d1098d2038214302c5d3b189149cd8f3f422e74be122afeac0daa88",
+        "size": 136406914
       }
     }
   ]
