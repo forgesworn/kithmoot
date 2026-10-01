@@ -320,11 +320,11 @@ test('two cameras of one person are two equal angles in their tile, for everyone
     // laptop, whose own tile holds its camera and the phone's.
     for (const [page, who] of [[pageCara, 'Cara'], [pageLaptop, 'the laptop']] as const) {
       await expect.poll(async () => page.evaluate(() => {
-        const tile = [...document.querySelectorAll<HTMLElement>('#room .participant')]
+        const tile = Array.from(document.querySelectorAll('#room .participant'))
           .find(box => box.querySelectorAll(':scope > .media > video:not(.screenPreview)').length >= 2)
         if (!tile) return 'no tile with two cameras'
         const box = tile.getBoundingClientRect()
-        const [a, b] = [...tile.querySelectorAll<HTMLVideoElement>(':scope > .media > video:not(.screenPreview)')].map(video => video.getBoundingClientRect())
+        const [a, b] = Array.from(tile.querySelectorAll(':scope > .media > video:not(.screenPreview)')).map(video => video.getBoundingClientRect())
         const half = (side: number, whole: number) => Math.abs(side - whole / 2) <= 4
         const across = half(a!.width, box.width) && half(b!.width, box.width) && Math.abs(a!.height - box.height) <= 4 && Math.abs(b!.height - box.height) <= 4 && b!.left >= a!.right - 4
         const stacked = half(a!.height, box.height) && half(b!.height, box.height) && Math.abs(a!.width - box.width) <= 4 && Math.abs(b!.width - box.width) <= 4 && b!.top >= a!.bottom - 4
