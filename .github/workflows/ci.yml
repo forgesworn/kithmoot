@@ -2,17 +2,30 @@ name: CI
 
 on:
   workflow_dispatch:
+  # Prose-only changes run nothing: no test reads docs/ or a top-level
+  # Markdown file (packages/*/THIRD_PARTY_NOTICES.md is read, and is not
+  # matched here - `*.md` stops at the first slash).
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '*.md']
   pull_request:
     branches: [main]
+    paths-ignore: ['docs/**', '*.md']
 
 permissions:
   contents: read
 
+# A newer push to a pull request makes the run for the older commit moot, so
+# that one is cancelled. Runs on main are grouped by commit and never cancel
+# each other: every commit on main keeps its own verdict.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
 
     strategy:
       fail-fast: false
@@ -69,16 +82,36 @@ jobs:
   # Against the local relay in test/ws-relay.mjs rather than public ones:
   # real relays have real weather, and a gate that fails on somebody else's
   # outage is a gate people learn to ignore.
+  #
+  # Each spec drives two or three real browsers, so a runner takes one spec
+  # at a time (`workers: 1` in playwright.config.ts) and the suite is spread
+  # across runners instead. Chromium runs everything and took over half an
+  # hour on one runner; it is split five ways by measured time, using the
+  # groups in playwright.config.ts (`E2E_GROUP`), whose `rest` group takes
+  # whatever the others do not name. Firefox and WebKit run small, even
+  # specs, so Playwright's own `--shard` halves them well enough.
   acceptance:
+    name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    # Chromium also runs the cross-browser call case and has grown beyond the
-    # old 30-minute ceiling on the hosted runner. Keep the gate finite without
-    # killing a still-progressing suite before it can report an assertion.
-    timeout-minutes: 45
+    # The longest group is about seven minutes of tests. A hung call spec
+    # should fail the run rather than hold it for three-quarters of an hour.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, firefox, webkit]
+        include:
+          # The Chromium groups also install Firefox, for the cross-browser
+          # call case in test/call-stability.spec.ts; without it that case
+          # skips itself rather than proving anything.
+          - { name: chromium call-relays, project: chromium, group: call-relays, browsers: chromium firefox }
+          - { name: chromium calls, project: chromium, group: calls, browsers: chromium firefox }
+          - { name: chromium media, project: chromium, group: media, browsers: chromium firefox }
+          - { name: chromium rooms, project: chromium, group: rooms, browsers: chromium firefox }
+          - { name: chromium rest, project: chromium, group: rest, browsers: chromium firefox }
+          - { name: firefox 1 of 2, project: firefox, shard: 1/2, browsers: firefox }
+          - { name: firefox 2 of 2, project: firefox, shard: 2/2, browsers: firefox }
+          - { name: webkit 1 of 2, project: webkit, shard: 1/2, browsers: webkit }
+          - { name: webkit 2 of 2, project: webkit, shard: 2/2, browsers: webkit }
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -94,24 +127,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The Chromium run also launches Firefox itself, for the cross-browser
-      # call case in test/call-stability.spec.ts; without it that case dies
-      # in the first millisecond rather than proving anything.
-      - name: Install browser
-        run: npx playwright install --with-deps ${{ matrix.browser }} ${{ matrix.browser == 'chromium' && 'firefox' || '' }}
+      - name: Find the Playwright version
+        id: playwright
+        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      # The browser downloads only; the system libraries still come from apt
+      # in the next step. Mostly insurance against a slow CDN day - one run
+      # spent eight minutes fetching Firefox.
+      - name: Cache browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.browsers }}
+
+      - name: Install browsers
+        run: npx playwright install --with-deps ${{ matrix.browsers }}
 
       # playwright.config.ts builds the app, serves it, and - because
       # E2E_RELAYS=local - starts the test relay beside it.
       - name: Acceptance tests
-        run: npx playwright test --project=${{ matrix.browser }}
+        run: npx playwright test --project=${{ matrix.project }} ${{ matrix.shard && format('--shard={0}', matrix.shard) || '' }}
         env:
           E2E_RELAYS: local
+          E2E_GROUP: ${{ matrix.group }}
 
       - name: Keep the traces of anything that failed
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: playwright-traces-${{ matrix.browser }}
+          name: playwright-traces-${{ matrix.project }}-${{ matrix.group || strategy.job-index }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7

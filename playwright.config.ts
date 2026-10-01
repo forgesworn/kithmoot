@@ -14,6 +14,39 @@ const appPort = Number(process.env.E2E_PORT ?? 4173)
 // today's fixed value, which is what CI still gets.
 const relayPort = Number(process.env.E2E_RELAY_PORT ?? (process.env.E2E_PORT ? appPort + 100 : 7777))
 
+// CI splits the Chromium run across several runners, because on one worker
+// it takes over half an hour. Playwright's own `--shard` cuts the test list
+// into equal counts in file order, which here would put every call spec -
+// a third of the whole run - on the same runner, so the split is by measured
+// time instead: `E2E_GROUP=<name>` runs one group. Each group matches whole
+// files (call-stability.spec.ts is split by title, its tests each build
+// their own browsers), and `rest` is everything no other group claims, so a
+// new or renamed spec lands in `rest` rather than nowhere. The groups only
+// decide which runner a test goes to: together they are exactly the
+// unfiltered run, which `--list` on each confirms.
+const specFiles = (...names: string[]) =>
+  new RegExp(`^\\S+ (?:${names.map((n) => n.replace(/[.]/g, '\\.')).join('|')}) `)
+const relayFaultCases = /^\S+ call-stability\.spec\.ts .*\bcase 7[ab]: /
+const e2eGroups: Record<string, { grep: RegExp[], grepInvert?: RegExp[] }> = {
+  'call-relays': { grep: [relayFaultCases, specFiles('soak.spec.ts')] },
+  calls: {
+    grep: [specFiles('call-stability.spec.ts', 'call-chat-divider.spec.ts', 'call-dock.spec.ts')],
+    grepInvert: [relayFaultCases],
+  },
+  media: { grep: [specFiles('media.spec.ts', 'call-focus.spec.ts', 'call-layout.spec.ts', 'effects.spec.ts')] },
+  rooms: {
+    grep: [specFiles('peer-assist.spec.ts', 'agent.spec.ts', 'bad-relays.spec.ts', 'nostr-rooms.spec.ts', 'home.spec.ts',
+      'drafts.spec.ts', 'quiet.spec.ts', 'updates.spec.ts', 'e2e.spec.ts', 'share-viewer.spec.ts')],
+  },
+}
+const e2eGroup = process.env.E2E_GROUP || undefined
+if (e2eGroup && e2eGroup !== 'rest' && !(e2eGroup in e2eGroups)) {
+  throw new Error(`E2E_GROUP=${e2eGroup} is not one of: ${[...Object.keys(e2eGroups), 'rest'].join(', ')}`)
+}
+const groupFilter = !e2eGroup ? {} : e2eGroup === 'rest'
+  ? { grepInvert: Object.values(e2eGroups).flatMap((g) => g.grep) }
+  : e2eGroups[e2eGroup]!
+
 export default defineConfig({
   testDir: './test',
   // Three specs, and they are very different animals. e2e.spec.ts drives real
@@ -69,6 +102,7 @@ export default defineConfig({
   // that is late and one that is missing.
   workers: 1,
   retries: 0,
+  ...groupFilter,
   reporter: 'list',
   use: {
     // Carries the `/j/` sub-path the app is published under (see the `base`
