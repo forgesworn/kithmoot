@@ -22,7 +22,7 @@ export type CaptureSource = { kind: 'screen'; displayId: string } | { kind: 'win
 export interface RedactionState { boxes: RedactionBox[]; displays: RedactionDisplay[]; source: CaptureSource; settleUntil?: number }
 
 /** `hidden` is the sharer's own choice; the rest are the page not being sure. */
-export type CoverReason = 'unknown' | 'window' | 'geometry' | 'settling' | 'crossing' | 'hidden'
+export type CoverReason = 'unknown' | 'window' | 'geometry' | 'settling' | 'crossing' | 'hidden' | 'moving'
 export type RedactionPlan =
   | { mode: 'pass' }
   | { mode: 'cover'; reason: CoverReason }
@@ -166,8 +166,56 @@ export const HIDDEN_PLAN: RedactionPlan = { mode: 'cover', reason: 'hidden' }
 export function coverCopy(reason: CoverReason): string {
   if (reason === 'hidden') return 'Your share is hidden. People see a cover, and hear nothing from it, until you show it again.'
   if (reason === 'settling') return 'Your share is covered for a moment while your displays change.'
+  if (reason === 'moving') return 'Your share is covered for a moment while the whole screen changes, such as switching desktops.'
   if (reason === 'crossing') return 'Your share is covered while a redaction box spans two screens at different scales. Move it onto one screen.'
   if (reason === 'window') return 'Your app share is covered while a redaction box is on: boxes cannot follow a single app yet. Share your screen or an area instead.'
   if (reason === 'unknown') return 'Your share is covered while a redaction box is on, because KithMoot could not tell which screen is shared. Stop and share the screen again.'
   return 'Your share is covered while a redaction box is on, because the screen changed shape. Stop and share again.'
 }
+
+/**
+ * A picture that changed almost everywhere at once.
+ *
+ * A redaction box is a window on every desktop, fixed where it was put. When
+ * macOS slides from one desktop to another, everything under the boxes slides
+ * sideways with it, and for a second or two text a box was hiding is readable
+ * beside the box. Nothing from the system says so in time: the notification
+ * that the desktop changed comes when the slide is over. The picture itself
+ * says so first. Each frame is compared, at a few hundred cells, with the one
+ * before it, before anything of it is drawn; when most cells changed, the
+ * whole share is covered and stays covered until the picture has been still
+ * for [holdMs]. A full-screen scroll or video under a box costs a cover too,
+ * which is the right way round for a box someone put there.
+ */
+export const JUMP_SAMPLE = { width: 48, height: 27 } as const
+/** The share of cells that must change for a frame to count as a jump. */
+export const JUMP_CHANGED_SHARE = 0.4
+/** How far a cell's brightness must move, out of 255, to count as changed. */
+export const JUMP_CELL_DELTA = 16
+export const JUMP_HOLD_MS = 1500
+
+/** The share of cells whose brightness moved by at least [JUMP_CELL_DELTA]. */
+export function changedShare(previous: ArrayLike<number>, next: ArrayLike<number>): number {
+  if (previous.length !== next.length || next.length === 0) return 1
+  let changed = 0
+  for (let i = 0; i < next.length; i++) if (Math.abs(next[i]! - previous[i]!) >= JUMP_CELL_DELTA) changed++
+  return changed / next.length
+}
+
+export class FrameJump {
+  #previous: ArrayLike<number> | undefined
+  #until = -Infinity
+  constructor(private readonly holdMs = JUMP_HOLD_MS) {}
+
+  /** Whether to cover this frame: it jumped, or one did within [holdMs]. */
+  next(sample: ArrayLike<number>, now: number): boolean {
+    const previous = this.#previous
+    this.#previous = sample
+    if (previous && changedShare(previous, sample) >= JUMP_CHANGED_SHARE) this.#until = now + this.holdMs
+    return now < this.#until
+  }
+
+  /** Nothing to compare against: the next frame starts afresh. */
+  reset(): void { this.#previous = undefined }
+}
+

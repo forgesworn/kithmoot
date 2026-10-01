@@ -2,7 +2,7 @@ import type { ScreenAnnotation, AnnotationPoint } from '../../src/signal.js'
 import { minimumSelection, moveSelection, resizeSelection, videoBox, WHOLE_PICTURE } from './share-area-geometry.js'
 import { coversWholeDisplay } from './self-mirror-guard.js'
 import { RedactionTrail } from './redaction-geometry.js'
-import { paintPlan, type DesktopRedaction } from './redaction.js'
+import { paintPlan, watchForJumps, type DesktopRedaction } from './redaction.js'
 import { coverAll } from './share-cover.js'
 
 export interface AreaRect { x: number; y: number; width: number; height: number }
@@ -466,6 +466,7 @@ export class DesktopShareArea {
     const context = canvas.getContext('2d')!
     const redaction = this.opts.redaction?.supported ? this.opts.redaction : undefined
     const trail = new RedactionTrail()
+    const jumps = watchForJumps()
     const paint = () => {
       if (popup.closed) { this.stop(); this.opts.ended(); return }
       const area = rect()
@@ -478,7 +479,7 @@ export class DesktopShareArea {
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height }
       // Redaction is planned before anything is drawn: a plan that covers
       // everything, a hidden share among them, never draws the raw frame.
-      const plan = redaction ? redaction.areaPlan(trail, { width: video.videoWidth, height: video.videoHeight }, area, { width, height }) : { mode: 'pass' } as const
+      const plan = redaction ? redaction.areaPlan(trail, { width: video.videoWidth, height: video.videoHeight }, area, { width, height }, { video, jumps }) : { mode: 'pass' } as const
       if (plan.mode !== 'cover') context.drawImage(video, area.x * video.videoWidth, area.y * video.videoHeight, area.width * video.videoWidth, area.height * video.videoHeight, 0, 0, width, height)
       paintPlan(context, plan, width, height)
     }

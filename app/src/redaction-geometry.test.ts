@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HIDDEN_PLAN, HOLD_MS, PAD_DIP, RedactionTrail, coverCopy, cropPlan, crossesScales, effectiveSource, hull, planRedaction, refuseShare, type RedactionState } from './redaction-geometry.js'
+import { FrameJump, HIDDEN_PLAN, HOLD_MS, JUMP_HOLD_MS, JUMP_SAMPLE, changedShare, PAD_DIP, RedactionTrail, coverCopy, cropPlan, crossesScales, effectiveSource, hull, planRedaction, refuseShare, type RedactionState } from './redaction-geometry.js'
 
 const display = { id: '1', bounds: { x: 0, y: 0, width: 1440, height: 900 }, scaleFactor: 2 }
 const right = { id: '2', bounds: { x: 1440, y: 0, width: 1920, height: 1080 }, scaleFactor: 2 }
@@ -171,3 +171,49 @@ describe('a share hidden on purpose', () => {
     for (const word of words) expect(word).not.toMatch(/black/i)
   })
 })
+
+describe('a picture that jumps', () => {
+  const cells = JUMP_SAMPLE.width * JUMP_SAMPLE.height
+  const flat = (value: number) => new Uint8Array(cells).fill(value)
+  // A desktop sliding in: every column moves along by a few cells.
+  const stripes = (offset: number) => Uint8Array.from({ length: cells }, (_, i) => ((i % JUMP_SAMPLE.width) + offset) % 8 < 4 ? 30 : 220)
+
+  it('a still picture, or one changing in a corner, is not a jump', () => {
+    const jump = new FrameJump()
+    expect(jump.next(flat(100), 0)).toBe(false)
+    expect(jump.next(flat(100), 33)).toBe(false)
+    const typing = flat(100); typing.fill(200, 0, Math.floor(cells * 0.1))
+    expect(jump.next(typing, 66)).toBe(false)
+  })
+
+  it('a desktop sliding in covers the share from its first moved frame', () => {
+    const jump = new FrameJump()
+    jump.next(stripes(0), 0)
+    expect(jump.next(stripes(2), 33)).toBe(true)
+    expect(jump.next(stripes(4), 66)).toBe(true)
+  })
+
+  it('stays covered until the picture has been still for the hold', () => {
+    const jump = new FrameJump()
+    jump.next(stripes(0), 0)
+    jump.next(stripes(2), 100)
+    expect(jump.next(stripes(2), 100 + JUMP_HOLD_MS - 1)).toBe(true)
+    expect(jump.next(stripes(2), 100 + JUMP_HOLD_MS)).toBe(false)
+  })
+
+  it('a first frame, or one after a reset, has nothing to jump from', () => {
+    const jump = new FrameJump()
+    expect(jump.next(stripes(0), 0)).toBe(false)
+    jump.reset()
+    expect(jump.next(stripes(3), 33)).toBe(false)
+  })
+
+  it('a sample of another size counts as wholly changed', () => {
+    expect(changedShare(flat(1), new Uint8Array(4))).toBe(1)
+  })
+
+  it('has its own words for the cover', () => {
+    expect(coverCopy('moving')).toMatch(/switching desktops/)
+  })
+})
+

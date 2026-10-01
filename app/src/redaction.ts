@@ -1,4 +1,4 @@
-import { EMPTY_STATE, HIDDEN_PLAN, RedactionTrail, coverCopy, cropPlan, planRedaction, refuseShare, type Rect, type RedactionPlan, type RedactionState } from './redaction-geometry.js'
+import { EMPTY_STATE, FrameJump, HIDDEN_PLAN, JUMP_SAMPLE, RedactionTrail, coverCopy, cropPlan, planRedaction, refuseShare, type Rect, type RedactionPlan, type RedactionState } from './redaction-geometry.js'
 import { coverFill } from './share-cover.js'
 
 type Bridge = NonNullable<Window['kithmootDesktop']>
@@ -6,6 +6,40 @@ const BOX_URL = 'about:blank#kithmoot-redaction-box-'
 /** How long a share waits for its first picture before starting without one. */
 export const FIRST_PICTURE_MS = 3000
 export const WAITING_COPY = 'Your share has no picture yet. If none comes, bring what you are sharing to the front.'
+
+/** A share's watch for a picture that jumps: see `FrameJump`. */
+export interface JumpWatch {
+  /** Whether this frame jumped, or one did within the hold. */
+  check(video: HTMLVideoElement, now: number): boolean
+  reset(): void
+}
+
+/**
+ * Samples the raw frame into a canvas the size of a thumbnail that never
+ * leaves this page, and asks `FrameJump`. A frame that cannot be read is
+ * treated as one that jumped: the cover goes on, never off, when in doubt.
+ */
+export function watchForJumps(): JumpWatch {
+  const canvas = document.createElement('canvas')
+  canvas.width = JUMP_SAMPLE.width; canvas.height = JUMP_SAMPLE.height
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  const jump = new FrameJump()
+  return {
+    check(video, now) {
+      if (!context) return true
+      try {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const { data } = context.getImageData(0, 0, canvas.width, canvas.height)
+        const sample = new Uint8Array(canvas.width * canvas.height)
+        for (let i = 0; i < sample.length; i++) sample[i] = (data[i * 4]! * 299 + data[i * 4 + 1]! * 587 + data[i * 4 + 2]! * 114) / 1000
+        return jump.next(sample, now)
+      } catch {
+        return true
+      }
+    },
+    reset() { jump.reset() },
+  }
+}
 
 /** The cover over every rectangle the plan names, or over everything. */
 export function paintPlan(context: CanvasRenderingContext2D, plan: RedactionPlan, width: number, height: number): void {
@@ -196,6 +230,7 @@ export class DesktopRedaction {
     canvas.width = Math.max(2, video.videoWidth || 2); canvas.height = Math.max(2, video.videoHeight || 2)
     const context = canvas.getContext('2d')!
     const trail = new RedactionTrail()
+    const jumps = watchForJumps()
     let note: string | undefined
     if (!began) { note = WAITING_COPY; report(note) }
     const paint = () => {
@@ -203,8 +238,15 @@ export class DesktopRedaction {
       // The trail is kept up even while hidden, so a box that moved in the
       // meantime is still held when the share is shown again.
       const held = trail.next(this.#state.boxes, performance.now())
+      // A desktop sliding in under a box is caught here, from the frame
+      // itself, before any of it is drawn. See `FrameJump`.
+      const moving = held.length > 0 && width > 0 && height > 0 && jumps.check(video, performance.now())
+      if (held.length === 0) jumps.reset()
       // The plan comes first: when it covers everything the raw frame is never drawn.
-      const plan: RedactionPlan = this.#hidden ? HIDDEN_PLAN : width && height ? planRedaction(this.#state, { width, height }, held, surface) : { mode: 'cover', reason: 'geometry' }
+      const plan: RedactionPlan = this.#hidden ? HIDDEN_PLAN
+        : !(width && height) ? { mode: 'cover', reason: 'geometry' }
+        : moving ? { mode: 'cover', reason: 'moving' }
+        : planRedaction(this.#state, { width, height }, held, surface)
       if (width && height && (canvas.width !== width || canvas.height !== height)) { canvas.width = width; canvas.height = height }
       if (plan.mode !== 'cover') context.drawImage(video, 0, 0, canvas.width, canvas.height)
       paintPlan(context, plan, canvas.width, canvas.height)
@@ -238,9 +280,14 @@ export class DesktopRedaction {
    * One frame of an area share: the plan for the monitor under the frame,
    * carried into the crop. `crop` is in fractions of the frame.
    */
-  areaPlan(trail: RedactionTrail, frame: { width: number; height: number }, crop: Rect, output: { width: number; height: number }): RedactionPlan {
+  areaPlan(trail: RedactionTrail, frame: { width: number; height: number }, crop: Rect, output: { width: number; height: number },
+    moving?: { video: HTMLVideoElement; jumps: JumpWatch }): RedactionPlan {
     const held = trail.next(this.#state.boxes, performance.now())
+    // Sampled even while hidden, so the comparison is current when shown again.
+    const jumped = held.length > 0 && moving !== undefined && moving.jumps.check(moving.video, performance.now())
+    if (held.length === 0) moving?.jumps.reset()
     if (this.#hidden) return HIDDEN_PLAN
+    if (jumped) return { mode: 'cover', reason: 'moving' }
     const plan = planRedaction(this.#state, frame, held)
     return cropPlan(plan, { x: crop.x * frame.width, y: crop.y * frame.height, width: crop.width * frame.width, height: crop.height * frame.height }, output)
   }

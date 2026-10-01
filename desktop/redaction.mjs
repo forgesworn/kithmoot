@@ -1,4 +1,4 @@
-import { screen } from 'electron'
+import { screen, systemPreferences } from 'electron'
 import { BOX_MIN, DisplaySettle, boxShape, captureOf, clampBox, insideHole, moveTo, onOneDisplay, placeBox, resizeFrom } from './redaction-geometry.mjs'
 
 export const BOX_URL = 'about:blank#kithmoot-redaction-box-'
@@ -40,6 +40,11 @@ export class Redaction {
     screen.on('display-added', changed)
     screen.on('display-removed', changed)
     screen.on('display-metrics-changed', changed)
+    // Another macOS desktop sliding in moves everything beneath the boxes,
+    // which stay put on every desktop. The page already covers the share from
+    // the first frame that slides (`FrameJump`); this holds the cover while
+    // the system finishes, in case the slide ends before the picture settles.
+    if (process.platform === 'darwin') systemPreferences.subscribeWorkspaceNotification?.('NSWorkspaceActiveSpaceDidChangeNotification', changed)
   }
   anyOn() { return [...this.boxes.values()].some(box => box.on) }
   state() {

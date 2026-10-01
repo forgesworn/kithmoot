@@ -138,3 +138,23 @@ the cover while any box is on. Box geometry would then map by window origin
 rather than display origin, reusing `planRedaction` with the window standing
 in for the display. Occluding windows are the sharer's own concern: the
 capture of a single app does not include what is on top of it.
+
+## Switching desktops (1 October 2026)
+
+Boxes are windows on every macOS desktop, fixed where they were put. Switching
+desktops slides everything beneath them sideways, and for a second or two the
+text that ends up under a box was readable on its way there. Nothing from the
+system says so in time: `NSWorkspaceActiveSpaceDidChangeNotification` comes when
+the slide is over.
+
+So the picture is checked first. Every outgoing frame, whole-screen or area, is
+sampled at 48×27 cells and compared with the one before it before any of it is
+drawn (`FrameJump` in `app/src/redaction-geometry.ts`, `watchForJumps` in
+`app/src/redaction.ts`). When at least 40% of cells changed, with a box on, the
+whole share is covered (reason `moving`) and stays covered until the picture has
+been still for 1.5 seconds. A frame that cannot be sampled counts as a jump. The
+desktop's Space-change notification also starts the existing display settle
+(`desktop/redaction.mjs`), so the cover holds while the system finishes.
+
+A full-screen scroll or video beneath a box costs a moment's cover too: the cover
+goes on, never off, when in doubt.
