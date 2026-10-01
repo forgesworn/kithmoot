@@ -3,7 +3,8 @@ import { RoomSession, CONFERENCE_ENDED_MESSAGE } from './session.js'
 import { requireRoomEnds } from './expiration.js'
 import type { ParticipantView, PublishOptions, SessionTiming } from './session.js'
 import type { RelayTransport } from './relay-pool.js'
-import { NostrRelayPool } from './relay-pool.js'
+import { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS } from './relay-pool.js'
+import { invitationRelaysFrom, verifyRoomRelays, withRoomRelays } from './room-relays.js'
 import { isQuietPolicy, quietRoomTransport, type QuietRoomOptions, type QuietRoomTransport } from './quiet.js'
 import { parseRoomLink, encodeRoomLink } from './link.js'
 import type { RoomLink } from './link.js'
@@ -38,6 +39,17 @@ import { verifyAgentOwnership } from './ownership.js'
  * any of them: see the app's note on its list.
  */
 export const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom']
+
+/**
+ * The relays an agent connects to for a room: the room's own first, then the
+ * agent's own, up to `MAX_POOL_RELAYS`, the same order the app uses. The
+ * room's are never cut. An agent with neither falls back to the defaults.
+ */
+export function agentRelayPool(room: readonly string[], own: readonly string[]): string[] {
+  const ownConfigs = [...new Set(own)].slice(0, MAX_POOL_RELAYS).map((url) => normaliseRelayConfig([url])[0]!)
+  const pool = withRoomRelays(room, ownConfigs).map((relay) => relay.url)
+  return pool.length ? pool : [...DEFAULT_RELAYS]
+}
 
 /**
  * The channel agents talk to each other on. Every member can open it - see
@@ -186,7 +198,8 @@ export interface IgnoredApproval {
 export interface JoinRoomOptions extends CommonAgentOptions {
   /** The room link, exactly as a person was sent it. */
   link: string
-  /** Relays to use instead of the link's hints. */
+  /** The agent's own relays. They are used after the room's own (the signed
+   *  invitation's, else the link's), which are always in the pool first. */
   relays?: string[]
   /**
    * Whether to answer the link for whoever arrives next. On by default: an
@@ -301,7 +314,19 @@ export class RoomAgent {
   readonly link: RoomLink
   /** The link, as it should be handed to the next person. */
   readonly url: string
-  readonly relays: string[]
+  /** The relays this agent is connected to now: the room's first. */
+  get relays(): string[] {
+    return [...this.#pool]
+  }
+  #pool: string[]
+  /** The room's own relays, fixed when it was made. */
+  readonly #fixedRoomRelays: string[]
+  /** What the room's authority's newest `relays` op added, and its version. */
+  #addedRoomRelays: string[] = []
+  #relaysVersion = -1
+  readonly #ownRelays: string[]
+  /** The transports that dial the pool, moved when the room's relays grow. */
+  readonly #pools: RelayTransport[]
   /** Who may act on this room, when this agent is its keeper. */
   readonly admins: readonly string[]
   /** This agent's ownership proof, when it carries one. */
@@ -352,6 +377,9 @@ export class RoomAgent {
     link: RoomLink
     url: string
     relays: string[]
+    room: string[]
+    own: string[]
+    pools: RelayTransport[]
     transport: RelayTransport
     now: () => number
     keeper?: KeeperState
@@ -364,7 +392,10 @@ export class RoomAgent {
     this.session = fields.session
     this.link = fields.link
     this.url = fields.url
-    this.relays = fields.relays
+    this.#pool = fields.relays
+    this.#fixedRoomRelays = fields.room
+    this.#ownRelays = fields.own
+    this.#pools = fields.pools
     this.#transport = fields.transport
     this.#now = fields.now
     this.#keeper = fields.keeper
@@ -382,7 +413,8 @@ export class RoomAgent {
     if (link.pairingCode) {
       throw new Error('this is a pairing link for somebody’s second device, not an invitation to the room')
     }
-    const relays = opts.relays ?? (link.relays.length ? link.relays : DEFAULT_RELAYS)
+    const own = opts.relays ?? []
+    let room = invitationRelaysFrom(link.relays)
     const makeTransport = opts.transport ?? ((r: string[]) => new NostrRelayPool(r))
     const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
 
@@ -391,7 +423,7 @@ export class RoomAgent {
     let expectedEpoch: number | undefined
     let endsAt: number | undefined
     if (link.invitation) {
-      const transport = makeTransport(relays)
+      const transport = makeTransport(agentRelayPool(room, own))
       try {
         const admission = link.invitation.persistent
           ? await requestPersistentRoomAdmission({ transport, invitation: link.invitation })
@@ -403,6 +435,8 @@ export class RoomAgent {
         }
         if ('delegate' in admission) authority = { inviterSk: admission.delegate.delegateSk, delegation: admission.delegate.chain }
         expectedEpoch = admission.epoch
+        // The relays the room's inviter signed beat the link's unsigned hints.
+        if ('relays' in admission && admission.relays?.length) room = invitationRelaysFrom(admission.relays)
       } finally {
         transport.close()
       }
@@ -416,7 +450,8 @@ export class RoomAgent {
       deviceSk: opts.deviceKeyForRoom?.(deriveRoom(secret).roomId) ?? opts.deviceSk,
       link,
       url: opts.link,
-      relays,
+      room,
+      own,
       secret,
       makeTransport,
       now,
@@ -429,6 +464,8 @@ export class RoomAgent {
   /** Make a room, and keep it. */
   static async create(opts: CreateRoomOptions): Promise<RoomAgent> {
     const relays = opts.relays ?? DEFAULT_RELAYS
+    // What the room is made on is fixed, and signed into its invitation.
+    const room = invitationRelaysFrom(relays)
     const makeTransport = opts.transport ?? ((r: string[]) => new NostrRelayPool(r))
     const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
 
@@ -458,7 +495,8 @@ export class RoomAgent {
       ...opts,
       link,
       url,
-      relays,
+      room,
+      own: relays,
       secret: state.secret,
       makeTransport,
       now,
@@ -475,7 +513,8 @@ export class RoomAgent {
     opts: CommonAgentOptions & {
       link: RoomLink
       url: string
-      relays: string[]
+      room: string[]
+      own: string[]
       secret: Uint8Array
       makeTransport: (relays: string[]) => RelayTransport
       now: () => number
@@ -492,7 +531,8 @@ export class RoomAgent {
     },
   ): Promise<RoomAgent> {
     const identity = opts.identity ?? localIdentity(generateSecretKey())
-    const plain = opts.makeTransport(opts.relays)
+    const pool = agentRelayPool(opts.room, opts.own)
+    const plain = opts.makeTransport(pool)
     // A quiet room's chat rides in drops; the session tells the wrapper
     // the epoch key. Everything else the agent does stays in the open.
     const transport: RelayTransport = isQuietPolicy(opts.link.policy)
@@ -534,7 +574,10 @@ export class RoomAgent {
       session,
       link: opts.link,
       url: opts.url,
-      relays: opts.relays,
+      relays: pool,
+      room: opts.room,
+      own: opts.own,
+      pools: [plain],
       transport,
       now: opts.now,
       keeper: opts.keeper,
@@ -550,7 +593,7 @@ export class RoomAgent {
 
     try {
       if (opts.keeper?.persistent && opts.link.invitation) {
-        await transport.publish(encodePersistentInvitation({ invitation: opts.link.invitation, roomSecret: opts.secret, inviterSk: opts.keeper.inviterSk, now: opts.now(), endsAt: opts.keeper.endsAt }))
+        await transport.publish(encodePersistentInvitation({ invitation: opts.link.invitation, roomSecret: opts.secret, inviterSk: opts.keeper.inviterSk, now: opts.now(), endsAt: opts.keeper.endsAt, relays: opts.room.length ? opts.room : undefined }))
       }
       await session.join(opts.tracks ?? [], opts.claims ?? {})
     } catch (err) {
@@ -559,7 +602,7 @@ export class RoomAgent {
     }
 
     if (opts.authority && opts.link.invitation) {
-      const hostTransport = opts.makeTransport(opts.relays)
+      const hostTransport = opts.makeTransport(agent.#pool)
       try {
         agent.#host = hostRoomInvitation({
           transport: hostTransport,
@@ -574,6 +617,7 @@ export class RoomAgent {
           },
         })
         agent.#hostTransport = hostTransport
+        agent.#pools.push(hostTransport)
         if (opts.keeper) {
           agent.#epochDesk = hostRoomEpoch({
             transport: hostTransport,
@@ -690,6 +734,27 @@ export class RoomAgent {
     else log.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
   }
 
+  /**
+   * The authority's newest `relays` op adds relays to the pool, as it does in
+   * the app: additive, never taking one away, room relays still first, only
+   * the pool cap ever leaving one of the agent's own out. Anything unsigned,
+   * stale or not from the authority is ignored.
+   */
+  #adoptRoomRelays(control: Extract<ControlMessage, { op: 'relays' }>, m: ChatMessage): void {
+    const authority = this.link.invitation?.inviter
+    if (!authority) return
+    if (control.version <= this.#relaysVersion) return
+    if (!verifyRoomRelays({ roomId: this.roomId, version: control.version, relays: control.relays, sig: control.sig, authority })) return
+    this.#relaysVersion = control.version
+    this.#addedRoomRelays = invitationRelaysFrom(control.relays)
+    const next = agentRelayPool([...new Set([...this.#fixedRoomRelays, ...this.#addedRoomRelays])], this.#ownRelays)
+    if (next.join(' ') === this.#pool.join(' ')) return
+    this.#pool = next
+    for (const transport of this.#pools) {
+      try { transport.setRelays?.(next) } catch { /* A closed transport has no pool to move. */ }
+    }
+  }
+
   #emitPresence(request: PresenceRequest): void {
     for (const cb of this.#presenceListeners) {
       try {
@@ -724,6 +789,11 @@ export class RoomAgent {
       for (const c of control.channels) this.#announcedChannels.add(c)
       this.#announcedChannelsAt = m.sentAt
       this.#emit(this.#channelListeners, new Set(this.#announcedChannels))
+      return
+    }
+    // The authority's relays op, signed, so as true replayed as live.
+    if (control.op === 'relays') {
+      this.#adoptRoomRelays(control, m)
       return
     }
     // Replayed history: a request from before this agent opened its ears

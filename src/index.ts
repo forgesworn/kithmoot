@@ -39,7 +39,7 @@ export {
   RESERVED_CHANNELS,
   MAX_EPOCH,
 } from './epoch.js'
-export { signRoomRelays, verifyRoomRelays, canonicalRoomRelays, MAX_ROOM_RELAYS, type SignRoomRelaysOptions, type VerifyRoomRelaysOptions } from './room-relays.js'
+export { signRoomRelays, verifyRoomRelays, canonicalRoomRelays, invitationRelaysFrom, withRoomRelays, MAX_ROOM_RELAYS, type SignRoomRelaysOptions, type VerifyRoomRelaysOptions } from './room-relays.js'
 export type {
   RoomEpoch,
   EpochKeys,

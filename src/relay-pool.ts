@@ -24,6 +24,9 @@ export interface RelayTransport {
   /** The relays this transport reads from and writes to, when it has any.
    *  Absent on transports that are not relays at all. */
   describe?(): RelayConfig[]
+  /** Moves the relays this transport dials, keeping its subscriptions.
+   *  Only a relay pool has relays to move. */
+  setRelays?(entries: readonly (string | RelayConfig)[]): void
   /** Told the room's epoch key when a session opens on this transport and
    *  on every epoch it moves to. A transport that derives anything from
    *  the key, such as a quiet room's drop keys, implements it; a relay

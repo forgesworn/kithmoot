@@ -683,6 +683,7 @@
     "hostRoomInvitation",
     "importBoundedHistory",
     "installTransforms",
+    "invitationRelaysFrom",
     "inviteText",
     "isConversation",
     "isDefaultIceUrls",
@@ -827,6 +828,7 @@
     "verifyRoomRelays",
     "weakestLane",
     "withExpiration",
+    "withRoomRelays",
     "wrapProject",
     "wrapSignal"
   ],

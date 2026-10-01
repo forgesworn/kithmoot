@@ -2,6 +2,7 @@ import { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS, type RelayConfig
 import { KINDS } from '../../src/kinds.js'
 import { MAX_RELAY_HINTS } from '../../src/network-hints.js'
 import { isInvitationRelays } from '../../src/persistent-invitation.js'
+import { withRoomRelays } from '../../src/room-relays.js'
 
 import type { ParticipantIdentity } from '../../src/identity.js'
 
@@ -207,14 +208,7 @@ export class RelayConnections {
   /** The room's relays first, read and write, all of them; then `own`,
    *  without repeats, up to `MAX_POOL_RELAYS`. */
   #withRoomRelays(scope: string, own: RelayConfig[]): RelayConfig[] {
-    const room = this.#roomRelayUrls(scope)
-    if (!room.length) return own
-    const out: RelayConfig[] = room.map(url => ({ url, read: true, write: true }))
-    for (const relay of own) {
-      if (out.length >= MAX_POOL_RELAYS) break
-      if (!out.some(entry => entry.url === relay.url)) out.push(relay)
-    }
-    return out
+    return withRoomRelays(this.#roomRelayUrls(scope), own)
   }
   #configuration(scope: string, hints: RelayHints): RelayConfig[] {
     if (this.#saved[scope]) return normaliseRelayConfig(this.#saved[scope])

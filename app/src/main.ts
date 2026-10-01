@@ -130,6 +130,7 @@ import {
   verifyAdmins,
   verifyChannels,
   signRoomRelays,
+  invitationRelaysFrom,
   verifyRoomRelays,
   canonicalRoomRelays,
   CHANNEL_NAME,
@@ -178,7 +179,6 @@ import {
   QUIET_HISTORY_SECONDS,
   type QuietRoomTransport,
   type RelayTransport,
-  isInvitationRelays,
   MAX_INVITATION_RELAYS,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
@@ -1338,20 +1338,6 @@ function useRoomRelays(hints: string[] = []): void {
 // invitation, and used by every member ahead of their own, so any two
 // members share at least one relay whatever else each of them uses. They
 // are kept apart from this device's own relays: see `RelayConnections`.
-
-/** The room relays a list of relay URLs can supply: each a safe relay URL in
- *  canonical form, without repeats, at most eight. Empty when none can be. */
-function invitationRelaysFrom(urls: readonly string[]): string[] {
-  const out: string[] = []
-  for (const url of urls) {
-    let normal: string
-    try { normal = normaliseRelayConfig([url])[0]!.url } catch { continue }
-    if (out.includes(normal) || !isInvitationRelays([normal])) continue
-    out.push(normal)
-    if (out.length === MAX_INVITATION_RELAYS) break
-  }
-  return out
-}
 
 /** What the room's maker fixes as its relays: the ones its link names, else
  *  the ones this device reads and writes for it. */

@@ -2,7 +2,8 @@ import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { MAX_RELAY_HINTS } from './network-hints.js'
-import { normaliseRelayConfig } from './relay-pool.js'
+import { MAX_POOL_RELAYS, normaliseRelayConfig, type RelayConfig } from './relay-pool.js'
+import { isInvitationRelays, MAX_INVITATION_RELAYS } from './persistent-invitation.js'
 
 /**
  * A room's own relay list, signed by the room's authority.
@@ -85,3 +86,31 @@ export function verifyRoomRelays(opts: VerifyRoomRelaysOptions): boolean {
 export const ROOM_RELAYS_LABELS = [
   "kithmoot/v1/relays:",
 ] as const
+
+/** The room relays a list of relay URLs can supply: each a safe relay URL in
+ *  canonical form, without repeats, at most `MAX_INVITATION_RELAYS`. Whatever
+ *  cannot be one is skipped. Empty when none can be. */
+export function invitationRelaysFrom(urls: readonly string[]): string[] {
+  const out: string[] = []
+  for (const url of urls) {
+    let normal: string
+    try { normal = normaliseRelayConfig([url])[0]!.url } catch { continue }
+    if (out.includes(normal) || !isInvitationRelays([normal])) continue
+    out.push(normal)
+    if (out.length === MAX_INVITATION_RELAYS) break
+  }
+  return out
+}
+
+/** A participant's pool for a room: the room's relays first, read and write,
+ *  all of them; then `own`, without repeats, up to `MAX_POOL_RELAYS`. Own
+ *  relays are cut first; the room's never are. */
+export function withRoomRelays(room: readonly string[], own: readonly RelayConfig[]): RelayConfig[] {
+  if (!room.length) return [...own]
+  const out: RelayConfig[] = [...new Set(room)].slice(0, MAX_POOL_RELAYS).map(url => ({ url, read: true, write: true }))
+  for (const relay of own) {
+    if (out.length >= MAX_POOL_RELAYS) break
+    if (!out.some(entry => entry.url === relay.url)) out.push(relay)
+  }
+  return out
+}
