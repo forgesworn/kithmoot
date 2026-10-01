@@ -96,7 +96,7 @@ export async function buildDeb({ source, arch, version, outDir = resolve(root, '
   await mkdir(join(stage, 'usr/share/applications'), { recursive: true })
   await writeFile(join(stage, 'usr/share/applications', DESKTOP_ID), desktopEntry())
   await mkdir(join(stage, 'usr/share/icons/hicolor/512x512/apps'), { recursive: true })
-  await cp(resolve(root, '../app/public/pwa-512x512.png'), join(stage, 'usr/share/icons/hicolor/512x512/apps/kithmoot.png'))
+  await cp(resolve(root, 'icons/kithmoot-512.png'), join(stage, 'usr/share/icons/hicolor/512x512/apps/kithmoot.png'))
   // A conffile, with the archive key inside it: removing the package keeps
   // the source and its key together, purging takes both, and someone who
   // deletes the source stays unsubscribed on upgrade.

@@ -1,6 +1,6 @@
 # KithMoot
 
-<img src="art/brand/2026-09-09/artwork.png" alt="KithMoot's assembly of six equal pieces" width="240" />
+<img src="art/brand/2026-09-29/kithmoot-horizontal-gradient.svg" alt="KithMoot" width="320" />
 
 **Want to run your own bot? [Create a bot, connect it and invite your testers](docs/your-own-bot.md).**
 Includes a local-model setup, an existing-agent connection and the privacy boundaries.

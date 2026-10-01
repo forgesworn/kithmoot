@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The app, desktop and Android icons move to the new vortex.** `npm run
+  brand:build` now renders from `art/brand/2026-09-29`: the gradient mark on
+  white for the PWA and touch icons, the small flat mark for favicons and
+  anything 32 px or under, and a rounded tile on the macOS icon grid for the
+  Mac, Windows and Linux builds (`desktop/icons/`, and a regenerated
+  `KithMoot.ico`). The Android launcher becomes the vortex on white, inset to
+  the adaptive safe zone, with a monochrome mark for themed icons.
 - **The website moves to kithmoot.app, with the new identity.** The vortex
   mark and wordmark from `art/brand/2026-09-29`, the brand palette and Inter,
   self-hosted. The homepage is shorter and plainer: a screenshot of the real
