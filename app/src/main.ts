@@ -1543,7 +1543,23 @@ function renderKeepChoice(): void {
     : 'Off: this device only holds the room\u2019s key while a tab is open on it. Until you switch this on, your rooms list cannot check this room and nothing will tell you about it.'
 }
 
+/** Public relays drop a regular-kind event after hours or days (nos.lol keeps
+ *  it under three days, primal.net under one), and a persistent link is only
+ *  as durable as its signed invitation. The device that made the link signs it
+ *  again while the room is open, so a link shared long after creation still
+ *  loads. Best effort: a refused write is tried again next round. */
+const GROUP_INVITATION_REFRESH_MS = 6 * 60 * 60 * 1000
+let groupInvitationRefresh: ReturnType<typeof setInterval> | undefined
+
+function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array): void {
+  const refresh = (): void => { void publishGroupInvitation(invitation, secret, inviterSk, relays).catch(() => { /* Retried next round. */ }) }
+  refresh()
+  groupInvitationRefresh = setInterval(refresh, GROUP_INVITATION_REFRESH_MS)
+}
+
 function stopInvitationHost(): void {
+  if (groupInvitationRefresh !== undefined) clearInterval(groupInvitationRefresh)
+  groupInvitationRefresh = undefined
   invitationHost?.close()
   invitationTransport?.close()
   invitationHost = undefined
@@ -1553,6 +1569,7 @@ function stopInvitationHost(): void {
 function serveCurrentInvitation(): void {
   stopInvitationHost()
   const invitation = roomInvitationCapability
+  if (invitation?.persistent && invitationAuthoritySk && invitationDelegation.length === 0) keepGroupInvitationAlive(invitation, roomSecret, invitationAuthoritySk)
   if (!invitation || !invitationAuthoritySk || invitation.persistent) return
   invitationTransport = configuredPool(relays)
   try {
