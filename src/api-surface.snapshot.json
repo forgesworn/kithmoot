@@ -348,6 +348,7 @@
     "MAX_EXHAUSTED_RETRY_MS",
     "MAX_FORMANT_RATIO",
     "MAX_INVITATION_DELEGATION_DEPTH",
+    "MAX_INVITATION_RELAYS",
     "MAX_INVITE_LINK_LENGTH",
     "MAX_MENTIONS",
     "MAX_MESSAGE_ID_LENGTH",
@@ -688,6 +689,7 @@
     "isDowngrade",
     "isGloballyRoutable",
     "isIdentitySettings",
+    "isInvitationRelays",
     "isLane",
     "isLoopbackHostname",
     "isQuietPolicy",
@@ -762,6 +764,7 @@
     "requestRoomAdmissionCapability",
     "requestRoomEpoch",
     "requireFreshAnonymousPersona",
+    "requireInvitationRelays",
     "requireRoomEnds",
     "reseedCandidates",
     "resolveConversation",
@@ -895,11 +898,14 @@
     "safeRelayUrls"
   ],
   "persistent-invitation": [
+    "MAX_INVITATION_RELAYS",
     "PERSISTENT_INVITATION_LABELS",
     "PersistentRoomAdmission",
     "decodePersistentInvitation",
     "encodePersistentInvitation",
-    "requestPersistentRoomAdmission"
+    "isInvitationRelays",
+    "requestPersistentRoomAdmission",
+    "requireInvitationRelays"
   ],
   "room": [
     "ROOM_LABELS",

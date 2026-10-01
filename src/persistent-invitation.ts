@@ -6,4 +6,7 @@ export {
   decodePersistentInvitation,
   requestPersistentRoomAdmission,
   PERSISTENT_INVITATION_LABELS,
+  isInvitationRelays,
+  requireInvitationRelays,
+  MAX_INVITATION_RELAYS,
 } from '@forgesworn/fold-kit'

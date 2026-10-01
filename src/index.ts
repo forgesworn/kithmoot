@@ -100,7 +100,7 @@ export {
   PERSON_CREDENTIAL_MAX_SECONDS,
   RestampedCredentialExpiryError,
 } from './credential.js'
-export { encodePersistentInvitation, decodePersistentInvitation, requestPersistentRoomAdmission } from './persistent-invitation.js'
+export { encodePersistentInvitation, decodePersistentInvitation, requestPersistentRoomAdmission, isInvitationRelays, requireInvitationRelays, MAX_INVITATION_RELAYS } from './persistent-invitation.js'
 export type { PersistentRoomAdmission } from './persistent-invitation.js'
 export { readRendezvousProvision, readRendezvousProvisionEnvelope, RENDEZVOUS_PURPOSE, RENDEZVOUS_PROVISION_MAX_SECONDS } from './rendezvous-provisioning.js'
 export type { RendezvousProvision, RendezvousProvisionExpect, RendezvousProvisionResult, RendezvousProvisionEnvelope, RendezvousProvisionEnvelopeResult } from './rendezvous-provisioning.js'
