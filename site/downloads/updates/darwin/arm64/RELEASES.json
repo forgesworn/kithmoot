@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.31",
+  "currentRelease": "0.1.32",
   "releases": [
     {
-      "version": "0.1.31",
+      "version": "0.1.32",
       "updateTo": {
-        "version": "0.1.31",
-        "pub_date": "2026-10-01T09:30:00Z",
-        "notes": "Coming back to a room no longer waits on your Nostr signer while your last pass for it is still good, and a room you were in opens even when your bunker cannot be reached. Private conversations you start go to the relays you and the other person chose for private conversations.",
-        "name": "0.1.31",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.31/KithMoot-0.1.31-mac-arm64.zip",
-        "sha256": "6cdcff3c106df0e3038cbbdec5d02dea155fe0d2f2357d7b7d79f1bc8dd780c0",
-        "size": 137589323
+        "version": "0.1.32",
+        "pub_date": "2026-10-01T09:40:00Z",
+        "notes": "Sharing another app's window keeps your own preview, so you can draw on it again, and sharing KithMoot itself no longer shows the share inside itself. A redacted share is covered while another desktop slides in. The call controls are one row, with the rest under More, and two of your cameras show as two equal angles. A group link whose relays lost its invitation is found on yours, and a signer that does not answer is named as the problem.",
+        "name": "0.1.32",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.32/KithMoot-0.1.32-mac-arm64.zip",
+        "sha256": "c1951031e261d560562e0c7f7c8e09c2a64ab840d985cdf328f9fc60e7204860",
+        "size": 137591868
       }
     }
   ]
