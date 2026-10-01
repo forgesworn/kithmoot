@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.37",
+  "currentRelease": "0.1.38",
   "releases": [
     {
-      "version": "0.1.37",
+      "version": "0.1.38",
       "updateTo": {
-        "version": "0.1.37",
-        "pub_date": "2026-10-01T17:15:00Z",
-        "notes": "Conference rooms: a room can have an end date, and it ends for everyone when the time comes. Invite someone by QR code.",
-        "name": "0.1.37",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.37/KithMoot-0.1.37-mac-arm64.zip",
-        "sha256": "2e04707f65c2acfe2723c36f350ba70f967ed6c647179b1d4641d6328d1f2a86",
-        "size": 136407287
+        "version": "0.1.38",
+        "pub_date": "2026-10-01T17:45:00Z",
+        "notes": "A room's relays are fixed when it is created and always in every member's pool, so nobody has to add them by hand.",
+        "name": "0.1.38",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.38/KithMoot-0.1.38-mac-arm64.zip",
+        "sha256": "74ef21814612253d9c806fb98c29b779341e80dcdb37fade2e11b668e85ccd8a",
+        "size": 136409052
       }
     }
   ]
