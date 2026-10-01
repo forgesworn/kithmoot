@@ -1,5 +1,20 @@
-# kithmoot.forgesworn.dev - the page at the root, the PWA at /j, the APKs at
-# /apk. Served from /var/www/kithmoot/current on the shared "stall" box.
+# kithmoot.app and kithmoot.forgesworn.dev, from one release directory.
+#
+#   kithmoot.app            the website, the downloads page and the APKs.
+#                           /j redirects to the app on kithmoot.forgesworn.dev.
+#   www.kithmoot.app        redirects to kithmoot.app.
+#   kithmoot.forgesworn.dev the PWA at /j, the APKs at /apk, TURN credentials,
+#                           the drop tier, Blossom, and the desktop update
+#                           feed. Its website pages redirect to kithmoot.app.
+#
+# Both serve /var/www/kithmoot/current on the shared "stall" box.
+#
+# The app stays on kithmoot.forgesworn.dev until it is moved on purpose. A
+# room link is written from the origin the app runs on, a browser keeps a
+# visitor's rooms and identity per origin, the desktop clients pin this
+# origin, and kithmoot.app is proxied by Cloudflare, whose request-size cap
+# is below the 270 MiB a Blossom upload may need. Moving the app is all of
+# those at once, not a DNS change.
 #
 # Install: additive conf.d drop-in, imported by the main Caddyfile's
 # `import /etc/caddy/conf.d/*.Caddyfile`. Copy this to
@@ -12,8 +27,54 @@
 # Run deploy/deploy.sh at least once first, so /var/www/kithmoot/current
 # exists: an absent root is a startup error, not a soft 404.
 #
-# Auto-TLS: the A record is grey-cloud (DNS-only) to this origin, so Caddy
-# issues and renews the Let's Encrypt certificate itself.
+# Auto-TLS: kithmoot.forgesworn.dev's A record is grey-cloud (DNS-only) to
+# this origin. kithmoot.app is orange-cloud, like the other proxied sites on
+# this box; Cloudflare passes the ACME HTTP challenge through, so Caddy
+# issues and renews both certificates itself.
+
+# Shared by both website hosts. Snippet names are global across every
+# conf.d drop-in, hence the prefix.
+(kithmoot_pages) {
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		?Cache-Control "no-cache"
+	}
+
+	# The downloads page runs one script of its own, downloads.js, which
+	# picks the installer for the visitor's computer and reads versions.json
+	# for the version picker. Same origin only; it sends nothing anywhere.
+	@downloads path /downloads /downloads/*
+	header @downloads {
+		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+		Content-Security-Policy "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+	}
+
+	# Everything else: the marketing page, which is HTML, CSS, images and
+	# one self-hosted font with no script of any kind, and the APK
+	# downloads, which are bytes.
+	@notApp {
+		not path /j /j/*
+		not path /downloads /downloads/*
+	}
+	header @notApp {
+		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+		Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+	}
+
+	# Versioned APKs never change. The moving latest link must be re-fetched.
+	@apk {
+		path /apk/*.apk
+		not path /apk/kithmoot-latest.apk
+	}
+	header @apk Cache-Control "public, max-age=604800"
+	@apkLatest path /apk/kithmoot-latest.apk
+	header @apkLatest Cache-Control "no-cache, no-store, must-revalidate"
+}
+
 kithmoot.forgesworn.dev {
 	root * /var/www/kithmoot/current
 	encode zstd gzip
@@ -102,6 +163,14 @@ kithmoot.forgesworn.dev {
 		reverse_proxy 127.0.0.1:8092
 	}
 
+	# The website lives at kithmoot.app now. Only its pages move: the app,
+	# the APKs, the endpoints above, the desktop update feed under
+	# /downloads/updates/, versions.json and the root icons the app loads
+	# all keep answering here. An allowlist, not "everything but", so a
+	# path nobody thought of keeps working instead of leaving.
+	@movedPages path / /index.html /downloads /downloads/ /downloads/index.html /terms /terms/ /terms/index.html /privacy /privacy/ /privacy/index.html /report /report/ /report/index.html
+	redir @movedPages https://kithmoot.app{uri} 301
+
 	# The APKs live outside the release directories, so a rollback of the
 	# site does not take the downloads with it and a redeploy does not
 	# re-upload 50 MB.
@@ -128,14 +197,10 @@ kithmoot.forgesworn.dev {
 	# which loads as a blank page with the camera disabled. Disjoint
 	# matchers make that failure impossible rather than merely unlikely.
 
-	header {
-		-Server
-		X-Content-Type-Options nosniff
-		Referrer-Policy strict-origin-when-cross-origin
-		X-Frame-Options DENY
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		?Cache-Control "no-cache"
-	}
+	# The page headers and the APK caching are shared with kithmoot.app;
+	# see the kithmoot_pages snippet at the top of this file.
+	import kithmoot_pages
+
 
 	@app path /j /j/*
 	header @app {
@@ -171,27 +236,6 @@ kithmoot.forgesworn.dev {
 		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 	}
 
-	# The downloads page runs one script of its own, downloads.js, which
-	# picks the installer for the visitor's computer and reads versions.json
-	# for the version picker. Same origin only; it sends nothing anywhere.
-	@downloads path /downloads /downloads/*
-	header @downloads {
-		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
-		Content-Security-Policy "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-	}
-
-	# Everything else: the marketing page, which is HTML, CSS and three WebP
-	# images with no script of any kind, and the APK downloads, which are
-	# bytes.
-	@notApp {
-		not path /j /j/*
-		not path /downloads /downloads/*
-	}
-	header @notApp {
-		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
-		Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-	}
-
 	# --- caching -------------------------------------------------------
 
 	# Everything under /j/assets/ is content-hashed by the Vite build, so
@@ -206,14 +250,6 @@ kithmoot.forgesworn.dev {
 	@noCache path /j/sw.js /j/index.html /j/ /j /j/manifest.webmanifest
 	header @noCache Cache-Control "no-cache, no-store, must-revalidate"
 
-	# Versioned APKs never change. The moving latest link must be re-fetched.
-	@apk {
-		path /apk/*.apk
-		not path /apk/kithmoot-latest.apk
-	}
-	header @apk Cache-Control "public, max-age=604800"
-	@apkLatest path /apk/kithmoot-latest.apk
-	header @apkLatest Cache-Control "no-cache, no-store, must-revalidate"
 
 	# No access logs, matching every other conf.d drop-in on this box
 	# (cambium, flock, farrier-kit, heartwood, meatchat) and matching what
@@ -224,6 +260,38 @@ kithmoot.forgesworn.dev {
 	# any log file the config names, owned by root; the caddy user then
 	# cannot open it and every subsequent reload fails with a permission
 	# error on a file nobody remembers creating.
+	log {
+		output discard
+	}
+}
+
+# The website. /j goes to the app where it lives (302: it is expected to
+# move); the browser carries the #invitation through the redirect.
+kithmoot.app {
+	root * /var/www/kithmoot/current
+	encode zstd gzip
+
+	@app path /j /j/*
+	redir @app https://kithmoot.forgesworn.dev{uri} 302
+
+	handle /apk/* {
+		root * /var/www/kithmoot
+		file_server
+	}
+
+	handle {
+		file_server
+	}
+
+	import kithmoot_pages
+
+	log {
+		output discard
+	}
+}
+
+www.kithmoot.app {
+	redir https://kithmoot.app{uri} 301
 	log {
 		output discard
 	}

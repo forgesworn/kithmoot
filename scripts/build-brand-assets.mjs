@@ -1,6 +1,8 @@
 // Render the approved sculptural artwork at platform sizes. No design edits.
+// The site/ root icons are the app's (it loads them from the site root); the
+// website's own identity is scripts/build-site-brand.mjs.
 import { chromium } from '@playwright/test'
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -20,20 +22,6 @@ try {
       await page.screenshot({ path: resolve(out, name) })
     }
   }
-  await mkdir(resolve(root, 'site/img'), { recursive: true })
-  await copyFile(resolve(master, 'artwork.png'), resolve(root, 'site/img/kithmoot-artwork.png'))
-  const webp = await page.evaluate(async source => {
-    const image = new Image()
-    image.src = source
-    await image.decode()
-    const canvas = document.createElement('canvas')
-    canvas.width = image.naturalWidth
-    canvas.height = image.naturalHeight
-    canvas.getContext('2d').drawImage(image, 0, 0)
-    return canvas.toDataURL('image/webp', .96).split(',')[1]
-  }, artwork)
-  await writeFile(resolve(root, 'site/img/kithmoot-artwork.webp'), Buffer.from(webp, 'base64'))
-
 } finally {
   await browser.close()
 }

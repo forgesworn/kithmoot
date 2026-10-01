@@ -8,9 +8,10 @@ import { reactionText, toggleReaction } from '../../src/reactions.js'
 import { TEST_RELAY_WS } from '../browser.js'
 
 /**
- * Regenerates the website's hero image, `site/img/web-conversation.png`,
- * from the real app: a room with a thread, an edit, a reaction and a
- * mention, on a phone-sized screen. Run with
+ * Regenerates the website's hero images, `site/img/web-conversation.png`
+ * and `site/img/web-desktop.jpg`, from the real app: a room with a thread,
+ * an edit, a reaction and a mention, on a phone-sized and a laptop-sized
+ * screen. Run with
  *
  *   npx playwright test -c test/tools/playwright.config.ts
  *
@@ -18,9 +19,15 @@ import { TEST_RELAY_WS } from '../browser.js'
  * marketing page and is regenerated on purpose, never edited by hand. Every
  * name in it is invented.
  */
-test('the hero image shows the conversation the page describes', async ({ browser, baseURL }) => {
+const shots = [
+  { name: 'phone', viewport: { width: 390, height: 880 }, path: 'site/img/web-conversation.png' },
+  // The same conversation on a laptop-sized window, for the page's hero.
+  { name: 'desktop', viewport: { width: 1280, height: 800 }, path: 'site/img/web-desktop.jpg' },
+]
+
+for (const shot of shots) test(`the ${shot.name} hero image shows the conversation the page describes`, async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
-  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 880 }, deviceScaleFactor: 2, colorScheme: 'light' })
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: shot.viewport, deviceScaleFactor: 2, colorScheme: 'light' })
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'The workshop', relays: [relay.href], iceUrls: [] })
@@ -74,7 +81,7 @@ test('the hero image shows the conversation the page describes', async ({ browse
     await expect(page.locator('#outbox')).toBeHidden()
     await root.evaluate((el) => el.scrollIntoView({ block: 'start' }))
     await page.waitForTimeout(300)
-    await page.screenshot({ path: 'site/img/web-conversation.png' })
+    await page.screenshot(shot.path.endsWith('.jpg') ? { path: shot.path, type: 'jpeg', quality: 82 } : { path: shot.path })
   } finally {
     await rowan.leave()
     await scribe?.leave()

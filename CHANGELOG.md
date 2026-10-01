@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The website moves to kithmoot.app, with the new identity.** The vortex
+  mark and wordmark from `art/brand/2026-09-29`, the brand palette and Inter,
+  self-hosted. The homepage is shorter and plainer: a screenshot of the real
+  app, eight features in a sentence or two each, three steps, and a download
+  card per platform with a direct installer link; the downloads, terms,
+  privacy and report pages share the new header and footer. The old host's
+  pages redirect to kithmoot.app; the app stays at
+  `kithmoot.forgesworn.dev/j` for now, and kithmoot.app/j redirects to it.
+  `npm run brand:site` renders the site's icons and social card from the
+  vector masters, and the site test now fails if the homepage offers an
+  installer the downloads page does not.
 - Bump `@forgesworn/fold-kit` to 0.2.0: `createDeviceCredential` now refuses
   a person-scope credential a restamping signer pushed over the 30-day cap,
   throwing the new, re-exported `RestampedCredentialExpiryError` at mint

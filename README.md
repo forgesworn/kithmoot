@@ -28,9 +28,9 @@ Three things hold through every rewrite:
   nothing you did not switch on, and asks for approval in the room where
   everybody sees the answer.
 
-**Live at [kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/).** The app
-is at [`/j`](https://kithmoot.forgesworn.dev/j/); the root is a page explaining
-what this is. `/j` is short on purpose: invitation and network hints still
+**Live at [kithmoot.app](https://kithmoot.app/).** The app is at
+[`kithmoot.forgesworn.dev/j`](https://kithmoot.forgesworn.dev/j/) for now;
+kithmoot.app/j redirects there. `/j` is short on purpose: invitation and network hints still
 have to fit in a QR code, and every character in the path costs density.
 
 ## The claim
@@ -801,8 +801,8 @@ to show it.
 
 ## Publishing
 
-Live at [kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/), served by
-Caddy from a Hetzner box. `deploy/deploy.sh` builds the app, assembles `site/`
+Live at [kithmoot.app](https://kithmoot.app/), with the app on
+`kithmoot.forgesworn.dev/j`, both served by Caddy from a Hetzner box. `deploy/deploy.sh` builds the app, assembles `site/`
 at the root with `app/dist` under `j/`, rsyncs it into a timestamped release
 directory and flips a `current` symlink at it. A rollback is one symlink
 change; nothing is ever built in place, and nothing is deleted without
@@ -854,8 +854,12 @@ Two things in there are load-bearing and easy to get quietly wrong:
   `img-src https:` for kind-0 profile pictures, and `style-src 'unsafe-inline'`
   because `signet-login` builds its signer picker with a `<style>` element.
 
-DNS is a plain `A` record for `kithmoot` in `forgesworn.dev`, grey cloud rather
-than proxied, so Caddy issues and renews the Let's Encrypt certificate itself.
+DNS for `kithmoot.forgesworn.dev` is a plain `A` record, grey cloud rather than
+proxied, so Caddy issues and renews the Let's Encrypt certificate itself.
+`kithmoot.app` is proxied by Cloudflare and Caddy holds its certificate too.
+The website's pages on the old host redirect to kithmoot.app; the app, the
+APKs, TURN, Blossom, the drop tier and the desktop update feed stay where they
+are. The vhost's header comment says why the app has not moved yet.
 
 The APKs are served from `/apk/`, with `kithmoot-latest.apk` symlinked at the
 reviewed public artifact. An APK is published only when its exact path is passed

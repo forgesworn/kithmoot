@@ -10,7 +10,7 @@ laptop from the same person are one tile with two tracks, not two strangers.
 An agent joins the same link a person was sent, on the same terms, and says
 it is one. It is for anyone who wants a Slack-and-Jitsi-grade workspace
 without a server that can be shut down, subpoenaed or read. Live at
-[kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/) (app under `/j/`).
+[kithmoot.app](https://kithmoot.app/) (app at `kithmoot.forgesworn.dev/j/`).
 
 ## Getting Started
 
