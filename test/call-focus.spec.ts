@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { closeCallView, createRoom, joinWithMedia, newDeviceContext, open, openCallView } from './browser.js'
+import { closeCallView, createRoom, joinWithMedia, newDeviceContext, offerPairing, open, openCall, openCallView } from './browser.js'
 
 /**
  * The call first, on a wide screen.
@@ -136,12 +136,23 @@ async function expectCallFirst(page: Page, label: string): Promise<void> {
     rows.add(Math.round(box.y / 4))
   }
   expect(rows.size, `${label}: the bar's buttons wrapped onto ${rows.size} rows`).toBe(1)
-  for (const summary of ['#callViewMenu > summary', '#callExtras > summary']) {
-    const box = (await page.locator(summary).boundingBox())!
-    expect(box.height, `${label}: ${summary} is ${box.height}px tall`).toBeGreaterThanOrEqual(44)
-  }
-  // What the microphone is doing, still said.
+  // More, in the same row, and the only menu: the view switcher and the
+  // call's settings are behind it rather than beside it.
+  const more = (await page.locator('#callExtras > summary').boundingBox())!
+  expect(more.height, `${label}: More is ${more.height}px tall`).toBeGreaterThanOrEqual(44)
+  rows.add(Math.round(more.y / 4))
+  expect(rows.size, `${label}: More is not in the row with the others`).toBe(1)
+  await expect(page.locator('#callViewMenu'), `${label}: View is behind More now`).toHaveCount(0)
+  // What the microphone is doing, still said - and said whole, never
+  // squeezed down to a letter beside the buttons.
   await expect(page.locator('#micIndicator')).toBeVisible()
+  for (const id of ['micIndicator', 'speakingNow']) {
+    const el = page.locator(`#${id}`)
+    if (!await el.isVisible()) continue
+    const { scroll, client, width } = await el.evaluate(node => ({ scroll: node.scrollWidth, client: node.clientWidth, width: node.getBoundingClientRect().width }))
+    expect(scroll, `${label}: #${id} is cut short`).toBeLessThanOrEqual(client + 1)
+    expect(width, `${label}: #${id} is squeezed to ${width.toFixed(0)}px`).toBeGreaterThan(40)
+  }
 }
 
 test('the call has the window: a full-height stage, one bar, one Leave', async ({ browser, baseURL }) => {
@@ -192,13 +203,13 @@ test('the call has the window: a full-height stage, one bar, one Leave', async (
     const last = await ada.evaluate(() => document.activeElement?.id)
     expect(['callFullscreen', 'callChatToggle']).toContain(last)
 
-    // The view switcher is behind View, and choosing puts the menu away.
+    // The view switcher is behind More, and choosing puts the menu away.
     await openCallView(ada)
     await ada.locator('.callViewOptions > summary').click()
     await shot(ada, 'view-menu-open')
     await ada.locator('.callViewOptions > summary').click()
     await ada.locator('#callView').getByRole('button', { name: 'Speaker', exact: true }).click()
-    await expect(ada.locator('#callViewMenu')).not.toHaveAttribute('open', '')
+    await expect(ada.locator('#callExtras')).not.toHaveAttribute('open', '')
     await expect(ada.locator('#room')).toHaveAttribute('data-layout', 'solo')
     await openCallView(ada)
     await ada.locator('#callView').getByRole('button', { name: 'Gallery', exact: true }).click()
@@ -324,6 +335,97 @@ test('the chat panel opens from the bar, counts what arrived while shut, and is 
     await expect(ada.locator('html')).not.toHaveAttribute('data-call-first', '')
     await expect(ada.locator('#callToggle')).toBeVisible()
     await expect(ada.locator('#chatInput')).toBeVisible()
+  } finally {
+    for (const context of contexts) await context.close()
+  }
+})
+
+test('a narrow call column with two of your devices: one row of buttons, nothing cut short', async ({ browser, baseURL }) => {
+  // The owner's screenshots, twice over: the call in a column beside the
+  // chat, and the bar wrapped into a stack eleven controls tall with "Your
+  // microp..." cut off; then, wider, the microphone and speaking lines
+  // squeezed to "N..." and "Y..." beside the buttons and "Sound plays"
+  // running off the edge of the panel. Two of Ada's devices are on the call
+  // so the two-device line is there to measure.
+  test.skip(!baseURL, 'no baseURL resolved')
+  test.setTimeout(300_000)
+  await mkdir(SHOTS, { recursive: true })
+  const contexts: BrowserContext[] = []
+  try {
+    const laptopContext = await newDeviceContext(browser, baseURL!)
+    contexts.push(laptopContext)
+    const laptop = await laptopContext.newPage()
+    await laptop.setViewportSize({ width: 1000, height: 1000 })
+    const url = await createRoom(laptop, baseURL!)
+    await joinWithMedia(laptop, url, 'Ada')
+    const pairUrl = await offerPairing(laptop)
+
+    const phoneContext = await newDeviceContext(browser, baseURL!)
+    contexts.push(phoneContext)
+    // Role claims are in whole seconds: the phone's clock runs ahead so its
+    // microphone claim is the later one, as in media.spec.ts.
+    await phoneContext.addInitScript(() => {
+      const real = Date.now
+      Date.now = () => real() + 20_000
+    })
+    const phone = await phoneContext.newPage()
+    await Promise.all([open(phone, pairUrl, 'Ada'), laptop.getByRole('button', { name: 'Add device', exact: true }).click()])
+    await phone.locator('#join').click()
+    await expect(phone.locator('#roomArea')).toBeVisible()
+    await openCall(phone)
+    await phone.locator('#toggleMic').click()
+    await joinCall(browser, baseURL!, url, 'Morgs', contexts)
+
+    await expect(laptop.locator('html')).toHaveAttribute('data-call-first', '', { timeout: 90_000 })
+    await expect(laptop.locator('#micIndicator')).toHaveText('Your microphone is on your other device.', { timeout: 60_000 })
+    await phone.evaluate(() => (document.getElementById('listenHere') as HTMLButtonElement).click())
+    await expect(laptop.locator('#monitorIndicator')).toHaveText('Mic and sound are on your other device.', { timeout: 60_000 })
+    await expect(laptop.locator('#claimMic')).toBeVisible()
+    await expect(laptop.locator('#listenHere')).toBeVisible()
+
+    if (await laptop.locator('#callChatToggle').getAttribute('aria-expanded') === 'false') await laptop.locator('#callChatToggle').click()
+    const divider = laptop.locator('#callChatDivider')
+    await divider.focus()
+
+    // At the default split, then dragged down to a ~430px column.
+    for (const target of [Infinity, 480]) {
+      while ((await laptop.locator('#callStage').boundingBox())!.width > target) await laptop.keyboard.press('ArrowLeft')
+      await laptop.waitForTimeout(300)
+      const stage = (await laptop.locator('#callStage').boundingBox())!
+      const label = `${stage.width.toFixed(0)}px call column`
+      await shot(laptop, `two-devices-${stage.width.toFixed(0)}`)
+
+      // Every line in the bar is whole: nothing ellipsised, nothing past
+      // the panel's edges.
+      const bay = (await laptop.locator('#callBay').boundingBox())!
+      for (const id of ['monitorIndicator', 'claimMic', 'listenHere', 'speakingNow', 'micIndicator']) {
+        const el = laptop.locator(`#${id}`)
+        if (!await el.isVisible()) continue
+        const { scroll, client } = await el.evaluate(node => ({ scroll: node.scrollWidth, client: node.clientWidth }))
+        expect(scroll, `${label}: #${id} is cut short`).toBeLessThanOrEqual(client + 1)
+        const box = (await el.boundingBox())!
+        expect(box.width, `${label}: #${id} is squeezed to ${box.width.toFixed(0)}px`).toBeGreaterThan(40)
+        expect(box.x, `${label}: #${id} starts outside the panel`).toBeGreaterThanOrEqual(bay.x - 1)
+        expect(box.x + box.width, `${label}: #${id} runs past the panel`).toBeLessThanOrEqual(bay.x + bay.width + 1)
+      }
+      // The microphone is said once, by the two-device line.
+      await expect(laptop.locator('#micIndicator')).toBeHidden()
+
+      // One row: Mic, Camera, Share, More, Leave - and Leave last of them.
+      const ids = ['#toggleMic', '#toggleCamera', '#toggleScreen', '#callExtras > summary', '#leaveCall']
+      const boxes = await Promise.all(ids.map(async id => (await laptop.locator(id).boundingBox())!))
+      for (const [i, box] of boxes.entries()) {
+        expect(box.height, `${label}: ${ids[i]} is ${box.height}px tall`).toBeGreaterThanOrEqual(44)
+        expect(Math.abs(box.y - boxes[0].y), `${label}: ${ids[i]} is not on the row`).toBeLessThanOrEqual(2)
+        if (i > 0) expect(box.x, `${label}: ${ids[i]} is out of order`).toBeGreaterThan(boxes[i - 1].x)
+      }
+
+      // And the picture has the column: the other person's tile is most of
+      // the room's height, not a box across its middle.
+      const room = (await laptop.locator('#room').boundingBox())!
+      const theirs = (await laptop.locator('#room > .participant[data-featured]').boundingBox())!
+      expect(theirs.height, `${label}: the other person is ${theirs.height.toFixed(0)}px of a ${room.height.toFixed(0)}px room`).toBeGreaterThan(room.height * 0.8)
+    }
   } finally {
     for (const context of contexts) await context.close()
   }

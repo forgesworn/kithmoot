@@ -17,6 +17,14 @@ import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUD
  * the same trick `SYNTHETIC_MIC` uses for the microphone.
  */
 
+/** Share an area, behind More with the call's other ways to share: the
+ *  bar itself keeps one Share. */
+async function clickShareArea(page: Page): Promise<void> {
+  const area = page.locator('#shareArea')
+  if (!await area.isVisible()) await page.locator('#callExtras > summary').click()
+  await area.click()
+}
+
 async function readDiagnostics(page: Page): Promise<{ me: { publishing: string[]; screenAudio: { present: boolean; muted?: boolean; readyState?: string } } }> {
   // Cleared first, and every call in these specs re-clicks: collection is
   // async (it walks every peer connection's stats), so a read taken soon
@@ -197,7 +205,7 @@ test('a desktop sharing area sends only its crop and covers invalid bounds', asy
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const popped = page.waitForEvent('popup')
-    await page.locator('#shareArea').click()
+    await clickShareArea(page)
     const popup = await popped
     await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
     await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
@@ -304,7 +312,7 @@ test('a full-screen area withholds this device\'s own live preview to avoid a mi
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const popped = page.waitForEvent('popup')
-    await page.locator('#shareArea').click()
+    await clickShareArea(page)
     const popup = await popped
     await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
     await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
@@ -358,7 +366,7 @@ test('cancelling an area chooser stops screen and audio returned afterwards', as
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const popped = page.waitForEvent('popup')
-    await page.locator('#shareArea').click()
+    await clickShareArea(page)
     const popup = await popped
     await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
     await expect.poll(() => page.evaluate(() => (window as any).__lateAreaTracks?.map((t: MediaStreamTrack) => t.readyState))).toEqual(['live', 'live'])

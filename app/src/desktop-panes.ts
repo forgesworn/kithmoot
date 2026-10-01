@@ -106,11 +106,10 @@ export function chatDrawerWidth(roomWidth: number, fraction: number = CHAT_PREFE
 // call-focus.ts for the pointer and keyboard handling this feeds; kept here,
 // pure, so the clamping is unit-tested without a browser.
 
-/** Where the divider sits, as a fraction of the room it divides, before
- *  anyone has dragged it. A plain fraction rather than the CSS default's
- *  `clamp(20rem, 24vw, 24rem)`, because a fraction is what survives a resize
- *  and a restart; close enough to it that turning the feature on does not
- *  visibly move anything on an ordinary window. */
+/** A fraction to fall back on where there is no room to measure one
+ *  against. The split before anybody drags it - and after Enter or a
+ *  double-click puts it back - is the CSS default, `--call-chat-w` in
+ *  call-focus.css, which leaves the call the larger share. */
 export const CHAT_DIVIDER_DEFAULT_FRACTION = 0.24
 
 /** How far one press of an arrow key moves the divider, and with Shift held
