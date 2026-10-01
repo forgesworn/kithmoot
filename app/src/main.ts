@@ -240,6 +240,7 @@ import { base64urlnopad } from '@scure/base'
 import { CallWakeLock } from './wake-lock.js'
 import { BrowserForwarderMediaPipeline } from './forwarder-media.js'
 import { relayOnlyIceConfiguration } from './relay-only.js'
+import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
 
 const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
@@ -9379,7 +9380,7 @@ function isUnreachableRelayFailure(error: unknown): boolean {
   return error instanceof Error && /no relay could be reached in time/.test(error.message)
 }
 
-async function startSession(asVisitor = false, retry?: { deadline: number }): Promise<void> {
+async function startSession(asVisitor = false, retry?: { deadline: number, signerRetried?: boolean }): Promise<void> {
   const generation = roomGeneration
   if (!retry && (joining || session || loginBusy)) return
   const requestedMedia = entryMediaChoice()
@@ -9834,11 +9835,23 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
       retrying = true
       setStatus("Still reaching the room's relays\u2026", 'progress')
       await new Promise(resolve => setTimeout(resolve, 1_000))
-      if (generation === roomGeneration) { await startSession(asVisitor, { deadline }); return }
+      if (generation === roomGeneration) { await startSession(asVisitor, { deadline, signerRetried: retry?.signerRetried }); return }
+      return
+    }
+    // A bunker that did not answer is asleep or waiting for a yes; see
+    // signer-timeout.ts. Tried once more while the person goes to look.
+    if (isSignerTimeout(err) && !retry?.signerRetried) {
+      retrying = true
+      console.error('join waiting for signer:', describeError(err))
+      setStatus(SIGNER_WAITING, 'progress')
+      if (generation === roomGeneration) { await startSession(asVisitor, { deadline: Date.now() + 20_000, signerRetried: true }); return }
       return
     }
     const message = describeError(err)
-    if (message.includes('expired')) {
+    if (isSignerTimeout(err)) {
+      console.error('join failed:', message)
+      setStatus(SIGNER_SILENT)
+    } else if (message.includes('expired')) {
       forgetCredential()
       setStatus('This device\u2019s pass for this room has run out. Ask your other device for a new one.')
     } else if (isNetworkFailure(err)) {
