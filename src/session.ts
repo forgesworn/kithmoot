@@ -314,6 +314,20 @@ export interface RoomSessionBaseOptions {
 export interface PrimaryRoomSessionOptions extends RoomSessionBaseOptions {
   identity: ParticipantIdentity
   credential?: never
+  /**
+   * A credential this device minted for itself in this room on an earlier
+   * join, offered so that joining again does not wait on the signer. A
+   * bunker reached over a relay can take seconds or not answer at all, and
+   * a room this device was in this morning should not be lost to that. It
+   * is used only when it names this room, this device and this participant
+   * and has at least `RESUME_MIN_REMAINING_SECONDS` left; anything else is
+   * ignored and a fresh one is minted, exactly as with none. Renewal then
+   * runs from its real expiry, in the background.
+   */
+  resume?: DeviceCredential
+  /** Called with every credential this device mints for itself, at join and
+   *  at each renewal, so the embedding can keep it to offer as `resume`. */
+  onCredential?: (credential: DeviceCredential) => void
 }
 
 /**
@@ -326,6 +340,8 @@ export interface PrimaryRoomSessionOptions extends RoomSessionBaseOptions {
 export interface SecondaryRoomSessionOptions extends RoomSessionBaseOptions {
   credential: DeviceCredential
   identity?: never
+  resume?: never
+  onCredential?: never
 }
 
 export type RoomSessionOptions = PrimaryRoomSessionOptions | SecondaryRoomSessionOptions
@@ -357,6 +373,15 @@ export const CREDENTIAL_RENEWAL_FRACTION = 0.5
 /** How long to wait before trying a renewal again after a signer refused or
  *  a relay was down. Short, because the clock is running on the old one. */
 const CREDENTIAL_RENEWAL_RETRY_MS = 60_000
+
+/** The least life a resumed credential must have left to be used at join.
+ *  Enough that a member whose clock runs a few minutes ahead does not refuse
+ *  it on arrival, and that the background renewal has room for retries. */
+export const RESUME_MIN_REMAINING_SECONDS = 10 * 60
+
+function credentialExpiresAt(credential: DeviceCredential): number {
+  return Number(credential.tags.find(tag => tag[0] === 'expiration')?.[1])
+}
 
 /**
  * How long a device stays in the roster after its last announcement.
@@ -602,8 +627,11 @@ export class RoomSession {
 
     const device = this.device
     // A secondary device uses the credential it was issued; only a primary,
-    // which is the only endpoint holding the participant key, can mint one.
-    const credential = this.#credential ?? (await this.issueDeviceCredential(device, this.#credentialTtl()))
+    // which is the only endpoint holding the participant key, can mint one,
+    // and it reuses the one it minted last time while that is still good.
+    const resumed = this.#resumable()
+    const credential = this.#credential ?? resumed ?? (await this.issueDeviceCredential(device, this.#credentialTtl()))
+    if (!this.#credential && !resumed) this.#announceCredential(credential)
 
     this.#self = { credential, tracks, claims }
 
@@ -776,11 +804,44 @@ export class RoomSession {
     this.#sweepTimer = this.#every(this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS, () => {
       if (this.#evictLapsed()) this.#notify()
     })
-    if (this.#opts.identity) this.#scheduleRenewal(this.#credentialTtl() * CREDENTIAL_RENEWAL_FRACTION * 1000)
+    if (this.#opts.identity) this.#scheduleRenewal(this.#renewalDelayMs(credential))
   }
 
   #credentialTtl(): number {
     return this.#opts.timing?.credentialTtlSeconds ?? CREDENTIAL_TTL_SECONDS
+  }
+
+  /** The offered `resume` credential, if it is one this device may present
+   *  here and now. Never throws: a stale or foreign one just means minting. */
+  #resumable(): DeviceCredential | undefined {
+    const resume = this.#opts.identity ? this.#opts.resume : undefined
+    if (!resume) return undefined
+    try {
+      const now = this.#now()
+      const verdict = verifyDeviceCredential(resume, { roomId: this.roomId, now })
+      if (!verdict.ok || verdict.device !== this.device || normaliseHex(verdict.participant) !== this.participant) return undefined
+      const expiresAt = credentialExpiresAt(resume)
+      return Number.isFinite(expiresAt) && expiresAt - now >= RESUME_MIN_REMAINING_SECONDS ? resume : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** When to mint the next credential: at the same point in its life a
+   *  fresh one would be renewed, which for a resumed one may be now. */
+  #renewalDelayMs(credential: DeviceCredential): number {
+    const ttl = this.#credentialTtl()
+    const renewAt = credentialExpiresAt(credential) - ttl * (1 - CREDENTIAL_RENEWAL_FRACTION)
+    if (!Number.isFinite(renewAt)) return ttl * CREDENTIAL_RENEWAL_FRACTION * 1000
+    return Math.max(0, (renewAt - this.#now()) * 1000)
+  }
+
+  #announceCredential(credential: DeviceCredential): void {
+    try {
+      this.#opts.onCredential?.(credential)
+    } catch {
+      // Keeping it is the embedding's convenience; the room does not wait on it.
+    }
   }
 
   /** The proof this device puts on what it publishes: only when it says it
@@ -1153,8 +1214,9 @@ export class RoomSession {
       this.#self = { ...this.#self, credential }
       this.#chat?.setCredential(credential)
       for (const log of this.#channels.values()) log.setCredential(credential)
+      this.#announceCredential(credential)
       await this.#publishEntry(true)
-      this.#scheduleRenewal(this.#credentialTtl() * CREDENTIAL_RENEWAL_FRACTION * 1000)
+      this.#scheduleRenewal(this.#renewalDelayMs(credential))
     } catch {
       this.#scheduleRenewal(Math.min(CREDENTIAL_RENEWAL_RETRY_MS, this.#credentialTtl() * 1000))
     }

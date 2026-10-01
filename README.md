@@ -496,7 +496,8 @@ which it has.
 
 A signer that can prove who you are but cannot sign afterwards (an
 auth-only session) is refused with a reason, because a room needs that one
-signature per join.
+signature on first joining it (and one every six hours while it stays
+open; coming back within the twelve hours reuses the last).
 
 ### What a name is worth, stated plainly
 

@@ -469,6 +469,18 @@ now re-mints halfway through and restates itself under the new one, as an
 answer, because nothing has arrived. A secondary cannot: its credential was
 issued by the primary, and a new one is a new pairing.
 
+Coming back does not mint either. A primary keeps the credential it last
+minted for a room, beside the device key it names, and offers it on the next
+join (`resume` on `RoomSession`); the session uses it if it names this room,
+this device and this participant and has ten minutes left, and renews it in
+the background from its real expiry. A bunker reached over a relay can take
+seconds or never answer, and every join used to wait on it, so a person
+could lose a room they were in that morning to a signer timeout. The first
+join of a room still needs the signer, which is right: that is the moment
+the person says this device speaks for them there. What is kept authorises
+one device key, in one room, for at most twelve hours, and sign-out and
+Forget room remove it.
+
 ## An agent says it is one, and the switch is on the sender
 
 `RosterEntry.agent` is self-declared, like a name, and what it is for is

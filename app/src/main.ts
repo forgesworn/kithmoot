@@ -46,10 +46,13 @@ import {
   forgetCredentialFor,
   forgetLegacyStorage,
   forgetKeptAdmission,
+  forgetOwnCredentials,
   isPairedSecondary,
   loadCredentialFor,
   loadKeptAdmission,
+  loadOwnCredentialFor,
   storeCredentialFor,
+  storeOwnCredentialFor,
   storeKeptAdmission,
   type SavedRoomAdmission,
   memoryDeviceStore,
@@ -706,7 +709,9 @@ function storeCredential(credential: DeviceCredential): void {
 
 function forgetCredential(): void {
   const roomId = currentRoomId()
-  if (roomId) forgetCredentialFor(deviceStore, roomId)
+  if (!roomId) return
+  forgetCredentialFor(deviceStore, roomId)
+  forgetOwnCredentials(deviceStore, roomId)
 }
 
 /** This device's own key for the current room, kept across loads so a
@@ -898,7 +903,7 @@ async function signInWithNostr(): Promise<void> {
     await logout(account)
     throw new Error(
       'That sign-in can prove who you are but cannot sign anything afterwards, ' +
-        'and a room needs one signature per join. Try an extension or a bunker.',
+        'and a room needs a signature to let this device in. Try an extension or a bunker.',
     )
   }
 
@@ -940,6 +945,9 @@ async function signOutOfNostr(): Promise<void> {
   readSync?.close()
   readSync = undefined
   nostrSession = undefined
+  // Each one speaks for the account in a room; a session under another
+  // identity would refuse them anyway, but they should not outlive it here.
+  try { forgetOwnCredentials(deviceStore) } catch { /* storage may be unavailable */ }
   sessionStorage.removeItem(WAY_BACK_KEY)
   $('roomSyncStatus').textContent = ''
   refreshAccountRooms()
@@ -9405,14 +9413,14 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // hands the wrapper the epoch key. The device holding the identity is
     // slot 0, the device it paired slot 1; each draws from its own half of
     // the member's drop keys, so no key is used twice. See src/quiet.ts.
-    const quietRoomId = deriveRoom(roomSecret).roomId
+    const sessionRoomId = deriveRoom(roomSecret).roomId
     quietTransport = isQuietPolicy(roomPolicy)
       ? quietRoomTransport(pool, {
           policy: roomPolicy!,
           participant: credential ? credential.pubkey : currentIdentity().pubkey,
           slot: credential ? 1 : 0,
-          used: loadQuietState(deviceStore, quietRoomId, nowSeconds()).used,
-          reservedCounters: epoch => cadenceReservedCounters(deviceStore, quietRoomId, deviceId, epoch),
+          used: loadQuietState(deviceStore, sessionRoomId, nowSeconds()).used,
+          reservedCounters: epoch => cadenceReservedCounters(deviceStore, sessionRoomId, deviceId, epoch),
           intervalSeconds: QUIET_SLOT,
           onUsed: () => persistQuiet(),
           onPosted: () => persistQuiet(),
@@ -9476,6 +9484,15 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // A local key or an external signer - the session cannot tell,
           // and does not need to. See src/identity.ts.
           identity: currentIdentity(),
+          // Coming back to a room should not wait on a bunker: the
+          // credential minted last time is offered, and the session uses it
+          // only if it is still this device's and still good. Kept by the
+          // room id this session was built for, which a docked call may
+          // not share with the screen.
+          resume: loadOwnCredentialFor(deviceStore, sessionRoomId, nowSeconds()),
+          onCredential: (minted) => {
+            try { storeOwnCredentialFor(deviceStore, sessionRoomId, minted) } catch { /* storage may be unavailable */ }
+          },
           deviceSk,
           factory,
           policy: roomPolicy,
@@ -11001,6 +11018,7 @@ function forgetLocally(roomId: string): void {
   readSync?.forget(roomId)
   forgetRoomAccess(deviceStore, roomId)
   forgetRoomAccess(browserDeviceStore(sessionStorage), roomId)
+  forgetOwnCredentials(deviceStore, roomId)
   forgetQuietState(deviceStore, roomId)
   forgetRoom(deviceStore, roomId)
   renderRooms()

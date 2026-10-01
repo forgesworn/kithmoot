@@ -4,16 +4,20 @@ import {
   DEVICE_KEY_MAX_AGE_SECONDS,
   KEPT_ADMISSION_PREFIX,
   KEPT_ADMISSION_TTL_SECONDS,
+  OWN_CREDENTIAL_PREFIX,
   deviceKeyFor,
   forgetCredentialFor,
   forgetKeptAdmission,
   forgetLegacyStorage,
+  forgetOwnCredentials,
   isPairedSecondary,
   loadCredentialFor,
   loadKeptAdmission,
+  loadOwnCredentialFor,
   memoryDeviceStore,
   storeCredentialFor,
   storeKeptAdmission,
+  storeOwnCredentialFor,
 } from './device-store.js'
 import type { DeviceCredential } from '../../src/types.js'
 import type { RoomAdmission } from '../../src/invitation.js'
@@ -77,6 +81,41 @@ describe('per-room device keys', () => {
     expect(isPairedSecondary(store)).toBe(false)
     storeCredentialFor(store, ROOM_B, credential('device-b'))
     expect(isPairedSecondary(store)).toBe(true)
+  })
+
+  it('keeps the credential this browser minted for itself apart, so keeping one does not make it a secondary', () => {
+    const store = memoryDeviceStore()
+    const own = { ...credential('device-a'), tags: [['d', 'device-a'], ['expiration', String(NOW + 3600)]] }
+    storeOwnCredentialFor(store, ROOM_A, own)
+    expect(isPairedSecondary(store)).toBe(false)
+    expect(loadCredentialFor(store, ROOM_A)).toBeUndefined()
+    expect(loadOwnCredentialFor(store, ROOM_A, NOW)?.tags).toEqual(own.tags)
+    expect(loadOwnCredentialFor(store, ROOM_B, NOW)).toBeUndefined()
+  })
+
+  it('removes an own credential that has expired, or that does not parse, on the way through', () => {
+    const store = memoryDeviceStore()
+    storeOwnCredentialFor(store, ROOM_A, { ...credential('device-a'), tags: [['expiration', String(NOW)]] })
+    expect(loadOwnCredentialFor(store, ROOM_A, NOW)).toBeUndefined()
+    expect(store.keys()).toEqual([])
+    store.set(OWN_CREDENTIAL_PREFIX + ROOM_B, 'not json')
+    expect(loadOwnCredentialFor(store, ROOM_B, NOW)).toBeUndefined()
+    expect(store.keys()).toEqual([])
+  })
+
+  it('forgets own credentials for one room, or for every room', () => {
+    const store = memoryDeviceStore()
+    const own = { ...credential('device'), tags: [['expiration', String(NOW + 3600)]] }
+    storeOwnCredentialFor(store, ROOM_A, own)
+    storeOwnCredentialFor(store, ROOM_B, own)
+    storeCredentialFor(store, ROOM_B, credential('paired'))
+    forgetOwnCredentials(store, ROOM_A)
+    expect(loadOwnCredentialFor(store, ROOM_A, NOW)).toBeUndefined()
+    expect(loadOwnCredentialFor(store, ROOM_B, NOW)).toBeDefined()
+    forgetOwnCredentials(store)
+    expect(loadOwnCredentialFor(store, ROOM_B, NOW)).toBeUndefined()
+    // A paired credential is somebody else's to revoke, not sign-out's.
+    expect(loadCredentialFor(store, ROOM_B)).toBeDefined()
   })
 
   it('drops the single shared device key and credential this replaces', () => {
