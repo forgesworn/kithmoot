@@ -4,7 +4,7 @@ import { npubEncode } from 'nostr-tools/nip19'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { RoomAgent } from '../src/agent.js'
 import { generateRoomSecret } from '../src/room.js'
-import { encodeRoomLink } from '../src/link.js'
+import { encodeRoomLink, parseRoomLink } from '../src/link.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { createDeviceCredential } from '../src/credential.js'
 import { localIdentity } from '../src/identity.js'
@@ -418,6 +418,56 @@ test('a room joined as the account opens again as that account while its signer 
     expect(signatures).toBe(0)
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
   } finally { await context.close(); await clerk.leave() }
+})
+
+test('a private conversation is started on the relays its starter listed for private conversations', async ({ browser, baseURL }) => {
+  // The defaults are public relays that keep a room for days and turn away
+  // busy accounts. A person names their own in a NIP-17 DM relay list, and
+  // a conversation they start goes there.
+  const secret = generateSecretKey()
+  const ada = await device(browser, baseURL!, secret)
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
+  const rowanContext = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
+  await rowanContext.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
+  try {
+    const page = await ada.newPage()
+    await signIn(page, baseURL!)
+    await page.locator('#openAppSettings').click()
+    await page.locator('#appConnections summary').click()
+    await page.locator('#dmRelaySettingsOpen').click()
+    await expect(page.locator('#dmRelayStatus')).toContainText('no list yet')
+    await page.locator('#dmRelayList').fill(`wss://dm.example\n${relay.href}`)
+    await page.locator('#dmRelaySave').click()
+    await expect(page.locator('#dmRelayStatus')).toContainText('Saved')
+    const lists = await relayHolds({ kinds: [10050], authors: [getPublicKey(secret)] })
+    expect(lists).toHaveLength(1)
+    expect(lists[0]!.tags.filter(tag => tag[0] === 'relay').map(tag => tag[1])).toEqual(['wss://dm.example/', relay.href])
+    await page.locator('#dmRelaySettingsClose').click()
+
+    await page.goto(link)
+    await page.reload()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    const rowan = await rowanContext.newPage()
+    await rowan.goto(link)
+    await rowan.locator('#displayName').fill('Rowan')
+    await rowan.locator('#join').click()
+    await expect(rowan.locator('#roomArea')).toBeVisible()
+
+    await openRoomDetails(page)
+    await page.getByRole('button', { name: /^Message Rowan privately/ }).click()
+    await expect(page.locator('#status')).toContainText(/Private conversation with Rowan/, { timeout: 30_000 })
+    // A signed-in account's rooms are kept under its own prefix.
+    const links = await page.evaluate(() => Object.keys(localStorage).filter(key => key.includes('kithmoot.room.'))
+      .map(key => { try { return JSON.parse(localStorage.getItem(key)!).link as string } catch { return '' } }))
+    const conversation = links.map(candidate => { try { return parseRoomLink(candidate) } catch { return undefined } })
+      .find(parsed => parsed?.policy?.members?.length === 2)
+    expect(conversation?.relays).toEqual(['wss://dm.example/', relay.href])
+    // The invitation went where the link says, so a device that was never in
+    // the conversation can fetch it.
+    await expect.poll(async () => (await relayHolds({ kinds: [1463] })).length).toBeGreaterThan(0)
+  } finally { await ada.close(); await rowanContext.close() }
 })
 
 test('a disconnected signer offers Reconnect before forgetting an account room, and names the signer', async ({ browser, baseURL }) => {

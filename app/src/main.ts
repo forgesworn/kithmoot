@@ -38,6 +38,7 @@ import { mayShowItself } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
 import { RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
+import { KIND_DM_RELAYS, dmRelayListTemplate, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
@@ -84,6 +85,7 @@ import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arriv
 import {
   RoomSession,
   NostrRelayPool,
+  normaliseRelayConfig,
   generateRoomSecret,
   deriveRoom,
   decodeJoinUrl,
@@ -2172,6 +2174,8 @@ function renderIdentity(): void {
   if (document.activeElement !== input) input.value = typedName
 
   ;($('signIn') as HTMLButtonElement).hidden = nostrSession !== undefined
+  // A DM relay list is the account's to publish; a visitor has none.
+  $('dmRelaySettingsOpen').hidden = !nostrSession?.signer.capabilities.canSignEvents
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
   $('rendezvousProvision').hidden = !rendezvousBunker(nostrSession)
   $('retryRoomSync').hidden = nostrSession === undefined
@@ -4175,8 +4179,11 @@ async function rotateRoomInvitation(): Promise<void> {
   setStatus('A fresh link is ready. Current clients will no longer answer the old link. Existing members stay.')
 }
 
-async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[]): Promise<void> {
-  const pool = configuredPool(relayUrls)
+/** `forRoom` names the room the invitation is for when that is not the room
+ *  on screen, so the relays it goes to are exactly `relayUrls` and not
+ *  whatever this room's saved relay settings say. */
+async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[], forRoom?: string): Promise<void> {
+  const pool = forRoom ? relayConnections.pool(`room:${forRoom}`, relayUrls) : configuredPool(relayUrls)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
@@ -5692,6 +5699,62 @@ function peerCrypt(): PeerCrypt | undefined {
   }
 }
 
+/** How long starting a conversation waits for the two DM relay lists before
+ *  going ahead without them. A lookup that never answers must not leave a
+ *  person staring at "Starting…". */
+const DM_RELAY_LOOKUP_MS = 2_500
+
+/** Relay URLs once each, however they were spelt: `wss://nos.lol` and
+ *  `wss://nos.lol/` are one relay, and a pool refuses a list naming it twice. */
+function distinctRelays(urls: string[]): string[] {
+  const out: string[] = []
+  for (const url of urls) {
+    try {
+      const normal = normaliseRelayConfig([url])[0]!.url
+      if (!out.includes(normal)) out.push(normal)
+    } catch { /* Not a relay a pool would take. */ }
+  }
+  return out
+}
+
+/** Kind 10050 lists for these authors from these relays, as many as arrive
+ *  before every relay has finished or the wait is up. */
+async function lookUpDmRelayLists(authors: string[], urls: string[]): Promise<NostrEvent[]> {
+  const pool = relayConnections.pool('profiles', distinctRelays(urls))
+  const found: NostrEvent[] = []
+  try {
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, DM_RELAY_LOOKUP_MS)
+      pool.subscribe([{ kinds: [KIND_DM_RELAYS], authors }], event => found.push(event), () => { clearTimeout(timer); resolve() })
+    })
+  } finally {
+    pool.close()
+  }
+  return found
+}
+
+/**
+ * The relays a new private conversation with `peer` is started on: the two
+ * people's own DM relay lists (see `src/dm-relays.ts`), or the room it is
+ * started from when neither has one. The other person's list is asked for
+ * only while public profile lookups are on, the same switch that decides
+ * whether anybody's key is sent to public relays at all; without it the
+ * conversation goes where the starter chose, topped up from this room.
+ */
+async function relaysForConversationWith(me: string, peer: string): Promise<string[]> {
+  if (!nostrSession) return relays
+  const authors = profilesEnabled ? [me, peer] : [me]
+  let lists: NostrEvent[] = []
+  try {
+    lists = await lookUpDmRelayLists(authors, [...new Set([...relays, ...RELAYS, ...PROFILE_RELAYS])])
+  } catch { /* No lists is the old behaviour, not a failure. */ }
+  return relaysForPrivateConversation({
+    mine: latestDmRelayList(lists, me),
+    theirs: profilesEnabled ? latestDmRelayList(lists, peer) : [],
+    fallback: relays,
+  })
+}
+
 let startingDm = false
 async function startDirectMessage(peer: string, peerName: string | undefined, quiet: boolean): Promise<void> {
   const s = session
@@ -5724,10 +5787,14 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
     const secret = generateRoomSecret()
     const created = createRoomInvitation(true)
     const { roomId } = deriveRoom(secret)
+    // Both the invitation and the link name the conversation's own relays:
+    // a device that has never been in it fetches the invitation from the
+    // relays the link names, so the two must agree.
+    const dmRelays = await relaysForConversationWith(me, peer)
     storeInvitationOwner(created.invitation, secret, created.inviterSk)
-    await publishGroupInvitation(created.invitation, secret, created.inviterSk, relays)
+    await publishGroupInvitation(created.invitation, secret, created.inviterSk, dmRelays, roomId)
     const policy: RoomPolicy = quiet ? { ...dmPolicy(me, peer), quiet: true } : dmPolicy(me, peer)
-    const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays, iceUrls, policy })
+    const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays: dmRelays, iceUrls, policy })
     const invite = await sealInvite(link, { to: peer, room: roomId, crypt })
     const text = inviteText()
     outbox.send(text, 'Chat', s.chat.prepareSend(text, { invite }))
@@ -11733,6 +11800,64 @@ function roomRelaysApplied(entries: RelayConfig[]): void {
 $('roomRelaySettings').addEventListener('click', () => { closeRoomSheet(); relaySettings.open($('roomMenu')) })
 $('defaultRelaySettings').addEventListener('click', () => closeAppSettingsFor(() => relaySettings.open($('defaultRelaySettings'))))
 $('appProfileSettings').addEventListener('click', () => closeAppSettingsFor(() => openProfileSettings($('appProfileSettings'))))
+$('dmRelaySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => void openDmRelaySettings()))
+$('dmRelaySettingsClose').addEventListener('click', () => ($('dmRelaySettings') as HTMLDialogElement).close())
+$('dmRelaySave').addEventListener('click', () => void saveDmRelaySettings())
+
+/** Where this account's DM relay list is read from and written to: the
+ *  relays everybody looks in, and the ones it names. */
+function dmRelayListHome(listed: string[] = []): string[] {
+  return distinctRelays([...RELAYS, ...PROFILE_RELAYS, ...listed])
+}
+
+async function openDmRelaySettings(): Promise<void> {
+  const dialog = $('dmRelaySettings') as HTMLDialogElement
+  const field = $('dmRelayList') as HTMLTextAreaElement
+  const status = $('dmRelayStatus')
+  const account = nostrSession
+  if (!account) return
+  field.value = ''
+  field.disabled = true
+  status.textContent = 'Looking up your list…'
+  dialog.showModal()
+  try {
+    const current = latestDmRelayList(await lookUpDmRelayLists([account.pubkey], dmRelayListHome()), account.pubkey)
+    if (nostrSession !== account) return
+    field.value = current.join('\n')
+    status.textContent = current.length ? '' : 'You have no list yet. Until you save one, private conversations use the relays of the room they are started from.'
+  } catch {
+    status.textContent = 'Your list could not be looked up. Saving replaces whatever is there.'
+  } finally {
+    field.disabled = false
+  }
+}
+
+async function saveDmRelaySettings(): Promise<void> {
+  const field = $('dmRelayList') as HTMLTextAreaElement
+  const status = $('dmRelayStatus')
+  const account = nostrSession
+  if (!account) return
+  const urls = field.value.split(/[\s,]+/).map(url => url.trim()).filter(Boolean)
+  let template: ReturnType<typeof dmRelayListTemplate>
+  try {
+    template = dmRelayListTemplate(urls, nowSeconds())
+  } catch (err) {
+    status.textContent = `Not saved: ${describeError(err)}.`
+    return
+  }
+  ;($('dmRelaySave') as HTMLButtonElement).disabled = true
+  status.textContent = 'Saving…'
+  const pool = relayConnections.pool('profiles', dmRelayListHome(urls))
+  try {
+    await pool.publish(await account.signer.signEvent(template))
+    status.textContent = 'Saved. New private conversations will use these relays.'
+  } catch (err) {
+    status.textContent = `Not saved: ${describeError(err)}.`
+  } finally {
+    ;($('dmRelaySave') as HTMLButtonElement).disabled = false
+    closeWhenSettled(pool)
+  }
+}
 $('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
 $('inviteToRoomClose').addEventListener('click', () => { invitingPeer = undefined; ($('inviteToRoom') as HTMLDialogElement).close() })
 $('profileSettings').addEventListener('close', () => {

@@ -168,6 +168,29 @@ is a different room from a plain DM with the same person, started with
 section applies unchanged; what changes is the carriage, described in
 `docs/decisions.md` and `src/quiet.ts`.
 
+**Where it lives.** A DM is started on the two people's own DM relay
+lists: NIP-17's kind 10050, a replaceable event with one `relay` tag per
+relay, signed by the person. The starter looks up both lists, its own and
+(only while public profile lookups are on, the switch that decides whether
+anybody's key is sent to public relays) the other person's, from the
+relays everybody looks in, waiting no more than 2.5 seconds. Then
+`relaysForPrivateConversation` in `src/dm-relays.ts`:
+
+- the other person's relays and the starter's, alternating, theirs first,
+  deduplicated in canonical form, at most six;
+- neither has a list: the relays of the room it is started from, which is
+  what every DM used before this;
+- fewer than two between them: topped up from that room's relays, so one
+  relay down is never the conversation down.
+
+The invitation (kind 1463) is published to exactly those relays and the
+link names exactly those, because a device that was never in the
+conversation fetches the invitation from the relays the link names. A
+person edits their own list in Settings, Connections, "Relays for private
+conversations", which publishes the kind 10050. Only conversations started
+after a list exists use it; an existing one keeps its relays until its
+maker adds more for everyone.
+
 **On screen.** A room whose policy lists two members, one of them you, is
 labelled by the other member's name. The room is otherwise a room: files,
 calls, agents and everything above work in it unchanged. In the web client

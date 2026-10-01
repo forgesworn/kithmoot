@@ -704,6 +704,7 @@
           <summary>Connections</summary>
           <button id="defaultRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
           <button id="appProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
+          <button id="dmRelaySettingsOpen" type="button" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>Relays for private conversations</button>
           <label for="iceServers">Call servers</label>
           <p class="note">Servers that help two devices connect for a call, separated by commas. Rooms you start hand these to everyone who joins. Leave blank to use this site’s own.</p>
           <input id="iceServers" />
@@ -1262,6 +1263,21 @@
       </div>
       <p id="relaySettingsStatus" class="note" role="status"></p>
       <p class="note">Connected means the socket is open. Accepted writes show the latest relay acknowledgement; connection alone does not prove a message was saved.</p>
+    </dialog>
+
+    <dialog id="dmRelaySettings" class="profileSettings" aria-labelledby="dmRelaySettingsTitle">
+      <div class="profileSettingsHeader">
+        <h2 id="dmRelaySettingsTitle">Relays for private conversations</h2>
+        <button id="dmRelaySettingsClose" type="button" aria-label="Close relays for private conversations">Close</button>
+      </div>
+      <p class="note">Private conversations started with you, and by you, are kept on these relays. Choose ones that keep messages and will not turn you away: your own, or one you pay for. One per line, up to six.</p>
+      <label for="dmRelayList">Relays</label>
+      <textarea id="dmRelayList" rows="4" placeholder="wss://relay.example" autocomplete="off" spellcheck="false"></textarea>
+      <div class="toolRow">
+        <button id="dmRelaySave" type="button" class="primary">Save to your Nostr account</button>
+      </div>
+      <p id="dmRelayStatus" class="note" role="status"></p>
+      <p class="note">This list is public, as the Nostr standard for it (NIP-17) requires: anyone can see which relays you use for private conversations, though not what is said on them or with whom.</p>
     </dialog>
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">

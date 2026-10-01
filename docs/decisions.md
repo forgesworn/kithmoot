@@ -1616,6 +1616,28 @@ link is written; the exact old pair of two public relays now gains
 `nostr.mom` as its third route at use time instead. The forwarder and keeper
 install scripts default to the same three relays.
 
+
+## A private conversation lives where its two people said, 1 October 2026
+
+A DM started on the default relays inherited their limits: measured the
+same day, `relay.primal.net` returned room events for under a day and
+`nos.lol` for under three, and a pair talking a lot was turned away. A
+conversation meant to replace Signal cannot live on relays that forget it
+by the weekend.
+
+So a DM is started on the two people's NIP-17 DM relay lists (kind 10050),
+with the room it was started from as the fallback; the rule is in
+`docs/messages.md`, "Where it lives". This does not undo the 25 September
+entry. That one refused to make the project the operator of a relay every
+client names by default; here each person names a relay in their own
+signed list, which is their choice about their own conversations, and a
+person who names none gets exactly what they got before.
+
+The list is public, as the standard makes it: anyone can learn which relays
+a person uses for private conversations, not what is said there or with
+whom. The other person's list is asked for only while public profile
+lookups are on, because asking a public relay for it names their key to
+that relay, which is the thing that switch exists to control.
 ## Dependencies that run in a call are pinned exactly, 18 September 2026
 
 `@mediapipe/tasks-vision` `1.0.1` (installed under the `^1.0.1` range added
