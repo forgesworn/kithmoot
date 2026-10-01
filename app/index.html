@@ -501,6 +501,10 @@
         <button id="stopOpening" type="button" hidden>Stop and go back to your rooms</button>
         <div id="arrivalActions" hidden>
           <button id="retryArrival" type="button">Try the link again</button>
+          <!-- A group link whose invitation was found on none of the relays
+               asked. Adding a relay the room uses is what got people in by
+               hand; see showArrivalFailure in app/src/main.ts. -->
+          <button id="arrivalRelays" type="button" hidden>Add a relay</button>
           <button id="addCardArrival" type="button" hidden>Add this contact</button>
           <button id="arrivalHome" type="button" class="quiet">Back to rooms</button>
         </div>

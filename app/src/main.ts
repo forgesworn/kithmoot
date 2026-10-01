@@ -241,6 +241,7 @@ import { CallWakeLock } from './wake-lock.js'
 import { BrowserForwarderMediaPipeline } from './forwarder-media.js'
 import { relayOnlyIceConfiguration } from './relay-only.js'
 import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
+import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
 
 const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
@@ -1315,6 +1316,8 @@ let iceUrls: string[] = DEFAULT_ICE_URLS
 /** The root inviter key on the creator, or this member's delegated responder
  * key after admission. Only an empty delegation chain may rotate the link. */
 let invitationAuthoritySk: Uint8Array | undefined
+/** The relays the link this room was opened from names. See `keepGroupInvitationAlive`. */
+let invitationLinkRelays: string[] = []
 let invitationDelegation: InvitationDelegation[] = []
 let invitationHost: { close(): void } | undefined
 let invitationTransport: NostrRelayPool | undefined
@@ -1633,9 +1636,45 @@ const GROUP_INVITATION_REFRESH_MS = 6 * 60 * 60 * 1000
 let groupInvitationRefresh: ReturnType<typeof setInterval> | undefined
 
 function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array): void {
-  const refresh = (): void => { void publishGroupInvitation(invitation, secret, inviterSk, relays).catch(() => { /* Retried next round. */ }) }
+  const refresh = (): void => {
+    void publishGroupInvitation(invitation, secret, inviterSk, relays).catch(() => { /* Retried next round. */ })
+    // The link that opened the room may name relays the room has since left,
+    // and a copy of that link is still out there looking on them.
+    const extra = linkOnlyRelays(relays, invitationLinkRelays, url => relayConnections.isCircle(url))
+    if (extra.length) void publishGroupInvitation(invitation, secret, inviterSk, extra, undefined, `link:${deriveInvitationId(invitation)}`).catch(() => { /* Retried next round. */ })
+  }
   refresh()
   groupInvitationRefresh = setInterval(refresh, GROUP_INVITATION_REFRESH_MS)
+}
+
+/**
+ * A group invitation, from the link's relays or, when none of them still has
+ * it, from this device's relays and the app's defaults. See
+ * app/src/invitation-lookup.ts for why asking further is safe and where it
+ * never goes. [onWider] hears the relays that answered from further afield.
+ */
+async function admitFromGroupInvitation(
+  invitation: RoomInvitation,
+  linkRelays: string[],
+  transport: NostrRelayPool,
+  onWider: (relays: string[]) => void,
+): Promise<Awaited<ReturnType<typeof requestPersistentRoomAdmission>>> {
+  try {
+    return await requestPersistentRoomAdmission({ transport, invitation })
+  } catch (err) {
+    const wider = isMissingInvitation(err) ? widerInvitationRelays(linkRelays, RELAYS, DEFAULT_RELAYS, url => relayConnections.isCircle(url)) : []
+    if (wider.length === 0) throw err
+    console.error(`group invitation not on the link's relays; asking ${wider.length} more`)
+    setStatus('Looking further for this room\u2019s invitation\u2026', 'progress')
+    const lookup = relayConnections.pool(`lookup:${deriveInvitationId(invitation)}`, wider)
+    try {
+      const admission = await requestPersistentRoomAdmission({ transport: lookup, invitation })
+      onWider(wider)
+      return admission
+    } finally {
+      lookup.close()
+    }
+  }
 }
 
 function stopInvitationHost(): void {
@@ -2722,6 +2761,7 @@ async function roomFromLocation(): Promise<boolean> {
   roomRelayScope = `room:${knownSecret ? deriveRoom(knownSecret).roomId : deriveInvitationId(invitation!)}`
   if (invitation) {
     roomInvitationCapability = invitation
+    invitationLinkRelays = parsedLink.relays
     useRoomRelays(parsedLink.relays)
     roomPolicy = parsedLink.policy
 
@@ -2763,8 +2803,9 @@ async function roomFromLocation(): Promise<boolean> {
           // is long enough for somebody to read a card and press a button.
           const askedAs = joiningName()
           const askedFrom = currentParticipant()
+          let foundFurther: string[] = []
           const admission = invitation.persistent
-            ? await requestPersistentRoomAdmission({ transport, invitation })
+            ? await admitFromGroupInvitation(invitation, parsedLink.relays, transport, wider => { foundFurther = wider })
             : await requestRoomAdmissionCapability({
               transport, invitation, timeoutMs: KNOCK_WAIT_MS,
               ...(askedAs !== undefined ? { name: askedAs } : {}),
@@ -2772,7 +2813,9 @@ async function roomFromLocation(): Promise<boolean> {
             })
           roomSecret = admission.secret
           roomRelayScope = `room:${deriveRoom(roomSecret).roomId}`
-          useRoomRelays(parsedLink.relays)
+          // Found beyond the link's relays: the room evidently lives there
+          // too, so it is read and written there as well.
+          useRoomRelays([...parsedLink.relays, ...foundFurther])
           admittedRoom = admission
           invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : undefined
           invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
@@ -4183,8 +4226,8 @@ async function rotateRoomInvitation(): Promise<void> {
 /** `forRoom` names the room the invitation is for when that is not the room
  *  on screen, so the relays it goes to are exactly `relayUrls` and not
  *  whatever this room's saved relay settings say. */
-async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[], forRoom?: string): Promise<void> {
-  const pool = forRoom ? relayConnections.pool(`room:${forRoom}`, relayUrls) : configuredPool(relayUrls)
+async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[], forRoom?: string, scope?: string): Promise<void> {
+  const pool = scope ? relayConnections.pool(scope, relayUrls) : forRoom ? relayConnections.pool(`room:${forRoom}`, relayUrls) : configuredPool(relayUrls)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
@@ -12205,6 +12248,7 @@ $('contactCardForm').addEventListener('submit', (event) => {
   if (addContact(input.value)) input.value = ''
 })
 $('myCardShow').addEventListener('click', () => { showMyCard().catch((err) => setStatus(describeError(err))) })
+$('arrivalRelays').addEventListener('click', () => relaySettings.open($('arrivalRelays')))
 $('retryArrival').addEventListener('click', () => {
   if (switchDestination) void switchRoom(switchDestination)
   else location.reload()
@@ -13906,6 +13950,7 @@ function showArrivalFailure(err: unknown): void {
     $('identityMore').hidden = true
     $('arrivalActions').hidden = false
     $('retryArrival').hidden = true
+    $('arrivalRelays').hidden = true
     $('addCardArrival').hidden = false
     setStatus('')
     return
@@ -13922,7 +13967,7 @@ function showArrivalFailure(err: unknown): void {
     ? 'Ask somebody in the room for its current invite link.'
     : valid
       ? persistent
-        ? 'Check your connection and try again. If it still cannot be found, ask for a current invite link.'
+        ? 'Its invitation was not on the link\u2019s relays or on yours. If you know a relay the room uses, add it and try again. Otherwise ask someone in the room for a fresh invite link.'
         : 'Nobody let you in. Somebody in the room has to be online and accept you: ask them, or try again when they are around. A room can also be kept open for anyone with the link (Room details, Keep this room open).'
       : 'Copy the whole invite link, including everything after #, then open it again.'
   $('arrivalLead').hidden = false
@@ -13930,6 +13975,7 @@ function showArrivalFailure(err: unknown): void {
   $('identityMore').hidden = true
   $('arrivalActions').hidden = false
   $('retryArrival').hidden = !valid || retired
+  $('arrivalRelays').hidden = !valid || retired || !persistent
   setStatus('')
 }
 
