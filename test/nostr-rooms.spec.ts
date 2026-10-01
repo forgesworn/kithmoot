@@ -14,6 +14,7 @@ import WebSocket from 'ws'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
 import { openNewRoomForm, openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { agentRelaysFor } from './relays.js'
 
 /** Everything the local test relay holds for a filter, read straight off it. */
 function relayHolds(filter: Record<string, unknown>): Promise<Event[]> {
@@ -646,7 +647,7 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
   const aliceSk = generateSecretKey(), bobSk = generateSecretKey(), carolSk = generateSecretKey(), agentSk = generateSecretKey()
   const aliceKey = getPublicKey(aliceSk), bobKey = getPublicKey(bobSk), carolKey = getPublicKey(carolSk), agentKey = getPublicKey(agentSk)
   const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
-  const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, relays: [TEST_RELAY_WS] })))
+  const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, ...agentRelaysFor(baseURL!) })))
   // The first room's link carries no name, as a link made on Android does:
   // the name a member sees for it comes from the project alone.
   const roomLinks = keepers.map((k, i) => ({ roomId: k.roomId, name: k.link.name!, link: encodeRoomLink(baseURL!, { ...k.link, relays: [relay.href], ...(i === 0 ? { name: undefined } : {}) }), openedAt: 1, readAt: 0 }))
