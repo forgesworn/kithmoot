@@ -4384,3 +4384,28 @@ html[data-call-docked] #callStrip,
 html[data-call-docked] #callBanner,
 html[data-call-docked] #callToggle,
 html[data-call-docked] #mobileCall { display: none !important; }
+
+/* "Open in the KithMoot app", shown to Android browsers only. A link that
+   looks like the button beside it, because it is the quicker way in. */
+.openInApp {
+  margin-bottom: 1rem;
+}
+
+.openInApp .openInAppLink {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  background: var(--accent-dim);
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  padding: 0.7rem 1.4rem;
+  text-align: center;
+  text-decoration: none;
+}
+
+.openInApp .note {
+  margin: 0.5rem 0 0;
+}

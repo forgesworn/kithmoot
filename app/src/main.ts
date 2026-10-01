@@ -38,6 +38,7 @@ import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
 import { RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
+import { ANDROID_DOWNLOAD_URL, appLinkFor, isAndroidUserAgent } from './open-in-app.js'
 import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
@@ -3541,6 +3542,15 @@ async function startNewRoom(): Promise<void> {
   rememberCurrentRoom()
 }
 
+/** The "Open in the KithMoot app" button: Android browsers only, and only when
+ *  the page carries a room to hand over. See open-in-app.ts. */
+function renderOpenInApp(): void {
+  const appLink = isAndroidUserAgent(navigator.userAgent) ? appLinkFor(location.href) : undefined
+  $('openInApp').hidden = appLink === undefined
+  if (appLink !== undefined) ($('openInAppLink') as HTMLAnchorElement).href = appLink
+  ;($('getAndroidApp') as HTMLAnchorElement).href = ANDROID_DOWNLOAD_URL
+}
+
 /**
  * The door, and only the door.
  *
@@ -3576,6 +3586,7 @@ function showRoomUi(): void {
   // the room starts is not where it started a moment ago.
   renderKeepChoice()
   renderArrival()
+  renderOpenInApp()
   $('join').hidden = false
   tryPendingJoin()
   ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
