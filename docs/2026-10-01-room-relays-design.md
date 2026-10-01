@@ -1,10 +1,11 @@
 # Room relays: fixed at creation, always used by everyone
 
 Status: built 2026-10-01 (fold-kit 0.4.0, the web app, Android); the open
-question below still stands. Decided 2026-10-01: the relays a room is created
-with are **always included** in every participant's pool (merged with their
-own, never replacing them), and they also travel **inside the signed group
-invitation** (kind 1463) so stale bookmarks and project links converge.
+question on Tor-only and sheltered rooms was decided the same day (below).
+Decided 2026-10-01: the relays a room is created with are **always
+included** in every participant's pool (merged with their own, never
+replacing them), and they also travel **inside the signed group invitation**
+(kind 1463) so stale bookmarks and project links converge.
 
 ## Why
 
@@ -71,11 +72,27 @@ at most 8. Links are encoded from C then O, cut at 8.
 - Members of a persistent room with no signed C: one background
   `requestPersistentRoomAdmission` after opening; adopt its `relays`.
 
-## Open question
+## Tor-only and sheltered rooms (was the open question)
 
-Android anonymous (Tor-only) and circle-consent rooms keep exactly their
-saved relays today. Proposed: merge R only where `TorOnlyRelayUrls` /
-the consent route accepts it, otherwise show a notice. Needs a decision.
+Decided 2026-10-01, built on Android: an anonymous (Tor-only) room and a room
+sheltered behind a Bothy (circle consent) merge R into their pool **only
+where the room's existing guard accepts it**, and never weaken that guard.
+
+- Anonymous rooms accept a room relay only if `TorOnlyRelayUrls` accepts it
+  (an exact, checksum-valid v3 `.onion`). The whole pool is checked again
+  with `assertRoomTransport` before it opens.
+- Sheltered rooms accept a room relay only if it is the room's active Link
+  route or a relay of the person's circle (the lane check's `SHELTERED`), so
+  the room's lane stays sheltered.
+- A room relay the guard refuses is not used: never dialled, never named in
+  a link the room hands out. The room shows a short, non-blocking notice:
+  "N room relays aren't reachable over Tor, so you may miss people who use
+  only those" (or "aren't in your circle" for a sheltered room).
+- These rooms' saved relays are left untouched: R is merged into the live
+  pool, never written into the saved list. An authority's `relays` op takes
+  the same path (record kept, accepted relays added live, refusals counted).
+- Every link carries at most 8 relays (`MAX_RELAY_HINTS`), room relays
+  first, then the person's own; pairing links now included.
 
 ## Order of work
 
