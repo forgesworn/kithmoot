@@ -34,7 +34,7 @@ import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
-import { mayShowItself } from './self-mirror-guard.js'
+import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
 import { RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
@@ -4732,6 +4732,7 @@ async function toggleScreen(area = false): Promise<void> {
     screenStarting = true
     let stream: MediaStream
     let surface: string | undefined
+    let capture: CaptureIdentity = {}
     try {
       // The desktop app sends every whole-screen share through the redaction
       // canvas, boxes or not, so the raw capture itself is never published.
@@ -4740,6 +4741,11 @@ async function toggleScreen(area = false): Promise<void> {
       if (desktopRedaction.supported) await desktopRedaction.begin()
       stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
       surface = stream.getVideoTracks()[0]?.getSettings().displaySurface
+      // Read off the raw capture, before any redaction canvas stands in for it.
+      capture = {
+        deviceId: stream.getVideoTracks()[0]?.getSettings().deviceId,
+        ownIds: await window.kithmootDesktop?.ownCaptureIds?.().catch(() => undefined),
+      }
       if (!area && desktopRedaction.supported) {
         const raw = stream
         stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
@@ -4754,7 +4760,7 @@ async function toggleScreen(area = false): Promise<void> {
     // plain share carries the standard hint on the captured track, read
     // before any redaction canvas stood in for it, and needs checking only
     // the once, here.
-    if (!area) shareMayShowItself = mayShowItself(surface)
+    if (!area) shareMayShowItself = mayShowItself(surface, capture)
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
@@ -5461,18 +5467,24 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       // finds. One tap on the preview opens it too.
       const expand = document.createElement('button')
       expand.type = 'button'; expand.className = 'shareExpand'
-      expand.textContent = available ? 'Expand screen share' : 'Screen share arriving…'
-      expand.disabled = !available
+      // This device's own share while it may be filming KithMoot: opened in
+      // the viewer, inside the captured window, it was the mirror again.
+      // Asked again at the click, because an area can grow to fill the
+      // screen after the tile was drawn.
+      const mirrored = (): boolean => device === myDeviceId && shareMayShowItself
+      expand.textContent = mirrored() ? 'Preview paused while sharing' : available ? 'Expand screen share' : 'Screen share arriving…'
+      expand.disabled = !available || mirrored()
       expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? shown.short}`)
-      expand.addEventListener('click', () => shareViewer.open(source, expand))
+      const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand) }
+      expand.addEventListener('click', openViewer)
       box.append(expand)
       if (!available) continue
       const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(tileKey(device, 'screen'))?.el
         ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el
       if (preview) {
         preview.classList.add('screenPreview')
-        if (device === myDeviceId) preview.ondblclick = () => shareViewer.open(source, expand)
-        else preview.onclick = () => shareViewer.open(source, expand)
+        if (device === myDeviceId) preview.ondblclick = openViewer
+        else preview.onclick = openViewer
         // Marks drawn on this share show over its preview, so the person
         // sharing sees what is being pointed at without opening anything.
         if (!shareMarkOverlays.has(preview)) shareMarkOverlays.set(preview, shareViewer.overlay(preview, () => source()?.id))

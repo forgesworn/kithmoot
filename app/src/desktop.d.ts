@@ -14,6 +14,8 @@ declare global {
       onShareAreaCheck?(listener: (check: AreaCheck | null) => void): () => void
       /** macOS's Screen Recording status for the app; 'granted' elsewhere. */
       screenAccess?(): Promise<string>
+      /** The capture id (`window:<id>:0`) of every window of this app. */
+      ownCaptureIds?(): Promise<string[]>
       shareAreaAction(action: string, value?: unknown): void
       onShareAreaState(listener: (state: AreaRect | null) => void): () => void
       supportsRedaction?: boolean

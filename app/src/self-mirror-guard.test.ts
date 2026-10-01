@@ -35,3 +35,23 @@ describe('mayShowItself', () => {
     expect(mayShowItself(undefined)).toBe(true)
   })
 })
+
+describe('mayShowItself with the desktop app\u2019s window ids', () => {
+  const ownIds = ['window:17496:0', 'window:17500:0']
+  it('another app\u2019s window keeps its live preview', () => {
+    expect(mayShowItself('window', { deviceId: 'window:17508:0', ownIds })).toBe(false)
+  })
+  it('KithMoot\u2019s own window is still guarded', () => {
+    expect(mayShowItself('window', { deviceId: 'window:17496:0', ownIds })).toBe(true)
+  })
+  it('a window it cannot identify is still guarded', () => {
+    expect(mayShowItself('window', { deviceId: '', ownIds })).toBe(true)
+    expect(mayShowItself('window', { deviceId: 'web-contents-media-stream://1:2', ownIds })).toBe(true)
+    expect(mayShowItself('window', { deviceId: 'window:17508:0' })).toBe(true)
+    expect(mayShowItself(undefined, { deviceId: 'window:17508:0', ownIds })).toBe(true)
+  })
+  it('a whole screen is always guarded, whatever its id', () => {
+    expect(mayShowItself('monitor', { deviceId: 'screen:1:0', ownIds })).toBe(true)
+  })
+})
+

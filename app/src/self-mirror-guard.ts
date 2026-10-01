@@ -21,6 +21,15 @@ export function coversWholeDisplay(rect: Pick<AreaRect, 'width' | 'height'> | nu
   return rect !== null && rect.width >= 1 - MARGIN && rect.height >= 1 - MARGIN
 }
 
+/** What the captured track says it is, and the ids this app's own windows
+ *  answer to: the desktop app can say which window was picked. */
+export interface CaptureIdentity {
+  /** `MediaTrackSettings.deviceId`, `window:<id>:0` for a desktop window. */
+  deviceId?: string
+  /** Every window of this app, from the desktop bridge. Absent in a browser. */
+  ownIds?: readonly string[]
+}
+
 /**
  * The same risk from a plain (non-area) share. `displaySurface` is the
  * standard `getDisplayMedia` hint for what was picked -
@@ -34,7 +43,18 @@ export function coversWholeDisplay(rect: Pick<AreaRect, 'width' | 'height'> | nu
  * (`'browser'`) is safe, because the request excludes this tab
  * (`selfBrowserSurface: 'exclude'`). Reported from a real call on the Mac
  * desktop app: sharing the KithMoot window put the share inside itself.
+ *
+ * The desktop app can do better for a window. A desktop capture's
+ * `deviceId` is the picked window's own capture id, and the app knows its
+ * own, so a window that is not KithMoot's keeps its live preview, which is
+ * where the sharer draws on it. Withholding it from every window left the
+ * person sharing an editor or a slide deck unable to draw on their own share.
+ * Anything that cannot be matched, the macOS system picker's answer among
+ * them if it carries no id, is still treated as possibly KithMoot.
  */
-export function mayShowItself(displaySurface: string | undefined): boolean {
-  return displaySurface !== 'browser'
+export function mayShowItself(displaySurface: string | undefined, capture: CaptureIdentity = {}): boolean {
+  if (displaySurface === 'browser') return false
+  const { deviceId, ownIds } = capture
+  if (displaySurface === 'window' && ownIds && deviceId && /^window:\d+:\d+$/.test(deviceId)) return ownIds.includes(deviceId)
+  return true
 }

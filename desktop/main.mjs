@@ -277,6 +277,12 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     ipcMain.handle('desktop:area-check', event => trusted(event.sender) ? shareArea.check() : null)
     // A refused share reads the same to the page whether macOS withheld
     // Screen Recording or the person cancelled the picker, so the page asks.
+    // Every capture id a window of this app answers to, so the page can tell a
+    // share of KithMoot itself, which would film its own preview, from a share
+    // of somebody else's window. See mayShowItself in app/src/self-mirror-guard.ts.
+    ipcMain.handle('desktop:own-capture-ids', event => trusted(event.sender)
+      ? BrowserWindow.getAllWindows().filter(window => !window.isDestroyed()).map(window => window.getMediaSourceId())
+      : [])
     ipcMain.handle('desktop:screen-access', event => !trusted(event.sender) ? 'unknown' : process.platform === 'darwin' && !testProfile ? systemPreferences.getMediaAccessStatus('screen') : 'granted')
     ipcMain.handle('desktop:update-state', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame ? updates.state() : { phase: 'disabled' })
     ipcMain.handle('desktop:update-install', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame && !callActive ? updates.install() : false)
