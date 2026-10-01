@@ -2,6 +2,7 @@ import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
+import { withExpiration } from './expiration.js'
 import { normaliseReaction, type ChatReaction } from './reactions.js'
 import { assignmentPayload, ASSIGNMENT_CHANNEL } from './assignments.js'
 import {
@@ -309,6 +310,9 @@ export interface EncodeChatOptions {
   channel?: string
   /** The epoch to ride in. Omit for epoch 0. */
   epoch?: EpochRoot
+  /** A conference room's end, in unix seconds: carried as a NIP-40
+   *  expiration (see `withExpiration`). Omit for a room with no end. */
+  expiresAt?: number
 }
 
 /** The root a channel derives from: the epoch's id and key when there is
@@ -373,7 +377,7 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     {
       kind: KINDS.CHAT,
       created_at: msg.sentAt,
-      tags: [['d', id]],
+      tags: withExpiration([['d', id]], opts.expiresAt),
       content,
     },
     opts.deviceSk,
@@ -640,6 +644,9 @@ export interface ChatLogOptions {
    * are. See `archive.ts`.
    */
   archive?: EventArchive
+  /** A conference room's end: every message, reaction, edit and retraction
+   *  this log sends carries it as an expiration. See `withExpiration`. */
+  expiresAt?: number
 }
 
 /** What `send` may say beyond the text. */
@@ -964,6 +971,7 @@ export class ChatLog {
       deviceSk,
       channel: this.#opts.channel,
       ...(this.#epoch ? { epoch: this.#epoch } : {}),
+      expiresAt: this.#opts.expiresAt,
     })
     const epoch = this.#epoch
     return async () => {

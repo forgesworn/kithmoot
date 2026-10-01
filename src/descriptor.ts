@@ -1,6 +1,7 @@
 import { finalizeEvent, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { KINDS } from './kinds.js'
+import { withExpiration } from './expiration.js'
 import { verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
 import { hexEquals, normaliseHex } from './hex.js'
@@ -14,6 +15,9 @@ export interface EncodeDescriptorOptions {
   deviceSk: Uint8Array
   /** The epoch to publish in. Omit for epoch 0. See `epoch.ts`. */
   epoch?: { id: string; key: Uint8Array }
+  /** A conference room's end, in unix seconds: carried as a NIP-40
+   *  expiration (see `withExpiration`). Omit for a room with no end. */
+  expiresAt?: number
 }
 
 /**
@@ -126,7 +130,7 @@ export function encodeDescriptorEvent(descriptor: RoomDescriptor, opts: EncodeDe
     {
       kind: KINDS.DESCRIPTOR,
       created_at: descriptor.updatedAt,
-      tags: [['d', root.id]],
+      tags: withExpiration([['d', root.id]], opts.expiresAt),
       content: nip44.v2.encrypt(JSON.stringify(payload), root.key),
     },
     opts.deviceSk,

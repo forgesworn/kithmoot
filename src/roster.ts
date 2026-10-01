@@ -1,6 +1,7 @@
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { KINDS } from './kinds.js'
+import { withExpiration } from './expiration.js'
 import { verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
 import { hexEquals, normaliseHex } from './hex.js'
@@ -16,6 +17,9 @@ export interface EncodeRosterOptions {
   /** The epoch to publish in: its id is the `d` tag and its key the cipher.
    *  Omit for epoch 0, where both are the room's own. See `epoch.ts`. */
   epoch?: { id: string; key: Uint8Array }
+  /** A conference room's end, in unix seconds: carried as a NIP-40
+   *  expiration (see `withExpiration`). Omit for a room with no end. */
+  expiresAt?: number
 }
 
 /**
@@ -70,7 +74,7 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
     {
       kind: KINDS.ROSTER,
       created_at: entry.updatedAt,
-      tags: [['d', root.id]],
+      tags: withExpiration([['d', root.id]], opts.expiresAt),
       content,
     },
     opts.deviceSk,

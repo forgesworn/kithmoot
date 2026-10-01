@@ -1,5 +1,6 @@
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { RoomSession } from './session.js'
+import { RoomSession, CONFERENCE_ENDED_MESSAGE } from './session.js'
+import { requireRoomEnds } from './expiration.js'
 import type { ParticipantView, PublishOptions, SessionTiming } from './session.js'
 import type { RelayTransport } from './relay-pool.js'
 import { NostrRelayPool } from './relay-pool.js'
@@ -94,6 +95,10 @@ export interface KeeperState {
    *  empty a room's channel list and take its conversations off every
    *  client's screen. */
   channels?: string[]
+  /** A conference room's end, in unix seconds. Kept so a restarted keeper
+   *  re-signs the invitation with the same end, tags what it publishes, and
+   *  refuses to reopen the room once it has passed. */
+  endsAt?: number
 }
 
 /** How this agent takes part in a quiet room, when the link says the room
@@ -206,6 +211,10 @@ export interface CreateRoomOptions extends CommonAgentOptions {
   /** A previous keeper's state, to reopen the same room rather than make a
    *  new one. */
   state?: KeeperState
+  /** Make a new room a conference room that ends at this time, in unix
+   *  seconds: after now and no more than 30 days on. Ignored when `state`
+   *  is given, which carries its own. */
+  endsAt?: number
   /**
    * Participants who may act on the room through the control channel:
    * remove a member, close the room, ask somebody to mute. The keeper
@@ -380,6 +389,7 @@ export class RoomAgent {
     let secret: Uint8Array
     let authority: { inviterSk: Uint8Array; delegation: InvitationDelegation[] } | undefined
     let expectedEpoch: number | undefined
+    let endsAt: number | undefined
     if (link.invitation) {
       const transport = makeTransport(relays)
       try {
@@ -387,6 +397,10 @@ export class RoomAgent {
           ? await requestPersistentRoomAdmission({ transport, invitation: link.invitation })
           : await requestRoomAdmissionCapability({ transport, invitation: link.invitation, now })
         secret = admission.secret
+        if ('endsAt' in admission && admission.endsAt !== undefined) {
+          if (now() >= admission.endsAt) throw new Error(CONFERENCE_ENDED_MESSAGE)
+          endsAt = admission.endsAt
+        }
         if ('delegate' in admission) authority = { inviterSk: admission.delegate.delegateSk, delegation: admission.delegate.chain }
         expectedEpoch = admission.epoch
       } finally {
@@ -408,6 +422,7 @@ export class RoomAgent {
       now,
       authority: opts.hostInvitation === false ? undefined : authority,
       expectedEpoch,
+      endsAt,
     })
   }
 
@@ -422,7 +437,9 @@ export class RoomAgent {
     if (!state) {
       const host = createRoomInvitation(true)
       state = { secret: generateRoomSecret(), inviterSk: host.inviterSk, bearer: host.invitation.bearer, persistent: true }
+      if (opts.endsAt !== undefined) state.endsAt = requireRoomEnds(opts.endsAt, now())
     }
+    if (state.endsAt !== undefined && now() >= state.endsAt) throw new Error(CONFERENCE_ENDED_MESSAGE)
     const epochNumber = state.epoch ?? 0
     state = { ...state, epoch: epochNumber, removed: [...new Set((state.removed ?? []).map(normaliseHex))].sort() }
     const invitation = roomInvitation(state.bearer, getPublicKey(state.inviterSk), state.persistent === true)
@@ -464,6 +481,7 @@ export class RoomAgent {
       now: () => number
       authority?: { inviterSk: Uint8Array; delegation: InvitationDelegation[] }
       expectedEpoch?: number
+      endsAt?: number
       keeper?: KeeperState
       epoch?: RoomEpoch
       removed?: string[]
@@ -497,6 +515,7 @@ export class RoomAgent {
       timing: opts.timing,
       announceJitterMs: opts.announceJitterMs,
       epoch: opts.epoch,
+      endsAt: opts.endsAt ?? opts.keeper?.endsAt,
       authority: opts.link.invitation?.inviter,
       // A keeper is the authority: it holds the epoch and waits for nobody.
       expectedEpoch: opts.keeper ? (opts.epoch?.epoch ?? 0) : opts.expectedEpoch,
@@ -531,7 +550,7 @@ export class RoomAgent {
 
     try {
       if (opts.keeper?.persistent && opts.link.invitation) {
-        await transport.publish(encodePersistentInvitation({ invitation: opts.link.invitation, roomSecret: opts.secret, inviterSk: opts.keeper.inviterSk, now: opts.now() }))
+        await transport.publish(encodePersistentInvitation({ invitation: opts.link.invitation, roomSecret: opts.secret, inviterSk: opts.keeper.inviterSk, now: opts.now(), endsAt: opts.keeper.endsAt }))
       }
       await session.join(opts.tracks ?? [], opts.claims ?? {})
     } catch (err) {
@@ -567,6 +586,7 @@ export class RoomAgent {
             policy: opts.link.policy,
             legacyParticipants: new Set(agent.admins),
             now: opts.now,
+            expiresAt: opts.keeper.endsAt,
           })
         }
       } catch {
@@ -955,6 +975,7 @@ export class RoomAgent {
       ...(this.session.closed ? { closed: true } : {}),
       ...(keeper.nudge?.length ? { nudge: keeper.nudge } : {}),
       ...(this.#channels.size ? { channels: canonicalChannels([...this.#channels]) } : {}),
+      ...(keeper.endsAt !== undefined ? { endsAt: keeper.endsAt } : {}),
     }
     this.#keeper = next
     await this.#onState?.(next)
@@ -1006,7 +1027,7 @@ export class RoomAgent {
     if (this.link.invitation) {
       try {
         await (this.#hostTransport ?? this.#transport).publish(
-          encodeInvitationRetirement({ invitation: this.link.invitation, inviterSk: keeper.inviterSk, now: this.#now() }),
+          encodeInvitationRetirement({ invitation: this.link.invitation, inviterSk: keeper.inviterSk, now: this.#now(), endsAt: keeper.endsAt }),
         )
       } catch {
         // Cooperative delegates that miss the tombstone stop when their

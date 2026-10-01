@@ -34,6 +34,17 @@ describe('read positions', () => {
     }
   })
 
+  it('a conference room\'s marker lapses with the room, and still decodes', async () => {
+    const ends = NOW + 86_400
+    const viaIdentity = await encodeReadPositions(read, { roomId, roomKey, identity: localIdentity(sk), crypt: localSelfCrypt(sk), createdAt: NOW, expiresAt: ends })
+    const viaLocal = encodeReadPositionsLocal(read, { roomId, roomKey, participantSk: sk, createdAt: NOW, expiresAt: ends })
+    for (const event of [viaIdentity, viaLocal]) {
+      expect(event.tags).toEqual([['d', readPositionId(roomKey)], ['l', READ_POSITION_LABEL], ['expiration', String(ends)]])
+      expect(await decodeReadPositions(event, { participant, roomId, roomKey, crypt: localSelfCrypt(sk) })).toEqual({ room: roomId, read })
+    }
+    expect(encodeReadPositionsLocal(read, { roomId, roomKey, participantSk: sk, createdAt: NOW }).tags.some((t) => t[0] === 'expiration')).toBe(false)
+  })
+
   it('is refused under the wrong key, for the wrong room, and from somebody else', async () => {
     const event = encodeReadPositionsLocal(read, { roomId, roomKey, participantSk: sk, createdAt: NOW })
     const other = deriveRoom(new Uint8Array(32).fill(4))

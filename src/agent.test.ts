@@ -63,6 +63,45 @@ describe('RoomAgent', () => {
     keeper.leave()
   })
 
+  it('a conference room: the keeper keeps the end, a joiner learns it, and both tag what they publish', async () => {
+    const relay = new SimRelay({ replay: true })
+    let t = Math.floor(Date.now() / 1000)
+    const now = () => t
+    const ends = t + 86_400
+    let saved: KeeperState | undefined
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, now, endsAt: ends, onState: (s) => { saved = s } })
+    expect(keeper.keeperState?.endsAt).toBe(ends)
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport: transportFor(relay), announceJitterMs: 0, now })
+    expect(ada.session.endsAt).toBe(ends)
+    await ada.chat.send('hello')
+    await settle()
+    const invitation = relay.published.filter((e) => e.kind === 1463)
+    expect(invitation.length).toBeGreaterThan(0)
+    for (const event of relay.published) expect(event.tags, `kind ${event.kind}`).toContainEqual(['expiration', String(ends)])
+
+    // Once the end has passed, the link refuses (a relay that ignores NIP-40
+    // still serves the invitation), and a keeper will not reopen the room.
+    t = ends
+    await expect(RoomAgent.join({ link: keeper.url, name: 'Late', transport: transportFor(relay), announceJitterMs: 0, now })).rejects.toThrow(/conference room has ended/)
+    const reopened = RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(new SimRelay({ replay: true })), announceJitterMs: 0, now, state: keeper.keeperState })
+    await expect(reopened).rejects.toThrow(/conference room has ended/)
+
+    // Closing it says so with a tombstone that lapses with the room.
+    await keeper.closeRoom()
+    const retirement = relay.published.find((e) => e.kind === 1461)
+    expect(retirement?.tags).toContainEqual(['expiration', String(ends)])
+    expect(saved?.endsAt).toBe(ends)
+    ada.leave()
+    keeper.leave()
+  })
+
+  it('refuses to make a conference room that ends in the past or beyond 30 days', async () => {
+    const relay = new SimRelay({ replay: true })
+    const t = Math.floor(Date.now() / 1000)
+    await expect(RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), now: () => t, endsAt: t })).rejects.toThrow(/past/)
+    await expect(RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), now: () => t, endsAt: t + 31 * 86_400 })).rejects.toThrow(/30 days/)
+  })
+
   it('a second agent joins the stored group after the keeper has gone', async () => {
     const relay = new SimRelay({ replay: true })
     const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0 })

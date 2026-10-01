@@ -121,7 +121,9 @@ export {
   CREDENTIAL_RENEWAL_FRACTION,
   DEFAULT_EPOCH_SETTLE_MS,
   DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
+  CONFERENCE_ENDED_MESSAGE,
 } from './session.js'
+export { withExpiration, isRoomEnds, requireRoomEnds, MAX_ROOM_ENDS_SECONDS } from './expiration.js'
 export type {
   ParticipantView,
   CallView,

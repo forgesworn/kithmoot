@@ -2,6 +2,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, getEventHash, type Even
 import { nip44 } from 'nostr-tools'
 import { verifyEventUncached as verifyEvent } from './verify.js'
 import { KINDS } from './kinds.js'
+import { withExpiration } from './expiration.js'
 import { SIGNAL_MAX_AGE_SECONDS } from './signal-guard.js'
 
 // Re-exported here because this is where the staleness rule is applied, even
@@ -116,6 +117,10 @@ export interface WrapOptions {
   /** The sending device's secret key. Signs the inner event. */
   senderSk: Uint8Array
   recipientPubkey: string
+  /** A conference room's end: the wrap already lapses within a minute, and
+   *  is lowered to the end only if the room ends sooner. See
+   *  `withExpiration`. */
+  expiresAt?: number
 }
 
 /**
@@ -148,7 +153,7 @@ export function wrapSignal(body: SignalBody, opts: WrapOptions): Event {
     {
       kind: KINDS.SIGNAL_WRAP,
       created_at: createdAt,
-      tags: [['p', opts.recipientPubkey], ['expiration', String(createdAt + SIGNAL_EXPIRATION_SECONDS)]],
+      tags: withExpiration([['p', opts.recipientPubkey], ['expiration', String(createdAt + SIGNAL_EXPIRATION_SECONDS)]], opts.expiresAt),
       content: nip44.v2.encrypt(JSON.stringify(inner), conversationKey),
     },
     ephemeralSk,

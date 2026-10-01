@@ -299,6 +299,17 @@ export interface RoomSessionBaseOptions {
   onRemoved?: (notice: { epoch: number; by?: string }) => void
   /** Called when the room was closed by its authority. As above. */
   onClosed?: (notice: { epoch: number; by?: string }) => void
+  /**
+   * A conference room's end, in unix seconds: the `ends` its group
+   * invitation carries (`PersistentRoomAdmission.endsAt`). Every event this
+   * session signs for the room - roster and farewell, chat and its
+   * channels, signals, descriptors, call bells, assignments, rekeys and
+   * epoch requests - carries it as a NIP-40 expiration, so relays drop the
+   * room's traffic once it has ended. At or after it, `join` refuses and no
+   * bell is rung. Omit for a room with no end: every event is then
+   * byte-identical to one from before conference rooms existed.
+   */
+  endsAt?: number
 }
 
 /**
@@ -353,6 +364,9 @@ export interface PublishOptions {
 }
 
 const CREDENTIAL_TTL_SECONDS = 12 * 60 * 60
+
+/** What `join` refuses with once a conference room's end has passed. */
+export const CONFERENCE_ENDED_MESSAGE = 'this conference room has ended'
 const DEFAULT_ANNOUNCE_JITTER_MS = 500
 
 /**
@@ -614,6 +628,7 @@ export class RoomSession {
   }
 
   async join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+    if (this.#ended()) throw new Error(CONFERENCE_ENDED_MESSAGE)
     if (this.#opts.policy) {
       const verdict = evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, this.#now(), this.roomId)
       if (!verdict.admitted) throw new Error(verdict.reason)
@@ -707,6 +722,7 @@ export class RoomSession {
         routeTimeoutMs: this.#opts.routeTimeoutMs,
         turnRouteTimeoutMs: this.#opts.turnRouteTimeoutMs,
         relay: this.#opts.relay,
+        expiresAt: this.#opts.endsAt,
         // Consent, checked at the moment of the request rather than at
         // construction: a person who has revoked stops carrying people at
         // once, and one who never opted in is never asked to start.
@@ -789,6 +805,7 @@ export class RoomSession {
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
+      expiresAt: this.#opts.endsAt,
     })
 
     // Presence is live state, so it has to be restated and it has to lapse -
@@ -805,6 +822,18 @@ export class RoomSession {
       if (this.#evictLapsed()) this.#notify()
     })
     if (this.#opts.identity) this.#scheduleRenewal(this.#renewalDelayMs(credential))
+  }
+
+  /** A conference room whose end has come. Never true for a room with no
+   *  end. */
+  #ended(): boolean {
+    return this.#opts.endsAt !== undefined && this.#now() >= this.#opts.endsAt
+  }
+
+  /** The conference room's end, in unix seconds, or undefined for a room
+   *  that runs until somebody ends it. */
+  get endsAt(): number | undefined {
+    return this.#opts.endsAt
   }
 
   #credentialTtl(): number {
@@ -1041,6 +1070,7 @@ export class RoomSession {
           proof: this.#opts.proof,
           now: this.#now,
           timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
+          expiresAt: this.#opts.endsAt,
         })
         if (this.#left) return
         for (const p of grant.removed) this.#removed.add(p)
@@ -1163,6 +1193,7 @@ export class RoomSession {
       by: opts.by,
       closed: opts.closed,
       now,
+      expiresAt: this.#opts.endsAt,
     })
     await this.#opts.transport.publish(event)
     const notice: RekeyNotice = {
@@ -1325,7 +1356,7 @@ export class RoomSession {
         iceServers: config.iceServers ?? [],
         updatedAt: config.updatedAt ?? this.#now(),
       },
-      { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}) },
+      { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}), expiresAt: this.#opts.endsAt },
     )
     await this.#opts.transport.publish(event)
   }
@@ -1407,6 +1438,7 @@ export class RoomSession {
       roomKey: this.#roomKey,
       deviceSk: this.#opts.deviceSk,
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
+      expiresAt: this.#opts.endsAt,
     })
     await this.#opts.transport.publish(event)
   }
@@ -1585,9 +1617,10 @@ export class RoomSession {
    * or off a call, and a failure costs only the ring, so it is swallowed.
    */
   #ringBell(state: CallBellState, call: CallMembership): Promise<void> {
-    if (this.#opts.callBell === false) return Promise.resolve()
+    // A conference room that has ended rings nobody.
+    if (this.#opts.callBell === false || this.#ended()) return Promise.resolve()
     try {
-      const event = encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now() })
+      const event = encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#opts.endsAt })
       return this.#opts.transport.publish(event).catch(() => {})
     } catch {
       return Promise.resolve()
@@ -1784,7 +1817,7 @@ export class RoomSession {
       deviceSk: this.#opts.deviceSk, identity: this.#opts.identity,
       credential: () => this.#self?.credential, name: this.#name,
       policy: this.#opts.policy, proof: this.#opts.proof, owner: this.#ownerToCarry(),
-      now: this.#now, epoch: this.#epochRoot(), storage,
+      now: this.#now, epoch: this.#epochRoot(), storage, expiresAt: this.#opts.endsAt,
     })
     this.#assignments = log
     this.#assignmentsOpening = log.open().then(() => log).catch(e => {
@@ -1812,6 +1845,7 @@ export class RoomSession {
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
+      expiresAt: this.#opts.endsAt,
     })
     this.#channels.set(name, log)
     return log

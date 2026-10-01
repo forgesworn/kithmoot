@@ -6,6 +6,7 @@ import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { KINDS } from './kinds.js'
+import { withExpiration } from './expiration.js'
 import { verifyEventUncached } from './verify.js'
 import { sanitiseCallMembership } from './roster.js'
 import type { CallMembership } from './types.js'
@@ -93,6 +94,9 @@ export interface EncodeCallBellOptions {
   call: CallMembership
   /** Unix seconds. */
   createdAt: number
+  /** A conference room's end: a bell that would outlive the room's end is
+   *  lowered to it. See `withExpiration`. */
+  expiresAt?: number
 }
 
 /** Build a bell, signed by a key minted here and discarded. */
@@ -107,7 +111,7 @@ export function encodeCallBellEvent(opts: EncodeCallBellOptions): Event {
     {
       kind: KINDS.CALL_BELL,
       created_at: createdAt,
-      tags: [['d', callBellTag(opts.key, createdAt)], ['expiration', String(createdAt + CALL_BELL_TTL_SECONDS)]],
+      tags: withExpiration([['d', callBellTag(opts.key, createdAt)], ['expiration', String(createdAt + CALL_BELL_TTL_SECONDS)]], opts.expiresAt),
       content: nip44.v2.encrypt(plaintext, callBellContentKey(opts.key)),
     },
     throwaway,
