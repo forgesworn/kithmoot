@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.32",
+  "currentRelease": "0.1.35",
   "releases": [
     {
-      "version": "0.1.32",
+      "version": "0.1.35",
       "updateTo": {
-        "version": "0.1.32",
-        "pub_date": "2026-10-01T09:40:00Z",
-        "notes": "Sharing another app's window keeps your own preview, so you can draw on it again, and sharing KithMoot itself no longer shows the share inside itself. A redacted share is covered while another desktop slides in. The call controls are one row, with the rest under More, and two of your cameras show as two equal angles. A group link whose relays lost its invitation is found on yours, and a signer that does not answer is named as the problem.",
-        "name": "0.1.32",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.32/KithMoot-0.1.32-mac-arm64.zip",
-        "sha256": "c1951031e261d560562e0c7f7c8e09c2a64ab840d985cdf328f9fc60e7204860",
-        "size": 137591868
+        "version": "0.1.35",
+        "pub_date": "2026-10-01T12:56:00Z",
+        "notes": "The new KithMoot icon, the turquoise and blue vortex. Nothing else changes.",
+        "name": "0.1.35",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.35/KithMoot-0.1.35-mac-arm64.zip",
+        "sha256": "2f57a3a10585fc696a027b0034088c4c5715f9cc9a1767bcf3b4fa79ee2fc983",
+        "size": 136406437
       }
     }
   ]
