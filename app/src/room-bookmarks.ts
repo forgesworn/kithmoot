@@ -237,8 +237,10 @@ export class RoomBookmarks {
     // Only bookmark fields travel. Read positions, device credentials and
     // the choice to keep an admission never follow an account.
     if (value.room) {
-      const { roomId, link, name, openedAt } = value.room
-      value.room = { roomId, link, name, openedAt, readAt: 0 }
+      // A conference room's end travels too, so the list on another device
+      // shows the room ended without having to open it.
+      const { roomId, link, name, openedAt, endsAt } = value.room
+      value.room = { roomId, link, name, openedAt, readAt: 0, ...(endsAt !== undefined ? { endsAt } : {}) }
     }
     // Addressable-event replacement is ordered in whole seconds. A later
     // edit must not lose to the earlier event's id when both happen in one.

@@ -60,7 +60,8 @@ import {
   memoryDeviceStore,
 } from './device-store.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
-import { forgetRoom, knownRoom, knownRooms, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { endLapsedConferences, forgetRoom, knownRoom, knownRooms, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
 import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
@@ -98,6 +99,8 @@ import {
   encodePersistentInvitation,
   encodeInvitationRetirement,
   ROOM_ENDED_MESSAGE,
+  withExpiration,
+  isRoomEnds,
   createPairingCode,
   hostPairing,
   requestPairing,
@@ -227,7 +230,7 @@ import {
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type Profile } from './profiles.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay-settings.js'
-import { renderQr } from './qr.js'
+import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
@@ -684,6 +687,7 @@ function rememberCurrentRoom(): void {
       name: roomName,
       link: encodeRoomUrl(joinLinkBase(), relays, iceUrls),
       openedAt: nowSeconds(),
+      ...(roomEndsAt !== undefined ? { endsAt: roomEndsAt } : {}),
     })
     bookmarks?.save(room)
     refreshKeptAdmission()
@@ -1090,8 +1094,8 @@ function roomStore() { return bookmarks?.rooms ?? deviceStore }
  */
 let readSync: ReadPositionSync | undefined
 
-function followReadPositions(roomId: string, roomKey: Uint8Array): void {
-  readSync?.follow(roomId, roomKey, { '': { at: knownRoom(roomStore(), roomId)?.readAt ?? 0 } })
+function followReadPositions(roomId: string, roomKey: Uint8Array, expiresAt?: number): void {
+  readSync?.follow(roomId, roomKey, { '': { at: knownRoom(roomStore(), roomId)?.readAt ?? 0 } }, expiresAt)
 }
 
 /**
@@ -1134,7 +1138,8 @@ function groupAdmissions(): BookmarkAdmissions {
     adopt: (room, secret) => {
       const id = invitationIdOf(room.link)
       if (!id || loadKeptAdmission(deviceStore, id, nowSeconds())) return
-      storeKeptAdmission(deviceStore, id, { secret: hexToBytes(secret), persistent: true, epoch: 0 }, nowSeconds())
+      // A conference room's end comes with the bookmark, and stays with the membership.
+      storeKeptAdmission(deviceStore, id, { secret: hexToBytes(secret), persistent: true, epoch: 0, ...(room.endsAt !== undefined ? { endsAt: room.endsAt } : {}) }, nowSeconds())
     },
   }
 }
@@ -1180,8 +1185,8 @@ function startRoomBookmarks(account: SignetSession): void {
   // The room this page is in, and every room the list is watching, from
   // wherever this identity had read to on another device.
   const current = currentRoomId()
-  if (current && (roomSecret as Uint8Array | undefined)) followReadPositions(current, deriveRoom(roomSecret).roomKey)
-  for (const [roomId, watched] of roomWatches) followReadPositions(roomId, watched.watch.roomKey)
+  if (current && (roomSecret as Uint8Array | undefined)) followReadPositions(current, deriveRoom(roomSecret).roomKey, roomEndsAt)
+  for (const [roomId, watched] of roomWatches) followReadPositions(roomId, watched.watch.roomKey, knownRoom(roomStore(), roomId)?.endsAt)
   // A sign-in at the door saves this room, not the visitor's past rooms.
   rememberCurrentRoom()
 }
@@ -1339,12 +1344,21 @@ function roomAuthority(): string | undefined {
 const ADMISSION_CACHE_PREFIX = 'kithmoot.admission.v1.'
 let admittedRoom: SavedRoomAdmission | undefined
 
+/**
+ * A conference room's end, in unix seconds: the `ends` its group invitation
+ * carries. Undefined for every other room. The session tags everything it
+ * signs with it, the invitation is re-signed with it, and when it comes the
+ * room is shown ended. See app/src/conference.ts.
+ */
+let roomEndsAt: number | undefined
+let conferenceEndTimer: ReturnType<typeof setTimeout> | undefined
+
 function ownerStorageKey(invitation: RoomInvitation): string {
   return INVITATION_OWNER_PREFIX + deriveInvitationId(invitation)
 }
 
-function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, hostSk: Uint8Array): void {
-  try { writeInvitationOwner(deviceStore, invitation, room, hostSk, nowSeconds()) }
+function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, hostSk: Uint8Array, endsAt?: number): void {
+  try { writeInvitationOwner(deviceStore, invitation, room, hostSk, nowSeconds(), endsAt) }
   catch (error) {
     // A temporary meeting can still run entirely in this tab. A group must
     // retain its creator authority before offering durable access to others.
@@ -1352,7 +1366,7 @@ function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, host
   }
 }
 
-function loadInvitationOwner(invitation: RoomInvitation): { roomSecret: Uint8Array; inviterSk: Uint8Array } | undefined {
+function loadInvitationOwner(invitation: RoomInvitation): { roomSecret: Uint8Array; inviterSk: Uint8Array; endsAt?: number } | undefined {
   try { return readInvitationOwner(deviceStore, invitation, nowSeconds()) } catch { return undefined }
 }
 
@@ -1371,6 +1385,8 @@ interface StoredAdmission {
   persistent?: true
   /** What the responder said the room's epoch was. See `RoomAdmission.epoch`. */
   epoch?: number
+  /** A conference room's end. See `PersistentRoomAdmission.endsAt`. */
+  ends?: number
 }
 
 function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission): void {
@@ -1381,6 +1397,7 @@ function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmissio
         ? { delegateSk: bytesToHex(admission.delegate.delegateSk), delegation: admission.delegate.chain }
         : { persistent: true as const }),
       ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
+      ...('endsAt' in admission && admission.endsAt !== undefined ? { ends: admission.endsAt } : {}),
     }
     sessionStorage.setItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation), JSON.stringify(value))
   } catch {
@@ -1398,7 +1415,9 @@ function loadCachedAdmission(invitation: RoomInvitation): SavedRoomAdmission | u
     ) return undefined
     const secret = hexToBytes(value.roomSecret)
     if (secret.length !== 32) return undefined
-    if (value.persistent === true && invitation.persistent && value.epoch === 0) return { secret, persistent: true, epoch: 0 }
+    if (value.persistent === true && invitation.persistent && value.epoch === 0) {
+      return isRoomEnds(value.ends) ? { secret, persistent: true, epoch: 0, endsAt: value.ends } : { secret, persistent: true, epoch: 0 }
+    }
     if (typeof value.delegateSk !== 'string' || !Array.isArray(value.delegation)) return undefined
     const delegateSk = hexToBytes(value.delegateSk)
     if (secret.length !== 32 || delegateSk.length !== 32) return undefined
@@ -1635,14 +1654,23 @@ function renderKeepChoice(): void {
 const GROUP_INVITATION_REFRESH_MS = 6 * 60 * 60 * 1000
 let groupInvitationRefresh: ReturnType<typeof setInterval> | undefined
 
-function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array): void {
+function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, endsAt?: number): void {
   const refresh = (): void => {
-    void publishGroupInvitation(invitation, secret, inviterSk, relays).catch(() => { /* Retried next round. */ })
+    // A conference room's invitation is signed again with the same end,
+    // and not at all once it has come: the room is over, and relays are
+    // meant to have let it go.
+    if (conferenceEnded(endsAt, nowSeconds())) {
+      if (groupInvitationRefresh !== undefined) clearInterval(groupInvitationRefresh)
+      groupInvitationRefresh = undefined
+      return
+    }
+    void publishGroupInvitation(invitation, secret, inviterSk, relays, { endsAt }).catch(() => { /* Retried next round. */ })
     // The link that opened the room may name relays the room has since left,
     // and a copy of that link is still out there looking on them.
     const extra = linkOnlyRelays(relays, invitationLinkRelays, url => relayConnections.isCircle(url))
-    if (extra.length) void publishGroupInvitation(invitation, secret, inviterSk, extra, undefined, `link:${deriveInvitationId(invitation)}`).catch(() => { /* Retried next round. */ })
+    if (extra.length) void publishGroupInvitation(invitation, secret, inviterSk, extra, { scope: `link:${deriveInvitationId(invitation)}`, endsAt }).catch(() => { /* Retried next round. */ })
   }
+  if (conferenceEnded(endsAt, nowSeconds())) return
   refresh()
   groupInvitationRefresh = setInterval(refresh, GROUP_INVITATION_REFRESH_MS)
 }
@@ -1689,7 +1717,7 @@ function stopInvitationHost(): void {
 function serveCurrentInvitation(): void {
   stopInvitationHost()
   const invitation = roomInvitationCapability
-  if (invitation?.persistent && invitationAuthoritySk && invitationDelegation.length === 0 && !roomPolicy?.members?.length) keepGroupInvitationAlive(invitation, roomSecret, invitationAuthoritySk)
+  if (invitation?.persistent && invitationAuthoritySk && invitationDelegation.length === 0 && !roomPolicy?.members?.length) keepGroupInvitationAlive(invitation, roomSecret, invitationAuthoritySk, roomEndsAt)
   if (!invitation || !invitationAuthoritySk || invitation.persistent) return
   invitationTransport = configuredPool(relays)
   try {
@@ -2768,6 +2796,7 @@ async function roomFromLocation(): Promise<boolean> {
     const owner = loadInvitationOwner(invitation)
     if (owner) {
       roomSecret = owner.roomSecret
+      roomEndsAt = owner.endsAt
       invitationAuthoritySk = owner.inviterSk
       invitationDelegation = []
       // A room this browser made is at epoch 0: only its authority could
@@ -2783,6 +2812,7 @@ async function roomFromLocation(): Promise<boolean> {
       const cached = invitation.persistent && saved && 'delegate' in saved ? undefined : saved
       if (cached) {
         roomSecret = cached.secret
+        roomEndsAt = 'endsAt' in cached ? cached.endsAt : undefined
         admittedRoom = cached
         invitationAuthoritySk = 'delegate' in cached ? cached.delegate.delegateSk : undefined
         invitationDelegation = 'delegate' in cached ? cached.delegate.chain : []
@@ -2812,6 +2842,10 @@ async function roomFromLocation(): Promise<boolean> {
               ...(askedFrom !== undefined ? { participant: askedFrom } : {}),
             })
           roomSecret = admission.secret
+          roomEndsAt = 'endsAt' in admission ? admission.endsAt : undefined
+          // A relay that ignores NIP-40 can still hand out the invitation of
+          // a conference room that has ended. Nobody joins it.
+          if (conferenceEnded(roomEndsAt, nowSeconds())) throw new Error(conferenceEndedMessage(roomEndsAt!))
           roomRelayScope = `room:${deriveRoom(roomSecret).roomId}`
           // Found beyond the link's relays: the room evidently lives there
           // too, so it is read and written there as well.
@@ -2863,6 +2897,19 @@ async function roomFromLocation(): Promise<boolean> {
   // label, so the room is not "Untitled room" here; it goes no further than
   // where a named room's own name already goes.
   if (!roomName) roomName = projectRoomName(currentRoomId())
+  // A membership kept before conference rooms existed, or adopted from a
+  // bookmark, may not carry the end; the rooms list does.
+  if (invitation?.persistent) roomEndsAt ??= knownRoom(roomStore(), currentRoomId() ?? '')?.endsAt
+
+  // A conference room whose end has come opens for nobody, the person who
+  // made it included: its end is the point of it. Said with the date, and
+  // written down so the list shows it ended.
+  if (conferenceEnded(roomEndsAt, nowSeconds())) {
+    const roomId = currentRoomId()
+    if (roomId) for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) markEnded(store, roomId, roomEndsAt!)
+    stopInvitationHost()
+    throw new Error(conferenceEndedMessage(roomEndsAt!))
+  }
 
   // Admitted, one way or another: this is now a room this device has been
   // in, and the list on the front page will offer it again - and, if the
@@ -2897,6 +2944,7 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
       roomKey,
       code,
       deviceSk: deviceKey(),
+      expiresAt: roomEndsAt,
     })
     if (generation !== roomGeneration) return
     storeCredential(credential)
@@ -3356,6 +3404,9 @@ async function startNewRoom(): Promise<void> {
   // somebody online to let people in.
   const ask = ($('roomAsk') as HTMLInputElement).checked
   const persistent = !ask
+  // Only a group can be a conference room: a meeting that asks before
+  // anybody joins already ends when its people leave.
+  const endsAt = persistent ? conferenceEndsAt(Number(($('roomEnds') as HTMLSelectElement).value), nowSeconds()) : undefined
   const secret = generateRoomSecret()
   const created = createRoomInvitation(persistent)
   setKnock(deriveRoom(secret).roomId, ask)
@@ -3365,10 +3416,11 @@ async function startNewRoom(): Promise<void> {
   relayConnections.inheritDefaults(relayScope)
   // Persist the owner's recovery before publishing. Failure leaves the form
   // usable and never offers a link whose asynchronous admission was not saved.
-  storeInvitationOwner(created.invitation, secret, created.inviterSk)
-  if (persistent) await publishGroupInvitation(created.invitation, secret, created.inviterSk, RELAYS)
+  storeInvitationOwner(created.invitation, secret, created.inviterSk, endsAt)
+  if (persistent) await publishGroupInvitation(created.invitation, secret, created.inviterSk, RELAYS, { endsAt })
   startedHere = true
   admittedRoom = undefined
+  roomEndsAt = endsAt
   expectedEpoch = 0
   roomPolicy = undefined
   roomSecret = secret
@@ -3446,6 +3498,7 @@ function showRoomTools(): void {
   $('doorToRooms').hidden = true
   $('workspaceNav').hidden = false
   $('invitePeople').hidden = Boolean(roomPolicy?.members?.length)
+  $('inviteQr').hidden = Boolean(roomPolicy?.members?.length)
   renderWorkspace()
   // Notifications are a front-page control as well as a room one, so the
   // markup lives in `main` for the rooms list. In a room it belongs in the
@@ -4123,7 +4176,18 @@ function renderRoomTitle(): void {
   const peer = me ? dmPeer(roomPolicy, me) : undefined
   title.textContent = peer ? currentRoomLabel() : roomName ?? 'Room'
   title.title = peer ? currentRoomLabel() : roomName ?? `Room ${shortKey(roomId)}`
+  const ends = $('roomEndsLine')
+  ends.textContent = roomEndsAt === undefined ? '' : conferenceEndsLine(roomEndsAt)
+  ends.hidden = roomEndsAt === undefined
   renderSheetRoom()
+}
+
+/** A conference room's end, in the invite sheet: the link stops working
+ *  then, which anybody about to share it should know. */
+function renderInviteEnds(): void {
+  const line = $('inviteEnds')
+  line.textContent = roomEndsAt === undefined ? '' : `${conferenceEndsLine(roomEndsAt)}. This is a conference room: its link stops working then, and its messages are wiped from relays that honour expiry.`
+  line.hidden = roomEndsAt === undefined
 }
 
 /** The name and the code together, in the room's details. */
@@ -4193,8 +4257,9 @@ async function rotateRoomInvitation(): Promise<void> {
   const retired = roomInvitationCapability
   const retiringSk = invitationAuthoritySk
   const created = createRoomInvitation(retired.persistent === true)
-  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk)
-  if (created.invitation.persistent) await publishGroupInvitation(created.invitation, roomSecret, created.inviterSk, relays)
+  // A conference room's fresh link ends when the room does.
+  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk, roomEndsAt)
+  if (created.invitation.persistent) await publishGroupInvitation(created.invitation, roomSecret, created.inviterSk, relays, { endsAt: roomEndsAt })
 
   // Tell every cooperative delegated responder before replacing local
   // state. The event is durable, so an offline member learns the retirement
@@ -4205,6 +4270,7 @@ async function rotateRoomInvitation(): Promise<void> {
       invitation: retired,
       inviterSk: retiringSk,
       now: nowSeconds(),
+      endsAt: roomEndsAt,
     }))
   } finally {
     closeWhenSettled(retirementTransport)
@@ -4214,7 +4280,7 @@ async function rotateRoomInvitation(): Promise<void> {
   roomInvitationCapability = created.invitation
   invitationAuthoritySk = created.inviterSk
   invitationDelegation = []
-  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk)
+  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk, roomEndsAt)
   serveCurrentInvitation()
 
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
@@ -4231,12 +4297,15 @@ async function rotateRoomInvitation(): Promise<void> {
 /** `forRoom` names the room the invitation is for when that is not the room
  *  on screen, so the relays it goes to are exactly `relayUrls` and not
  *  whatever this room's saved relay settings say. */
-async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[], forRoom?: string, scope?: string): Promise<void> {
+async function publishGroupInvitation(
+  invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[],
+  { forRoom, scope, endsAt }: { forRoom?: string; scope?: string; endsAt?: number } = {},
+): Promise<void> {
   const pool = scope ? relayConnections.pool(scope, relayUrls) : forRoom ? relayConnections.pool(`room:${forRoom}`, relayUrls) : configuredPool(relayUrls)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
-      pool.publish(encodePersistentInvitation({ invitation, roomSecret: secret, inviterSk, now: nowSeconds() })),
+      pool.publish(encodePersistentInvitation({ invitation, roomSecret: secret, inviterSk, now: nowSeconds(), endsAt })),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('the relays did not save the group invitation')), 15_000) }),
     ])
   } finally {
@@ -5889,7 +5958,7 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
     // relays the link names, so the two must agree.
     const dmRelays = await relaysForConversationWith(me, peer)
     storeInvitationOwner(created.invitation, secret, created.inviterSk)
-    await publishGroupInvitation(created.invitation, secret, created.inviterSk, dmRelays, roomId)
+    await publishGroupInvitation(created.invitation, secret, created.inviterSk, dmRelays, { forRoom: roomId })
     const policy: RoomPolicy = quiet ? { ...dmPolicy(me, peer), quiet: true } : dmPolicy(me, peer)
     const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays: dmRelays, iceUrls, policy })
     const invite = await sealInvite(link, { to: peer, room: roomId, crypt })
@@ -6118,7 +6187,7 @@ async function shareRoomRelays(urls: string[]): Promise<string> {
   // relays everyone now uses must hold it too, or somebody (or an agent
   // host) that later reads only from them cannot get in.
   const invitation = roomInvitationCapability
-  if (invitation?.persistent) await publishGroupInvitation(invitation, roomSecret, sk, relays)
+  if (invitation?.persistent) await publishGroupInvitation(invitation, roomSecret, sk, relays, { endsAt: roomEndsAt })
   return 'Everyone in this room will add these relays the next time their app hears from it.'
 }
 
@@ -6286,6 +6355,28 @@ const NOTICE_STORAGE_KEY = 'kithmoot.notice'
  * reload into this room's door in session storage, so the person can read
  * it after the conversation has closed.
  */
+/**
+ * End a conference room on this screen when its end comes: written down as
+ * ended, so the list says so, and left with the date. Re-armed in steps,
+ * since a browser timer cannot wait as long as thirty days in one go.
+ */
+function scheduleConferenceEnd(s: RoomSession): void {
+  clearTimeout(conferenceEndTimer)
+  conferenceEndTimer = undefined
+  const endsAt = s.endsAt
+  if (endsAt === undefined) return
+  const wait = Math.min(Math.max(0, (endsAt - nowSeconds()) * 1000), 2 ** 31 - 1)
+  conferenceEndTimer = setTimeout(() => {
+    conferenceEndTimer = undefined
+    if (session !== s) return
+    if (!conferenceEnded(endsAt, nowSeconds())) { scheduleConferenceEnd(s); return }
+    markEnded(deviceStore, s.roomId, endsAt)
+    if (bookmarks) markEnded(bookmarks.rooms, s.roomId, endsAt)
+    stopInvitationHost()
+    leaveWithNotice(conferenceEndedMessage(endsAt))
+  }, wait)
+}
+
 function leaveWithNotice(message: string): void {
   try {
     sessionStorage.setItem(NOTICE_STORAGE_KEY, message)
@@ -9669,6 +9760,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
+          // A conference room: everything signed for it lapses at its end.
+          endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -9720,6 +9813,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
+          // A conference room: everything signed for it lapses at its end.
+          endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -9811,6 +9906,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     selectRoomDrafts()
     void assignmentPanel.attach(s)
     iceRefreshTimer = setInterval(refreshIce, ICE_REFRESH_MS)
+    scheduleConferenceEnd(s)
     if (!chatOnly) s.publishTracks(activeTracks(), { audience })
 
     // What lands while this tab is in the background is worth a
@@ -9819,7 +9915,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (window.kithmootDesktop) for (const room of knownRooms(roomStore())) watchKnownRoom(room)
     const joinedRoomId = currentRoomId() ?? s.roomId
     const roomLabelNow = () => currentRoomLabel()
-    followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey)
+    followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey, s.endsAt)
     const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel, roster: () => s.participants(), direct: () => dmPeer(roomPolicy, meParticipant) !== undefined })
     s.chat.onChange(() => coalesceChatPaint(dockedCall?.session === s ? 'docked-chat' : 'chat', () => {
       // A docked call's room still tells the person when somebody writes.
@@ -10056,7 +10152,7 @@ function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
 }
 
 function watchKnownRoom(room: KnownRoom): void {
-  if (roomWatches.has(room.roomId) || room.endedAt !== undefined) return
+  if (roomWatches.has(room.roomId) || room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) return
   let link: RoomLink
   try {
     link = parseRoomLink(room.link)
@@ -10094,7 +10190,7 @@ function watchKnownRoom(room: KnownRoom): void {
   })
   notify(watch.messages())
   roomWatches.set(room.roomId, { pool, watch })
-  followReadPositions(roomId, roomKey)
+  followReadPositions(roomId, roomKey, room.endsAt)
 }
 
 function stopWatching(roomId: string): void {
@@ -10147,6 +10243,12 @@ function hideRoomsList(): void {
 let lastRoomOrder: string[] | undefined
 
 function renderRooms(): void {
+  // A conference room ends by the clock, with no event to say so. The list
+  // is redrawn on a timer, so this is where one that has ended is written
+  // down as ended and stops being watched.
+  for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) {
+    for (const roomId of endLapsedConferences(store, nowSeconds())) stopWatching(roomId)
+  }
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
   if (!roomsListShown) return
@@ -10276,8 +10378,10 @@ interface RoomRowState {
 
 function roomRowState(room: KnownRoom): RoomRowState {
   const time = formatActivityTime(activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? []))
-  if (room.endedAt !== undefined) {
-    const preview = 'Ended. Its invite link no longer works.'
+  if (room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) {
+    const preview = room.endsAt !== undefined && room.endsAt <= (room.endedAt ?? room.endsAt)
+      ? `Conference room. Ended ${formatConferenceEnd(room.endsAt)}.`
+      : 'Ended. Its invite link no longer works.'
     return { preview, time, unreadCount: 0, agentCount: 0, presenceCount: 0, description: preview }
   }
   const watched = roomWatches.get(room.roomId)
@@ -10990,6 +11094,9 @@ function resetRoomState(): void {
   invitationDelegation = []
   expectedEpoch = undefined
   admittedRoom = undefined
+  roomEndsAt = undefined
+  clearTimeout(conferenceEndTimer)
+  conferenceEndTimer = undefined
   startedHere = false
   meParticipant = ''
   roomRelayScope = 'default'
@@ -11063,7 +11170,7 @@ function resumeDockedCall(): void {
   serveCurrentInvitation()
   selectRoomDrafts()
   void assignmentPanel.attach(s)
-  followReadPositions(s.roomId, deriveRoom(roomSecret).roomKey)
+  followReadPositions(s.roomId, deriveRoom(roomSecret).roomKey, s.endsAt)
   // What arrived while the call was docked: the logs kept listening, and
   // only the screen stopped following them.
   for (const [name, log] of channelLogs) channelCounts.set(name, log.messages().length)
@@ -11818,19 +11925,41 @@ $('searchConversation').addEventListener('click', () => {
   } else conversationSearch.open(undefined, 'conversation')
 })
 const inviteDialog = $('inviteDialog') as HTMLDialogElement
-$('invitePeople').addEventListener('click', () => {
+/** Which button opened the invite sheet, to hand focus back to. */
+let inviteOpener: HTMLElement = $('invitePeople')
+function openInviteDialog(qrFirst: boolean): void {
   if (!session || roomPolicy?.members?.length || inviteDialog.open) return
   $('inviteStatus').textContent = ''
+  renderInviteEnds()
   $('inviteSlot').append($('inviteContent'))
-  ;($('copyShare') as HTMLButtonElement).autofocus = true
+  inviteOpener = qrFirst ? $('inviteQr') : $('invitePeople')
+  inviteDialog.classList.toggle('qrFirst', qrFirst)
+  const qr = $('shareQrDetails') as HTMLDetailsElement
+  if (qrFirst) {
+    // The code first and already drawn, large: one tap from the room to
+    // something the person opposite can point a camera at.
+    $('inviteContent').prepend(qr)
+    renderQr($('shareQr') as HTMLCanvasElement, ($('shareUrl') as HTMLInputElement).value, LARGE_QR_WIDTH).catch((err) => setStatus(describeError(err)))
+    qr.open = true
+  }
+  ;($('copyShare') as HTMLButtonElement).autofocus = !qrFirst
   inviteDialog.showModal()
-  $('copyShare').focus({ preventScroll: true })
-})
+  ;(qrFirst ? $('inviteClose') : $('copyShare')).focus({ preventScroll: true })
+}
+$('invitePeople').addEventListener('click', () => openInviteDialog(false))
+$('inviteQr').addEventListener('click', () => openInviteDialog(true))
 $('inviteClose').addEventListener('click', () => inviteDialog.close())
 inviteDialog.addEventListener('close', () => {
   ;($('copyShare') as HTMLButtonElement).autofocus = false
+  if (inviteDialog.classList.contains('qrFirst')) {
+    // Back where the ordinary sheet keeps it, closed, at its ordinary size.
+    const qr = $('shareQrDetails') as HTMLDetailsElement
+    qr.open = false
+    $('inviteContent').append(qr)
+    inviteDialog.classList.remove('qrFirst')
+  }
   $('inviteHome').append($('inviteContent'))
-  $('invitePeople').focus({ preventScroll: true })
+  inviteOpener.focus({ preventScroll: true })
 })
 inviteDialog.addEventListener('click', event => {
   if (event.target !== inviteDialog) return
@@ -12264,7 +12393,13 @@ $('createRoomForm').addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && newRoomOpen) closeNewRoom()
 })
 $('roomAsk').addEventListener('change', () => {
-  $('roomAskHint').hidden = !($('roomAsk') as HTMLInputElement).checked
+  const ask = ($('roomAsk') as HTMLInputElement).checked
+  $('roomAskHint').hidden = !ask
+  // Only a group room can be a conference room.
+  $('roomEndsRow').hidden = ask
+})
+$('roomEnds').addEventListener('change', () => {
+  $('roomEndsHint').hidden = ($('roomEnds') as HTMLSelectElement).value === '0'
 })
 $('homeSignIn').addEventListener('click', () => {
   signInWithNostr().catch((err) => setStatus(describeError(err)))
@@ -12340,6 +12475,7 @@ $('addDevice').addEventListener('click', () => {
       code,
       identity,
       deviceSk: deviceKey(),
+      expiresAt: roomEndsAt,
       approve: (device) => confirmRoomAction({ title: 'Add this device?', message: `Device ${device.slice(0, 12)}… will join this room as you for the next 12 hours. Only approve a device you are pairing.`, confirmLabel: 'Add device' }),
       onPaired: (device) => { $('pairStatus').textContent = `Added ${device.slice(0, 12)}… to this room.`; setStatus(`Added ${device.slice(0, 12)}… to this room.`) },
     })
@@ -12413,7 +12549,7 @@ async function endRoomForEveryone(): Promise<void> {
   const s = session!, invitation = roomInvitationCapability!, authoritySk = invitationAuthoritySk!
   const retirement = configuredPool(relays)
   try {
-    await retirement.publish(encodeInvitationRetirement({ invitation, inviterSk: authoritySk, now: nowSeconds(), ended: true }))
+    await retirement.publish(encodeInvitationRetirement({ invitation, inviterSk: authoritySk, now: nowSeconds(), ended: true, endsAt: roomEndsAt }))
   } finally {
     closeWhenSettled(retirement)
   }
@@ -12493,6 +12629,8 @@ $('makePersistent').addEventListener('click', async () => {
 // its final value and a render would not go to waste.
 $('shareQrDetails').addEventListener('toggle', () => {
   if (!($('shareQrDetails') as HTMLDetailsElement).open) return
+  // "Invite by QR" drew it already, larger.
+  if (inviteDialog.classList.contains('qrFirst')) return
   const url = ($('shareUrl') as HTMLInputElement).value
   renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
 })
@@ -13618,6 +13756,9 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   // Fixed now, alongside the transport: see the function comment above.
   const quiet = quietTransport !== undefined
   const transport: RelayTransport = quietTransport ?? pool
+  // A conference room's end, fixed with the rest: the announcement, and the
+  // upload's authorisation, lapse with the room.
+  const endsAt = session.endsAt
   if (file.size > MAX_UPLOAD_SOURCE_BYTES) {
     throw new Error(`${file.name} is ${formatBytes(file.size)}; a room sends up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)}.`)
   }
@@ -13639,7 +13780,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     requireFileStorage(server)
     dropProgress(draft, `Uploading to ${new URL(origin).hostname}:`, file)
     descriptor = await uploadEnvelopeBlob(origin, sealed.envelope, sealed.sha256, {
-      sign: (t) => finalizeEvent(t, deviceSk), signal,
+      sign: (t) => finalizeEvent({ ...t, tags: withExpiration(t.tags, endsAt) }, deviceSk), signal,
       fetch: (input, init) => { requireFileStorage(server); return fetch(input, init) },
     })
   } finally {
@@ -13662,7 +13803,8 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   let eventId: string | undefined
   if (!quiet) {
     dropProgress(draft, 'Announcing', file)
-    const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
+    const announcement = buildFileEvent(descriptor)
+    const event = finalizeEvent({ ...announcement, tags: withExpiration(announcement.tags, endsAt) }, deviceSk)
     await transport.publish(event)
     eventId = event.id
   }
@@ -14022,12 +14164,15 @@ function showArrivalFailure(err: unknown): void {
     return
   }
   $('addCardArrival').hidden = true
-  const ended = reason === ROOM_ENDED_MESSAGE
+  const conference = reason.startsWith(CONFERENCE_ENDED_PREFIX)
+  const ended = reason === ROOM_ENDED_MESSAGE || conference
   const retired = ended || reason.includes('retired')
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
   if (ended) markLinkEnded(location.href)
   $('arrivalTitle').textContent = ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
-  $('arrivalLead').textContent = ended
+  $('arrivalLead').textContent = conference
+    ? `${reason} Nobody can join it any more.`
+    : ended
     ? 'It was ended by the person who started it, so nobody can join it any more.'
     : retired
     ? 'Ask somebody in the room for its current invite link.'

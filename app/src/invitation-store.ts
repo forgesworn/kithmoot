@@ -3,6 +3,7 @@ import { getPublicKey } from 'nostr-tools/pure'
 import { deriveInvitationId, type RoomInvitation } from '../../src/invitation.js'
 import type { DeviceStore } from './device-store.js'
 import { deriveRoom } from '../../src/room.js'
+import { isRoomEnds } from '../../src/expiration.js'
 
 export const INVITATION_OWNER_PREFIX = 'kithmoot.invitation-owner.v1.'
 export const INVITATION_OWNER_TTL_SECONDS = 12 * 60 * 60
@@ -19,14 +20,17 @@ export function forgetRoomAccess(store: DeviceStore, roomId: string): void {
   }
 }
 
-export function storeInvitationOwner(store: DeviceStore, invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, now: number): void {
+/** `endsAt` is a conference room's end: kept with the owner's record so the
+ *  invitation is re-signed, and a rotated link retired, with the same end. */
+export function storeInvitationOwner(store: DeviceStore, invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, now: number, endsAt?: number): void {
   store.set(INVITATION_OWNER_PREFIX + deriveInvitationId(invitation), JSON.stringify({
     roomSecret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), createdAt: now,
     ...(invitation.persistent ? { persistent: true } : {}),
+    ...(invitation.persistent && endsAt !== undefined ? { ends: endsAt } : {}),
   }))
 }
 
-export function loadInvitationOwner(store: DeviceStore, invitation: RoomInvitation, now: number): { roomSecret: Uint8Array; inviterSk: Uint8Array } | undefined {
+export function loadInvitationOwner(store: DeviceStore, invitation: RoomInvitation, now: number): { roomSecret: Uint8Array; inviterSk: Uint8Array; endsAt?: number } | undefined {
   const key = INVITATION_OWNER_PREFIX + deriveInvitationId(invitation)
   const raw = store.get(key)
   if (!raw) return undefined
@@ -37,7 +41,8 @@ export function loadInvitationOwner(store: DeviceStore, invitation: RoomInvitati
     const roomSecret = hexToBytes(value.roomSecret)
     const inviterSk = hexToBytes(value.inviterSk)
     if (roomSecret.length !== 32 || inviterSk.length !== 32 || getPublicKey(inviterSk) !== invitation.inviter) throw new Error('invalid owner')
-    return { roomSecret, inviterSk }
+    if (value.ends !== undefined && !isRoomEnds(value.ends)) throw new Error('invalid end')
+    return value.ends === undefined ? { roomSecret, inviterSk } : { roomSecret, inviterSk, endsAt: value.ends }
   } catch {
     store.remove(key)
     return undefined

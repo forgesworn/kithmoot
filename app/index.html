@@ -72,6 +72,7 @@
                about either taps the thing they are looking at. -->
           <button id="roomIdentity" type="button" class="roomIdentity" aria-haspopup="dialog">
             <span id="roomTitle" class="roomTitle"></span>
+            <span id="roomEndsLine" class="roomEndsLine" hidden></span>
             <span id="roomWho" class="roomWho"></span>
           </button>
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
@@ -330,6 +331,9 @@
           <button id="chatSearch" type="button" aria-label="Search messages" aria-haspopup="dialog" aria-controls="conversationSearch">Search</button>
           <button id="backToSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch" hidden>Back to results</button>
           <button id="invitePeople" type="button" aria-label="Invite people" aria-haspopup="dialog" aria-controls="inviteDialog">Invite</button>
+          <!-- The same invitation, opened on its QR code, large: for the
+               person across the table to scan from this screen. -->
+          <button id="inviteQr" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Invite by QR</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
         <!-- A re-render of the whole log re-announces everything already
@@ -592,6 +596,19 @@
                enterkeyhint="go" aria-label="Room name" />
         <label class="checkboxRow"><input id="roomAsk" type="checkbox" /> <span>Ask me before anyone joins</span></label>
         <p id="roomAskHint" class="note" hidden>You let each person in yourself, so someone has to be in the room when they arrive.</p>
+        <!-- A conference room: a group room that ends on a date and is
+             wiped from relays then. Only for a group: a room that asks
+             before anyone joins is already a meeting. -->
+        <div id="roomEndsRow" class="roomEndsRow">
+          <label for="roomEnds">Ends</label>
+          <select id="roomEnds" aria-describedby="roomEndsHint">
+            <option value="0" selected>Never</option>
+            <option value="1">After 1 day</option>
+            <option value="3">After 3 days</option>
+            <option value="7">After 7 days</option>
+          </select>
+          <p id="roomEndsHint" class="note" hidden>A conference room. On that date its link stops working and its messages are wiped from relays that honour expiry.</p>
+        </div>
         <div class="setupButtons">
           <button id="create" type="submit" class="primary">Start a room</button>
           <button id="cancelNewRoom" type="button" class="quiet">Cancel</button>
@@ -1048,6 +1065,9 @@
         <div id="inviteHome">
         <div id="inviteContent" class="linkBox">
           <p class="note">Anyone with this link can join, including people it is forwarded to. Share it with people you trust.</p>
+          <!-- A conference room's end: the link stops working then, and the
+               room is wiped from relays that honour expiry. -->
+          <p id="inviteEnds" class="note inviteEnds" hidden></p>
           <label class="sr-only" for="shareUrl">Invite link</label>
           <input id="shareUrl" readonly aria-label="Link to this room" />
           <div class="inviteButtons">

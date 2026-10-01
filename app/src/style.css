@@ -371,6 +371,16 @@ details#appConnections button { display: block; }
   font-size: 1rem;
 }
 
+/* Opened by "Invite by QR": the code is the point, so it comes first and
+   fills the sheet, big enough to scan from across a table. */
+#inviteDialog.qrFirst #shareQr {
+  width: min(100%, 480px);
+  margin: 0.5rem auto;
+}
+#inviteDialog.qrFirst #shareQrDetails { margin: 0 0 0.8rem; }
+
+.inviteEnds { font-weight: 600; color: var(--text); }
+
 #pairQrWrap {
   margin-top: 0.6rem;
 }
@@ -481,6 +491,7 @@ details#appConnections button { display: block; }
 }
 
 .roomIdentity .roomTitle,
+.roomIdentity .roomEndsLine,
 .roomIdentity .roomWho {
   display: block;
   max-width: 100%;
@@ -498,6 +509,13 @@ details#appConnections button { display: block; }
 .roomIdentity .roomWho {
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+/* A conference room's end, under its name: the one fact about the room
+   that changes what a reader should do with it. */
+.roomIdentity .roomEndsLine {
+  font-size: 0.85rem;
+  color: var(--accent);
 }
 
 /* Faces and voices, hidden by `render` in app/src/main.ts unless somebody
@@ -2975,6 +2993,12 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .checkboxRow input { flex: 0 0 auto; width: 1.2rem; height: 1.2rem; margin: 0; accent-color: var(--accent); }
 .checkboxRow span { flex: 1 1 auto; min-width: 0; }
 #roomAskHint { margin: -.3rem 0 .6rem; max-width: 60ch; }
+/* "Ends": a conference room's end. Label and choice on one line, the
+   explanation under them only once a date is chosen. */
+.roomEndsRow { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .2rem 0 .6rem; }
+#createRoomForm .roomEndsRow label { margin: 0; }
+.roomEndsRow select { flex: 0 1 auto; min-height: 44px; }
+#roomEndsHint { flex-basis: 100%; margin: 0; max-width: 60ch; }
 .setupButtons { display: flex; align-items: center; gap: .75rem; margin-top: .8rem; }
 .setupButtons button { margin: 0; }
 /* Cancel only makes sense once returning to a list it can cancel back to;

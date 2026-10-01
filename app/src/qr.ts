@@ -14,13 +14,16 @@ import { toCanvas } from 'qrcode'
 // scanner needs to find the symbol at all.
 const QR_WIDTH = 320
 const QR_MARGIN = 4
+/** "Invite by QR": drawn for scanning from across a table, not from a hand's
+ *  length away. CSS still caps it at the sheet's width on a small screen. */
+export const LARGE_QR_WIDTH = 480
 
 /** Draws `text` as a QR code into `canvas`. Safe to call again on the same
  *  canvas - each call fully replaces whatever was drawn before, which is
  *  what a fresh pairing code needs. */
-export async function renderQr(canvas: HTMLCanvasElement, text: string): Promise<void> {
+export async function renderQr(canvas: HTMLCanvasElement, text: string, width = QR_WIDTH): Promise<void> {
   await toCanvas(canvas, text, {
-    width: QR_WIDTH,
+    width,
     margin: QR_MARGIN,
     errorCorrectionLevel: 'M',
     color: { dark: '#000000ff', light: '#ffffffff' },
