@@ -210,7 +210,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     styled.clear()
     for (const person of everyone) {
       for (const name of ['left', 'top', 'width', 'height', '--tile-w', '--tile-h']) person.box.style.removeProperty(name)
-      for (const attr of ['data-layout-hidden', 'data-floating', 'data-featured', 'data-initials', 'data-camera']) person.box.removeAttribute(attr)
+      for (const attr of ['data-layout-hidden', 'data-floating', 'data-featured', 'data-initials', 'data-camera', 'data-tall']) person.box.removeAttribute(attr)
       for (const expand of person.box.querySelectorAll<HTMLElement>(':scope > .shareExpand')) {
         expand.style.removeProperty('left'); expand.style.removeProperty('top'); expand.removeAttribute('data-on-stage')
       }
@@ -229,6 +229,10 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     setStyle(box, 'height', `${rect.height}px`)
     setStyle(box, '--tile-w', `${rect.width}px`)
     setStyle(box, '--tile-h', `${rect.height}px`)
+    // Which way a person with two cameras on splits their tile: see the
+    // two-angles rule in call-layout.css.
+    const tall = String(rect.height > rect.width)
+    if (box.getAttribute('data-tall') !== tall) box.setAttribute('data-tall', tall)
   }
 
   function placeVideo(video: HTMLVideoElement, rect: Rect): void {
