@@ -129,9 +129,21 @@ the composer. The unit tests alone would not have caught the placement bug.
 ## Still to do
 
 - Cut desktop 0.1.31 so other Macs read synced secrets.
-- Android writes the secret but does not yet read one that only another device
-  holds.
+- ~~Android writes the secret but does not yet read one that only another device
+  holds.~~ Android reads it too (`af29da4`), when the room is opened rather than
+  when the bookmark loads: saving an account room needs a signature.
 - Decide whether syncing should be opt-in per room.
 - Create the GitHub pre-release for Android `v0.6.28`.
 - The inviter key for Morgs lives on the M1; the old link stays dead for anyone
   who is not on the account.
+
+## Later the same day: a link whose relays had lost it
+
+Morgs, who is not on the account, could not open The Moot: its invitation was
+gone from the relays the link names. He got in by adding a relay by hand,
+because a copy was still on another relay. The door now does that itself
+(`ddceb1c`): when the link's relays lack the invitation it asks this device's
+relays and the app's defaults, never for a link naming a circle relay, and the
+creator re-signs it on the relays its link names as well as the room's current
+ones. See `app/src/invitation-lookup.ts`.
+
