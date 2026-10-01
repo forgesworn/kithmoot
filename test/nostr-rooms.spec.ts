@@ -372,6 +372,54 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
   } finally { await context.close(); await clerk.leave() }
 })
 
+test('a room joined as the account opens again as that account while its signer is unreachable, and says so', async ({ browser, baseURL }) => {
+  // The bunker's relay was down, restoring the sign-in failed on load, and
+  // a conversation entered an hour before asked to reconnect first. The
+  // pass this device was given for the room is the account's own signature;
+  // the room opens on it.
+  let unavailable = false
+  let signatures = 0
+  const secret = generateSecretKey()
+  const context = await device(browser, baseURL!, secret, true, async () => { if (unavailable) throw new Error('Signer offline') })
+  await context.exposeFunction('testSignCounted', () => { signatures++ })
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Back without the signer', relays: [relay.href], iceUrls: [] })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
+  try {
+    const page = await context.newPage()
+    await signIn(page, baseURL!)
+    await page.goto(link)
+    await page.reload()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openRoomDetails(page)
+    await page.locator('#leave').click()
+    if (await page.locator('#actionConfirm').isVisible()) await page.locator('#actionConfirm').click()
+    await expect(page.locator('#roomArea')).toBeHidden()
+
+    unavailable = true
+    await page.addInitScript(() => {
+      const nostr = (window as unknown as { nostr: { signEvent(event: unknown): Promise<unknown> } }).nostr
+      const sign = nostr.signEvent
+      nostr.signEvent = (event: unknown) => { void (window as unknown as { testSignCounted(): void }).testSignCounted(); return sign(event) }
+    })
+    await page.goto(link)
+    await page.reload()
+    await expect(page.locator('#previousAccount')).toBeHidden()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#status')).toContainText('signer is not connected')
+    await page.locator('#roomMenu').click()
+    await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as Nostr account/)
+    await page.locator('#roomSheetClose').click()
+    await page.locator('#chatInput').fill('Tally, back on the pass')
+    await page.locator('#chatInput').press('Enter')
+    await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, back on the pass')?.participant).toBe(getPublicKey(secret))
+    expect(signatures).toBe(0)
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
+  } finally { await context.close(); await clerk.leave() }
+})
+
 test('a disconnected signer offers Reconnect before forgetting an account room, and names the signer', async ({ browser, baseURL }) => {
   let unavailable = false
   const secret = generateSecretKey()

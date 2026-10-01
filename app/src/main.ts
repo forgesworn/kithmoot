@@ -37,6 +37,7 @@ import { FloatingSharePreview, floatingPreviewSupported } from './floating-share
 import { mayShowItself } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
+import { RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
@@ -631,7 +632,7 @@ function rememberAccount(account: SignetSession): void {
   } catch { /* Optional persistence. */ }
 }
 function needsAccountReconnect(): boolean {
-  return !!expectedAccount && !nostrSession && !loadCredential()
+  return !!expectedAccount && !nostrSession && !loadCredential() && !accountPassForRoom()
 }
 /** A Nostr account was used in this browser and is not connected in this
  *  tab, once restoring has had its chance. Account-scoped actions must ask
@@ -784,7 +785,48 @@ function joiningName(): string | undefined {
  */
 function currentIdentity(): ParticipantIdentity {
   if (nostrSession) return nostrSession.signer
+  const pass = accountPassForRoom()
+  if (pass) return waitingAccountIdentity(pass.pubkey)
   return localIdentity(participantKey())
+}
+
+/**
+ * The pass this browser minted for the current room as the account last
+ * signed in here, while that account is not connected and the pass still has
+ * life enough to join on. A bunker whose relay is down cannot be restored on
+ * load, and the person used to be asked to reconnect before they could get
+ * back into a conversation they were in an hour ago; the pass is the
+ * account's own signature saying this device speaks for it in this room, so
+ * the room can be entered on it, as that account, with no signer at all.
+ */
+function accountPassForRoom(): DeviceCredential | undefined {
+  const roomId = currentRoomId()
+  if (!roomId || !expectedAccount || nostrSession) return undefined
+  try {
+    const now = nowSeconds()
+    const pass = loadOwnCredentialFor(deviceStore, roomId, now)
+    if (!pass || pass.pubkey !== expectedAccount) return undefined
+    const expiresAt = Number(pass.tags.find(tag => tag[0] === 'expiration')?.[1])
+    return expiresAt - now >= RESUME_MIN_REMAINING_SECONDS ? pass : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** The account, as a room sees it, before its signer is back: the right
+ *  pubkey, and a signature only once a sign-in for that same account has
+ *  been restored or redone. Until then anything that needs one - renewing
+ *  the pass, a card, a pairing - is refused with a reason, never signed as
+ *  somebody else. */
+function waitingAccountIdentity(pubkey: string): ParticipantIdentity {
+  return {
+    pubkey,
+    async signEvent(unsigned) {
+      if (identityRestoring) await identityReady.catch(() => {})
+      if (nostrSession?.pubkey !== pubkey) throw new Error('your Nostr account is not connected in this tab. Reconnect it, then try again')
+      return nostrSession.signer.signEvent(unsigned)
+    },
+  }
 }
 
 /** The pubkey this device would join as, without minting a key to find out -
@@ -797,6 +839,8 @@ function extensionSignerPresent(): boolean {
 
 function currentParticipant(): string | undefined {
   if (nostrSession) return nostrSession.pubkey
+  const pass = accountPassForRoom()
+  if (pass) return pass.pubkey
   const existing = loadParticipantKey()
   if (existing) return getPublicKey(existing)
   return undefined
@@ -2188,7 +2232,7 @@ function renderIdentity(): void {
   sending.replaceChildren()
   sending.hidden = !session
   if (session) {
-    const visitor = !nostrSession && !loadCredential()
+    const visitor = !nostrSession && !loadCredential() && meParticipant !== expectedAccount
     const shown = shownAs(meParticipant, joiningName())
     const label = visitor ? 'Name only' : 'Nostr'
     const description = `Sending as ${visitor ? 'visitor' : 'Nostr account'}: ${shown.name ?? label}. ${shown.npub}${shown.nip05 ? `. ${shown.nip05}` : ''}`
@@ -9292,7 +9336,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // A restored signer can arrive after the invitation. Joining first
     // would mint a visitor identity that a known-contact clerk rejects,
     // even though the account UI subsequently says we are signed in.
-    if (identityRestoring) {
+    // A room this device holds the account's pass for does not wait for
+    // the signer to come back: that wait is the whole problem when it will
+    // not. Bookmarks and the rest follow when it does.
+    if (identityRestoring && !accountPassForRoom()) {
       setStatus('Reconnecting your sign-in…', 'progress')
       await identityReady
       if (generation !== roomGeneration) return
@@ -9679,6 +9726,11 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // "Invitation accepted. Go in when you are ready." has been acted on.
     // A line about getting in is stale the moment you are in.
     setStatus('')
+    const pass = accountPassForRoom()
+    if (pass && meParticipant === pass.pubkey) {
+      const until = new Date(Number(pass.tags.find(tag => tag[0] === 'expiration')?.[1]) * 1000)
+      setStatus(`Your Nostr signer is not connected, so you are in on this device's pass for this room until ${until.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Reconnect before then to stay.`)
+    }
     showRoomTools()
     // The join screen has gone and the room is on: the last chance for the
     // masthead to have changed height.
