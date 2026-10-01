@@ -83,7 +83,9 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
         id: child.dataset.participant ?? `tile-${index}`,
         name,
         self: child.dataset.self === 'true',
-        cameras: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video:not(.screenPreview)')],
+        // Not a spare camera: it is kept decoding out of sight, and a
+        // person is on camera by the one picture of them that shows.
+        cameras: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video:not(.screenPreview):not(.spareCamera)')],
         shares: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video.screenPreview')],
         onCall: child.classList.contains('onCall'),
       })

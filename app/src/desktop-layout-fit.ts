@@ -134,9 +134,10 @@ function isSharer(tile: Element): boolean {
 }
 
 /** A tile's own picture holders - one per device, so a person on a laptop
- *  and a phone has two of them. */
+ *  and a phone has two of them. Not one holding only a spare camera, kept
+ *  out of sight (see app/src/face-camera.ts): it takes none of the row. */
 function mediasOf(tile: HTMLElement): HTMLElement[] {
-  return [...tile.children].filter((child): child is HTMLElement => child instanceof HTMLElement && child.classList.contains('media'))
+  return [...tile.children].filter((child): child is HTMLElement => child instanceof HTMLElement && child.classList.contains('media') && !child.classList.contains('spareOnly'))
 }
 
 /** The width above which the room is rows of people rather than a grid of

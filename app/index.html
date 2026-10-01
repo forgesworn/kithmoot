@@ -167,6 +167,11 @@
                  toggle made from the keyboard: a click already carries its
                  own feedback through focus and `aria-pressed`. -->
             <div id="callShortcutAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+            <!-- This device's camera is on, but another of your devices is
+                 the one people see you from - the one holding your mic.
+                 One picture per person; see app/src/face-camera.ts. Filled
+                 by `showFaceCameras` in app/src/main.ts. -->
+            <p id="spareCameraNote" class="indicator" hidden>People see you from your other device’s camera.</p>
             <p id="micIndicator" class="indicator"></p>
             <!-- Another of this device's own tabs holds the microphone.
                  Filled in by `render` in app/src/main.ts alongside
