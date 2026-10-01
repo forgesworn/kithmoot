@@ -1037,15 +1037,7 @@ html[data-mirror-self='false'] :is(video.localCameraPreview, video.ownCameraView
 /* A remote receiver needs a rendered sink before Chromium will reliably
    decode its first frame. Keep that sink out of the tile layout without
    using display:none; syncRemoteVideos reveals it as soon as its clock moves. */
-/* A person's spare camera - one of their devices filming while another is
-   the one they are at; see app/src/face-camera.ts - uses the same sink. It
-   has to keep decoding out of sight, so that it is a picture the instant the
-   rule turns to it, and `display:none` would stop it (see parkPicture). A
-   holder with nothing but a spare camera in it (and perhaps that device's
-   sound) goes the same way, so it takes no space and leaves no gap. */
-video.awaitingFrame,
-video.spareCamera,
-.media.spareOnly {
+video.awaitingFrame {
   position: fixed !important;
   left: -2px !important;
   top: -2px !important;
@@ -3709,10 +3701,10 @@ button.primary:hover:not(:disabled) {
 #room[data-tiles="1"]:has(video) { grid-template-columns: minmax(0, 1fr); }
 #room[data-tiles="2"]:has(video) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 #room.sharing .participant:has(video.screenPreview) { grid-column: 1 / -1; }
-#room .participant:has(.media:not(.spareOnly) ~ .media:not(.spareOnly)) { display: grid; grid-template-columns: 1fr 1fr; column-gap: .4rem; }
-#room .participant:has(.media:not(.spareOnly) ~ .media:not(.spareOnly)) > h3,
-#room .participant:has(.media:not(.spareOnly) ~ .media:not(.spareOnly)) > .tracks,
-#room .participant:has(.media:not(.spareOnly) ~ .media:not(.spareOnly)) > .shareExpand { grid-column: 1 / -1; }
+#room .participant:has(.media ~ .media) { display: grid; grid-template-columns: 1fr 1fr; column-gap: .4rem; }
+#room .participant:has(.media ~ .media) > h3,
+#room .participant:has(.media ~ .media) > .tracks,
+#room .participant:has(.media ~ .media) > .shareExpand { grid-column: 1 / -1; }
 
 /* Desktop cameras have room for expressions; screen shares keep a full row. */
 @media (min-width: 701px) and (min-height: 541px) {
@@ -4247,7 +4239,7 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant { width: 100%; box-sizing: border-box; border-radius: 12px; padding: .6rem; }
   #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant .media video { height: auto; min-height: 9rem; max-height: 48dvh; aspect-ratio: 4 / 3; }
   #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant .media video.screenPreview { object-fit: contain; aspect-ratio: auto; }
-  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant:has(.media:not(.spareOnly) ~ .media:not(.spareOnly)) { display: grid; grid-template-columns: 1fr 1fr; }
+  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant:has(.media ~ .media) { display: grid; grid-template-columns: 1fr 1fr; }
   #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant h3 { font-size: .95rem; margin-bottom: .4rem; }
   #roomArea[data-mobile-view="call"] #deviceControls > #micIndicator { display: none; }
   #roomArea[data-mobile-view="call"] #callWho { grid-column: 1 / -1; }
@@ -4272,7 +4264,7 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
 }
 .media[data-camera-label]:not([data-camera-label=""]):has(video)::before { content: attr(data-camera-label); display: block; font-size: .8rem; color: var(--muted); padding: .2rem 0; }
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
-  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant:has(.media:not(.spareOnly) ~ .media:not(.spareOnly)) h3 { grid-column: 1 / -1; }
+  #roomArea[data-mobile-view="call"] #callStage #whoIsHere .participant:has(.media ~ .media) h3 { grid-column: 1 / -1; }
 }
 @media (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {
   main:has(#roomArea:not([hidden])) > #roomArea { position: relative; }

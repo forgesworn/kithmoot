@@ -74,7 +74,6 @@ import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
 import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
-import { CameraClock, faceCamera, type CameraCandidate } from './face-camera.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
 import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
@@ -5227,81 +5226,6 @@ function render(views: ParticipantView[], me: string): void {
   }
 }
 
-/** When this page first saw each camera running: the "most recently
- *  started" half of the rule in face-camera.ts. */
-const cameraClock = new CameraClock()
-
-/**
- * One picture per person: of each person's cameras, the one that shows
- * them, and the rest kept spare - decoding, out of sight, a picture again
- * the moment the rule turns to them. See app/src/face-camera.ts for the
- * rule and why.
- *
- * A person on a laptop and a phone used to be two pictures to everybody
- * else, one of them an empty chair, and on their own laptop a tile in a
- * tile: the laptop's camera filling it and the phone's - their actual face
- * - inset in the corner. Their own tile is decided by the same rule as
- * anybody's, so when the phone is where they are, the phone's picture IS
- * their tile here.
- *
- * Only cameras with a picture on this page are candidates. One still on its
- * way, or parked, is not, or hiding the one that is playing would leave the
- * tile blank until it arrived. Screens are never touched.
- */
-function showFaceCameras(views: ParticipantView[], me: string): void {
-  const now = performance.now()
-  const running: [string, string][] = []
-  const spare = new Set<HTMLVideoElement>()
-  let spareHere = false
-  for (const view of views) {
-    const cameras: CameraCandidate[] = []
-    const elements = new Map<string, HTMLVideoElement>()
-    for (const device of view.devices) {
-      let el: HTMLVideoElement | undefined, trackId: string | undefined
-      if (view.participant === me && device === myDeviceId) {
-        el = cameraTrack ? localPreviewEls.get('camera') : undefined
-        trackId = cameraTrack?.id
-      } else {
-        const entry = remoteVideos.get(tileKey(device, 'camera'))
-        if (entry && onScreen(entry) && !entry.el.classList.contains('awaitingFrame')) el = entry.el
-        trackId = view.tracks.find(track => track.device === device && track.role === 'camera')?.trackId
-      }
-      if (!el) continue
-      elements.set(device, el)
-      if (trackId !== undefined) running.push([device, trackId])
-      cameras.push({ device, since: trackId === undefined ? undefined : cameraClock.since(device, trackId, now) })
-    }
-    const face = faceCamera({ mic: view.mic, cameras })
-    for (const [device, el] of elements) if (device !== face) spare.add(el)
-    if (view.participant === me && elements.has(myDeviceId) && face !== myDeviceId) spareHere = true
-  }
-  cameraClock.retain(running)
-
-  // Every camera on the page, so one that has stopped being a candidate -
-  // parked, replaced, its person gone - does not stay spare by accident.
-  const cameraEls = [...remoteVideos].filter(([key]) => tileRole(key) === 'camera').map(([, entry]) => entry.el)
-  const own = localPreviewEls.get('camera')
-  if (own) cameraEls.push(own)
-  for (const el of cameraEls) {
-    const was = el.classList.contains('spareCamera')
-    const is = spare.has(el)
-    if (was === is) continue
-    el.classList.toggle('spareCamera', is)
-    // Back on screen, playing: a browser is entitled to have paused a
-    // picture nobody could see, and nothing else here would ask again.
-    if (!is && el.paused && !leftCall) void el.play().catch(() => { /* the next pass tries again */ })
-  }
-  // A holder with only a spare camera in it, and perhaps that device's
-  // sound, is out of sight too, or it is an empty half of the tile.
-  for (const holder of [localMediaEl, ...deviceMediaEls.values()]) {
-    holder.classList.toggle('spareOnly', holder.querySelector('video.spareCamera') !== null && holder.querySelector('video:not(.spareCamera)') === null)
-  }
-
-  // Said once, beside the camera control, so a camera that is on and not
-  // being seen is never a mystery: it is on, and the other one is you.
-  $('spareCameraNote').hidden = !spareHere
-}
-
 /** The call's half of `render`: this device's roles, remote sound, tiles and
  *  call controls, for whichever session carries the call. */
 function renderCallMedia(views: ParticipantView[], me: string): void {
@@ -5326,7 +5250,6 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
     const device = tileDevice(key)
     entry.el.classList.toggle('ownCameraView', device !== myDeviceId && ownDevices.has(device) && key === tileKey(device, 'camera'))
   }
-  showFaceCameras(views, me)
   cachedMonitorHere = monitorHere
   cachedOwnDevices = ownDevices
   // Which participant each device belongs to, so the loop below can look up

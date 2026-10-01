@@ -177,11 +177,8 @@
   margin: 0;
 }
 /* A second device's camera in the same person's tile: a small picture in
-   its corner rather than half of the box. Rare now - a person is shown by
-   one camera, and the others are spare (see app/src/face-camera.ts) - but a
-   spare camera ahead of the face in the tile must not push the face into
-   that corner, which is what made a person's own tile a tile in a tile. */
-#room[data-layout] > .participant > .media:has(> video:not(.screenPreview):not(.spareCamera)) ~ .media > video:not(.screenPreview):not(.spareCamera) {
+   its corner rather than half of the box. */
+#room[data-layout] > .participant > .media:has(> video:not(.screenPreview)) ~ .media > video:not(.screenPreview) {
   inset: 8px 8px auto auto;
   width: 30%;
   height: 30%;
