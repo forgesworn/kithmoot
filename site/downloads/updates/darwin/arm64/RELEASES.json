@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.36",
+  "currentRelease": "0.1.37",
   "releases": [
     {
-      "version": "0.1.36",
+      "version": "0.1.37",
       "updateTo": {
-        "version": "0.1.36",
-        "pub_date": "2026-10-01T15:40:00Z",
-        "notes": "Rooms shared through a project show the project's name for them instead of Untitled room, and a project's invitation reaches its members on the relays they read, so nobody has to add the owner's relay first.",
-        "name": "0.1.36",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.36/KithMoot-0.1.36-mac-arm64.zip",
-        "sha256": "2004ac915d1098d2038214302c5d3b189149cd8f3f422e74be122afeac0daa88",
-        "size": 136406914
+        "version": "0.1.37",
+        "pub_date": "2026-10-01T17:15:00Z",
+        "notes": "Conference rooms: a room can have an end date, and it ends for everyone when the time comes. Invite someone by QR code.",
+        "name": "0.1.37",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.37/KithMoot-0.1.37-mac-arm64.zip",
+        "sha256": "2e04707f65c2acfe2723c36f350ba70f967ed6c647179b1d4641d6328d1f2a86",
+        "size": 136407287
       }
     }
   ]
