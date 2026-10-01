@@ -97,9 +97,9 @@ export async function buildDeb({ source, arch, version, outDir = resolve(root, '
   await writeFile(join(stage, 'usr/share/applications', DESKTOP_ID), desktopEntry())
   await mkdir(join(stage, 'usr/share/icons/hicolor/512x512/apps'), { recursive: true })
   await cp(resolve(root, '../app/public/pwa-512x512.png'), join(stage, 'usr/share/icons/hicolor/512x512/apps/kithmoot.png'))
-  await mkdir(join(stage, 'usr/share/keyrings'), { recursive: true })
-  await cp(join(linux, 'kithmoot-archive-keyring.gpg'), join(stage, 'usr/share/keyrings/kithmoot-archive-keyring.gpg'))
-  // A conffile: someone who deletes the source stays unsubscribed on upgrade.
+  // A conffile, with the archive key inside it: removing the package keeps
+  // the source and its key together, purging takes both, and someone who
+  // deletes the source stays unsubscribed on upgrade.
   await mkdir(join(stage, 'etc/apt/sources.list.d'), { recursive: true })
   await cp(join(linux, 'kithmoot.sources'), join(stage, 'etc/apt/sources.list.d/kithmoot.sources'))
   await writeFile(join(stage, 'DEBIAN/conffiles'), '/etc/apt/sources.list.d/kithmoot.sources\n')

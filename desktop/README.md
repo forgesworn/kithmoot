@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.33 on Linux (tarballs and .deb), 0.1.32 on Mac and Windows. Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.34 on Linux (tarballs and .deb), 0.1.32 on Mac and Windows. Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -149,9 +149,11 @@ container, so Docker must be running). The package installs to `/opt/KithMoot`,
 adds `/usr/bin/kithmoot`, the `dev.forgesworn.kithmoot.desktop` menu entry and
 icon, ships `chrome-sandbox` setuid root, and installs an AppArmor profile
 (`linux/apparmor-profile`) where AppArmor understands it, which Ubuntu 23.10 and
-later need for Chromium's namespace sandbox. It also ships the archive keyring
-and `/etc/apt/sources.list.d/kithmoot.sources` (a conffile), so installing the
-package once subscribes the machine to updates. Its `postinst` removes the
+later need for Chromium's namespace sandbox. It also ships
+`/etc/apt/sources.list.d/kithmoot.sources`, a conffile with the archive key
+embedded in its `Signed-By`, so installing the package once subscribes the
+machine to updates, and a plain `apt remove` never leaves a source without its
+key (0.1.33 shipped the key as a separate file, which `remove` deleted). Its `postinst` removes the
 menu entry the tarball's `install.py` wrote, only when it points at that
 installer's default location, so the old copy no longer shadows the package.
 No package step reads or writes `~/.config/KithMoot`.
@@ -168,6 +170,7 @@ A packaged Linux copy carries `resources/kithmoot-version`. When apt replaces
 the app underneath a running KithMoot, `package-updater.mjs` sees the new
 version and offers the same restart as the Mac updater.
 
+Needs apt 2.4 or later (Ubuntu 22.04, Debian 12) for the embedded key.
 Tested in containers on Debian 12 and 13 and Ubuntu 22.04 and 24.04 (ARM64,
 and x64 on Ubuntu 24.04 and Debian 12): install, signed upgrade, a running app
 offering the restart, a refused tampered index, and purge, with a profile file

@@ -33,6 +33,16 @@ export function arMember(archive, wanted) {
   throw new Error(`No ${wanted} in the package`)
 }
 
+/** The binary key inside a deb822 Signed-By field that holds an armoured block. */
+export function embeddedKey(sources) {
+  const lines = sources.split('\n').map(line => line.replace(/^ /, ''))
+  const start = lines.indexOf('-----BEGIN PGP PUBLIC KEY BLOCK-----')
+  const end = lines.indexOf('-----END PGP PUBLIC KEY BLOCK-----')
+  if (start < 0 || end < start) throw new Error('No armoured key in the sources file')
+  const body = lines.slice(start + 1, end).filter(line => line && line !== '.' && !line.startsWith('=') && !line.includes(':'))
+  return Buffer.from(body.join(''), 'base64')
+}
+
 const digest = (algorithm, data) => createHash(algorithm).update(data).digest('hex')
 
 /** One Packages stanza: the package's own control fields, then where and what. */
@@ -75,8 +85,8 @@ export async function buildRepository(debs, outDir) {
   const home = process.env.KITHMOOT_APT_HOME ?? join(homedir(), '.kithmoot-signing/apt')
   const fingerprint = (await readFile(join(home, 'fingerprint'), 'utf8')).trim()
   // The key the packages trust must be the key that signs.
-  const shipped = await readFile(resolve(root, 'linux/kithmoot-archive-keyring.gpg'))
-  if (!shipped.equals(await readFile(join(home, 'kithmoot-archive-keyring.gpg')))) throw new Error('linux/kithmoot-archive-keyring.gpg is not the signing key in KITHMOOT_APT_HOME')
+  const signing = await readFile(join(home, 'kithmoot-archive-keyring.gpg'))
+  if (!embeddedKey(await readFile(resolve(root, 'linux/kithmoot.sources'), 'utf8')).equals(signing)) throw new Error('linux/kithmoot.sources does not carry the signing key in KITHMOOT_APT_HOME')
   await rm(outDir, { recursive: true, force: true })
   await mkdir(outDir, { recursive: true })
   const stanzas = []
@@ -91,8 +101,7 @@ export async function buildRepository(debs, outDir) {
   await writeFile(join(outDir, 'Release'), releaseFile([['Packages', packages], ['Packages.gz', packagesGz]]))
   gpg(home, ['--local-user', fingerprint, '--digest-algo', 'SHA512', '--clearsign', '--output', join(outDir, 'InRelease'), join(outDir, 'Release')])
   gpg(home, ['--local-user', fingerprint, '--digest-algo', 'SHA512', '--armor', '--detach-sign', '--output', join(outDir, 'Release.gpg'), join(outDir, 'Release')])
-  // For people who subscribe before installing: the same two files the package ships.
-  await copyFile(resolve(root, 'linux/kithmoot-archive-keyring.gpg'), join(outDir, 'kithmoot-archive-keyring.gpg'))
+  // For people who subscribe before installing: the same file the package ships, key included.
   await copyFile(resolve(root, 'linux/kithmoot.sources'), join(outDir, 'kithmoot.sources'))
   return outDir
 }
@@ -115,7 +124,7 @@ export function publishRepository(outDir, debs, version) {
   // Packages first, then the indices, InRelease last: apt never reads an
   // index naming a package that is not there yet.
   upload(debs.map(deb => basename(deb)))
-  upload(['kithmoot-archive-keyring.gpg', 'kithmoot.sources'])
+  upload(['kithmoot.sources'])
   upload(['Packages', 'Packages.gz', 'Release', 'Release.gpg'])
   upload(['InRelease'])
   // Keep this release and the one before it; apt only offers the newest.

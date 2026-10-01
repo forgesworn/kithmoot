@@ -156,7 +156,7 @@ code { font-size: .88em; overflow-wrap: anywhere; }
 .recommended { max-width: 760px; margin-bottom: 2.5rem; border-color: var(--accent); }
 .recommended .button { margin-top: .8rem; }
 .recommended .under { margin: .6rem 0 0; }
-.platform h3 { font-size: 1.15rem; margin-top: 2rem; }
+#linux h3 { font-size: 1.15rem; margin-top: 2rem; }
 .platform pre { overflow-x: auto; padding: 1rem; border-radius: 8px; background: var(--bg); font-size: .82rem; line-height: 1.6; }
 .versions { max-width: 760px; }
 .version-picker { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; margin-block: 1.5rem; }

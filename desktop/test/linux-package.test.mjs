@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { arMember, packageStanza, releaseFile, compareVersions } from '../scripts/apt-repo.mjs'
+import { arMember, packageStanza, releaseFile, compareVersions, embeddedKey } from '../scripts/apt-repo.mjs'
 import { controlFile, desktopEntry, DEPENDS, DESKTOP_ID } from '../scripts/package-deb.mjs'
 
 const source = name => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8')
@@ -27,7 +27,8 @@ test('the control file names the Debian architecture', () => {
 
 test('the package source, keyring and AppArmor profile are the repository and app the package installs', () => {
   assert.match(source('linux/kithmoot.sources'), /^URIs: https:\/\/github\.com\/forgesworn\/kithmoot\/releases\/download\/apt\/$/m)
-  assert.match(source('linux/kithmoot.sources'), /^Signed-By: \/usr\/share\/keyrings\/kithmoot-archive-keyring\.gpg$/m)
+  // The key travels inside the source, so a removed package never leaves a source without its key.
+  assert.deepEqual(embeddedKey(source('linux/kithmoot.sources')), readFileSync(new URL('../linux/kithmoot-archive-keyring.gpg', import.meta.url)))
   assert.match(source('linux/apparmor-profile'), /profile kithmoot \/opt\/KithMoot\/kithmoot flags=\(unconfined\)/)
   assert.ok(readFileSync(new URL('../linux/kithmoot-archive-keyring.gpg', import.meta.url)).length > 500)
 })
