@@ -562,7 +562,9 @@ test('leave and tidy up deletes in order while the keys exist, takes a second ta
     })
     const devicePub = getPublicKey(hexToBytes(held.deviceSk)), inviterPub = getPublicKey(hexToBytes(held.inviterSk))
     expect((await relayHolds({ authors: [devicePub] })).length).toBeGreaterThan(0)
-    expect((await relayHolds({ authors: [inviterPub], kinds: [1463] })).length).toBe(1)
+    // The invitation is signed again while the room is open, to keep it alive
+    // on relays that forget, so there may be several copies; tidying deletes them all.
+    expect((await relayHolds({ authors: [inviterPub], kinds: [1463] })).length).toBeGreaterThanOrEqual(1)
 
     await openRoomDetails(page)
     await page.locator('#tidyUpRoom').click()
