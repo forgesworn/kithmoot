@@ -2858,6 +2858,11 @@ async function roomFromLocation(): Promise<boolean> {
   // list still knows the human name, so keep it when opening that bookmark
   // instead of replacing it with `Room deadbeef` on desktop.
   if (!roomName) roomName = knownRooms(roomStore()).find((room) => room.roomId === currentRoomId())?.name
+  // A room shared through a project carries its name in the project's
+  // encrypted directory rather than in its link. Adopt it as this device's
+  // label, so the room is not "Untitled room" here; it goes no further than
+  // where a named room's own name already goes.
+  if (!roomName) roomName = projectRoomName(currentRoomId())
 
   // Admitted, one way or another: this is now a room this device has been
   // in, and the list on the front page will offer it again - and, if the
@@ -10427,9 +10432,15 @@ function dmPeerOf(room: Pick<KnownRoom, 'link'>): string | undefined {
 
 /** What to call a room on the list: a direct message is named for the
  *  person on the other end, everything else by `roomLabel`. */
+/** The name a joined project gives this room, if any. */
+function projectRoomName(roomId: string | undefined): string | undefined {
+  if (!roomId) return undefined
+  return sanitiseDisplayName(sharedProjects.sharedRooms().find(room => room.roomId === roomId)?.name)
+}
+
 function knownRoomLabel(room: KnownRoom): string {
   const peer = dmPeerOf(room)
-  if (!peer) return roomLabel(room)
+  if (!peer) return roomLabel({ roomId: room.roomId, name: room.name ?? projectRoomName(room.roomId) })
   // The name remembered when the conversation was started or received, then
   // whatever a profile says, then the key. A DM link carries no room name.
   return `${isQuietRoom(room) ? 'Quiet' : 'Private'}: ${room.name ?? shownAs(peer).name ?? shortKey(peer)}`

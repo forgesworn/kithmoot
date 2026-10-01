@@ -647,7 +647,9 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
   const aliceKey = getPublicKey(aliceSk), bobKey = getPublicKey(bobSk), carolKey = getPublicKey(carolSk), agentKey = getPublicKey(agentSk)
   const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
   const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, relays: [TEST_RELAY_WS] })))
-  const roomLinks = keepers.map(k => ({ roomId: k.roomId, name: k.link.name!, link: encodeRoomLink(baseURL!, { ...k.link, relays: [relay.href] }), openedAt: 1, readAt: 0 }))
+  // The first room's link carries no name, as a link made on Android does:
+  // the name a member sees for it comes from the project alone.
+  const roomLinks = keepers.map((k, i) => ({ roomId: k.roomId, name: k.link.name!, link: encodeRoomLink(baseURL!, { ...k.link, relays: [relay.href], ...(i === 0 ? { name: undefined } : {}) }), openedAt: 1, readAt: 0 }))
   const aContext = await device(browser, baseURL!, aliceSk), bContext = await device(browser, baseURL!, bobSk), cContext = await device(browser, baseURL!, carolSk)
   const contexts = [aContext, bContext, cContext]
   await aContext.addInitScript(({ rooms, pubkey }) => {
