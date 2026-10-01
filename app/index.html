@@ -145,7 +145,7 @@
                    app/src/desktop.css. Filled by `renderCallChips` in
                    app/src/main.ts. -->
               <div id="callChips" class="callChips" aria-label="On the call"></div>
-              <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
+              <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15.5c5-4.6 13-4.6 18 0l-2.4 2.4-3.4-1.6v-2.6a12 12 0 0 0-6.4 0v2.6l-3.4 1.6z"/></svg><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
             </div>
             <!-- Who is talking right now, in plain text. Never an aria-live
                  region and never announced - the owner does not want a
@@ -158,20 +158,19 @@
             <p id="speakingLine" class="speakingLine" hidden></p>
             <div class="toggles">
               <!-- Short words on a phone, where the four share one row; the
-                   accessible name is the full one everywhere. -->
-              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone" aria-keyshortcuts="Control+D Meta+D"><span class="callFull">Microphone</span><span class="callShort">Mic</span></button>
-              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera" aria-keyshortcuts="Control+E Meta+E">Camera</button>
-              <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share"><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
+                   accessible name is the full one everywhere. The pictures
+                   are for the call-first bar (app/src/call-focus.css), which
+                   draws these as round icon buttons the way a phone call
+                   does: a struck-through picture while the thing is off. -->
+              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone" aria-keyshortcuts="Control+D Meta+D" title="Microphone"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 5 2.2M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3M3 3l18 18"/></svg><span class="callFull">Microphone</span><span class="callShort">Mic</span></button>
+              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera" aria-keyshortcuts="Control+E Meta+E" title="Camera"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h4a2 2 0 0 1 2 2v4m0 4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2M16 10l6-3v10l-6-3M3 3l18 18"/></svg><span class="callWord">Camera</span></button>
+              <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share" title="Share screen"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 13V8M9.5 10.5 12 8l2.5 2.5"/></svg><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
             </div>
             <!-- Filled by `announceCallShortcut` in main.ts, only for a
                  toggle made from the keyboard: a click already carries its
                  own feedback through focus and `aria-pressed`. -->
             <div id="callShortcutAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
             <p id="micIndicator" class="indicator"></p>
-            <!-- Another of this device's own tabs holds the microphone.
-                 Filled in by `render` in app/src/main.ts alongside
-                 `micIndicator`; hidden whenever this tab holds it. -->
-            <button id="claimMic" type="button" class="quiet" hidden>Use my mic here</button>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <!-- The background effect has failed and is covering or blurring
                  the whole frame while it retries. Shown here, next to the
@@ -184,16 +183,29 @@
                  left unticked. The share still works; it is simply quiet. -->
             <p id="screenAudioNote" class="indicator" hidden>No sound is shared. To share sound, share a browser tab and tick Share tab audio.</p>
             <!-- Two of your devices on one call: sound comes out of one of
-                 them, and the newest microphone does not take it. -->
-            <p id="monitorIndicator" class="indicator" hidden></p>
-            <button id="listenHere" type="button" class="quiet" hidden>Play sound here</button>
-            <!-- Everything past the four controls. Open, with no summary
-                 shown, on a wide screen; one "More" fold on a phone, where
-                 it would otherwise push the conversation off the screen.
+                 them, and the newest microphone does not take it. One line,
+                 the words and the buttons that move either of them here
+                 together, so it wraps as a sentence rather than as a stack
+                 of separate rows. `renderCallMedia` in app/src/main.ts says
+                 "Mic and sound are on your other device" when both are. -->
+            <div id="otherDevice" class="otherDevice">
+              <p id="monitorIndicator" class="indicator" hidden></p>
+              <button id="claimMic" type="button" class="quiet" hidden>Use mic here</button>
+              <button id="listenHere" type="button" class="quiet" hidden>Play sound here</button>
+            </div>
+            <!-- Everything past the five controls, behind More: the view,
+                 the desktop window's other ways to share, the effects and
+                 the two-device switches. A menu over the call on a wide
+                 screen, a sheet on a phone (app/src/mobile-room-view.ts).
                  See app/src/call-folds.ts. -->
             <details id="callExtras" class="callExtras">
-            <summary aria-label="More call settings">Settings</summary>
+            <summary aria-label="More call controls" title="More"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span class="callWord">More</span></summary>
             <div id="callExtrasContent">
+            <!-- The desktop window's other ways to share: an area of the
+                 screen, and boxes over the parts nobody should see. Filled
+                 and shown by app/src/main.ts only where the window offers
+                 them. -->
+            <div id="shareExtras" class="toggles shareExtras" hidden></div>
             <button id="resumeCallMedia" type="button">Resume call media</button>
             <button id="toggleFloatingMarks" class="toggle" data-on="false" aria-pressed="false" hidden>Show drawings in a floating window</button>
             <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. On a

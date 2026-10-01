@@ -20,6 +20,13 @@
 
 /** The shape of every person's tile. Wide, because webcams are. */
 export const TILE_ASPECT = 16 / 9
+/** The narrowest the other person's picture is drawn in a call of two: the
+ *  shape a phone held upright sends. In a narrow, tall call pane - the
+ *  installed window with the conversation open beside it - a picture held
+ *  to 4:3 was a box across the middle with the rest of the pane empty, so
+ *  it takes the pane's own shape down to this and is cropped to fill it
+ *  (`object-fit: cover`), the way a call on a phone fills the screen. */
+export const SOLO_MIN_ASPECT = 9 / 16
 /** Between tiles, and around the edge of the room, in CSS pixels. Leaves
  *  room for the speaking ring, which is drawn outside the tile. */
 export const TILE_GAP = 10
@@ -201,10 +208,10 @@ export function layoutCall(input: LayoutInput): LayoutResult {
   if (mode === 'solo') {
     const other = input.people.find(id => id !== input.self)!
     // The other person is the call. Wider than 16:9 is cropped less than
-    // a letterbox would waste, and narrower than 4:3 would crop a face,
-    // so the stage takes the room's own shape inside those two.
+    // a letterbox would waste, so the stage takes the room's own shape up
+    // to that, and down to an upright phone's - see `SOLO_MIN_ASPECT`.
     const roomAspect = area.height > 0 ? area.width / area.height : TILE_ASPECT
-    const main = fitRect(area, Math.min(TILE_ASPECT, Math.max(4 / 3, roomAspect)))
+    const main = fitRect(area, Math.min(TILE_ASPECT, Math.max(SOLO_MIN_ASPECT, roomAspect)))
     people.set(other, main)
     const width = Math.max(STRIP_MIN_WIDTH, Math.min(280, Math.round(main.width * 0.22)))
     const height = Math.round(width / TILE_ASPECT)

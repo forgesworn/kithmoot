@@ -540,18 +540,18 @@ export async function startRelay(port: number, okDelayMs = 0): Promise<{ url: st
 
 /**
  * The call's view switcher, open. On a wide screen with the call first it
- * is behind View in the control bar; anywhere else it is already on screen.
+ * is behind More in the control bar; anywhere else it is already on screen.
  */
 export async function openCallView(page: Page): Promise<void> {
-  const summary = page.locator('#callViewMenu > summary')
-  if (!(await summary.isVisible())) return
-  if (!(await page.locator('#callViewMenu').evaluate(el => (el as HTMLDetailsElement).open))) await summary.click()
+  const more = page.locator('#callExtras')
+  if (await page.locator('#callExtras #callView').count() === 0) return
+  if (!(await more.evaluate(el => (el as HTMLDetailsElement).open))) await more.locator(':scope > summary').click()
   await expect(page.locator('#callView')).toBeVisible()
 }
 
-/** The View menu put away again, if the bar has one open. */
+/** More put away again, if the view switcher is behind it and it is open. */
 export async function closeCallView(page: Page): Promise<void> {
-  const menu = page.locator('#callViewMenu')
-  if (await menu.count() === 0) return
-  if (await menu.evaluate(el => (el as HTMLDetailsElement).open)) await page.locator('#callViewMenu > summary').click()
+  const more = page.locator('#callExtras')
+  if (await page.locator('#callExtras #callView').count() === 0) return
+  if (await more.evaluate(el => (el as HTMLDetailsElement).open)) await more.locator(':scope > summary').click()
 }

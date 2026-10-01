@@ -4062,7 +4062,37 @@ input[type="search"] { font-family: inherit; }
    met the reader already scrolled. The agents notice steps aside during a call; the agents are in
    the row of tiles and on the Agents tab. */
 .callShort { display: none; }
+/* The call bar's pictures: drawn only by the call-first bar, which hides
+   the words instead (app/src/call-focus.css). */
+.callIcon { display: none; }
 .callExtras { margin: 0; }
+
+/* Two of your own devices on the call: one sentence, and the one or two
+   buttons that move the microphone or the sound here, wrapping together as
+   a line of text does rather than as a stack - and never cut short. */
+.otherDevice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .2rem .6rem;
+  margin: .3rem 0 0;
+  font-size: .85rem;
+}
+.otherDevice:not(:has(> :not([hidden]))) { display: none; }
+/* Both on the other device: the line says where the microphone is. */
+#deviceControls[data-other-device] #micIndicator { display: none; }
+#deviceControls .otherDevice > .indicator { margin: 0; min-height: 0; font-size: inherit; overflow-wrap: anywhere; }
+.otherDevice > button {
+  margin: 0;
+  min-height: 36px;
+  padding: .2rem .7rem;
+  border-radius: 18px;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-size: inherit;
+  white-space: nowrap;
+}
+.otherDevice > button:hover { color: var(--text); background: var(--accent-dim); }
 .callExtras > summary {
   display: inline-flex;
   align-items: center;
@@ -4088,8 +4118,7 @@ input[type="search"] { font-family: inherit; }
   }
   #deviceControls > .callHead,
   #deviceControls > .indicator,
-  #deviceControls > #monitorIndicator,
-  #deviceControls > #listenHere,
+  #deviceControls > .otherDevice,
   #deviceControls > #speakingLine,
   #deviceControls > #local { grid-column: 1 / -1; }
   #deviceControls > .toggles { grid-column: 1; }
@@ -4136,8 +4165,7 @@ input[type="search"] { font-family: inherit; }
   /* Open, More takes a row of its own under the controls. */
   #callExtras[open] { grid-area: 4 / 1 / 5 / 6; }
   #callExtras[open] > summary { width: auto; display: inline-flex; padding-inline: .8rem; }
-  #deviceControls > #monitorIndicator,
-  #deviceControls > #listenHere { grid-column: 1 / -1; margin: 0; }
+  #deviceControls > .otherDevice { grid-column: 1 / -1; margin: 0; }
   #deviceControls > #local:empty { display: none; }
 
   /* Whole tiles, in one row. */

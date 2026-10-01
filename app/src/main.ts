@@ -5221,15 +5221,23 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
     remoteVolume.apply(key, audio.el, audio.track, level, muted)
   }
 
+  const micElsewhere = mine?.mic !== undefined && mine.mic !== myDeviceId
   {
     const twoDevices = (mine?.devices.length ?? 0) > 1
+    // Both on the other device: one sentence for the two of them, in place
+    // of the microphone line saying half of it again - see `.otherDevice`
+    // in style.css, and `[data-other-device]` for the line it stands in for.
+    const both = twoDevices && !monitorHere && micElsewhere
     const monEl = $('monitorIndicator')
     monEl.hidden = !twoDevices
-    monEl.textContent = !twoDevices ? '' : monitorHere ? 'Sound plays on this device.' : 'Sound plays on your other device.'
+    monEl.textContent = !twoDevices ? ''
+      : monitorHere ? 'Sound plays on this device.'
+      : both ? 'Mic and sound are on your other device.'
+      : 'Sound plays on your other device.'
     ;($('listenHere') as HTMLButtonElement).hidden = !twoDevices || monitorHere
+    $('deviceControls').toggleAttribute('data-other-device', both)
   }
   const micEl = $('micIndicator')
-  const micElsewhere = mine?.mic !== undefined && mine.mic !== myDeviceId
   if (mine?.mic) {
     micEl.textContent = mine.mic === myDeviceId
       ? (micTrack?.enabled ? 'Mic: this device' : 'Mic: this device (muted)')
@@ -12392,7 +12400,9 @@ if (window.kithmootDesktop?.supportsShareArea) {
   area.className = 'toggle'
   area.textContent = 'Share an area'
   area.onclick = () => { toggleScreen(true).catch(showShareError) }
-  $('toggleScreen').after(area)
+  // Behind More, beside the other ways to share: the bar keeps one Share.
+  $('shareExtras').append(area)
+  $('shareExtras').hidden = false
 }
 // Boxes live on the real screen, so Wayland (which forbids placing a window)
 // never shows these: there the preview area share keeps things private.
@@ -12420,7 +12430,11 @@ if (desktopRedaction.supported) {
   note.className = 'indicator'
   note.setAttribute('role', 'status')
   note.hidden = true
-  ;(document.getElementById('shareArea') ?? $('toggleScreen')).after(hide, add, all)
+  // "Hide my share" is the one to reach in a hurry while a share is live,
+  // so it sits in the bar beside Share; the boxes are set up behind More.
+  $('toggleScreen').after(hide)
+  $('shareExtras').append(add, all)
+  $('shareExtras').hidden = false
   $('screenAudioNote').after(note)
   desktopRedaction.onChange(updateRedactionControls)
 }
