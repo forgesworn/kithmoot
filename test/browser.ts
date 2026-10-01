@@ -178,14 +178,16 @@ export const inbound = async () => {
   return { framesDecoded, audioEnergy, videoStreams }
 }
 
-/** Every remote `<video>` in the room, with the picture it is currently
- *  showing reduced to a mean and a spread. A tile that never got a track has
- *  no element at all; one showing a black frame has a spread near zero. */
+/** Every remote `<video>` in the room that is on show, with the picture it is
+ *  currently showing reduced to a mean and a spread. A tile that never got a
+ *  track has no element at all; one showing a black frame has a spread near
+ *  zero. A spare camera - a second device of somebody already shown by
+ *  another, see app/src/face-camera.ts - is decoding but not on show. */
 export const remotePictures = () => {
   const out: { width: number; height: number; mean: number; spread: number; hash: number }[] = []
   for (const tile of Array.from(document.querySelectorAll('#room .participant'))) {
     if ((tile.querySelector('h3')?.textContent ?? '').includes('(you)')) continue
-    for (const video of Array.from(tile.querySelectorAll('video'))) {
+    for (const video of Array.from(tile.querySelectorAll('video:not(.spareCamera)')) as HTMLVideoElement[]) {
       if (!video.videoWidth || !video.videoHeight) continue
       const canvas = document.createElement('canvas')
       canvas.width = 96
