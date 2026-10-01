@@ -1,0 +1,4 @@
+Types: deb
+URIs: https://github.com/forgesworn/kithmoot/releases/download/apt/
+Suites: ./
+Signed-By: /usr/share/keyrings/kithmoot-archive-keyring.gpg

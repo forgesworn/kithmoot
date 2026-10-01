@@ -24,3 +24,6 @@ for (const arch of ['x64', 'arm64']) {
   await writeFile(`${archive}.sha256`, `${hash}  ${archive.split('/').pop()}\n`)
   console.log(`${hash}  ${archive}`)
 }
+// The same builds as Debian packages, for the signed APT repository.
+const { buildDeb } = await import('./package-deb.mjs')
+for (const arch of ['x64', 'arm64']) await buildDeb({ source: resolve(root, `out/KithMoot-linux-${arch}`), arch, version })

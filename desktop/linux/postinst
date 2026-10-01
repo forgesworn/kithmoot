@@ -1,0 +1,37 @@
+#!/bin/sh
+# Runs as root after dpkg has unpacked /opt/KithMoot. Never touches anyone's
+# profile: that lives in ~/.config/KithMoot and no package step reads it.
+set -e
+
+[ "$1" = configure ] || exit 0
+
+# Ubuntu 23.10 and later stop unprivileged apps creating the user namespaces
+# Chromium's sandbox uses, unless an AppArmor profile allows it. Older
+# AppArmor cannot parse abi 4.0, and does not need the profile.
+profile=/opt/KithMoot/resources/apparmor-profile
+if command -v apparmor_parser >/dev/null 2>&1 && apparmor_parser --skip-kernel-load --debug "$profile" >/dev/null 2>&1; then
+  cp -f "$profile" /etc/apparmor.d/kithmoot
+  if ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; } && apparmor_status --enabled >/dev/null 2>&1; then
+    apparmor_parser --replace --write-cache --skip-read-cache /etc/apparmor.d/kithmoot || true
+  fi
+fi
+
+# A menu entry from the old tarball installer (install.py) sits in the
+# person's own applications folder and would open the old copy in place of
+# this one. Remove only an entry that installer wrote, pointing at its own
+# default location; anything else is the person's and is left alone.
+for home in /root /home/*; do
+  entry="$home/.local/share/applications/dev.forgesworn.kithmoot.desktop"
+  [ -f "$entry" ] || continue
+  if grep -qxF "Exec=\"$home/.local/share/kithmoot-desktop/kithmoot\"" "$entry"; then
+    rm -f "$entry"
+  fi
+done
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database -q /usr/share/applications || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -t /usr/share/icons/hicolor || true
+fi
+exit 0

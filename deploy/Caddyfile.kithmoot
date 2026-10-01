@@ -171,10 +171,22 @@ kithmoot.forgesworn.dev {
 		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 	}
 
-	# Everything that is not the app: the marketing page, which is HTML, CSS
-	# and three WebP images with no script of any kind, and the APK
-	# downloads, which are bytes.
-	@notApp not path /j /j/*
+	# The downloads page runs one script of its own, downloads.js, which
+	# picks the installer for the visitor's computer and reads versions.json
+	# for the version picker. Same origin only; it sends nothing anywhere.
+	@downloads path /downloads /downloads/*
+	header @downloads {
+		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+		Content-Security-Policy "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+	}
+
+	# Everything else: the marketing page, which is HTML, CSS and three WebP
+	# images with no script of any kind, and the APK downloads, which are
+	# bytes.
+	@notApp {
+		not path /j /j/*
+		not path /downloads /downloads/*
+	}
 	header @notApp {
 		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
 		Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"

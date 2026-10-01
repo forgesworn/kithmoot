@@ -1,0 +1,18 @@
+#!/bin/sh
+# Removing the package leaves every profile in ~/.config/KithMoot in place.
+set -e
+
+case "$1" in
+  remove|purge)
+    if [ -f /etc/apparmor.d/kithmoot ]; then
+      if command -v apparmor_parser >/dev/null 2>&1 && apparmor_status --enabled >/dev/null 2>&1; then
+        apparmor_parser --remove /etc/apparmor.d/kithmoot >/dev/null 2>&1 || true
+      fi
+      rm -f /etc/apparmor.d/kithmoot
+    fi
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      update-desktop-database -q /usr/share/applications || true
+    fi
+    ;;
+esac
+exit 0

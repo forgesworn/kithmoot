@@ -1,6 +1,7 @@
 import { ShareArea, AREA_URL } from './share-area.mjs'
 import { Redaction, BOX_WINDOW, boxId } from './redaction.mjs'
 import { createDesktopUpdater } from './updater.mjs'
+import { createPackageUpdater, packageVersionFile, readPackageVersion } from './package-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
 import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
@@ -34,11 +35,21 @@ const notices = new DesktopNotices({
   open: roomId => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); win.webContents.send('desktop:open-room', roomId) } },
 })
 let win
-const updates = createDesktopUpdater({
-  autoUpdater, platform: process.platform, arch: process.arch, packaged: app.isPackaged,
-  notify: state => { if (win && !win.isDestroyed()) win.webContents.send('desktop:update-state', state) },
-  log: error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error'),
-})
+const updateNotify = state => { if (win && !win.isDestroyed()) win.webContents.send('desktop:update-state', state) }
+const updateLog = error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error')
+// Installed from the Debian package, apt upgrades this copy in place; the
+// app only notices and offers the restart.
+const versionStamp = app.isPackaged && process.platform === 'linux' ? packageVersionFile(process.resourcesPath) : undefined
+const packageManaged = versionStamp !== undefined && readPackageVersion(versionStamp) !== undefined
+const updates = packageManaged
+  ? createPackageUpdater({
+    currentVersion: app.getVersion(), installedVersion: () => readPackageVersion(versionStamp),
+    relaunch: () => { app.relaunch(); app.quit() }, notify: updateNotify, log: updateLog,
+  })
+  : createDesktopUpdater({
+    autoUpdater, platform: process.platform, arch: process.arch, packaged: app.isPackaged,
+    notify: updateNotify, log: updateLog,
+  })
 const shareArea = new ShareArea(() => win, areaMode)
 // Redaction boxes need a window placed on the real screen, which Wayland
 // forbids: there the preview area share is the way to keep things private.
@@ -321,7 +332,7 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
       { role: 'windowMenu' },
       { label: 'Help', submenu: [{ label: 'About this preview', click: () => dialog.showMessageBox(win, {
-        message: `KithMoot desktop ${app.getVersion()}`, detail: 'Desktop preview. Signed Mac updates download quietly and wait for you to approve a safe restart; Linux updates remain manual. Sign in here using your Nostr account or remote signer; browser extensions are not available. Calls, messages and room sync use the same KithMoot protocol.',
+        message: `KithMoot desktop ${app.getVersion()}`, detail: 'Desktop preview. Signed Mac updates download quietly and wait for you to approve a safe restart. On Debian and Ubuntu, updates arrive with your system updates and wait for the same restart; other Linux installs update by hand. Sign in here using your Nostr account or remote signer; browser extensions are not available. Calls, messages and room sync use the same KithMoot protocol.',
       }) }] },
     ]))
     // The share pop-out is a window of ours the app writes into, so it never

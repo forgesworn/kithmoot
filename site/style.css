@@ -153,3 +153,17 @@ code { font-size: .88em; overflow-wrap: anywhere; }
 .draft-note { background: var(--warning-bg); color: var(--warning); padding: 1rem 1.2rem; border-radius: 8px; font-size: .92rem; margin-block: 1.5rem 2rem; }
 .draft-note p { margin: 0; color: inherit; }
 .draft-note p + p { margin-top: .6rem; }
+.recommended { max-width: 760px; margin-bottom: 2.5rem; border-color: var(--accent); }
+.recommended .button { margin-top: .8rem; }
+.recommended .under { margin: .6rem 0 0; }
+.platform h3 { font-size: 1.15rem; margin-top: 2rem; }
+.platform pre { overflow-x: auto; padding: 1rem; border-radius: 8px; background: var(--bg); font-size: .82rem; line-height: 1.6; }
+.versions { max-width: 760px; }
+.version-picker { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; margin-block: 1.5rem; }
+.version-picker label { display: grid; gap: .4rem; flex: 1 1 14rem; min-width: 0; font-weight: 650; }
+.version-picker select { width: 100%; min-height: 44px; padding: .4rem .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: inherit; font: inherit; max-width: 100%; }
+.version-files { list-style: none; padding: 0; margin: 0 0 1.5rem; }
+.version-files li { padding-block: .9rem; border-bottom: 1px solid var(--border); }
+.version-files li > a { font-weight: 650; overflow-wrap: anywhere; }
+.version-files .checksum { display: block; margin-top: .3rem; font-size: .78rem; color: var(--muted); overflow-wrap: anywhere; }
+.recommended h2 { font-size: clamp(1.6rem, 4vw, 2.2rem); }

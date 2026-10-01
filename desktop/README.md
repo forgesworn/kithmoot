@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.32 on every platform. Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.33 on Linux (tarballs and .deb), 0.1.32 on Mac and Windows. Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -138,7 +138,41 @@ Signed Apple Silicon builds check the static Squirrel.Mac feed at
 the background, verifies its declared SHA-256 and size, and requires the new app
 to satisfy the running app's code-signing requirement. KithMoot asks before
 restarting and uses the same unfinished-work and active-call gates as PWA
-updates. Development builds and Linux builds keep the updater disabled.
+updates. Development builds and Linux tarball builds keep the updater disabled;
+the Debian package is updated by apt (below).
+
+## Debian package and APT repository
+
+`npm run package:linux` also builds `out/kithmoot_<version>_{amd64,arm64}.deb`
+(`scripts/package-deb.mjs`, which runs `dpkg-deb` in a `debian:bookworm-slim`
+container, so Docker must be running). The package installs to `/opt/KithMoot`,
+adds `/usr/bin/kithmoot`, the `dev.forgesworn.kithmoot.desktop` menu entry and
+icon, ships `chrome-sandbox` setuid root, and installs an AppArmor profile
+(`linux/apparmor-profile`) where AppArmor understands it, which Ubuntu 23.10 and
+later need for Chromium's namespace sandbox. It also ships the archive keyring
+and `/etc/apt/sources.list.d/kithmoot.sources` (a conffile), so installing the
+package once subscribes the machine to updates. Its `postinst` removes the
+menu entry the tarball's `install.py` wrote, only when it points at that
+installer's default location, so the old copy no longer shadows the package.
+No package step reads or writes `~/.config/KithMoot`.
+
+The repository is flat and lives in the assets of the rolling GitHub release
+tagged `apt` (`https://github.com/forgesworn/kithmoot/releases/download/apt/`),
+signed by the KithMoot archive key `D6D7B42A690985CC3DDCC676F546951EDCB5E0DC`,
+whose private half is in `~/.kithmoot-signing/apt`. `npm run publish:apt`
+indexes and signs `out/kithmoot_<version>_*.deb` and uploads them, packages
+first and `InRelease` last, keeping the previous version's packages. A
+version must sort higher than the last for apt to offer it.
+
+A packaged Linux copy carries `resources/kithmoot-version`. When apt replaces
+the app underneath a running KithMoot, `package-updater.mjs` sees the new
+version and offers the same restart as the Mac updater.
+
+Tested in containers on Debian 12 and 13 and Ubuntu 22.04 and 24.04 (ARM64,
+and x64 on Ubuntu 24.04 and Debian 12): install, signed upgrade, a running app
+offering the restart, a refused tampered index, and purge, with a profile file
+kept throughout. Not yet tested on a physical desktop or under Ubuntu's
+AppArmor user-namespace restriction.
 
 Every Mac release must update `site/downloads/release.json`, its archive and the
 static feed together. `npm test` in this directory refuses version, URL, size or

@@ -1,7 +1,7 @@
 {
   "name": "kithmoot-desktop",
   "productName": "KithMoot",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "private": true,
   "description": "KithMoot desktop preview",
   "author": "ForgeSworn",
@@ -18,6 +18,8 @@
     "prepackage:mac": "npm run build",
     "package:linux": "node scripts/package-linux.mjs",
     "prepackage:linux": "npm run build",
+    "package:deb": "node scripts/package-deb.mjs",
+    "publish:apt": "node scripts/apt-repo.mjs --publish",
     "package:windows": "node scripts/package-windows.mjs",
     "prepackage:windows": "npm run build"
   },
