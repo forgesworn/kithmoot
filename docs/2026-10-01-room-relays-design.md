@@ -1,6 +1,7 @@
 # Room relays: fixed at creation, always used by everyone
 
-Status: design, not built. Decided 2026-10-01: the relays a room is created
+Status: built 2026-10-01 (fold-kit 0.4.0, the web app, Android); the open
+question below still stands. Decided 2026-10-01: the relays a room is created
 with are **always included** in every participant's pool (merged with their
 own, never replacing them), and they also travel **inside the signed group
 invitation** (kind 1463) so stale bookmarks and project links converge.

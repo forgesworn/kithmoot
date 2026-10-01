@@ -131,7 +131,6 @@ import {
   signRoomRelays,
   verifyRoomRelays,
   canonicalRoomRelays,
-  MAX_ROOM_RELAYS,
   CHANNEL_NAME,
   type RekeyNotice,
   type ControlMessage,
@@ -178,6 +177,8 @@ import {
   QUIET_HISTORY_SECONDS,
   type QuietRoomTransport,
   type RelayTransport,
+  isInvitationRelays,
+  MAX_INVITATION_RELAYS,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
 import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
@@ -1252,7 +1253,8 @@ function safeIceUrls(urls: string[]): string[] {
   return urls.filter((u) => ICE_SCHEMES.some((scheme) => u.toLowerCase().startsWith(scheme)))
 }
 
-function encodePayload(relays: string[], urls: string[], pairingCode?: Uint8Array): string {
+function encodePayload(pool: string[], urls: string[], pairingCode?: Uint8Array): string {
+  const relays = linkRelays(pool)
   const payload: RoomUrlPayload = roomInvitationCapability
     ? {
         v: roomInvitationCapability.persistent ? 3 : 2,
@@ -1312,9 +1314,88 @@ let roomSecret: Uint8Array
 let roomInvitationCapability: RoomInvitation | undefined
 let relays: string[] = RELAYS
 let roomRelayConfig: RelayConfig[] = relayConnections.configuration('default')
+/** The relays the link this room was opened from names, as `useRoomRelays`
+ *  was handed them: what the relay settings show as this device's own when
+ *  it has saved nothing for the room. */
+let roomRelayHints: string[] = []
 function useRoomRelays(hints: string[] = []): void {
+  roomRelayHints = hints
+  // The authority's newest `relays` op, kept on this device, counts from
+  // the start of the visit rather than once the control log has loaded.
+  const roomId = /^room:([a-f0-9]{64})$/.exec(roomRelayScope)?.[1]
+  const record = roomId ? loadRoomRelayRecord(roomId) : undefined
+  if (roomId && record) relayConnections.setRoomRelays(roomId, { added: record.relays })
   roomRelayConfig = relayConnections.configuration(roomRelayScope, hints)
   relays = roomRelayConfig.map(relay => relay.url)
+}
+
+// ---------------------------------------------------------------------------
+// The room's own relays (docs/protocol.md, "Room relays")
+// ---------------------------------------------------------------------------
+//
+// The relays a room is made on are fixed then, carried in its signed group
+// invitation, and used by every member ahead of their own, so any two
+// members share at least one relay whatever else each of them uses. They
+// are kept apart from this device's own relays: see `RelayConnections`.
+
+/** The room relays a list of relay URLs can supply: each a safe relay URL in
+ *  canonical form, without repeats, at most eight. Empty when none can be. */
+function invitationRelaysFrom(urls: readonly string[]): string[] {
+  const out: string[] = []
+  for (const url of urls) {
+    let normal: string
+    try { normal = normaliseRelayConfig([url])[0]!.url } catch { continue }
+    if (out.includes(normal) || !isInvitationRelays([normal])) continue
+    out.push(normal)
+    if (out.length === MAX_INVITATION_RELAYS) break
+  }
+  return out
+}
+
+/** What the room's maker fixes as its relays: the ones its link names, else
+ *  the ones this device reads and writes for it. */
+function makerRoomRelays(roomId: string, linked: string[]): string[] {
+  const fromLink = invitationRelaysFrom(linked)
+  if (fromLink.length) return fromLink
+  return invitationRelaysFrom(relayConnections.configuration(`room:${roomId}`).filter(relay => relay.read && relay.write).map(relay => relay.url))
+}
+
+/** The room's relays as its signed invitation carries them: only what this
+ *  device holds as signed, which on the device that made the room is what
+ *  it fixed. */
+function signedRoomRelays(roomId: string | undefined = currentRoomId()): string[] | undefined {
+  const fixed = roomId ? relayConnections.roomRelays(roomId) : undefined
+  return fixed?.signed ? fixed.c : undefined
+}
+
+/** The relays a link names: the room's own, then those its authority added,
+ *  within the eight a link may carry. Never the rest of this device's pool,
+ *  or every re-shared link would drift with whoever shared it. A room with
+ *  none known yet names its pool's first eight, as before. */
+function linkRelays(pool: string[]): string[] {
+  const roomId = currentRoomId()
+  const shared = roomId ? relayConnections.sharedRelays(roomId) : []
+  return (shared.length ? shared : pool).slice(0, MAX_INVITATION_RELAYS)
+}
+
+/**
+ * A member of a group room whose relays did not come from its signed
+ * invitation reads it once, in the background, and adopts the relays it
+ * names: how members of a room made before invitations carried relays
+ * converge on them. It never fails the room: a retirement, a missing
+ * invitation or a timeout changes nothing, and it is tried again next visit.
+ */
+function readRoomRelaysOnce(invitation: RoomInvitation, roomId: string): void {
+  if (!invitation.persistent || relayConnections.roomRelays(roomId)?.signed) return
+  const scope = roomRelayScope
+  const pool = relayConnections.pool(`lookup:${deriveInvitationId(invitation)}`, relays)
+  requestPersistentRoomAdmission({ transport: pool, invitation })
+    .then(admission => {
+      if (!admission.relays || roomRelayScope !== scope) return
+      if (relayConnections.setRoomRelays(roomId, { fixed: admission.relays, signed: true })) roomRelaysApplied(relayConnections.configuration(roomRelayScope, roomRelayConfig))
+    })
+    .catch(() => { /* Read again on the next visit. */ })
+    .finally(() => pool.close())
 }
 let iceUrls: string[] = DEFAULT_ICE_URLS
 
@@ -1664,11 +1745,12 @@ function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array
       groupInvitationRefresh = undefined
       return
     }
-    void publishGroupInvitation(invitation, secret, inviterSk, relays, { endsAt }).catch(() => { /* Retried next round. */ })
+    const roomRelays = signedRoomRelays(deriveRoom(secret).roomId)
+    void publishGroupInvitation(invitation, secret, inviterSk, relays, { endsAt, roomRelays }).catch(() => { /* Retried next round. */ })
     // The link that opened the room may name relays the room has since left,
     // and a copy of that link is still out there looking on them.
     const extra = linkOnlyRelays(relays, invitationLinkRelays, url => relayConnections.isCircle(url))
-    if (extra.length) void publishGroupInvitation(invitation, secret, inviterSk, extra, { scope: `link:${deriveInvitationId(invitation)}`, endsAt }).catch(() => { /* Retried next round. */ })
+    if (extra.length) void publishGroupInvitation(invitation, secret, inviterSk, extra, { scope: `link:${deriveInvitationId(invitation)}`, endsAt, roomRelays }).catch(() => { /* Retried next round. */ })
   }
   if (conferenceEnded(endsAt, nowSeconds())) return
   refresh()
@@ -2790,10 +2872,22 @@ async function roomFromLocation(): Promise<boolean> {
   if (invitation) {
     roomInvitationCapability = invitation
     invitationLinkRelays = parsedLink.relays
-    useRoomRelays(parsedLink.relays)
+    const owner = loadInvitationOwner(invitation)
+    // The room's own relays, when its secret is already known here: the
+    // device that made it signs what it holds (or the link's, for a room
+    // made before invitations carried relays); anybody else keeps what it
+    // holds, or takes the link's on first sight.
+    if (knownSecret) {
+      const roomId = deriveRoom(knownSecret).roomId
+      if (owner) relayConnections.setRoomRelays(roomId, { fixed: relayConnections.roomRelays(roomId)?.c ?? makerRoomRelays(roomId, parsedLink.relays), signed: true })
+      else relayConnections.setRoomRelays(roomId, { fixed: invitationRelaysFrom(parsedLink.relays) })
+    }
+    // The maker's own relays are the snapshot it took when it made the room,
+    // not its link's: a link names only the room's relays, and the maker may
+    // also use a read-only or write-only relay of its own.
+    useRoomRelays(owner && relayConnections.inherits(roomRelayScope) ? [] : parsedLink.relays)
     roomPolicy = parsedLink.policy
 
-    const owner = loadInvitationOwner(invitation)
     if (owner) {
       roomSecret = owner.roomSecret
       roomEndsAt = owner.endsAt
@@ -2847,6 +2941,10 @@ async function roomFromLocation(): Promise<boolean> {
           // a conference room that has ended. Nobody joins it.
           if (conferenceEnded(roomEndsAt, nowSeconds())) throw new Error(conferenceEndedMessage(roomEndsAt!))
           roomRelayScope = `room:${deriveRoom(roomSecret).roomId}`
+          // The room's own relays: what its signed invitation names wins;
+          // else the link's, on first sight.
+          const signed = 'relays' in admission ? admission.relays : undefined
+          relayConnections.setRoomRelays(deriveRoom(roomSecret).roomId, signed ? { fixed: signed, signed: true } : { fixed: invitationRelaysFrom(parsedLink.relays) })
           // Found beyond the link's relays: the room evidently lives there
           // too, so it is read and written there as well.
           useRoomRelays([...parsedLink.relays, ...foundFurther])
@@ -2870,6 +2968,7 @@ async function roomFromLocation(): Promise<boolean> {
     const { secret, relays: hinted, policy } = parsedLink
     if (!secret) throw new Error('join URL carries neither an invitation nor a secret')
     roomSecret = secret
+    relayConnections.setRoomRelays(deriveRoom(secret).roomId, { fixed: invitationRelaysFrom(hinted) })
     useRoomRelays(hinted)
     roomPolicy = policy
     roomInvitationCapability = undefined
@@ -2916,6 +3015,7 @@ async function roomFromLocation(): Promise<boolean> {
   // person chose to keep it here, readable from there.
   rememberCurrentRoom()
   refreshKeptAdmission()
+  if (invitation && !loadInvitationOwner(invitation)) readRoomRelaysOnce(invitation, deriveRoom(roomSecret).roomId)
   return true
 }
 
@@ -3414,10 +3514,14 @@ async function startNewRoom(): Promise<void> {
   // Snapshot access modes too: an invitation carries URLs, so reconstructing
   // this room from its link must not turn a read-only default into a writer.
   relayConnections.inheritDefaults(relayScope)
+  // The room's own relays: the ones this device reads and writes, fixed
+  // now and named in its signed invitation, so every member uses them.
+  const roomRelays = invitationRelaysFrom(relayConnections.configuration(relayScope.replace(/^room:/, 'inherited:')).filter(relay => relay.read && relay.write).map(relay => relay.url))
+  relayConnections.setRoomRelays(deriveRoom(secret).roomId, { fixed: roomRelays, signed: true })
   // Persist the owner's recovery before publishing. Failure leaves the form
   // usable and never offers a link whose asynchronous admission was not saved.
   storeInvitationOwner(created.invitation, secret, created.inviterSk, endsAt)
-  if (persistent) await publishGroupInvitation(created.invitation, secret, created.inviterSk, RELAYS, { endsAt })
+  if (persistent) await publishGroupInvitation(created.invitation, secret, created.inviterSk, RELAYS, { endsAt, roomRelays })
   startedHere = true
   admittedRoom = undefined
   roomEndsAt = endsAt
@@ -4259,7 +4363,7 @@ async function rotateRoomInvitation(): Promise<void> {
   const created = createRoomInvitation(retired.persistent === true)
   // A conference room's fresh link ends when the room does.
   storeInvitationOwner(created.invitation, roomSecret, created.inviterSk, roomEndsAt)
-  if (created.invitation.persistent) await publishGroupInvitation(created.invitation, roomSecret, created.inviterSk, relays, { endsAt: roomEndsAt })
+  if (created.invitation.persistent) await publishGroupInvitation(created.invitation, roomSecret, created.inviterSk, relays, { endsAt: roomEndsAt, roomRelays: signedRoomRelays() })
 
   // Tell every cooperative delegated responder before replacing local
   // state. The event is durable, so an offline member learns the retirement
@@ -4299,13 +4403,13 @@ async function rotateRoomInvitation(): Promise<void> {
  *  whatever this room's saved relay settings say. */
 async function publishGroupInvitation(
   invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[],
-  { forRoom, scope, endsAt }: { forRoom?: string; scope?: string; endsAt?: number } = {},
+  { forRoom, scope, endsAt, roomRelays }: { forRoom?: string; scope?: string; endsAt?: number; roomRelays?: string[] } = {},
 ): Promise<void> {
   const pool = scope ? relayConnections.pool(scope, relayUrls) : forRoom ? relayConnections.pool(`room:${forRoom}`, relayUrls) : configuredPool(relayUrls)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
-      pool.publish(encodePersistentInvitation({ invitation, roomSecret: secret, inviterSk, now: nowSeconds(), endsAt })),
+      pool.publish(encodePersistentInvitation({ invitation, roomSecret: secret, inviterSk, now: nowSeconds(), endsAt, ...(roomRelays?.length ? { relays: roomRelays } : {}) })),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('the relays did not save the group invitation')), 15_000) }),
     ])
   } finally {
@@ -4330,7 +4434,7 @@ async function makeRoomPersistent(): Promise<void> {
     ...createRoomInvitation(true).invitation,
     inviter: roomInvitationCapability.inviter,
   }
-  await publishGroupInvitation(invitation, roomSecret, invitationAuthoritySk, relays)
+  await publishGroupInvitation(invitation, roomSecret, invitationAuthoritySk, relays, { roomRelays: signedRoomRelays() })
   storeInvitationOwner(invitation, roomSecret, invitationAuthoritySk)
   stopInvitationHost()
   roomInvitationCapability = invitation
@@ -5958,7 +6062,9 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
     // relays the link names, so the two must agree.
     const dmRelays = await relaysForConversationWith(me, peer)
     storeInvitationOwner(created.invitation, secret, created.inviterSk)
-    await publishGroupInvitation(created.invitation, secret, created.inviterSk, dmRelays, { forRoom: roomId })
+    const roomRelays = invitationRelaysFrom(dmRelays)
+    relayConnections.setRoomRelays(roomId, { fixed: roomRelays, signed: true })
+    await publishGroupInvitation(created.invitation, secret, created.inviterSk, dmRelays, { forRoom: roomId, roomRelays })
     const policy: RoomPolicy = quiet ? { ...dmPolicy(me, peer), quiet: true } : dmPolicy(me, peer)
     const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays: dmRelays, iceUrls, policy })
     const invite = await sealInvite(link, { to: peer, room: roomId, crypt })
@@ -6124,17 +6230,15 @@ function isRoomAuthority(): boolean {
   return !!invitationAuthoritySk && invitationDelegation.length === 0 && roomAuthority() === getPublicKey(invitationAuthoritySk)
 }
 
-/** Add the record's relays to this device's relays for the room. */
+/** Add the record's relays to the room's own, which every member uses
+ *  ahead of this device's: nothing this device chose is overwritten, and
+ *  only the sixteen-relay pool cap ever leaves one of its own out. */
 function adoptRoomRelays(record: RoomRelayRecord): string[] {
+  const roomId = currentRoomId()
   const missing = record.relays.filter(url => !roomRelayConfig.some(relay => relay.url === url))
-  if (!missing.length || roomRelayScope === 'default') return []
-  // At most eight relays: the room's own list first, then as many of the
-  // ones this device already had as still fit.
-  const listed = roomRelayConfig.filter(relay => record.relays.includes(relay.url))
-  const others = roomRelayConfig.filter(relay => !record.relays.includes(relay.url))
-  const next = [...listed, ...missing.map(url => ({ url, read: true, write: true })), ...others].slice(0, MAX_ROOM_RELAYS)
-  try { relayConnections.save(roomRelayScope, next) } catch { return [] }
-  roomRelaysApplied(relayConnections.configuration(roomRelayScope))
+  if (!roomId || roomRelayScope === 'default') return []
+  if (!relayConnections.setRoomRelays(roomId, { added: record.relays })) return []
+  roomRelaysApplied(relayConnections.configuration(roomRelayScope, roomRelayConfig))
   return missing
 }
 
@@ -6187,7 +6291,7 @@ async function shareRoomRelays(urls: string[]): Promise<string> {
   // relays everyone now uses must hold it too, or somebody (or an agent
   // host) that later reads only from them cannot get in.
   const invitation = roomInvitationCapability
-  if (invitation?.persistent) await publishGroupInvitation(invitation, roomSecret, sk, relays, { endsAt: roomEndsAt })
+  if (invitation?.persistent) await publishGroupInvitation(invitation, roomSecret, sk, relays, { endsAt: roomEndsAt, roomRelays: signedRoomRelays() })
   return 'Everyone in this room will add these relays the next time their app hears from it.'
 }
 
@@ -11102,6 +11206,7 @@ function resetRoomState(): void {
   roomRelayScope = 'default'
   relays = RELAYS
   roomRelayConfig = relayConnections.configuration('default')
+  roomRelayHints = []
   iceUrls = DEFAULT_ICE_URLS
   // Carrying others, and this device's key, belong to the docked call.
   if (!docked()) {
@@ -11285,6 +11390,7 @@ interface RoomUiState {
   roomRelayScope: string
   relays: string[]
   roomRelayConfig: RelayConfig[]
+  roomRelayHints: string[]
   iceUrls: string[]
   sessionAuthority: string | undefined
   presenceAnnouncements: PresenceAnnouncements | undefined
@@ -11297,7 +11403,7 @@ function captureRoomUi(): RoomUiState {
     keeperParticipant, agentParticipants: new Set(agentParticipants), agentDisplayNames: new Map(agentDisplayNames),
     receiptAgents: new Set(receiptAgents), handledInvites: new Set(handledInvites), approvals: new Map(approvals),
     systemLines: [...systemLines], roomSecret, roomPolicy, roomName, roomInvitationCapability, invitationAuthoritySk,
-    invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope, relays, roomRelayConfig, iceUrls,
+    invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope, relays, roomRelayConfig, roomRelayHints, iceUrls,
     sessionAuthority, presenceAnnouncements,
   }
 }
@@ -11318,7 +11424,7 @@ function restoreRoomUi(ui: RoomUiState): void {
   systemLines.push(...ui.systemLines)
   ;({ admins, adminsAt, channelsAt, channels, conversationRead, currentChannel, keeperParticipant, roomSecret, roomPolicy, roomName,
     roomInvitationCapability, invitationAuthoritySk, invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope,
-    relays, roomRelayConfig, iceUrls, sessionAuthority, presenceAnnouncements } = ui)
+    relays, roomRelayConfig, roomRelayHints, iceUrls, sessionAuthority, presenceAnnouncements } = ui)
 }
 
 async function forgetKnownRoom(room: KnownRoom): Promise<void> {
@@ -12011,10 +12117,10 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
       message: `${url} will learn your public identity, ${npubEncode(account.pubkey)}, when connecting for ${purpose}. This permission lasts in this tab and is not saved or shared in invitations.`,
       confirmLabel: 'Use this account', cancelLabel: 'Cancel' })) return false
     if (nostrSession !== account || identityGeneration !== generation || (scope !== 'default' && scope !== roomRelayScope)) throw new Error('Account or room changed; choose the identity again')
-    relayConnections.authenticate(scope, url, account.signer, scope === roomRelayScope ? roomRelayConfig : [])
+    relayConnections.authenticate(scope, url, account.signer, scope === roomRelayScope ? roomRelayHints : [])
     return true
   },
-  room: () => roomRelayScope === 'default' ? undefined : { scope: roomRelayScope, hints: roomRelayConfig },
+  room: () => roomRelayScope === 'default' ? undefined : { scope: roomRelayScope, hints: roomRelayHints },
   // A relay marked as a circle box by hand moves the lane the same way a
   // card's box does; the marks are already in every pool, so only the
   // screen needs telling.
@@ -12024,7 +12130,8 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
       RELAYS = relayConnections.configuration('default').map(relay => relay.url)
       boxDiscovery?.restart()
     }
-    if (scope === roomRelayScope) roomRelaysApplied(entries)
+    // What was saved is this device's own list; the room's relays stay ahead of it.
+    if (scope === roomRelayScope) roomRelaysApplied(relayConnections.configuration(roomRelayScope, roomRelayConfig))
   },
   share: {
     available: scope => scope === roomRelayScope && isRoomAuthority() && !!session,

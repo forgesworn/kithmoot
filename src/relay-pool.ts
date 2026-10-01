@@ -49,10 +49,15 @@ export interface RelayHealth extends RelayConfig {
   unreturned?: number[]
 }
 
+/** The most relays one pool connects to: a room's own relays (at most
+ *  `MAX_RELAY_HINTS` it was made on, and as many again its authority added)
+ *  ahead of a person's own. What a link, a saved list, an invitation or a
+ *  `relays` op may name stays at `MAX_RELAY_HINTS`. */
+export const MAX_POOL_RELAYS = 2 * MAX_RELAY_HINTS
 
 export function normaliseRelayConfig(entries: readonly (string | RelayConfig)[], profile: NetworkProfile = 'direct'): RelayConfig[] {
   if (entries.length === 0) throw new Error('at least one relay is required')
-  if (entries.length > MAX_RELAY_HINTS) throw new Error(`use at most ${MAX_RELAY_HINTS} relays`)
+  if (entries.length > MAX_POOL_RELAYS) throw new Error(`use at most ${MAX_POOL_RELAYS} relays`)
   const seen = new Set<string>()
   return entries.map(entry => {
     const value = typeof entry === 'string' ? { url: entry, read: true, write: true } : entry

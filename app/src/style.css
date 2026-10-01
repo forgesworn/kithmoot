@@ -3485,6 +3485,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .relayHealth { font-size: .8rem; color: var(--muted); }
 .relayHealth[data-state="connected"] { color: #168368; }
 .relayHealth[data-state="disconnected"] { color: #b95040; }
+.relayRoomNote { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); }
 .relayAddForm { display: grid; gap: .5rem; margin: 1rem 0; }
 
 #assignmentPanel { box-sizing: border-box; width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 0 1.25rem 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); }

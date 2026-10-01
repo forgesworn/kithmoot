@@ -142,6 +142,33 @@ NOT join it and SHOULD tell a newcomer the date it ended. A re-signed
 invitation keeps the same `ends`, and none is re-signed after it. A 1461
 retirement of such a room carries the same `expiration` tag.
 
+**Room relays.** The body MAY also carry `relays`, after `ends` (key order
+`v, room, secret, ends, relays`): the relays the room was made on, fixed
+then and never changed. When present it MUST be an array of one to eight
+distinct strings, each a safe relay URL (`wss://`, or `ws://` on loopback
+only) already in canonical form - nostr-tools' `normalizeURL`, so
+`wss://relay.example/` with its trailing slash - with no credentials. A
+reader MUST reject the whole invitation otherwise, never trim it. Absent, the
+body is byte-identical to one written before the field existed, and a reader
+that predates it ignores the key. When two valid copies disagree, the newest
+`created_at` that names any relays stands; a copy naming none says nothing
+about them, and between equal timestamps the first heard stays. (Contrast
+`ends`, where the earliest stands.)
+
+Every member's pool is the room's relays - these, then the relays its
+authority's newest `relays` control op added - first, reading and writing,
+never cut; then the member's own relays for the room, up to sixteen in all.
+Own relays are what the cap cuts. So any two members share at least one
+relay, whatever else each of them uses. A client chooses the room's relays,
+in order: a signed invitation's `relays`, replacing any learnt from a link;
+else the ones it already holds; else a link's `r`, on first sight (a
+temporary room, or one made before the field). The creator fixes them from
+the relays it both reads and writes, at most eight. A link names the room's
+relays, then the op's, cut to eight, rather than its sharer's whole pool. A
+member holding no signed list reads the invitation once after opening and
+adopts its `relays`; the creator's six-hourly re-sign carries them into an
+invitation written before the field.
+
 Every event a member device signs for a conference room carries
 `["expiration", "<ends>"]`: chat and its channels, reactions, edits and
 retractions, roster and farewell entries, signal wraps, descriptors, call

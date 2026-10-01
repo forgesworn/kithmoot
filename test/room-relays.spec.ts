@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, open } from './browser.js'
-import { testRelaysFor } from './relays.js'
+import { createRoom, expectToSeeAndHear, joinWithMedia, newDeviceContext, open, startRelay, turnOnMedia } from './browser.js'
+import { TEST_RELAY_PORT, testRelaysFor, withRelays } from './relays.js'
 
 /**
  * The room's maker adds a relay for everybody.
@@ -91,5 +91,84 @@ test('the maker shares a relay and a member already in the room starts using it'
     await expect.poll(() => member.locator('#shareUrl').inputValue()).not.toBe(before)
   } finally {
     for (const context of contexts) await context.close()
+  }
+})
+
+/**
+ * The room's own relays: whatever a member has saved, everybody uses the
+ * relays the room was made on.
+ *
+ * The bug this guards: a joiner whose saved relays for a room (and whose
+ * defaults) named only relay B never met a creator on relay A. The saved
+ * list won outright, the link's relays were ignored, and neither side ever
+ * saw the other's call offers. Now the creator's relays ride in the signed
+ * group invitation and every member's pool puts them first.
+ */
+test('a joiner whose own relays are all elsewhere still meets the room on the relays it was made on', async ({ browser, baseURL, browserName }) => {
+  // Three relays of their own, over plain ws:// on loopback, which only
+  // Chromium lets an https page open; the media half needs its fake camera.
+  test.skip(browserName !== 'chromium', 'Chromium only: loopback ws:// relays and a fake camera')
+  const relayA = await startRelay(TEST_RELAY_PORT + 21)
+  const relayB = await startRelay(TEST_RELAY_PORT + 22)
+  const relayC = await startRelay(TEST_RELAY_PORT + 23)
+  const contexts: BrowserContext[] = []
+  const A = `${relayA.url}/`, B = `${relayB.url}/`
+  try {
+    const makerContext = await newDeviceContext(browser, baseURL!)
+    contexts.push(makerContext)
+    const maker = await makerContext.newPage()
+    const url = await createRoom(maker, baseURL!, [relayA.url])
+    await maker.locator('#displayName').fill('Maker')
+    await maker.locator('#join').click()
+    await expect(maker.locator('#roomArea')).toBeVisible()
+    await turnOnMedia(maker)
+    // The room's relays are fixed now, signed, and kept apart.
+    const fixed = await maker.evaluate(() => JSON.parse(localStorage.getItem('kithmoot.room-relays-fixed.v1') ?? '{}') as Record<string, { c: string[]; signed: boolean }>)
+    const [roomId] = Object.keys(fixed)
+    expect(fixed[roomId!]).toEqual({ c: [A], signed: true })
+
+    // The joiner's own relays, both its defaults and its saved list for this
+    // very room, name only B. C is a relay nobody uses.
+    const joinerContext = await newDeviceContext(browser, baseURL!)
+    contexts.push(joinerContext)
+    await joinerContext.addInitScript(([room, b]) => {
+      localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: [{ url: b, read: true, write: true }], [`room:${room}`]: [{ url: b, read: true, write: true }] }))
+    }, [roomId!, B])
+    const joiner = await joinerContext.newPage()
+    await joinWithMedia(joiner, url, 'Joiner')
+
+    await expectToSeeAndHear(joiner, 'Joiner')
+    await expectToSeeAndHear(maker, 'Maker')
+    await joiner.locator('#chatInput').fill('Joiner on the room relay')
+    await joiner.locator('#chatInput').press('Enter')
+    await expect(maker.locator('#chatLog')).toContainText('Joiner on the room relay')
+    await maker.locator('#chatInput').fill('Maker heard you')
+    await maker.locator('#chatInput').press('Enter')
+    await expect(joiner.locator('#chatLog')).toContainText('Maker heard you')
+
+    // Learnt from the signed invitation, and the joiner's own list untouched.
+    const held = await joiner.evaluate(room => ({
+      fixed: (JSON.parse(localStorage.getItem('kithmoot.room-relays-fixed.v1') ?? '{}') as Record<string, unknown>)[room],
+      own: (JSON.parse(localStorage.getItem('kithmoot.relays.v1') ?? '{}') as Record<string, { url: string }[]>)[`room:${room}`]!.map(relay => relay.url),
+    }), roomId!)
+    expect(held).toEqual({ fixed: { c: [A], signed: true }, own: [B] })
+    // And a link the joiner hands on names the room's relay, not its own.
+    const shared = await joiner.locator('#shareUrl').inputValue()
+    expect(JSON.parse(Buffer.from(new URL(shared).hash.slice(1), 'base64url').toString()).r).toEqual([A])
+
+    // Back in from a stale bookmark that names only B: still on A.
+    await open(joiner, withRelays(url, [B]), 'Joiner')
+    await joiner.locator('#join').click()
+    await expect(joiner.locator('#roomArea')).toBeVisible()
+    await expect(joiner.locator('#room .participant')).toHaveCount(2, { timeout: 60_000 })
+    await joiner.locator('#chatInput').fill('Back from the bookmark')
+    await joiner.locator('#chatInput').press('Enter')
+    await expect(maker.locator('#chatLog')).toContainText('Back from the bookmark')
+    await maker.locator('#chatInput').fill('Still here')
+    await maker.locator('#chatInput').press('Enter')
+    await expect(joiner.locator('#chatLog')).toContainText('Still here')
+  } finally {
+    for (const context of contexts) await context.close()
+    await Promise.all([relayA.stop(), relayB.stop(), relayC.stop()])
   }
 })
