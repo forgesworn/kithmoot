@@ -37,6 +37,40 @@ This uses the regular-event and EOSE conventions in
 existing [NIP-44 v2](https://github.com/nostr-protocol/nips/blob/master/44.md)
 encryption implementation.  Kind numbers remain provisional KithMoot kinds.
 
+## Conference rooms
+
+A group can be made to end on a date: **Ends: Never / After 1 day / After 3
+days / After 7 days** on the creation form, offered only for a group (a room
+that asks before anyone joins is already a meeting). The end, in Unix
+seconds, rides in the 1463 body as `ends` and on the event as a NIP-40
+`expiration` tag, and the decoder refuses the two disagreeing. See
+[protocol.md](protocol.md#room-links-and-admission) for the wire rule.
+
+- Every event a member's device signs for the room carries the same
+  expiration (an earlier one of its own is kept), so relays that honour
+  NIP-40 drop the room's traffic when it ends, not only its invitation. The
+  library does this in `RoomSession` when it is given `endsAt`; the app also
+  tags its file announcements and read positions, and `RoomAgent` a keeper's
+  invitation, retirement and epoch desk.
+- The end is kept wherever the room is: the creator's owner record (so the
+  six-hourly re-sign keeps it, and stops once it has come), the kept and tab
+  admissions, the rooms list and the account's bookmarks, and a keeper's
+  state file (`ends`).
+- At the end the room is over: a page in it leaves with "This conference
+  room ended on Sat 4 Oct, 18:00.", the rooms list marks it ended with
+  `markEnded`, nothing watches or rings for it, and a join link refuses with
+  the same sentence. `RoomSession.join` refuses after the end as well. The
+  room's header shows "Ends Sat 4 Oct, 18:00" before then, and so does the
+  invite sheet.
+- Expiry is a request to relays, not deletion: a relay may ignore NIP-40, and
+  anybody who copied the events keeps them. A relay that honours it has no
+  invitation left to hand out, so a late newcomer is told the invitation is
+  not available rather than the date.
+
+**Invite by QR**, beside **Invite** in the room, opens the same invite sheet
+on the link's QR code, drawn at 480 pixels to scan from across a table. Every
+member can share the link, as before.
+
 ## Persistence and limits
 
 The app retains group membership on this device by default; Room details

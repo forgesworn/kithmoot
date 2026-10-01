@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Conference rooms.** A group room can be made to end: "Ends: Never /
+  After 1 day / 3 days / 7 days" on the creation form, for a group only. Wire
+  change, additive: the kind 1463 body gains `ends` (Unix seconds; `v` stays
+  3) and the event a matching NIP-40 `expiration` tag, which a reader
+  requires to agree with the body. Every event a member signs for the room
+  then carries the same expiration (an earlier one of its own is kept), so
+  relays that honour NIP-40 drop the room when it ends; `RoomSession` and
+  `RoomAgent` take `endsAt`, and `withExpiration` is exported. At the end
+  the room shows ended, nobody joins, and a join link says "This conference
+  room ended on <date>." The header and invite sheet show the end date.
+  See "Conference rooms" in `docs/persistent-groups.md` and
+  `docs/protocol.md`.
+- **Invite by QR**, beside Invite in the room, opens the invite sheet on a
+  large QR code of the link.
+- Bump `@forgesworn/fold-kit` to 0.3.0, which carries the 1463 `ends` codec
+  and the expiration rule.
 - **The app, desktop and Android icons move to the new vortex.** `npm run
   brand:build` now renders from `art/brand/2026-09-29`: the gradient mark on
   white for the PWA and touch icons, the small flat mark for favicons and

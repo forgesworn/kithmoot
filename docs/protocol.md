@@ -128,6 +128,31 @@ info `kithmoot/v3/group-invitation-key`. The decrypted body is
 the pinned inviter. A valid retirement wins over the invitation. This record
 carries epoch zero only; it cannot override removal or mint authority.
 
+**Conference rooms.** A group MAY end on a fixed date. Its body then also
+carries `ends`, a positive integer of Unix seconds (`v` stays 3), and the 1463
+event carries a NIP-40 tag `["expiration", "<ends>"]` with the same value, so
+relays drop the invitation when the room ends. A creator MUST choose `ends`
+after its own clock and no more than 30 days beyond it. A reader MUST reject
+the invitation when `ends` is present and not a positive integer, when there is
+more than one `expiration` tag, or when an `expiration` tag is present and is
+not exactly the decimal of the body's `ends` (including when the body has no
+`ends`). A body `ends` with no tag is valid. When two valid copies disagree,
+the earlier `ends` stands. At or after `ends` the room is ended: a reader MUST
+NOT join it and SHOULD tell a newcomer the date it ended. A re-signed
+invitation keeps the same `ends`, and none is re-signed after it. A 1461
+retirement of such a room carries the same `expiration` tag.
+
+Every event a member device signs for a conference room carries
+`["expiration", "<ends>"]`: chat and its channels, reactions, edits and
+retractions, roster and farewell entries, signal wraps, descriptors, call
+bells, assignment envelopes, file announcements, read positions, and the
+authority's rekey (1462), epoch request (20468) and grant (20469). An event
+whose own expiration is earlier keeps it (a signal wrap's 60 seconds, a call
+bell's 120); a later one is lowered to `ends`; an event never carries two.
+Account-level events (project directory, bookmarks) are not tagged, and a
+device credential keeps its own expiry. Readers ignore the tag on decode; it
+tells relays when to let the room go, and is not an access rule.
+
 A kind 1461 retirement's content is `{v:1}`. When the room itself was ended,
 not just the link replaced, it is `{v:1,ended:true}`. The field is additive:
 readers MUST treat any valid `v:1` retirement as a retirement and MAY tell a
