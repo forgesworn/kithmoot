@@ -38,7 +38,7 @@ import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
 import { RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
-import { KIND_DM_RELAYS, dmRelayListTemplate, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
+import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
@@ -5788,18 +5788,46 @@ function distinctRelays(urls: string[]): string[] {
 
 /** Kind 10050 lists for these authors from these relays, as many as arrive
  *  before every relay has finished or the wait is up. */
-async function lookUpDmRelayLists(authors: string[], urls: string[]): Promise<NostrEvent[]> {
+async function lookUpDmRelayLists(authors: string[], urls: string[], kinds: number[] = [KIND_DM_RELAYS]): Promise<NostrEvent[]> {
   const pool = relayConnections.pool('profiles', distinctRelays(urls))
   const found: NostrEvent[] = []
   try {
     await new Promise<void>(resolve => {
       const timer = setTimeout(resolve, DM_RELAY_LOOKUP_MS)
-      pool.subscribe([{ kinds: [KIND_DM_RELAYS], authors }], event => found.push(event), () => { clearTimeout(timer); resolve() })
+      pool.subscribe([{ kinds, authors }], event => found.push(event), () => { clearTimeout(timer); resolve() })
     })
   } finally {
     pool.close()
   }
   return found
+}
+
+/** Each project member's inbox relays, looked up once a session (and again
+ *  after ten minutes), so a burst of project edits asks only once. */
+const projectInboxes = new Map<string, { relays: string[]; at: number }>()
+const PROJECT_INBOX_TTL_MS = 10 * 60 * 1000
+
+/**
+ * Hands a project wrap for `recipient` to where they read: their NIP-17 DM
+ * relays, else their NIP-65 read relays (see `inboxRelays`). Without this a
+ * project reached only members who happened to read one of the owner's own
+ * relays. The wrap already names the recipient to every relay it goes to,
+ * so looking their lists up tells the lookup relays nothing the wrap does
+ * not; relays the owner already wrote it to are skipped.
+ */
+async function deliverProjectWrap(wrap: NostrEvent, recipient: string): Promise<void> {
+  let inbox = projectInboxes.get(recipient)
+  if (!inbox || Date.now() - inbox.at > PROJECT_INBOX_TTL_MS) {
+    const own = relayConnections.configuration('default').map(relay => relay.url)
+    const lists = await lookUpDmRelayLists([recipient], [...new Set([...own, ...RELAYS, ...PROFILE_RELAYS])], [KIND_DM_RELAYS, KIND_RELAY_LIST])
+    inbox = { relays: inboxRelays(lists, recipient), at: Date.now() }
+    projectInboxes.set(recipient, inbox)
+  }
+  const own = new Set(relayConnections.configuration('default').map(relay => relay.url))
+  const targets = inbox.relays.filter(url => !own.has(url))
+  if (!targets.length) return
+  const pool = relayConnections.pool('project-inbox', targets)
+  try { await pool.publish(wrap) } finally { pool.close() }
 }
 
 /**
@@ -11816,6 +11844,7 @@ const sharedProjects = new SharedProjectsPanel(document, {
   people: () => (session?.participants() ?? []).map(p => ({ pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true })),
   changed: renderRooms,
   openRoom: room => { void switchRoom(room) },
+  deliver: deliverProjectWrap,
   signIn: () => { void signInWithNostr().catch(e => setStatus(e instanceof Error ? e.message : 'Sign-in did not finish.')) },
 })
 

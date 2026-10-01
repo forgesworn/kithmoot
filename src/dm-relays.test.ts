@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import {
   KIND_DM_RELAYS,
+  KIND_RELAY_LIST,
   MAX_DM_RELAYS,
+  inboxRelays,
   dmRelayListTemplate,
   latestDmRelayList,
   parseDmRelayList,
@@ -86,5 +88,29 @@ describe('relaysForPrivateConversation', () => {
     const chosen = relaysForPrivateConversation({ mine: many('m'), theirs: many('t'), fallback })
     expect(chosen).toHaveLength(MAX_DM_RELAYS)
     expect(chosen.slice(0, 2)).toEqual(c('wss://t0.example', 'wss://m0.example'))
+  })
+})
+
+describe('inbox relays', () => {
+  const sk = generateSecretKey(), pk = getPublicKey(sk)
+  const nip65 = (tags: string[][], at = NOW) => finalizeEvent({ kind: KIND_RELAY_LIST, created_at: at, tags, content: '' }, sk)
+
+  it('prefers the NIP-17 DM relay list', () => {
+    const events = [wire(list(sk, ['wss://dm.example'])), wire(nip65([['r', 'wss://read.example']]))]
+    expect(inboxRelays(events, pk)).toEqual(c('wss://dm.example'))
+  })
+
+  it('falls back to the relays a NIP-65 list reads from, never write-only ones', () => {
+    const events = [wire(nip65([['r', 'wss://both.example'], ['r', 'wss://read.example', 'read'], ['r', 'wss://write.example', 'write']]))]
+    expect(inboxRelays(events, pk)).toEqual(c('wss://both.example', 'wss://read.example'))
+  })
+
+  it('takes the latest list, ignores other authors and forgeries, and is empty with none', () => {
+    const other = generateSecretKey()
+    const forged = { ...wire(nip65([['r', 'wss://forged.example']], NOW + 5)), sig: '0'.repeat(128) }
+    const events = [wire(nip65([['r', 'wss://old.example']], NOW - 10)), wire(nip65([['r', 'wss://new.example']])), forged,
+      wire(finalizeEvent({ kind: KIND_RELAY_LIST, created_at: NOW + 9, tags: [['r', 'wss://theirs.example']], content: '' }, other))]
+    expect(inboxRelays(events, pk)).toEqual(c('wss://new.example'))
+    expect(inboxRelays([], pk)).toEqual([])
   })
 })

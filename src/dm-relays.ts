@@ -115,3 +115,26 @@ export function relaysForPrivateConversation(opts: {
   }
   return chosen.slice(0, MAX_DM_RELAYS)
 }
+
+/** NIP-65's relay list: where a person reads and writes, kind 10002. */
+export const KIND_RELAY_LIST = 10002
+
+/**
+ * Where to send something private for `author` so they find it: their NIP-17
+ * DM relays when they publish a list, else the relays their NIP-65 list
+ * says they read from (an `r` tag marked `read`, or unmarked). The latest
+ * correctly signed list of each kind counts; at most `MAX_DM_RELAYS`. Empty
+ * when they publish neither, and the sender's own relays are all there is.
+ */
+export function inboxRelays(events: readonly Event[], author: string): string[] {
+  const dm = latestDmRelayList(events, author)
+  if (dm.length) return dm
+  const own = events.filter(event => event.kind === KIND_RELAY_LIST && event.pubkey.toLowerCase() === author.toLowerCase())
+  own.sort((a, b) => b.created_at - a.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const latest = own.find(event => verifyEvent(event))
+  if (!latest) return []
+  const urls = latest.tags
+    .filter(tag => tag[0] === 'r' && typeof tag[1] === 'string' && (tag[2] === undefined || tag[2] === 'read'))
+    .map(tag => tag[1]!)
+  return canonicalList(urls).slice(0, MAX_DM_RELAYS)
+}
