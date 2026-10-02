@@ -84,7 +84,7 @@ import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCa
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -2582,7 +2582,7 @@ for (const [name, roomKey, a, b, note] of [
     const content = nip44.v2.encrypt(JSON.stringify(message), room.roomKey, seed32(`${label}-nonce`))
     const deviceSk = message.device === fx.DEVICE_A ? fx.DEVICE_A_SK : fx.DEVICE_B_SK
     const event = finalizeDeterministic(
-      { kind: KINDS.CHAT, created_at: message.sentAt, tags: [['d', room.roomId]], content },
+      { kind: KINDS.CHAT, created_at: message.sentAt ?? Math.floor(message.sentAtMs / 1000), tags: [['d', room.roomId]], content },
       deviceSk,
       seed32(`${label}-auxrand`),
     )
@@ -2685,6 +2685,30 @@ for (const [name, roomKey, a, b, note] of [
   conversationVector('chatEdit', 'edit-with-a-thread-refused', 'negative',
     'An edit keeps the original\'s place in a thread and its kind; one that carries `reply`, `thread` or `kind` of its own is refused.',
     [['edit-threaded', fromA('edit-7', 'x', fx.MESSAGE_CREATED_AT + 150, { replaces: 'root-1', thread: ref(root) })]])
+
+  // --- Order within a second ---------------------------------------------------
+  const T = fx.MESSAGE_CREATED_AT + 200
+  conversationVector('chatOrder', 'same-second-by-sentAtMs', 'positive',
+    'Two messages in one second. `sentAtMs` is the same moment in milliseconds, inside the ciphertext only, and orders them; the ids are chosen against the send order, so the id tiebreak alone would swap them. Order is by `sentAtMs`, or `sentAt * 1000` without one, then id.',
+    [['order-second', fromA('order-y', 'Second, sent 900 ms into the second', T, { sentAtMs: T * 1000 + 900 })],
+      ['order-first', fromA('order-z', 'First, sent 100 ms into the second', T, { sentAtMs: T * 1000 + 100 })]])
+
+  conversationVector('chatOrder', 'no-sentAtMs-is-the-start-of-its-second', 'positive',
+    'A message from a client that writes no `sentAtMs` orders as the start of its second, ahead of any in that second that carry one.',
+    [['order-timed', fromA('order-a', 'Timed, 1 ms into the second', T, { sentAtMs: T * 1000 + 1 })],
+      ['order-untimed', fromB('order-b', 'From an older client', T)]])
+
+  conversationVector('chatOrder', 'sentAtMs-outside-its-second-dropped', 'positive',
+    'A `sentAtMs` that does not fall within `sentAt`\'s second, or is not an integer, is dropped and the message kept: it is for order alone and costs nothing to ignore.',
+    [['order-outside', fromA('order-c', 'Claims a later second', T, { sentAtMs: (T + 5) * 1000 })],
+      ['order-fraction', fromB('order-d', 'Not an integer', T, { sentAtMs: T * 1000 + 0.5 })]])
+
+  {
+    const { sentAt: _dropped, ...noSeconds } = fromA('order-e', 'Milliseconds only', T, { sentAtMs: T * 1000 + 300 })
+    conversationVector('chatOrder', 'sentAtMs-without-sentAt-refused', 'negative',
+      '`sentAt` stays required. `sentAtMs` adds to it and never stands in for it, so a message carrying only milliseconds is refused whole, exactly as one carrying neither.',
+      [['order-no-seconds', noSeconds]])
+  }
 
   // --- Retractions -------------------------------------------------------------
   const retract = fromA('retract-1', 'Retracted a message', fx.MESSAGE_CREATED_AT + 200, { retracts: 'root-1' })

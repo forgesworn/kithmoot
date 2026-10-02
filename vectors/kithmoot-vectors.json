@@ -8246,6 +8246,463 @@
         }
       }
     ],
+    "chatOrder": [
+      {
+        "name": "same-second-by-sentAtMs",
+        "kind": "positive",
+        "note": "Two messages in one second. `sentAtMs` is the same moment in milliseconds, inside the ciphertext only, and orders them; the ids are chosen against the send order, so the id tiebreak alone would swap them. Order is by `sentAtMs`, or `sentAt * 1000` without one, then id.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999900,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ask7fc15ysABd2vlPej9dUiFgFqvTb9m0WZB63LkwYe+XhnRxlSleTTkwg0RwvRQmWwUrRoDcv5Kc0Xs+icsdr9FZ0Sjf+5jDpWOMuXDXl19z/7tlscN0Sx1IXQLi2FICQOXMLKqrXRCdeMYyAefv8sdGp4d7vhcAGlENfGIELbKZ4PFZlsq6UbjVo1Gs0ZPDDWeVFrJg3uPS8dPfN6DkI4uyF+XHIfL5ekWrkxym+8WZadyaC5PdVH8vbaRRmd4rRHKJeqqEWCc/LVoKXSvbpJ92nVl9sX4qTqO/wqd6FCvkAi9NFPrv5rmMCNf3/VbXqnJEHHOXMy86j1t9/FuuZatlr9rQLfKa9/GVmEWMZdpj47Ayce4emcGdwNcjF6TAT9zTAHpd2jjoW7YvkGEhj1K6+huh0Lc4u/A2Ln4nCND0d/2PuQbJ+s2zI+tNlPvWaS81l8OFanOt9WwQmOGILF1LJgIExd8OEXE7Vtixl3j3Ys37fyVy6a7pDjkkB0NV6ZKKjDPQGGfv+8Uy6DALXplG2O2D9liy06BE1PU3FDobw1LcTpqPUHlYMr11X/fb/vc1wKqMIt4flX7zdQm0V2Z4TXJkvqm5nHjRi+yVutpZNcdYbtkS149yvVaiKEFwu82wnbgzU5a9NzGshfhusELKyWEK49fklCTkIeaqJcT2YsZFBXO0RMmaim7C5Dfzr8qyDjnt0Bq4c/QGVgWHGG+MySRoc1p0DU4kmgdg0scsu18aHMhHC73ni33YCubSUnyYdZ+78EUnMmj+wo521KM5wXMO6PJRBbnQz/ya3wM0DjzDIqJr4Ry2DiYYRKi2PRLait6CERoQL1HaYQB0DAKzyhMKkN7TnjZL4adODrIwp7X/eLt3g5ps8U6aWh+FpiBJJqCdWBxbhhFIuUKaT5CXBrV3ofBprU4Hqk86ptAQNQyzldaU12dMIAOOYbF15oojRI45+XSrNMtmwMOEOwFrtmgLXNj0iPy6dl/xZJpb34di+xBrqDjLiMlMYIod17P1V4Cs2f6kSdBZCjvJhlpcLTGYKAeX+E1fNP6bXR6cWHL2pfEPB487DnaFMF2JcRt4FeTBR4TFB9tfVyipTFVBvtHSPTDI04ZRSmdu9paU5TuoIg+W84vZ9zWqhyhszs1EvLaeqDiZCq3rbfI4IENd2mxh83CBOeS2x+e61UcrsaY2ZErGXiks8OgZ/gGSbwkkCoZc6MAfEGL668d9nbJs9qeQYqHz3qwrUcADDiSDZ6iwTa5cv2cZ+69/ZYO8yn2",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "d2fa30f19226d4f34fd221dd2d4cdfe394f341ee34ffbb8386b5c5625885f796",
+                "sig": "5bb27e5e0a679f1818dfd68636ec58a8bbc027251c17506f734ec2bad5ddefe49cd7dcf9d20539385aabd775aeaffbe5e065c2f81a27f2e391dc93729d2f8cbb"
+              },
+              "nonceHex": "c93b7dcd79cac001776be53de8fd754885805aaf4dbf66d16641eb72e4c187be",
+              "auxRandHex": "d396ef8cc2368109ecd9db5f3a0b56d361386fdaf29677aeddbcd28de5f7807b"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999900,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AuB8TeeiKOs+9Y7xV3zsz9Z0JMShsoSoF+pfXZfqOcaK4SyD+/OHOOW1YmpfrHNDMsnX4W4l59g8YtgJ0Dmz7XOx4+y9VSzVqXpEA1CsYR+JLbCPDc6OJUIPv4a5NHrYYeH6nRRSYv8ddAbTcPKyigkuoVHK2vuqePZMWbjQfYaPOdZYqJUyzQSbU2Fncqs+xh8VncIjTIZ2CozmeoAAlZxoEyzrhP0MKGqJlE4/5A6t78hEOrxxWrr6qkcmMCe0OHx7ezM/OXcUk7T9AwNf6GUxCFEucODXWaSOmCWjs/bUDOFpewhO0Sc73/aMmu35iHpbkAXndHrBEFDllTrQDL4KaClKXUz+mye+uZzFVOgzieynvKYmG/navjI3hP27R3KYl13XKVLOMofbFbM2EehStBOLShJeOnf+titZKEeOHFcTTywh25Gr84MfpL8WeJBZvGxMjVTWTtUbb2T+nR63knF86wC8wLVoenm5iL8Szrx+OaaU93BoVZykuXAKhvidcZHzRtw24lJuWAVf9eBXieF5OEvrrJAOb/mmXlQjuHkOuz8/eD1T2wOwwMqe+IZqj19epR6EM+sJH/d8aN5ZqW8SrDunBMs4GNdQCSYvs1ETc3fvWalgTafVAM+yszhkNZqJWKU+PhF7E0Bn3Tdp+EAZKrex/BvpFO0IcySHBC5UxaNbxBlaSLZj+Rf7uSRhUcWQTRstsDN489OadlxB0lKVRQjvh3BswPSF+sHRiIaeMLfXqxs9kvEMpQ+nDUIUjA/C+BNpW7itK1ikzZC7lhw7taqcTRjQY7wq4OUVnZiXrNZSsE6vSXg4ZPfc51NgJXyxqB1dK6wrwSqygXzi3BXBfy/lotWVShtoI+XnLC0tTJBVX+2kza94VqVaK6F5LbPFaEwDJMoNW3IzPaT8djGvl2aX2QYAF6WgYDMC9/u+aCooSqCCDrps+GqciLCKTvXBZaTmd9oqW5qHfinoe6L1NmTB5PPiFyzf0ptUmVBgS/JM7J2LMf73R8kEFhx2aTZ2+eQw9pHtC2fPknA4rOGCDaxuoKxKlukCgbW+uB6ufIGsMNJ3jj0l/vUtHfWF0O4UiPsdwDFOuGQAQQbyv+ldJa7AODY6E6ZSTa1OCuwB//zm58D8qvkVH1apFunta0fkSWAoU7qQsCSdm6wy0938FqLr5bisC3zFjgE4DmLboWdDwl3LoR3rKrrB0/q+9b1ZlZ//d/R/aqd5NdPFBDI7C/E5b6USgksinmHz+TEZCObuiPggD4UMOAaDUixB",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "86b4509bab642057f61ae2323d8f7594b7ec7c83ec9ea47ecb4190b4a375a25a",
+                "sig": "3c89efd01985214f2a7bed97736b7524d569907daed447e9be7de14b10c6a0209f14c9fd5d2eef0086c83a29ad96d8b96a48248d96d43c59535cdefcda1fd359"
+              },
+              "nonceHex": "e07c4de7a228eb3ef58ef1577ceccfd67424c4a1b284a817ea5f5d97ea39c68a",
+              "auxRandHex": "4d7a1882073df18ec3091d5e954acbb06c82c6a7122b6c96d99fa7b34c546367"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "order-y",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Second, sent 900 ms into the second",
+              "sentAt": 1799999900,
+              "sentAtMs": 1799999900900
+            },
+            {
+              "id": "order-z",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "First, sent 100 ms into the second",
+              "sentAt": 1799999900,
+              "sentAtMs": 1799999900100
+            }
+          ],
+          "conversation": [
+            {
+              "id": "order-z",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "First, sent 100 ms into the second",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            },
+            {
+              "id": "order-y",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Second, sent 900 ms into the second",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "no-sentAtMs-is-the-start-of-its-second",
+        "kind": "positive",
+        "note": "A message from a client that writes no `sentAtMs` orders as the start of its second, ahead of any in that second that carry one.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999900,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AkCGtH5ko2IAe6CGKVtKlff3JvYOLyom0wRVaoR6DurXl0DocUV0v5vtNjNsR1wwSq4MYA2IWEf+8xb7XR6OMnVtSh5uZZIWquGmLVhNv8+XC7pPXzxcFTUpuEZFhb/oggGstNCVh44RrtoOJeE19E3BStL/JBSkvr86ObY/z8oEq11MK0E8TJ2ddemnGmj1WGTFLbbDVqx/QP05CEaLFQG4TzmPrOIRv4Lps79MfzCo3+sMFz8mvb3Mxz7Ysz7v1TzFxsT9c6kFqHuEJfmQnkuxGEI7HFS2PQjDzF0ahO1lLl/JvK8fUhVlzllWjzwiqdWIUrYgJRwoK3n6smMA3rzfLI3kld6yuSNCDHoe15LzZwcRmKCi4TNEzZFmbi93BxU3XtTX8R9EVcp+asdfjkQxT+4lPSWOE2qRNSsJTutP+tggrnH9kROcOYziH/GyXR+7lsbsH/k3F5IyhpQbQi8n/Rpa0Iessj1xvr5U92XwLinOIe3UY9c3UW9c/6jdmGo4DtrY69J/feB+UrIoE66yUnyua9GZSyswuNpT9CYT6Dhxl6rk2K7wjjdj8YPJmtAzkCaF/YnsGnq4uX+aX+kgYdcnnAKog7TepsNreGnraDKv9dsdorloISjZ6G5uqrL7f6Oc/j+68Y4t3kDxTXbVaDI2FtBnJqjMDxC0Qjxc+isiwntEP2xMsdqUlGn8yETBIx70vOHSMuAZHqkdGrEBLx1XF77ioV/fAcb47OurFyjFJi4mqLYCDaAERBwNGEJ5OZ99zXkTaHK7oDEsnWIN4Kv/R/mf6w7myQV8t6mc0Wn5rQkXL3KNEp7ua+96pRrEHlLSSD+Yoiwa1DyA3OlfQQj/+MHaIqMq45yBaws3hwyy1GhddBM/Bbg8YdsSqWvDNZErg121/xLoWFq+0/rj3s1oPdS+onWCbGVQKO9LLPAGaN/BjexPdnGYdl7TUDL/PbphgIVWya4A14BGOTDTzmVTgz5d6lDiSsN/tF6Opt6If+rJBngyhilBtpJAnEZEgwXcI4lRBXr9Xf/9S5kao2liV0PcWD0mCVydHiPD94r4RHBWpNhVt/X2NYfHq67zbnkfnLDZKnueoR2PnibZ2XmCOWcTUzVgeHuJekyxpBktaibO4RQcj0cPMWq+ezkUBdfDlMmereqfuLToKsuKtY8D5XQX90Nv1kOfbIKx4Da/qt3UGUsksER61evmusHy6b+WmPPbo1qsEpu2Qxvd10l9FiG6Ofi1orP8BjAzFiOtdid9vJWR6QyYDhuCFYhW",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "54bc44953c91a424437e8ac2c6415347b47edf9e701fa3e9aefa6f5ccd2d67e0",
+                "sig": "c4273db1a05394196530cf0aa7062aa8c8430e412da24da2519063eb660d209792431dd42074a79a9984ca498fb3147864d630b33a49c8a348d5044e53e3dda5"
+              },
+              "nonceHex": "4086b47e64a362007ba086295b4a95f7f726f60e2f2a26d304556a847a0eead7",
+              "auxRandHex": "73d4f7a58fd5d74e9e0e43b1aec6d2119dd8176f463f92a6b65860e348de1d7c"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999900,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ai6NybdnPsEBAGCgA90c4s8iOa6cNxkqpeNh4oFwATtDzZ/cfV25LJzAbKD4DlGabJFPjLGY6PFmq9GFvEuj8oX3nGKR6Y8jZGreKrcwlx4T9RQgVeELHwt+pgluzSeTehSvuxbo/4yKbImuvW38qJKmNVpdsNJJGptq9c6ZtDvP1TXA251wnksDbHyLbqTcRGefZUGqK42cHB8dKqIf6YvNrszo5w+8uwIxxVbQlGCuavmkiP4YHobZZdgaiiD3ekdC5dwV1KXOIge/KHCvbVC2gdIVMVsCA7Kzr8/AmPJxW+HeMYDnAy7y/i+m0FWlfVKzPJr3cmV+k8vQFwTHzH77DpVCFkS4VUsrIqxMtrCOtOR2/4PnF3FXHCsdo/UJOSp4z6nUGQa604QSbk+BBCPf0z76DKLuwSA0zWS4ADGUCeeABRFoHEwRhPDFhHcuEa+yC1+ip2Z65IfCfBRo5U0oxae02PqnzhpbmHbdOz7+2UJZd8N6UTNjXYzyUzmjFxDZZHAFZt0V3jVYsLZYm6BJpnx02Zuv94cgz5jjoFOceSzJvFCXUjjeBErAcfMxSOJ43DysTN2h2wHUSlBTpXHgCFfqvspKmEOgAA+Xn/ym3yXyB+3ERvqao41OKIca7KHJoWtgJZqsB3f3q1flOuOzNL29zFD2pbZtuzMvXgVBexo4ezFl+Se9B5xtZ/TOnjuuL+GTnEYUgJtB6+O6gsuiLS8NwlBEp0uPgXL3LwELndxMZjgW5szkgUnrz2ClA4rQ24wstuuxrSpHpapbUPciPEJR5QaC1YEqwMXgE90uqqkjWNktXl+StAPC+rIbUgJ2WEerAsauTVLvyGdfE4w4l0JGu27glkj7woFrILsFMUWm5s4gqWw31W6lE32ScQxmHgBBUMbuYMoaJ1/LqcAUHPxiaSNS/11Rimc0nhbkna3G9e3WPj14yk++RGEYEgEeasiEG0gLPgrNkKdcGf5GHnB0uWrJ7ZGB23Npn4SmjdiUqkWWLOJepEmA7KggNHgNJSIMj7KBxnWCnm7qwEU5kvf53y/DrPV/1cn00+vZoZa9CrJ15NBHR9RbrcI1QEV+enSv7FbTgEvAAhNkGKzAUA==",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "eefc899807d9ba672351637f01b9ea09372344a8d82f95d85e397a2ae5d582b9",
+                "sig": "334124e6b9abdb4cc09fe5e46d972f61ecff5e8b335f1835f8f43596f1dc204e46f927437a8f7897f07ddec5790ceac704bededd17512570344747d7677d6e28"
+              },
+              "nonceHex": "2e8dc9b7673ec1010060a003dd1ce2cf2239ae9c37192aa5e361e28170013b43",
+              "auxRandHex": "d35e5c46f00cbe5356c9fc4ae30cd263c00c06135c4437eb81598ebe245a5797"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "order-a",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Timed, 1 ms into the second",
+              "sentAt": 1799999900,
+              "sentAtMs": 1799999900001
+            },
+            {
+              "id": "order-b",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "From an older client",
+              "sentAt": 1799999900
+            }
+          ],
+          "conversation": [
+            {
+              "id": "order-b",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "text": "From an older client",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            },
+            {
+              "id": "order-a",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Timed, 1 ms into the second",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "sentAtMs-outside-its-second-dropped",
+        "kind": "positive",
+        "note": "A `sentAtMs` that does not fall within `sentAt`'s second, or is not an integer, is dropped and the message kept: it is for order alone and costs nothing to ignore.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999900,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Au1GLyXzmqiaJDPDHBdGX5Gu6C/D1hcZFV15HRFjDZ14MMsrgKqBlQfLrVWw6U2RfDbK1J48IysJ+Wp+sy4igQh2Ec+yXTIjR43mUl8T+szPCRfAv/imBKpSf19qU72N1wNzAB2ZM6JVYvsbL0Qtrah0L+k0sXReVvG0xmx1mQV1gckc5f4USPEbUWW/YigubcLjfbhouJb1VkSHu8pYP9r3bb6t2Va4Eera01kHwGv+CXkNBiCTLCnQjI6Aqwc+l6lhqbmBmMViFIkhlvMImHu7ieIF+bLeuQ2YNs71bMVp1HQQZGfSIBk5fbK4bHaxmRzIdVEZ1Apb6b21y26/33n2KgBdp+a7kbqZCQVqOIN8kTLq0QAlp9/WLvgdEqOmXWWO6TX23B7oQcHcWu/KLthjIzfXTT6/IyexEvvmfN8vHIp4Wu4CxwUDmqLrQfFRR21/NXaLqpEX90cjzh6yuK84vxDyGkUXgZAnNeFajfZ9BoTcETrR4F5f5uTEA2A/ZOao8Ic/cM8OX+jsKE7l05SoEmkZDRYqp1HS+VtreBU+6U6xKWJmEsNcbkYcCJlWEVFkxpnXSJ7c+SsNCVzCvgMW83Q5UWTWqezv4vDEUT+rlt/iKcGaUEkSg+DgEIFb+CDdrMn1xJ3iHhIL7RhKDs0OM6EulWl/y0ZV79jPO9Un8q9qXdI9kfFlIYDGX2WoPx2SjjcrHspAka1XtqCUqfkkAiPeuGoyHaNa1SLahs5jxEHmvL0SOXKmkE5JdyoFbsSiyFYBPmO9ueOUp95ZI0wsw1ruLQNNJk2GDNXSR/4ih0W/ZT+RlXlRaxbtMiJRLb0+QTu4vtzOwHSjzVzuVxbv+lM+8YFc1IYj/81HuQvEXyjeHhC+RMpMMNvN3eSNjmgkrftvxAiyEzd1xmWcInKzv8tj0uVNbKKSe3UDdm5ZNFG6A0fFADeCCFV1yHPSOqlBS34hkDRirDnmz7WYhvjkrw7DXhRqstohFfH9BfYbtH+qFnyrJZuio3JYAGSWJrBaP4k76bbP7jmeAuGL2fusHibi/FvDfyJu7q2EmbiMBsNzk60DzatNeyKINSD0wwZfEaZ2oJeUH8zWmYjqpBWimoFgjg3iXFk/Cu8uaR6vwp5XmQRTR12GDFxJ/d91vSAM28Qf39p+uzgzyyARgHoul047y8Y8xZDTFcGUq3LSDysw0KW0GTU5/NrsCwStSAS3iWxDicCGddvDB70quToG2SemXkprqO38g+XALLRMmTE7nW9ONpbquxeO+83RhS0n",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "b8197a1ae3b1ee56586204163d00be48501e18acfa380645fd3774e177920797",
+                "sig": "4d64cbc17ac9b561f09009115f59f9e181126002525ff1240bc21e7907f86180d9161c9980f9ceeeeb82206e57520f9541bf041b9c24b9086e5392f4641ecec2"
+              },
+              "nonceHex": "ed462f25f39aa89a2433c31c17465f91aee82fc3d61719155d791d11630d9d78",
+              "auxRandHex": "0480ef61f322d63896fd2d80d21c18b3f38c36901754c21426759b3b65442311"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999900,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AqNcgCnOo1IEQjegX2T6O4+qgRPU3c3Lguf9CrTvI2r9gQpnIK+Kybp+gcHzIyY7BS9jL6Z608BrXYY/Ht6JlxjajAnW6j3B/zcKjx+q1+DwmeBk2QsuOqYRPPY9oBfBhKaoJctwgigOP9CQgOSWISbYZToT2+w/EpkJA5UyI7jj96x/ofxF0YLovs8AlfCrv8VbZ/1E9q4ewLpYwXKyEF42JIGFpvplYqJxSl/VT1xOVIgDxyoW3kfNkCT424zy65EuioXkyyfNEdaXIqWxLPfHesABUV8w4oyYH3MAQ4CcfQjQkCtZ2cCZ9vNuMytu3axUS82ENU3RJNc/oXSW7gstp1Mp1/kRvtOufbTQMJrweMc4zKceKyCn0kIy7Zmo9VLFUaa9sXMsm7iFPokHhg8Wzs7lY9An5OstBZGH54x8XA4Cf9vCKDcqgnfJOjqka6pSLKCye1b/k77LdwpbyIO6LYPaof5Bw3unUDTfzEw/oi3xMh7gXpCal/1dWjKmsGrA/bs22/eGtLtsOWYLtaLb7y2stIVdlGDJornYt7qT8Lu6lx4rrqrGfHq7t0IBuOFeWn0axoXDDxI7mtj1qEvD4b+o9kpDJrQ9dg88WfLgo2gBAqry/3jH1vgVOR6JIGc4jTB9RINU5HolKDcZIpDjPHt8Vw9uzEbAzxbSP5eAqKNY8uvkXC3Q8sA4zE4RzZX3XA+GZCPbk0cDpXx8XKDcmxcYckP2eVSon3Ai3wx0tYMnxwhF6uSEQMMDQARyvJg1oq/mYtkD+Ftd+n9KiA/ZZ7i+EwdRr6dpL8HLyOxCdf2OSLdbwLvopnpGffnr778RLOOIiG8rObW2oWGOLm6iBYzXvdx8L4WpnPJUKJyqNHOhMBHly0trmp3WyfuAkWOlVq2HP5+F6Tk+NM2FWeT9qEvOOZgqpMXNo18fS9mPWsyoB9wom0KrM/Phd8+1ecbYPjQzei+EL7bKQHaseS8HptW5FU2Ri4yyrNiOnxq3uVVtmpWpzdeVysZkejpgpRTzuT93tdJ+yHPOBS9BIKDWL/nkylIYlQt3WNigthIwybSPv3cHsqZQgwCTqZm7dshAVOvPWpUlfYZ3wvi5XmMVuyCsHryzhFaJW1DZN3+NiGSH3n/Fg3JdirccbZUFnzUKjV8TQC+hdnoPBljvoIhk0YY5aDVhRME/LsxlNec2xr4yJ3cYCb2SA6Qz0m9IyuPhPSfqKcHhpDr/e1zuvunlYKjZHoAkqL3gEzL/UbUSrL/tMz548TRZdy12y06Andcl",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "5c26ed3fe99a1c88337008f4bcea2922139ba81f4dabacd5d2e9d15a40062f7c",
+                "sig": "798c84f1e62af630fa6156d3c2100dcdd0648dffc9aa309800c360ab87e3383adfb5bf49dc67372dc131d855f06f6ec8ac71cdca5603db33b5105e200ca86e4c"
+              },
+              "nonceHex": "a35c8029cea352044237a05f64fa3b8faa8113d4ddcdcb82e7fd0ab4ef236afd",
+              "auxRandHex": "254e5aff6479ff7c31de526547afa587af0606f477edc4517380fcc01b7c57e9"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "order-c",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Claims a later second",
+              "sentAt": 1799999900
+            },
+            {
+              "id": "order-d",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "Not an integer",
+              "sentAt": 1799999900
+            }
+          ],
+          "conversation": [
+            {
+              "id": "order-c",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Claims a later second",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            },
+            {
+              "id": "order-d",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "text": "Not an integer",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "sentAtMs-without-sentAt-refused",
+        "kind": "negative",
+        "note": "`sentAt` stays required. `sentAtMs` adds to it and never stands in for it, so a message carrying only milliseconds is refused whole, exactly as one carrying neither.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999900,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AjyTKDer3bg4KfF/Ijb+Y90LPwbRPeC9Ld/IUDZ4WGOYYgUwiKGXH4LFBea3C/0FUPE3vmX+NNnuWWepthyFIiuEVvtcPJLqxTxELz84o7Ty3YTBL3N1JrY4I/H4x8nSNI7j49msdTwwkhbxrZo5FwlGllrY3H7KwL5N9fK9vBJLxPytsRSbc2tkayulOUzU4ulKFmfsShmzOYVS2eG10RpEsLoPjSftppBhLIoJy1qHCt5CmxzoRFinGfRWnt5qMrYW4K5ewACgxHuZ+yE7pzP6MeRHPDETXwHX2q/UR+ONB2DpgnPVuMZvRjq8bqLpJ9Fi2YJw8RrOUfDlUFpubC9QLlL1L0J7LA3EJ0UkihT11X9FCH+OBbFkHne3ll8aaUs0Gn39sq4yvakbe+hiOa2QDXCOsRyXv/NMTfcQVVBxOpygpIFC7cWqnHfERgpF8y/6Z+rvMJy3VNyBqJbxfqgq/w5i5FH+bi4FeIqyN7iKyOtK+Do+yPYjOaabYdj8k/g2qA2QeWLLpzImtlXBw/+2NOgq6X4PxvCU9NfdY9H9ie4q50XvMfK/3qlbcsTQ6rufpSYk8HfiFWg+goqZXjzMX2iJisFRkzOUlU0r+juJRDpUGEPdXIxL1slGZPMKwt1GFhc3xoddJpg1Uic6nLFU/nhgFdpXpk9fAdKIO1/18fLaA95UqLdaPqh0HvmcaTnfnt89M9feniM2OVx905kpia0lD2GtpWUKu+Gl9MHmm3XlJRVzGRzNPcF0dbPRZkH4DT5DQwtaLTndTAAxVYNvmNsyNwda25YdfU2p/TegF2qK2UVG/rkTBqJw5K/Q1QNMVKNst44LH42eR+2FCPGrCCjUWpRc3QXAkbyj3ttJ/8k5uEGZkJzXCYpdwJtr0OS7KPzsKjRlcdnNzbq0jiZHMhGXGbuILIjIQxlgrXW+gGo4RP1Wom+klSw3Ot0PsXz3abP2ggiZvyiKGBPXMbvnqe9HOW1WjypOF/9DxtU6fmqOwu8EvLYg3CoAp7P1KYUJdueG+4FjJz9SSG+swlT13PSL6AK9KJJVCe4UGft0f/RisNsuI61JE8JfSA4mJHNWp70SHo5f0gHHR05jUp2y2g==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "82a5587f589ee7aad700c058ae726ebd71b79e993586304b6758d4e4febe5e70",
+                "sig": "cb9d8e6a5ade31938af4b404aeac714603eff95d13f12010c7605a217d2d9b2bd24aade4f728d26e66bf67fbb32b560c95ea415fcb00b58d24d780f644086bea"
+              },
+              "nonceHex": "3c932837abddb83829f17f2236fe63dd0b3f06d13de0bd2ddfc8503678586398",
+              "auxRandHex": "26eb48854559c7484a30783d921857685d78eca176a3e442e2807c494a57fb03"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": []
+        }
+      }
+    ],
     "chatRetract": [
       {
         "name": "retract",

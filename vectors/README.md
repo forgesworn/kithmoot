@@ -128,6 +128,7 @@ directly, with no reimplementation involved.
 | `verificationWords` | the three words each of a pair says aloud to check they are looking at the same participant keys | `src/verification.ts` |
 | `chatThread` | a reply naming its parent and its thread root by id and author, and how a reader nests, orphans and drops them | `src/messages.ts`, `src/chat.ts` |
 | `chatEdit` | an edit naming its original, same author; which of several is shown; what a stranger's edit becomes | `src/messages.ts`, `src/chat.ts` |
+| `chatOrder` | messages in one second ordered by `sentAtMs`; one without it as the start of its second; a `sentAtMs` outside its second dropped, the message kept | `src/message-order.ts`, `src/chat.ts` |
 | `chatRetract` | an author's tombstone, beating every edit whatever the times, keeping replies, ignored from anybody else | `src/messages.ts`, `src/chat.ts` |
 | `chatMention` | who a message addresses, on the wire and by the legacy name match, and what an agent answers to | `src/messages.ts` |
 | `chatInvite` | a DM room's link sealed to one member, opened by the pair and nobody else; a two-member policy | `src/dm.ts`, `src/access.ts` |

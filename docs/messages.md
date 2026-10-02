@@ -10,10 +10,29 @@ the model for all of it.
 
 The reference implementation is `src/messages.ts` (resolution),
 `src/chat.ts` (the codec), `src/read-position.ts` and `src/dm.ts`. The
-interop vectors are the groups `chatThread`, `chatEdit`, `chatRetract`,
+interop vectors are the groups `chatThread`, `chatEdit`, `chatOrder`, `chatRetract`,
 `chatMention`, `chatInvite` and `readPosition` in
 `vectors/kithmoot-vectors.json`, and `accessEvaluation` gains the
 members cases.
+
+## Order
+
+`sentAt` is whole seconds, so on its own two messages sent in one second
+fall to their ids, which is to say at random. `sentAtMs` is the same moment
+in milliseconds, written beside it:
+
+```json
+{"sentAt":1799999900,"sentAtMs":1799999900900}
+```
+
+- It is for order only, inside the ciphertext; the event's `created_at`
+  stays in seconds, so relays learn nothing finer.
+- A reader keeps it only when it is an integer within `sentAt`'s second,
+  and otherwise drops it and keeps the message. `sentAt` stays required.
+- Messages order by `sentAtMs`, or `sentAt * 1000` without one, then by
+  id, so every client in the room reaches the same order. A message from
+  an older client orders as the start of its second.
+- Every rule that says "latest" (edits, reactions) uses the same order.
 
 ## Naming a message
 
@@ -66,7 +85,7 @@ when the target arrives. Reactions already name their target this way.
   `mentions` replace the original's. Its placement in a thread, its kind
   and its sender are the original's; `reply`, `thread` and `kind` are
   refused on an edit.
-- Latest wins: the greatest `sentAt`, then the greater id, exactly as
+- Latest wins: the latest send time (see Order, below), then the greater id, exactly as
   reactions resolve. Readers show the latest and keep the chain, so what
   was said before can be shown on request.
 - The text is required and is the new text, so an older client shows the

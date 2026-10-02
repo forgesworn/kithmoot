@@ -1,4 +1,5 @@
 import type { ChatMessage } from './chat.js'
+import { compareMessages } from './message-order.js'
 
 // Nine choices, in the order they are offered, and the order is the one a
 // person has learned: 💯 was added at the end rather than beside 👍, so that
@@ -40,7 +41,7 @@ export function reactionsFor(messages: readonly ChatMessage[], target: Pick<Chat
     const key = `${m.participant}:${r.emoji}`
     const old = latest.get(key)
     if (!old || r.revision > old.reaction!.revision ||
-        (r.revision === old.reaction!.revision && (m.sentAt > old.sentAt || (m.sentAt === old.sentAt && m.id > old.id)))) latest.set(key, m)
+        (r.revision === old.reaction!.revision && compareMessages(m, old) > 0)) latest.set(key, m)
   }
   const result = new Map<string, ChatMessage[]>()
   for (const emoji of REACTION_EMOJIS) result.set(emoji, [...latest.values()].filter(m => m.reaction!.emoji === emoji))

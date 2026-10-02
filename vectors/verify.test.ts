@@ -101,7 +101,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -1129,7 +1129,7 @@ describe('the message layer', () => {
     })
     return resolveConversation(messages).stream.map(summary)
   }
-  const conversationGroups = ['chatThread', 'chatEdit', 'chatRetract'] as const
+  const conversationGroups = ['chatThread', 'chatEdit', 'chatOrder', 'chatRetract'] as const
   for (const group of conversationGroups) {
     for (const v of groups[group]) {
       it(`${group}/${v.name}: every event decodes as frozen, and the conversation resolves as frozen`, () => {

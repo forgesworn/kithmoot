@@ -4,6 +4,7 @@ import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
 import { withExpiration } from './expiration.js'
 import { normaliseReaction, type ChatReaction } from './reactions.js'
+import { compareMessages } from './message-order.js'
 import { assignmentPayload, ASSIGNMENT_CHANNEL } from './assignments.js'
 import {
   normaliseInvite,
@@ -85,6 +86,15 @@ export interface ChatMessage {
   /** Encrypted reaction update; text is a readable fallback for older clients. */
   reaction?: ChatReaction
   sentAt: number
+  /**
+   * The same moment in milliseconds, for order only: two messages in one
+   * second otherwise fall back to their ids, which is to say at random.
+   * Inside the ciphertext alone - the event's `created_at` stays in
+   * seconds. Kept only when it falls within `sentAt`'s second; a reader
+   * drops anything else and keeps the message. Absent from older clients,
+   * whose messages order as the start of their second.
+   */
+  sentAtMs?: number
   /**
    * `transcript` when `text` is what somebody SAID, written down by the
    * sender - an agent that was listening - rather than something the sender
@@ -447,6 +457,10 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     if (msg.id.length === 0 || msg.id.length > 128) return null
     if (msg.text.length === 0 || msg.text.length > MAX_CHAT_TEXT_LENGTH) return null
     if (!Number.isSafeInteger(msg.sentAt)) return null
+    // Order only, so a bad one costs the message nothing.
+    if (msg.sentAtMs !== undefined && !(Number.isSafeInteger(msg.sentAtMs) && Math.floor(msg.sentAtMs / 1000) === msg.sentAt)) {
+      delete msg.sentAtMs
+    }
 
     // The lane is the reader's finding, never the sender's claim.
     delete (msg as { lane?: unknown }).lane
@@ -626,6 +640,9 @@ export interface ChatLogOptions {
   proof?: KindredProof
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
+  /** Milliseconds, for `sentAtMs`. Defaults to the clock `now` reads only
+   *  when `now` is not supplied, so a fixed `now` writes no `sentAtMs`. */
+  nowMs?: () => number
   /** Which channel of the room this log is. Omit for the main chat. See
    *  `deriveChannel`. */
   channel?: string
@@ -686,6 +703,7 @@ export interface SendOptions {
 export class ChatLog {
   readonly #opts: ChatLogOptions
   readonly #now: () => number
+  readonly #nowMs: (() => number) | undefined
   /** The credential every message goes out under. Starts as the one handed
    *  in and is replaced when the session renews - see `setCredential`.
    *  Undefined on a log that only reads. */
@@ -722,7 +740,8 @@ export class ChatLog {
     this.#opts = opts
     this.#credential = opts.credential
     this.#epoch = opts.epoch
-    this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+    this.#nowMs = opts.nowMs ?? (opts.now ? undefined : Date.now)
+    this.#now = opts.now ?? (() => Math.floor(this.#nowMs!() / 1000))
     this.#unsub = this.#subscribe()
   }
 
@@ -954,7 +973,7 @@ export class ChatLog {
           : {}),
       text,
       ...(reaction ? { reaction } : {}),
-      sentAt: this.#now(),
+      ...this.#sentAt(),
       ...(attachments ? { attachments } : {}),
       ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),
       ...(this.#opts.ownerClaim ? { ownerClaim: this.#opts.ownerClaim } : {}),
@@ -1090,6 +1109,13 @@ export class ChatLog {
     return true
   }
 
+  /** One reading of the clock for both fields, so `sentAtMs` always falls within `sentAt`. */
+  #sentAt(): Pick<ChatMessage, 'sentAt' | 'sentAtMs'> {
+    if (!this.#nowMs) return { sentAt: this.#now() }
+    const ms = this.#nowMs()
+    return { sentAt: Math.floor(ms / 1000), sentAtMs: ms }
+  }
+
   #archiveMeta(): ArchiveMeta | undefined {
     return isQuietPolicy(this.#opts.policy) ? { quiet: true } : undefined
   }
@@ -1114,12 +1140,6 @@ function circleOf(relays: readonly { url: string; circle?: boolean }[]): Readonl
   return new Set(relays.filter(r => r.circle).map(r => r.url))
 }
 
-/** Order by send time; a tie breaks on id, so every client in the room
- *  reaches the same order without negotiating one. */
-function compareMessages(a: ChatMessage, b: ChatMessage): number {
-  if (a.sentAt !== b.sentAt) return a.sentAt - b.sentAt
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-}
 
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')

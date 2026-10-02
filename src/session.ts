@@ -467,6 +467,8 @@ export class RoomSession {
   #roomKey: Uint8Array
   #opts: RoomSessionOptions
   #now: () => number
+  /** The real clock in milliseconds, for chat's `sentAtMs`; none when a test fixes `now`. */
+  #nowMs: (() => number) | undefined
   /** Set only on a secondary device: the credential it was handed. A primary
    *  mints a fresh one at join. */
   #credential?: DeviceCredential
@@ -566,6 +568,7 @@ export class RoomSession {
     // anything is subscribed or published through it. See `quiet.ts`.
     opts.transport.rekey?.(this.#epoch.key.slice())
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+    this.#nowMs = opts.now ? undefined : Date.now
     this.device = getPublicKey(opts.deviceSk)
     this.sid = sanitiseSid(opts.sid) ?? newSid()
     this.#name = sanitiseDisplayName(opts.name)
@@ -801,6 +804,7 @@ export class RoomSession {
       policy: this.#opts.policy,
       proof: this.#opts.proof,
       now: this.#now,
+      ...(this.#nowMs ? { nowMs: this.#nowMs } : {}),
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
@@ -1841,6 +1845,7 @@ export class RoomSession {
       policy: this.#opts.policy,
       proof: this.#opts.proof,
       now: this.#now,
+      ...(this.#nowMs ? { nowMs: this.#nowMs } : {}),
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
