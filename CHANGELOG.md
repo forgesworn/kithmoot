@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **A member can bring a device up to date while the room's authority is
+  offline.** Bump `@forgesworn/fold-kit` to 0.5.0 (member epoch catch-up).
+  A device that missed a rekey now asks the room's current members as well
+  as the authority (kind 20471), and any member in step answers (kind
+  20472, signed by a one-time key) with the missed secrets and the
+  authority's own rekeys, which the device checks before it moves. A
+  removed participant or a closed room is answered by nobody. New rekeys
+  carry the epoch commitment (`commit: true`) that lets a member vouch for
+  the newest epoch; a room whose newest rekey predates this needs one more
+  rekey from its authority before members can hand it on. `RoomSession`
+  runs both sides (`memberEpochDesk`, `memberEpochJitterMs`), keeps each
+  epoch's secret and rekey in memory for the chain, and reports
+  `awaitingEpoch` / `onEpochWaiting` while it is behind and nobody has
+  answered; it keeps asking. `join()` throws `EpochUnreachableError` when
+  nobody answers in time. The app shows "This room has moved to a new key.
+  Waiting for a member to bring this device up to date." and retries, both
+  in the room and on the way in, and no longer treats a kept or group
+  admission's structural epoch 0 as a sign the room is at 0. Vectors:
+  `vectors/member-epoch-vectors.json`, copied from the kit.
 - **Conference rooms.** A group room can be made to end: "Ends: Never /
   After 1 day / 3 days / 7 days" on the creation form, for a group only. Wire
   change, additive: the kind 1463 body gains `ends` (Unix seconds; `v` stays

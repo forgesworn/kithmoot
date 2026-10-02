@@ -989,6 +989,16 @@ video {
 /* An arrival is visible even when the conversation is scrolled away from
    the locally-rendered system line. It takes its own row and never overlays
    the chat or its tools. */
+.epochNotice {
+  margin: 0 0 .5rem;
+  padding: .55rem .75rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-dim);
+  color: var(--text);
+  font-weight: 650;
+}
+.epochNotice[hidden] { display: none; }
 .presenceNotice {
   margin: 0 0 .5rem;
   padding: .55rem .75rem;

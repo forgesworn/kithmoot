@@ -41,7 +41,7 @@ import { FloatingSharePreview, floatingPreviewSupported } from './floating-share
 import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
-import { RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
+import { EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
 import { ANDROID_DOWNLOAD_URL, appLinkFor, isAndroidUserAgent } from './open-in-app.js'
 import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
@@ -1460,6 +1460,18 @@ interface StoredAdmission {
   epoch?: number
   /** A conference room's end. See `PersistentRoomAdmission.endsAt`. */
   ends?: number
+}
+
+/**
+ * The epoch an admission tells the session to expect. A temporary room's
+ * responder says where the room is as it answers, which is a hint worth
+ * passing on. A group invitation's `epoch` is always 0 by construction (it
+ * carries the epoch-0 secret and nothing about later rekeys), so it is no
+ * hint at all: undefined makes the session wait for the replayed rekeys
+ * rather than announce at 0 in a room that has moved on.
+ */
+function admissionEpochHint(admission: SavedRoomAdmission): number | undefined {
+  return 'persistent' in admission ? undefined : admission.epoch
 }
 
 function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission): void {
@@ -2914,7 +2926,8 @@ async function roomFromLocation(): Promise<boolean> {
     } else {
       // This tab's session first, then what the person chose to keep on
       // this device, then the live rendezvous.
-      const saved = loadCachedAdmission(invitation) ?? loadKeptAdmission(deviceStore, deriveInvitationId(invitation), nowSeconds())
+      const tabCached = loadCachedAdmission(invitation)
+      const saved = tabCached ?? loadKeptAdmission(deviceStore, deriveInvitationId(invitation), nowSeconds())
       // An updated group link must load its signed durable invitation once,
       // so an earlier temporary grant cannot keep the twelve-hour storage rule.
       const cached = invitation.persistent && saved && 'delegate' in saved ? undefined : saved
@@ -2924,7 +2937,14 @@ async function roomFromLocation(): Promise<boolean> {
         admittedRoom = cached
         invitationAuthoritySk = 'delegate' in cached ? cached.delegate.delegateSk : undefined
         invitationDelegation = 'delegate' in cached ? cached.delegate.chain : []
-        expectedEpoch = cached.epoch
+        // A kept admission's epoch is whatever the room was at when it was
+        // kept, usually 0, and says nothing about where the room is now.
+        // Passed on, it would let the session skip waiting for the relays
+        // to replay the rekeys and announce under a key the room has left.
+        // Undefined makes it wait and see. This tab's own cache is from
+        // this visit, so its hint stands, unless it is a group's (see
+        // `admissionEpochHint`).
+        expectedEpoch = cached === tabCached ? admissionEpochHint(cached) : undefined
         cacheAdmission(invitation, cached)
         serveCurrentInvitation()
       } else {
@@ -2965,7 +2985,7 @@ async function roomFromLocation(): Promise<boolean> {
           admittedRoom = admission
           invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : undefined
           invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
-          expectedEpoch = admission.epoch
+          expectedEpoch = admissionEpochHint(admission)
           cacheAdmission(invitation, admission)
           // The ending to "Getting you in…". It says the waiting is over
           // and that the next move is the reader's, which is the thing they
@@ -6467,6 +6487,22 @@ function renderRoomLockState(): void {
     : ''
 }
 
+/** What the room says while it has moved to a key this device does not hold
+ *  yet. The session keeps asking the authority and every current member. */
+const EPOCH_WAITING_NOTICE = 'This room has moved to a new key. Waiting for a member to bring this device up to date.'
+/** How long a join that nobody could bring up to date waits before trying
+ *  again. Each attempt already waited for an answer. */
+const EPOCH_JOIN_RETRY_MS = 5_000
+
+/** Show, or clear, the notice that this device is behind the room's key.
+ *  Until it clears, what it sends reaches nobody who moved on, so the room
+ *  must not look current. */
+function renderEpochWaiting(waiting: boolean): void {
+  const notice = $('epochNotice')
+  notice.textContent = waiting ? EPOCH_WAITING_NOTICE : ''
+  notice.hidden = !waiting
+}
+
 function onEpochChange(notice: RekeyNotice): void {
   renderRoomLockState()
   renderHost()
@@ -9876,6 +9912,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // A conference room: everything signed for it lapses at its end.
           endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
+          onEpochWaiting: waiting => { if (created && session === created) renderEpochWaiting(waiting) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -9930,6 +9967,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // A conference room: everything signed for it lapses at its end.
           endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
+          onEpochWaiting: waiting => { if (created && session === created) renderEpochWaiting(waiting) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -10170,6 +10208,18 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       setStatus("Still reaching the room's relays\u2026", 'progress')
       await new Promise(resolve => setTimeout(resolve, 1_000))
       if (generation === roomGeneration) { await startSession(asVisitor, { deadline, signerRetried: retry?.signerRetried }); return }
+      return
+    }
+    // The room has moved to a new key and nobody who holds it answered:
+    // not a refusal, and not this device's fault. Say so plainly and keep
+    // trying, for as long as the person stays on this screen, until a
+    // member comes online and brings this device up to date.
+    if (err instanceof EpochUnreachableError) {
+      retrying = true
+      console.error('join waiting for the room key:', describeError(err))
+      setStatus(EPOCH_WAITING_NOTICE, 'progress')
+      await new Promise(resolve => setTimeout(resolve, EPOCH_JOIN_RETRY_MS))
+      if (generation === roomGeneration) { await startSession(asVisitor, { deadline: Date.now() + 20_000, signerRetried: retry?.signerRetried }); return }
       return
     }
     // A bunker that did not answer is asleep or waiting for a yes; see
@@ -11173,6 +11223,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   presenceNoticeTimer = undefined
   $('presenceNotice').hidden = true
   $('presenceNotice').textContent = ''
+  renderEpochWaiting(false)
   forgetKnocks()
   if (!keepCall) {
     tileLiveness.retain([])
