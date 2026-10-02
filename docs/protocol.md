@@ -97,6 +97,7 @@ submission to the upstream registry is separate. Existing numbers do not change.
 | 20466 / 20467 | Legacy invitation request / grant | Capability/requester ciphertext; ephemeral |
 | 20468 / 20469 | Epoch request / grant | Authority/device ciphertext; a request carries an admission proof under the epoch-0 room key; ephemeral |
 | 20470 | Member pass | Reserved signed presentation; no automatic relay publication |
+| 20471 / 20472 | Member epoch request / grant | A request is device-signed ciphertext under a key derived from the epoch-0 room key, with the same admission proof as 20468; a grant is signed by a one-time key, sealed to the asking device, and carries the missed secrets with the authority's own 1462 rekeys as proof; ephemeral. See fold-kit's `docs/member-epoch-catch-up.md` |
 | 21059 | Ephemeral signal wrap | Shared upstream kind; recipient-addressed ciphertext |
 | 1059 | Quiet room drop | Shared upstream kind; a kind 1460 inside, addressed to a room-derived rendezvous key (`nostr-deaddrop` room case); regular |
 | 30460 | Service policy | Reserved addressable event; no publication in M2 |
@@ -173,7 +174,8 @@ Every event a member device signs for a conference room carries
 `["expiration", "<ends>"]`: chat and its channels, reactions, edits and
 retractions, roster and farewell entries, signal wraps, descriptors, call
 bells, assignment envelopes, file announcements, read positions, and the
-authority's rekey (1462), epoch request (20468) and grant (20469). An event
+authority's rekey (1462), epoch request (20468) and grant (20469), and the
+member epoch request (20471) and grant (20472). An event
 whose own expiration is earlier keeps it (a signal wrap's 60 seconds, a call
 bell's 120); a later one is lowered to `ends`; an event never carries two.
 Account-level events (project directory, bookmarks) are not tagged, and a

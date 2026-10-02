@@ -95,6 +95,9 @@
           <button id="reviewWork" type="button">Review decisions</button>
         </div>
         <div id="presenceNotice" class="presenceNotice" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+        <!-- This device is behind the room's key. Filled in by
+             `renderEpochWaiting` in app/src/main.ts. -->
+        <div id="epochNotice" class="epochNotice" role="status" aria-live="polite" aria-atomic="true" hidden></div>
         <!-- A call is on and you are not on it. Filled in by
              `renderCallState` in app/src/main.ts. -->
         <div id="callBanner" class="callBanner" role="status" hidden>

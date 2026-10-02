@@ -82,6 +82,16 @@
     content:
       type: free
 
+  20471:
+    description: KithMoot Member epoch request
+    content:
+      type: free
+
+  20472:
+    description: KithMoot Member epoch grant
+    content:
+      type: free
+
   30460:
     description: KithMoot Service policy, reserved
     content:

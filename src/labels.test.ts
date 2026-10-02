@@ -28,9 +28,11 @@ import { CALL_BELL_LABELS } from './call-bell.js'
 import { CHAT_LABELS, CHANNEL_ID_INFO, CHANNEL_KEY_INFO } from './chat.js'
 import { DEN_CLIENT_LABELS } from './den-client.js'
 import { EPOCH_LABELS, EPOCH_ID_INFO, EPOCH_KEY_INFO } from './epoch.js'
+import { EPOCH_COMMIT_LABELS } from './epoch-commit.js'
 import { FORWARDER_LABELS } from './forwarder.js'
 import { INVITATION_LABELS } from './invitation.js'
 import { MEDIA_CRYPTO_LABELS } from './media-crypto.js'
+import { MEMBER_EPOCH_LABELS } from './member-epoch.js'
 import { OWNERSHIP_LABELS } from './ownership.js'
 import { PEER_ASSIST_LABELS } from './peer-assist.js'
 import { PAIRING_LABELS } from './pairing.js'
@@ -106,11 +108,13 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
 const FROZEN_KIT_ONLY_LABELS: readonly string[] = [
   'kithmoot/v1/admins:',
   'kithmoot/v1/channels:',
+  'kithmoot/v1/epoch-commit:',
   'kithmoot/v1/epoch-id',
   'kithmoot/v1/epoch-key',
   'kithmoot/v1/epoch-request-key',
   'kithmoot/v1/epoch-request:',
   'kithmoot/v1/kindred:',
+  'kithmoot/v1/member-epoch-request-key',
   'kithmoot/v2/invitation-delegation:',
   'kithmoot/v2/invitation-id',
   'kithmoot/v2/invitation-request-key',
@@ -259,6 +263,14 @@ describe('labels moved to @forgesworn/fold-kit (re-exported unchanged, no longer
     ])
   })
 
+  it('EPOCH_COMMIT_LABELS (epoch-commit.ts)', () => {
+    expect([...EPOCH_COMMIT_LABELS].sort()).toEqual(['kithmoot/v1/epoch-commit:'])
+  })
+
+  it('MEMBER_EPOCH_LABELS (member-epoch.ts)', () => {
+    expect([...MEMBER_EPOCH_LABELS].sort()).toEqual(['kithmoot/v1/member-epoch-request-key'])
+  })
+
   it('INVITATION_LABELS (invitation.ts)', () => {
     expect([...INVITATION_LABELS].sort()).toEqual([
       'kithmoot/v2/invitation-delegation:',
@@ -275,6 +287,8 @@ describe('labels moved to @forgesworn/fold-kit (re-exported unchanged, no longer
     const union = new Set<string>([
       ...ACCESS_LABELS,
       ...EPOCH_LABELS,
+      ...EPOCH_COMMIT_LABELS,
+      ...MEMBER_EPOCH_LABELS,
       ...INVITATION_LABELS,
       ...PERSISTENT_INVITATION_LABELS,
     ])
