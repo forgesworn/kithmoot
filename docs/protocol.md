@@ -318,10 +318,12 @@ a left epoch.
 A rekey is compared by event id. Two different rekeys for one epoch, both
 validly signed by the authority, mean its key is rekeying from two places;
 a client reports this (`EpochConflict`) and does not choose between them by
-arrival order. A client that reaches an epoch through a grant rather than
+arrival order. A disagreement over an epoch the client skipped through a
+grant is not seen. A client that reaches an epoch through a grant rather than
 the rekey chain has jumped epochs (`EpochGap`) and cannot read the ones
 between; from an epoch above 0 that is a returning device whose rekey the
-relays no longer hold, and it says so.
+relays no longer hold, and it says so. The web client and the library do
+all of this; the Android client does not yet read left epochs.
 
 Clients that cannot follow an epoch must say so rather than display a quiet,
 empty room. Android capability gaps are recorded in the compatibility ledger;

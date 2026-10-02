@@ -1726,15 +1726,18 @@ step on its own branch.
 
 ## An epoch is not forgotten the moment it is left, 3 October 2026
 
-White Noise, the Marmot client, spent much of 2026 on two failures that the
-epoch design here could also have walked into, so they were checked against
-it one by one.
+Clients of Marmot, the MLS group layer White Noise is built on, spent much
+of 2026 on two kinds of failure that the epoch design here could also have
+walked into, so they were checked against it one by one.
 
-**Forks.** In Marmot any admin may commit, and a commit whose relay
-acknowledgement came late was applied by its author and then, when the
-relay echoed it back, processed again as somebody else's: the author's
-device moved to an epoch nobody else was in, and every later message failed
-to decrypt. Here only the authority rekeys, and a member follows only rekeys
+**Forks.** In Marmot any admin may commit. Amethyst, testing against White
+Noise over Tor, found that a commit whose relay acknowledgement came late
+was applied by its author and then, when the relay echoed it back,
+processed again as somebody else's: the group forked, and every later
+message from the other side failed to decrypt "on no canonical epoch"
+([amethyst#4232](https://github.com/vitorpamplona/amethyst/pull/4232);
+the wider interop batch is
+[amethyst#4245](https://github.com/vitorpamplona/amethyst/pull/4245)). Here only the authority rekeys, and a member follows only rekeys
 it signs, so there is no second committer. Two gaps remained and are closed:
 
 - The authority's own rekey, coming back from a relay while its publish was
@@ -1750,7 +1753,8 @@ it signs, so there is no second committer. Two gaps remained and are closed:
   is not resolved automatically: a device that has followed one side cannot
   step back, and the fix is for the authority to rekey from one place.
 
-**Silent loss on catch-up.** Marmot's mdk issue #2086: a returning member
+**Silent loss on catch-up.** In the Marmot development kit
+([mdk#2086](https://github.com/marmot-protocol/mdk/issues/2086)) a returning member
 advanced its epoch past the five MLS keeps before downloading the messages
 sent in the epochs it skipped, and those messages were lost without any
 sign. Here it was worse. A chat log stopped listening to an epoch the
