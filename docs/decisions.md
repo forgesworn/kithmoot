@@ -1724,6 +1724,122 @@ which for the web is one reload. The `epochRequestAdmission` vectors pin the
 derivation, the message and the three refusals; the Android client moves in
 step on its own branch.
 
+## Signet channel checks, a draft, 19 September 2026
+
+The browser's word check now uses the contacts SDK's authenticated-channel
+commit/reveal profile, over `signet-checks-v1` ChatLog messages. Device credential
+verification authenticates each participant; possession of the room encryption
+key does not suffice. The request binds the room ID. Starting, accepting and
+confirming a human comparison are separate actions. Closing the dialog never
+records a check. Saved transcripts survive reopening and cannot change the first
+acceptance after a nonce has been revealed.
+
+Whole transitions use a Web Lock, persist before sending and read back the
+stored bytes. The local history is bounded at 256 transcripts / 1 MiB per
+account and room, with 16 active requests and two per peer. No silent eviction.
+Corruption or storage failure refuses to proceed. Unsupported browsers cannot
+start checks. The legacy pure `verificationWords` export remains for callers,
+but the browser does not silently fall back to it. This draft protocol needs
+review before release; how the package is pinned is settled in the entry of
+28 September below. Granted contact caches and return proposals remain
+separate work.
+
+## Granted contacts and local blocks, 19 September 2026
+
+Signet pairing is explicit and account-bound. Directory and block access are
+required; tiers and check records are optional. The consumer validates relay
+signatures before identity decryption, serialises complete refreshes with Web
+Locks, and reloads persisted replay floors before each fetch. Expiry and
+revocation remove granted names and trust fields. Storage faults refuse granted
+authority and preserve previously known blocks. Ephemeral pairing replies use a
+live listener and bounded identity decryptions in the contacts SDK.
+
+A fresh local block filters RoomSession roster views and ChatLog history and
+incoming messages, including named channels. Refresh closes active mesh peers.
+Check actions, box discovery and private invitations consult the current policy;
+box replay evidence is retained while blocked. Existing room-key possession is
+not revoked by this filter, and another participant's room view is unchanged.
+Known blocked requesters cannot use this browser's invitation responder. This is
+not an identity oracle: an anonymous or newly generated key cannot be linked to
+a blocked identity. Authenticated creator/keeper tier admission and returning
+check proposals remain separate protocol work.
+
+## Check memory says where it came from, 19 September 2026
+
+Local word comparisons are now stored under the observing participant key.
+Unscoped legacy records remain on disk but are not silently attributed to a
+signed-in identity. A tile distinguishes `checked here` from `Signet check` (a
+dated shared method) or `Signet checked` (only a shared verification summary).
+The tooltip names the method; a NIP-05 check is never described as an in-person
+or spoken comparison. Only a ready scoped grant supplies these Signet labels.
+Withdrawing its check scope, expiry or revocation removes that source's claim.
+Local comparisons do not publish a proposal or upgrade tiers, and a successful
+word exchange still requires explicit human confirmation before being recorded.
+
+## Signet contacts go in without the ownership half, 28 September 2026
+
+The three entries of 19 September above were written on a branch that also
+moved agent ownership onto Signet's bot-ownership events. Only the contacts
+half is taken here: the word check over the contacts SDK, granted contacts,
+local blocks, and check memory that says where a check came from.
+
+**Ownership stays as main has it.** On 22 September main bounded an ownership
+proof to thirty days ("Bound agent ownership proofs to thirty days"). The
+branch allowed one to ninety days with five minutes of allowance at expiry,
+and added a registry and a revocation store. Those two answers disagree, and
+which one holds is a decision of its own. `signet-protocol` is therefore not
+a dependency yet.
+
+**The package is pinned to a commit.** `@forgesworn/signet-contacts` is not
+on npm: the first publication of a new name has to be seeded by hand, and the
+package says its wire is still finding its shape. `package.json` names the
+public repository at one commit, and npm builds it on install through the
+package's own `prepare` script. A commit id is the content, so the pin cannot
+move under us. Moving it is a pull request here, read against the package's
+changelog.
+
+**An approval is not a pairing until the code is confirmed.** The pairing
+link can be photographed, and the first approval to arrive carries nothing
+that says whose Signet sent it. So the panel shows a six digit code built
+from values that exist only inside the real approval, and the person types
+it into Signet, which compares it. Nothing is saved and nothing is fetched
+until they say Signet matched. The code goes one way only; Signet never
+shows one to copy. The wait for an approval is the SDK's own, which covers
+the whole time Signet may still approve the link.
+
+**A projection that carries more than its grant is refused whole.** The SDK
+treats a field its scopes do not cover as a producer going beyond what the
+owner approved, and refuses the projection. The view follows: no names and
+no tiers are used from it, the covered ones included. The per-field checks
+in `app/src/granted-contacts.ts` stay as a second line.
+
+**A pairing meets on a relay that answers.** Signet replies on the one relay
+the link names. The panel used to name the first read and write relay in
+settings, up or not, and on 28 September that relay was returning 502: Signet
+said it could not connect the app and this side said nothing. The panel now
+asks every read and write relay at once, waits four seconds, and names the
+first in the person's order that answered. When none does it says so and
+shows no link. A relay that answers may still refuse the event; that case is
+left to the wait for an approval, which ends by saying none arrived.
+
+**Signet ticks names and keys alone.** Its approval screen leaves the other
+four boxes for the person, the one for blocks among them, and this side still
+requires blocks. An approval without them links nothing. The panel says
+before the pairing which two boxes to tick, and afterwards which one was
+left. Whether blocks should stay required is the owner's decision.
+
+**Tried against the real thing, 28 September.** A throwaway identity in the
+Signet web app and a throwaway key here, over public relays, driven by a
+script: the pairing, the code, the contact arriving, the copy surviving a
+restart, and a disconnect in Signet hiding it. Signet's Android app at 0.14.0
+has no screen for the code, so this was the web app only.
+
+**What this does not do.** A block is local. It filters this device's roster,
+chat and invitations, and closes its media peers. It does not remove anybody
+from the room, revoke a room key, or change what another member sees. Tier
+gated admission and returning a check to Signet remain separate work, as
+`docs/signet-contact-admission.md` sets out.
+
 ## On X11 the share frame and the redaction boxes are shaped windows, 28 September 2026
 
 The area frame and the redaction boxes are windows with a see-through

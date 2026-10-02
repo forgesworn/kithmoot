@@ -106,3 +106,16 @@ function prune(store: DeviceStore, max = MAX_VERIFIED): void {
   const all = verifiedParticipants(store)
   for (const entry of all.slice(max)) store.remove(keyFor(entry.participant))
 }
+
+/** Local observations belong to the observing identity. Unscoped legacy rows
+ * remain stored but cannot be attributed to a newly signed-in account. */
+export function scopedVerificationStore(store: DeviceStore, observer: string): DeviceStore {
+  if (!/^[0-9a-f]{64}$/.test(observer)) throw new Error('An observing identity is required')
+  const prefix = `kithmoot.checks.v2.${observer}.`
+  return {
+    get: key => store.get(prefix + key),
+    set: (key, value) => store.set(prefix + key, value),
+    remove: key => store.remove(prefix + key),
+    keys: () => store.keys().filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)),
+  }
+}
