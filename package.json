@@ -50,6 +50,7 @@
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts --testTimeout=40000",
     "test:e2e": "playwright test",
+    "test:vault": "playwright test -c playwright.vault.config.ts",
     "typecheck": "npm run build:context && tsc --noEmit -p tsconfig.json && tsc --noEmit -p app/tsconfig.json",
     "vectors": "npm run build:lib && node vectors/generate.mjs && node vectors/generate-cadence.mjs && node vectors/generate-circle.mjs",
     "test:turn": "playwright test --config playwright.turn.config.ts",
