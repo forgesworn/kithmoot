@@ -35,6 +35,8 @@ import {
   requestRoomEpoch,
 } from './epoch.js'
 import type { EpochKeys, EpochRefusal, RekeyNotice, RoomEpoch } from './epoch.js'
+import { MAX_MEMBER_EPOCH_CHAIN, hostMemberEpochDesk, memberEpochSource } from './member-epoch.js'
+import type { MemberEpochSource } from './member-epoch.js'
 import type { RelayTransport } from './relay-pool.js'
 import { verificationWords } from './verification.js'
 import type {
@@ -290,6 +292,26 @@ export interface RoomSessionBaseOptions {
   epochSettleMs?: number
   /** How long to wait for the authority to answer an epoch request. */
   epochRequestTimeoutMs?: number
+  /**
+   * Answer other members' epoch catch-up requests (kinds 20471/20472) while
+   * this device is in step at an epoch above 0. Default true. A grant is
+   * signed by a one-time key and tagged only with the room id and the
+   * asking device, so answering ties nothing on the wire to this device.
+   * See `member-epoch.ts`.
+   */
+  memberEpochDesk?: boolean
+  /** Upper bound, in milliseconds, of the random wait before this device's
+   *  member desk answers, so several members do not all answer at once.
+   *  Default 1500; zero in tests. */
+  memberEpochJitterMs?: number
+  /**
+   * Called when this live session falls behind the room's epoch and nobody
+   * (authority or member) answered its catch-up request (`true`), and again
+   * when it is back in step or gone (`false`). While it is `true` the
+   * session keeps asking on its own; what it says is under a key the room
+   * has left. See `awaitingEpoch`.
+   */
+  onEpochWaiting?: (waiting: boolean) => void
   /** Called on every epoch this session moves to, with what the rekey said:
    *  the number, who was removed and by whom. Also on this session's own
    *  rekeys, when it is the authority. A current-state grant is marked
@@ -431,6 +453,24 @@ export const DEFAULT_EPOCH_SETTLE_MS = 1_500
  *  and the join fails with a reason rather than hanging. */
 export const DEFAULT_EPOCH_REQUEST_TIMEOUT_MS = 20_000
 
+/** How long a session that is behind waits before asking again, after a
+ *  request nobody answered. The request itself already waited
+ *  `epochRequestTimeoutMs`, so this only spaces the attempts out. */
+export const EPOCH_RETRY_MS = 5_000
+
+/**
+ * Thrown by `join()` when the room has moved to an epoch this device does not
+ * hold and neither the authority nor any current member answered inside
+ * `epochRequestTimeoutMs`. Not a refusal: nobody said no, so trying again
+ * later, once a member is online, is the remedy.
+ */
+export class EpochUnreachableError extends Error {
+  constructor(cause?: unknown) {
+    super('this room has moved to a new key, and no member could bring this device up to date', cause === undefined ? undefined : { cause })
+    this.name = 'EpochUnreachableError'
+  }
+}
+
 /** The timings that govern presence. All of them are tunable guesses; none of
  *  them changes what is correct. Matches the Android client's `SessionTiming`. */
 export interface SessionTiming {
@@ -552,6 +592,20 @@ export class RoomSession {
   #unsubRekey?: () => void
   /** One epoch request in flight at a time. */
   #catchingUp?: Promise<void>
+  /** The secret of every epoch this session has held, newest
+   *  `MAX_MEMBER_EPOCH_CHAIN` kept, so its member desk can hand a device
+   *  several epochs behind the whole chain. In memory only. */
+  readonly #secrets = new Map<number, Uint8Array>()
+  /** The authority's rekey into each epoch, as heard or published, for the
+   *  member desk's proof chain. Kept after it is applied. */
+  readonly #rekeyEvents = new Map<number, Event>()
+  /** Answering other members' catch-up requests, while this device is in
+   *  step at an epoch above 0. */
+  #memberDesk?: { close(): void }
+  /** Set while this live session is behind and its last catch-up went
+   *  unanswered. */
+  #awaitingEpoch = false
+  #epochRetryTimer?: ReturnType<typeof setTimeout>
   #closed = false
   /** Set while joining when a rekey said this participant is out, or the
    *  room is closed, so `join()` can say so rather than carry on. */
@@ -564,6 +618,7 @@ export class RoomSession {
     this.#opts = opts
     this.#epochSecret = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : { epoch: 0, secret: opts.secret }
     this.#epoch = deriveEpoch(this.#epochSecret)
+    if (this.#epochSecret.epoch > 0) this.#keepSecret(this.#epochSecret)
     if (opts.forwarderMediaPipeline && !opts.forwarderMediaPipeline.rekey(this.#epoch.key.slice())) {
       throw new Error('forwarder media pipeline could not install the room epoch key')
     }
@@ -830,6 +885,7 @@ export class RoomSession {
       if (this.#evictLapsed()) this.#notify()
     })
     if (this.#opts.identity) this.#scheduleRenewal(this.#renewalDelayMs(credential))
+    this.#openMemberDesk()
   }
 
   /** A conference room whose end has come. Never true for a room with no
@@ -935,6 +991,13 @@ export class RoomSession {
     return this.#closed
   }
 
+  /** True while this session knows the room has moved past its epoch and
+   *  nobody has yet answered its request for the new one. It keeps asking;
+   *  see `onEpochWaiting`. */
+  get awaitingEpoch(): boolean {
+    return this.#awaitingEpoch
+  }
+
   /**
    * Mark participants removed without a rekey: what a keeper reopening a
    * room from its state does, so the people it removed last week are
@@ -993,7 +1056,14 @@ export class RoomSession {
     }
     const ask = this.#drainRekeys()
     if (this.#refusedWhileJoining) throw new EpochRefusedError(this.#refusedWhileJoining)
-    if (ask || (expected !== undefined && expected > this.#epoch.epoch)) await this.#catchUp()
+    if (ask || (expected !== undefined && expected > this.#epoch.epoch)) {
+      try {
+        await this.#catchUp()
+      } catch (err) {
+        if (err instanceof EpochRefusedError) throw err
+        throw new EpochUnreachableError(err)
+      }
+    }
     if (this.#refusedWhileJoining) throw new EpochRefusedError(this.#refusedWhileJoining)
   }
 
@@ -1009,6 +1079,10 @@ export class RoomSession {
     const epoch = peekRekeyEvent(event, { roomId: this.roomId, authority: this.#opts.authority })
     if (epoch === null) return
     this.#opts.archive?.keep(event)
+    // Kept whatever epoch it is for, applied or not: this device's member
+    // desk hands these on as the proof of each secret it grants. One this
+    // device applied (see `#drainRekeys`) replaces a stranger copy.
+    if (!this.#rekeyEvents.has(epoch)) this.#keepRekey(epoch, event)
     if (epoch <= this.#epoch.epoch) return
     this.#pendingRekeys.set(epoch, event)
     // During join the settle step drains; after it, every rekey is acted on
@@ -1027,25 +1101,33 @@ export class RoomSession {
   #drainRekeys(): boolean {
     if (this.#closed || this.#left) return false
     for (;;) {
-      const next = this.#pendingRekeys.get(this.#epoch.epoch + 1)
+      const at = this.#epoch.epoch + 1
+      const next = this.#pendingRekeys.get(at)
       if (!next) return this.#behind()
-      this.#pendingRekeys.delete(this.#epoch.epoch + 1)
       const notice = decodeRekeyEvent(next, {
         roomId: this.roomId,
         authority: this.#opts.authority!,
         current: this.#epoch,
         deviceSk: this.#opts.deviceSk,
       })
+      // Left pending when it cannot be acted on, so the session still knows
+      // it is behind (and keeps asking) until a grant moves it past it.
       if (!notice) return true
       if (notice.closed) {
+        this.#pendingRekeys.delete(at)
         this.#closed = true
+        this.#closeMemberDesk()
+        this.#setAwaitingEpoch(false)
         if (!this.#unsub) this.#refusedWhileJoining = 'closed'
         this.#opts.onClosed?.({ epoch: notice.epoch, by: notice.by })
         return false
       }
       if (!notice.secret) {
         if (notice.removed.includes(this.participant)) {
+          this.#pendingRekeys.delete(at)
           for (const p of notice.removed) this.#removed.add(p)
+          this.#closeMemberDesk()
+          this.#setAwaitingEpoch(false)
           if (!this.#unsub) this.#refusedWhileJoining = 'removed'
           this.#opts.onRemoved?.({ epoch: notice.epoch, by: notice.by })
           return false
@@ -1055,21 +1137,31 @@ export class RoomSession {
         // one arriving now.
         return true
       }
+      this.#pendingRekeys.delete(at)
+      this.#keepRekey(notice.epoch, next)
       this.#moveToEpoch({ epoch: notice.epoch, secret: notice.secret }, notice)
     }
   }
 
-  /** Ask the authority for the current epoch. Single flight; rejects on a
-   *  refusal, which `join()` surfaces and a live session reports through
-   *  `onRemoved`/`onClosed`. */
+  /** Ask the authority, and the room's current members, for the current
+   *  epoch. Single flight; rejects on a refusal, which `join()` surfaces and
+   *  a live session reports through `onRemoved`/`onClosed`. A member's
+   *  answer is checked against the authority's own signed rekeys (see
+   *  `member-epoch.ts`), so it is taken on the same terms as the
+   *  authority's. */
   #catchUp(): Promise<void> {
     if (this.#catchingUp) return this.#catchingUp
+    if (this.#epochRetryTimer !== undefined) clearTimeout(this.#epochRetryTimer)
+    this.#epochRetryTimer = undefined
+    const from = this.#epoch.epoch
+    let failed = false
     const run = async (): Promise<void> => {
       const self = this.#self
       const authority = this.#opts.authority
       if (!self || !authority || this.#closed || this.#left) return
       try {
         const grant = await requestRoomEpoch({
+          members: this.#memberSource(self.credential, authority),
           transport: this.#opts.transport,
           roomId: this.roomId,
           authority,
@@ -1081,7 +1173,7 @@ export class RoomSession {
           timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
           expiresAt: this.#opts.endsAt,
         })
-        if (this.#left) return
+        if (this.#left || this.#closed) return
         for (const p of grant.removed) this.#removed.add(p)
         if (grant.epoch.epoch > this.#epoch.epoch) {
           const epoch = grant.epoch as RoomEpoch
@@ -1091,18 +1183,133 @@ export class RoomSession {
         for (const epoch of [...this.#pendingRekeys.keys()]) if (epoch <= this.#epoch.epoch) this.#pendingRekeys.delete(epoch)
       } catch (err) {
         if (err instanceof EpochRefusedError) this.#refused(err.refused)
+        else failed = true
         throw err
       }
     }
     this.#catchingUp = run().finally(() => {
       this.#catchingUp = undefined
-      if (this.#unsub && this.#behind() && this.#drainRekeys()) this.#catchUp().catch(() => {})
+      if (!this.#unsub || this.#left || this.#closed) return
+      if (!this.#behind() || !this.#drainRekeys()) {
+        this.#setAwaitingEpoch(false)
+        return
+      }
+      // Still behind. Progress made: carry straight on. Nobody answered, or
+      // the answer moved nothing: say so, and ask again in a moment.
+      if (!failed && this.#epoch.epoch > from) {
+        this.#catchUp().catch(() => {})
+        return
+      }
+      this.#setAwaitingEpoch(true)
+      const timer = setTimeout(() => {
+        this.#epochRetryTimer = undefined
+        if (this.#left || this.#closed || !this.#behind()) return
+        if (this.#drainRekeys()) this.#catchUp().catch(() => {})
+      }, EPOCH_RETRY_MS)
+      ;(timer as unknown as { unref?: () => void }).unref?.()
+      this.#epochRetryTimer = timer
     })
     return this.#catchingUp
   }
 
+  /** The member half of a catch-up: a fresh request each round, floored
+   *  at the newest rekey this session has heard of. Undefined when it
+   *  cannot be built (a credential that no longer verifies), which leaves
+   *  the authority's answer as the only one. */
+  #memberSource(credential: DeviceCredential, authority: string): MemberEpochSource | undefined {
+    try {
+      return memberEpochSource({
+        transport: this.#opts.transport,
+        roomId: this.roomId,
+        authority,
+        deviceSk: this.#opts.deviceSk,
+        roomKey: this.#roomKey,
+        credential,
+        proof: this.#opts.proof,
+        current: () => this.#epoch,
+        removed: () => this.#removed,
+        expected: () => this.#highestKnownEpoch(),
+        now: this.#now,
+        expiresAt: this.#opts.endsAt,
+      })
+    } catch {
+      return undefined
+    }
+  }
+
+  /** The newest epoch this session has evidence the room reached, when it
+   *  is past this one. */
+  #highestKnownEpoch(): number | undefined {
+    const top = Math.max(this.#opts.expectedEpoch ?? 0, ...this.#pendingRekeys.keys())
+    return top > this.#epoch.epoch ? top : undefined
+  }
+
+  #setAwaitingEpoch(waiting: boolean): void {
+    if (this.#awaitingEpoch === waiting) return
+    this.#awaitingEpoch = waiting
+    try {
+      this.#opts.onEpochWaiting?.(waiting)
+    } catch {
+      // A caller's problem, not the room's.
+    }
+  }
+
+  #keepSecret(epoch: RoomEpoch): void {
+    this.#secrets.set(epoch.epoch, epoch.secret.slice())
+    for (const n of [...this.#secrets.keys()]) if (n <= epoch.epoch - MAX_MEMBER_EPOCH_CHAIN) this.#secrets.delete(n)
+  }
+
+  #keepRekey(epoch: number, event: Event): void {
+    this.#rekeyEvents.set(epoch, event)
+    const top = Math.max(...this.#rekeyEvents.keys())
+    for (const n of [...this.#rekeyEvents.keys()]) if (n <= top - MAX_MEMBER_EPOCH_CHAIN) this.#rekeyEvents.delete(n)
+  }
+
+  /**
+   * Answer other members' catch-up requests: once joined, at an epoch
+   * above 0, with an authority to check rekeys against. Opened once and
+   * left open while the session moves on; `current` declines to answer
+   * whenever this device is not itself in step.
+   */
+  #openMemberDesk(): void {
+    if (this.#memberDesk || this.#opts.memberEpochDesk === false) return
+    if (!this.#unsub || this.#left || this.#closed || this.#epoch.epoch === 0) return
+    const authority = this.#opts.authority
+    if (!authority) return
+    try {
+      this.#memberDesk = hostMemberEpochDesk({
+        transport: this.#opts.transport,
+        roomId: this.roomId,
+        authority,
+        deviceSk: this.#opts.deviceSk,
+        roomKey: this.#roomKey,
+        current: () => {
+          if (this.#left || this.#closed || this.#removed.has(this.participant) || this.#epoch.epoch === 0 || this.#behind()) return undefined
+          return { epoch: this.#epochSecret.epoch, secret: this.#epochSecret.secret }
+        },
+        secretAt: (epoch) => this.#secrets.get(epoch),
+        rekeyAt: (epoch) => this.#rekeyEvents.get(epoch),
+        removed: () => this.#removed,
+        closed: () => this.#closed || this.#left,
+        policy: this.#opts.policy,
+        now: this.#now,
+        ...(this.#opts.memberEpochJitterMs !== undefined ? { jitterMs: this.#opts.memberEpochJitterMs } : {}),
+        expiresAt: this.#opts.endsAt,
+      })
+    } catch {
+      // A malformed authority or key: this device simply does not answer.
+    }
+  }
+
+  #closeMemberDesk(): void {
+    this.#memberDesk?.close()
+    this.#memberDesk = undefined
+  }
+
   #refused(why: EpochRefusal): void {
     if (!this.#unsub) this.#refusedWhileJoining = why
+    this.#closeMemberDesk()
+    this.#setAwaitingEpoch(false)
     if (why === 'closed') {
       this.#closed = true
       this.#opts.onClosed?.({ epoch: this.#epoch.epoch })
@@ -1122,6 +1329,7 @@ export class RoomSession {
   #moveToEpoch(next: RoomEpoch, notice: RekeyNotice): void {
     this.#epochSecret = next
     this.#epoch = deriveEpoch(next)
+    this.#keepSecret(next)
     // A forwarder has no room key. Its media transform does, so it changes
     // with the epoch before this session publishes or accepts any new work.
     // If the browser pipeline cannot rotate, tear the mesh down rather than
@@ -1164,6 +1372,8 @@ export class RoomSession {
     if (this.#unsub) {
       this.#publishEntry(true).catch(() => {})
       this.#notify()
+      this.#openMemberDesk()
+      if (!this.#behind()) this.#setAwaitingEpoch(false)
     }
   }
 
@@ -1201,10 +1411,15 @@ export class RoomSession {
       removed,
       by: opts.by,
       closed: opts.closed,
+      // The epoch commitment: lets any current member hand this epoch on to
+      // a device that missed the rekey, and that device check it, while
+      // this authority is offline. See `member-epoch.ts`.
+      commit: true,
       now,
       expiresAt: this.#opts.endsAt,
     })
     await this.#opts.transport.publish(event)
+    this.#keepRekey(next.epoch, event)
     const notice: RekeyNotice = {
       epoch: next.epoch,
       removed,
@@ -1215,6 +1430,7 @@ export class RoomSession {
     }
     if (opts.closed) {
       this.#closed = true
+      this.#closeMemberDesk()
       try {
         this.#opts.onEpoch?.(notice)
         this.#opts.onClosed?.({ epoch: next.epoch, by: notice.by })
@@ -2173,6 +2389,10 @@ export class RoomSession {
     this.#unsubRekey?.()
     this.#unsubRekey = undefined
     this.#pendingRekeys.clear()
+    this.#closeMemberDesk()
+    if (this.#epochRetryTimer !== undefined) clearTimeout(this.#epochRetryTimer)
+    this.#epochRetryTimer = undefined
+    this.#setAwaitingEpoch(false)
     this.#mesh?.close()
     this.#chat?.close()
     this.#assignments?.close()
