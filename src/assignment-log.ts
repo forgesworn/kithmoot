@@ -28,6 +28,9 @@ export interface AssignmentLogOptions {
   epoch?: EpochRoot
   storage: AssignmentStorage
   now?: () => number
+  /** A conference room's end: every envelope published carries it as an
+   *  expiration. See `withExpiration`. */
+  expiresAt?: number
 }
 interface Pending { inner: Event; outer: Event }
 export interface AssignmentLogSnapshot {
@@ -164,7 +167,7 @@ export class AssignmentLog {
         credential, text: `Assignment ${operation.op}`, sentAt: this.#now(), assignment: inner,
         ...(this.#opts.name ? { name: this.#opts.name } : {}), ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
         ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),
-      }, { roomId: this.roomId, roomKey: this.#opts.roomKey, deviceSk: this.#opts.deviceSk, channel: ASSIGNMENT_CHANNEL, epoch: this.#epoch })
+      }, { roomId: this.roomId, roomKey: this.#opts.roomKey, deviceSk: this.#opts.deviceSk, channel: ASSIGNMENT_CHANNEL, epoch: this.#epoch, expiresAt: this.#opts.expiresAt })
       const candidate = new Map(this.#outbox).set(request, { inner, outer })
       await this.#persist(this.#events, candidate)
       this.#outbox.set(request, { inner, outer }); this.#emit()

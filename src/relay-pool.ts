@@ -24,6 +24,9 @@ export interface RelayTransport {
   /** The relays this transport reads from and writes to, when it has any.
    *  Absent on transports that are not relays at all. */
   describe?(): RelayConfig[]
+  /** Moves the relays this transport dials, keeping its subscriptions.
+   *  Only a relay pool has relays to move. */
+  setRelays?(entries: readonly (string | RelayConfig)[]): void
   /** Told the room's epoch key when a session opens on this transport and
    *  on every epoch it moves to. A transport that derives anything from
    *  the key, such as a quiet room's drop keys, implements it; a relay
@@ -49,10 +52,15 @@ export interface RelayHealth extends RelayConfig {
   unreturned?: number[]
 }
 
+/** The most relays one pool connects to: a room's own relays (at most
+ *  `MAX_RELAY_HINTS` it was made on, and as many again its authority added)
+ *  ahead of a person's own. What a link, a saved list, an invitation or a
+ *  `relays` op may name stays at `MAX_RELAY_HINTS`. */
+export const MAX_POOL_RELAYS = 2 * MAX_RELAY_HINTS
 
 export function normaliseRelayConfig(entries: readonly (string | RelayConfig)[], profile: NetworkProfile = 'direct'): RelayConfig[] {
   if (entries.length === 0) throw new Error('at least one relay is required')
-  if (entries.length > MAX_RELAY_HINTS) throw new Error(`use at most ${MAX_RELAY_HINTS} relays`)
+  if (entries.length > MAX_POOL_RELAYS) throw new Error(`use at most ${MAX_POOL_RELAYS} relays`)
   const seen = new Set<string>()
   return entries.map(entry => {
     const value = typeof entry === 'string' ? { url: entry, read: true, write: true } : entry

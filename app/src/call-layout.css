@@ -176,15 +176,37 @@
   background: transparent;
   margin: 0;
 }
-/* A second device's camera in the same person's tile: a small picture in
-   its corner rather than half of the box. */
+/* Two of a person's devices with their cameras on: two angles, each half
+   of the tile, side by side in a wide tile and one above the other in a tall
+   one. It was a small picture in the corner of the first, which put a phone
+   held at someone's face in a postage stamp over a laptop pointing at an
+   empty chair. Everyone sees both, the person themselves included. */
+/* `:has()` cannot nest, so the first angle is the camera holder with a
+   later camera holder beside it. */
+#room[data-layout] > .participant > .media:has(> video:not(.screenPreview)):has(~ .media > video:not(.screenPreview)) > video:not(.screenPreview) {
+  inset: 0 50% 0 0;
+  width: 50%;
+  height: 100%;
+}
 #room[data-layout] > .participant > .media:has(> video:not(.screenPreview)) ~ .media > video:not(.screenPreview) {
-  inset: 8px 8px auto auto;
-  width: 30%;
-  height: 30%;
+  inset: 0 0 0 50%;
+  width: 50%;
+  height: 100%;
   z-index: 1;
-  border-radius: 6px;
-  outline: 2px solid var(--tile-bg);
+  border-left: 2px solid var(--tile-bg);
+  box-sizing: border-box;
+}
+#room[data-layout] > .participant[data-tall='true'] > .media:has(> video:not(.screenPreview)):has(~ .media > video:not(.screenPreview)) > video:not(.screenPreview) {
+  inset: 0 0 50% 0;
+  width: 100%;
+  height: 50%;
+}
+#room[data-layout] > .participant[data-tall='true'] > .media:has(> video:not(.screenPreview)) ~ .media > video:not(.screenPreview) {
+  inset: 50% 0 0 0;
+  width: 100%;
+  height: 50%;
+  border-left: 0;
+  border-top: 2px solid var(--tile-bg);
 }
 /* A shared screen, wherever its place is: the numbers are written on by
    call-stage.ts, measured from its owner's tile. */

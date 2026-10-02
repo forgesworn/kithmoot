@@ -14,6 +14,39 @@ const appPort = Number(process.env.E2E_PORT ?? 4173)
 // today's fixed value, which is what CI still gets.
 const relayPort = Number(process.env.E2E_RELAY_PORT ?? (process.env.E2E_PORT ? appPort + 100 : 7777))
 
+// CI splits the Chromium run across several runners, because on one worker
+// it takes over half an hour. Playwright's own `--shard` cuts the test list
+// into equal counts in file order, which here would put every call spec -
+// a third of the whole run - on the same runner, so the split is by measured
+// time instead: `E2E_GROUP=<name>` runs one group. Each group matches whole
+// files (call-stability.spec.ts is split by title, its tests each build
+// their own browsers), and `rest` is everything no other group claims, so a
+// new or renamed spec lands in `rest` rather than nowhere. The groups only
+// decide which runner a test goes to: together they are exactly the
+// unfiltered run, which `--list` on each confirms.
+const specFiles = (...names: string[]) =>
+  new RegExp(`^\\S+ (?:${names.map((n) => n.replace(/[.]/g, '\\.')).join('|')}) `)
+const relayFaultCases = /^\S+ call-stability\.spec\.ts .*\bcase 7[ab]: /
+const e2eGroups: Record<string, { grep: RegExp[], grepInvert?: RegExp[] }> = {
+  'call-relays': { grep: [relayFaultCases, specFiles('soak.spec.ts')] },
+  calls: {
+    grep: [specFiles('call-stability.spec.ts', 'call-chat-divider.spec.ts', 'call-dock.spec.ts')],
+    grepInvert: [relayFaultCases],
+  },
+  media: { grep: [specFiles('media.spec.ts', 'call-focus.spec.ts', 'call-layout.spec.ts', 'effects.spec.ts')] },
+  rooms: {
+    grep: [specFiles('peer-assist.spec.ts', 'agent.spec.ts', 'bad-relays.spec.ts', 'nostr-rooms.spec.ts', 'home.spec.ts',
+      'drafts.spec.ts', 'quiet.spec.ts', 'updates.spec.ts', 'e2e.spec.ts', 'share-viewer.spec.ts')],
+  },
+}
+const e2eGroup = process.env.E2E_GROUP || undefined
+if (e2eGroup && e2eGroup !== 'rest' && !(e2eGroup in e2eGroups)) {
+  throw new Error(`E2E_GROUP=${e2eGroup} is not one of: ${[...Object.keys(e2eGroups), 'rest'].join(', ')}`)
+}
+const groupFilter = !e2eGroup ? {} : e2eGroup === 'rest'
+  ? { grepInvert: Object.values(e2eGroups).flatMap((g) => g.grep) }
+  : e2eGroups[e2eGroup]!
+
 export default defineConfig({
   testDir: './test',
   // Three specs, and they are very different animals. e2e.spec.ts drives real
@@ -47,7 +80,7 @@ export default defineConfig({
   // importantly, goes dark again on mute - an analyser that is never pulled
   // reports silence for ever with nothing in the console, so this feature
   // can fail by simply never happening.
-  testMatch: ['notification-settings.spec.ts', 'knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'workspace.spec.ts', 'share-viewer.spec.ts', 'screen-share-audio.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'phone-message-links.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'e2e.spec.ts', 'media.spec.ts', 'no-google-ice.spec.ts', 'safari-ice.spec.ts', 'volume.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'camera-effects-no-phone-home.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts', 'rooms.spec.ts', 'speaking.spec.ts', 'speaking-quiet-device.spec.ts', 'verification.spec.ts', 'channels.spec.ts', 'chat-reliability.spec.ts', 'room-archive.spec.ts', 'updates.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'site.spec.ts', 'forget-this-browser.spec.ts', 'sign-out-clears-bunker-key.spec.ts', 'wake-lock.spec.ts', 'call-stability.spec.ts', 'call-dock.spec.ts', 'mute-badge.spec.ts', 'desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts', 'call-bell.spec.ts', 'shortcuts.spec.ts', 'call-prefs.spec.ts', 'mobile-landscape.spec.ts', 'bad-relays.spec.ts'],
+  testMatch: ['notification-settings.spec.ts', 'knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'room-relays.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'conference-rooms.spec.ts', 'workspace.spec.ts', 'share-viewer.spec.ts', 'screen-share-audio.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'phone-message-links.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'e2e.spec.ts', 'media.spec.ts', 'no-google-ice.spec.ts', 'safari-ice.spec.ts', 'volume.spec.ts', 'soak.spec.ts', 'agent.spec.ts', 'effects.spec.ts', 'camera-effects-no-phone-home.spec.ts', 'relay-capability.spec.ts', 'peer-assist.spec.ts', 'rooms.spec.ts', 'speaking.spec.ts', 'speaking-quiet-device.spec.ts', 'verification.spec.ts', 'channels.spec.ts', 'chat-reliability.spec.ts', 'room-archive.spec.ts', 'updates.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'open-in-app.spec.ts', 'site.spec.ts', 'forget-this-browser.spec.ts', 'sign-out-clears-bunker-key.spec.ts', 'wake-lock.spec.ts', 'call-stability.spec.ts', 'call-dock.spec.ts', 'mute-badge.spec.ts', 'desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts', 'call-bell.spec.ts', 'shortcuts.spec.ts', 'call-prefs.spec.ts', 'mobile-landscape.spec.ts', 'bad-relays.spec.ts'],
   // Public relays take a few seconds to round-trip a roster event, and the
   // join-last case waits on three of those in sequence: A's entry, B's, and
   // then A and B answering C's arrival. The stage-1 live test used similar
@@ -69,6 +102,7 @@ export default defineConfig({
   // that is late and one that is missing.
   workers: 1,
   retries: 0,
+  ...groupFilter,
   reporter: 'list',
   use: {
     // Carries the `/j/` sub-path the app is published under (see the `base`
@@ -85,12 +119,12 @@ export default defineConfig({
   projects: [
     {
       name: 'firefox',
-      testMatch: ['knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'workspace.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'chat-reliability.spec.ts', 'room-archive.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'site.spec.ts', 'bad-relays.spec.ts'],
+      testMatch: ['knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'room-relays.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'workspace.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'chat-reliability.spec.ts', 'room-archive.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'site.spec.ts', 'bad-relays.spec.ts'],
       use: { ...devices['Desktop Firefox'] },
     },
     {
       name: 'webkit',
-      testMatch: ['knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'workspace.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'chat-reliability.spec.ts', 'room-archive.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'site.spec.ts', 'safari-ice.spec.ts', 'updates.spec.ts', 'bad-relays.spec.ts'],
+      testMatch: ['knock.spec.ts', 'private-room.spec.ts', 'confirmations.spec.ts', 'den-journey.spec.ts', 'assignments.spec.ts', 'relay-settings.spec.ts', 'room-relays.spec.ts', 'agent-receipts.spec.ts', 'context.spec.ts', 'persistent-groups.spec.ts', 'workspace.spec.ts', 'chat-comfort.spec.ts', 'phone-chat.spec.ts', 'messages.spec.ts', 'quiet.spec.ts', 'contact-card.spec.ts', 'model-shortcuts.spec.ts', 'chat-reliability.spec.ts', 'room-archive.spec.ts', 'nostr-rooms.spec.ts', 'room-switching.spec.ts', 'conversation-search.spec.ts', 'drafts.spec.ts', 'home.spec.ts', 'site.spec.ts', 'safari-ice.spec.ts', 'updates.spec.ts', 'bad-relays.spec.ts'],
       use: { ...devices['Desktop Safari'] },
     },
     {

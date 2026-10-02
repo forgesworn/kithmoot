@@ -125,10 +125,13 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     }
     if (shown.length === 0 && shares.length === 0) shown = everyone
 
-    // A share starting puts it on the stage; the last one ending hands the
-    // room back to whatever this device was using before.
+    // Somebody else's share starting puts it on the stage; the last one
+    // ending hands the room back to whatever this device was using before.
+    // This device's own share never takes the stage by itself: the sharer
+    // is looking at what they share, and a stage-sized copy of their own
+    // window, captured, is a picture of itself inside itself.
     const shareIds = new Set(shares.map(share => share.id))
-    if ([...shareIds].some(id => !knownShares.has(id))) view = 'share'
+    if (shares.some(share => !share.owner.self && !knownShares.has(share.id))) view = 'share'
     if (shareIds.size === 0 && view === 'share') view = prefs.view
     knownShares = shareIds
 
@@ -207,7 +210,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     styled.clear()
     for (const person of everyone) {
       for (const name of ['left', 'top', 'width', 'height', '--tile-w', '--tile-h']) person.box.style.removeProperty(name)
-      for (const attr of ['data-layout-hidden', 'data-floating', 'data-featured', 'data-initials', 'data-camera']) person.box.removeAttribute(attr)
+      for (const attr of ['data-layout-hidden', 'data-floating', 'data-featured', 'data-initials', 'data-camera', 'data-tall']) person.box.removeAttribute(attr)
       for (const expand of person.box.querySelectorAll<HTMLElement>(':scope > .shareExpand')) {
         expand.style.removeProperty('left'); expand.style.removeProperty('top'); expand.removeAttribute('data-on-stage')
       }
@@ -226,6 +229,10 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     setStyle(box, 'height', `${rect.height}px`)
     setStyle(box, '--tile-w', `${rect.width}px`)
     setStyle(box, '--tile-h', `${rect.height}px`)
+    // Which way a person with two cameras on splits their tile: see the
+    // two-angles rule in call-layout.css.
+    const tall = String(rect.height > rect.width)
+    if (box.getAttribute('data-tall') !== tall) box.setAttribute('data-tall', tall)
   }
 
   function placeVideo(video: HTMLVideoElement, rect: Rect): void {

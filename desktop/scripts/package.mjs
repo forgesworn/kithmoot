@@ -3,7 +3,7 @@ import { sign } from '@electron/osx-sign'
 import { macSigningConfig } from './mac-signing.mjs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const signing = macSigningConfig()
@@ -12,11 +12,10 @@ const assets = resolve(root, 'artifacts')
 await mkdir(assets, { recursive: true })
 const iconset = resolve(assets, 'KithMoot.iconset')
 await mkdir(iconset, { recursive: true })
+// Pre-rendered by `npm run brand:build` at the repository root.
 for (const size of [16, 32, 128, 256, 512]) {
   for (const scale of [1, 2]) {
-    const out = resolve(iconset, `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`)
-    const result = spawnSync('sips', ['-z', String(size * scale), String(size * scale), resolve(root, '../app/public/pwa-512x512.png'), '--out', out], { stdio: 'ignore' })
-    if (result.status) throw new Error('Icon conversion failed')
+    await copyFile(resolve(root, `icons/kithmoot-${size * scale}.png`), resolve(iconset, `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`))
   }
 }
 const icon = resolve(assets, 'KithMoot.icns')
@@ -24,8 +23,8 @@ if (spawnSync('iconutil', ['-c', 'icns', iconset, '-o', icon]).status) throw new
 const paths = await packager({
   dir: root, out: resolve(root, 'out'), name: 'KithMoot', platform: 'darwin', arch: 'arm64',
   electronVersion: '44.4.1', appBundleId: 'dev.forgesworn.kithmoot.desktop',
-  appVersion: version, buildVersion: '21', icon, overwrite: true, asar: true,
-  ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
+  appVersion: version, buildVersion: '33', icon, overwrite: true, asar: true,
+  ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {
     NSAudioCaptureUsageDescription: 'KithMoot shares system sound when you choose to include audio with your screen share.',
     NSMicrophoneUsageDescription: 'KithMoot uses your microphone when you turn it on in a call.',

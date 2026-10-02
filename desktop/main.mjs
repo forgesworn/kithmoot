@@ -1,6 +1,7 @@
 import { ShareArea, AREA_URL } from './share-area.mjs'
 import { Redaction, BOX_WINDOW, boxId } from './redaction.mjs'
 import { createDesktopUpdater } from './updater.mjs'
+import { createPackageUpdater, packageVersionFile, readPackageVersion } from './package-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
 import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
@@ -31,14 +32,24 @@ const notices = new DesktopNotices({
   supported: () => Notification.isSupported(),
   shown: applyUnreadBadge,
   create: options => new Notification({ ...options, icon: join(here, 'web/pwa-512x512.png') }),
-  open: roomId => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); win.webContents.send('desktop:open-room', roomId) } },
+  open: roomId => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); win.webContents.send('desktop:open-room', roomId) } },
 })
 let win
-const updates = createDesktopUpdater({
-  autoUpdater, platform: process.platform, arch: process.arch, packaged: app.isPackaged,
-  notify: state => win?.webContents.send('desktop:update-state', state),
-  log: error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error'),
-})
+const updateNotify = state => { if (win && !win.isDestroyed()) win.webContents.send('desktop:update-state', state) }
+const updateLog = error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error')
+// Installed from the Debian package, apt upgrades this copy in place; the
+// app only notices and offers the restart.
+const versionStamp = app.isPackaged && process.platform === 'linux' ? packageVersionFile(process.resourcesPath) : undefined
+const packageManaged = versionStamp !== undefined && readPackageVersion(versionStamp) !== undefined
+const updates = packageManaged
+  ? createPackageUpdater({
+    currentVersion: app.getVersion(), installedVersion: () => readPackageVersion(versionStamp),
+    relaunch: () => { app.relaunch(); app.quit() }, notify: updateNotify, log: updateLog,
+  })
+  : createDesktopUpdater({
+    autoUpdater, platform: process.platform, arch: process.arch, packaged: app.isPackaged,
+    notify: updateNotify, log: updateLog,
+  })
 const shareArea = new ShareArea(() => win, areaMode)
 // Redaction boxes need a window placed on the real screen, which Wayland
 // forbids: there the preview area share is the way to keep things private.
@@ -274,8 +285,15 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     ipcMain.handle('desktop:area-arm', event => { if (!trusted(event.sender) || !shareArea.window) return false; configureDisplayCapture(true); return true })
     ipcMain.handle('desktop:area-state', event => trusted(event.sender) ? shareArea.state() : null)
+    ipcMain.handle('desktop:area-check', event => trusted(event.sender) ? shareArea.check() : null)
     // A refused share reads the same to the page whether macOS withheld
     // Screen Recording or the person cancelled the picker, so the page asks.
+    // Every capture id a window of this app answers to, so the page can tell a
+    // share of KithMoot itself, which would film its own preview, from a share
+    // of somebody else's window. See mayShowItself in app/src/self-mirror-guard.ts.
+    ipcMain.handle('desktop:own-capture-ids', event => trusted(event.sender)
+      ? BrowserWindow.getAllWindows().filter(window => !window.isDestroyed()).map(window => window.getMediaSourceId())
+      : [])
     ipcMain.handle('desktop:screen-access', event => !trusted(event.sender) ? 'unknown' : process.platform === 'darwin' && !testProfile ? systemPreferences.getMediaAccessStatus('screen') : 'granted')
     ipcMain.handle('desktop:update-state', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame ? updates.state() : { phase: 'disabled' })
     ipcMain.handle('desktop:update-install', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame && !callActive ? updates.install() : false)
@@ -314,7 +332,7 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
       { role: 'windowMenu' },
       { label: 'Help', submenu: [{ label: 'About this preview', click: () => dialog.showMessageBox(win, {
-        message: `KithMoot desktop ${app.getVersion()}`, detail: 'Desktop preview. Signed Mac updates download quietly and wait for you to approve a safe restart; Linux updates remain manual. Sign in here using your Nostr account or remote signer; browser extensions are not available. Calls, messages and room sync use the same KithMoot protocol.',
+        message: `KithMoot desktop ${app.getVersion()}`, detail: 'Desktop preview. Signed Mac updates download quietly and wait for you to approve a safe restart. On Debian and Ubuntu, updates arrive with your system updates and wait for the same restart; other Linux installs update by hand. Sign in here using your Nostr account or remote signer; browser extensions are not available. Calls, messages and room sync use the same KithMoot protocol.',
       }) }] },
     ]))
     // The share pop-out is a window of ours the app writes into, so it never

@@ -18,7 +18,7 @@
     "mcp",
     "pwa"
   ],
-  "homepage": "https://kithmoot.forgesworn.dev",
+  "homepage": "https://kithmoot.app",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/forgesworn/kithmoot.git"
@@ -40,6 +40,7 @@
   ],
   "scripts": {
     "brand:build": "node scripts/build-brand-assets.mjs",
+    "brand:site": "node scripts/build-site-brand.mjs",
     "build": "npm run build:context && vite build --config app/vite.config.ts && node scripts/check-no-telemetry.mjs app/dist",
     "build:lib": "npm run build:context && tsc -p tsconfig.json",
     "prepack": "npm run build:lib",
@@ -50,7 +51,7 @@
     "test:live": "vitest run --config vitest.live.config.ts --testTimeout=40000",
     "test:e2e": "playwright test",
     "typecheck": "npm run build:context && tsc --noEmit -p tsconfig.json && tsc --noEmit -p app/tsconfig.json",
-    "vectors": "npm run build:lib && node vectors/generate.mjs && node vectors/generate-cadence.mjs",
+    "vectors": "npm run build:lib && node vectors/generate.mjs && node vectors/generate-cadence.mjs && node vectors/generate-circle.mjs",
     "test:turn": "playwright test --config playwright.turn.config.ts",
     "agent": "npm run build:lib && node bin/kithmoot-agent.mjs",
     "build:context": "npm run build --workspace @forgesworn/context && npm run build --workspace @forgesworn/context-tools",
@@ -62,6 +63,7 @@
     "@anthropic-ai/sdk": "^0.123.0",
     "@forgesworn/context": "0.2.0",
     "@forgesworn/context-tools": "0.2.0",
+    "@forgesworn/fold-kit": "0.4.0",
     "@forgesworn/signet-contacts": "github:forgesworn/signet-contacts#fbb13cdeefb3e07421228ab3245b7e17e403ecab",
     "@mediapipe/tasks-vision": "0.10.35",
     "@modelcontextprotocol/sdk": "^1.30.0",

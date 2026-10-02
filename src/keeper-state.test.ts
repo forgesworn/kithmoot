@@ -14,6 +14,17 @@ describe('keeper state', () => {
     expect(parseKeeperState(serialiseKeeperState({ secret, inviterSk, bearer })).persistent).toBeUndefined()
   })
 
+  it('keeps a conference room\'s end, written only for one, and refuses a bad one', () => {
+    const ends = 1_800_086_400
+    const state = { secret, inviterSk, bearer, persistent: true as const, endsAt: ends }
+    expect(parseKeeperState(serialiseKeeperState(state)).endsAt).toBe(ends)
+    expect(JSON.parse(serialiseKeeperState({ secret, inviterSk, bearer }))).not.toHaveProperty('ends')
+    const stored = JSON.parse(serialiseKeeperState(state))
+    for (const bad of [0, -1, 1.5, '1800086400']) {
+      expect(() => parseKeeperState(JSON.stringify({ ...stored, ends: bad }))).toThrow(/ends/)
+    }
+  })
+
   it('reads a version 1 file as epoch 0 with nobody removed', () => {
     const v1 = JSON.stringify({ v: 1, secret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer) })
     expect(parseKeeperState(v1)).toEqual({ secret, inviterSk, bearer, epoch: 0, removed: [] })

@@ -1,10 +1,10 @@
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
-import { hkdf } from '@noble/hashes/hkdf'
-import { sha256 } from '@noble/hashes/sha2'
 import { randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
+import { withExpiration } from './expiration.js'
 import { normaliseReaction, type ChatReaction } from './reactions.js'
+import { compareMessages } from './message-order.js'
 import { assignmentPayload, ASSIGNMENT_CHANNEL } from './assignments.js'
 import {
   normaliseInvite,
@@ -26,6 +26,15 @@ import { olderThan, type ArchiveCursor, type ArchiveMeta, type EventArchive } fr
 import { isQuietPolicy } from './quiet.js'
 import { laneOfRelayUrl, laneOfRelays, type Lane } from './lane.js'
 import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from './types.js'
+// `deriveChannel`, `CHANNEL_ID_INFO`, `CHANNEL_KEY_INFO` and
+// `MAX_CHANNEL_NAME_LENGTH` moved to @forgesworn/fold-kit's `channel.ts`
+// (see the T2.1 codec cutover); `ChatLog` and the chat event codecs below
+// stay here. Re-exported under their existing names so every import of
+// `./chat.js` keeps working - but NOT `CHANNEL_LABELS`: that name does not
+// exist in KithMoot today (this file's own label is `CHAT_LABELS`, below).
+import { deriveChannel, CHANNEL_ID_INFO, CHANNEL_KEY_INFO, MAX_CHANNEL_NAME_LENGTH } from '@forgesworn/fold-kit'
+
+export { deriveChannel, CHANNEL_ID_INFO, CHANNEL_KEY_INFO, MAX_CHANNEL_NAME_LENGTH }
 
 export const MAX_CHAT_TEXT_LENGTH = 2_000
 export const CHAT_RETENTION_SECONDS = 30 * 24 * 60 * 60
@@ -36,31 +45,6 @@ export const CHAT_ARCHIVE_PAGE = 100
 /** Archived events decoded between two yields to the page: a decode is a
  *  signature, a credential and a decryption, a few milliseconds each. */
 const ARCHIVE_DECODE_CHUNK = 40
-
-const CHANNEL_ID_INFO = 'kithmoot/v1/channel-id/'
-const CHANNEL_KEY_INFO = 'kithmoot/v1/channel-key/'
-/** Bounds a channel name, which rides only in an HKDF info string and
- *  never on the wire; long enough for any sensible name. */
-export const MAX_CHANNEL_NAME_LENGTH = 64
-
-/**
- * The room id and key a named channel lives under.
- *
- * Both derived from the room KEY, never the room id, so a party that holds
- * the id and not the key - a forwarder, a relay - cannot find the channel
- * from the room, let alone read it. Two separate HKDF expansions for the
- * same reason `deriveRoom` uses two: publishing the id reveals nothing about
- * the key. The main chat is the unnamed channel and is untouched by this:
- * its id is the room id and its key the room key, byte for byte as before.
- */
-export function deriveChannel(roomId: string, roomKey: Uint8Array, channel?: string): { id: string; key: Uint8Array } {
-  if (channel === undefined) return { id: roomId, key: roomKey }
-  if (channel.length === 0 || channel.length > MAX_CHANNEL_NAME_LENGTH) throw new Error('channel name out of range')
-  const idBytes = hkdf(sha256, roomKey, undefined, CHANNEL_ID_INFO + channel, 32)
-  const key = hkdf(sha256, roomKey, undefined, CHANNEL_KEY_INFO + channel, 32)
-  const id = Array.from(idBytes, (b) => b.toString(16).padStart(2, '0')).join('')
-  return { id, key }
-}
 
 /** What a message is, when it is not simply something somebody typed. */
 export type ChatMessageKind = 'transcript' | 'directive'
@@ -102,6 +86,15 @@ export interface ChatMessage {
   /** Encrypted reaction update; text is a readable fallback for older clients. */
   reaction?: ChatReaction
   sentAt: number
+  /**
+   * The same moment in milliseconds, for order only: two messages in one
+   * second otherwise fall back to their ids, which is to say at random.
+   * Inside the ciphertext alone - the event's `created_at` stays in
+   * seconds. Kept only when it falls within `sentAt`'s second; a reader
+   * drops anything else and keeps the message. Absent from older clients,
+   * whose messages order as the start of their second.
+   */
+  sentAtMs?: number
   /**
    * `transcript` when `text` is what somebody SAID, written down by the
    * sender - an agent that was listening - rather than something the sender
@@ -327,6 +320,9 @@ export interface EncodeChatOptions {
   channel?: string
   /** The epoch to ride in. Omit for epoch 0. */
   epoch?: EpochRoot
+  /** A conference room's end, in unix seconds: carried as a NIP-40
+   *  expiration (see `withExpiration`). Omit for a room with no end. */
+  expiresAt?: number
 }
 
 /** The root a channel derives from: the epoch's id and key when there is
@@ -391,7 +387,7 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     {
       kind: KINDS.CHAT,
       created_at: msg.sentAt,
-      tags: [['d', id]],
+      tags: withExpiration([['d', id]], opts.expiresAt),
       content,
     },
     opts.deviceSk,
@@ -461,6 +457,10 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     if (msg.id.length === 0 || msg.id.length > 128) return null
     if (msg.text.length === 0 || msg.text.length > MAX_CHAT_TEXT_LENGTH) return null
     if (!Number.isSafeInteger(msg.sentAt)) return null
+    // Order only, so a bad one costs the message nothing.
+    if (msg.sentAtMs !== undefined && !(Number.isSafeInteger(msg.sentAtMs) && Math.floor(msg.sentAtMs / 1000) === msg.sentAt)) {
+      delete msg.sentAtMs
+    }
 
     // The lane is the reader's finding, never the sender's claim.
     delete (msg as { lane?: unknown }).lane
@@ -642,6 +642,9 @@ export interface ChatLogOptions {
   proof?: KindredProof
   /** Injectable clock, in unix seconds. Defaults to the real one. */
   now?: () => number
+  /** Milliseconds, for `sentAtMs`. Defaults to the clock `now` reads only
+   *  when `now` is not supplied, so a fixed `now` writes no `sentAtMs`. */
+  nowMs?: () => number
   /** Which channel of the room this log is. Omit for the main chat. See
    *  `deriveChannel`. */
   channel?: string
@@ -660,6 +663,9 @@ export interface ChatLogOptions {
    * are. See `archive.ts`.
    */
   archive?: EventArchive
+  /** A conference room's end: every message, reaction, edit and retraction
+   *  this log sends carries it as an expiration. See `withExpiration`. */
+  expiresAt?: number
 }
 
 /** What `send` may say beyond the text. */
@@ -699,6 +705,7 @@ export interface SendOptions {
 export class ChatLog {
   readonly #opts: ChatLogOptions
   readonly #now: () => number
+  readonly #nowMs: (() => number) | undefined
   /** The credential every message goes out under. Starts as the one handed
    *  in and is replaced when the session renews - see `setCredential`.
    *  Undefined on a log that only reads. */
@@ -735,7 +742,8 @@ export class ChatLog {
     this.#opts = opts
     this.#credential = opts.credential
     this.#epoch = opts.epoch
-    this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+    this.#nowMs = opts.nowMs ?? (opts.now ? undefined : Date.now)
+    this.#now = opts.now ?? (() => Math.floor(this.#nowMs!() / 1000))
     this.#unsub = this.#subscribe()
   }
 
@@ -967,7 +975,7 @@ export class ChatLog {
           : {}),
       text,
       ...(reaction ? { reaction } : {}),
-      sentAt: this.#now(),
+      ...this.#sentAt(),
       ...(attachments ? { attachments } : {}),
       ...(this.#opts.owner ? { owner: this.#opts.owner } : {}),
       ...(this.#opts.ownerClaim ? { ownerClaim: this.#opts.ownerClaim } : {}),
@@ -984,6 +992,7 @@ export class ChatLog {
       deviceSk,
       channel: this.#opts.channel,
       ...(this.#epoch ? { epoch: this.#epoch } : {}),
+      expiresAt: this.#opts.expiresAt,
     })
     const epoch = this.#epoch
     return async () => {
@@ -1114,6 +1123,13 @@ export class ChatLog {
     return true
   }
 
+  /** One reading of the clock for both fields, so `sentAtMs` always falls within `sentAt`. */
+  #sentAt(): Pick<ChatMessage, 'sentAt' | 'sentAtMs'> {
+    if (!this.#nowMs) return { sentAt: this.#now() }
+    const ms = this.#nowMs()
+    return { sentAt: Math.floor(ms / 1000), sentAtMs: ms }
+  }
+
   #archiveMeta(): ArchiveMeta | undefined {
     return isQuietPolicy(this.#opts.policy) ? { quiet: true } : undefined
   }
@@ -1138,13 +1154,17 @@ function circleOf(relays: readonly { url: string; circle?: boolean }[]): Readonl
   return new Set(relays.filter(r => r.circle).map(r => r.url))
 }
 
-/** Order by send time; a tie breaks on id, so every client in the room
- *  reaches the same order without negotiating one. */
-function compareMessages(a: ChatMessage, b: ChatMessage): number {
-  if (a.sentAt !== b.sentAt) return a.sentAt - b.sentAt
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-}
 
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour.
+ *
+ *  Empty since the T2.1 codec cutover: this file's only two labels,
+ *  `CHANNEL_ID_INFO` and `CHANNEL_KEY_INFO`, moved to @forgesworn/fold-kit's
+ *  `channel.ts` along with `deriveChannel`. */
+export const CHAT_LABELS = [] as const

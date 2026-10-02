@@ -128,6 +128,58 @@ info `kithmoot/v3/group-invitation-key`. The decrypted body is
 the pinned inviter. A valid retirement wins over the invitation. This record
 carries epoch zero only; it cannot override removal or mint authority.
 
+**Conference rooms.** A group MAY end on a fixed date. Its body then also
+carries `ends`, a positive integer of Unix seconds (`v` stays 3), and the 1463
+event carries a NIP-40 tag `["expiration", "<ends>"]` with the same value, so
+relays drop the invitation when the room ends. A creator MUST choose `ends`
+after its own clock and no more than 30 days beyond it. A reader MUST reject
+the invitation when `ends` is present and not a positive integer, when there is
+more than one `expiration` tag, or when an `expiration` tag is present and is
+not exactly the decimal of the body's `ends` (including when the body has no
+`ends`). A body `ends` with no tag is valid. When two valid copies disagree,
+the earlier `ends` stands. At or after `ends` the room is ended: a reader MUST
+NOT join it and SHOULD tell a newcomer the date it ended. A re-signed
+invitation keeps the same `ends`, and none is re-signed after it. A 1461
+retirement of such a room carries the same `expiration` tag.
+
+**Room relays.** The body MAY also carry `relays`, after `ends` (key order
+`v, room, secret, ends, relays`): the relays the room was made on, fixed
+then and never changed. When present it MUST be an array of one to eight
+distinct strings, each a safe relay URL (`wss://`, or `ws://` on loopback
+only) already in canonical form - nostr-tools' `normalizeURL`, so
+`wss://relay.example/` with its trailing slash - with no credentials. A
+reader MUST reject the whole invitation otherwise, never trim it. Absent, the
+body is byte-identical to one written before the field existed, and a reader
+that predates it ignores the key. When two valid copies disagree, the newest
+`created_at` that names any relays stands; a copy naming none says nothing
+about them, and between equal timestamps the first heard stays. (Contrast
+`ends`, where the earliest stands.)
+
+Every member's pool is the room's relays - these, then the relays its
+authority's newest `relays` control op added - first, reading and writing,
+never cut; then the member's own relays for the room, up to sixteen in all.
+Own relays are what the cap cuts. So any two members share at least one
+relay, whatever else each of them uses. A client chooses the room's relays,
+in order: a signed invitation's `relays`, replacing any learnt from a link;
+else the ones it already holds; else a link's `r`, on first sight (a
+temporary room, or one made before the field). The creator fixes them from
+the relays it both reads and writes, at most eight. A link names the room's
+relays, then the op's, cut to eight, rather than its sharer's whole pool. A
+member holding no signed list reads the invitation once after opening and
+adopts its `relays`; the creator's six-hourly re-sign carries them into an
+invitation written before the field.
+
+Every event a member device signs for a conference room carries
+`["expiration", "<ends>"]`: chat and its channels, reactions, edits and
+retractions, roster and farewell entries, signal wraps, descriptors, call
+bells, assignment envelopes, file announcements, read positions, and the
+authority's rekey (1462), epoch request (20468) and grant (20469). An event
+whose own expiration is earlier keeps it (a signal wrap's 60 seconds, a call
+bell's 120); a later one is lowered to `ends`; an event never carries two.
+Account-level events (project directory, bookmarks) are not tagged, and a
+device credential keeps its own expiry. Readers ignore the tag on decode; it
+tells relays when to let the room go, and is not an access rule.
+
 A kind 1461 retirement's content is `{v:1}`. When the room itself was ended,
 not just the link replaced, it is `{v:1,ended:true}`. The field is additive:
 readers MUST treat any valid `v:1` retirement as a retirement and MAY tell a

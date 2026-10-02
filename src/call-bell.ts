@@ -6,6 +6,7 @@ import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { schnorr } from '@noble/curves/secp256k1.js'
 import { KINDS } from './kinds.js'
+import { withExpiration } from './expiration.js'
 import { verifyEventUncached } from './verify.js'
 import { sanitiseCallMembership } from './roster.js'
 import type { CallMembership } from './types.js'
@@ -93,6 +94,9 @@ export interface EncodeCallBellOptions {
   call: CallMembership
   /** Unix seconds. */
   createdAt: number
+  /** A conference room's end: a bell that would outlive the room's end is
+   *  lowered to it. See `withExpiration`. */
+  expiresAt?: number
 }
 
 /** Build a bell, signed by a key minted here and discarded. */
@@ -107,7 +111,7 @@ export function encodeCallBellEvent(opts: EncodeCallBellOptions): Event {
     {
       kind: KINDS.CALL_BELL,
       created_at: createdAt,
-      tags: [['d', callBellTag(opts.key, createdAt)], ['expiration', String(createdAt + CALL_BELL_TTL_SECONDS)]],
+      tags: withExpiration([['d', callBellTag(opts.key, createdAt)], ['expiration', String(createdAt + CALL_BELL_TTL_SECONDS)]], opts.expiresAt),
       content: nip44.v2.encrypt(plaintext, callBellContentKey(opts.key)),
     },
     throwaway,
@@ -165,3 +169,14 @@ export function decodeCallBellEvent(event: Event, opts: DecodeCallBellOptions): 
     return null
   }
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const CALL_BELL_LABELS = [
+  "kithmoot/v1/call-bell",
+  "kithmoot/v1/call-bell-key",
+  "kithmoot/v1/call-bell-tag",
+  "kithmoot/v1/call-bell:",
+] as const

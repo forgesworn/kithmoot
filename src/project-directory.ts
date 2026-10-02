@@ -59,7 +59,13 @@ export class ProjectDirectory {
   #closed = false
   #publishing = false
   #error?: string
-  constructor(readonly options: { identity: ProjectIdentity; transport: RelayTransport; storage: ProjectDirectoryStorage; now?: () => number }) {}
+  constructor(readonly options: {
+    identity: ProjectIdentity; transport: RelayTransport; storage: ProjectDirectoryStorage; now?: () => number
+    /** Also hands each wrap for someone else to where that person reads -
+     *  their inbox relays - once the owner's own relays have it. Best effort:
+     *  a member who shares a relay with the owner finds it there anyway. */
+    deliver?: (wrap: Event, recipient: string) => Promise<void>
+  }) {}
   get identity(): string { return this.options.identity.pubkey }
   #now(): number { return (this.options.now ?? (() => Math.floor(Date.now() / 1000)))() }
   #serial<T>(fn: () => Promise<T>): Promise<T> {
@@ -262,7 +268,12 @@ export class ProjectDirectory {
       for (let i = 0; i < batch.length && !this.#closed; i += 4) {
         const group = batch.slice(i, i + 4).filter(p => this.#pending.has(p.outer.id))
         const results = await Promise.allSettled(group.map(p => this.options.transport.publish(p.outer)))
-        results.forEach((r, n) => { if (r.status === 'fulfilled') accepted.push(group[n]!.outer.id); else failed = true })
+        results.forEach((r, n) => {
+          if (r.status !== 'fulfilled') { failed = true; return }
+          const p = group[n]!
+          accepted.push(p.outer.id)
+          if (p.recipient !== this.identity) this.options.deliver?.(p.outer, p.recipient).catch(() => {})
+        })
       }
       await this.#serial(async () => {
         if (this.#closed) return

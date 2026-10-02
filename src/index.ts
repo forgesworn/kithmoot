@@ -39,6 +39,7 @@ export {
   RESERVED_CHANNELS,
   MAX_EPOCH,
 } from './epoch.js'
+export { signRoomRelays, verifyRoomRelays, canonicalRoomRelays, invitationRelaysFrom, withRoomRelays, MAX_ROOM_RELAYS, type SignRoomRelaysOptions, type VerifyRoomRelaysOptions } from './room-relays.js'
 export type {
   RoomEpoch,
   EpochKeys,
@@ -93,8 +94,13 @@ export type {
   HostRoomInvitationOptions,
   RequestRoomAdmissionOptions,
 } from './invitation.js'
-export { createDeviceCredential, verifyDeviceCredential, PERSON_CREDENTIAL_MAX_SECONDS } from './credential.js'
-export { encodePersistentInvitation, decodePersistentInvitation, requestPersistentRoomAdmission } from './persistent-invitation.js'
+export {
+  createDeviceCredential,
+  verifyDeviceCredential,
+  PERSON_CREDENTIAL_MAX_SECONDS,
+  RestampedCredentialExpiryError,
+} from './credential.js'
+export { encodePersistentInvitation, decodePersistentInvitation, requestPersistentRoomAdmission, isInvitationRelays, requireInvitationRelays, MAX_INVITATION_RELAYS } from './persistent-invitation.js'
 export type { PersistentRoomAdmission } from './persistent-invitation.js'
 export { readRendezvousProvision, readRendezvousProvisionEnvelope, RENDEZVOUS_PURPOSE, RENDEZVOUS_PROVISION_MAX_SECONDS } from './rendezvous-provisioning.js'
 export type { RendezvousProvision, RendezvousProvisionExpect, RendezvousProvisionResult, RendezvousProvisionEnvelope, RendezvousProvisionEnvelopeResult } from './rendezvous-provisioning.js'
@@ -115,7 +121,9 @@ export {
   CREDENTIAL_RENEWAL_FRACTION,
   DEFAULT_EPOCH_SETTLE_MS,
   DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
+  CONFERENCE_ENDED_MESSAGE,
 } from './session.js'
+export { withExpiration, isRoomEnds, requireRoomEnds, MAX_ROOM_ENDS_SECONDS } from './expiration.js'
 export type {
   ParticipantView,
   CallView,
@@ -142,7 +150,7 @@ export type {
   HostPairingOptions,
   RequestPairingOptions,
 } from './pairing.js'
-export { NostrRelayPool, normaliseRelayConfig } from './relay-pool.js'
+export { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS } from './relay-pool.js'
 export { LANES, LANE_MEANING, LANE_LABEL, LANE_GLYPH, isLane, laneOfRelayUrl, laneOfRelays, weakestLane, isDowngrade } from './lane.js'
 export { QUIET_SLOT_SECONDS, QUIET_KINDS, QUIET_BLOCKED_KINDS, QUIET_DEVICE_SLOTS, QUIET_HISTORY_SECONDS, QUIET_BUCKET_BYTES, QUIET_CANNOT_SEND, QUIET_TOO_LONG, QUIET_NO_FILE_ANNOUNCE, isQuietPolicy, quietCounterRange, quietRoomTransport } from './quiet.js'
 export type { QuietRoomOptions, QuietRoomTransport, QuietUsedState } from './quiet.js'
@@ -463,6 +471,7 @@ export {
   inviteText,
 } from './messages.js'
 export type { MessageRef, ChatInvite, Named, ResolvedMessage, Conversation, ReachesReaderOptions, UnreadClass, UnreadSplit } from './messages.js'
+export { compareMessages, sentAtMillis } from './message-order.js'
 
 export {
   READ_POSITION_KIND,

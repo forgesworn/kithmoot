@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HOLD_MS, PAD_DIP, RedactionTrail, cropPlan, crossesScales, effectiveSource, hull, planRedaction, refuseShare, type RedactionState } from './redaction-geometry.js'
+import { FrameJump, HIDDEN_PLAN, HOLD_MS, JUMP_HOLD_MS, JUMP_SAMPLE, changedShare, PAD_DIP, RedactionTrail, coverCopy, cropPlan, crossesScales, effectiveSource, hull, planRedaction, refuseShare, type RedactionState } from './redaction-geometry.js'
 
 const display = { id: '1', bounds: { x: 0, y: 0, width: 1440, height: 900 }, scaleFactor: 2 }
 const right = { id: '2', bounds: { x: 1440, y: 0, width: 1920, height: 1080 }, scaleFactor: 2 }
@@ -42,18 +42,18 @@ describe('redaction geometry on a whole-screen share', () => {
     expect(planRedaction(s, { width: 1920, height: 1080 }, held(s))).toEqual({ mode: 'boxes', rects: [{ x: 157, y: 97, width: 206, height: 206 }] })
   })
 
-  it('goes black whenever it cannot be sure where a box falls', () => {
+  it('covers everything whenever it cannot be sure where a box falls', () => {
     const s = state({ boxes: [box('a', 100, 100, 200, 100)] })
     const frame = { width: 2880, height: 1800 }
-    expect(planRedaction({ ...s, source: null }, frame, held(s))).toEqual({ mode: 'black', reason: 'unknown' })
-    expect(planRedaction({ ...s, source: { kind: 'window' } }, frame, held(s))).toEqual({ mode: 'black', reason: 'window' })
-    expect(planRedaction({ ...s, source: { kind: 'screen', displayId: '9' } }, frame, held(s))).toEqual({ mode: 'black', reason: 'geometry' })
+    expect(planRedaction({ ...s, source: null }, frame, held(s))).toEqual({ mode: 'cover', reason: 'unknown' })
+    expect(planRedaction({ ...s, source: { kind: 'window' } }, frame, held(s))).toEqual({ mode: 'cover', reason: 'window' })
+    expect(planRedaction({ ...s, source: { kind: 'screen', displayId: '9' } }, frame, held(s))).toEqual({ mode: 'cover', reason: 'geometry' })
     // A picture whose shape is not the display's is not what we think it is.
-    expect(planRedaction(s, { width: 1600, height: 1200 }, held(s))).toEqual({ mode: 'black', reason: 'geometry' })
-    expect(planRedaction(s, { width: 0, height: 0 }, held(s))).toEqual({ mode: 'black', reason: 'geometry' })
-    expect(planRedaction(s, frame, [{ x: NaN, y: 0, width: 10, height: 10 }])).toEqual({ mode: 'black', reason: 'geometry' })
+    expect(planRedaction(s, { width: 1600, height: 1200 }, held(s))).toEqual({ mode: 'cover', reason: 'geometry' })
+    expect(planRedaction(s, { width: 0, height: 0 }, held(s))).toEqual({ mode: 'cover', reason: 'geometry' })
+    expect(planRedaction(s, frame, [{ x: NaN, y: 0, width: 10, height: 10 }])).toEqual({ mode: 'cover', reason: 'geometry' })
     // The track itself disagreeing with the main process is unknown too.
-    expect(planRedaction(s, frame, held(s), 'window')).toEqual({ mode: 'black', reason: 'unknown' })
+    expect(planRedaction(s, frame, held(s), 'window')).toEqual({ mode: 'cover', reason: 'unknown' })
   })
 
   it('believes a source only when the track agrees', () => {
@@ -67,7 +67,7 @@ describe('redaction geometry on a whole-screen share', () => {
 })
 
 describe('redaction while a box moves', () => {
-  it('keeps the hull of the old and new places black for a short time', () => {
+  it('keeps the hull of the old and new places covered for a short time', () => {
     const trail = new RedactionTrail()
     expect(trail.next([box('a', 0, 0, 100, 100)], 0)).toEqual([{ x: 0, y: 0, width: 100, height: 100 }])
     const moved = trail.next([box('a', 50, 20, 100, 100)], 16)
@@ -76,7 +76,7 @@ describe('redaction while a box moves', () => {
     expect(trail.next([box('a', 50, 20, 100, 100)], 16 + HOLD_MS + 1)).toEqual([{ x: 50, y: 20, width: 100, height: 100 }])
   })
 
-  it('keeps a box turned off or closed black for a short time', () => {
+  it('keeps a box turned off or closed covered for a short time', () => {
     const trail = new RedactionTrail()
     trail.next([box('a', 0, 0, 100, 100)], 0)
     expect(trail.next([box('a', 0, 0, 100, 100, false)], 10)).toEqual([{ x: 0, y: 0, width: 100, height: 100 }])
@@ -99,9 +99,9 @@ describe('redaction inside an area share', () => {
     expect(cropPlan({ mode: 'boxes', rects: [{ x: 150, y: 100, width: 100, height: 100 }] }, { x: 200, y: 150, width: 400, height: 300 }, { width: 400, height: 300 })).toEqual({ mode: 'boxes', rects: [{ x: 0, y: 0, width: 50, height: 50 }] })
   })
 
-  it('stays black on a black plan and on a nonsense crop', () => {
-    expect(cropPlan({ mode: 'black', reason: 'unknown' }, { x: 0, y: 0, width: 10, height: 10 }, { width: 10, height: 10 })).toEqual({ mode: 'black', reason: 'unknown' })
-    expect(cropPlan({ mode: 'boxes', rects: [{ x: 0, y: 0, width: 10, height: 10 }] }, { x: 0, y: 0, width: 0, height: 10 }, { width: 10, height: 10 })).toEqual({ mode: 'black', reason: 'geometry' })
+  it('stays wholly covered on a plan that is, and on a nonsense crop', () => {
+    expect(cropPlan({ mode: 'cover', reason: 'unknown' }, { x: 0, y: 0, width: 10, height: 10 }, { width: 10, height: 10 })).toEqual({ mode: 'cover', reason: 'unknown' })
+    expect(cropPlan({ mode: 'boxes', rects: [{ x: 0, y: 0, width: 10, height: 10 }] }, { x: 0, y: 0, width: 0, height: 10 }, { width: 10, height: 10 })).toEqual({ mode: 'cover', reason: 'geometry' })
   })
 })
 
@@ -120,13 +120,13 @@ describe('mixed-scale displays', () => {
   const plain = { ...right, scaleFactor: 1 }
   const frame = { width: 2880, height: 1800 }
 
-  it('goes black while an active box straddles displays at different scales', () => {
+  it('covers everything while an active box straddles displays at different scales', () => {
     const s = state({ displays: [hidpi, plain], boxes: [box('a', 1400, 100, 200, 100)] })
     expect(crossesScales(s.boxes[0]!.bounds, s.displays)).toBe(true)
-    expect(planRedaction(s, frame, held(s))).toEqual({ mode: 'black', reason: 'crossing' })
+    expect(planRedaction(s, frame, held(s))).toEqual({ mode: 'cover', reason: 'crossing' })
     // An unreported scale counts as different.
     const unknown = state({ displays: [hidpi, { ...plain, scaleFactor: undefined }], boxes: s.boxes })
-    expect(planRedaction(unknown, frame, held(unknown))).toEqual({ mode: 'black', reason: 'crossing' })
+    expect(planRedaction(unknown, frame, held(unknown))).toEqual({ mode: 'cover', reason: 'crossing' })
   })
 
   it('maps as usual when the box sits on one display, or straddles two at the same scale', () => {
@@ -138,22 +138,82 @@ describe('mixed-scale displays', () => {
     expect(crossesScales({ x: 1240, y: 0, width: 200, height: 100 }, [hidpi, plain])).toBe(false)
   })
 
-  it('is black while the hull of a move between them is still held', () => {
+  it('covers everything while the hull of a move between them is still held', () => {
     const trail = new RedactionTrail()
     const displays = [hidpi, plain]
     trail.next([box('a', 1000, 100, 200, 100)], 0)
     const moved = trail.next([box('a', 1600, 100, 200, 100)], 16)
-    expect(planRedaction(state({ displays }), frame, moved)).toEqual({ mode: 'black', reason: 'crossing' })
+    expect(planRedaction(state({ displays }), frame, moved)).toEqual({ mode: 'cover', reason: 'crossing' })
   })
 })
 
 describe('after a display change', () => {
-  it('is black until the settle deadline passes, then maps again', () => {
+  it('covers everything until the settle deadline passes, then maps again', () => {
     const s = state({ boxes: [box('a', 100, 100, 200, 100)], settleUntil: 5000 })
     const frame = { width: 2880, height: 1800 }
-    expect(planRedaction(s, frame, held(s), undefined, 4999)).toEqual({ mode: 'black', reason: 'settling' })
+    expect(planRedaction(s, frame, held(s), undefined, 4999)).toEqual({ mode: 'cover', reason: 'settling' })
     expect(planRedaction(s, frame, held(s), undefined, 5000).mode).toBe('boxes')
     // With no box on there is nothing to hide, settling or not.
     expect(planRedaction({ ...s, boxes: [] }, frame, [], undefined, 4000)).toEqual({ mode: 'pass' })
   })
 })
+
+describe('a share hidden on purpose', () => {
+  it('is wholly covered, and stays so through a crop', () => {
+    expect(HIDDEN_PLAN).toEqual({ mode: 'cover', reason: 'hidden' })
+    expect(cropPlan(HIDDEN_PLAN, { x: 10, y: 10, width: 100, height: 100 }, { width: 50, height: 50 })).toEqual(HIDDEN_PLAN)
+  })
+
+  it('says so in words of its own, apart from every reason the page was unsure', () => {
+    const words = (['hidden', 'settling', 'crossing', 'window', 'unknown', 'geometry'] as const).map(coverCopy)
+    expect(new Set(words).size).toBe(words.length)
+    expect(words[0]).toMatch(/^Your share is hidden\./)
+    for (const word of words) expect(word).not.toMatch(/black/i)
+  })
+})
+
+describe('a picture that jumps', () => {
+  const cells = JUMP_SAMPLE.width * JUMP_SAMPLE.height
+  const flat = (value: number) => new Uint8Array(cells).fill(value)
+  // A desktop sliding in: every column moves along by a few cells.
+  const stripes = (offset: number) => Uint8Array.from({ length: cells }, (_, i) => ((i % JUMP_SAMPLE.width) + offset) % 8 < 4 ? 30 : 220)
+
+  it('a still picture, or one changing in a corner, is not a jump', () => {
+    const jump = new FrameJump()
+    expect(jump.next(flat(100), 0)).toBe(false)
+    expect(jump.next(flat(100), 33)).toBe(false)
+    const typing = flat(100); typing.fill(200, 0, Math.floor(cells * 0.1))
+    expect(jump.next(typing, 66)).toBe(false)
+  })
+
+  it('a desktop sliding in covers the share from its first moved frame', () => {
+    const jump = new FrameJump()
+    jump.next(stripes(0), 0)
+    expect(jump.next(stripes(2), 33)).toBe(true)
+    expect(jump.next(stripes(4), 66)).toBe(true)
+  })
+
+  it('stays covered until the picture has been still for the hold', () => {
+    const jump = new FrameJump()
+    jump.next(stripes(0), 0)
+    jump.next(stripes(2), 100)
+    expect(jump.next(stripes(2), 100 + JUMP_HOLD_MS - 1)).toBe(true)
+    expect(jump.next(stripes(2), 100 + JUMP_HOLD_MS)).toBe(false)
+  })
+
+  it('a first frame, or one after a reset, has nothing to jump from', () => {
+    const jump = new FrameJump()
+    expect(jump.next(stripes(0), 0)).toBe(false)
+    jump.reset()
+    expect(jump.next(stripes(3), 33)).toBe(false)
+  })
+
+  it('a sample of another size counts as wholly changed', () => {
+    expect(changedShare(flat(1), new Uint8Array(4))).toBe(1)
+  })
+
+  it('has its own words for the cover', () => {
+    expect(coverCopy('moving')).toMatch(/switching desktops/)
+  })
+})
+

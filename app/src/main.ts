@@ -4,6 +4,7 @@ import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
 import { ChannelChecks, CHECK_CHANNEL } from './channel-checks.js'
 import { showChannelCheckDialog } from './channel-check-dialog.js'
+import { coverCopy } from './redaction-geometry.js'
 import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
@@ -37,9 +38,12 @@ import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
-import { isWholeDisplaySurface } from './self-mirror-guard.js'
+import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
+import { RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
+import { ANDROID_DOWNLOAD_URL, appLinkFor, isAndroidUserAgent } from './open-in-app.js'
+import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, type ConversationDraft } from './drafts.js'
 import {
@@ -49,16 +53,20 @@ import {
   forgetCredentialFor,
   forgetLegacyStorage,
   forgetKeptAdmission,
+  forgetOwnCredentials,
   isPairedSecondary,
   loadCredentialFor,
   loadKeptAdmission,
+  loadOwnCredentialFor,
   storeCredentialFor,
+  storeOwnCredentialFor,
   storeKeptAdmission,
   type SavedRoomAdmission,
   memoryDeviceStore,
 } from './device-store.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
-import { forgetRoom, knownRoom, knownRooms, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { endLapsedConferences, forgetRoom, knownRoom, knownRooms, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
 import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
@@ -66,7 +74,7 @@ import { RoomWatch } from './room-watch.js'
 import { BrowserRoomArchiveStorage, RoomArchive, deleteRoomArchive, reseedRelays, type ReseedTarget } from './room-archive.js'
 import { PresenceAnnouncements } from './presence-announcements.js'
 import { readAgentRequestStatuses, type RequestAgent } from './agent-request-status.js'
-import { RoomBookmarks, accountRoomStore } from './room-bookmarks.js'
+import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
@@ -84,6 +92,7 @@ import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arriv
 import {
   RoomSession,
   NostrRelayPool,
+  normaliseRelayConfig,
   generateRoomSecret,
   deriveRoom,
   decodeJoinUrl,
@@ -96,6 +105,8 @@ import {
   encodePersistentInvitation,
   encodeInvitationRetirement,
   ROOM_ENDED_MESSAGE,
+  withExpiration,
+  isRoomEnds,
   createPairingCode,
   hostPairing,
   requestPairing,
@@ -123,6 +134,10 @@ import {
   decodeControl,
   verifyAdmins,
   verifyChannels,
+  signRoomRelays,
+  invitationRelaysFrom,
+  verifyRoomRelays,
+  canonicalRoomRelays,
   CHANNEL_NAME,
   type RekeyNotice,
   type ControlMessage,
@@ -169,6 +184,7 @@ import {
   QUIET_HISTORY_SECONDS,
   type QuietRoomTransport,
   type RelayTransport,
+  MAX_INVITATION_RELAYS,
 } from '../../src/index.js'
 import { forgetQuietState, loadQuietState, storeQuietState } from './quiet-store.js'
 import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
@@ -221,7 +237,7 @@ import {
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type Profile } from './profiles.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference } from './relay-settings.js'
-import { renderQr } from './qr.js'
+import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
@@ -234,6 +250,8 @@ import { base64urlnopad } from '@scure/base'
 import { CallWakeLock } from './wake-lock.js'
 import { BrowserForwarderMediaPipeline } from './forwarder-media.js'
 import { relayOnlyIceConfiguration } from './relay-only.js'
+import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
+import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
 
 const outbox = new Outbox(document.getElementById('outbox')!, refreshRoomNavigation, () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…')
@@ -288,11 +306,11 @@ const shareViewer = new ShareViewer({
 // `shareViewer.overlay` on a video of its own rather than reaching into
 // `ShareViewer`'s state, so it stays clear of PR work on that class.
 //
-// `track` withholds the live picture while `sharingWholeDisplay` is set -
+// `track` withholds the live picture while `shareMayShowItself` is set -
 // see `applySelfMirrorGuard` - so this window never shows a live copy of
-// itself sat inside the very screen it is being captured from.
+// itself sat inside the very picture it is being captured into.
 const floatingSharePreview = new FloatingSharePreview({
-  track: () => (sharingWholeDisplay ? undefined : screenTrack),
+  track: () => (shareMayShowItself ? undefined : screenTrack),
   overlay: (video, shareId) => shareViewer.overlay(video, shareId),
   source: () => screenTrack ? screenSource(meParticipant, myDeviceId) : undefined,
 })
@@ -304,7 +322,7 @@ const desktopShareArea = new DesktopShareArea({
   overlay: (canvas, id) => shareViewer.areaOverlay(canvas, id),
   draw: annotation => shareViewer.draw(annotation),
   ended: () => screenTrack?.dispatchEvent(new Event('ended')),
-  wholeDisplay: whole => { sharingWholeDisplay = whole; applySelfMirrorGuard() },
+  wholeDisplay: whole => { shareMayShowItself = whole; applySelfMirrorGuard() },
 })
 const drawingNoticeGate = new DrawingNoticeGate()
 const emojiPicker = new EmojiPicker()
@@ -628,7 +646,7 @@ function rememberAccount(account: SignetSession): void {
   } catch { /* Optional persistence. */ }
 }
 function needsAccountReconnect(): boolean {
-  return !!expectedAccount && !nostrSession && !loadCredential()
+  return !!expectedAccount && !nostrSession && !loadCredential() && !accountPassForRoom()
 }
 /** A Nostr account was used in this browser and is not connected in this
  *  tab, once restoring has had its chance. Account-scoped actions must ask
@@ -676,6 +694,7 @@ function rememberCurrentRoom(): void {
       name: roomName,
       link: encodeRoomUrl(joinLinkBase(), relays, iceUrls),
       openedAt: nowSeconds(),
+      ...(roomEndsAt !== undefined ? { endsAt: roomEndsAt } : {}),
     })
     bookmarks?.save(room)
     refreshKeptAdmission()
@@ -706,7 +725,9 @@ function storeCredential(credential: DeviceCredential): void {
 
 function forgetCredential(): void {
   const roomId = currentRoomId()
-  if (roomId) forgetCredentialFor(deviceStore, roomId)
+  if (!roomId) return
+  forgetCredentialFor(deviceStore, roomId)
+  forgetOwnCredentials(deviceStore, roomId)
 }
 
 /** This device's own key for the current room, kept across loads so a
@@ -779,7 +800,48 @@ function joiningName(): string | undefined {
  */
 function currentIdentity(): ParticipantIdentity {
   if (nostrSession) return nostrSession.signer
+  const pass = accountPassForRoom()
+  if (pass) return waitingAccountIdentity(pass.pubkey)
   return localIdentity(participantKey())
+}
+
+/**
+ * The pass this browser minted for the current room as the account last
+ * signed in here, while that account is not connected and the pass still has
+ * life enough to join on. A bunker whose relay is down cannot be restored on
+ * load, and the person used to be asked to reconnect before they could get
+ * back into a conversation they were in an hour ago; the pass is the
+ * account's own signature saying this device speaks for it in this room, so
+ * the room can be entered on it, as that account, with no signer at all.
+ */
+function accountPassForRoom(): DeviceCredential | undefined {
+  const roomId = currentRoomId()
+  if (!roomId || !expectedAccount || nostrSession) return undefined
+  try {
+    const now = nowSeconds()
+    const pass = loadOwnCredentialFor(deviceStore, roomId, now)
+    if (!pass || pass.pubkey !== expectedAccount) return undefined
+    const expiresAt = Number(pass.tags.find(tag => tag[0] === 'expiration')?.[1])
+    return expiresAt - now >= RESUME_MIN_REMAINING_SECONDS ? pass : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** The account, as a room sees it, before its signer is back: the right
+ *  pubkey, and a signature only once a sign-in for that same account has
+ *  been restored or redone. Until then anything that needs one - renewing
+ *  the pass, a card, a pairing - is refused with a reason, never signed as
+ *  somebody else. */
+function waitingAccountIdentity(pubkey: string): ParticipantIdentity {
+  return {
+    pubkey,
+    async signEvent(unsigned) {
+      if (identityRestoring) await identityReady.catch(() => {})
+      if (nostrSession?.pubkey !== pubkey) throw new Error('your Nostr account is not connected in this tab. Reconnect it, then try again')
+      return nostrSession.signer.signEvent(unsigned)
+    },
+  }
 }
 
 /** The pubkey this device would join as, without minting a key to find out -
@@ -792,6 +854,8 @@ function extensionSignerPresent(): boolean {
 
 function currentParticipant(): string | undefined {
   if (nostrSession) return nostrSession.pubkey
+  const pass = accountPassForRoom()
+  if (pass) return pass.pubkey
   const existing = loadParticipantKey()
   if (existing) return getPublicKey(existing)
   return undefined
@@ -898,7 +962,7 @@ async function signInWithNostr(): Promise<void> {
     await logout(account)
     throw new Error(
       'That sign-in can prove who you are but cannot sign anything afterwards, ' +
-        'and a room needs one signature per join. Try an extension or a bunker.',
+        'and a room needs a signature to let this device in. Try an extension or a bunker.',
     )
   }
 
@@ -940,6 +1004,9 @@ async function signOutOfNostr(): Promise<void> {
   readSync?.close()
   readSync = undefined
   nostrSession = undefined
+  // Each one speaks for the account in a room; a session under another
+  // identity would refuse them anyway, but they should not outlive it here.
+  try { forgetOwnCredentials(deviceStore) } catch { /* storage may be unavailable */ }
   sessionStorage.removeItem(WAY_BACK_KEY)
   $('roomSyncStatus').textContent = ''
   refreshAccountRooms()
@@ -1034,8 +1101,8 @@ function roomStore() { return bookmarks?.rooms ?? deviceStore }
  */
 let readSync: ReadPositionSync | undefined
 
-function followReadPositions(roomId: string, roomKey: Uint8Array): void {
-  readSync?.follow(roomId, roomKey, { '': { at: knownRoom(roomStore(), roomId)?.readAt ?? 0 } })
+function followReadPositions(roomId: string, roomKey: Uint8Array, expiresAt?: number): void {
+  readSync?.follow(roomId, roomKey, { '': { at: knownRoom(roomStore(), roomId)?.readAt ?? 0 } }, expiresAt)
 }
 
 /**
@@ -1057,6 +1124,31 @@ function refreshAccountRooms(): void {
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
   if (roomsListShown) showRoomsList()
   else if (window.kithmootDesktop) for (const room of knownRooms(roomStore())) watchKnownRoom(room)
+}
+
+/** What a room bookmark carries of a group this account has joined: the room
+ *  secret, so another device opens the room without the group's signed
+ *  invitation, which public relays do not keep for long. Group memberships
+ *  only: a temporary admission is a delegated, expiring permission and never
+ *  leaves this device. A secret arriving with a bookmark is kept only where
+ *  this device has none of its own. */
+function groupAdmissions(): BookmarkAdmissions {
+  const invitationIdOf = (link: string): string | undefined => {
+    try { const { invitation } = parseRoomLink(link); return invitation?.persistent ? deriveInvitationId(invitation) : undefined } catch { return undefined }
+  }
+  return {
+    current: room => {
+      const id = invitationIdOf(room.link)
+      const kept = id && loadKeptAdmission(deviceStore, id, nowSeconds())
+      return kept && 'persistent' in kept && kept.persistent ? bytesToHex(kept.secret) : undefined
+    },
+    adopt: (room, secret) => {
+      const id = invitationIdOf(room.link)
+      if (!id || loadKeptAdmission(deviceStore, id, nowSeconds())) return
+      // A conference room's end comes with the bookmark, and stays with the membership.
+      storeKeptAdmission(deviceStore, id, { secret: hexToBytes(secret), persistent: true, epoch: 0, ...(room.endsAt !== undefined ? { endsAt: room.endsAt } : {}) }, nowSeconds())
+    },
+  }
 }
 
 function startRoomBookmarks(account: SignetSession): void {
@@ -1085,7 +1177,7 @@ function startRoomBookmarks(account: SignetSession): void {
       if (details) details.open = true
       if (!roomsListShown) setStatus(message)
     }
-  })
+  }, groupAdmissions())
   refreshAccountRooms()
   bookmarks.start()
   readSync?.close()
@@ -1100,8 +1192,8 @@ function startRoomBookmarks(account: SignetSession): void {
   // The room this page is in, and every room the list is watching, from
   // wherever this identity had read to on another device.
   const current = currentRoomId()
-  if (current && (roomSecret as Uint8Array | undefined)) followReadPositions(current, deriveRoom(roomSecret).roomKey)
-  for (const [roomId, watched] of roomWatches) followReadPositions(roomId, watched.watch.roomKey)
+  if (current && (roomSecret as Uint8Array | undefined)) followReadPositions(current, deriveRoom(roomSecret).roomKey, roomEndsAt)
+  for (const [roomId, watched] of roomWatches) followReadPositions(roomId, watched.watch.roomKey, knownRoom(roomStore(), roomId)?.endsAt)
   // A sign-in at the door saves this room, not the visitor's past rooms.
   rememberCurrentRoom()
 }
@@ -1167,7 +1259,8 @@ function safeIceUrls(urls: string[]): string[] {
   return urls.filter((u) => ICE_SCHEMES.some((scheme) => u.toLowerCase().startsWith(scheme)))
 }
 
-function encodePayload(relays: string[], urls: string[], pairingCode?: Uint8Array): string {
+function encodePayload(pool: string[], urls: string[], pairingCode?: Uint8Array): string {
+  const relays = linkRelays(pool)
   const payload: RoomUrlPayload = roomInvitationCapability
     ? {
         v: roomInvitationCapability.persistent ? 3 : 2,
@@ -1227,15 +1320,82 @@ let roomSecret: Uint8Array
 let roomInvitationCapability: RoomInvitation | undefined
 let relays: string[] = RELAYS
 let roomRelayConfig: RelayConfig[] = relayConnections.configuration('default')
+/** The relays the link this room was opened from names, as `useRoomRelays`
+ *  was handed them: what the relay settings show as this device's own when
+ *  it has saved nothing for the room. */
+let roomRelayHints: string[] = []
 function useRoomRelays(hints: string[] = []): void {
+  roomRelayHints = hints
+  // The authority's newest `relays` op, kept on this device, counts from
+  // the start of the visit rather than once the control log has loaded.
+  const roomId = /^room:([a-f0-9]{64})$/.exec(roomRelayScope)?.[1]
+  const record = roomId ? loadRoomRelayRecord(roomId) : undefined
+  if (roomId && record) relayConnections.setRoomRelays(roomId, { added: record.relays })
   roomRelayConfig = relayConnections.configuration(roomRelayScope, hints)
   relays = roomRelayConfig.map(relay => relay.url)
+}
+
+// ---------------------------------------------------------------------------
+// The room's own relays (docs/protocol.md, "Room relays")
+// ---------------------------------------------------------------------------
+//
+// The relays a room is made on are fixed then, carried in its signed group
+// invitation, and used by every member ahead of their own, so any two
+// members share at least one relay whatever else each of them uses. They
+// are kept apart from this device's own relays: see `RelayConnections`.
+
+/** What the room's maker fixes as its relays: the ones its link names, else
+ *  the ones this device reads and writes for it. */
+function makerRoomRelays(roomId: string, linked: string[]): string[] {
+  const fromLink = invitationRelaysFrom(linked)
+  if (fromLink.length) return fromLink
+  return invitationRelaysFrom(relayConnections.configuration(`room:${roomId}`).filter(relay => relay.read && relay.write).map(relay => relay.url))
+}
+
+/** The room's relays as its signed invitation carries them: only what this
+ *  device holds as signed, which on the device that made the room is what
+ *  it fixed. */
+function signedRoomRelays(roomId: string | undefined = currentRoomId()): string[] | undefined {
+  const fixed = roomId ? relayConnections.roomRelays(roomId) : undefined
+  return fixed?.signed ? fixed.c : undefined
+}
+
+/** The relays a link names: the room's own, then those its authority added,
+ *  within the eight a link may carry. Never the rest of this device's pool,
+ *  or every re-shared link would drift with whoever shared it. A room with
+ *  none known yet names its pool's first eight, as before. */
+function linkRelays(pool: string[]): string[] {
+  const roomId = currentRoomId()
+  const shared = roomId ? relayConnections.sharedRelays(roomId) : []
+  return (shared.length ? shared : pool).slice(0, MAX_INVITATION_RELAYS)
+}
+
+/**
+ * A member of a group room whose relays did not come from its signed
+ * invitation reads it once, in the background, and adopts the relays it
+ * names: how members of a room made before invitations carried relays
+ * converge on them. It never fails the room: a retirement, a missing
+ * invitation or a timeout changes nothing, and it is tried again next visit.
+ */
+function readRoomRelaysOnce(invitation: RoomInvitation, roomId: string): void {
+  if (!invitation.persistent || relayConnections.roomRelays(roomId)?.signed) return
+  const scope = roomRelayScope
+  const pool = relayConnections.pool(`lookup:${deriveInvitationId(invitation)}`, relays)
+  requestPersistentRoomAdmission({ transport: pool, invitation })
+    .then(admission => {
+      if (!admission.relays || roomRelayScope !== scope) return
+      if (relayConnections.setRoomRelays(roomId, { fixed: admission.relays, signed: true })) roomRelaysApplied(relayConnections.configuration(roomRelayScope, roomRelayConfig))
+    })
+    .catch(() => { /* Read again on the next visit. */ })
+    .finally(() => pool.close())
 }
 let iceUrls: string[] = DEFAULT_ICE_URLS
 
 /** The root inviter key on the creator, or this member's delegated responder
  * key after admission. Only an empty delegation chain may rotate the link. */
 let invitationAuthoritySk: Uint8Array | undefined
+/** The relays the link this room was opened from names. See `keepGroupInvitationAlive`. */
+let invitationLinkRelays: string[] = []
 let invitationDelegation: InvitationDelegation[] = []
 let invitationHost: { close(): void } | undefined
 let invitationTransport: NostrRelayPool | undefined
@@ -1257,12 +1417,21 @@ function roomAuthority(): string | undefined {
 const ADMISSION_CACHE_PREFIX = 'kithmoot.admission.v1.'
 let admittedRoom: SavedRoomAdmission | undefined
 
+/**
+ * A conference room's end, in unix seconds: the `ends` its group invitation
+ * carries. Undefined for every other room. The session tags everything it
+ * signs with it, the invitation is re-signed with it, and when it comes the
+ * room is shown ended. See app/src/conference.ts.
+ */
+let roomEndsAt: number | undefined
+let conferenceEndTimer: ReturnType<typeof setTimeout> | undefined
+
 function ownerStorageKey(invitation: RoomInvitation): string {
   return INVITATION_OWNER_PREFIX + deriveInvitationId(invitation)
 }
 
-function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, hostSk: Uint8Array): void {
-  try { writeInvitationOwner(deviceStore, invitation, room, hostSk, nowSeconds()) }
+function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, hostSk: Uint8Array, endsAt?: number): void {
+  try { writeInvitationOwner(deviceStore, invitation, room, hostSk, nowSeconds(), endsAt) }
   catch (error) {
     // A temporary meeting can still run entirely in this tab. A group must
     // retain its creator authority before offering durable access to others.
@@ -1270,7 +1439,7 @@ function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, host
   }
 }
 
-function loadInvitationOwner(invitation: RoomInvitation): { roomSecret: Uint8Array; inviterSk: Uint8Array } | undefined {
+function loadInvitationOwner(invitation: RoomInvitation): { roomSecret: Uint8Array; inviterSk: Uint8Array; endsAt?: number } | undefined {
   try { return readInvitationOwner(deviceStore, invitation, nowSeconds()) } catch { return undefined }
 }
 
@@ -1289,6 +1458,8 @@ interface StoredAdmission {
   persistent?: true
   /** What the responder said the room's epoch was. See `RoomAdmission.epoch`. */
   epoch?: number
+  /** A conference room's end. See `PersistentRoomAdmission.endsAt`. */
+  ends?: number
 }
 
 function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission): void {
@@ -1299,6 +1470,7 @@ function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmissio
         ? { delegateSk: bytesToHex(admission.delegate.delegateSk), delegation: admission.delegate.chain }
         : { persistent: true as const }),
       ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
+      ...('endsAt' in admission && admission.endsAt !== undefined ? { ends: admission.endsAt } : {}),
     }
     sessionStorage.setItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation), JSON.stringify(value))
   } catch {
@@ -1316,7 +1488,9 @@ function loadCachedAdmission(invitation: RoomInvitation): SavedRoomAdmission | u
     ) return undefined
     const secret = hexToBytes(value.roomSecret)
     if (secret.length !== 32) return undefined
-    if (value.persistent === true && invitation.persistent && value.epoch === 0) return { secret, persistent: true, epoch: 0 }
+    if (value.persistent === true && invitation.persistent && value.epoch === 0) {
+      return isRoomEnds(value.ends) ? { secret, persistent: true, epoch: 0, endsAt: value.ends } : { secret, persistent: true, epoch: 0 }
+    }
     if (typeof value.delegateSk !== 'string' || !Array.isArray(value.delegation)) return undefined
     const delegateSk = hexToBytes(value.delegateSk)
     if (secret.length !== 32 || delegateSk.length !== 32) return undefined
@@ -1550,7 +1724,71 @@ function renderKeepChoice(): void {
     : 'Off: this device only holds the room\u2019s key while a tab is open on it. Until you switch this on, your rooms list cannot check this room and nothing will tell you about it.'
 }
 
+/** Public relays drop a regular-kind event after hours or days (nos.lol keeps
+ *  it under three days, primal.net under one), and a persistent link is only
+ *  as durable as its signed invitation. The device that made the link signs it
+ *  again while the room is open, so a link shared long after creation still
+ *  loads. Best effort: a refused write is tried again next round. A private
+ *  conversation (a link limited to named members) is left to lapse: keeping
+ *  its link alive would turn a chance expiry into a standing way back in. */
+const GROUP_INVITATION_REFRESH_MS = 6 * 60 * 60 * 1000
+let groupInvitationRefresh: ReturnType<typeof setInterval> | undefined
+
+function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, endsAt?: number): void {
+  const refresh = (): void => {
+    // A conference room's invitation is signed again with the same end,
+    // and not at all once it has come: the room is over, and relays are
+    // meant to have let it go.
+    if (conferenceEnded(endsAt, nowSeconds())) {
+      if (groupInvitationRefresh !== undefined) clearInterval(groupInvitationRefresh)
+      groupInvitationRefresh = undefined
+      return
+    }
+    const roomRelays = signedRoomRelays(deriveRoom(secret).roomId)
+    void publishGroupInvitation(invitation, secret, inviterSk, relays, { endsAt, roomRelays }).catch(() => { /* Retried next round. */ })
+    // The link that opened the room may name relays the room has since left,
+    // and a copy of that link is still out there looking on them.
+    const extra = linkOnlyRelays(relays, invitationLinkRelays, url => relayConnections.isCircle(url))
+    if (extra.length) void publishGroupInvitation(invitation, secret, inviterSk, extra, { scope: `link:${deriveInvitationId(invitation)}`, endsAt, roomRelays }).catch(() => { /* Retried next round. */ })
+  }
+  if (conferenceEnded(endsAt, nowSeconds())) return
+  refresh()
+  groupInvitationRefresh = setInterval(refresh, GROUP_INVITATION_REFRESH_MS)
+}
+
+/**
+ * A group invitation, from the link's relays or, when none of them still has
+ * it, from this device's relays and the app's defaults. See
+ * app/src/invitation-lookup.ts for why asking further is safe and where it
+ * never goes. [onWider] hears the relays that answered from further afield.
+ */
+async function admitFromGroupInvitation(
+  invitation: RoomInvitation,
+  linkRelays: string[],
+  transport: NostrRelayPool,
+  onWider: (relays: string[]) => void,
+): Promise<Awaited<ReturnType<typeof requestPersistentRoomAdmission>>> {
+  try {
+    return await requestPersistentRoomAdmission({ transport, invitation })
+  } catch (err) {
+    const wider = isMissingInvitation(err) ? widerInvitationRelays(linkRelays, RELAYS, DEFAULT_RELAYS, url => relayConnections.isCircle(url)) : []
+    if (wider.length === 0) throw err
+    console.error(`group invitation not on the link's relays; asking ${wider.length} more`)
+    setStatus('Looking further for this room\u2019s invitation\u2026', 'progress')
+    const lookup = relayConnections.pool(`lookup:${deriveInvitationId(invitation)}`, wider)
+    try {
+      const admission = await requestPersistentRoomAdmission({ transport: lookup, invitation })
+      onWider(wider)
+      return admission
+    } finally {
+      lookup.close()
+    }
+  }
+}
+
 function stopInvitationHost(): void {
+  if (groupInvitationRefresh !== undefined) clearInterval(groupInvitationRefresh)
+  groupInvitationRefresh = undefined
   invitationHost?.close()
   invitationTransport?.close()
   invitationHost = undefined
@@ -1560,6 +1798,7 @@ function stopInvitationHost(): void {
 function serveCurrentInvitation(): void {
   stopInvitationHost()
   const invitation = roomInvitationCapability
+  if (invitation?.persistent && invitationAuthoritySk && invitationDelegation.length === 0 && !roomPolicy?.members?.length) keepGroupInvitationAlive(invitation, roomSecret, invitationAuthoritySk, roomEndsAt)
   if (!invitation || !invitationAuthoritySk || invitation.persistent) return
   invitationTransport = configuredPool(relays)
   const admissionRoom = deriveRoom(roomSecret).roomId
@@ -2099,6 +2338,8 @@ function renderIdentity(): void {
   if (document.activeElement !== input) input.value = typedName
 
   ;($('signIn') as HTMLButtonElement).hidden = nostrSession !== undefined
+  // A DM relay list is the account's to publish; a visitor has none.
+  $('dmRelaySettingsOpen').hidden = !nostrSession?.signer.capabilities.canSignEvents
   ;($('signOut') as HTMLButtonElement).hidden = nostrSession === undefined
   $('rendezvousProvision').hidden = !rendezvousBunker(nostrSession)
   $('retryRoomSync').hidden = nostrSession === undefined
@@ -2159,7 +2400,7 @@ function renderIdentity(): void {
   sending.replaceChildren()
   sending.hidden = !session
   if (session) {
-    const visitor = !nostrSession && !loadCredential()
+    const visitor = !nostrSession && !loadCredential() && meParticipant !== expectedAccount
     const shown = shownAs(meParticipant, joiningName())
     const label = visitor ? 'Name only' : 'Nostr'
     const description = `Sending as ${visitor ? 'visitor' : 'Nostr account'}: ${shown.name ?? label}. ${shown.npub}${shown.nip05 ? `. ${shown.nip05}` : ''}`
@@ -2520,11 +2761,11 @@ let screenTrack: MediaStreamTrack | undefined
  *  when the person unticked the box - a share still works with no audio, it
  *  is simply silent, which is what the note near the toggle says. */
 let screenAudioTrack: MediaStreamTrack | undefined
-/** Whether the display carrying this device's own share is itself being
- *  captured right now - a full-screen area, or a plain full-screen share -
+/** Whether this device's own share may be capturing KithMoot itself right
+ *  now - a full-screen area, a whole screen, or a window that may be ours -
  *  and so this device's own live preview of its own share is withheld; see
  *  `applySelfMirrorGuard` and `self-mirror-guard.ts`. */
-let sharingWholeDisplay = false
+let shareMayShowItself = false
 
 let camera: CameraPipeline | undefined
 let mic: MicPipeline | undefined
@@ -2644,12 +2885,26 @@ async function roomFromLocation(): Promise<boolean> {
   roomRelayScope = `room:${knownSecret ? deriveRoom(knownSecret).roomId : deriveInvitationId(invitation!)}`
   if (invitation) {
     roomInvitationCapability = invitation
-    useRoomRelays(parsedLink.relays)
+    invitationLinkRelays = parsedLink.relays
+    const owner = loadInvitationOwner(invitation)
+    // The room's own relays, when its secret is already known here: the
+    // device that made it signs what it holds (or the link's, for a room
+    // made before invitations carried relays); anybody else keeps what it
+    // holds, or takes the link's on first sight.
+    if (knownSecret) {
+      const roomId = deriveRoom(knownSecret).roomId
+      if (owner) relayConnections.setRoomRelays(roomId, { fixed: relayConnections.roomRelays(roomId)?.c ?? makerRoomRelays(roomId, parsedLink.relays), signed: true })
+      else relayConnections.setRoomRelays(roomId, { fixed: invitationRelaysFrom(parsedLink.relays) })
+    }
+    // The maker's own relays are the snapshot it took when it made the room,
+    // not its link's: a link names only the room's relays, and the maker may
+    // also use a read-only or write-only relay of its own.
+    useRoomRelays(owner && relayConnections.inherits(roomRelayScope) ? [] : parsedLink.relays)
     roomPolicy = parsedLink.policy
 
-    const owner = loadInvitationOwner(invitation)
     if (owner) {
       roomSecret = owner.roomSecret
+      roomEndsAt = owner.endsAt
       invitationAuthoritySk = owner.inviterSk
       invitationDelegation = []
       // A room this browser made is at epoch 0: only its authority could
@@ -2665,6 +2920,7 @@ async function roomFromLocation(): Promise<boolean> {
       const cached = invitation.persistent && saved && 'delegate' in saved ? undefined : saved
       if (cached) {
         roomSecret = cached.secret
+        roomEndsAt = 'endsAt' in cached ? cached.endsAt : undefined
         admittedRoom = cached
         invitationAuthoritySk = 'delegate' in cached ? cached.delegate.delegateSk : undefined
         invitationDelegation = 'delegate' in cached ? cached.delegate.chain : []
@@ -2685,16 +2941,27 @@ async function roomFromLocation(): Promise<boolean> {
           // is long enough for somebody to read a card and press a button.
           const askedAs = joiningName()
           const askedFrom = currentParticipant()
+          let foundFurther: string[] = []
           const admission = invitation.persistent
-            ? await requestPersistentRoomAdmission({ transport, invitation })
+            ? await admitFromGroupInvitation(invitation, parsedLink.relays, transport, wider => { foundFurther = wider })
             : await requestRoomAdmissionCapability({
               transport, invitation, timeoutMs: KNOCK_WAIT_MS,
               ...(askedAs !== undefined ? { name: askedAs } : {}),
               ...(askedFrom !== undefined ? { participant: askedFrom } : {}),
             })
           roomSecret = admission.secret
+          roomEndsAt = 'endsAt' in admission ? admission.endsAt : undefined
+          // A relay that ignores NIP-40 can still hand out the invitation of
+          // a conference room that has ended. Nobody joins it.
+          if (conferenceEnded(roomEndsAt, nowSeconds())) throw new Error(conferenceEndedMessage(roomEndsAt!))
           roomRelayScope = `room:${deriveRoom(roomSecret).roomId}`
-          useRoomRelays(parsedLink.relays)
+          // The room's own relays: what its signed invitation names wins;
+          // else the link's, on first sight.
+          const signed = 'relays' in admission ? admission.relays : undefined
+          relayConnections.setRoomRelays(deriveRoom(roomSecret).roomId, signed ? { fixed: signed, signed: true } : { fixed: invitationRelaysFrom(parsedLink.relays) })
+          // Found beyond the link's relays: the room evidently lives there
+          // too, so it is read and written there as well.
+          useRoomRelays([...parsedLink.relays, ...foundFurther])
           admittedRoom = admission
           invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : undefined
           invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
@@ -2715,6 +2982,7 @@ async function roomFromLocation(): Promise<boolean> {
     const { secret, relays: hinted, policy } = parsedLink
     if (!secret) throw new Error('join URL carries neither an invitation nor a secret')
     roomSecret = secret
+    relayConnections.setRoomRelays(deriveRoom(secret).roomId, { fixed: invitationRelaysFrom(hinted) })
     useRoomRelays(hinted)
     roomPolicy = policy
     roomInvitationCapability = undefined
@@ -2737,12 +3005,31 @@ async function roomFromLocation(): Promise<boolean> {
   // list still knows the human name, so keep it when opening that bookmark
   // instead of replacing it with `Room deadbeef` on desktop.
   if (!roomName) roomName = knownRooms(roomStore()).find((room) => room.roomId === currentRoomId())?.name
+  // A room shared through a project carries its name in the project's
+  // encrypted directory rather than in its link. Adopt it as this device's
+  // label, so the room is not "Untitled room" here; it goes no further than
+  // where a named room's own name already goes.
+  if (!roomName) roomName = projectRoomName(currentRoomId())
+  // A membership kept before conference rooms existed, or adopted from a
+  // bookmark, may not carry the end; the rooms list does.
+  if (invitation?.persistent) roomEndsAt ??= knownRoom(roomStore(), currentRoomId() ?? '')?.endsAt
+
+  // A conference room whose end has come opens for nobody, the person who
+  // made it included: its end is the point of it. Said with the date, and
+  // written down so the list shows it ended.
+  if (conferenceEnded(roomEndsAt, nowSeconds())) {
+    const roomId = currentRoomId()
+    if (roomId) for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) markEnded(store, roomId, roomEndsAt!)
+    stopInvitationHost()
+    throw new Error(conferenceEndedMessage(roomEndsAt!))
+  }
 
   // Admitted, one way or another: this is now a room this device has been
   // in, and the list on the front page will offer it again - and, if the
   // person chose to keep it here, readable from there.
   rememberCurrentRoom()
   refreshKeptAdmission()
+  if (invitation && !loadInvitationOwner(invitation)) readRoomRelaysOnce(invitation, deriveRoom(roomSecret).roomId)
   return true
 }
 
@@ -2771,6 +3058,7 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
       roomKey,
       code,
       deviceSk: deviceKey(),
+      expiresAt: roomEndsAt,
     })
     if (generation !== roomGeneration) return
     storeCredential(credential)
@@ -3230,6 +3518,9 @@ async function startNewRoom(): Promise<void> {
   // somebody online to let people in.
   const ask = ($('roomAsk') as HTMLInputElement).checked
   const persistent = !ask
+  // Only a group can be a conference room: a meeting that asks before
+  // anybody joins already ends when its people leave.
+  const endsAt = persistent ? conferenceEndsAt(Number(($('roomEnds') as HTMLSelectElement).value), nowSeconds()) : undefined
   const secret = generateRoomSecret()
   const created = createRoomInvitation(persistent)
   setKnock(deriveRoom(secret).roomId, ask)
@@ -3237,12 +3528,17 @@ async function startNewRoom(): Promise<void> {
   // Snapshot access modes too: an invitation carries URLs, so reconstructing
   // this room from its link must not turn a read-only default into a writer.
   relayConnections.inheritDefaults(relayScope)
+  // The room's own relays: the ones this device reads and writes, fixed
+  // now and named in its signed invitation, so every member uses them.
+  const roomRelays = invitationRelaysFrom(relayConnections.configuration(relayScope.replace(/^room:/, 'inherited:')).filter(relay => relay.read && relay.write).map(relay => relay.url))
+  relayConnections.setRoomRelays(deriveRoom(secret).roomId, { fixed: roomRelays, signed: true })
   // Persist the owner's recovery before publishing. Failure leaves the form
   // usable and never offers a link whose asynchronous admission was not saved.
-  storeInvitationOwner(created.invitation, secret, created.inviterSk)
-  if (persistent) await publishGroupInvitation(created.invitation, secret, created.inviterSk, RELAYS)
+  storeInvitationOwner(created.invitation, secret, created.inviterSk, endsAt)
+  if (persistent) await publishGroupInvitation(created.invitation, secret, created.inviterSk, RELAYS, { endsAt, roomRelays })
   startedHere = true
   admittedRoom = undefined
+  roomEndsAt = endsAt
   expectedEpoch = 0
   roomPolicy = undefined
   roomSecret = secret
@@ -3257,6 +3553,15 @@ async function startNewRoom(): Promise<void> {
   serveCurrentInvitation()
   history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
   rememberCurrentRoom()
+}
+
+/** The "Open in the KithMoot app" button: Android browsers only, and only when
+ *  the page carries a room to hand over. See open-in-app.ts. */
+function renderOpenInApp(): void {
+  const appLink = isAndroidUserAgent(navigator.userAgent) ? appLinkFor(location.href) : undefined
+  $('openInApp').hidden = appLink === undefined
+  if (appLink !== undefined) ($('openInAppLink') as HTMLAnchorElement).href = appLink
+  ;($('getAndroidApp') as HTMLAnchorElement).href = ANDROID_DOWNLOAD_URL
 }
 
 /**
@@ -3294,6 +3599,7 @@ function showRoomUi(): void {
   // the room starts is not where it started a moment ago.
   renderKeepChoice()
   renderArrival()
+  renderOpenInApp()
   $('join').hidden = false
   tryPendingJoin()
   ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
@@ -3320,6 +3626,7 @@ function showRoomTools(): void {
   $('doorToRooms').hidden = true
   $('workspaceNav').hidden = false
   $('invitePeople').hidden = Boolean(roomPolicy?.members?.length)
+  $('inviteQr').hidden = Boolean(roomPolicy?.members?.length)
   renderWorkspace()
   // Notifications are a front-page control as well as a room one, so the
   // markup lives in `main` for the rooms list. In a room it belongs in the
@@ -3576,6 +3883,7 @@ async function joinCall(): Promise<void> {
 function stopLocalMedia(): void {
   desktopShareArea.stop()
   desktopRedaction.closeAll()
+  desktopRedaction.setHidden(false)
   micTrack?.removeEventListener('ended', onMicEnded)
   for (const track of activeTracks()) track.stop()
   mic?.stop()
@@ -3585,7 +3893,7 @@ function stopLocalMedia(): void {
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
-  sharingWholeDisplay = false
+  shareMayShowItself = false
   clearShareError()
   micClaimedAt = monitorClaimedAt = undefined
   besideAnotherDevice = false
@@ -3997,7 +4305,18 @@ function renderRoomTitle(): void {
   const peer = me ? dmPeer(roomPolicy, me) : undefined
   title.textContent = peer ? currentRoomLabel() : roomName ?? 'Room'
   title.title = peer ? currentRoomLabel() : roomName ?? `Room ${shortKey(roomId)}`
+  const ends = $('roomEndsLine')
+  ends.textContent = roomEndsAt === undefined ? '' : conferenceEndsLine(roomEndsAt)
+  ends.hidden = roomEndsAt === undefined
   renderSheetRoom()
+}
+
+/** A conference room's end, in the invite sheet: the link stops working
+ *  then, which anybody about to share it should know. */
+function renderInviteEnds(): void {
+  const line = $('inviteEnds')
+  line.textContent = roomEndsAt === undefined ? '' : `${conferenceEndsLine(roomEndsAt)}. This is a conference room: its link stops working then, and its messages are wiped from relays that honour expiry.`
+  line.hidden = roomEndsAt === undefined
 }
 
 /** The name and the code together, in the room's details. */
@@ -4067,8 +4386,9 @@ async function rotateRoomInvitation(): Promise<void> {
   const retired = roomInvitationCapability
   const retiringSk = invitationAuthoritySk
   const created = createRoomInvitation(retired.persistent === true)
-  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk)
-  if (created.invitation.persistent) await publishGroupInvitation(created.invitation, roomSecret, created.inviterSk, relays)
+  // A conference room's fresh link ends when the room does.
+  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk, roomEndsAt)
+  if (created.invitation.persistent) await publishGroupInvitation(created.invitation, roomSecret, created.inviterSk, relays, { endsAt: roomEndsAt, roomRelays: signedRoomRelays() })
 
   // Tell every cooperative delegated responder before replacing local
   // state. The event is durable, so an offline member learns the retirement
@@ -4079,6 +4399,7 @@ async function rotateRoomInvitation(): Promise<void> {
       invitation: retired,
       inviterSk: retiringSk,
       now: nowSeconds(),
+      endsAt: roomEndsAt,
     }))
   } finally {
     closeWhenSettled(retirementTransport)
@@ -4088,7 +4409,7 @@ async function rotateRoomInvitation(): Promise<void> {
   roomInvitationCapability = created.invitation
   invitationAuthoritySk = created.inviterSk
   invitationDelegation = []
-  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk)
+  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk, roomEndsAt)
   serveCurrentInvitation()
 
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
@@ -4102,12 +4423,18 @@ async function rotateRoomInvitation(): Promise<void> {
   setStatus('A fresh link is ready. Current clients will no longer answer the old link. Existing members stay.')
 }
 
-async function publishGroupInvitation(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[]): Promise<void> {
-  const pool = configuredPool(relayUrls)
+/** `forRoom` names the room the invitation is for when that is not the room
+ *  on screen, so the relays it goes to are exactly `relayUrls` and not
+ *  whatever this room's saved relay settings say. */
+async function publishGroupInvitation(
+  invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, relayUrls: string[],
+  { forRoom, scope, endsAt, roomRelays }: { forRoom?: string; scope?: string; endsAt?: number; roomRelays?: string[] } = {},
+): Promise<void> {
+  const pool = scope ? relayConnections.pool(scope, relayUrls) : forRoom ? relayConnections.pool(`room:${forRoom}`, relayUrls) : configuredPool(relayUrls)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
-      pool.publish(encodePersistentInvitation({ invitation, roomSecret: secret, inviterSk, now: nowSeconds() })),
+      pool.publish(encodePersistentInvitation({ invitation, roomSecret: secret, inviterSk, now: nowSeconds(), endsAt, ...(roomRelays?.length ? { relays: roomRelays } : {}) })),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('the relays did not save the group invitation')), 15_000) }),
     ])
   } finally {
@@ -4132,7 +4459,7 @@ async function makeRoomPersistent(): Promise<void> {
     ...createRoomInvitation(true).invitation,
     inviter: roomInvitationCapability.inviter,
   }
-  await publishGroupInvitation(invitation, roomSecret, invitationAuthoritySk, relays)
+  await publishGroupInvitation(invitation, roomSecret, invitationAuthoritySk, relays, { roomRelays: signedRoomRelays() })
   storeInvitationOwner(invitation, roomSecret, invitationAuthoritySk)
   stopInvitationHost()
   roomInvitationCapability = invitation
@@ -4569,7 +4896,8 @@ async function toggleScreen(area = false): Promise<void> {
     desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
-    sharingWholeDisplay = false
+    shareMayShowItself = false
+    desktopRedaction.setHidden(false)
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
@@ -4607,6 +4935,7 @@ async function toggleScreen(area = false): Promise<void> {
     screenStarting = true
     let stream: MediaStream
     let surface: string | undefined
+    let capture: CaptureIdentity = {}
     try {
       // The desktop app sends every whole-screen share through the redaction
       // canvas, boxes or not, so the raw capture itself is never published.
@@ -4615,6 +4944,11 @@ async function toggleScreen(area = false): Promise<void> {
       if (desktopRedaction.supported) await desktopRedaction.begin()
       stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
       surface = stream.getVideoTracks()[0]?.getSettings().displaySurface
+      // Read off the raw capture, before any redaction canvas stands in for it.
+      capture = {
+        deviceId: stream.getVideoTracks()[0]?.getSettings().deviceId,
+        ownIds: await window.kithmootDesktop?.ownCaptureIds?.().catch(() => undefined),
+      }
       if (!area && desktopRedaction.supported) {
         const raw = stream
         stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
@@ -4629,7 +4963,7 @@ async function toggleScreen(area = false): Promise<void> {
     // plain share carries the standard hint on the captured track, read
     // before any redaction canvas stood in for it, and needs checking only
     // the once, here.
-    if (!area) sharingWholeDisplay = isWholeDisplaySurface(surface)
+    if (!area) shareMayShowItself = mayShowItself(surface, capture)
     if (screenTrack) {
       // Fires when the user stops sharing from the browser's own UI, not
       // ours - the toggle has to notice either way.
@@ -4637,7 +4971,8 @@ async function toggleScreen(area = false): Promise<void> {
         if (generation !== callGeneration) return
         desktopShareArea.stop()
         screenTrack = undefined
-        sharingWholeDisplay = false
+        shareMayShowItself = false
+        desktopRedaction.setHidden(false)
         screenAudioTrack?.stop()
         screenAudioTrack = undefined
         localPreviewEls.get('screen')?.remove()
@@ -4726,10 +5061,10 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
 
 /**
  * Withholds this device's own live picture of its own share from every one
- * of KithMoot's surfaces that show it, whenever the display carrying that
- * surface is itself being captured - see `sharingWholeDisplay` and
- * `self-mirror-guard.ts`. Otherwise a full-screen area, or a plain
- * full-screen share, captures the very tile or window showing the capture,
+ * of KithMoot's surfaces that show it, whenever the share may be capturing
+ * one of those surfaces - see `shareMayShowItself` and
+ * `self-mirror-guard.ts`. Otherwise a full-screen area, a whole screen, or
+ * KithMoot's own window captures the very tile or window showing the capture,
  * which shows the capture, and so on: a hall of mirrors, reported from a
  * real call.
  *
@@ -4741,7 +5076,7 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
 function applySelfMirrorGuard(): void {
   const preview = localPreviewEls.get('screen')
   if (preview) {
-    if (sharingWholeDisplay) {
+    if (shareMayShowItself) {
       if (preview.srcObject) { preview.pause(); preview.srcObject = null }
       preview.classList.add('selfMirrorGuard')
     } else {
@@ -4965,9 +5300,35 @@ function renderRedactionNote(note: string | undefined): void {
   line.hidden = !note
 }
 
+/**
+ * Hides or shows this device's whole outgoing share. The track stays live
+ * and is never swapped, so nothing is renegotiated and no raw frame goes out
+ * on the way in or the way back: the canvas simply covers the picture. The
+ * share's sound is silenced with it.
+ */
+function setShareHidden(hidden: boolean): void {
+  desktopRedaction.setHidden(hidden && !!screenTrack)
+  if (screenAudioTrack) screenAudioTrack.enabled = !desktopRedaction.hidden
+}
+
 function updateRedactionControls(): void {
+  const hide = document.getElementById('hideShare')
+  if (hide) {
+    const hidden = desktopRedaction.hidden
+    hide.hidden = !screenTrack
+    setToggle('hideShare', hidden)
+    hide.textContent = hidden ? 'Show my share' : 'Hide my share'
+    hide.title = hidden ? 'Let people see your share again' : 'Cover your whole share, and silence its sound, until you show it again'
+    // An area share has no note of its own; a screen share says the same words.
+    const line = document.getElementById('redactionNote')
+    if (hidden) renderRedactionNote(coverCopy('hidden'))
+    else if (line?.textContent === coverCopy('hidden')) renderRedactionNote(undefined)
+  }
   const all = document.getElementById('toggleRedaction')
   if (!all) return
+  // Each press adds a box, and the button says so once there is one.
+  const add = document.getElementById('addRedaction')
+  if (add) add.textContent = desktopRedaction.count === 0 ? 'Hide part of the screen' : 'Hide another part'
   all.hidden = desktopRedaction.count === 0
   setToggle('toggleRedaction', desktopRedaction.anyOn())
   all.textContent = desktopRedaction.anyOn() ? 'Redaction on' : 'Redaction off'
@@ -4979,6 +5340,7 @@ function updateUi(): void {
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
   setToggle('toggleScreen', !!screenTrack)
+  updateRedactionControls()
   const areaButton = document.getElementById('shareArea') as HTMLButtonElement | null
   if (areaButton) areaButton.disabled = !!screenTrack
   const share = $('toggleScreen')
@@ -5112,15 +5474,23 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
     remoteVolume.apply(key, audio.el, audio.track, level, muted)
   }
 
+  const micElsewhere = mine?.mic !== undefined && mine.mic !== myDeviceId
   {
     const twoDevices = (mine?.devices.length ?? 0) > 1
+    // Both on the other device: one sentence for the two of them, in place
+    // of the microphone line saying half of it again - see `.otherDevice`
+    // in style.css, and `[data-other-device]` for the line it stands in for.
+    const both = twoDevices && !monitorHere && micElsewhere
     const monEl = $('monitorIndicator')
     monEl.hidden = !twoDevices
-    monEl.textContent = !twoDevices ? '' : monitorHere ? 'Sound plays on this device.' : 'Sound plays on your other device, so this one stays quiet.'
+    monEl.textContent = !twoDevices ? ''
+      : monitorHere ? 'Sound plays on this device.'
+      : both ? 'Mic and sound are on your other device.'
+      : 'Sound plays on your other device.'
     ;($('listenHere') as HTMLButtonElement).hidden = !twoDevices || monitorHere
+    $('deviceControls').toggleAttribute('data-other-device', both)
   }
   const micEl = $('micIndicator')
-  const micElsewhere = mine?.mic !== undefined && mine.mic !== myDeviceId
   if (mine?.mic) {
     micEl.textContent = mine.mic === myDeviceId
       ? (micTrack?.enabled ? 'Mic: this device' : 'Mic: this device (muted)')
@@ -5300,18 +5670,24 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       // finds. One tap on the preview opens it too.
       const expand = document.createElement('button')
       expand.type = 'button'; expand.className = 'shareExpand'
-      expand.textContent = available ? 'Expand screen share' : 'Screen share arriving…'
-      expand.disabled = !available
+      // This device's own share while it may be filming KithMoot: opened in
+      // the viewer, inside the captured window, it was the mirror again.
+      // Asked again at the click, because an area can grow to fill the
+      // screen after the tile was drawn.
+      const mirrored = (): boolean => device === myDeviceId && shareMayShowItself
+      expand.textContent = mirrored() ? 'Preview paused while sharing' : available ? 'Expand screen share' : 'Screen share arriving…'
+      expand.disabled = !available || mirrored()
       expand.setAttribute('aria-label', `Expand screen share from ${shown.name ?? shown.short}`)
-      expand.addEventListener('click', () => shareViewer.open(source, expand))
+      const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand) }
+      expand.addEventListener('click', openViewer)
       box.append(expand)
       if (!available) continue
       const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(tileKey(device, 'screen'))?.el
         ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el
       if (preview) {
         preview.classList.add('screenPreview')
-        if (device === myDeviceId) preview.ondblclick = () => shareViewer.open(source, expand)
-        else preview.onclick = () => shareViewer.open(source, expand)
+        if (device === myDeviceId) preview.ondblclick = openViewer
+        else preview.onclick = openViewer
         // Marks drawn on this share show over its preview, so the person
         // sharing sees what is being pointed at without opening anything.
         if (!shareMarkOverlays.has(preview)) shareMarkOverlays.set(preview, shareViewer.overlay(preview, () => source()?.id))
@@ -5590,6 +5966,90 @@ function peerCrypt(): PeerCrypt | undefined {
   }
 }
 
+/** How long starting a conversation waits for the two DM relay lists before
+ *  going ahead without them. A lookup that never answers must not leave a
+ *  person staring at "Starting…". */
+const DM_RELAY_LOOKUP_MS = 2_500
+
+/** Relay URLs once each, however they were spelt: `wss://nos.lol` and
+ *  `wss://nos.lol/` are one relay, and a pool refuses a list naming it twice. */
+function distinctRelays(urls: string[]): string[] {
+  const out: string[] = []
+  for (const url of urls) {
+    try {
+      const normal = normaliseRelayConfig([url])[0]!.url
+      if (!out.includes(normal)) out.push(normal)
+    } catch { /* Not a relay a pool would take. */ }
+  }
+  return out
+}
+
+/** Kind 10050 lists for these authors from these relays, as many as arrive
+ *  before every relay has finished or the wait is up. */
+async function lookUpDmRelayLists(authors: string[], urls: string[], kinds: number[] = [KIND_DM_RELAYS]): Promise<NostrEvent[]> {
+  const pool = relayConnections.pool('profiles', distinctRelays(urls))
+  const found: NostrEvent[] = []
+  try {
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, DM_RELAY_LOOKUP_MS)
+      pool.subscribe([{ kinds, authors }], event => found.push(event), () => { clearTimeout(timer); resolve() })
+    })
+  } finally {
+    pool.close()
+  }
+  return found
+}
+
+/** Each project member's inbox relays, looked up once a session (and again
+ *  after ten minutes), so a burst of project edits asks only once. */
+const projectInboxes = new Map<string, { relays: string[]; at: number }>()
+const PROJECT_INBOX_TTL_MS = 10 * 60 * 1000
+
+/**
+ * Hands a project wrap for `recipient` to where they read: their NIP-17 DM
+ * relays, else their NIP-65 read relays (see `inboxRelays`). Without this a
+ * project reached only members who happened to read one of the owner's own
+ * relays. The wrap already names the recipient to every relay it goes to,
+ * so looking their lists up tells the lookup relays nothing the wrap does
+ * not; relays the owner already wrote it to are skipped.
+ */
+async function deliverProjectWrap(wrap: NostrEvent, recipient: string): Promise<void> {
+  let inbox = projectInboxes.get(recipient)
+  if (!inbox || Date.now() - inbox.at > PROJECT_INBOX_TTL_MS) {
+    const own = relayConnections.configuration('default').map(relay => relay.url)
+    const lists = await lookUpDmRelayLists([recipient], [...new Set([...own, ...RELAYS, ...PROFILE_RELAYS])], [KIND_DM_RELAYS, KIND_RELAY_LIST])
+    inbox = { relays: inboxRelays(lists, recipient), at: Date.now() }
+    projectInboxes.set(recipient, inbox)
+  }
+  const own = new Set(relayConnections.configuration('default').map(relay => relay.url))
+  const targets = inbox.relays.filter(url => !own.has(url))
+  if (!targets.length) return
+  const pool = relayConnections.pool('project-inbox', targets)
+  try { await pool.publish(wrap) } finally { pool.close() }
+}
+
+/**
+ * The relays a new private conversation with `peer` is started on: the two
+ * people's own DM relay lists (see `src/dm-relays.ts`), or the room it is
+ * started from when neither has one. The other person's list is asked for
+ * only while public profile lookups are on, the same switch that decides
+ * whether anybody's key is sent to public relays at all; without it the
+ * conversation goes where the starter chose, topped up from this room.
+ */
+async function relaysForConversationWith(me: string, peer: string): Promise<string[]> {
+  if (!nostrSession) return relays
+  const authors = profilesEnabled ? [me, peer] : [me]
+  let lists: NostrEvent[] = []
+  try {
+    lists = await lookUpDmRelayLists(authors, [...new Set([...relays, ...RELAYS, ...PROFILE_RELAYS])])
+  } catch { /* No lists is the old behaviour, not a failure. */ }
+  return relaysForPrivateConversation({
+    mine: latestDmRelayList(lists, me),
+    theirs: profilesEnabled ? latestDmRelayList(lists, peer) : [],
+    fallback: relays,
+  })
+}
+
 let startingDm = false
 async function startDirectMessage(peer: string, peerName: string | undefined, quiet: boolean): Promise<void> {
   const s = session
@@ -5622,10 +6082,16 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
     const secret = generateRoomSecret()
     const created = createRoomInvitation(true)
     const { roomId } = deriveRoom(secret)
+    // Both the invitation and the link name the conversation's own relays:
+    // a device that has never been in it fetches the invitation from the
+    // relays the link names, so the two must agree.
+    const dmRelays = await relaysForConversationWith(me, peer)
     storeInvitationOwner(created.invitation, secret, created.inviterSk)
-    await publishGroupInvitation(created.invitation, secret, created.inviterSk, relays)
+    const roomRelays = invitationRelaysFrom(dmRelays)
+    relayConnections.setRoomRelays(roomId, { fixed: roomRelays, signed: true })
+    await publishGroupInvitation(created.invitation, secret, created.inviterSk, dmRelays, { forRoom: roomId, roomRelays })
     const policy: RoomPolicy = quiet ? { ...dmPolicy(me, peer), quiet: true } : dmPolicy(me, peer)
-    const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays, iceUrls, policy })
+    const link = encodeRoomLink(joinLinkBase(), { invitation: created.invitation, relays: dmRelays, iceUrls, policy })
     const invite = await sealInvite(link, { to: peer, room: roomId, crypt })
     const text = inviteText()
     if (session !== s || contactIsBlocked(peer)) throw new Error('The room or contact permission changed.')
@@ -5758,6 +6224,106 @@ const controlSeen = new Set<string>()
 // person is not given), ask it to close the room, and ask a person to mute.
 // The first two are enforced by the key; the third is manners, and says so.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Room relays: the room's authority adding relays for everybody
+// ---------------------------------------------------------------------------
+//
+// A signed `relays` op on the control channel (see `room-relays.ts`). Every
+// member adds the listed relays to the ones this device already uses for
+// the room; nothing is taken away. The newest version is kept on the device,
+// so a record that has scrolled out of the control log's window can still
+// be reposted by anybody who holds it.
+
+interface RoomRelayRecord { relays: string[]; version: number; sig: string }
+const ROOM_RELAYS_PREFIX = 'kithmoot.room-relays.v1.'
+/** A record older than this in the log is posted again, so a newcomer
+ *  reading the last 30 days of the control channel still finds it. */
+const ROOM_RELAYS_REPOST_SECONDS = 20 * 24 * 60 * 60
+/** When the newest copy of the record in this room's log was sent. */
+let roomRelaysSeenAt = 0
+let roomRelaysRepostTimer: ReturnType<typeof setTimeout> | undefined
+
+function loadRoomRelayRecord(roomId: string): RoomRelayRecord | undefined {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ROOM_RELAYS_PREFIX + roomId) ?? 'null') as RoomRelayRecord | null
+    return raw && Array.isArray(raw.relays) && Number.isSafeInteger(raw.version) && typeof raw.sig === 'string' ? raw : undefined
+  } catch { return undefined }
+}
+
+function storeRoomRelayRecord(roomId: string, record: RoomRelayRecord): void {
+  try { localStorage.setItem(ROOM_RELAYS_PREFIX + roomId, JSON.stringify(record)) } catch { /* Still applies to this visit. */ }
+}
+
+/** This device holds the key pinned in the link, not a delegated one. */
+function isRoomAuthority(): boolean {
+  return !!invitationAuthoritySk && invitationDelegation.length === 0 && roomAuthority() === getPublicKey(invitationAuthoritySk)
+}
+
+/** Add the record's relays to the room's own, which every member uses
+ *  ahead of this device's: nothing this device chose is overwritten, and
+ *  only the sixteen-relay pool cap ever leaves one of its own out. */
+function adoptRoomRelays(record: RoomRelayRecord): string[] {
+  const roomId = currentRoomId()
+  const missing = record.relays.filter(url => !roomRelayConfig.some(relay => relay.url === url))
+  if (!roomId || roomRelayScope === 'default') return []
+  if (!relayConnections.setRoomRelays(roomId, { added: record.relays })) return []
+  roomRelaysApplied(relayConnections.configuration(roomRelayScope, roomRelayConfig))
+  return missing
+}
+
+function ingestRoomRelays(control: Extract<ControlMessage, { op: 'relays' }>, sentAt: number): void {
+  const authority = roomAuthority(), s = session
+  if (!authority || !s) return
+  if (!verifyRoomRelays({ roomId: s.roomId, version: control.version, relays: control.relays, sig: control.sig, authority })) return
+  const known = loadRoomRelayRecord(s.roomId)
+  if (known && known.version === control.version) roomRelaysSeenAt = Math.max(roomRelaysSeenAt, sentAt)
+  if (known && known.version >= control.version) return
+  const record = { relays: control.relays, version: control.version, sig: control.sig }
+  storeRoomRelayRecord(s.roomId, record)
+  roomRelaysSeenAt = sentAt
+  const added = adoptRoomRelays(record)
+  if (added.length && !isRoomAuthority()) setStatus(`This room now also uses ${added.join(', ')}, as its owner asked.`)
+}
+
+async function postRoomRelays(s: RoomSession, record: RoomRelayRecord): Promise<void> {
+  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'relays', ...record }))
+  roomRelaysSeenAt = nowSeconds()
+}
+
+/** A while after joining, once the control log has loaded, post the record
+ *  again if the log's newest copy is about to fall out of its window. */
+function scheduleRoomRelaysRepost(s: RoomSession): void {
+  clearTimeout(roomRelaysRepostTimer)
+  roomRelaysRepostTimer = setTimeout(() => {
+    if (session !== s) return
+    const record = loadRoomRelayRecord(s.roomId)
+    if (!record || roomRelaysSeenAt > nowSeconds() - ROOM_RELAYS_REPOST_SECONDS) return
+    postRoomRelays(s, record).catch(() => { /* Tried again on the next visit. */ })
+  }, 30_000 + Math.random() * 30_000)
+}
+
+/** The authority: every member should use these relays too. */
+async function shareRoomRelays(urls: string[]): Promise<string> {
+  const s = session, sk = invitationAuthoritySk
+  if (!s || !sk || !isRoomAuthority()) throw new Error('Only the person who made this room can change its relays for everyone.')
+  const relays = canonicalRoomRelays(urls)
+  if (!await confirmRoomAction({
+    title: 'Use these relays for everyone?',
+    message: `Everyone in this room will also connect to ${relays.join(', ')}. Whoever runs each relay will carry this room's messages and calls setup, encrypted, and can see when people are active. Nobody loses a relay they already use.`,
+    confirmLabel: 'Use for everyone', cancelLabel: 'Cancel',
+  })) return ''
+  const version = Math.max(nowSeconds(), (loadRoomRelayRecord(s.roomId)?.version ?? 0) + 1)
+  const record = { relays, version, sig: signRoomRelays({ roomId: s.roomId, version, relays, authoritySk: sk }) }
+  storeRoomRelayRecord(s.roomId, record)
+  await postRoomRelays(s, record)
+  // A group link admits newcomers from its invitation event alone, so the
+  // relays everyone now uses must hold it too, or somebody (or an agent
+  // host) that later reads only from them cannot get in.
+  const invitation = roomInvitationCapability
+  if (invitation?.persistent) await publishGroupInvitation(invitation, roomSecret, sk, relays, { endsAt: roomEndsAt, roomRelays: signedRoomRelays() })
+  return 'Everyone in this room will add these relays the next time their app hears from it.'
+}
 
 /** Who may act on this room, as the keeper last announced it. */
 let admins = new Set<string>()
@@ -5923,6 +6489,28 @@ const NOTICE_STORAGE_KEY = 'kithmoot.notice'
  * reload into this room's door in session storage, so the person can read
  * it after the conversation has closed.
  */
+/**
+ * End a conference room on this screen when its end comes: written down as
+ * ended, so the list says so, and left with the date. Re-armed in steps,
+ * since a browser timer cannot wait as long as thirty days in one go.
+ */
+function scheduleConferenceEnd(s: RoomSession): void {
+  clearTimeout(conferenceEndTimer)
+  conferenceEndTimer = undefined
+  const endsAt = s.endsAt
+  if (endsAt === undefined) return
+  const wait = Math.min(Math.max(0, (endsAt - nowSeconds()) * 1000), 2 ** 31 - 1)
+  conferenceEndTimer = setTimeout(() => {
+    conferenceEndTimer = undefined
+    if (session !== s) return
+    if (!conferenceEnded(endsAt, nowSeconds())) { scheduleConferenceEnd(s); return }
+    markEnded(deviceStore, s.roomId, endsAt)
+    if (bookmarks) markEnded(bookmarks.rooms, s.roomId, endsAt)
+    stopInvitationHost()
+    leaveWithNotice(conferenceEndedMessage(endsAt))
+  }, wait)
+}
+
 function leaveWithNotice(message: string): void {
   try {
     sessionStorage.setItem(NOTICE_STORAGE_KEY, message)
@@ -5955,7 +6543,8 @@ function muteRequested(by: string): void {
     desktopShareArea.stop()
     screenTrack.stop()
     screenTrack = undefined
-    sharingWholeDisplay = false
+    shareMayShowItself = false
+    desktopRedaction.setHidden(false)
     screenAudioTrack?.stop()
     screenAudioTrack = undefined
     localPreviewEls.get('screen')?.remove()
@@ -6159,6 +6748,9 @@ function ingestControl(messages: ChatMessage[]): void {
         break
       case 'error':
         if (control.host === m.participant && m.sentAt >= nowSeconds() - 30) setStatus(`Agent host: ${control.message}`)
+        break
+      case 'relays':
+        ingestRoomRelays(control, m.sentAt)
         break
       case 'channels': {
         // Only a list the room's authority signed, and only the newest. An
@@ -9087,7 +9679,7 @@ function isUnreachableRelayFailure(error: unknown): boolean {
   return error instanceof Error && /no relay could be reached in time/.test(error.message)
 }
 
-async function startSession(asVisitor = false, retry?: { deadline: number }): Promise<void> {
+async function startSession(asVisitor = false, retry?: { deadline: number, signerRetried?: boolean }): Promise<void> {
   const generation = roomGeneration
   if (!retry && (joining || session || loginBusy)) return
   const requestedMedia = entryMediaChoice()
@@ -9111,7 +9703,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // A restored signer can arrive after the invitation. Joining first
     // would mint a visitor identity that a known-contact clerk rejects,
     // even though the account UI subsequently says we are signed in.
-    if (identityRestoring) {
+    // A room this device holds the account's pass for does not wait for
+    // the signer to come back: that wait is the whole problem when it will
+    // not. Bookmarks and the rest follow when it does.
+    if (identityRestoring && !accountPassForRoom()) {
       setStatus('Reconnecting your sign-in…', 'progress')
       await identityReady
       if (generation !== roomGeneration) return
@@ -9232,14 +9827,14 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // hands the wrapper the epoch key. The device holding the identity is
     // slot 0, the device it paired slot 1; each draws from its own half of
     // the member's drop keys, so no key is used twice. See src/quiet.ts.
-    const quietRoomId = deriveRoom(roomSecret).roomId
+    const sessionRoomId = deriveRoom(roomSecret).roomId
     quietTransport = isQuietPolicy(roomPolicy)
       ? quietRoomTransport(pool, {
           policy: roomPolicy!,
           participant: credential ? credential.pubkey : currentIdentity().pubkey,
           slot: credential ? 1 : 0,
-          used: loadQuietState(deviceStore, quietRoomId, nowSeconds()).used,
-          reservedCounters: epoch => cadenceReservedCounters(deviceStore, quietRoomId, deviceId, epoch),
+          used: loadQuietState(deviceStore, sessionRoomId, nowSeconds()).used,
+          reservedCounters: epoch => cadenceReservedCounters(deviceStore, sessionRoomId, deviceId, epoch),
           intervalSeconds: QUIET_SLOT,
           onUsed: () => persistQuiet(),
           onPosted: () => persistQuiet(),
@@ -9278,6 +9873,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
+          // A conference room: everything signed for it lapses at its end.
+          endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -9305,6 +9902,15 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // A local key or an external signer - the session cannot tell,
           // and does not need to. See src/identity.ts.
           identity: currentIdentity(),
+          // Coming back to a room should not wait on a bunker: the
+          // credential minted last time is offered, and the session uses it
+          // only if it is still this device's and still good. Kept by the
+          // room id this session was built for, which a docked call may
+          // not share with the screen.
+          resume: loadOwnCredentialFor(deviceStore, sessionRoomId, nowSeconds()),
+          onCredential: (minted) => {
+            try { storeOwnCredentialFor(deviceStore, sessionRoomId, minted) } catch { /* storage may be unavailable */ }
+          },
           deviceSk,
           factory,
           policy: roomPolicy,
@@ -9321,6 +9927,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
           // were handed. See src/epoch.ts and docs/decisions.md.
           authority: roomAuthority(),
           expectedEpoch,
+          // A conference room: everything signed for it lapses at its end.
+          endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -9412,6 +10020,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     selectRoomDrafts()
     void assignmentPanel.attach(s)
     iceRefreshTimer = setInterval(refreshIce, ICE_REFRESH_MS)
+    scheduleConferenceEnd(s)
     if (!chatOnly) s.publishTracks(activeTracks(), { audience })
 
     // What lands while this tab is in the background is worth a
@@ -9420,7 +10029,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     if (window.kithmootDesktop) for (const room of knownRooms(roomStore())) watchKnownRoom(room)
     const joinedRoomId = currentRoomId() ?? s.roomId
     const roomLabelNow = () => currentRoomLabel()
-    followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey)
+    followReadPositions(joinedRoomId, deriveRoom(roomSecret).roomKey, s.endsAt)
     const notifyChat = notifier.follow({ roomId: joinedRoomId, channel: 'chat', room: roomLabelNow, sender: senderLabel, roster: () => s.participants(), direct: () => dmPeer(roomPolicy, meParticipant) !== undefined })
     s.chat.onChange(() => coalesceChatPaint(dockedCall?.session === s ? 'docked-chat' : 'chat', () => {
       // A docked call's room still tells the person when somebody writes.
@@ -9502,6 +10111,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     ingestControl(control.messages())
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
     scheduleReseed(s, pool, !!quietTransport, sessionAuthority)
+    scheduleRoomRelaysRepost(s)
     renderRoomLockState()
     renderHost()
     // Empty until the keeper answers the `catalogue?` above with its signed
@@ -9518,6 +10128,11 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
     // "Invitation accepted. Go in when you are ready." has been acted on.
     // A line about getting in is stale the moment you are in.
     setStatus('')
+    const pass = accountPassForRoom()
+    if (pass && meParticipant === pass.pubkey) {
+      const until = new Date(Number(pass.tags.find(tag => tag[0] === 'expiration')?.[1]) * 1000)
+      setStatus(`Your Nostr signer is not connected, so you are in on this device's pass for this room until ${until.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Reconnect before then to stay.`)
+    }
     showRoomTools()
     // The join screen has gone and the room is on: the last chance for the
     // masthead to have changed height.
@@ -9554,11 +10169,23 @@ async function startSession(asVisitor = false, retry?: { deadline: number }): Pr
       retrying = true
       setStatus("Still reaching the room's relays\u2026", 'progress')
       await new Promise(resolve => setTimeout(resolve, 1_000))
-      if (generation === roomGeneration) { await startSession(asVisitor, { deadline }); return }
+      if (generation === roomGeneration) { await startSession(asVisitor, { deadline, signerRetried: retry?.signerRetried }); return }
+      return
+    }
+    // A bunker that did not answer is asleep or waiting for a yes; see
+    // signer-timeout.ts. Tried once more while the person goes to look.
+    if (isSignerTimeout(err) && !retry?.signerRetried) {
+      retrying = true
+      console.error('join waiting for signer:', describeError(err))
+      setStatus(SIGNER_WAITING, 'progress')
+      if (generation === roomGeneration) { await startSession(asVisitor, { deadline: Date.now() + 20_000, signerRetried: true }); return }
       return
     }
     const message = describeError(err)
-    if (message.includes('expired')) {
+    if (isSignerTimeout(err)) {
+      console.error('join failed:', message)
+      setStatus(SIGNER_SILENT)
+    } else if (message.includes('expired')) {
       forgetCredential()
       setStatus('This device\u2019s pass for this room has run out. Ask your other device for a new one.')
     } else if (isNetworkFailure(err)) {
@@ -9667,7 +10294,7 @@ function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
 }
 
 function watchKnownRoom(room: KnownRoom): void {
-  if (roomWatches.has(room.roomId) || room.endedAt !== undefined) return
+  if (roomWatches.has(room.roomId) || room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) return
   let link: RoomLink
   try {
     link = parseRoomLink(room.link)
@@ -9705,7 +10332,7 @@ function watchKnownRoom(room: KnownRoom): void {
   })
   notify(watch.messages())
   roomWatches.set(room.roomId, { pool, watch })
-  followReadPositions(roomId, roomKey)
+  followReadPositions(roomId, roomKey, room.endsAt)
 }
 
 function stopWatching(roomId: string): void {
@@ -9758,6 +10385,12 @@ function hideRoomsList(): void {
 let lastRoomOrder: string[] | undefined
 
 function renderRooms(): void {
+  // A conference room ends by the clock, with no event to say so. The list
+  // is redrawn on a timer, so this is where one that has ended is written
+  // down as ended and stops being watched.
+  for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) {
+    for (const roomId of endLapsedConferences(store, nowSeconds())) stopWatching(roomId)
+  }
   if (($('roomSwitcher') as HTMLDialogElement).open) renderRoomSwitcher()
   renderWorkspace()
   if (!roomsListShown) return
@@ -9887,8 +10520,10 @@ interface RoomRowState {
 
 function roomRowState(room: KnownRoom): RoomRowState {
   const time = formatActivityTime(activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? []))
-  if (room.endedAt !== undefined) {
-    const preview = 'Ended. Its invite link no longer works.'
+  if (room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) {
+    const preview = room.endsAt !== undefined && room.endsAt <= (room.endedAt ?? room.endsAt)
+      ? `Conference room. Ended ${formatConferenceEnd(room.endsAt)}.`
+      : 'Ended. Its invite link no longer works.'
     return { preview, time, unreadCount: 0, agentCount: 0, presenceCount: 0, description: preview }
   }
   const watched = roomWatches.get(room.roomId)
@@ -10071,9 +10706,15 @@ function dmPeerOf(room: Pick<KnownRoom, 'link'>): string | undefined {
 
 /** What to call a room on the list: a direct message is named for the
  *  person on the other end, everything else by `roomLabel`. */
+/** The name a joined project gives this room, if any. */
+function projectRoomName(roomId: string | undefined): string | undefined {
+  if (!roomId) return undefined
+  return sanitiseDisplayName(sharedProjects.sharedRooms().find(room => room.roomId === roomId)?.name)
+}
+
 function knownRoomLabel(room: KnownRoom): string {
   const peer = dmPeerOf(room)
-  if (!peer) return roomLabel(room)
+  if (!peer) return roomLabel({ roomId: room.roomId, name: room.name ?? projectRoomName(room.roomId) })
   // The name remembered when the conversation was started or received, then
   // whatever a profile says, then the key. A DM link carries no room name.
   return `${isQuietRoom(room) ? 'Quiet' : 'Private'}: ${room.name ?? shownAs(peer).name ?? shortKey(peer)}`
@@ -10572,6 +11213,8 @@ function resetRoomState(): void {
   controlSeen.clear()
   admins.clear()
   adminsAt = channelsAt = 0
+  roomRelaysSeenAt = 0
+  clearTimeout(roomRelaysRepostTimer)
   channels = []
   channelLogs.clear()
   channelCounts.clear()
@@ -10593,11 +11236,15 @@ function resetRoomState(): void {
   invitationDelegation = []
   expectedEpoch = undefined
   admittedRoom = undefined
+  roomEndsAt = undefined
+  clearTimeout(conferenceEndTimer)
+  conferenceEndTimer = undefined
   startedHere = false
   meParticipant = ''
   roomRelayScope = 'default'
   relays = RELAYS
   roomRelayConfig = relayConnections.configuration('default')
+  roomRelayHints = []
   iceUrls = DEFAULT_ICE_URLS
   // Carrying others, and this device's key, belong to the docked call.
   if (!docked()) {
@@ -10666,11 +11313,12 @@ function resumeDockedCall(): void {
   serveCurrentInvitation()
   selectRoomDrafts()
   void assignmentPanel.attach(s)
-  followReadPositions(s.roomId, deriveRoom(roomSecret).roomKey)
+  followReadPositions(s.roomId, deriveRoom(roomSecret).roomKey, s.endsAt)
   // What arrived while the call was docked: the logs kept listening, and
   // only the screen stopped following them.
   for (const [name, log] of channelLogs) channelCounts.set(name, log.messages().length)
   ingestControl(s.channel(CONTROL_CHANNEL).messages())
+  scheduleRoomRelaysRepost(s)
   renderRoomLockState()
   renderHost()
   renderChannels()
@@ -10780,6 +11428,7 @@ interface RoomUiState {
   roomRelayScope: string
   relays: string[]
   roomRelayConfig: RelayConfig[]
+  roomRelayHints: string[]
   iceUrls: string[]
   sessionAuthority: string | undefined
   presenceAnnouncements: PresenceAnnouncements | undefined
@@ -10792,7 +11441,7 @@ function captureRoomUi(): RoomUiState {
     keeperParticipant, agentParticipants: new Set(agentParticipants), agentDisplayNames: new Map(agentDisplayNames),
     receiptAgents: new Set(receiptAgents), handledInvites: new Set(handledInvites), approvals: new Map(approvals),
     systemLines: [...systemLines], roomSecret, roomPolicy, roomName, roomInvitationCapability, invitationAuthoritySk,
-    invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope, relays, roomRelayConfig, iceUrls,
+    invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope, relays, roomRelayConfig, roomRelayHints, iceUrls,
     sessionAuthority, presenceAnnouncements,
   }
 }
@@ -10813,7 +11462,7 @@ function restoreRoomUi(ui: RoomUiState): void {
   systemLines.push(...ui.systemLines)
   ;({ admins, adminsAt, channelsAt, channels, conversationRead, currentChannel, keeperParticipant, roomSecret, roomPolicy, roomName,
     roomInvitationCapability, invitationAuthoritySk, invitationDelegation, expectedEpoch, admittedRoom, startedHere, roomRelayScope,
-    relays, roomRelayConfig, iceUrls, sessionAuthority, presenceAnnouncements } = ui)
+    relays, roomRelayConfig, roomRelayHints, iceUrls, sessionAuthority, presenceAnnouncements } = ui)
 }
 
 async function forgetKnownRoom(room: KnownRoom): Promise<void> {
@@ -10854,6 +11503,7 @@ function forgetLocally(roomId: string): void {
   readSync?.forget(roomId)
   forgetRoomAccess(deviceStore, roomId)
   forgetRoomAccess(browserDeviceStore(sessionStorage), roomId)
+  forgetOwnCredentials(deviceStore, roomId)
   forgetQuietState(deviceStore, roomId)
   forgetRoom(deviceStore, roomId)
   renderRooms()
@@ -11419,19 +12069,41 @@ $('searchConversation').addEventListener('click', () => {
   } else conversationSearch.open(undefined, 'conversation')
 })
 const inviteDialog = $('inviteDialog') as HTMLDialogElement
-$('invitePeople').addEventListener('click', () => {
+/** Which button opened the invite sheet, to hand focus back to. */
+let inviteOpener: HTMLElement = $('invitePeople')
+function openInviteDialog(qrFirst: boolean): void {
   if (!session || roomPolicy?.members?.length || inviteDialog.open) return
   $('inviteStatus').textContent = ''
+  renderInviteEnds()
   $('inviteSlot').append($('inviteContent'))
-  ;($('copyShare') as HTMLButtonElement).autofocus = true
+  inviteOpener = qrFirst ? $('inviteQr') : $('invitePeople')
+  inviteDialog.classList.toggle('qrFirst', qrFirst)
+  const qr = $('shareQrDetails') as HTMLDetailsElement
+  if (qrFirst) {
+    // The code first and already drawn, large: one tap from the room to
+    // something the person opposite can point a camera at.
+    $('inviteContent').prepend(qr)
+    renderQr($('shareQr') as HTMLCanvasElement, ($('shareUrl') as HTMLInputElement).value, LARGE_QR_WIDTH).catch((err) => setStatus(describeError(err)))
+    qr.open = true
+  }
+  ;($('copyShare') as HTMLButtonElement).autofocus = !qrFirst
   inviteDialog.showModal()
-  $('copyShare').focus({ preventScroll: true })
-})
+  ;(qrFirst ? $('inviteClose') : $('copyShare')).focus({ preventScroll: true })
+}
+$('invitePeople').addEventListener('click', () => openInviteDialog(false))
+$('inviteQr').addEventListener('click', () => openInviteDialog(true))
 $('inviteClose').addEventListener('click', () => inviteDialog.close())
 inviteDialog.addEventListener('close', () => {
   ;($('copyShare') as HTMLButtonElement).autofocus = false
+  if (inviteDialog.classList.contains('qrFirst')) {
+    // Back where the ordinary sheet keeps it, closed, at its ordinary size.
+    const qr = $('shareQrDetails') as HTMLDetailsElement
+    qr.open = false
+    $('inviteContent').append(qr)
+    inviteDialog.classList.remove('qrFirst')
+  }
   $('inviteHome').append($('inviteContent'))
-  $('invitePeople').focus({ preventScroll: true })
+  inviteOpener.focus({ preventScroll: true })
 })
 inviteDialog.addEventListener('click', event => {
   if (event.target !== inviteDialog) return
@@ -11445,6 +12117,7 @@ const sharedProjects = new SharedProjectsPanel(document, {
   people: () => (session?.participants() ?? []).map(p => ({ pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true })),
   changed: renderRooms,
   openRoom: room => { void switchRoom(room) },
+  deliver: deliverProjectWrap,
   signIn: () => { void signInWithNostr().catch(e => setStatus(e instanceof Error ? e.message : 'Sign-in did not finish.')) },
 })
 
@@ -11482,10 +12155,10 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
       message: `${url} will learn your public identity, ${npubEncode(account.pubkey)}, when connecting for ${purpose}. This permission lasts in this tab and is not saved or shared in invitations.`,
       confirmLabel: 'Use this account', cancelLabel: 'Cancel' })) return false
     if (nostrSession !== account || identityGeneration !== generation || (scope !== 'default' && scope !== roomRelayScope)) throw new Error('Account or room changed; choose the identity again')
-    relayConnections.authenticate(scope, url, account.signer, scope === roomRelayScope ? roomRelayConfig : [])
+    relayConnections.authenticate(scope, url, account.signer, scope === roomRelayScope ? roomRelayHints : [])
     return true
   },
-  room: () => roomRelayScope === 'default' ? undefined : { scope: roomRelayScope, hints: roomRelayConfig },
+  room: () => roomRelayScope === 'default' ? undefined : { scope: roomRelayScope, hints: roomRelayHints },
   // A relay marked as a circle box by hand moves the lane the same way a
   // card's box does; the marks are already in every pool, so only the
   // screen needs telling.
@@ -11495,22 +12168,86 @@ const relaySettings = new RelaySettingsPanel(document, relayConnections, {
       RELAYS = relayConnections.configuration('default').map(relay => relay.url)
       boxDiscovery?.restart()
     }
-    if (scope === roomRelayScope) {
-      roomRelayConfig = entries
-      relays = entries.map(relay => relay.url)
-      profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
-      if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
-      renderIdentity()
-      if (currentRoomId()) {
-        ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
-        rememberCurrentRoom()
-      }
-    }
+    // What was saved is this device's own list; the room's relays stay ahead of it.
+    if (scope === roomRelayScope) roomRelaysApplied(relayConnections.configuration(roomRelayScope, roomRelayConfig))
+  },
+  share: {
+    available: scope => scope === roomRelayScope && isRoomAuthority() && !!session,
+    run: relays => shareRoomRelays(relays),
   },
 })
+function roomRelaysApplied(entries: RelayConfig[]): void {
+  roomRelayConfig = entries
+  relays = entries.map(relay => relay.url)
+  profiles.setEnabled(false); profiles.setEnabled(profilesEnabled)
+  if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
+  renderIdentity()
+  if (currentRoomId()) {
+    ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+    rememberCurrentRoom()
+  }
+}
 $('roomRelaySettings').addEventListener('click', () => { closeRoomSheet(); relaySettings.open($('roomMenu')) })
 $('defaultRelaySettings').addEventListener('click', () => closeAppSettingsFor(() => relaySettings.open($('defaultRelaySettings'))))
 $('appProfileSettings').addEventListener('click', () => closeAppSettingsFor(() => openProfileSettings($('appProfileSettings'))))
+$('dmRelaySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => void openDmRelaySettings()))
+$('dmRelaySettingsClose').addEventListener('click', () => ($('dmRelaySettings') as HTMLDialogElement).close())
+$('dmRelaySave').addEventListener('click', () => void saveDmRelaySettings())
+
+/** Where this account's DM relay list is read from and written to: the
+ *  relays everybody looks in, and the ones it names. */
+function dmRelayListHome(listed: string[] = []): string[] {
+  return distinctRelays([...RELAYS, ...PROFILE_RELAYS, ...listed])
+}
+
+async function openDmRelaySettings(): Promise<void> {
+  const dialog = $('dmRelaySettings') as HTMLDialogElement
+  const field = $('dmRelayList') as HTMLTextAreaElement
+  const status = $('dmRelayStatus')
+  const account = nostrSession
+  if (!account) return
+  field.value = ''
+  field.disabled = true
+  status.textContent = 'Looking up your list…'
+  dialog.showModal()
+  try {
+    const current = latestDmRelayList(await lookUpDmRelayLists([account.pubkey], dmRelayListHome()), account.pubkey)
+    if (nostrSession !== account) return
+    field.value = current.join('\n')
+    status.textContent = current.length ? '' : 'You have no list yet. Until you save one, private conversations use the relays of the room they are started from.'
+  } catch {
+    status.textContent = 'Your list could not be looked up. Saving replaces whatever is there.'
+  } finally {
+    field.disabled = false
+  }
+}
+
+async function saveDmRelaySettings(): Promise<void> {
+  const field = $('dmRelayList') as HTMLTextAreaElement
+  const status = $('dmRelayStatus')
+  const account = nostrSession
+  if (!account) return
+  const urls = field.value.split(/[\s,]+/).map(url => url.trim()).filter(Boolean)
+  let template: ReturnType<typeof dmRelayListTemplate>
+  try {
+    template = dmRelayListTemplate(urls, nowSeconds())
+  } catch (err) {
+    status.textContent = `Not saved: ${describeError(err)}.`
+    return
+  }
+  ;($('dmRelaySave') as HTMLButtonElement).disabled = true
+  status.textContent = 'Saving…'
+  const pool = relayConnections.pool('profiles', dmRelayListHome(urls))
+  try {
+    await pool.publish(await account.signer.signEvent(template))
+    status.textContent = 'Saved. New private conversations will use these relays.'
+  } catch (err) {
+    status.textContent = `Not saved: ${describeError(err)}.`
+  } finally {
+    ;($('dmRelaySave') as HTMLButtonElement).disabled = false
+    closeWhenSettled(pool)
+  }
+}
 $('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
 $('inviteToRoomClose').addEventListener('click', () => { invitingPeer = undefined; ($('inviteToRoom') as HTMLDialogElement).close() })
 $('profileSettings').addEventListener('close', () => {
@@ -11801,7 +12538,13 @@ $('createRoomForm').addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && newRoomOpen) closeNewRoom()
 })
 $('roomAsk').addEventListener('change', () => {
-  $('roomAskHint').hidden = !($('roomAsk') as HTMLInputElement).checked
+  const ask = ($('roomAsk') as HTMLInputElement).checked
+  $('roomAskHint').hidden = !ask
+  // Only a group room can be a conference room.
+  $('roomEndsRow').hidden = ask
+})
+$('roomEnds').addEventListener('change', () => {
+  $('roomEndsHint').hidden = ($('roomEnds') as HTMLSelectElement).value === '0'
 })
 $('homeSignIn').addEventListener('click', () => {
   signInWithNostr().catch((err) => setStatus(describeError(err)))
@@ -11845,6 +12588,7 @@ $('contactCardForm').addEventListener('submit', (event) => {
   if (addContact(input.value)) input.value = ''
 })
 $('myCardShow').addEventListener('click', () => { showMyCard().catch((err) => setStatus(describeError(err))) })
+$('arrivalRelays').addEventListener('click', () => relaySettings.open($('arrivalRelays')))
 $('retryArrival').addEventListener('click', () => {
   if (switchDestination) void switchRoom(switchDestination)
   else location.reload()
@@ -11876,6 +12620,7 @@ $('addDevice').addEventListener('click', () => {
       code,
       identity,
       deviceSk: deviceKey(),
+      expiresAt: roomEndsAt,
       approve: (device) => confirmRoomAction({ title: 'Add this device?', message: `Device ${device.slice(0, 12)}… will join this room as you for the next 12 hours. Only approve a device you are pairing.`, confirmLabel: 'Add device' }),
       onPaired: (device) => { $('pairStatus').textContent = `Added ${device.slice(0, 12)}… to this room.`; setStatus(`Added ${device.slice(0, 12)}… to this room.`) },
     })
@@ -11949,7 +12694,7 @@ async function endRoomForEveryone(): Promise<void> {
   const s = session!, invitation = roomInvitationCapability!, authoritySk = invitationAuthoritySk!
   const retirement = configuredPool(relays)
   try {
-    await retirement.publish(encodeInvitationRetirement({ invitation, inviterSk: authoritySk, now: nowSeconds(), ended: true }))
+    await retirement.publish(encodeInvitationRetirement({ invitation, inviterSk: authoritySk, now: nowSeconds(), ended: true, endsAt: roomEndsAt }))
   } finally {
     closeWhenSettled(retirement)
   }
@@ -12029,6 +12774,8 @@ $('makePersistent').addEventListener('click', async () => {
 // its final value and a render would not go to waste.
 $('shareQrDetails').addEventListener('toggle', () => {
   if (!($('shareQrDetails') as HTMLDetailsElement).open) return
+  // "Invite by QR" drew it already, larger.
+  if (inviteDialog.classList.contains('qrFirst')) return
   const url = ($('shareUrl') as HTMLInputElement).value
   renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
 })
@@ -12045,7 +12792,9 @@ if (window.kithmootDesktop?.supportsShareArea) {
   area.className = 'toggle'
   area.textContent = 'Share an area'
   area.onclick = () => { toggleScreen(true).catch(showShareError) }
-  $('toggleScreen').after(area)
+  // Behind More, beside the other ways to share: the bar keeps one Share.
+  $('shareExtras').append(area)
+  $('shareExtras').hidden = false
 }
 // Boxes live on the real screen, so Wayland (which forbids placing a window)
 // never shows these: there the preview area share keeps things private.
@@ -12054,8 +12803,14 @@ if (desktopRedaction.supported) {
   add.id = 'addRedaction'
   add.className = 'toggle'
   add.textContent = 'Hide part of the screen'
-  add.title = 'Add a box on your screen; whatever is inside it is black in your share and never leaves this computer'
+  add.title = 'Add a box on your screen; whatever is inside it is black in your share and never leaves this computer. Press again for another box'
   add.onclick = () => { try { desktopRedaction.add() } catch (error) { setStatus(describeError(error)) } }
+  const hide = document.createElement('button')
+  hide.id = 'hideShare'
+  hide.className = 'toggle'
+  hide.textContent = 'Hide my share'
+  hide.hidden = true
+  hide.onclick = () => setShareHidden(!desktopRedaction.hidden)
   const all = document.createElement('button')
   all.id = 'toggleRedaction'
   all.className = 'toggle'
@@ -12067,7 +12822,11 @@ if (desktopRedaction.supported) {
   note.className = 'indicator'
   note.setAttribute('role', 'status')
   note.hidden = true
-  ;(document.getElementById('shareArea') ?? $('toggleScreen')).after(add, all)
+  // "Hide my share" is the one to reach in a hurry while a share is live,
+  // so it sits in the bar beside Share; the boxes are set up behind More.
+  $('toggleScreen').after(hide)
+  $('shareExtras').append(add, all)
+  $('shareExtras').hidden = false
   $('screenAudioNote').after(note)
   desktopRedaction.onChange(updateRedactionControls)
 }
@@ -13084,8 +13843,9 @@ function blossomServer(): string {
 function renderFileStorage(): void {
   const server = blossomServer()
   $('fileStorageStatus').textContent = server
-    ? `Uploads go to ${server} (shared storage, explicitly allowed on this device; not verified private Bothy storage).`
-    : 'File uploads are off. Private Bothy storage is not connected in this app yet.'
+    ? `Uploads go to ${server}. Files are encrypted on this device first.`
+    : 'File uploads are off. Choose where files go to turn them on.'
+  $('fileStorageSummary').textContent = server ? 'Change where files go' : 'Choose where files go'
   $('stopFileUploads').hidden = !server
 }
 
@@ -13141,6 +13901,9 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   // Fixed now, alongside the transport: see the function comment above.
   const quiet = quietTransport !== undefined
   const transport: RelayTransport = quietTransport ?? pool
+  // A conference room's end, fixed with the rest: the announcement, and the
+  // upload's authorisation, lapse with the room.
+  const endsAt = session.endsAt
   if (file.size > MAX_UPLOAD_SOURCE_BYTES) {
     throw new Error(`${file.name} is ${formatBytes(file.size)}; a room sends up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)}.`)
   }
@@ -13162,7 +13925,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     requireFileStorage(server)
     dropProgress(draft, `Uploading to ${new URL(origin).hostname}:`, file)
     descriptor = await uploadEnvelopeBlob(origin, sealed.envelope, sealed.sha256, {
-      sign: (t) => finalizeEvent(t, deviceSk), signal,
+      sign: (t) => finalizeEvent({ ...t, tags: withExpiration(t.tags, endsAt) }, deviceSk), signal,
       fetch: (input, init) => { requireFileStorage(server); return fetch(input, init) },
     })
   } finally {
@@ -13185,7 +13948,8 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   let eventId: string | undefined
   if (!quiet) {
     dropProgress(draft, 'Announcing', file)
-    const event = finalizeEvent(buildFileEvent(descriptor), deviceSk)
+    const announcement = buildFileEvent(descriptor)
+    const event = finalizeEvent({ ...announcement, tags: withExpiration(announcement.tags, endsAt) }, deviceSk)
     await transport.publish(event)
     eventId = event.id
   }
@@ -13313,6 +14077,8 @@ $('saveFileStorage').addEventListener('click', () => {
   try {
     input.value = allowSharedFileServer(localStorage, input.value, ($('allowSharedFiles') as HTMLInputElement).checked)
     draft.status = ''
+    // The choice is made; the status line says where files go from here.
+    ;($('fileStorageOptions') as HTMLDetailsElement).open = false
   } catch (err) {
     draft.status = describeError(err)
   }
@@ -13537,23 +14303,27 @@ function showArrivalFailure(err: unknown): void {
     $('identityMore').hidden = true
     $('arrivalActions').hidden = false
     $('retryArrival').hidden = true
+    $('arrivalRelays').hidden = true
     $('addCardArrival').hidden = false
     setStatus('')
     return
   }
   $('addCardArrival').hidden = true
-  const ended = reason === ROOM_ENDED_MESSAGE
+  const conference = reason.startsWith(CONFERENCE_ENDED_PREFIX)
+  const ended = reason === ROOM_ENDED_MESSAGE || conference
   const retired = ended || reason.includes('retired')
   const persistent = valid && parseRoomLink(location.href).invitation?.persistent
   if (ended) markLinkEnded(location.href)
   $('arrivalTitle').textContent = ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
-  $('arrivalLead').textContent = ended
+  $('arrivalLead').textContent = conference
+    ? `${reason} Nobody can join it any more.`
+    : ended
     ? 'It was ended by the person who started it, so nobody can join it any more.'
     : retired
     ? 'Ask somebody in the room for its current invite link.'
     : valid
       ? persistent
-        ? 'Check your connection and try again. If it still cannot be found, ask for a current invite link.'
+        ? 'Its invitation was not on the link\u2019s relays or on yours. If you know a relay the room uses, add it and try again. Otherwise ask someone in the room for a fresh invite link.'
         : 'Nobody let you in. Somebody in the room has to be online and accept you: ask them, or try again when they are around. A room can also be kept open for anyone with the link (Room details, Keep this room open).'
       : 'Copy the whole invite link, including everything after #, then open it again.'
   $('arrivalLead').hidden = false
@@ -13561,6 +14331,7 @@ function showArrivalFailure(err: unknown): void {
   $('identityMore').hidden = true
   $('arrivalActions').hidden = false
   $('retryArrival').hidden = !valid || retired
+  $('arrivalRelays').hidden = !valid || retired || !persistent
   setStatus('')
 }
 

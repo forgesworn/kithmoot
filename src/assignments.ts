@@ -292,3 +292,11 @@ export function validateActionInputs(action: AssignmentAction, values: Record<st
   return Object.keys(values).every(k => action.inputs.some(i => i.id === k) && text(values[k], 1000)) &&
     action.inputs.every(i => !i.required || text(values[i.id], 1000))
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const ASSIGNMENT_LABELS = [
+  "kithmoot/assignment/v1",
+] as const

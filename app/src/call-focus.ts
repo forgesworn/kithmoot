@@ -4,7 +4,7 @@ import {
   saveChatDividerFraction, saveChatPanel, toolbarMove, unreadAnnouncement,
 } from './call-focus-model.js'
 import {
-  CALL_PANE_FLOOR_PX, CHAT_DIVIDER_DEFAULT_FRACTION, CHAT_DIVIDER_STEP_FRACTION, CHAT_DIVIDER_STEP_FRACTION_LARGE,
+  CALL_PANE_FLOOR_PX, CHAT_DIVIDER_STEP_FRACTION, CHAT_DIVIDER_STEP_FRACTION_LARGE,
   CHAT_MIN_WIDTH_PX, chatDividerFraction, chatDividerWidth,
 } from './desktop-panes.js'
 
@@ -15,11 +15,13 @@ import {
  * Nothing here creates or moves a `<video>` or `<audio>`. The existing call
  * controls keep their ids, listeners and `aria-pressed`, and stay where
  * they are in `#deviceControls`, which becomes the control bar; the bar's
- * own additions (View, Chat, Full screen) are built once and shown only in
- * this layout. Three small elements that belong in the bar but live
- * elsewhere - the view switcher, the "Speaking" line and the microphone
- * line - are moved in while it is on and put back exactly where they were
- * when it goes.
+ * own additions (Chat, Full screen) are built once and shown only in this
+ * layout. The bar is the five a phone call has - Mic, Camera, Share, More
+ * and Leave - with Chat and Full screen at its end; everything else is
+ * behind More (`#callExtras`). Three small elements that belong in the bar
+ * but live elsewhere - the view switcher, which goes behind More, the
+ * "Speaking" line and the microphone line - are moved in while it is on and
+ * put back exactly where they were when it goes.
  *
  * `html[data-call-first]` switches the layout, and `html[data-call-chat]`
  * says whether the conversation panel beside the stage is open.
@@ -42,13 +44,14 @@ const CHAT_REGION = '#chatDrawer, #roomArea > :is(#conversationNav, .conversatio
 
 /** The bar's buttons, in the bar, in the order arrow keys walk them once
  *  sorted by where they are drawn. */
-const BAR_ITEMS = ':scope > .toggles > button, :scope > .callHead > #leaveCall, #callViewMenu > summary, #callExtras > summary, .callBarEnd > button'
+const BAR_ITEMS = ':scope > .toggles > button, :scope > .callHead > #leaveCall, #callExtras > summary, .callBarEnd > button'
 
 interface Moved { el: HTMLElement; mark: Comment }
 
 const ICON = (path: string): string => `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg>`
 const FULL_SCREEN_ICON = ICON('M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5')
 const EXIT_FULL_SCREEN_ICON = ICON('M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5')
+const CHAT_ICON = ICON('M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-5A8 8 0 1 1 21 12z')
 
 export function installCallFocus(storage: Storage = localStorage): CallFocus {
   const root = document.documentElement
@@ -57,6 +60,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   const controls = document.getElementById('deviceControls')!
   const bar = document.querySelector<HTMLElement>('#roomArea > .roomBar')
   const extras = document.getElementById('callExtras') as HTMLDetailsElement | null
+  const extrasContent = document.getElementById('callExtrasContent')
 
   let onCall = false
   let active = false
@@ -78,16 +82,10 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   const status = document.createElement('div')
   status.className = 'callBarStatus callBarOnly'
 
-  const viewMenu = document.createElement('details')
-  viewMenu.id = 'callViewMenu'
-  viewMenu.className = 'callBarMenu callBarOnly'
-  const viewSummary = document.createElement('summary')
-  viewSummary.textContent = 'View'
-  viewSummary.setAttribute('aria-label', 'Call view')
-  const viewPopover = document.createElement('div')
-  viewPopover.id = 'callViewPopover'
-  viewPopover.className = 'callBarPopover'
-  viewMenu.append(viewSummary, viewPopover)
+  // The view switcher's place behind More: first, above the effects.
+  const viewSection = document.createElement('div')
+  viewSection.id = 'callViewSection'
+  viewSection.className = 'callViewSection callBarOnly'
 
   const end = document.createElement('div')
   end.className = 'callBarEnd callBarOnly'
@@ -96,7 +94,12 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   chat.id = 'callChatToggle'
   chat.className = 'callBarButton'
   chat.setAttribute('aria-controls', document.getElementById('chatDrawer') ? 'chatDrawer' : 'chatLog')
+  chat.title = 'Chat'
+  // A speech bubble, the word hidden like every other word in the bar - see
+  // `.callWord` in call-focus.css. The accessible name is `renderBadge`'s,
+  // with the count.
   const chatWord = document.createElement('span')
+  chatWord.className = 'callWord'
   chatWord.textContent = 'Chat'
   const badge = document.createElement('span')
   badge.className = 'callChatUnread'
@@ -108,6 +111,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   agentBadge.className = 'callChatUnreadAgent'
   agentBadge.setAttribute('aria-hidden', 'true')
   agentBadge.hidden = true
+  chat.insertAdjacentHTML('afterbegin', CHAT_ICON)
   chat.append(chatWord, badge, agentBadge)
   const full = document.createElement('button')
   full.type = 'button'
@@ -144,8 +148,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
   divider.hidden = true
 
   controls.prepend(status)
-  if (extras?.parentElement === controls) extras.before(viewMenu)
-  else controls.append(viewMenu)
+  extrasContent?.prepend(viewSection)
   controls.append(end, announce)
   room.append(divider)
 
@@ -179,7 +182,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     controls.setAttribute('aria-label', 'Call controls')
     move(document.getElementById('speakingNow'), status)
     move(document.getElementById('micIndicator'), status)
-    move(document.getElementById('callView'), viewPopover)
+    move(document.getElementById('callView'), viewSection)
     refocus(focused)
     // Anything that arrived while the chat was on screen has been seen.
     unread.read()
@@ -192,7 +195,6 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     room.style.removeProperty('--call-first-top')
     controls.removeAttribute('role')
     controls.removeAttribute('aria-label')
-    viewMenu.open = false
     if (extras) extras.open = false
     for (const { el, mark } of moved.reverse()) if (mark.isConnected) mark.replaceWith(el)
     moved = []
@@ -304,12 +306,16 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     measureDivider()
   }
 
-  /** Back to the default split, forgetting anything this device dragged. */
+  /** Back to the default split, forgetting anything this device dragged:
+   *  the same split a device that never dragged it gets, `--call-chat-w`'s
+   *  own `clamp()` in call-focus.css, which leaves the call the larger
+   *  share. It used to be `CHAT_DIVIDER_DEFAULT_FRACTION` through the
+   *  dragged divider's floor instead, so Enter or a double-click landed on
+   *  a wider chat than the call had ever started with. */
   function resetDivider(): void {
-    dividerFraction = CHAT_DIVIDER_DEFAULT_FRACTION
+    dividerFraction = undefined
     clearChatDividerFraction(storage)
-    const width = container().getBoundingClientRect().width
-    root.style.setProperty('--call-chat-w', `${chatDividerWidth(width, dividerFraction)}px`)
+    root.style.removeProperty('--call-chat-w')
     renderDividerA11y()
     measureDivider()
   }
@@ -443,7 +449,7 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     if (!active || event.altKey || event.ctrlKey || event.metaKey) return
     const target = event.target as HTMLElement
     if (event.key === 'Escape') {
-      const menu = target.closest<HTMLDetailsElement>('#callViewMenu, #callExtras')
+      const menu = target.closest<HTMLDetailsElement>('#callExtras')
       if (menu?.open) {
         event.preventDefault()
         menu.open = false
@@ -460,25 +466,18 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     list[next].focus()
   })
 
-  // Choosing a view is the whole errand: the menu goes, and focus goes
-  // back to where it came from. The options below it stay open.
-  viewPopover.addEventListener('click', event => {
-    if (!(event.target as Element).closest('.callViewChoice button')) return
-    viewMenu.open = false
-    viewSummary.focus({ preventScroll: true })
+  // Choosing a view is the whole errand: More goes, and focus goes back to
+  // where it came from. The options below it stay open.
+  viewSection.addEventListener('click', event => {
+    if (!extras || !(event.target as Element).closest('.callViewChoice button')) return
+    extras.open = false
+    extras.querySelector<HTMLElement>(':scope > summary')?.focus({ preventScroll: true })
   })
 
-  // One menu open at a time, and a click elsewhere puts it away.
-  const menus = [viewMenu, extras].filter((menu): menu is HTMLDetailsElement => menu !== null)
-  for (const menu of menus) {
-    menu.addEventListener('toggle', () => {
-      if (!active || !menu.open) return
-      for (const other of menus) if (other !== menu) other.open = false
-    })
-  }
+  // A click elsewhere puts More away.
   document.addEventListener('pointerdown', event => {
-    if (!active) return
-    for (const menu of menus) if (menu.open && !menu.contains(event.target as Node)) menu.open = false
+    if (!active || !extras?.open) return
+    if (!extras.contains(event.target as Node)) extras.open = false
   }, true)
 
   // Escape in the conversation goes back to the bar, once nothing in the

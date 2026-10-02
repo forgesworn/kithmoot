@@ -1,7 +1,7 @@
 import { screen, desktopCapturer } from 'electron'
 
 export const AREA_URL = 'about:blank#kithmoot-share-area'
-import { areaRect, insideArea } from './share-area-geometry.mjs'
+import { areaRect, areaShape, insideArea } from './share-area-geometry.mjs'
 import { sourceForDisplay, sourceForPortal } from './share-area-source.mjs'
 import { refuse } from './screen-share.mjs'
 
@@ -9,7 +9,14 @@ export class ShareArea {
   window
   display
   releaseOwnerFront
-  constructor(owner, mode = 'frame') { this.owner = owner; this.mode = mode }
+  refusal
+  drawing = false
+  // X11 is given the frame's shape, so the server itself sends clicks in the
+  // hole to whatever is beneath. Watching the cursor cannot do that job
+  // there: Electron's cursor position stops updating once the pointer is
+  // over another program's window, so with KithMoot minimised a frame that
+  // went click-through stayed so.
+  constructor(owner, mode = 'frame', { shaped = process.platform === 'linux' } = {}) { this.owner = owner; this.mode = mode; this.shaped = shaped }
   get preview() { return this.mode === 'preview' }
   attach(window) {
     this.close()
@@ -27,10 +34,42 @@ export class ShareArea {
     if (process.platform === 'linux') window.setAlwaysOnTop(true)
     else window.setAlwaysOnTop(true, 'screen-saver')
     if (process.platform === 'darwin') window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-    const report = () => this.owner()?.webContents.send('desktop:area-state', this.state())
+    const report = () => { this.tell('desktop:area-state', this.state()); this.reportCheck() }
     window.on('move', report)
-    window.on('resize', report)
+    window.on('resize', () => { this.shape(window); report() })
     window.on('closed', () => { if (this.window === window) { this.window = undefined; this.display = undefined; report() } })
+    this.shape(window)
+  }
+  // Drawing needs the hole back: the pen is taken by a canvas that fills it.
+  // The whole window is named outright, because an empty list did not give
+  // the hole back on X11.
+  shape(window) {
+    if (!this.shaped || window.isDestroyed()) return
+    const { width, height } = window.getBounds()
+    window.setShape(this.drawing ? [{ x: 0, y: 0, width, height }] : areaShape({ width, height }))
+  }
+  /** Whether the part to be shared sits wholly on one display. */
+  fits() {
+    if (!this.window || this.window.isDestroyed() || this.preview) return false
+    const bounds = this.window.getBounds()
+    return areaRect(bounds, screen.getDisplayMatching(bounds).bounds) !== null
+  }
+  /** Where the frame stands, and why the last request to share was refused. */
+  check() { return { fits: this.fits(), refusal: this.refusal ?? null } }
+  reportCheck() { this.tell('desktop:area-check', this.check()) }
+  // The frame outlives the main window by a moment when that window closes;
+  // reaching into a destroyed window throws.
+  tell(channel, value) {
+    const owner = this.owner()
+    if (owner && !owner.isDestroyed()) owner.webContents.send(channel, value)
+  }
+  // A refusal the person can put right is remembered, so the page can say
+  // what to do rather than close the frame without a word.
+  refused(reason, callback) {
+    this.refusal = reason
+    this.display = undefined
+    this.reportCheck()
+    refuse(callback)
   }
   state() {
     if (!this.window || this.window.isDestroyed() || !this.display) return null
@@ -46,14 +85,17 @@ export class ShareArea {
       if (!source || this.window !== window || window.isDestroyed()) return refuse(callback)
       return callback({ video: source })
     }
+    this.refusal = undefined
     this.display = screen.getDisplayMatching(window.getBounds())
     const display = this.display
-    if (!this.state()) return refuse(callback)
+    if (!this.state()) return this.refused('placement', callback)
     const displays = screen.getAllDisplays()
     const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } })
     const source = sourceForDisplay(sources, display, displays)
-    if (!source || this.window !== window || window.isDestroyed() || this.display !== display || !this.state()) return refuse(callback)
-    this.owner()?.webContents.send('desktop:area-state', this.state())
+    if (this.window !== window || window.isDestroyed()) return refuse(callback)
+    if (this.display !== display || !this.state()) return this.refused('placement', callback)
+    if (!source) return this.refused('source', callback)
+    this.tell('desktop:area-state', this.state())
     callback({ video: source, ...(request.audioRequested && ['darwin', 'win32'].includes(process.platform) ? { audio: 'loopback' } : {}) })
   }
   action(action, value) {
@@ -62,7 +104,8 @@ export class ShareArea {
     if (action === 'close') return this.close()
     if (action === 'owner') return this.showOwner()
     if (this.preview) return
-    if (action === 'passthrough' && typeof value === 'boolean') this.passthrough(window, value)
+    if (action === 'drawing' && typeof value === 'boolean') { this.drawing = value; this.shape(window) }
+    if (action === 'passthrough' && typeof value === 'boolean' && !this.shaped) this.passthrough(window, value)
     // Moving follows the real cursor rather than renderer coordinates, which
     // lag behind a window that moves under the pointer.
     if (action === 'move-start') {
@@ -133,6 +176,8 @@ export class ShareArea {
     this.window = undefined
     this.display = undefined
     this.moveOffset = undefined
+    this.refusal = undefined
+    this.drawing = false
     if (window && !window.isDestroyed()) window.close()
   }
 }

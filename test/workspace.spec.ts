@@ -3,7 +3,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
-import { withRelays, TEST_RELAY_WS } from './relays.js'
+import { withRelays, agentRelaysFor, TEST_RELAY_WS } from './relays.js'
 
 async function setup(browser: Browser, base: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
@@ -322,8 +322,8 @@ test('switching rooms restores independent reading places after delayed history 
   // Reading-position restore, not the agent feature: an agent's unaddressed
   // message no longer counts as unread - see `classifyMessage` in
   // `src/messages.ts`.
-  const first = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', relays: [TEST_RELAY_WS], agent: false })
-  const second = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', relays: [TEST_RELAY_WS], agent: false })
+  const first = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', ...agentRelaysFor(baseURL!), agent: false })
+  const second = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', ...agentRelaysFor(baseURL!), agent: false })
   let hold = false
   let held: (() => void)[] = []
   await context.routeWebSocket(relay, ws => {

@@ -1,5 +1,6 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { normaliseHex } from './hex.js'
+import { isRoomEnds } from './expiration.js'
 import type { KeeperState } from './agent.js'
 
 /**
@@ -25,6 +26,8 @@ export interface StoredKeeperState {
   closed?: boolean
   /** Who asked to be nudged. Written only when somebody has. */
   nudge?: string[]
+  /** A conference room's end, unix seconds. Written only for one. */
+  ends?: number
 }
 
 const HEX64 = /^[0-9a-f]{64}$/i
@@ -61,6 +64,10 @@ export function parseKeeperState(json: string): KeeperState {
     state.removed = [...new Set(stored.removed.map(normaliseHex))].sort()
   }
   if (stored.closed === true) state.closed = true
+  if (stored.ends !== undefined) {
+    if (!isRoomEnds(stored.ends)) throw new Error('keeper state: ends is not a time')
+    state.endsAt = stored.ends
+  }
   if (stored.nudge !== undefined) {
     if (!Array.isArray(stored.nudge) || !stored.nudge.every((p) => typeof p === 'string' && HEX64.test(p))) {
       throw new Error('keeper state: nudge is not a list of pubkeys')
@@ -87,6 +94,7 @@ export function serialiseKeeperState(state: KeeperState): string {
   }
   if (state.persistent) stored.persistent = true
   if (state.closed) stored.closed = true
+  if (state.endsAt !== undefined) stored.ends = state.endsAt
   if (state.nudge?.length) stored.nudge = [...new Set(state.nudge.map(normaliseHex))].sort()
   return JSON.stringify(stored, null, 2) + '\n'
 }

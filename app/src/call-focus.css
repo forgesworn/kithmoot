@@ -10,8 +10,13 @@
 
 html[data-call-first] {
   /* The conversation beside the stage: wide enough to read a message in,
-     never so wide that it is the stage that looks like the side panel. */
-  --call-chat-w: clamp(20rem, 24vw, 24rem);
+     never so wide that it is the stage that looks like the side panel. A
+     share of the room it sits in rather than of the window, so with Shared
+     Work or the rooms rail taking width the call still keeps the larger
+     part. Where it is used - a width, a `right` - the percentage is of
+     the row the two panes share. Until the divider is dragged; see
+     call-focus.ts. */
+  --call-chat-w: clamp(20rem, 28%, 24rem);
   --call-gap: 1rem;
   --call-leave: #b3261e;
   --call-leave-hover: #8f1e18;
@@ -72,9 +77,11 @@ html[data-call-first] #callStage > #callBay {
   flex: 0 0 auto;
   position: relative;
   top: auto;
-  z-index: 3;
+  /* Over the pictures, so More opens over your own floating picture
+     rather than under it. */
+  z-index: 6;
   margin: 0;
-  padding: .5rem .75rem;
+  padding: .45rem .75rem;
   border-radius: 12px;
   container-type: inline-size;
 }
@@ -124,6 +131,10 @@ html[data-desktop][data-call-first] .desktopRoomContent {
 }
 html[data-desktop][data-call-first] .desktopRoomContent #callStage {
   flex: 1 1 auto;
+  /* A flex item will not shrink below its content by default, and a share's
+     picture is placed at its own pixel width: without this a wide share
+     pushed the conversation beside it off the right of the window. */
+  min-width: 0;
   max-height: none;
   overflow: visible;
 }
@@ -183,16 +194,26 @@ html[data-call-first][data-call-chat="closed"]:not([data-desktop]) #roomArea:ful
 
 /* --- The bar -------------------------------------------------------------- */
 
+/* The owner's word for the last version was that it did not work: in a
+   narrow call column the bar wrapped into a stack eleven controls tall -
+   Share an area, Hide part of the screen, View, Settings, Chat and Full
+   screen all asking for a slot of their own - and that stack took the
+   height the picture should have had. What a phone call does instead, and
+   what this does: one row of round buttons, Mic, Camera, Share, More and
+   a red Leave, with Chat and Full screen small at its end. Everything else is
+   behind More. Above the row, on lines of their own so that nothing is
+   squeezed down to a letter beside the buttons: anything that only
+   sometimes needs saying, the two-device line, and who is talking. */
 html[data-call-first] #deviceControls:not([hidden]) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: .4rem;
+  justify-content: center;
+  gap: .35rem .5rem;
   position: relative;
 }
 html[data-call-first] #deviceControls > :is(.callHead, .toggles) { display: contents; }
 html[data-call-first] #deviceControls .callBarOnly { display: flex; }
-html[data-call-first] #deviceControls #callViewMenu.callBarOnly { display: block; }
 html[data-call-first] #deviceControls #callChips { display: none; }
 /* Said by the tiles and the room bar already; kept for a screen reader. */
 html[data-call-first] #deviceControls #callWho {
@@ -205,47 +226,74 @@ html[data-call-first] #deviceControls #callWho {
   clip-path: inset(50%);
 }
 
-/* Left: who is talking and where the sound comes from. Middle: the call.
-   Right: the room around it. The two sides share what is left equally, so
-   the middle sits in the middle. */
-html[data-call-first] #deviceControls > .callBarStatus {
-  order: 0;
-  flex: 1 1 0;
-  min-width: 0;
-  flex-direction: column;
-  justify-content: center;
-  gap: .1rem;
-  font-size: .85rem;
-  line-height: 1.3;
-}
-html[data-call-first] .callBarStatus > * {
+/* The lines above the row, top to bottom. Each is the whole width and
+   wraps as text does: never an ellipsis, never past the edge. */
+html[data-call-first] #deviceControls > :is(#mediaRecoveryNote, #effectDegradedNotice, #screenAudioNote, #redactionNote) {
+  order: -4;
+  flex: 1 0 100%;
   margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  text-align: center;
 }
-html[data-call-first] .callBarStatus > #speakingNow { flex: none; font-size: .85rem; }
+html[data-call-first] #deviceControls > .otherDevice {
+  order: -3;
+  flex: 1 0 100%;
+  justify-content: center;
+  gap: .2rem .45rem;
+  margin: 0;
+  font-size: .8rem;
+}
+html[data-call-first] #deviceControls > .otherDevice > button { min-height: 32px; padding: .1rem .55rem; }
+html[data-call-first] #deviceControls > .callBarStatus {
+  order: -2;
+  flex: 1 0 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0 1rem;
+  font-size: .8rem;
+  line-height: 1.35;
+}
+html[data-call-first] .callBarStatus > * { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+html[data-call-first] .callBarStatus > #speakingNow { flex: none; font-size: .8rem; }
 html[data-call-first] .callBarStatus > #micIndicator { font-size: .8rem; }
 html[data-call-first] #deviceControls:has(#callView[hidden]) #speakingNow { display: none; }
+/* The two-device line already says where the microphone is. */
+html[data-call-first] #deviceControls[data-other-device] #micIndicator { display: none; }
+
+/* The row: an empty start that matches the end, so the five sit in the
+   middle of the stage with Chat and Full screen to their right. */
+html[data-call-first] #deviceControls::before {
+  content: '';
+  order: 0;
+  flex: 1 1 0;
+}
 html[data-call-first] #deviceControls > .toggles > * { order: 1; }
-html[data-call-first] #deviceControls > #callViewMenu { order: 2; }
-html[data-call-first] #deviceControls > #callExtras { order: 3; }
-html[data-call-first] #deviceControls > .callHead > #leaveCall { order: 4; }
+html[data-call-first] #deviceControls > #callExtras { order: 2; }
+html[data-call-first] #deviceControls > .callHead > #leaveCall { order: 3; }
 html[data-call-first] #deviceControls > .callBarEnd {
-  order: 5;
+  order: 4;
   flex: 1 1 0;
   min-width: max-content;
   justify-content: flex-end;
-  gap: .4rem;
+  gap: .35rem;
 }
-/* What only sometimes needs saying: a line of its own above the buttons. */
-html[data-call-first] #deviceControls > :is(#mediaRecoveryNote, #effectDegradedNotice, #screenAudioNote, #monitorIndicator) {
-  order: -1;
-  flex: 1 0 100%;
-  margin: 0;
+
+/* A stage wide enough for the line beside the row: who is talking sits on
+   its left instead of over it, and takes the start's place. Wrapping
+   there too, rather than cut short. */
+@container (min-width: 900px) {
+  html[data-call-first] #deviceControls::before { display: none; }
+  html[data-call-first] #deviceControls > .callBarStatus {
+    order: 0;
+    flex: 1 1 0;
+    min-width: 12rem;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+  }
 }
-html[data-call-first] #deviceControls > :is(#claimMic, #listenHere) { order: -1; margin: 0; }
+
 /* This device's own picture, before its tile comes back from the relay. */
 html[data-call-first] #deviceControls > #local:not(:has(video)) { display: none; }
 html[data-call-first] #deviceControls > #local:has(video) {
@@ -256,19 +304,21 @@ html[data-call-first] #deviceControls > #local:has(video) {
   z-index: 5;
 }
 
-/* `:where`, so that the states below - on, open, pressed, Leave - win
-   without having to out-count the ids in this list. */
-html[data-call-first] #deviceControls :where(.toggles > button, #leaveCall, .callBarEnd > button, #callViewMenu > summary, #callExtras > summary) {
+/* The buttons. Round and the same size, a picture in each - the way every
+   call on a phone draws them - with the full name on each for anybody who
+   cannot see the picture. `:where`, so that the states below - on, open,
+   pressed, Leave - win without having to out-count the ids in this list. */
+html[data-call-first] #deviceControls :where(.toggles > button, #leaveCall, .callBarEnd > button, #callExtras > summary) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: .35rem;
-  min-height: 44px;
-  min-width: 44px;
+  gap: .4rem;
+  min-height: 48px;
+  min-width: 48px;
   margin: 0;
-  padding: .45rem .75rem;
+  padding: .45rem .9rem;
   border: 1px solid var(--control-border);
-  border-radius: 22px;
+  border-radius: 24px;
   background: var(--control);
   color: var(--text);
   font: inherit;
@@ -278,15 +328,25 @@ html[data-call-first] #deviceControls :where(.toggles > button, #leaveCall, .cal
   cursor: pointer;
   list-style: none;
 }
-html[data-call-first] #deviceControls :where(#callViewMenu, #callExtras) > summary::-webkit-details-marker { display: none; }
-html[data-call-first] #deviceControls :where(.toggles > button, .callBarEnd > button, #callViewMenu > summary, #callExtras > summary):hover { background: var(--control-hover); }
-html[data-call-first] #deviceControls :where(.toggles > button, #leaveCall, .callBarEnd > button, #callViewMenu > summary, #callExtras > summary):focus-visible {
+html[data-call-first] #deviceControls :where(#toggleMic, #toggleCamera, #toggleScreen[data-on='false'], #callExtras > summary, #leaveCall, .callBarEnd > button) {
+  width: 48px;
+  padding: 0;
+}
+/* Chat with something unread: wide enough for the count beside the bubble. */
+html[data-call-first] #deviceControls .callBarEnd > #callChatToggle:has(> :is(.callChatUnread, .callChatUnreadAgent):not([hidden])) {
+  width: auto;
+  padding-inline: .6rem;
+  gap: .3rem;
+}
+html[data-call-first] #deviceControls #callExtras > summary::-webkit-details-marker { display: none; }
+html[data-call-first] #deviceControls :where(.toggles > button, .callBarEnd > button, #callExtras > summary):hover { background: var(--control-hover); }
+html[data-call-first] #deviceControls :where(.toggles > button, #leaveCall, .callBarEnd > button, #callExtras > summary):focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
 /* On, open or pressed: the same accent treatment as every toggle. */
 html[data-call-first] #deviceControls .toggles > .toggle[data-on='true'],
-html[data-call-first] #deviceControls :where(#callViewMenu, #callExtras)[open] > summary,
+html[data-call-first] #deviceControls #callExtras[open] > summary,
 html[data-call-first] #callChatToggle[aria-expanded='true'],
 html[data-call-first] #callFullscreen[aria-pressed='true'] {
   background: var(--accent-dim);
@@ -305,16 +365,21 @@ html[data-call-first] #deviceControls #leaveCall {
   font-weight: 650;
 }
 html[data-call-first] #deviceControls #leaveCall:hover { background: var(--call-leave-hover); }
-/* Short words in the bar; the accessible names are the full ones. */
-html[data-call-first] #deviceControls .callFull { display: none; }
-html[data-call-first] #deviceControls .callShort { display: inline; }
-html[data-call-first] #deviceControls #toggleScreen[data-on='true'] .callFull,
-html[data-call-first] #deviceControls #leaveCall .callFull { display: inline; }
-html[data-call-first] #deviceControls #toggleScreen[data-on='true'] .callShort,
-html[data-call-first] #deviceControls #leaveCall .callShort { display: none; }
 
-html[data-call-first] #deviceControls .callBarIcon { padding-inline: .6rem; }
-html[data-call-first] #deviceControls .callBarIcon > svg { display: block; }
+/* Pictures in the bar, words only where a picture would not do: "Leave",
+   and "Stop sharing" while a share is live. The accessible names are the
+   full ones throughout. */
+html[data-call-first] #deviceControls :is(.callFull, .callShort, .callWord) { display: none; }
+html[data-call-first] #deviceControls #toggleScreen[data-on='true'] .callFull { display: inline; }
+/* With the room for it, Leave says so in a word as well. */
+@container (min-width: 560px) {
+  html[data-call-first] #deviceControls #leaveCall { width: auto; padding-inline: 1.1rem; }
+  html[data-call-first] #deviceControls #leaveCall .callShort { display: inline; }
+}
+html[data-call-first] #deviceControls .callIcon { display: block; flex: none; }
+html[data-call-first] #deviceControls [data-on='true'] > .callIconOff,
+html[data-call-first] #deviceControls [data-on='false'] > .callIconOn { display: none; }
+html[data-call-first] #deviceControls .callBarButton > svg { display: block; flex: none; }
 
 .callChatUnread, .callChatUnreadAgent {
   min-width: 1.4rem;
@@ -337,24 +402,17 @@ html[data-call-first] #deviceControls .callBarIcon > svg { display: block; }
   margin-inline-start: .3rem;
 }
 
-/* A narrower stage: who is talking and the microphone move to one line
-   above the buttons rather than squeezing them, and the buttons centre. */
-@container (max-width: 760px) {
-  html[data-call-first] #deviceControls:not([hidden]) { justify-content: center; row-gap: .3rem; }
-  html[data-call-first] #deviceControls > .callBarStatus {
-    order: -2;
-    flex: 1 0 100%;
-    flex-direction: row;
-    justify-content: center;
-    gap: 1rem;
-  }
-  html[data-call-first] #deviceControls > .callBarEnd { flex: 0 0 auto; min-width: 0; }
+/* A stage too narrow for the row and its end together - the call pane at
+   its floor - lets Chat and Full screen take a row of their own under the
+   five rather than squeezing them. */
+@container (max-width: 390px) {
+  html[data-call-first] #deviceControls::before { display: none; }
+  html[data-call-first] #deviceControls > .callBarEnd { flex: 1 0 100%; justify-content: center; }
 }
 
-/* --- The bar's menus: View, and the call's settings ------------------------- */
+/* --- More: the view, the other ways to share, and the call's settings ----- */
 
-html[data-call-first] #deviceControls > :is(#callViewMenu, #callExtras) { position: static; margin: 0; }
-html[data-call-first] #callViewMenu > .callBarPopover,
+html[data-call-first] #deviceControls > #callExtras { position: static; margin: 0; }
 html[data-call-first] #callExtras > #callExtrasContent {
   position: absolute;
   bottom: calc(100% + .5rem);
@@ -374,8 +432,14 @@ html[data-call-first] #callExtras > #callExtrasContent {
   box-shadow: 0 10px 30px var(--drop-shadow);
 }
 html[data-call-first] #callExtras > #callExtrasContent > * { margin: 0; }
-html[data-call-first] #callViewMenu:not(:has(#callView:not([hidden]))) { display: none !important; }
-html[data-call-first] .callBarPopover > .callView:not([hidden]) {
+html[data-call-first] #callExtrasContent > .callViewSection {
+  display: block;
+  padding-bottom: .6rem;
+  border-bottom: 1px solid var(--border);
+}
+html[data-call-first] #callExtrasContent > .callViewSection:not(:has(#callView:not([hidden]))) { display: none; }
+html[data-call-first] #callExtrasContent > .shareExtras > button { margin: 0; min-height: 44px; }
+html[data-call-first] .callViewSection > .callView:not([hidden]) {
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -383,11 +447,11 @@ html[data-call-first] .callBarPopover > .callView:not([hidden]) {
   margin: 0;
   font-size: .9rem;
 }
-html[data-call-first] .callBarPopover .callViewChoice { display: flex; }
-html[data-call-first] .callBarPopover .callViewChoice button { flex: 1 1 0; min-height: 44px; }
-html[data-call-first] .callBarPopover #moveSelfView,
-html[data-call-first] .callBarPopover .callViewOptions > summary { min-height: 44px; }
-html[data-call-first] .callBarPopover .callViewPanel {
+html[data-call-first] .callViewSection .callViewChoice { display: flex; }
+html[data-call-first] .callViewSection .callViewChoice button { flex: 1 1 0; min-height: 44px; }
+html[data-call-first] .callViewSection #moveSelfView,
+html[data-call-first] .callViewSection .callViewOptions > summary { min-height: 44px; }
+html[data-call-first] .callViewSection .callViewPanel {
   position: static;
   min-width: 0;
   margin-top: .4rem;
@@ -396,7 +460,7 @@ html[data-call-first] .callBarPopover .callViewPanel {
   box-shadow: none;
   background: transparent;
 }
-html[data-call-first] .callBarPopover .callViewPanel label { min-height: 44px; }
+html[data-call-first] .callViewSection .callViewPanel label { min-height: 44px; }
 
 /* --- The divider between the call and the conversation ---------------------
 

@@ -29,6 +29,8 @@ const PUBLISH_DELAY_MS = 4_000
 
 interface Followed {
   roomKey: Uint8Array
+  /** A conference room's end: each record published lapses with the room. */
+  expiresAt?: number
   positions: ReadPositions
   off: () => void
   timer?: ReturnType<typeof setTimeout>
@@ -62,9 +64,9 @@ export class ReadPositionSync {
   ) {}
 
   /** Follow one room's record, starting from what this device knows. */
-  follow(roomId: string, roomKey: Uint8Array, local: ReadPositions): void {
+  follow(roomId: string, roomKey: Uint8Array, local: ReadPositions, expiresAt?: number): void {
     if (this.#closed || this.#rooms.has(roomId)) return
-    const followed: Followed = { roomKey, positions: { ...local }, off: () => {}, busy: false, again: false, dropped: false }
+    const followed: Followed = { roomKey, positions: { ...local }, off: () => {}, busy: false, again: false, dropped: false, ...(expiresAt !== undefined ? { expiresAt } : {}) }
     this.#rooms.set(roomId, followed)
     followed.off = this.relay.subscribe(
       [{ kinds: [READ_POSITION_KIND], authors: [this.identity.pubkey], '#d': [readPositionId(roomKey)], '#l': [READ_POSITION_LABEL] }],
@@ -160,6 +162,7 @@ export class ReadPositionSync {
         identity: this.identity,
         crypt: this.crypt,
         createdAt: this.now(),
+        expiresAt: followed.expiresAt,
       })
       // Signing can take as long as the signer wants. The room may have been
       // left, forgotten or tidied up in the meantime, and a marker published

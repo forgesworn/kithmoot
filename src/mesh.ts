@@ -215,6 +215,9 @@ export interface MeshOptions {
    * without anybody's room ending.
    */
   relay?: PeerRelay
+  /** A conference room's end: every signal wrap this mesh publishes is
+   *  lowered to it if it would outlive it. See `withExpiration`. */
+  expiresAt?: number
   /**
    * Whether this device is, right now, advertising an offer to relay.
    *
@@ -1365,7 +1368,7 @@ export class Mesh {
   #send(to: string, body: Omit<SignalBody, 'roomId'>): void {
     const wrap = wrapSignal(
       { ...body, roomId: this.#opts.roomId } as SignalBody,
-      { senderSk: this.#opts.deviceSk, recipientPubkey: to },
+      { senderSk: this.#opts.deviceSk, recipientPubkey: to, expiresAt: this.#opts.expiresAt },
     )
     this.#opts.transport.publish(wrap).catch((error) =>
       this.#diagnose({ kind: 'signal-publish-failed', device: to, detail: `${body.type}: ${describeError(error)}` }),
@@ -1832,7 +1835,7 @@ export class Mesh {
         // The tier rides on the offer already - `SlotPeer` knows which rung
         // its connection was built on, and adopts the far end's when it
         // adopts a generation - so nothing is added here.
-        const wrap = wrapSignal({ ...body, roomId: this.#opts.roomId }, { senderSk: this.#opts.deviceSk, recipientPubkey: endpoint })
+        const wrap = wrapSignal({ ...body, roomId: this.#opts.roomId }, { senderSk: this.#opts.deviceSk, recipientPubkey: endpoint, expiresAt: this.#opts.expiresAt })
         this.#opts.transport.publish(wrap).catch((error) => this.#signalPublishFailed(endpoint, body, error))
         this.#watchNegotiation(endpoint, body)
         this.#diagnose({ kind: 'signal-sent', device: endpoint, detail: body.type })
@@ -1967,7 +1970,7 @@ export class Mesh {
         const rung = !forwarder && body.type === 'offer' ? { tier } : {}
         const wrap = wrapSignal(
           { ...body, ...rung, roomId: this.#opts.roomId },
-          { senderSk: this.#opts.deviceSk, recipientPubkey: remoteDevice },
+          { senderSk: this.#opts.deviceSk, recipientPubkey: remoteDevice, expiresAt: this.#opts.expiresAt },
         )
         // Not fire and forget any more. A relay that rejects a publish has
         // taken this device's only copy of a signal the far end will never

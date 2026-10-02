@@ -10,10 +10,29 @@ the model for all of it.
 
 The reference implementation is `src/messages.ts` (resolution),
 `src/chat.ts` (the codec), `src/read-position.ts` and `src/dm.ts`. The
-interop vectors are the groups `chatThread`, `chatEdit`, `chatRetract`,
+interop vectors are the groups `chatThread`, `chatEdit`, `chatOrder`, `chatRetract`,
 `chatMention`, `chatInvite` and `readPosition` in
 `vectors/kithmoot-vectors.json`, and `accessEvaluation` gains the
 members cases.
+
+## Order
+
+`sentAt` is whole seconds, so on its own two messages sent in one second
+fall to their ids, which is to say at random. `sentAtMs` is the same moment
+in milliseconds, written beside it:
+
+```json
+{"sentAt":1799999900,"sentAtMs":1799999900900}
+```
+
+- It is for order only, inside the ciphertext; the event's `created_at`
+  stays in seconds, so relays learn nothing finer.
+- A reader keeps it only when it is an integer within `sentAt`'s second,
+  and otherwise drops it and keeps the message. `sentAt` stays required.
+- Messages order by `sentAtMs`, or `sentAt * 1000` without one, then by
+  id, so every client in the room reaches the same order. A message from
+  an older client orders as the start of its second.
+- Every rule that says "latest" (edits, reactions) uses the same order.
 
 ## Naming a message
 
@@ -66,7 +85,7 @@ when the target arrives. Reactions already name their target this way.
   `mentions` replace the original's. Its placement in a thread, its kind
   and its sender are the original's; `reply`, `thread` and `kind` are
   refused on an edit.
-- Latest wins: the greatest `sentAt`, then the greater id, exactly as
+- Latest wins: the latest send time (see Order, below), then the greater id, exactly as
   reactions resolve. Readers show the latest and keep the chain, so what
   was said before can be shown on request.
 - The text is required and is the new text, so an older client shows the
@@ -167,6 +186,29 @@ is a different room from a plain DM with the same person, started with
 "Message quietly", and a pair may have one of each. Everything in this
 section applies unchanged; what changes is the carriage, described in
 `docs/decisions.md` and `src/quiet.ts`.
+
+**Where it lives.** A DM is started on the two people's own DM relay
+lists: NIP-17's kind 10050, a replaceable event with one `relay` tag per
+relay, signed by the person. The starter looks up both lists, its own and
+(only while public profile lookups are on, the switch that decides whether
+anybody's key is sent to public relays) the other person's, from the
+relays everybody looks in, waiting no more than 2.5 seconds. Then
+`relaysForPrivateConversation` in `src/dm-relays.ts`:
+
+- the other person's relays and the starter's, alternating, theirs first,
+  deduplicated in canonical form, at most six;
+- neither has a list: the relays of the room it is started from, which is
+  what every DM used before this;
+- fewer than two between them: topped up from that room's relays, so one
+  relay down is never the conversation down.
+
+The invitation (kind 1463) is published to exactly those relays and the
+link names exactly those, because a device that was never in the
+conversation fetches the invitation from the relays the link names. A
+person edits their own list in Settings, Connections, "Relays for private
+conversations", which publishes the kind 10050. Only conversations started
+after a list exists use it; an existing one keeps its relays until its
+maker adds more for everyone.
 
 **On screen.** A room whose policy lists two members, one of them you, is
 labelled by the other member's name. The room is otherwise a room: files,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { coversWholeDisplay, isWholeDisplaySurface } from './self-mirror-guard.js'
+import { coversWholeDisplay, mayShowItself } from './self-mirror-guard.js'
 
 describe('coversWholeDisplay', () => {
   it('is false with no area', () => {
@@ -24,11 +24,34 @@ describe('coversWholeDisplay', () => {
   })
 })
 
-describe('isWholeDisplaySurface', () => {
-  it('is true only for a monitor surface', () => {
-    expect(isWholeDisplaySurface('monitor')).toBe(true)
-    expect(isWholeDisplaySurface('window')).toBe(false)
-    expect(isWholeDisplaySurface('browser')).toBe(false)
-    expect(isWholeDisplaySurface(undefined)).toBe(false)
+describe('mayShowItself', () => {
+  it('is false only for a single tab', () => {
+    expect(mayShowItself('browser')).toBe(false)
+  })
+
+  it('is true for a whole screen, any window, and a capture with no hint', () => {
+    expect(mayShowItself('monitor')).toBe(true)
+    expect(mayShowItself('window')).toBe(true)
+    expect(mayShowItself(undefined)).toBe(true)
   })
 })
+
+describe('mayShowItself with the desktop app\u2019s window ids', () => {
+  const ownIds = ['window:17496:0', 'window:17500:0']
+  it('another app\u2019s window keeps its live preview', () => {
+    expect(mayShowItself('window', { deviceId: 'window:17508:0', ownIds })).toBe(false)
+  })
+  it('KithMoot\u2019s own window is still guarded', () => {
+    expect(mayShowItself('window', { deviceId: 'window:17496:0', ownIds })).toBe(true)
+  })
+  it('a window it cannot identify is still guarded', () => {
+    expect(mayShowItself('window', { deviceId: '', ownIds })).toBe(true)
+    expect(mayShowItself('window', { deviceId: 'web-contents-media-stream://1:2', ownIds })).toBe(true)
+    expect(mayShowItself('window', { deviceId: 'window:17508:0' })).toBe(true)
+    expect(mayShowItself(undefined, { deviceId: 'window:17508:0', ownIds })).toBe(true)
+  })
+  it('a whole screen is always guarded, whatever its id', () => {
+    expect(mayShowItself('monitor', { deviceId: 'screen:1:0', ownIds })).toBe(true)
+  })
+})
+

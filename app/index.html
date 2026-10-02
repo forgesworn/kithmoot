@@ -72,6 +72,7 @@
                about either taps the thing they are looking at. -->
           <button id="roomIdentity" type="button" class="roomIdentity" aria-haspopup="dialog">
             <span id="roomTitle" class="roomTitle"></span>
+            <span id="roomEndsLine" class="roomEndsLine" hidden></span>
             <span id="roomWho" class="roomWho"></span>
           </button>
           <button id="callToggle" type="button" class="barBtn" aria-expanded="false"
@@ -145,7 +146,7 @@
                    app/src/desktop.css. Filled by `renderCallChips` in
                    app/src/main.ts. -->
               <div id="callChips" class="callChips" aria-label="On the call"></div>
-              <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
+              <button id="leaveCall" type="button" class="danger" aria-label="Leave call"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15.5c5-4.6 13-4.6 18 0l-2.4 2.4-3.4-1.6v-2.6a12 12 0 0 0-6.4 0v2.6l-3.4 1.6z"/></svg><span class="callFull">Leave call</span><span class="callShort">Leave</span></button>
             </div>
             <!-- Who is talking right now, in plain text. Never an aria-live
                  region and never announced - the owner does not want a
@@ -158,20 +159,19 @@
             <p id="speakingLine" class="speakingLine" hidden></p>
             <div class="toggles">
               <!-- Short words on a phone, where the four share one row; the
-                   accessible name is the full one everywhere. -->
-              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone" aria-keyshortcuts="Control+D Meta+D"><span class="callFull">Microphone</span><span class="callShort">Mic</span></button>
-              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera" aria-keyshortcuts="Control+E Meta+E">Camera</button>
-              <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share"><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
+                   accessible name is the full one everywhere. The pictures
+                   are for the call-first bar (app/src/call-focus.css), which
+                   draws these as round icon buttons the way a phone call
+                   does: a struck-through picture while the thing is off. -->
+              <button id="toggleMic" class="toggle" data-on="false" aria-pressed="false" aria-label="Microphone" aria-keyshortcuts="Control+D Meta+D" title="Microphone"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 5 2.2M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3M3 3l18 18"/></svg><span class="callFull">Microphone</span><span class="callShort">Mic</span></button>
+              <button id="toggleCamera" class="toggle" data-on="false" aria-pressed="false" aria-label="Camera" aria-keyshortcuts="Control+E Meta+E" title="Camera"><svg class="callIcon callIconOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3"/></svg><svg class="callIcon callIconOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h4a2 2 0 0 1 2 2v4m0 4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2M16 10l6-3v10l-6-3M3 3l18 18"/></svg><span class="callWord">Camera</span></button>
+              <button id="toggleScreen" class="toggle" data-on="false" aria-pressed="false" aria-label="Screen share" title="Share screen"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4M12 13V8M9.5 10.5 12 8l2.5 2.5"/></svg><span class="callFull">Screen share</span><span class="callShort">Share</span></button>
             </div>
             <!-- Filled by `announceCallShortcut` in main.ts, only for a
                  toggle made from the keyboard: a click already carries its
                  own feedback through focus and `aria-pressed`. -->
             <div id="callShortcutAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
             <p id="micIndicator" class="indicator"></p>
-            <!-- Another of this device's own tabs holds the microphone.
-                 Filled in by `render` in app/src/main.ts alongside
-                 `micIndicator`; hidden whenever this tab holds it. -->
-            <button id="claimMic" type="button" class="quiet" hidden>Use the microphone on this device instead</button>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <!-- The background effect has failed and is covering or blurring
                  the whole frame while it retries. Shown here, next to the
@@ -184,16 +184,29 @@
                  left unticked. The share still works; it is simply quiet. -->
             <p id="screenAudioNote" class="indicator" hidden>No sound is shared. To share sound, share a browser tab and tick Share tab audio.</p>
             <!-- Two of your devices on one call: sound comes out of one of
-                 them, and the newest microphone does not take it. -->
-            <p id="monitorIndicator" class="indicator" hidden></p>
-            <button id="listenHere" type="button" class="quiet" hidden>Play sound on this device instead</button>
-            <!-- Everything past the four controls. Open, with no summary
-                 shown, on a wide screen; one "More" fold on a phone, where
-                 it would otherwise push the conversation off the screen.
+                 them, and the newest microphone does not take it. One line,
+                 the words and the buttons that move either of them here
+                 together, so it wraps as a sentence rather than as a stack
+                 of separate rows. `renderCallMedia` in app/src/main.ts says
+                 "Mic and sound are on your other device" when both are. -->
+            <div id="otherDevice" class="otherDevice">
+              <p id="monitorIndicator" class="indicator" hidden></p>
+              <button id="claimMic" type="button" class="quiet" hidden>Use mic here</button>
+              <button id="listenHere" type="button" class="quiet" hidden>Play sound here</button>
+            </div>
+            <!-- Everything past the five controls, behind More: the view,
+                 the desktop window's other ways to share, the effects and
+                 the two-device switches. A menu over the call on a wide
+                 screen, a sheet on a phone (app/src/mobile-room-view.ts).
                  See app/src/call-folds.ts. -->
             <details id="callExtras" class="callExtras">
-            <summary aria-label="More call settings">Settings</summary>
+            <summary aria-label="More call controls" title="More"><svg class="callIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span class="callWord">More</span></summary>
             <div id="callExtrasContent">
+            <!-- The desktop window's other ways to share: an area of the
+                 screen, and boxes over the parts nobody should see. Filled
+                 and shown by app/src/main.ts only where the window offers
+                 them. -->
+            <div id="shareExtras" class="toggles shareExtras" hidden></div>
             <button id="resumeCallMedia" type="button">Resume call media</button>
             <button id="toggleFloatingMarks" class="toggle" data-on="false" aria-pressed="false" hidden>Show drawings in a floating window</button>
             <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. On a
@@ -318,6 +331,9 @@
           <button id="chatSearch" type="button" aria-label="Search messages" aria-haspopup="dialog" aria-controls="conversationSearch">Search</button>
           <button id="backToSearch" type="button" aria-haspopup="dialog" aria-controls="conversationSearch" hidden>Back to results</button>
           <button id="invitePeople" type="button" aria-label="Invite people" aria-haspopup="dialog" aria-controls="inviteDialog">Invite</button>
+          <!-- The same invitation, opened on its QR code, large: for the
+               person across the table to scan from this screen. -->
+          <button id="inviteQr" type="button" aria-haspopup="dialog" aria-controls="inviteDialog">Invite by QR</button>
         </div>
         <div id="approvals" aria-live="polite"></div>
         <!-- A re-render of the whole log re-announces everything already
@@ -380,31 +396,33 @@
         </form>
         <div id="attachStaged"></div>
         <div id="attachPanel" class="attachPanel" hidden>
-          <p id="fileStorageStatus" class="note" role="status">File uploads are off. Private Bothy storage is not connected in this app yet.</p>
+          <p id="fileStorageStatus" class="note" role="status">File uploads are off. Choose where files go to turn them on.</p>
           <p id="pendingFileNames" class="note" hidden></p>
           <div id="pendingFileActions" hidden><button type="button" id="uploadPendingFiles">Upload selected files</button> <button type="button" id="clearPendingFiles">Remove selected files</button></div>
-          <details id="fileStorageOptions">
-            <summary>Use shared storage instead</summary>
-            <p class="note">This is not verified private Bothy storage. Anyone with a file’s storage URL may download its encrypted bytes; the key is needed to read it. The host can observe upload and download metadata.</p>
-            <label for="attachServer" class="note">Shared storage destination</label>
-            <input id="attachServer" type="url" placeholder="https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
-            <label><input id="allowSharedFiles" type="checkbox" /> I accept that encrypted files may be publicly downloadable from this server.</label>
-            <button type="button" id="saveFileStorage">Allow shared storage on this device</button>
-          </details>
-          <button type="button" id="stopFileUploads" hidden>Turn off file uploads</button>
-          <p class="note">Changing this setting does not move or delete existing files. Selecting or dropping a file uploads it immediately when shared storage is allowed, before you press Send.</p>
           <div class="attachRow">
             <input id="attachFile" type="file" multiple aria-label="Choose a file to share" />
-            <span class="note inline">Files are encrypted on this device before they leave it.</span>
           </div>
+          <!-- Where uploads go. Closed once a server is chosen: the status
+               line above already says which, and the choice is made once
+               per device, not once per file. Its summary is set by
+               `renderFileStorage` in app/src/main.ts. -->
+          <details id="fileStorageOptions">
+            <summary id="fileStorageSummary">Choose where files go</summary>
+            <p class="note">Anyone with a file's link can download its encrypted copy from this server. Only people with the key can open it. The server can see when files are uploaded and fetched, and how big they are.</p>
+            <label for="attachServer" class="note">File server</label>
+            <input id="attachServer" type="url" placeholder="https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
+            <label><input id="allowSharedFiles" type="checkbox" /> I accept that encrypted files may be publicly downloadable from this server.</label>
+            <div class="attachRow">
+              <button type="button" id="saveFileStorage">Use this server</button>
+              <button type="button" id="stopFileUploads" class="quiet" hidden>Turn off file uploads</button>
+            </div>
+            <p class="note">Changing this does not move or delete files already sent. With uploads on, a file uploads as soon as you choose or drop it, before you press Send.</p>
+          </details>
           <details id="attachOptions" class="attachOptions">
-            <summary>File options</summary>
-            <p class="note">
-              A file already shared through Wildbloom: paste what Wildbloom
-              gave you, and the key that opens it.
-            </p>
-            <input id="attachEvent" aria-label="Wildbloom file event" placeholder="Wildbloom id, note1, nevent1 or JSON" autocomplete="off" spellcheck="false" />
-            <input id="attachKey" type="password" aria-label="File recovery key" placeholder="Key that opens it (wbk1_…)" autocomplete="off" spellcheck="false" />
+            <summary>Add a file already on Wildbloom</summary>
+            <p class="note">Paste the link or id Wildbloom gave you, and the key that opens it.</p>
+            <input id="attachEvent" aria-label="Wildbloom file event" placeholder="Wildbloom link or id" autocomplete="off" spellcheck="false" />
+            <input id="attachKey" type="password" aria-label="File recovery key" placeholder="Key (starts wbk1_)" autocomplete="off" spellcheck="false" />
             <button type="button" id="attachAdd">Add to message</button>
           </details>
           <div class="attachRow">
@@ -499,11 +517,19 @@
         <button id="stopOpening" type="button" hidden>Stop and go back to your rooms</button>
         <div id="arrivalActions" hidden>
           <button id="retryArrival" type="button">Try the link again</button>
+          <!-- A group link whose invitation was found on none of the relays
+               asked. Adding a relay the room uses is what got people in by
+               hand; see showArrivalFailure in app/src/main.ts. -->
+          <button id="arrivalRelays" type="button" hidden>Add a relay</button>
           <button id="addCardArrival" type="button" hidden>Add this contact</button>
           <button id="arrivalHome" type="button" class="quiet">Back to rooms</button>
         </div>
         <button id="returnToPreviousRoom" type="button" hidden>Back to the previous room</button>
         <form id="joinRoomForm">
+          <div id="openInApp" class="openInApp" hidden>
+            <a id="openInAppLink" class="openInAppLink" href="#">Open in the KithMoot app</a>
+            <p class="note">Don’t have it? <a id="getAndroidApp" href="https://kithmoot.app/#android">Get KithMoot for Android</a></p>
+          </div>
           <p id="previousAccount" class="note visitorIdentity" hidden></p>
           <label for="displayName">What should we call you?</label>
           <input
@@ -574,6 +600,19 @@
                enterkeyhint="go" aria-label="Room name" />
         <label class="checkboxRow"><input id="roomAsk" type="checkbox" /> <span>Ask me before anyone joins</span></label>
         <p id="roomAskHint" class="note" hidden>You let each person in yourself, so someone has to be in the room when they arrive.</p>
+        <!-- A conference room: a group room that ends on a date and is
+             wiped from relays then. Only for a group: a room that asks
+             before anyone joins is already a meeting. -->
+        <div id="roomEndsRow" class="roomEndsRow">
+          <label for="roomEnds">Ends</label>
+          <select id="roomEnds" aria-describedby="roomEndsHint">
+            <option value="0" selected>Never</option>
+            <option value="1">After 1 day</option>
+            <option value="3">After 3 days</option>
+            <option value="7">After 7 days</option>
+          </select>
+          <p id="roomEndsHint" class="note" hidden>A conference room. On that date its link stops working and its messages are wiped from relays that honour expiry.</p>
+        </div>
         <div class="setupButtons">
           <button id="create" type="submit" class="primary">Start a room</button>
           <button id="cancelNewRoom" type="button" class="quiet">Cancel</button>
@@ -702,6 +741,7 @@
           <summary>Connections</summary>
           <button id="defaultRelaySettings" type="button" aria-haspopup="dialog" aria-controls="relaySettings">Nostr relays</button>
           <button id="appProfileSettings" type="button" aria-haspopup="dialog" aria-controls="profileSettings">Profile pictures and names</button>
+          <button id="dmRelaySettingsOpen" type="button" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>Relays for private conversations</button>
           <label for="iceServers">Call servers</label>
           <p class="note">Servers that help two devices connect for a call, separated by commas. Rooms you start hand these to everyone who joins. Leave blank to use this site’s own.</p>
           <input id="iceServers" />
@@ -1062,6 +1102,9 @@
         <div id="inviteHome">
         <div id="inviteContent" class="linkBox">
           <p class="note">Anyone with this link can join, including people it is forwarded to. Share it with people you trust.</p>
+          <!-- A conference room's end: the link stops working then, and the
+               room is wiped from relays that honour expiry. -->
+          <p id="inviteEnds" class="note inviteEnds" hidden></p>
           <label class="sr-only" for="shareUrl">Invite link</label>
           <input id="shareUrl" readonly aria-label="Link to this room" />
           <div class="inviteButtons">
@@ -1274,7 +1317,7 @@
       </div>
       <label for="relayScope">Configure</label>
       <select id="relayScope"></select>
-      <p class="note">Saved on this device. Room choices apply to your connection; other people keep theirs.</p>
+      <p class="note">Saved on this device. Room choices apply to your connection; other people keep theirs unless the room's maker shares them.</p>
       <ul id="relayList" class="relayList"></ul>
       <form id="relayAddForm" class="relayAddForm">
         <label for="relayUrl">Add a relay</label>
@@ -1287,8 +1330,27 @@
         <button id="relaySave" type="button">Apply changes</button>
         <button id="relayReconnect" type="button" class="quiet">Reconnect</button>
       </div>
+      <div id="relayShareRow" hidden>
+        <button id="relayShare" type="button">Use these relays for everyone in this room</button>
+        <p class="note">You made this room, so you can add relays for everyone. Each member's app adds them to its own; nobody loses a relay they already use.</p>
+      </div>
       <p id="relaySettingsStatus" class="note" role="status"></p>
       <p class="note">Connected means the socket is open. Accepted writes show the latest relay acknowledgement; connection alone does not prove a message was saved.</p>
+    </dialog>
+
+    <dialog id="dmRelaySettings" class="profileSettings" aria-labelledby="dmRelaySettingsTitle">
+      <div class="profileSettingsHeader">
+        <h2 id="dmRelaySettingsTitle">Relays for private conversations</h2>
+        <button id="dmRelaySettingsClose" type="button" aria-label="Close relays for private conversations">Close</button>
+      </div>
+      <p class="note">Private conversations started with you, and by you, are kept on these relays. Choose ones that keep messages and will not turn you away: your own, or one you pay for. One per line, up to six.</p>
+      <label for="dmRelayList">Relays</label>
+      <textarea id="dmRelayList" rows="4" placeholder="wss://relay.example" autocomplete="off" spellcheck="false"></textarea>
+      <div class="toolRow">
+        <button id="dmRelaySave" type="button" class="primary">Save to your Nostr account</button>
+      </div>
+      <p id="dmRelayStatus" class="note" role="status"></p>
+      <p class="note">This list is public, as the Nostr standard for it (NIP-17) requires: anyone can see which relays you use for private conversations, though not what is said on them or with whom.</p>
     </dialog>
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">

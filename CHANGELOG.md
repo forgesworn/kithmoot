@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+- **Conference rooms.** A group room can be made to end: "Ends: Never /
+  After 1 day / 3 days / 7 days" on the creation form, for a group only. Wire
+  change, additive: the kind 1463 body gains `ends` (Unix seconds; `v` stays
+  3) and the event a matching NIP-40 `expiration` tag, which a reader
+  requires to agree with the body. Every event a member signs for the room
+  then carries the same expiration (an earlier one of its own is kept), so
+  relays that honour NIP-40 drop the room when it ends; `RoomSession` and
+  `RoomAgent` take `endsAt`, and `withExpiration` is exported. At the end
+  the room shows ended, nobody joins, and a join link says "This conference
+  room ended on <date>." The header and invite sheet show the end date.
+  See "Conference rooms" in `docs/persistent-groups.md` and
+  `docs/protocol.md`.
+- **Invite by QR**, beside Invite in the room, opens the invite sheet on a
+  large QR code of the link.
+- Bump `@forgesworn/fold-kit` to 0.3.0, which carries the 1463 `ends` codec
+  and the expiration rule.
+- **The app, desktop and Android icons move to the new vortex.** `npm run
+  brand:build` now renders from `art/brand/2026-09-29`: the gradient mark on
+  white for the PWA and touch icons, the small flat mark for favicons and
+  anything 32 px or under, and a rounded tile on the macOS icon grid for the
+  Mac, Windows and Linux builds (`desktop/icons/`, and a regenerated
+  `KithMoot.ico`). The Android launcher becomes the vortex on white, inset to
+  the adaptive safe zone, with a monochrome mark for themed icons.
+- **The website moves to kithmoot.app, with the new identity.** The vortex
+  mark and wordmark from `art/brand/2026-09-29`, the brand palette and Inter,
+  self-hosted. The homepage is shorter and plainer: a screenshot of the real
+  app, eight features in a sentence or two each, three steps, and a download
+  card per platform with a direct installer link; the downloads, terms,
+  privacy and report pages share the new header and footer. The old host's
+  pages redirect to kithmoot.app; the app stays at
+  `kithmoot.forgesworn.dev/j` for now, and kithmoot.app/j redirects to it.
+  `npm run brand:site` renders the site's icons and social card from the
+  vector masters, and the site test now fails if the homepage offers an
+  installer the downloads page does not.
+- Bump `@forgesworn/fold-kit` to 0.2.0: `createDeviceCredential` now refuses
+  a person-scope credential a restamping signer pushed over the 30-day cap,
+  throwing the new, re-exported `RestampedCredentialExpiryError` at mint
+  time instead of minting a credential refused everywhere it is presented
+  (#205).
 - **Call bell, kind 1464.** Wire change, additive: the first device on a
   call publishes one `start` bell and the last one off publishes one `end`,
   so a phone with the app closed can wait for a call on an idle socket

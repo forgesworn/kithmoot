@@ -6,6 +6,7 @@ import { getPublicKey } from 'nostr-tools/pure'
 import { hexEquals, normaliseHex } from './hex.js'
 import type { ParticipantIdentity } from './identity.js'
 import { MAX_CHANNEL_NAME_LENGTH } from './chat.js'
+import { withExpiration } from './expiration.js'
 import { MAX_MESSAGE_ID_LENGTH } from './messages.js'
 
 /**
@@ -83,6 +84,9 @@ export interface EncodeReadPositionOptions {
    *  is behind must not publish with a later stamp than one ahead of it;
    *  callers merge first (`mergeReadPositions`) and publish once. */
   createdAt: number
+  /** A conference room's end: the marker lapses with the room. Signed by
+   *  the account, but it is about this one room. See `withExpiration`. */
+  expiresAt?: number
 }
 
 /** The plaintext, in the one canonical shape both implementations write. */
@@ -100,7 +104,7 @@ export async function encodeReadPositions(read: ReadPositions, opts: EncodeReadP
   return opts.identity.signEvent({
     kind: READ_POSITION_KIND,
     created_at: opts.createdAt,
-    tags: [['d', readPositionId(opts.roomKey)], ['l', READ_POSITION_LABEL]],
+    tags: withExpiration([['d', readPositionId(opts.roomKey)], ['l', READ_POSITION_LABEL]], opts.expiresAt),
     content,
   })
 }
@@ -112,7 +116,7 @@ export function encodeReadPositionsLocal(read: ReadPositions, opts: Omit<EncodeR
   return finalizeEvent({
     kind: READ_POSITION_KIND,
     created_at: opts.createdAt,
-    tags: [['d', readPositionId(opts.roomKey)], ['l', READ_POSITION_LABEL]],
+    tags: withExpiration([['d', readPositionId(opts.roomKey)], ['l', READ_POSITION_LABEL]], opts.expiresAt),
     content: nip44.v2.encrypt(readPositionPlaintext({ room: opts.roomId, read }), key),
   }, opts.participantSk)
 }
@@ -187,3 +191,11 @@ export function mergeReadPositions(local: ReadPositions, remote: ReadPositions):
   }
   return { merged, localAhead, remoteAhead }
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const READ_POSITION_LABELS = [
+  "kithmoot/v1/read-position-id",
+] as const

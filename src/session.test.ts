@@ -10,7 +10,8 @@ import { localIdentity } from './identity.js'
 import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
 import { decodeRosterEvent, encodeRosterEvent } from './roster.js'
-import { PRESENCE_TTL_SECONDS } from './session.js'
+import { PRESENCE_TTL_SECONDS, RESUME_MIN_REMAINING_SECONDS } from './session.js'
+import type { DeviceCredential } from './types.js'
 import { decodeCallBellEvent } from './call-bell.js'
 import type { RelayTransport } from './relay-pool.js'
 
@@ -1684,6 +1685,168 @@ describe('RoomSession credential renewal', () => {
       secondary.leave()
     } finally {
       vi.useRealTimers()
+    }
+  })
+})
+
+describe('RoomSession resume', () => {
+  const TTL = 12 * 60 * 60
+  const timing = { heartbeatIntervalMs: 1_000_000, sweepIntervalMs: 1_000_000 }
+
+  /** A signer that counts what it is asked, and can be made to never answer,
+   *  which is what a bunker behind a dead relay does. */
+  function countingIdentity(participantSk: Uint8Array, opts: { hang?: boolean } = {}) {
+    const inner = localIdentity(participantSk)
+    const identity = {
+      pubkey: inner.pubkey,
+      signs: 0,
+      signEvent(unsigned: Parameters<typeof inner.signEvent>[0]) {
+        identity.signs++
+        return opts.hang ? new Promise<never>(() => {}) : inner.signEvent(unsigned)
+      },
+    }
+    return identity
+  }
+
+  async function earlier(participantSk: Uint8Array, deviceSk: Uint8Array, expiresAt: number, roomId = ROOM_ID) {
+    return createDeviceCredential({
+      identity: localIdentity(participantSk),
+      devicePubkey: getPublicKey(deviceSk),
+      roomId,
+      expiresAt,
+      now,
+    })
+  }
+
+  it('BUG: joins on the credential it minted last time without waiting on a signer that never answers', async () => {
+    // A bunker reached over a relay that has gone away times out every
+    // signature, and a room this phone was in an hour ago could not be
+    // entered: every join minted a fresh credential first.
+    const participantSk = generateSecretKey()
+    const deviceSk = generateSecretKey()
+    const resume = await earlier(participantSk, deviceSk, NOW + TTL - 3600)
+    const identity = countingIdentity(participantSk, { hang: true })
+    const minted: string[] = []
+    const mine = new RoomSession({
+      transport: new SimTransport(new SimRelay()),
+      secret: secret(),
+      identity,
+      resume,
+      onCredential: (credential) => minted.push(credential.id),
+      deviceSk,
+      now,
+      announceJitterMs: 0,
+      timing,
+    })
+    await mine.join([], {})
+    expect(identity.signs).toBe(0)
+    expect(mine.credential?.id).toBe(resume.id)
+    expect(minted).toEqual([])
+    await mine.chat.send('in without the signer')
+    mine.leave()
+  })
+
+  it('renews a resumed credential from its real expiry, and hands the new one back to keep', async () => {
+    vi.useFakeTimers()
+    try {
+      const participantSk = generateSecretKey()
+      const deviceSk = generateSecretKey()
+      let clock = NOW
+      // Ten of its twelve hours left: a fresh one renews at six left, so
+      // this one is due in four hours, not in six.
+      const resume = await earlier(participantSk, deviceSk, NOW + 10 * 3600)
+      const identity = countingIdentity(participantSk)
+      const minted: DeviceCredential[] = []
+      const mine = new RoomSession({
+        transport: new SimTransport(new SimRelay()),
+        secret: secret(),
+        identity,
+        resume,
+        onCredential: (credential) => minted.push(credential),
+        deviceSk,
+        now: () => clock,
+        announceJitterMs: 0,
+        timing,
+      })
+      await mine.join([], {})
+      expect(identity.signs).toBe(0)
+
+      clock = NOW + 4 * 3600 - 1
+      await vi.advanceTimersByTimeAsync((4 * 3600 - 1) * 1000)
+      expect(identity.signs).toBe(0)
+
+      clock = NOW + 4 * 3600
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(identity.signs).toBe(1)
+      expect(minted).toHaveLength(1)
+      expect(mine.credential?.id).toBe(minted[0]!.id)
+      mine.leave()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('renews at once in the background when the resumed credential is past its renewal point', async () => {
+    vi.useFakeTimers()
+    try {
+      const participantSk = generateSecretKey()
+      const deviceSk = generateSecretKey()
+      // Two hours left of twelve: still good to join on, but past halfway.
+      const resume = await earlier(participantSk, deviceSk, NOW + 2 * 3600)
+      const identity = countingIdentity(participantSk)
+      const minted: DeviceCredential[] = []
+      const mine = new RoomSession({
+        transport: new SimTransport(new SimRelay()),
+        secret: secret(),
+        identity,
+        resume,
+        onCredential: (credential) => minted.push(credential),
+        deviceSk,
+        now,
+        announceJitterMs: 0,
+        timing,
+      })
+      await mine.join([], {})
+      expect(mine.credential?.id).toBe(resume.id)
+      expect(identity.signs).toBe(0)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(identity.signs).toBe(1)
+      expect(minted).toHaveLength(1)
+      expect(mine.credential?.id).toBe(minted[0]!.id)
+      mine.leave()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ignores a resume for another device, another participant, another room or with too little left, and mints', async () => {
+    const participantSk = generateSecretKey()
+    const deviceSk = generateSecretKey()
+    const cases = [
+      await earlier(participantSk, generateSecretKey(), NOW + TTL),
+      await earlier(generateSecretKey(), deviceSk, NOW + TTL),
+      await earlier(participantSk, deviceSk, NOW + TTL, 'f'.repeat(64)),
+      await earlier(participantSk, deviceSk, NOW + RESUME_MIN_REMAINING_SECONDS - 1),
+      await earlier(participantSk, deviceSk, NOW - 1),
+      { ...(await earlier(participantSk, deviceSk, NOW + TTL)), sig: '0'.repeat(128) },
+    ]
+    for (const resume of cases) {
+      const identity = countingIdentity(participantSk)
+      const mine = new RoomSession({
+        transport: new SimTransport(new SimRelay()),
+        secret: secret(),
+        identity,
+        resume,
+        deviceSk,
+        now,
+        announceJitterMs: 0,
+        timing,
+      })
+      await mine.join([], {})
+      expect(identity.signs).toBe(1)
+      // Compared whole: the forged copy shares its id with what is minted.
+      expect(mine.credential).not.toEqual(resume)
+      mine.leave()
     }
   })
 })

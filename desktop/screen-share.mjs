@@ -47,13 +47,15 @@ export function displayChoice({ request, platform, areaMode, redaction, screenAc
       let picked = false
       const hiding = redaction?.anyOn() ?? false
       const offered = hiding ? sources.filter(isScreen) : sources
+      const left = sources.length - offered.length
       const pick = source => { if (!picked) { picked = true; chosen(hiding && source && !isScreen(source) ? undefined : source) } }
       // On Wayland the portal already asked; a menu of its one answer is a second prompt.
       if (areaMode === 'preview' && sources.length === 1) return pick(sources[0])
       showMenu([
         { label: 'Choose what to share', enabled: false },
-        ...(hiding ? [{ label: 'Single apps are hidden while a redaction box is on', enabled: false }] : []),
         ...offered.map(source => ({ label: source.name, source, click: () => pick(source) })),
+        // Said beneath the screens, where the windows would have been.
+        ...(hiding && left > 0 ? [{ label: `${left === 1 ? '1 window is' : `${left} windows are`} not listed: a window cannot be shared while part of the screen is hidden`, enabled: false }] : []),
       ], () => pick())
     },
   }

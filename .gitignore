@@ -19,3 +19,4 @@ ASSIST-REPORT.md
 desktop/out/
 desktop/web/
 desktop/artifacts/
+.playwright-mcp/

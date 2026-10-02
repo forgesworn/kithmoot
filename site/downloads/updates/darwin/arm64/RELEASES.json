@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.26",
+  "currentRelease": "0.1.40",
   "releases": [
     {
-      "version": "0.1.26",
+      "version": "0.1.40",
       "updateTo": {
-        "version": "0.1.26",
-        "pub_date": "2026-09-28T10:30:00Z",
-        "notes": "Black out parts of your screen while you share it. Rooms keep their history on this device, so an old room opens with its messages even when a relay has forgotten them. A slow or broken relay no longer holds the others up. Unmuting on a desktop while your phone is on the call keeps your microphone on, and sharing your whole screen no longer shows the share inside itself.",
-        "name": "0.1.26",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.26/KithMoot-0.1.26-mac-arm64.zip",
-        "sha256": "31798182dee41fc75e5e788a8c708b69fea06ef75f945124bd2ac4ee2b7c005d",
-        "size": 138937492
+        "version": "0.1.40",
+        "pub_date": "2026-10-02T07:30:00Z",
+        "notes": "Messages sent within the same second show in the order they were sent.",
+        "name": "0.1.40",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.40/KithMoot-0.1.40-mac-arm64.zip",
+        "sha256": "732849b4124c9f9b6bdaeae98e3b1a0b61f4800ca4206d23fd2ca968dc0d08c7",
+        "size": 136408303
       }
     }
   ]

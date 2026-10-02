@@ -7,7 +7,9 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
   shareAreaMode,
   armShareArea() { return ipcRenderer.invoke('desktop:area-arm') },
   shareAreaState() { return ipcRenderer.invoke('desktop:area-state') },
+  shareAreaCheck() { return ipcRenderer.invoke('desktop:area-check') },
   screenAccess() { return ipcRenderer.invoke('desktop:screen-access') },
+  ownCaptureIds() { return ipcRenderer.invoke('desktop:own-capture-ids') },
   shareAreaAction(action, value) { ipcRenderer.send('desktop:area-action', action, value) },
   // Boxes are placed on the real screen, which only the frame mode can do.
   supportsRedaction: shareAreaMode === 'frame',
@@ -23,6 +25,11 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
     const handler = (_event, state) => listener(state)
     ipcRenderer.on('desktop:area-state', handler)
     return () => ipcRenderer.removeListener('desktop:area-state', handler)
+  },
+  onShareAreaCheck(listener) {
+    const handler = (_event, check) => listener(check)
+    ipcRenderer.on('desktop:area-check', handler)
+    return () => ipcRenderer.removeListener('desktop:area-check', handler)
   },
   setUnread(count) {
     if (Number.isSafeInteger(count) && count >= 0) ipcRenderer.send('desktop:unread', count)

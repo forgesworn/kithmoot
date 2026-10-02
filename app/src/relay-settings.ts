@@ -1,5 +1,8 @@
-import { NostrRelayPool, normaliseRelayConfig, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
+import { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
 import { KINDS } from '../../src/kinds.js'
+import { MAX_RELAY_HINTS } from '../../src/network-hints.js'
+import { isInvitationRelays } from '../../src/persistent-invitation.js'
+import { withRoomRelays } from '../../src/room-relays.js'
 
 import type { ParticipantIdentity } from '../../src/identity.js'
 
@@ -9,6 +12,10 @@ const STORAGE_KEY = 'kithmoot.relays.v1'
  *  than read off a card. Saved on the device; the contact book's boxes join
  *  it without being saved. */
 const CIRCLE_KEY = 'kithmoot.circle.v1'
+/** Each room's own relays, by room id: the ones it was made on (`c`, at most
+ *  eight) and whether they came from its signed group invitation (or this
+ *  device made the room) rather than a link's unsigned hints. */
+const ROOM_RELAYS_KEY = 'kithmoot.room-relays-fixed.v1'
 const LEGACY_PUBLIC_RELAYS = new Set(['wss://nos.lol/', 'wss://relay.primal.net/'])
 const PUBLIC_FALLBACK_RELAY = 'wss://nostr.mom/'
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
@@ -24,9 +31,28 @@ export function currentRoomRelayHints(hints: RelayHints): RelayHints {
   return [...relays, { url: PUBLIC_FALLBACK_RELAY, read: true, write: true }]
 }
 
-/** Device preferences, separate from relay hints shared in an invitation. */
+/** A room's own relays, as this device holds them. */
+export interface FixedRoomRelays { c: string[]; signed: boolean }
+
+/**
+ * Device preferences, separate from relay hints shared in an invitation.
+ *
+ * A room's pool has two layers. The room's own relays come first, forced to
+ * read and write and never cut: the ones it was made on, and any its
+ * authority's `relays` op added since. Every member's pool includes them,
+ * whatever else that member uses, so two members of one room always share
+ * at least one relay. This device's own relays for the room follow (saved
+ * for it, else the link's hints, else the snapshot taken when it was made,
+ * else the defaults), filled up to `MAX_POOL_RELAYS`; they are what the cap
+ * cuts. The room's relays are kept apart and are never written into a saved
+ * list: see `setRoomRelays`.
+ */
 export class RelayConnections {
   #saved: Record<string, RelayConfig[]> = {}
+  #fixed: Record<string, FixedRoomRelays> = {}
+  /** The relays each room's authority added, by room id: held for this
+   *  session; the signed op itself is kept, and replayed, by the caller. */
+  #added = new Map<string, string[]>()
   #marks = new Set<string>()
   #authentication = new Map<string, Map<string, ParticipantIdentity | null>>()
   #authenticationHints = new Map<string, RelayHints>()
@@ -54,6 +80,15 @@ export class RelayConnections {
         }
       }
     } catch { /* Storage may be unavailable or contain an older shape. */ }
+    try {
+      const fixed: unknown = JSON.parse(storage.getItem(ROOM_RELAYS_KEY) ?? '{}')
+      if (fixed && typeof fixed === 'object' && !Array.isArray(fixed)) {
+        for (const [roomId, entry] of Object.entries(fixed as Record<string, unknown>)) {
+          const { c, signed } = (entry ?? {}) as Partial<FixedRoomRelays>
+          if (/^[a-f0-9]{64}$/.test(roomId) && isInvitationRelays(c)) this.#fixed[roomId] = { c, signed: signed === true }
+        }
+      }
+    } catch { /* A list that cannot be read is learnt again from the room. */ }
     try {
       const marks: unknown = JSON.parse(storage.getItem(CIRCLE_KEY) ?? '[]')
       if (Array.isArray(marks)) for (const url of marks) if (typeof url === 'string') this.#marks.add(url)
@@ -102,13 +137,83 @@ export class RelayConnections {
   }
 
   #validScope(scope: string): boolean { return scope === 'default' || /^(room|inherited):[a-f0-9]{64}$/.test(scope) }
+  /** Every relay this device uses for `scope`: the room's own first, then
+   *  this device's own for it. */
   configuration(scope: string, hints: RelayHints = []): RelayConfig[] {
+    return this.#marked(this.#withRoomRelays(scope, this.#configuration(scope, hints)))
+  }
+  /** This device's own relays for `scope`, before the room's are put
+   *  ahead of them: what the relay settings edit and save. */
+  personal(scope: string, hints: RelayHints = []): RelayConfig[] {
     return this.#marked(this.#configuration(scope, hints))
+  }
+
+  /** Whether this device took a snapshot of its defaults for the room when
+   *  it made it (see `inheritDefaults`). */
+  inherits(scope: string): boolean {
+    return /^room:[a-f0-9]{64}$/.test(scope) && !!this.#saved[scope.replace(/^room:/, 'inherited:')]
+  }
+  /** The room's own relays as held on this device, or undefined. */
+  roomRelays(roomId: string): FixedRoomRelays | undefined {
+    const fixed = this.#fixed[roomId]
+    return fixed && { c: [...fixed.c], signed: fixed.signed }
+  }
+  /** The relays every member of the room uses: its own, then those its
+   *  authority added, without repeats. */
+  sharedRelays(roomId: string): string[] {
+    return [...new Set([...(this.#fixed[roomId]?.c ?? []), ...(this.#added.get(roomId) ?? [])])]
+  }
+
+  /**
+   * Learn a room's relays. `fixed` is the list it was made on: a signed one
+   * (from its group invitation, or this device made the room) replaces what
+   * was held; an unsigned one (a link's hints, on first sight) is taken only
+   * when nothing was. Anything that is not a list an invitation may carry is
+   * ignored. `added` is what its authority's newest `relays` op asked every
+   * member to add. Every live pool for the room moves to the result at once.
+   * Returns whether anything changed.
+   */
+  setRoomRelays(roomId: string, { fixed, signed = false, added }: { fixed?: string[]; signed?: boolean; added?: string[] }): boolean {
+    if (!/^[a-f0-9]{64}$/.test(roomId)) return false
+    const before = this.sharedRelays(roomId).join(' ')
+    let stored = false
+    const held = this.#fixed[roomId]
+    if (fixed && isInvitationRelays(fixed) && (signed ? !held || !held.signed || held.c.join(' ') !== fixed.join(' ') : !held)) {
+      this.#fixed = { ...this.#fixed, [roomId]: { c: [...fixed], signed } }
+      stored = true
+      try { this.storage.setItem(ROOM_RELAYS_KEY, JSON.stringify(this.#fixed)) } catch { /* Still used for this visit. */ }
+    }
+    if (added) {
+      const urls = added.flatMap(url => { try { return [normaliseRelayConfig([url])[0]!.url] } catch { return [] } }).slice(0, MAX_RELAY_HINTS)
+      if (urls.join(' ') !== (this.#added.get(roomId) ?? []).join(' ')) this.#added.set(roomId, urls)
+    }
+    const changed = this.sharedRelays(roomId).join(' ') !== before
+    if (changed) {
+      this.#prune()
+      for (const [pool, owner] of this.#pools) {
+        if (owner.scope !== `room:${roomId}`) continue
+        const next = this.configuration(owner.scope, owner.hints)
+        if (JSON.stringify(next) !== JSON.stringify(pool.configuration())) pool.setRelays(next)
+      }
+    }
+    return changed || stored
+  }
+
+  /** The room's own relays for a `room:<id>` scope; none for any other. */
+  roomRelaysFor(scope: string): string[] { return this.#roomRelayUrls(scope) }
+  #roomRelayUrls(scope: string): string[] {
+    const roomId = /^room:([a-f0-9]{64})$/.exec(scope)?.[1]
+    return roomId ? this.sharedRelays(roomId) : []
+  }
+  /** The room's relays first, read and write, all of them; then `own`,
+   *  without repeats, up to `MAX_POOL_RELAYS`. */
+  #withRoomRelays(scope: string, own: RelayConfig[]): RelayConfig[] {
+    return withRoomRelays(this.#roomRelayUrls(scope), own)
   }
   #configuration(scope: string, hints: RelayHints): RelayConfig[] {
     if (this.#saved[scope]) return normaliseRelayConfig(this.#saved[scope])
     const inherited = this.#saved[scope.replace(/^room:/, 'inherited:')]
-    if (hints.length) return normaliseRelayConfig(currentRoomRelayHints(hints)).map(relay => inherited?.find(saved => saved.url === relay.url) ?? relay)
+    if (hints.length) return normaliseRelayConfig(currentRoomRelayHints(hints.slice(0, MAX_POOL_RELAYS))).map(relay => inherited?.find(saved => saved.url === relay.url) ?? relay)
     return normaliseRelayConfig(inherited ?? this.#saved.default ?? this.defaults)
   }
   #marked(relays: RelayConfig[]): RelayConfig[] {
@@ -156,6 +261,7 @@ export class RelayConnections {
     if (!this.#validScope(scope)) throw new Error('No room is selected')
     // The circle mark is never saved: it is verified at use time.
     const relays = normaliseRelayConfig(entries).map(({ circle: _claimed, ...relay }) => relay)
+    if (relays.length > MAX_RELAY_HINTS) throw new Error(`use at most ${MAX_RELAY_HINTS} relays`)
     if (!relays.some(relay => relay.read) || !relays.some(relay => relay.write)) throw new Error('Keep at least one readable relay and one writable relay so the room can receive and send messages.')
     const next = { ...this.#saved, [scope]: relays }
     // Do not claim persistence or change connections if saving failed.
@@ -219,6 +325,9 @@ export class RelaySettingsPanel {
     circleChanged?: () => void
     canAuthenticate?: () => boolean
     authenticate?: (scope: string, url: string) => Promise<boolean>
+    /** The room's authority asking every member to use this scope's relays.
+     *  `run` resolves to what to tell the person, or '' if they cancelled. */
+    share?: { available: (scope: string) => boolean; run: (relays: string[]) => Promise<string> }
   }) {
     this.el('relaySettingsClose').addEventListener('click', () => this.dialog.close())
     this.dialog.addEventListener('close', () => { clearInterval(this.#timer); this.#returnFocus?.focus() })
@@ -239,6 +348,18 @@ export class RelaySettingsPanel {
         this.#load(); this.#message('Saved on this device. Connections updated.')
       } catch (error) { this.#message((error as Error).message) }
     })
+    this.el('relayShare').addEventListener('click', async () => {
+      const scope = this.#scope
+      const saved = this.connections.personal(scope, this.#hints())
+      if (JSON.stringify(saved) !== JSON.stringify(this.#draft)) { this.#message('Apply changes first, then share them.'); return }
+      const button = this.el('relayShare') as HTMLButtonElement
+      button.disabled = true
+      try {
+        const done = await this.opts.share!.run(saved.map(relay => relay.url))
+        if (done && scope === this.#scope) this.#message(done)
+      } catch (error) { this.#message((error as Error).message) }
+      button.disabled = false
+    })
     this.el('relayReconnect').addEventListener('click', () => {
       this.connections.reconnect(this.#scope); this.#health(); this.#message('Retrying the saved relay connections.')
     })
@@ -257,10 +378,24 @@ export class RelaySettingsPanel {
     clearInterval(this.#timer); this.#timer = setInterval(() => this.#health(), 1000)
   }
   #hints(): RelayHints { const room = this.opts.room(); return room?.scope === this.#scope ? room.hints : [] }
-  #load(): void { this.#draft = this.connections.configuration(this.#scope, this.#hints()); this.#render(); this.#message('') }
+  #load(): void {
+    this.#draft = this.connections.personal(this.#scope, this.#hints()); this.#render(); this.#message('')
+    this.el('relayShareRow').hidden = !this.opts.share?.available(this.#scope)
+  }
   #message(text: string): void { this.el('relaySettingsStatus').textContent = text }
   #render(): void {
     const list = this.el('relayList'); list.replaceChildren()
+    // The room's own relays: always used, by everybody in it, so listed
+    // but not editable. A relay this device also lists is shown once, below.
+    for (const url of this.connections.roomRelaysFor(this.#scope)) {
+      if (this.#draft.some(relay => relay.url === url)) continue
+      const row = this.document.createElement('li'); row.className = 'relayRow relayRoomRow'; row.dataset.url = url
+      const address = this.document.createElement('span'); address.className = 'relayAddress'; address.textContent = url
+      const health = this.document.createElement('span'); health.className = 'relayHealth'; health.setAttribute('aria-live', 'polite')
+      const note = this.document.createElement('span'); note.className = 'relayRoomNote'; note.textContent = 'This room\u2019s relay: everyone in it uses it'
+      row.append(address, health, note)
+      list.append(row)
+    }
     this.#draft.forEach((relay, index) => {
       const row = this.document.createElement('li'); row.className = 'relayRow'; row.dataset.url = relay.url
       const url = this.document.createElement('span'); url.className = 'relayAddress'; url.textContent = relay.url

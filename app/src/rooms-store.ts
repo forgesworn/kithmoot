@@ -21,6 +21,7 @@
 import { parseRoomLink } from '../../src/link.js'
 import { deriveInvitationId } from '../../src/invitation.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
+import { isRoomEnds } from '../../src/expiration.js'
 import { unreadSplit, type Named, type UnreadSplit } from '../../src/messages.js'
 import type { ChatMessage } from '../../src/chat.js'
 import { forgetKeptAdmission, type DeviceStore } from './device-store.js'
@@ -47,6 +48,9 @@ export interface KnownRoom {
   /** Unix seconds this device learned the room was ended for everyone. An
    *  ended room stays listed, so a person can see what happened to it. */
   endedAt?: number
+  /** A conference room's end, unix seconds: when it ends by itself. See
+   *  `endLapsedConferences`. */
+  endsAt?: number
 }
 
 /** What a visit to a room says about it. */
@@ -58,6 +62,8 @@ export interface RoomVisit {
   name?: string
   /** Unix seconds. */
   openedAt: number
+  /** A conference room's end, when the visit learned one. */
+  endsAt?: number
 }
 
 const ROOM_ID = /^[0-9a-f]{64}$/
@@ -81,6 +87,7 @@ function readRoom(store: DeviceStore, roomId: string): KnownRoom | undefined {
     }
     if (typeof parsed.keep === 'boolean') room.keep = parsed.keep
     if (typeof parsed.endedAt === 'number' && Number.isFinite(parsed.endedAt)) room.endedAt = parsed.endedAt
+    if (isRoomEnds(parsed.endsAt)) room.endsAt = parsed.endsAt
     // Sanitised on the way out of storage as well as on the way in, because
     // a stored value is only as trustworthy as whatever wrote it.
     const name = sanitiseDisplayName(parsed.name)
@@ -140,8 +147,24 @@ export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
   if (existing?.keep !== undefined) room.keep = existing.keep
   else if (link.invitation?.persistent) room.keep = true
   if (existing?.endedAt !== undefined && existing.link === visit.link) room.endedAt = existing.endedAt
+  // A conference room's end belongs to the room, not to one link to it: a
+  // rotated link ends when the room does.
+  const endsAt = isRoomEnds(visit.endsAt) ? visit.endsAt : existing?.endsAt
+  if (endsAt !== undefined) room.endsAt = endsAt
   writeRoom(store, room)
   return room
+}
+
+/** Mark ended every conference room whose end has come, as of its end, so
+ *  the list shows it ended and nothing goes on watching it. Returns the
+ *  rooms it marked. */
+export function endLapsedConferences(store: DeviceStore, now: number): string[] {
+  const ended: string[] = []
+  for (const room of knownRooms(store)) {
+    if (room.endsAt === undefined || room.endedAt !== undefined || now < room.endsAt) continue
+    if (markEnded(store, room.roomId, room.endsAt)) ended.push(room.roomId)
+  }
+  return ended
 }
 
 /** Note that a room was ended for everyone. Its kept admission goes, since

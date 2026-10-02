@@ -69,6 +69,75 @@ export function finalizeDeterministic(template, secretKey, auxRand) {
 }
 
 /**
+ * Run `fn` with `globalThis.crypto.getRandomValues` replaced by a stub that
+ * serves 32-byte values off `queue`, in order, then restores the original.
+ *
+ * This is how a REAL encoder - one that calls `finalizeEvent` or
+ * `nip44.v2.encrypt` with no explicit nonce/aux-rand, and so draws it at
+ * random - is driven deterministically without changing a byte of its
+ * production code path: `@noble/hashes`' `randomBytes` (which every random
+ * draw in `src/` bottoms out at, whether through `@noble/curves` schnorr
+ * signing or nostr-tools' NIP-44) reads `globalThis.crypto.getRandomValues`
+ * on every call (`node_modules/@noble/hashes/esm/utils.js`), so replacing
+ * that one function intercepts every draw the real function makes, in the
+ * order it makes them. Confirmed to reach `randomBytes`, `schnorr.sign` and
+ * `nip44.v2.encrypt` under vitest, not only under plain Node.
+ *
+ * `fn` may be sync or async; either way every draw it makes while running is
+ * served from `queue`, in order, and the stub is removed again once `fn`
+ * settles - a queue entry is never reused between calls, and a caller that
+ * draws more than `queue.length` times fails loudly rather than silently
+ * reading real randomness.
+ *
+ * On a SUCCESSFUL call (`fn` returns or resolves without throwing) the whole
+ * queue must be drawn - a recorded value that the real function never
+ * actually asked for is a vector that pins the wrong thing (a stray or
+ * miscounted entry that happens not to matter, rather than every byte a
+ * real call draws), so this throws rather than silently ignoring it. Not
+ * enforced on a throw: a call that fails partway through is expected to
+ * have drawn fewer than the recorded queue, and the caller's own error is
+ * the one worth seeing.
+ */
+export function withStubbedRandomness(queue, fn) {
+  const values = [...queue]
+  let i = 0
+  const target = globalThis.crypto
+  const original = target.getRandomValues.bind(target)
+  target.getRandomValues = (arr) => {
+    const next = values[i]
+    if (!next) throw new Error(`withStubbedRandomness: queue exhausted after ${i} draw(s)`)
+    if (next.length !== arr.length) {
+      throw new Error(`withStubbedRandomness: draw ${i} wants ${arr.length} bytes, queue entry has ${next.length}`)
+    }
+    arr.set(next)
+    i += 1
+    return arr
+  }
+  const restore = () => { target.getRandomValues = original }
+  const checkFullyConsumed = () => {
+    if (i !== values.length) {
+      throw new Error(`withStubbedRandomness: queue had ${values.length} entr${values.length === 1 ? 'y' : 'ies'} but the real call only drew ${i}`)
+    }
+  }
+  let result
+  try {
+    result = fn()
+  } catch (err) {
+    restore()
+    throw err
+  }
+  if (result instanceof Promise) {
+    return result.then(
+      (value) => { restore(); checkFullyConsumed(); return value },
+      (err) => { restore(); throw err },
+    )
+  }
+  restore()
+  checkFullyConsumed()
+  return result
+}
+
+/**
  * The exact bytes a kindred proof signs over.
  *
  * Mirrors `canonicalMessage` in `src/access.ts` byte for byte - that

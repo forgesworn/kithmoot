@@ -19,7 +19,7 @@ const [directory] = await packager({
   overwrite: true,
   asar: true,
   icon: resolve(root, 'artifacts/KithMoot.ico'),
-  ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
+  ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
 })
 
 await writeFile(resolve(directory, 'README.txt'), `KithMoot ${version} - Windows x64 portable preview

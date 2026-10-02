@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
-  ActiveSpeaker, CORNER_KEY, HIDE_SELF_KEY, MIN_TILE_WIDTH, TILE_ASPECT, TILE_GAP, VIEW_KEY,
+  ActiveSpeaker, CORNER_KEY, HIDE_SELF_KEY, MIN_TILE_WIDTH, SOLO_MIN_ASPECT, TILE_ASPECT, TILE_GAP, VIEW_KEY,
   STRIP_FRACTION, StripOrder, bestGrid, cornerRect, orderStrip, stripTileWidth, effectiveMode, fitRect, gridRects, initialsOf, layoutCall, loadPrefs, nearestCorner, nextCorner, savePref, sideStrip, splitStage, underStrip,
   type Rect,
 } from './call-layout.js'
@@ -107,6 +107,17 @@ describe('layoutCall', () => {
     expect(mine.y).toBeGreaterThan(main.y)
     expect(mine.x + mine.width).toBeLessThan(main.x + main.width / 2)
     expect(mine.y + mine.height).toBeLessThan(main.y + main.height / 2)
+  })
+
+  test('two people in a narrow, tall pane: the other person fills it rather than a box across its middle', () => {
+    const narrow = { width: 430, height: 720 }
+    const out = layoutCall({ ...narrow, view: 'gallery', people: ['me', 'you'], self: 'me', shares: [] })
+    const main = out.people.get('you')!
+    expect(main.width).toBeGreaterThanOrEqual(narrow.width - 2 * TILE_GAP - 1)
+    expect(main.height).toBeGreaterThanOrEqual(narrow.height - 2 * TILE_GAP - 1)
+    // And never thinner than a phone held upright, however tall the pane.
+    const tall = layoutCall({ width: 300, height: 1400, view: 'gallery', people: ['me', 'you'], self: 'me', shares: [] }).people.get('you')!
+    expect(tall.width / tall.height).toBeGreaterThanOrEqual(SOLO_MIN_ASPECT - 0.01)
   })
 
   test('two people without yourself among them is an ordinary gallery', () => {

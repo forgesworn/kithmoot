@@ -273,4 +273,4 @@ REMOTE
 fi
 
 echo "==> deployed release $release"
-echo "    https://kithmoot.forgesworn.dev/  and  /j"
+echo "    https://kithmoot.app/  and  https://kithmoot.forgesworn.dev/j"

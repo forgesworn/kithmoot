@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.26 on every platform. Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release: 0.1.40 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## Build and run
@@ -32,7 +32,7 @@ The ZIP alongside it is the same app for another Apple Silicon Mac.
 - Calls disable app suspension while joined. Closing the window ends its call; the macOS Dock app remains available to reopen. There is no incoming-call background daemon.
 - Chat and its composer fill the available width when there is no media beside them.
 - Share an area has four large corner resize handles and a draggable Move bar; focused controls support arrow keys. The pane stays above normal windows and across Mac fullscreen spaces. Its KithMoot control restores and raises the call window, then the sharing frame retakes the front when focus moves away. Drawing colours appear in a bottom legend once per author, fading with their last mark.
-- Hide part of the screen adds a redaction box: a see-through, dashed frame on the real screen whose area is painted black in every outgoing screen and area share before anything is encoded, so what is under it never leaves the computer. Boxes can be moved by their bar, resized from any corner, nudged with arrow keys, turned off and on singly or all together, and added before or during a share. Whole-screen shares in the desktop app always go through that canvas, and anything the app cannot place for certain (an unknown source, a changed display) is sent black. Boxes cannot follow a single app's window yet, so an app share is refused while one is on; they are not offered on Wayland, where an app cannot place its own window. See docs/share-redaction.md.
+- Hide part of the screen adds a redaction box: a see-through, dashed frame on the real screen whose area is covered with a pattern in every outgoing screen and area share before anything is encoded, so what is under it never leaves the computer. Boxes can be moved by their bar, resized from any corner, nudged with arrow keys, turned off and on singly or all together, and added before or during a share. Whole-screen shares in the desktop app always go through that canvas, and anything the app cannot place for certain (an unknown source, a changed display) is sent wholly covered. Hide my share, shown while a share is on, covers the whole picture and silences the share's sound until Show my share is pressed, on the same track. Each press of the button adds another box. Boxes cannot follow a single app's window yet, so an app share is refused while one is on and the chooser says how many windows it left out; they are not offered on Wayland, where an app cannot place its own window. See docs/share-redaction.md.
 - Wide windows show call video beside the conversation. Smaller windows stack bounded panels while keeping the composer and red Leave call control visible.
 - Native Edit, zoom, fullscreen and window menus are available. External links require confirmation and open in the browser. Downloads use a save dialog.
 - The renderer is sandboxed, has no Node APIs and receives a narrow IPC bridge for call state, unread counts, bounded notifications and notification room clicks. Main-frame sender checks, navigation restrictions, CSP, asset traversal guards and a permission allowlist protect that boundary. Clipboard reading, USB, serial and location permissions are denied.
@@ -90,7 +90,7 @@ Desktop badges count resolved, unretracted messages from other participants, usi
 
 Linux badge integration uses Electron's LauncherEntry D-Bus API with the installed `.desktop` identity. KDE/Ubuntu-style launchers can display the number; plain GNOME setups may need a dock extension. The window title carries the same count as a fallback. See [Electron badge documentation](https://www.electronjs.org/docs/latest/api/app#appsetbadgecountcount-linux-macos) and [native notifications](https://www.electronjs.org/docs/latest/tutorial/notifications).
 
-Share Area is available in the Linux desktop app on X11 and Wayland. On X11 it uses the same movable, resizable crop frame and annotation overlay as macOS and Windows. Wayland does not let an app position its own window or read screen coordinates, so there Share an area opens a preview window instead: the system's screen-share dialog chooses the monitor, the person drags a box on the preview, and only that box is sent, through the same crop and drawing path. The selection can be moved while sharing. `KITHMOOT_DESKTOP_AREA_MODE=preview` forces the preview in an unpackaged run so `test/area-preview.spec.ts` can drive it on a Mac; the portal itself is only exercised on a real Wayland desktop. Ordinary screen sharing on Wayland takes the portal's one answer without a second KithMoot menu. Linux shares video without system audio: Electron's display-media loopback output is not supported on Linux. An id-less capture source is accepted only on a single-display desktop; KithMoot refuses to guess on a multi-display setup because guessing could expose the wrong monitor.
+Share Area is available in the Linux desktop app on X11 and Wayland. On X11 it uses the same movable, resizable crop frame as macOS and Windows, as a shaped window: the hole is cut out of it, so clicks there go to whatever is beneath without KithMoot watching the cursor, and marks show in the hole only while Draw is on. `test/linux-x11/` drives the packaged app with the real pointer under Cinnamon's window manager. Wayland does not let an app position its own window or read screen coordinates, so there Share an area opens a preview window instead: the system's screen-share dialog chooses the monitor, the person drags a box on the preview, and only that box is sent, through the same crop and drawing path. The selection can be moved while sharing. `KITHMOOT_DESKTOP_AREA_MODE=preview` forces the preview in an unpackaged run so `test/area-preview.spec.ts` can drive it on a Mac; the portal itself is only exercised on a real Wayland desktop. Ordinary screen sharing on Wayland takes the portal's one answer without a second KithMoot menu. Linux shares video without system audio: Electron's display-media loopback output is not supported on Linux. An id-less capture source is accepted only on a single-display desktop; KithMoot refuses to guess on a multi-display setup because guessing could expose the wrong monitor.
 
 Validation:
 
@@ -138,7 +138,44 @@ Signed Apple Silicon builds check the static Squirrel.Mac feed at
 the background, verifies its declared SHA-256 and size, and requires the new app
 to satisfy the running app's code-signing requirement. KithMoot asks before
 restarting and uses the same unfinished-work and active-call gates as PWA
-updates. Development builds and Linux builds keep the updater disabled.
+updates. Development builds and Linux tarball builds keep the updater disabled;
+the Debian package is updated by apt (below).
+
+## Debian package and APT repository
+
+`npm run package:linux` also builds `out/kithmoot_<version>_{amd64,arm64}.deb`
+(`scripts/package-deb.mjs`, which runs `dpkg-deb` in a `debian:bookworm-slim`
+container, so Docker must be running). The package installs to `/opt/KithMoot`,
+adds `/usr/bin/kithmoot`, the `dev.forgesworn.kithmoot.desktop` menu entry and
+icon, ships `chrome-sandbox` setuid root, and installs an AppArmor profile
+(`linux/apparmor-profile`) where AppArmor understands it, which Ubuntu 23.10 and
+later need for Chromium's namespace sandbox. It also ships
+`/etc/apt/sources.list.d/kithmoot.sources`, a conffile with the archive key
+embedded in its `Signed-By`, so installing the package once subscribes the
+machine to updates, and a plain `apt remove` never leaves a source without its
+key (0.1.33 shipped the key as a separate file, which `remove` deleted). Its `postinst` removes the
+menu entry the tarball's `install.py` wrote, only when it points at that
+installer's default location, so the old copy no longer shadows the package.
+No package step reads or writes `~/.config/KithMoot`.
+
+The repository is flat and lives in the assets of the rolling GitHub release
+tagged `apt` (`https://github.com/forgesworn/kithmoot/releases/download/apt/`),
+signed by the KithMoot archive key `D6D7B42A690985CC3DDCC676F546951EDCB5E0DC`,
+whose private half is in `~/.kithmoot-signing/apt`. `npm run publish:apt`
+indexes and signs `out/kithmoot_<version>_*.deb` and uploads them, packages
+first and `InRelease` last, keeping the previous version's packages. A
+version must sort higher than the last for apt to offer it.
+
+A packaged Linux copy carries `resources/kithmoot-version`. When apt replaces
+the app underneath a running KithMoot, `package-updater.mjs` sees the new
+version and offers the same restart as the Mac updater.
+
+Needs apt 2.4 or later (Ubuntu 22.04, Debian 12) for the embedded key.
+Tested in containers on Debian 12 and 13 and Ubuntu 22.04 and 24.04 (ARM64,
+and x64 on Ubuntu 24.04 and Debian 12): install, signed upgrade, a running app
+offering the restart, a refused tampered index, and purge, with a profile file
+kept throughout. Not yet tested on a physical desktop or under Ubuntu's
+AppArmor user-namespace restriction.
 
 Every Mac release must update `site/downloads/release.json`, its archive and the
 static feed together. `npm test` in this directory refuses version, URL, size or

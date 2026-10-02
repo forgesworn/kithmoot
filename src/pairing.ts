@@ -3,6 +3,7 @@ import { nip44 } from 'nostr-tools'
 import { sha256 } from '@noble/hashes/sha2'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils'
 import { KINDS } from './kinds.js'
+import { withExpiration } from './expiration.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
 import { normaliseHex } from './hex.js'
@@ -70,6 +71,9 @@ export interface EncodePairingRequestOptions {
   deviceSk: Uint8Array
   /** Unix seconds. */
   now: number
+  /** A conference room's end: the event carries it as an expiration. See
+   *  `withExpiration`. */
+  expiresAt?: number
 }
 
 export function encodePairingRequest(opts: EncodePairingRequestOptions): Event {
@@ -79,7 +83,7 @@ export function encodePairingRequest(opts: EncodePairingRequestOptions): Event {
     {
       kind: KINDS.PAIRING_REQUEST,
       created_at: opts.now,
-      tags: [['d', opts.roomId]],
+      tags: withExpiration([['d', opts.roomId]], opts.expiresAt),
       content: nip44.v2.encrypt(JSON.stringify(body), opts.roomKey),
     },
     opts.deviceSk,
@@ -127,6 +131,9 @@ export interface EncodePairingGrantOptions {
    *  credential inside is signed by the participant key, which is the only
    *  signature that carries any authority. */
   deviceSk: Uint8Array
+  /** A conference room's end: the event carries it as an expiration. See
+   *  `withExpiration`. */
+  expiresAt?: number
 }
 
 export function encodePairingGrant(
@@ -141,10 +148,10 @@ export function encodePairingGrant(
       // `p` names the device this grant is for. Its pubkey is already on the
       // wire as the signer of the request it answers, so this reveals
       // nothing new and saves every other device decrypting the envelope.
-      tags: [
+      tags: withExpiration([
         ['d', opts.roomId],
         ['p', device],
-      ],
+      ], opts.expiresAt),
       content: nip44.v2.encrypt(JSON.stringify({ credential }), opts.roomKey),
     },
     opts.deviceSk,
@@ -211,6 +218,9 @@ export interface HostPairingOptions {
    *  retrying a request does not ask again. Defaults to accepting the code. */
   approve?: (device: string) => boolean | Promise<boolean>
   onPaired?: (device: string) => void
+  /** A conference room's end: every grant carries it as an expiration. The
+   *  credential inside keeps its own expiry. */
+  expiresAt?: number
 }
 
 /**
@@ -267,6 +277,7 @@ export function hostPairing(opts: HostPairingOptions): { close(): void } {
           roomId: opts.roomId,
           roomKey: opts.roomKey,
           deviceSk: opts.deviceSk,
+          expiresAt: opts.expiresAt,
         })
         opts.transport.publish(grant).catch(() => {})
         opts.onPaired?.(request.device)
@@ -287,6 +298,8 @@ export interface RequestPairingOptions {
   now?: () => number
   timeoutMs?: number
   retryMs?: number
+  /** A conference room's end: every request carries it as an expiration. */
+  expiresAt?: number
 }
 
 /**
@@ -336,6 +349,7 @@ export function requestPairing(opts: RequestPairingOptions): Promise<DeviceCrede
         roomKey: opts.roomKey,
         deviceSk: opts.deviceSk,
         now: now(),
+        expiresAt: opts.expiresAt,
       })
       opts.transport.publish(event).catch(() => {})
     }
@@ -348,3 +362,11 @@ export function requestPairing(opts: RequestPairingOptions): Promise<DeviceCrede
     ask()
   })
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const PAIRING_LABELS = [
+  "kithmoot/v1/pairing",
+] as const

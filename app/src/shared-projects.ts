@@ -2,6 +2,7 @@ import { decode, npubEncode } from 'nostr-tools/nip19'
 import { ProjectDirectory, type SharedProject } from '../../src/project-directory.js'
 import type { ProjectDefinition, ProjectIdentity, ProjectMember, ProjectRoom } from '../../src/projects.js'
 import type { RelayTransport } from '../../src/relay-pool.js'
+import type { Event as NostrEvent } from 'nostr-tools/pure'
 import { parseRoomLink } from '../../src/link.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
 import type { KnownRoom } from './rooms-store.js'
@@ -38,6 +39,8 @@ export class SharedProjectsPanel {
     changed: () => void
     openRoom: (room: KnownRoom) => void
     signIn: () => void
+    /** Hands a wrap for another member to the relays that member reads. */
+    deliver?: (wrap: NostrEvent, recipient: string) => Promise<void>
   }) {
     this.dialog = this.el('sharedProjects') as HTMLDialogElement
     this.editor = this.el('sharedProjectEditor') as HTMLDialogElement
@@ -85,7 +88,7 @@ export class SharedProjectsPanel {
       })
       if (generation !== this.#generation) { release?.(); return }
       this.#release = release
-      const directory = new ProjectDirectory({ identity, transport, storage: {
+      const directory = new ProjectDirectory({ identity, transport, deliver: this.options.deliver, storage: {
         load: async () => this.options.store.get(key) ?? undefined,
         save: async value => { this.options.store.set(key, value) },
       } })

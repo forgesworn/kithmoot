@@ -51,8 +51,10 @@ function received(page: Page, points: [number, number][]) {
   }, points)
 }
 
-const black = (pixel: number[]) => Math.max(...pixel) < 30
-// Points inside the box, and outside it (the background and the green edge),
+// The cover is a pattern in two dark colours (app/src/share-cover.ts), both
+// darker than anything the synthetic presentation draws.
+const covered = (pixel: number[]) => Math.max(...pixel) < 60
+// Points inside the box, and outside it (the green edge),
 // as fractions of the whole screen.
 const grid = (rect: typeof BOX, into: typeof DISPLAY) => {
   const points: [number, number][] = []
@@ -62,7 +64,7 @@ const grid = (rect: typeof BOX, into: typeof DISPLAY) => {
   return points
 }
 const inside = grid(BOX, DISPLAY)
-const outside: [number, number][] = [[1550 / 1600, 0.5], [60 / 1600, 850 / 900], [1550 / 1600, 0.1]]
+const outside: [number, number][] = [[1550 / 1600, 0.5], [1550 / 1600, 850 / 900], [1550 / 1600, 0.1]]
 
 async function standIn(native: ElectronApplication, source: { id: string; display_id: string }) {
   // Tests never capture the machine's desktop: a synthetic presentation
@@ -81,9 +83,25 @@ async function standIn(native: ElectronApplication, source: { id: string; displa
   }, { display: DISPLAY, source })
 }
 
+// A capture that has sent no picture yet: a window that has gone, or one macOS
+// is not drawing. Its first frame is pushed by hand, some time after it starts.
+const SILENT_SCREEN = () => {
+  navigator.mediaDevices.getDisplayMedia = async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 1600; canvas.height = 900
+    const stream = canvas.captureStream(0)
+    const track = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame(): void }
+    ;(window as unknown as { pushFrame(): void }).pushFrame = () => {
+      const context = canvas.getContext('2d')!
+      context.fillStyle = '#65dfba'; context.fillRect(0, 0, 1600, 900)
+      track.requestFrame()
+    }
+    return stream
+  }
+}
+
 const boxWindow = (native: ElectronApplication) => native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => window.webContents.getURL().includes('kithmoot-redaction-box')).map(window => ({ bounds: window.getBounds(), top: window.isAlwaysOnTop(), protectedContent: window.isContentProtected?.() })))
 
-test('Redaction boxes: the boxed part of a screen or area share is black in the published picture', async ({ browser }) => {
+test('Redaction boxes and a hidden share: what is boxed, or hidden, is covered in the published picture', async ({ browser }) => {
   test.setTimeout(240_000)
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-redaction-'))
   const native = await electron.launch({
@@ -118,10 +136,13 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
 
     // A box is added from the share controls, before any share.
     await expect(mac.locator('#toggleRedaction')).toBeHidden()
+    await expect(mac.locator('#addRedaction')).toHaveText('Hide part of the screen')
     const opened = native.waitForEvent('window')
     await mac.locator('#addRedaction').click()
     const box = await opened
     await expect(box.getByText('Hidden from share')).toBeVisible()
+    // Each press adds a box, and the button says so once there is one.
+    await expect(mac.locator('#addRedaction')).toHaveText('Hide another part')
     await expect(mac.locator('#toggleRedaction')).toBeVisible()
     await expect(mac.locator('#toggleRedaction')).toHaveAttribute('aria-pressed', 'true')
     const [placed] = await boxWindow(native)
@@ -159,35 +180,63 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     await expect.poll(async () => (await boxWindow(native))[0]!.bounds).toEqual(BOX)
     await box.screenshot({ path: join(desktop, 'artifacts/redaction-box.png') })
 
-    // Share the whole screen: the boxed part is black in the published picture.
+    // Share the whole screen: the boxed part is covered in the published picture.
     await mac.locator('#toggleScreen').click()
     await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
     await expect.poll(async () => {
       const shot = await published(mac, [...inside, ...outside])
       if (!shot) return 'no published share'
-      return shot.pixels.map((pixel, i) => (i < inside.length ? black(pixel) : !black(pixel)) ? '.' : 'x').join('')
-    }, { message: 'box black, everything else not' }).toBe('.'.repeat(inside.length + outside.length))
+      return shot.pixels.map((pixel, i) => (i < inside.length ? covered(pixel) : !covered(pixel)) ? '.' : 'x').join('')
+    }, { message: 'box covered, everything else not' }).toBe('.'.repeat(inside.length + outside.length))
     // And as the far end decodes it.
     await expect.poll(async () => {
       const pixels = await received(web, [[0.5, 0.5].map((f, i) => i ? (BOX.y + f * BOX.height) / 900 : (BOX.x + f * BOX.width) / 1600) as [number, number], outside[0]!])
-      return pixels ? [black(pixels[0]!), black(pixels[1]!)] : null
-    }, { message: 'far end sees the box black' }).toEqual([true, false])
+      return pixels ? [covered(pixels[0]!), covered(pixels[1]!)] : null
+    }, { message: 'far end sees the box covered' }).toEqual([true, false])
     await mac.screenshot({ path: join(desktop, 'artifacts/redaction-preview.png') })
-    // The sharer's own preview shows the same black.
-    console.log('PASS: whole-screen share published and received with the boxed area black')
+    // The sharer's own preview shows the same cover.
+    console.log('PASS: whole-screen share published and received with the boxed area covered')
 
-    // A display change: the whole picture is black until windows settle,
-    // then the boxed area alone is black again.
+    // A display change: the whole picture is covered until windows settle,
+    // then the boxed area alone is covered again.
     await native.evaluate(({ screen }) => { screen.emit('display-metrics-changed', {}, screen.getAllDisplays()[0], ['scaleFactor']) })
     const settled = await published(mac, outside)
-    expect(settled?.pixels.every(black), 'black everywhere while displays settle').toBe(true)
+    expect(settled?.pixels.every(covered), 'covered everywhere while displays settle').toBe(true)
     await expect(mac.locator('#redactionNote')).toContainText('while your displays change')
     await expect.poll(async () => {
       const shot = await published(mac, [...inside, ...outside])
-      return shot ? shot.pixels.map((pixel, i) => (i < inside.length ? black(pixel) : !black(pixel)) ? '.' : 'x').join('') : 'none'
-    }, { message: 'box black and the rest back after the settle period' }).toBe('.'.repeat(inside.length + outside.length))
+      return shot ? shot.pixels.map((pixel, i) => (i < inside.length ? covered(pixel) : !covered(pixel)) ? '.' : 'x').join('') : 'none'
+    }, { message: 'box covered and the rest back after the settle period' }).toBe('.'.repeat(inside.length + outside.length))
     await expect(mac.locator('#redactionNote')).toBeHidden()
-    console.log('PASS: a display change sends black until it settles, then recovers')
+    console.log('PASS: a display change covers the share until it settles, then recovers')
+
+    // Hidden on purpose: the whole picture is covered, here and at the far
+    // end, on the same track, and comes back when shown.
+    const tracks = () => mac.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.flatMap(pc => pc.getSenders()).map(sender => sender.track?.id).join())
+    const shownTracks = await tracks()
+    await expect(mac.locator('#hideShare')).toHaveText('Hide my share')
+    await mac.locator('#hideShare').click()
+    await expect(mac.locator('#hideShare')).toHaveAttribute('aria-pressed', 'true')
+    await expect(mac.locator('#hideShare')).toHaveText('Show my share')
+    await expect(mac.locator('#redactionNote')).toContainText('Your share is hidden')
+    await expect.poll(async () => {
+      const shot = await published(mac, [...inside, ...outside])
+      return shot ? shot.pixels.every(covered) : false
+    }, { message: 'hidden: everything is covered' }).toBe(true)
+    await expect.poll(async () => {
+      const pixels = await received(web, outside)
+      return pixels ? pixels.every(covered) : false
+    }, { message: 'hidden: the far end sees the cover' }).toBe(true)
+    expect(await tracks(), 'hiding swaps no track').toBe(shownTracks)
+    await mac.locator('#hideShare').click()
+    await expect(mac.locator('#hideShare')).toHaveAttribute('aria-pressed', 'false')
+    await expect(mac.locator('#redactionNote')).toBeHidden()
+    await expect.poll(async () => {
+      const shot = await published(mac, [...inside, ...outside])
+      return shot ? shot.pixels.map((pixel, i) => (i < inside.length ? covered(pixel) : !covered(pixel)) ? '.' : 'x').join('') : 'none'
+    }, { message: 'shown again: the box covered, the rest back' }).toBe('.'.repeat(inside.length + outside.length))
+    expect(await tracks(), 'showing swaps no track').toBe(shownTracks)
+    console.log('PASS: a share hidden on purpose is covered here and at the far end, and comes back, on one track')
 
     // Turned off on the box itself: the part is shown again.
     await box.getByRole('button', { name: 'Show', exact: true }).click()
@@ -195,16 +244,16 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     await expect(mac.locator('#toggleRedaction')).toHaveAttribute('aria-pressed', 'false')
     await expect.poll(async () => {
       const shot = await published(mac, inside)
-      return shot ? shot.pixels.filter(black).length : -1
-    }, { message: 'nothing inside the box is black once it is off' }).toBe(0)
+      return shot ? shot.pixels.filter(covered).length : -1
+    }, { message: 'nothing inside the box is covered once it is off' }).toBe(0)
     // All boxes back on from the call controls.
     await mac.locator('#toggleRedaction').click()
     await expect(box.getByText('Hidden from share')).toBeVisible()
     await expect.poll(async () => {
       const shot = await published(mac, inside)
-      return shot ? shot.pixels.every(black) : false
+      return shot ? shot.pixels.every(covered) : false
     }).toBe(true)
-    // A box added mid-share is black at once, with no track swapped.
+    // A box added mid-share is covered at once, with no track swapped.
     const trackBefore = await mac.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.flatMap(pc => pc.getSenders()).map(sender => sender.track?.id).join())
     const second = native.waitForEvent('window')
     await mac.locator('#addRedaction').click()
@@ -218,36 +267,53 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     const secondInside = grid(SECOND, DISPLAY)
     await expect.poll(async () => {
       const shot = await published(mac, [...inside, ...secondInside])
-      return shot ? shot.pixels.every(black) : false
+      return shot ? shot.pixels.every(covered) : false
     }).toBe(true)
     expect(await mac.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.flatMap(pc => pc.getSenders()).map(sender => sender.track?.id).join())).toBe(trackBefore)
     console.log('PASS: per-box toggle, all-boxes toggle and a box added mid-share')
     await mac.locator('#toggleScreen').click()
     await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
 
+    // A capture whose picture has not arrived: waiting on it used to leave
+    // the share neither started nor refused, with nothing said.
+    await mac.evaluate(SILENT_SCREEN)
+    await mac.locator('#toggleScreen').click()
+    await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await expect(mac.locator('#redactionNote')).toContainText('no picture yet')
+    await mac.evaluate(() => (window as unknown as { pushFrame(): void }).pushFrame())
+    await expect(mac.locator('#redactionNote')).toBeHidden()
+    await expect.poll(async () => {
+      const shot = await published(mac, [...inside, ...outside])
+      return shot ? shot.pixels.map((pixel, i) => (i < inside.length ? covered(pixel) : !covered(pixel)) ? '.' : 'x').join('') : 'none'
+    }, { message: 'once the picture arrives it is published, the box still covered' }).toBe('.'.repeat(inside.length + outside.length))
+    await mac.locator('#toggleScreen').click()
+    await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    await mac.evaluate(SYNTHETIC_SCREEN)
+    console.log('PASS: a share with no picture yet starts, says so, and publishes the picture when it arrives')
+
     // A single app cannot carry boxes: refused while one is on.
     await standIn(native, { id: 'window:77:0', display_id: '' })
     await mac.locator('#toggleScreen').click()
     await expect(mac.locator('#status')).toContainText('cannot follow a single app')
     await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
-    // Started with every box off, then a box turned on: the whole picture goes black.
+    // Started with every box off, then a box turned on: the whole picture is covered.
     await mac.locator('#toggleRedaction').click()
     await expect(mac.locator('#toggleRedaction')).toHaveAttribute('aria-pressed', 'false')
     await mac.locator('#toggleScreen').click()
     await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
     await expect.poll(async () => {
       const shot = await published(mac, outside)
-      return shot ? shot.pixels.some(black) : true
+      return shot ? shot.pixels.some(covered) : true
     }).toBe(false)
     await mac.locator('#toggleRedaction').click()
     await expect.poll(async () => {
       const shot = await published(mac, [...inside, ...outside])
-      return shot ? shot.pixels.every(black) : false
+      return shot ? shot.pixels.every(covered) : false
     }).toBe(true)
     await expect(mac.locator('#redactionNote')).toContainText('cannot follow a single app')
     await mac.locator('#toggleScreen').click()
     await expect(mac.locator('#redactionNote')).toBeHidden()
-    console.log('PASS: window share refused with a box on, and black when a box turns on mid-share')
+    console.log('PASS: window share refused with a box on, and covered when a box turns on mid-share')
 
     // An area share: boxes are carried into the crop.
     await standIn(native, { id: 'screen:4242:0', display_id: '4242' })
@@ -256,11 +322,12 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     await mac.locator('#shareArea').click()
     const area = await popupReady
     await area.evaluate(SYNTHETIC_SCREEN)
-    await expect(area.getByRole('button', { name: 'Start sharing', exact: true })).toBeEnabled()
+    // Start is on only while the frame sits wholly on its display, so place it first.
     await native.evaluate(({ BrowserWindow, screen }, bounds) => {
       BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!.setBounds(bounds)
       ;(globalThis as unknown as { kithmootTest: { shareArea: { display: unknown } } }).kithmootTest.shareArea.display = screen.getAllDisplays()[0]
     }, AREA)
+    await expect(area.getByRole('button', { name: 'Start sharing', exact: true })).toBeEnabled()
     await area.getByRole('button', { name: 'Start sharing', exact: true }).click()
     await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
     // The crop is the frame's hole: 8px in, 52px down, 16 and 92 smaller.
@@ -270,15 +337,35 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     await expect.poll(async () => {
       const shot = await published(mac, [...inCrop, ...outCrop])
       if (!shot) return 'no published share'
-      return shot.pixels.map((pixel, i) => (i < inCrop.length ? black(pixel) : !black(pixel)) ? '.' : 'x').join('')
-    }, { message: 'area crop: box black, the rest not' }).toBe('.'.repeat(inCrop.length + outCrop.length))
+      return shot.pixels.map((pixel, i) => (i < inCrop.length ? covered(pixel) : !covered(pixel)) ? '.' : 'x').join('')
+    }, { message: 'area crop: box covered, the rest not' }).toBe('.'.repeat(inCrop.length + outCrop.length))
     await mac.locator('#toggleRedaction').click()
     await expect.poll(async () => {
       const shot = await published(mac, inCrop)
-      return shot ? shot.pixels.filter(black).length : -1
+      return shot ? shot.pixels.filter(covered).length : -1
     }).toBe(0)
+    // An area share hides the same way, and its frame says so.
+    await mac.locator('#hideShare').click()
+    await expect(area.locator('footer')).toContainText('Hidden: people see a cover')
+    await expect(mac.locator('#redactionNote')).toContainText('Your share is hidden')
+    await expect.poll(async () => {
+      const shot = await published(mac, [...inCrop, ...outCrop])
+      return shot ? shot.pixels.every(covered) : false
+    }, { message: 'area share hidden: everything is covered' }).toBe(true)
+    // Stopped while hidden: the next share starts shown.
     await area.getByRole('button', { name: 'Stop sharing', exact: true }).click()
-    console.log('PASS: area share carries boxes into its crop')
+    await expect(mac.locator('#hideShare')).toBeHidden()
+    await expect(mac.locator('#redactionNote')).toBeHidden()
+    await mac.evaluate(SYNTHETIC_SCREEN)
+    await mac.locator('#toggleScreen').click()
+    await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await expect(mac.locator('#hideShare')).toHaveText('Hide my share')
+    await expect.poll(async () => {
+      const shot = await published(mac, outside)
+      return shot ? shot.pixels.some(covered) : true
+    }, { message: 'a share after a hidden one starts shown' }).toBe(false)
+    await mac.locator('#toggleScreen').click()
+    console.log('PASS: area share carries boxes into its crop, hides, and does not leave the next share hidden')
 
     // Leaving the call takes the boxes away with it.
     await mac.locator('#leaveCall').click()
@@ -290,3 +377,4 @@ test('Redaction boxes: the boxed part of a screen or area share is black in the 
     await rm(profile, { recursive: true, force: true })
   }
 })
+

@@ -371,6 +371,16 @@ details#appConnections button { display: block; }
   font-size: 1rem;
 }
 
+/* Opened by "Invite by QR": the code is the point, so it comes first and
+   fills the sheet, big enough to scan from across a table. */
+#inviteDialog.qrFirst #shareQr {
+  width: min(100%, 480px);
+  margin: 0.5rem auto;
+}
+#inviteDialog.qrFirst #shareQrDetails { margin: 0 0 0.8rem; }
+
+.inviteEnds { font-weight: 600; color: var(--text); }
+
 #pairQrWrap {
   margin-top: 0.6rem;
 }
@@ -481,6 +491,7 @@ details#appConnections button { display: block; }
 }
 
 .roomIdentity .roomTitle,
+.roomIdentity .roomEndsLine,
 .roomIdentity .roomWho {
   display: block;
   max-width: 100%;
@@ -498,6 +509,13 @@ details#appConnections button { display: block; }
 .roomIdentity .roomWho {
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+/* A conference room's end, under its name: the one fact about the room
+   that changes what a reader should do with it. */
+.roomIdentity .roomEndsLine {
+  font-size: 0.85rem;
+  color: var(--accent);
 }
 
 /* Faces and voices, hidden by `render` in app/src/main.ts unless somebody
@@ -987,8 +1005,8 @@ video {
 .profileSettingsHeader button { min-height: 44px; }
 .shareExpand { min-height: 44px; padding: 0.45rem 0.7rem; margin: 0.5rem 0 0; }
 .media video.screenPreview { object-fit: contain; cursor: zoom-in; }
-/* Recursion guard: while the display carrying this share is itself being
-   captured (a full-screen area, or a plain full-screen share), the live
+/* Recursion guard: while this share may be capturing KithMoot itself (a
+   full-screen area, a whole screen, or a window that may be ours), the live
    picture is withheld from this preview - see `applySelfMirrorGuard` in
    main.ts - so it never shows a live copy of itself sat inside itself. The
    marks overlay (`.shareMarks`) paints on its own canvas, not a copy of the
@@ -996,7 +1014,7 @@ video {
 .media:has(video.screenPreview.selfMirrorGuard) { position: relative; }
 video.screenPreview.selfMirrorGuard { visibility: hidden; }
 .media:has(video.screenPreview.selfMirrorGuard)::after {
-  content: 'Sharing your whole screen — live preview paused to avoid a mirror';
+  content: 'You are sharing. The preview is paused here so it cannot show itself.';
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -1222,6 +1240,17 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
   margin: 0;
   white-space: nowrap;
 }
+
+/* One height for the row's buttons. An emoji glyph's line box is taller
+   than a "+", so the emoji button stood a head above the two beside it. */
+#chatForm > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  line-height: 1;
+}
+#emojiToggle { font-size: 1.1rem; }
 
 #chatForm input {
   min-width: 0;
@@ -2974,6 +3003,12 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .checkboxRow input { flex: 0 0 auto; width: 1.2rem; height: 1.2rem; margin: 0; accent-color: var(--accent); }
 .checkboxRow span { flex: 1 1 auto; min-width: 0; }
 #roomAskHint { margin: -.3rem 0 .6rem; max-width: 60ch; }
+/* "Ends": a conference room's end. Label and choice on one line, the
+   explanation under them only once a date is chosen. */
+.roomEndsRow { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .2rem 0 .6rem; }
+#createRoomForm .roomEndsRow label { margin: 0; }
+.roomEndsRow select { flex: 0 1 auto; min-height: 44px; }
+#roomEndsHint { flex-basis: 100%; margin: 0; max-width: 60ch; }
 .setupButtons { display: flex; align-items: center; gap: .75rem; margin-top: .8rem; }
 .setupButtons button { margin: 0; }
 /* Cancel only makes sense once returning to a list it can cancel back to;
@@ -3299,6 +3334,18 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
     gap: 1.5rem;
     align-items: stretch;
   }
+  /* A room that would not open leaves the sidebar up with no room beside
+     it (the list is kept within reach). Give that page the same two
+     columns rather than stacking the sidebar across the top of it. */
+  main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) {
+    max-width: none;
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+  main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) > #workspaceNav { grid-column: 1; grid-row: 1 / span 20; }
+  main:has(#workspaceNav:not([hidden])):not(:has(#roomArea:not([hidden]))) > :not(#workspaceNav) { grid-column: 2; }
   #workspaceNav:not([hidden]) { display: flex; flex-direction: column; min-width: 0; padding-right: 1rem; border-right: 1px solid var(--border); }
   .workspaceBrand { font-size: 1.3rem; font-weight: 750; letter-spacing: -.035em; margin: .2rem 0 1.25rem; }
   #workspaceSwitch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .3rem; margin: 0 0 .75rem; font-size: .9rem; }
@@ -3448,6 +3495,7 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .relayHealth { font-size: .8rem; color: var(--muted); }
 .relayHealth[data-state="connected"] { color: #168368; }
 .relayHealth[data-state="disconnected"] { color: #b95040; }
+.relayRoomNote { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); }
 .relayAddForm { display: grid; gap: .5rem; margin: 1rem 0; }
 
 #assignmentPanel { box-sizing: border-box; width: min(44rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; overflow-wrap: anywhere; padding: 0 1.25rem 1.25rem; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); }
@@ -3569,7 +3617,8 @@ button.primary:hover:not(:disabled) {
 .attachOptions > * + * { margin-top: .4rem; }
 .attachOptions input { width: 100%; box-sizing: border-box; }
 #fileStorageOptions { min-width: 0; }
-#fileStorageOptions summary { cursor: pointer; }
+#fileStorageOptions summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+#fileStorageOptions input[type="url"] { width: 100%; box-sizing: border-box; }
 #fileStorageOptions > * + * { margin-top: .5rem; }
 #fileStorageOptions label { display: block; }
 #attachServer { width: 100%; box-sizing: border-box; }
@@ -4048,7 +4097,37 @@ input[type="search"] { font-family: inherit; }
    met the reader already scrolled. The agents notice steps aside during a call; the agents are in
    the row of tiles and on the Agents tab. */
 .callShort { display: none; }
+/* The call bar's pictures: drawn only by the call-first bar, which hides
+   the words instead (app/src/call-focus.css). */
+.callIcon { display: none; }
 .callExtras { margin: 0; }
+
+/* Two of your own devices on the call: one sentence, and the one or two
+   buttons that move the microphone or the sound here, wrapping together as
+   a line of text does rather than as a stack - and never cut short. */
+.otherDevice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .2rem .6rem;
+  margin: .3rem 0 0;
+  font-size: .85rem;
+}
+.otherDevice:not(:has(> :not([hidden]))) { display: none; }
+/* Both on the other device: the line says where the microphone is. */
+#deviceControls[data-other-device] #micIndicator { display: none; }
+#deviceControls .otherDevice > .indicator { margin: 0; min-height: 0; font-size: inherit; overflow-wrap: anywhere; }
+.otherDevice > button {
+  margin: 0;
+  min-height: 36px;
+  padding: .2rem .7rem;
+  border-radius: 18px;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-size: inherit;
+  white-space: nowrap;
+}
+.otherDevice > button:hover { color: var(--text); background: var(--accent-dim); }
 .callExtras > summary {
   display: inline-flex;
   align-items: center;
@@ -4074,8 +4153,7 @@ input[type="search"] { font-family: inherit; }
   }
   #deviceControls > .callHead,
   #deviceControls > .indicator,
-  #deviceControls > #monitorIndicator,
-  #deviceControls > #listenHere,
+  #deviceControls > .otherDevice,
   #deviceControls > #speakingLine,
   #deviceControls > #local { grid-column: 1 / -1; }
   #deviceControls > .toggles { grid-column: 1; }
@@ -4122,8 +4200,7 @@ input[type="search"] { font-family: inherit; }
   /* Open, More takes a row of its own under the controls. */
   #callExtras[open] { grid-area: 4 / 1 / 5 / 6; }
   #callExtras[open] > summary { width: auto; display: inline-flex; padding-inline: .8rem; }
-  #deviceControls > #monitorIndicator,
-  #deviceControls > #listenHere { grid-column: 1 / -1; margin: 0; }
+  #deviceControls > .otherDevice { grid-column: 1 / -1; margin: 0; }
   #deviceControls > #local:empty { display: none; }
 
   /* Whole tiles, in one row. */
@@ -4317,3 +4394,28 @@ html[data-call-docked] #callStrip,
 html[data-call-docked] #callBanner,
 html[data-call-docked] #callToggle,
 html[data-call-docked] #mobileCall { display: none !important; }
+
+/* "Open in the KithMoot app", shown to Android browsers only. A link that
+   looks like the button beside it, because it is the quicker way in. */
+.openInApp {
+  margin-bottom: 1rem;
+}
+
+.openInApp .openInAppLink {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  background: var(--accent-dim);
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  padding: 0.7rem 1.4rem;
+  text-align: center;
+  text-decoration: none;
+}
+
+.openInApp .note {
+  margin: 0.5rem 0 0;
+}

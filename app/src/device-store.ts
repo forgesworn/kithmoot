@@ -23,6 +23,7 @@ import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import type { DeviceCredential } from '../../src/types.js'
 import type { InvitationDelegation, RoomAdmission } from '../../src/invitation.js'
 import type { PersistentRoomAdmission } from '../../src/persistent-invitation.js'
+import { isRoomEnds } from '../../src/expiration.js'
 
 export type SavedRoomAdmission = RoomAdmission | PersistentRoomAdmission
 
@@ -137,6 +138,43 @@ export function forgetCredentialFor(store: DeviceStore, roomId: string): void {
   store.remove(CREDENTIAL_PREFIX + roomId)
 }
 
+/**
+ * The credential this browser minted for itself in one room, kept so that
+ * joining again does not wait on the signer (see `RoomSession`'s `resume`).
+ * A different prefix from a paired device's credential on purpose: holding
+ * one of these does not make this browser anybody's secondary, and
+ * `isPairedSecondary` must not see it. It authorises only the device key
+ * kept beside it, for one room, for at most twelve hours.
+ */
+export const OWN_CREDENTIAL_PREFIX = 'kithmoot.own-credential.'
+
+/** This browser's own credential for a room, or undefined. One past its
+ *  expiry, or that does not parse, is removed on the way through. */
+export function loadOwnCredentialFor(store: DeviceStore, roomId: string, now: number): DeviceCredential | undefined {
+  const key = OWN_CREDENTIAL_PREFIX + roomId
+  const raw = store.get(key)
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as DeviceCredential
+    const expiresAt = Number(parsed.tags.find(tag => tag[0] === 'expiration')?.[1])
+    if (!Number.isFinite(expiresAt) || expiresAt <= now) throw new Error('expired')
+    return parsed
+  } catch {
+    store.remove(key)
+    return undefined
+  }
+}
+
+export function storeOwnCredentialFor(store: DeviceStore, roomId: string, credential: DeviceCredential): void {
+  store.set(OWN_CREDENTIAL_PREFIX + roomId, JSON.stringify(credential))
+}
+
+/** Forget this browser's own credential for one room, or for every room. */
+export function forgetOwnCredentials(store: DeviceStore, roomId?: string): void {
+  if (roomId !== undefined) return store.remove(OWN_CREDENTIAL_PREFIX + roomId)
+  for (const key of store.keys()) if (key.startsWith(OWN_CREDENTIAL_PREFIX)) store.remove(key)
+}
+
 /** Whether this browser has been paired as somebody's secondary device, in
  *  any room. Such a browser must never mint a participant key of its own,
  *  which would silently turn it back into a separate person. */
@@ -157,6 +195,8 @@ interface StoredKeptAdmission {
   persistent?: true
   /** What the responder said the room's epoch was. See `RoomAdmission.epoch`. */
   epoch?: number
+  /** A conference room's end, unix seconds. See `PersistentRoomAdmission.endsAt`. */
+  ends?: number
   /** Unix seconds it was kept, or last kept again. */
   createdAt: number
 }
@@ -172,6 +212,7 @@ export function storeKeptAdmission(store: DeviceStore, invitationId: string, adm
       ? { delegateSk: bytesToHex(admission.delegate.delegateSk), delegation: admission.delegate.chain }
       : { persistent: true as const }),
     ...(admission.epoch !== undefined ? { epoch: admission.epoch } : {}),
+    ...('endsAt' in admission && admission.endsAt !== undefined ? { ends: admission.endsAt } : {}),
     createdAt: now,
   }
   store.set(KEPT_ADMISSION_PREFIX + invitationId, JSON.stringify(value))
@@ -198,7 +239,8 @@ export function loadKeptAdmission(store: DeviceStore, invitationId: string, now:
     if (secret.length !== 32) throw new Error('invalid room secret')
     if (value.persistent === true) {
       if (value.epoch !== 0 || value.delegateSk !== undefined || value.delegation !== undefined) throw new Error('invalid group membership')
-      return { secret, persistent: true, epoch: 0 }
+      if (value.ends !== undefined && !isRoomEnds(value.ends)) throw new Error('invalid conference end')
+      return value.ends === undefined ? { secret, persistent: true, epoch: 0 } : { secret, persistent: true, epoch: 0, endsAt: value.ends }
     }
     if (typeof value.delegateSk !== 'string' || !Array.isArray(value.delegation)) throw new Error('invalid delegation')
     const delegateSk = hexToBytes(value.delegateSk)

@@ -289,6 +289,53 @@ test('a screen share arrives alongside the camera, not instead of it', async ({ 
  * So: Ada's laptop shares a screen, Ada's phone carries the camera, and the
  * assertion is made from Cara's screen - one tile, two pictures, both moving.
  */
+test('two cameras of one person are two equal angles in their tile, for everyone', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+  const laptop = await newDeviceContext(browser, baseURL!)
+  const phone = await newDeviceContext(browser, baseURL!)
+  const watcher = await newDeviceContext(browser, baseURL!)
+  try {
+    const pageLaptop = await laptop.newPage()
+    const pagePhone = await phone.newPage()
+    const pageCara = await watcher.newPage()
+    const url = await createRoom(pageLaptop, baseURL!)
+    await open(pageLaptop, url, 'Ada')
+    await pageLaptop.locator('#join').click()
+    await expect(pageLaptop.locator('#roomArea')).toBeVisible()
+    await turnOnMedia(pageLaptop)
+    const pairUrl = await offerPairing(pageLaptop)
+    await Promise.all([open(pagePhone, pairUrl, 'Ada'), pageLaptop.getByRole('button', { name: 'Add device', exact: true }).click()])
+    await pagePhone.locator('#join').click()
+    await expect(pagePhone.locator('#roomArea')).toBeVisible()
+    await openCall(pagePhone)
+    await pagePhone.locator('#toggleCamera').click()
+    await expect(pagePhone.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    await open(pageCara, url, 'Cara')
+    await pageCara.locator('#join').click()
+    await expect(pageCara.locator('#roomArea')).toBeVisible()
+    await turnOnMedia(pageCara)
+
+    // Both angles, each half of the tile and side by side or stacked, never
+    // one in the corner of the other: for the third person, and for Ada's own
+    // laptop, whose own tile holds its camera and the phone's.
+    for (const [page, who] of [[pageCara, 'Cara'], [pageLaptop, 'the laptop']] as const) {
+      await expect.poll(async () => page.evaluate(() => {
+        const tile = Array.from(document.querySelectorAll('#room .participant'))
+          .find(box => box.querySelectorAll(':scope > .media > video:not(.screenPreview)').length >= 2)
+        if (!tile) return 'no tile with two cameras'
+        const box = tile.getBoundingClientRect()
+        const [a, b] = Array.from(tile.querySelectorAll(':scope > .media > video:not(.screenPreview)')).map(video => video.getBoundingClientRect())
+        const half = (side: number, whole: number) => Math.abs(side - whole / 2) <= 4
+        const across = half(a!.width, box.width) && half(b!.width, box.width) && Math.abs(a!.height - box.height) <= 4 && Math.abs(b!.height - box.height) <= 4 && b!.left >= a!.right - 4
+        const stacked = half(a!.height, box.height) && half(b!.height, box.height) && Math.abs(a!.width - box.width) <= 4 && Math.abs(b!.width - box.width) <= 4 && b!.top >= a!.bottom - 4
+        return across || stacked ? 'two equal angles' : `a ${Math.round(a!.width)}x${Math.round(a!.height)}, b ${Math.round(b!.width)}x${Math.round(b!.height)} in ${Math.round(box.width)}x${Math.round(box.height)}`
+      }), { message: `${who} sees Ada's two cameras as two equal angles`, timeout: 90_000 }).toBe('two equal angles')
+    }
+  } finally {
+    await Promise.all([laptop.close(), phone.close(), watcher.close()])
+  }
+})
+
 test('one person on two devices delivers two live pictures to everybody else', async ({
   browser,
   baseURL,

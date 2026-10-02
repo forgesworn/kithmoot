@@ -15,6 +15,9 @@ elf = (source / 'kithmoot').read_bytes()[:20]
 expected = {'x86_64': 62, 'aarch64': 183}.get(platform.machine())
 if elf[:4] != b'\x7fELF' or int.from_bytes(elf[18:20], 'little') != expected:
     sys.exit('This package does not match your CPU. Download x64 for Intel/AMD or arm64 for ARM.')
+# A copy in your applications folder would hide the package's menu entry.
+if Path('/opt/KithMoot/resources/kithmoot-version').exists():
+    sys.exit('KithMoot is installed from its Debian package, which updates with your system updates. Nothing to do here.')
 home = Path.home()
 base = Path(os.environ.get('XDG_DATA_HOME', str(home / '.local/share')))
 if not base.is_absolute():

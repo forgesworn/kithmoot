@@ -401,6 +401,47 @@ describe('ChatLog', () => {
     expect(log.messages().map((m) => m.text)).toEqual(['tie-low', 'tie-high', 'later'])
   })
 
+  it('orders messages in the same second by sentAtMs, and drops a sentAtMs outside its second', async () => {
+    const relay = new SimRelay()
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))
+    const deviceSk = generateSecretKey()
+    const credential = await credentialFor(deviceSk, roomId)
+    const participant = credential.pubkey
+    const device = getPublicKey(deviceSk)
+    const log = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => NOW })
+
+    // Ids chosen against the send order, so the id tiebreak alone would swap them.
+    const first: ChatMessage = { id: 'z', participant, device, credential, text: 'first', sentAt: NOW, sentAtMs: NOW * 1000 + 100 }
+    const second: ChatMessage = { id: 'y', participant, device, credential, text: 'second', sentAt: NOW, sentAtMs: NOW * 1000 + 900 }
+    // From an older client: no sentAtMs, so the start of its second.
+    const older: ChatMessage = { id: 'x', participant, device, credential, text: 'older', sentAt: NOW }
+    // A sentAtMs from another second is not believed; the message stays.
+    const lying: ChatMessage = { id: 'w', participant, device, credential, text: 'lying', sentAt: NOW, sentAtMs: (NOW + 5) * 1000 }
+
+    for (const m of [second, first, lying, older]) relay.publish(encodeChatEvent(m, { roomId, roomKey, deviceSk }))
+
+    expect(log.messages().map((m) => m.text)).toEqual(['lying', 'older', 'first', 'second'])
+    expect(log.messages().find((m) => m.text === 'lying')!.sentAtMs).toBeUndefined()
+  })
+
+  it('writes sentAtMs within sentAt from one reading of the clock, and none under a fixed clock', async () => {
+    const { roomId, roomKey, deviceSk, credential } = await fixture()
+    const relay = new SimRelay()
+    let ms = NOW * 1000 + 250
+    const timed = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, nowMs: () => ms })
+    await timed.send('one')
+    ms += 500
+    await timed.send('two')
+    expect(timed.messages().map((m) => [m.text, m.sentAt, m.sentAtMs])).toEqual([
+      ['one', NOW, NOW * 1000 + 250],
+      ['two', NOW, NOW * 1000 + 750],
+    ])
+
+    const fixed = new ChatLog({ transport: new SimTransport(new SimRelay()), roomId, roomKey, credential, deviceSk, now: () => NOW })
+    await fixed.send('three')
+    expect(fixed.messages()[0]!.sentAtMs).toBeUndefined()
+  })
+
   it('opened without a credential, reads by the same rules and refuses to send', async () => {
     // A device that holds the room key can read the room's chat without
     // being in the room - the rooms list counts what is new that way. It

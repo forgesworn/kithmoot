@@ -178,6 +178,16 @@ html[data-desktop][data-call-pane="controls"] #callWho,
 html[data-desktop][data-call-pane="controls"] #deviceControls > #micIndicator,
 html[data-desktop][data-call-pane="controls"] #deviceControls > #local { display: none; }
 html[data-desktop][data-call-pane="controls"] #callChips { display: flex; }
+/* One row under the names: the buttons, who is speaking, then More. The
+   speaking line spans the whole grid elsewhere, and with More pinned to the
+   second row that pushed it, and the buttons after it, onto rows of their
+   own: a voice call three rows tall with nothing in them. Open, More still
+   takes a row of its own underneath. */
+html[data-desktop][data-call-pane="controls"] #deviceControls { grid-template-columns: auto minmax(0, 1fr) auto; }
+html[data-desktop][data-call-pane="controls"] #deviceControls > .toggles { grid-column: 1; grid-row: 2; }
+html[data-desktop][data-call-pane="controls"] #deviceControls > #speakingLine { grid-column: 2; grid-row: 2; align-self: center; margin: 0; }
+html[data-desktop][data-call-pane="controls"] #deviceControls > .callExtras { grid-column: 3; grid-row: 2; }
+html[data-desktop][data-call-pane="controls"] #deviceControls > .callExtras[open] { grid-column: 1 / -1; grid-row: auto; }
 
 /* M7: this used to show the strip's own "Start call" beside the header's -
    the same offer twice on one screen, in the room bar's own words plus the

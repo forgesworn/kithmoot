@@ -163,3 +163,11 @@ export function verifyAgentOwnership(raw: AgentOwnership, opts: VerifyAgentOwner
   if (proof.expiresAt <= opts.now) return { ok: false, reason: 'expired' }
   return signature
 }
+
+/** Every wire-format literal this module owns (each one a kithmoot protocol string), frozen for
+ *  `src/labels.test.ts`, which checks each module against its own exported
+ *  list rather than scanning file text for matching comments. Pure data -
+ *  adding this export changes no runtime behaviour. */
+export const OWNERSHIP_LABELS = [
+  "kithmoot/v1/agent-owner:",
+] as const

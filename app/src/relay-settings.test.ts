@@ -81,6 +81,103 @@ describe('device relay preferences', () => {
   })
 })
 
+describe('a room\'s own relays', () => {
+  const roomId = 'a'.repeat(64)
+  const fixed = ['wss://room-a.test/', 'wss://room-b.test/']
+  const mine = [{ url: 'wss://mine.test/', read: true, write: false }, { url: 'wss://room-a.test/', read: false, write: true }]
+
+  it('come first, read and write, ahead of this device\'s saved list, which they never enter', () => {
+    const saved = storage()
+    const connections = new RelayConnections(saved, defaults)
+    connections.save(room, mine)
+    expect(connections.setRoomRelays(roomId, { fixed, signed: true })).toBe(true)
+    expect(connections.configuration(room)).toEqual([
+      { url: 'wss://room-a.test/', read: true, write: true },
+      { url: 'wss://room-b.test/', read: true, write: true },
+      { url: 'wss://mine.test/', read: true, write: false },
+    ])
+    expect(connections.personal(room)).toEqual(mine)
+    expect(JSON.parse(saved.getItem('kithmoot.relays.v1')!)[room]).toEqual(mine)
+    // Kept apart, and still there for the next visit.
+    expect(JSON.parse(saved.getItem('kithmoot.room-relays-fixed.v1')!)).toEqual({ [roomId]: { c: fixed, signed: true } })
+    expect(new RelayConnections(saved, defaults).configuration(room).map(relay => relay.url)).toEqual(['wss://room-a.test/', 'wss://room-b.test/', 'wss://mine.test/'])
+    // Saving the room again saves only what the person chose.
+    connections.save(room, connections.personal(room))
+    expect(JSON.parse(saved.getItem('kithmoot.relays.v1')!)[room]).toEqual(mine)
+  })
+
+  it('are also used ahead of a link\'s hints and the defaults, and only for their own room', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    connections.setRoomRelays(roomId, { fixed, signed: true })
+    expect(connections.configuration(room, ['wss://hint.test']).map(relay => relay.url)).toEqual([...fixed, 'wss://hint.test/'])
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual([...fixed, 'wss://default.test/'])
+    expect(connections.configuration(`room:${'b'.repeat(64)}`).map(relay => relay.url)).toEqual(['wss://default.test/'])
+    expect(connections.configuration('default').map(relay => relay.url)).toEqual(['wss://default.test/'])
+  })
+
+  it('take a signed list over anything, and an unsigned one only when nothing is held', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    expect(connections.setRoomRelays(roomId, { fixed: ['wss://link.test/'] })).toBe(true)
+    expect(connections.setRoomRelays(roomId, { fixed: ['wss://other.test/'] })).toBe(false)
+    expect(connections.roomRelays(roomId)).toEqual({ c: ['wss://link.test/'], signed: false })
+    expect(connections.setRoomRelays(roomId, { fixed, signed: true })).toBe(true)
+    expect(connections.setRoomRelays(roomId, { fixed: ['wss://link.test/'] })).toBe(false)
+    expect(connections.roomRelays(roomId)).toEqual({ c: fixed, signed: true })
+    // Not a list an invitation may carry: ignored, never trimmed.
+    for (const bad of [[], ['wss://room-a.test'], ['ws://remote.test/'], Array.from({ length: 9 }, (_, i) => `wss://r${i}.test/`)]) {
+      expect(connections.setRoomRelays(roomId, { fixed: bad, signed: true })).toBe(false)
+    }
+    expect(connections.roomRelays(roomId)).toEqual({ c: fixed, signed: true })
+  })
+
+  it('cut this device\'s own relays first when the pool is full, never their own', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    const eight = Array.from({ length: 8 }, (_, i) => `wss://fixed${i}.test/`)
+    const added = Array.from({ length: 8 }, (_, i) => `wss://added${i}.test/`)
+    connections.save(room, Array.from({ length: 8 }, (_, i) => ({ url: `wss://mine${i}.test/`, read: true, write: true })))
+    connections.setRoomRelays(roomId, { fixed: eight.slice(0, 4), signed: true })
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual([...eight.slice(0, 4), ...Array.from({ length: 8 }, (_, i) => `wss://mine${i}.test/`)])
+    connections.setRoomRelays(roomId, { fixed: eight, signed: true, added })
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual([...eight, ...added])
+    // A saved list is still held to eight.
+    expect(() => connections.save(room, Array.from({ length: 9 }, (_, i) => ({ url: `wss://mine${i}.test/`, read: true, write: true })))).toThrow(/at most 8/)
+  })
+
+  it('an authority\'s op adds to them without touching the saved list or cutting it', () => {
+    const saved = storage()
+    const connections = new RelayConnections(saved, defaults)
+    const own = Array.from({ length: 8 }, (_, i) => ({ url: `wss://mine${i}.test/`, read: true, write: true }))
+    connections.save(room, own)
+    connections.setRoomRelays(roomId, { fixed, signed: true })
+    expect(connections.setRoomRelays(roomId, { added: ['wss://owner.test', 'wss://room-a.test/'] })).toBe(true)
+    expect(connections.sharedRelays(roomId)).toEqual([...fixed, 'wss://owner.test/'])
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual([...fixed, 'wss://owner.test/', ...own.map(relay => relay.url)])
+    expect(JSON.parse(saved.getItem('kithmoot.relays.v1')!)[room]).toEqual(own)
+    expect(connections.setRoomRelays(roomId, { added: ['wss://owner.test/'] })).toBe(false)
+  })
+
+  it('say whether the maker took a snapshot of its defaults for the room', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    expect(connections.inherits(room)).toBe(false)
+    connections.inheritDefaults(room)
+    expect(connections.inherits(room)).toBe(true)
+    expect(connections.inherits('default')).toBe(false)
+  })
+
+  it('move every live pool for the room at once, and leave other rooms\' pools alone', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    const pool = connections.pool(room, ['wss://hint.test'])
+    const other = connections.pool(`room:${'b'.repeat(64)}`, ['wss://hint.test'])
+    try {
+      connections.setRoomRelays(roomId, { fixed, signed: true })
+      expect(pool.configuration().map(relay => relay.url)).toEqual([...fixed, 'wss://hint.test/'])
+      expect(other.configuration().map(relay => relay.url)).toEqual(['wss://hint.test/'])
+      connections.setRoomRelays(roomId, { added: ['wss://owner.test/'] })
+      expect(pool.configuration().map(relay => relay.url)).toEqual([...fixed, 'wss://owner.test/', 'wss://hint.test/'])
+    } finally { pool.close(); other.close() }
+  })
+})
+
 describe('the circle\'s relays', () => {
   it('marks a box known from a contact card on every configuration, never saves the mark, and moves it when the circle changes', () => {
     const saved = storage()

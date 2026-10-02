@@ -18,6 +18,26 @@ async function open(who: ProjectIdentity, relay: SimRelay, cache = storage(), tr
 }
 const synced = async (...directories: ProjectDirectory[]) => { await vi.waitFor(() => { for (const d of directories) expect(d.snapshot().pendingSends).toBe(0) }, { timeout: 10_000 }) }
 
+describe('shared projects reach members on their own relays', () => {
+  it('hands each wrap to where the member reads, so a member who shares no relay with the owner still gets it', async () => {
+    const ownerRelay = new SimRelay({ replay: true }), memberInbox = new SimRelay({ replay: true })
+    const owner = identity(), member = identity()
+    const inbox = new SimTransport(memberInbox)
+    const delivered: string[] = []
+    const a = new ProjectDirectory({ identity: owner, transport: new SimTransport(ownerRelay), storage: storage(),
+      deliver: async (wrap, recipient) => { delivered.push(recipient); await inbox.publish(wrap) } })
+    await a.open(); await vi.waitFor(() => expect(a.snapshot().ready).toBe(true))
+    const b = await open(member, memberInbox)
+    try {
+      await a.create(definition('Across relays', owner, member), 'create-across-00001')
+      await synced(a)
+      await vi.waitFor(() => expect(b.snapshot().projects.map(p => p.definition?.name)).toEqual(['Across relays']))
+      // The owner's own copy stays on the owner's relays only.
+      expect(delivered).toEqual([member.pubkey])
+    } finally { await a.close(); await b.close() }
+  })
+})
+
 describe('shared projects across independent people and devices', () => {
   it('shares three overlapping and disjoint projects, syncs a deliberate join and restores encrypted state without relay history', async () => {
     const relay = new SimRelay({ replay: true }), alice = identity(), bob = identity(), carol = identity(), agent = identity()

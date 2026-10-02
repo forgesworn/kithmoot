@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import { base64urlnopad } from '@scure/base'
+import { NostrRelayPool, type RelayTransport } from '../src/relay-pool.js'
 
 /**
  * Which relays the acceptance specs pin a room to.
@@ -59,6 +60,23 @@ export function testRelaysFor(baseURL: string): string[] | undefined {
   const proxied = new URL('/__test-relay', baseURL)
   proxied.protocol = 'wss:'
   return relays.map((r) => (r === LOCAL_TEST_RELAY ? proxied.href : r))
+}
+
+/**
+ * Relay options for a `RoomAgent` that makes a room a browser page will join.
+ *
+ * An agent signs the relays it makes a room on into the room's invitation,
+ * and every member then uses them. A page cannot dial `LOCAL_TEST_RELAY`
+ * (WebKit blocks it as mixed content, and specs that close every socket but
+ * the proxy block it everywhere), so the room is made on the proxied URL,
+ * which is what gets signed, while the agent itself dials the relay directly:
+ * Node has no reason to go through the preview server's self-signed proxy.
+ */
+export function agentRelaysFor(baseURL: string): { relays: string[], transport: (relays: string[]) => RelayTransport } {
+  const proxied = new URL('/__test-relay', baseURL)
+  proxied.protocol = 'wss:'
+  const direct = (url: string) => (new URL(url).href === proxied.href ? LOCAL_TEST_RELAY : url)
+  return { relays: [proxied.href], transport: relays => new NostrRelayPool(relays.map(direct)) }
 }
 
 /** `url` with its relay list replaced by the test relays, when there are

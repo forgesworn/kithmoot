@@ -1,4 +1,4 @@
-import type { AreaRect } from './share-area.js'
+import type { AreaCheck, AreaRect } from './share-area.js'
 import type { RedactionState } from './redaction-geometry.js'
 
 export {}
@@ -9,8 +9,13 @@ declare global {
       shareAreaMode?: 'frame' | 'preview' | null
       armShareArea(): Promise<boolean>
       shareAreaState(): Promise<AreaRect | null>
+      /** Whether the frame sits wholly on one screen, and why the last request to share was refused. */
+      shareAreaCheck?(): Promise<AreaCheck | null>
+      onShareAreaCheck?(listener: (check: AreaCheck | null) => void): () => void
       /** macOS's Screen Recording status for the app; 'granted' elsewhere. */
       screenAccess?(): Promise<string>
+      /** The capture id (`window:<id>:0`) of every window of this app. */
+      ownCaptureIds?(): Promise<string[]>
       shareAreaAction(action: string, value?: unknown): void
       onShareAreaState(listener: (state: AreaRect | null) => void): () => void
       supportsRedaction?: boolean

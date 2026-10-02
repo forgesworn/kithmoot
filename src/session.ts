@@ -302,6 +302,17 @@ export interface RoomSessionBaseOptions {
   onRemoved?: (notice: { epoch: number; by?: string }) => void
   /** Called when the room was closed by its authority. As above. */
   onClosed?: (notice: { epoch: number; by?: string }) => void
+  /**
+   * A conference room's end, in unix seconds: the `ends` its group
+   * invitation carries (`PersistentRoomAdmission.endsAt`). Every event this
+   * session signs for the room - roster and farewell, chat and its
+   * channels, signals, descriptors, call bells, assignments, rekeys and
+   * epoch requests - carries it as a NIP-40 expiration, so relays drop the
+   * room's traffic once it has ended. At or after it, `join` refuses and no
+   * bell is rung. Omit for a room with no end: every event is then
+   * byte-identical to one from before conference rooms existed.
+   */
+  endsAt?: number
 }
 
 /**
@@ -317,6 +328,20 @@ export interface RoomSessionBaseOptions {
 export interface PrimaryRoomSessionOptions extends RoomSessionBaseOptions {
   identity: ParticipantIdentity
   credential?: never
+  /**
+   * A credential this device minted for itself in this room on an earlier
+   * join, offered so that joining again does not wait on the signer. A
+   * bunker reached over a relay can take seconds or not answer at all, and
+   * a room this device was in this morning should not be lost to that. It
+   * is used only when it names this room, this device and this participant
+   * and has at least `RESUME_MIN_REMAINING_SECONDS` left; anything else is
+   * ignored and a fresh one is minted, exactly as with none. Renewal then
+   * runs from its real expiry, in the background.
+   */
+  resume?: DeviceCredential
+  /** Called with every credential this device mints for itself, at join and
+   *  at each renewal, so the embedding can keep it to offer as `resume`. */
+  onCredential?: (credential: DeviceCredential) => void
 }
 
 /**
@@ -329,6 +354,8 @@ export interface PrimaryRoomSessionOptions extends RoomSessionBaseOptions {
 export interface SecondaryRoomSessionOptions extends RoomSessionBaseOptions {
   credential: DeviceCredential
   identity?: never
+  resume?: never
+  onCredential?: never
 }
 
 export type RoomSessionOptions = PrimaryRoomSessionOptions | SecondaryRoomSessionOptions
@@ -340,6 +367,9 @@ export interface PublishOptions {
 }
 
 const CREDENTIAL_TTL_SECONDS = 12 * 60 * 60
+
+/** What `join` refuses with once a conference room's end has passed. */
+export const CONFERENCE_ENDED_MESSAGE = 'this conference room has ended'
 const DEFAULT_ANNOUNCE_JITTER_MS = 500
 
 /**
@@ -360,6 +390,15 @@ export const CREDENTIAL_RENEWAL_FRACTION = 0.5
 /** How long to wait before trying a renewal again after a signer refused or
  *  a relay was down. Short, because the clock is running on the old one. */
 const CREDENTIAL_RENEWAL_RETRY_MS = 60_000
+
+/** The least life a resumed credential must have left to be used at join.
+ *  Enough that a member whose clock runs a few minutes ahead does not refuse
+ *  it on arrival, and that the background renewal has room for retries. */
+export const RESUME_MIN_REMAINING_SECONDS = 10 * 60
+
+function credentialExpiresAt(credential: DeviceCredential): number {
+  return Number(credential.tags.find(tag => tag[0] === 'expiration')?.[1])
+}
 
 /**
  * How long a device stays in the roster after its last announcement.
@@ -431,6 +470,8 @@ export class RoomSession {
   #roomKey: Uint8Array
   #opts: RoomSessionOptions
   #now: () => number
+  /** The real clock in milliseconds, for chat's `sentAtMs`; none when a test fixes `now`. */
+  #nowMs: (() => number) | undefined
   /** Set only on a secondary device: the credential it was handed. A primary
    *  mints a fresh one at join. */
   #credential?: DeviceCredential
@@ -530,6 +571,7 @@ export class RoomSession {
     // anything is subscribed or published through it. See `quiet.ts`.
     opts.transport.rekey?.(this.#epoch.key.slice())
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+    this.#nowMs = opts.now ? undefined : Date.now
     this.device = getPublicKey(opts.deviceSk)
     this.sid = sanitiseSid(opts.sid) ?? newSid()
     this.#name = sanitiseDisplayName(opts.name)
@@ -592,6 +634,7 @@ export class RoomSession {
   }
 
   async join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
+    if (this.#ended()) throw new Error(CONFERENCE_ENDED_MESSAGE)
     if (this.#opts.policy) {
       const verdict = evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, this.#now(), this.roomId)
       if (!verdict.admitted) throw new Error(verdict.reason)
@@ -605,8 +648,11 @@ export class RoomSession {
 
     const device = this.device
     // A secondary device uses the credential it was issued; only a primary,
-    // which is the only endpoint holding the participant key, can mint one.
-    const credential = this.#credential ?? (await this.issueDeviceCredential(device, this.#credentialTtl()))
+    // which is the only endpoint holding the participant key, can mint one,
+    // and it reuses the one it minted last time while that is still good.
+    const resumed = this.#resumable()
+    const credential = this.#credential ?? resumed ?? (await this.issueDeviceCredential(device, this.#credentialTtl()))
+    if (!this.#credential && !resumed) this.#announceCredential(credential)
 
     this.#self = { credential, tracks, claims }
 
@@ -682,6 +728,7 @@ export class RoomSession {
         routeTimeoutMs: this.#opts.routeTimeoutMs,
         turnRouteTimeoutMs: this.#opts.turnRouteTimeoutMs,
         relay: this.#opts.relay,
+        expiresAt: this.#opts.endsAt,
         // Consent, checked at the moment of the request rather than at
         // construction: a person who has revoked stops carrying people at
         // once, and one who never opted in is never asked to start.
@@ -761,10 +808,12 @@ export class RoomSession {
       policy: this.#opts.policy,
       proof: this.#opts.proof,
       now: this.#now,
+      ...(this.#nowMs ? { nowMs: this.#nowMs } : {}),
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
+      expiresAt: this.#opts.endsAt,
     })
 
     // Presence is live state, so it has to be restated and it has to lapse -
@@ -780,11 +829,56 @@ export class RoomSession {
     this.#sweepTimer = this.#every(this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS, () => {
       if (this.#evictLapsed()) this.#notify()
     })
-    if (this.#opts.identity) this.#scheduleRenewal(this.#credentialTtl() * CREDENTIAL_RENEWAL_FRACTION * 1000)
+    if (this.#opts.identity) this.#scheduleRenewal(this.#renewalDelayMs(credential))
+  }
+
+  /** A conference room whose end has come. Never true for a room with no
+   *  end. */
+  #ended(): boolean {
+    return this.#opts.endsAt !== undefined && this.#now() >= this.#opts.endsAt
+  }
+
+  /** The conference room's end, in unix seconds, or undefined for a room
+   *  that runs until somebody ends it. */
+  get endsAt(): number | undefined {
+    return this.#opts.endsAt
   }
 
   #credentialTtl(): number {
     return this.#opts.timing?.credentialTtlSeconds ?? CREDENTIAL_TTL_SECONDS
+  }
+
+  /** The offered `resume` credential, if it is one this device may present
+   *  here and now. Never throws: a stale or foreign one just means minting. */
+  #resumable(): DeviceCredential | undefined {
+    const resume = this.#opts.identity ? this.#opts.resume : undefined
+    if (!resume) return undefined
+    try {
+      const now = this.#now()
+      const verdict = verifyDeviceCredential(resume, { roomId: this.roomId, now })
+      if (!verdict.ok || verdict.device !== this.device || normaliseHex(verdict.participant) !== this.participant) return undefined
+      const expiresAt = credentialExpiresAt(resume)
+      return Number.isFinite(expiresAt) && expiresAt - now >= RESUME_MIN_REMAINING_SECONDS ? resume : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** When to mint the next credential: at the same point in its life a
+   *  fresh one would be renewed, which for a resumed one may be now. */
+  #renewalDelayMs(credential: DeviceCredential): number {
+    const ttl = this.#credentialTtl()
+    const renewAt = credentialExpiresAt(credential) - ttl * (1 - CREDENTIAL_RENEWAL_FRACTION)
+    if (!Number.isFinite(renewAt)) return ttl * CREDENTIAL_RENEWAL_FRACTION * 1000
+    return Math.max(0, (renewAt - this.#now()) * 1000)
+  }
+
+  #announceCredential(credential: DeviceCredential): void {
+    try {
+      this.#opts.onCredential?.(credential)
+    } catch {
+      // Keeping it is the embedding's convenience; the room does not wait on it.
+    }
   }
 
   /** The proof this device puts on what it publishes: only when it says it
@@ -985,6 +1079,7 @@ export class RoomSession {
           proof: this.#opts.proof,
           now: this.#now,
           timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
+          expiresAt: this.#opts.endsAt,
         })
         if (this.#left) return
         for (const p of grant.removed) this.#removed.add(p)
@@ -1107,6 +1202,7 @@ export class RoomSession {
       by: opts.by,
       closed: opts.closed,
       now,
+      expiresAt: this.#opts.endsAt,
     })
     await this.#opts.transport.publish(event)
     const notice: RekeyNotice = {
@@ -1158,8 +1254,9 @@ export class RoomSession {
       this.#self = { ...this.#self, credential }
       this.#chat?.setCredential(credential)
       for (const log of this.#channels.values()) log.setCredential(credential)
+      this.#announceCredential(credential)
       await this.#publishEntry(true)
-      this.#scheduleRenewal(this.#credentialTtl() * CREDENTIAL_RENEWAL_FRACTION * 1000)
+      this.#scheduleRenewal(this.#renewalDelayMs(credential))
     } catch {
       this.#scheduleRenewal(Math.min(CREDENTIAL_RENEWAL_RETRY_MS, this.#credentialTtl() * 1000))
     }
@@ -1268,7 +1365,7 @@ export class RoomSession {
         iceServers: config.iceServers ?? [],
         updatedAt: config.updatedAt ?? this.#now(),
       },
-      { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}) },
+      { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}), expiresAt: this.#opts.endsAt },
     )
     await this.#opts.transport.publish(event)
   }
@@ -1350,6 +1447,7 @@ export class RoomSession {
       roomKey: this.#roomKey,
       deviceSk: this.#opts.deviceSk,
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
+      expiresAt: this.#opts.endsAt,
     })
     await this.#opts.transport.publish(event)
   }
@@ -1528,9 +1626,10 @@ export class RoomSession {
    * or off a call, and a failure costs only the ring, so it is swallowed.
    */
   #ringBell(state: CallBellState, call: CallMembership): Promise<void> {
-    if (this.#opts.callBell === false) return Promise.resolve()
+    // A conference room that has ended rings nobody.
+    if (this.#opts.callBell === false || this.#ended()) return Promise.resolve()
     try {
-      const event = encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now() })
+      const event = encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#opts.endsAt })
       return this.#opts.transport.publish(event).catch(() => {})
     } catch {
       return Promise.resolve()
@@ -1727,7 +1826,7 @@ export class RoomSession {
       deviceSk: this.#opts.deviceSk, identity: this.#opts.identity,
       credential: () => this.#self?.credential, name: this.#name,
       policy: this.#opts.policy, proof: this.#opts.proof, owner: this.#ownerToCarry(),
-      now: this.#now, epoch: this.#epochRoot(), storage,
+      now: this.#now, epoch: this.#epochRoot(), storage, expiresAt: this.#opts.endsAt,
     })
     this.#assignments = log
     this.#assignmentsOpening = log.open().then(() => log).catch(e => {
@@ -1752,10 +1851,12 @@ export class RoomSession {
       policy: this.#opts.policy,
       proof: this.#opts.proof,
       now: this.#now,
+      ...(this.#nowMs ? { nowMs: this.#nowMs } : {}),
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
+      expiresAt: this.#opts.endsAt,
     })
     this.#channels.set(name, log)
     return log

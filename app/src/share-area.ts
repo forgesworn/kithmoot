@@ -2,9 +2,16 @@ import type { ScreenAnnotation, AnnotationPoint } from '../../src/signal.js'
 import { minimumSelection, moveSelection, resizeSelection, videoBox, WHOLE_PICTURE } from './share-area-geometry.js'
 import { coversWholeDisplay } from './self-mirror-guard.js'
 import { RedactionTrail } from './redaction-geometry.js'
-import { paintPlan, type DesktopRedaction } from './redaction.js'
+import { paintPlan, watchForJumps, type DesktopRedaction } from './redaction.js'
+import { coverAll } from './share-cover.js'
 
 export interface AreaRect { x: number; y: number; width: number; height: number }
+/** Where the frame stands: `refusal` is why the desktop app last refused to share it. */
+export interface AreaCheck { fits: boolean; refusal: 'placement' | 'source' | null }
+
+const FRAME_IDLE = 'Drag the bar to move · Drag a corner to resize'
+const FRAME_OFF_SCREEN = 'Move the whole frame onto one screen to share it'
+const FRAME_NO_SCREEN = 'KithMoot could not tell which screen the frame is on, so nothing was shared. Share the whole screen instead.'
 
 /** The raw monitor track stays local. Only the canvas crop is published. */
 export class DesktopShareArea {
@@ -25,7 +32,7 @@ export class DesktopShareArea {
      *  caller withhold this device's own live preview of its own share
      *  while the display carrying that preview is itself being captured. */
     wholeDisplay?: (whole: boolean) => void
-    /** Redaction boxes on the real screen, painted black inside the crop. */
+    /** Redaction boxes on the real screen, covered inside the crop; and a share hidden on purpose. */
     redaction?: DesktopRedaction
   }) {}
 
@@ -92,7 +99,8 @@ export class DesktopShareArea {
     const marks = doc.createElement('canvas')
     marks.setAttribute('aria-label', 'Draw on the sharing area')
     const status = doc.createElement('footer')
-    status.textContent = 'Drag the bar to move · Drag a corner to resize'
+    status.textContent = FRAME_IDLE
+    status.setAttribute('role', 'status')
     const handles = ['nw', 'ne', 'sw', 'se'].map(corner => {
       const handle = doc.createElement('button')
       handle.className = `resize ${corner}`
@@ -105,10 +113,21 @@ export class DesktopShareArea {
     doc.body.replaceChildren(bar, marks, status, ...handles)
     let drawing = false
     const pen = this.#pen(marks, () => drawing)
-    draw.onclick = () => { pen.end(); drawing = !drawing; draw.setAttribute('aria-pressed', String(drawing)); bridge.shareAreaAction('passthrough', false) }
+    draw.onclick = () => { pen.end(); drawing = !drawing; draw.setAttribute('aria-pressed', String(drawing)); bridge.shareAreaAction('drawing', drawing); bridge.shareAreaAction('passthrough', false) }
     doc.addEventListener('mousemove', event => {
       bridge.shareAreaAction('passthrough', !drawing && !resizing && !moving && event.target === marks)
     })
+    // Until the share begins the bar says whether it can: a frame hanging
+    // off its screen is refused, and used to close without a word.
+    let armed = false, fits = true, sharing = false
+    const ready = () => {
+      if (sharing) return
+      start.disabled = !armed || !fits
+      status.textContent = fits ? FRAME_IDLE : FRAME_OFF_SCREEN
+    }
+    const placed = (check: AreaCheck | null) => { fits = check?.fits !== false; ready() }
+    const unsubCheck = bridge.onShareAreaCheck?.(placed)
+    void bridge.shareAreaCheck?.().then(placed, () => {})
     // Native drag regions were unreliable on this frame (dead on Windows,
     // fiddly on macOS), so the main process moves it after the real cursor.
     let moving = false
@@ -153,15 +172,27 @@ export class DesktopShareArea {
     const unsubMarks = this.opts.overlay(marks, () => this.#output?.id)
     let timer: ReturnType<typeof setInterval> | undefined
     let video: HTMLVideoElement | undefined
-    this.#dispose = () => { popup.removeEventListener('pagehide', gone); unsubState(); unsubMarks(); if (timer) clearInterval(timer); if (video) { video.pause(); video.srcObject = null } }
+    let unpaint: (() => void) | undefined
+    this.#dispose = () => { popup.removeEventListener('pagehide', gone); unsubState(); unsubCheck?.(); unsubMarks(); unpaint?.(); if (timer) clearInterval(timer); if (video) { video.pause(); video.srcObject = null } }
     try {
       if (!await bridge.armShareArea()) throw new Error('The sharing frame is unavailable. Try again.')
       if (this.#cancelled) throw new Error('Sharing cancelled.')
       const raw = await new Promise<MediaStream>((resolve, reject) => {
         this.#rejectStart = reject
-        start.disabled = false
+        armed = true; ready()
+        const refused = async (error: unknown) => {
+          const check = await bridge.shareAreaCheck?.().catch(() => null) ?? null
+          const open = !this.#cancelled && this.#popup === popup && !popup.closed
+          // Moving the frame puts this right, so keep it and say so.
+          if (check?.refusal === 'placement' && open && await bridge.armShareArea().catch(() => false)) {
+            armed = true
+            placed(check)
+            return
+          }
+          reject(check?.refusal === 'source' ? new Error(FRAME_NO_SCREEN) : error)
+        }
         start.onclick = () => {
-          start.disabled = true
+          armed = false; ready()
           // Capture is requested by the focused frame's own user gesture.
           popup.navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true } as MediaTrackConstraints & { restrictOwnAudio: boolean } }).then(stream => {
             // Cancelling rejects the waiting promise immediately. A chooser
@@ -173,20 +204,21 @@ export class DesktopShareArea {
               return
             }
             resolve(stream)
-          }, reject)
+          }, error => { void refused(error) })
         }
       })
       this.#rejectStart = undefined
+      sharing = true
       start.remove()
       stop.textContent = 'Stop sharing'
       if (this.#cancelled) { raw.getTracks().forEach(track => track.stop()); throw new Error('Sharing cancelled.') }
       this.#raw = raw
       this.#setRect(await bridge.shareAreaState())
       if (!this.#rect) throw new Error('Keep the whole sharing frame on one monitor.')
-      const crop = await this.#crop(popup, raw, () => this.#rect, rect => {
-        status.textContent = rect ? 'Sharing inside this frame · Drag corners to resize' : 'Keep the frame on its original monitor'
+      const crop = await this.#crop(popup, raw, () => this.#rect, (rect, hidden) => {
+        status.textContent = hidden ? 'Hidden: people see a cover · Show it from the call window' : rect ? 'Sharing inside this frame · Drag corners to resize' : 'Keep the frame on its original monitor'
       })
-      video = crop.video; timer = crop.timer
+      video = crop.video; timer = crop.timer; unpaint = crop.unpaint
       raw.getVideoTracks()[0]!.addEventListener('ended', () => { this.stop(); this.opts.ended() })
       return crop.stream
     } catch (error) { this.stop(); throw error }
@@ -424,7 +456,7 @@ export class DesktopShareArea {
   }
 
   /** Publish a canvas crop of the raw monitor track, which itself stays local. */
-  async #crop(popup: Window, raw: MediaStream, rect: () => AreaRect | null, painted: (rect: AreaRect | null) => void) {
+  async #crop(popup: Window, raw: MediaStream, rect: () => AreaRect | null, painted: (rect: AreaRect | null, hidden: boolean) => void) {
     const video = document.createElement('video')
     video.muted = true; video.playsInline = true
     video.srcObject = new MediaStream(raw.getVideoTracks())
@@ -434,26 +466,29 @@ export class DesktopShareArea {
     const context = canvas.getContext('2d')!
     const redaction = this.opts.redaction?.supported ? this.opts.redaction : undefined
     const trail = new RedactionTrail()
+    const jumps = watchForJumps()
     const paint = () => {
       if (popup.closed) { this.stop(); this.opts.ended(); return }
       const area = rect()
-      // Invalid bounds (including crossing monitors) produce black, never
+      // Invalid bounds (including crossing monitors) are covered, never
       // the whole display or an unclamped drawImage fallback.
-      painted(area)
-      if (!area || !video.videoWidth) { context.fillStyle = '#000'; context.fillRect(0, 0, canvas.width, canvas.height); return }
+      painted(area, redaction?.hidden ?? false)
+      if (!area || !video.videoWidth) { coverAll(context, canvas.width, canvas.height); return }
       const width = Math.max(2, Math.round(area.width * video.videoWidth / 2) * 2)
       const height = Math.max(2, Math.round(area.height * video.videoHeight / 2) * 2)
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height }
-      // Redaction is planned before anything is drawn: a black plan never
-      // draws the raw frame at all.
-      const plan = redaction ? redaction.areaPlan(trail, { width: video.videoWidth, height: video.videoHeight }, area, { width, height }) : { mode: 'pass' } as const
-      if (plan.mode !== 'black') context.drawImage(video, area.x * video.videoWidth, area.y * video.videoHeight, area.width * video.videoWidth, area.height * video.videoHeight, 0, 0, width, height)
+      // Redaction is planned before anything is drawn: a plan that covers
+      // everything, a hidden share among them, never draws the raw frame.
+      const plan = redaction ? redaction.areaPlan(trail, { width: video.videoWidth, height: video.videoHeight }, area, { width, height }, { video, jumps }) : { mode: 'pass' } as const
+      if (plan.mode !== 'cover') context.drawImage(video, area.x * video.videoWidth, area.y * video.videoHeight, area.width * video.videoWidth, area.height * video.videoHeight, 0, 0, width, height)
       paintPlan(context, plan, width, height)
     }
     paint()
     this.#output = canvas.captureStream(30).getVideoTracks()[0]!
     const timer = setInterval(paint, 33)
-    return { video, timer, stream: new MediaStream([this.#output, ...raw.getAudioTracks()]) }
+    // Hiding and showing are painted at once, not at the next tick.
+    const unpaint = redaction?.onPaint(paint)
+    return { video, timer, unpaint, stream: new MediaStream([this.#output, ...raw.getAudioTracks()]) }
   }
 
   stop(): void {

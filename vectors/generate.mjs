@@ -70,6 +70,7 @@ import { unwrapSignal } from '../dist/src/signal.js'
 import { evaluateAccess } from '../dist/src/access.js'
 import { mintTurnCredential } from '../dist/src/turn.js'
 import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
+import { verifyRoomRelays, canonicalRoomRelays } from '../dist/src/room-relays.js'
 import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, decodeEpochGrant, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from '../dist/src/ownership.js'
 import { decodeChatEvent } from '../dist/src/chat.js'
@@ -83,7 +84,7 @@ import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCa
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -2581,7 +2582,7 @@ for (const [name, roomKey, a, b, note] of [
     const content = nip44.v2.encrypt(JSON.stringify(message), room.roomKey, seed32(`${label}-nonce`))
     const deviceSk = message.device === fx.DEVICE_A ? fx.DEVICE_A_SK : fx.DEVICE_B_SK
     const event = finalizeDeterministic(
-      { kind: KINDS.CHAT, created_at: message.sentAt, tags: [['d', room.roomId]], content },
+      { kind: KINDS.CHAT, created_at: message.sentAt ?? Math.floor(message.sentAtMs / 1000), tags: [['d', room.roomId]], content },
       deviceSk,
       seed32(`${label}-auxrand`),
     )
@@ -2684,6 +2685,30 @@ for (const [name, roomKey, a, b, note] of [
   conversationVector('chatEdit', 'edit-with-a-thread-refused', 'negative',
     'An edit keeps the original\'s place in a thread and its kind; one that carries `reply`, `thread` or `kind` of its own is refused.',
     [['edit-threaded', fromA('edit-7', 'x', fx.MESSAGE_CREATED_AT + 150, { replaces: 'root-1', thread: ref(root) })]])
+
+  // --- Order within a second ---------------------------------------------------
+  const T = fx.MESSAGE_CREATED_AT + 200
+  conversationVector('chatOrder', 'same-second-by-sentAtMs', 'positive',
+    'Two messages in one second. `sentAtMs` is the same moment in milliseconds, inside the ciphertext only, and orders them; the ids are chosen against the send order, so the id tiebreak alone would swap them. Order is by `sentAtMs`, or `sentAt * 1000` without one, then id.',
+    [['order-second', fromA('order-y', 'Second, sent 900 ms into the second', T, { sentAtMs: T * 1000 + 900 })],
+      ['order-first', fromA('order-z', 'First, sent 100 ms into the second', T, { sentAtMs: T * 1000 + 100 })]])
+
+  conversationVector('chatOrder', 'no-sentAtMs-is-the-start-of-its-second', 'positive',
+    'A message from a client that writes no `sentAtMs` orders as the start of its second, ahead of any in that second that carry one.',
+    [['order-timed', fromA('order-a', 'Timed, 1 ms into the second', T, { sentAtMs: T * 1000 + 1 })],
+      ['order-untimed', fromB('order-b', 'From an older client', T)]])
+
+  conversationVector('chatOrder', 'sentAtMs-outside-its-second-dropped', 'positive',
+    'A `sentAtMs` that does not fall within `sentAt`\'s second, or is not an integer, is dropped and the message kept: it is for order alone and costs nothing to ignore.',
+    [['order-outside', fromA('order-c', 'Claims a later second', T, { sentAtMs: (T + 5) * 1000 })],
+      ['order-fraction', fromB('order-d', 'Not an integer', T, { sentAtMs: T * 1000 + 0.5 })]])
+
+  {
+    const { sentAt: _dropped, ...noSeconds } = fromA('order-e', 'Milliseconds only', T, { sentAtMs: T * 1000 + 300 })
+    conversationVector('chatOrder', 'sentAtMs-without-sentAt-refused', 'negative',
+      '`sentAt` stays required. `sentAtMs` adds to it and never stands in for it, so a message carrying only milliseconds is refused whole, exactly as one carrying neither.',
+      [['order-no-seconds', noSeconds]])
+  }
 
   // --- Retractions -------------------------------------------------------------
   const retract = fromA('retract-1', 'Retracted a message', fx.MESSAGE_CREATED_AT + 200, { retracts: 'root-1' })
@@ -2906,6 +2931,58 @@ for (const [name, roomKey, a, b, note] of [
   bellVector('wrong-version', 'negative',
     'A body with `v:2`, otherwise correctly signed: an unknown version is refused, never guessed at.',
     buildBell({ label: 'call-bell-v2', body: { v: 2 } }))
+}
+
+// ===========================================================================
+// Room relays: the authority adding relays for everybody
+// ===========================================================================
+//
+// A `relays` op on the control channel, signed by the authority pinned in the
+// link. Members union the list with the relays they already use and take only
+// the highest version. Signed by hand with a recorded aux-rand, as the admin
+// list is, and checked with the real `verifyRoomRelays` before it is written.
+{
+  const room = ROOM_1
+  const relays = ['wss://relay.example.org/', 'wss://nos.lol', 'wss://Relay.Example.org']
+  const canonical = canonicalRoomRelays(relays)
+  const version = fx.NOW
+  const message = `kithmoot/v1/relays:${room.roomId}:${version}:${JSON.stringify(canonical)}`
+  const auxRand = seed32('room-relays-auxrand')
+  const sig = bytesToHex(schnorr.sign(sha256(utf8Bytes(message)), fx.AUTHORITY_SK, auxRand))
+  const op = { op: 'relays', relays: canonical, version, sig }
+  vectors.roomRelays.push({
+    name: 'room-relays-signature',
+    kind: 'positive',
+    note: 'The relays everybody in the room should add. The message is `sha256("kithmoot/v1/relays:<roomId>:<version>:<JSON array of the canonical list>")`: each URL normalised as nostr-tools `normalizeURL` does (lower-case host, `/` after a bare host), duplicates removed, sorted, at most 8. Not bound to an epoch: a relay list grants nothing an epoch protects. `version` orders lists, newest wins, and a client ignores any version at or below one it has already taken. Carried as JSON in a chat message on the `control` channel; any member may repost it, so it names no host.',
+    input: { roomId: room.roomId, version, relays, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), canonicalMessage: message, auxRandHex: bytesToHex(auxRand) },
+    output: { canonical, sig, text: encodeControl(op), result: decodeControl(encodeControl(op)) },
+    expected: {
+      verify: { roomId: room.roomId, version, relays: canonical, authority: fx.AUTHORITY },
+      result: verifyRoomRelays({ roomId: room.roomId, version, relays: canonical, sig, authority: fx.AUTHORITY }),
+    },
+  })
+  vectors.roomRelays.push({
+    name: 'room-relays-another-version',
+    kind: 'negative',
+    note: 'The same signature offered with a higher version. Refused: the version is inside the signature, so a member cannot make an old list outrank a newer one.',
+    input: { roomId: room.roomId, version: version + 1, relays: canonical, sig, authority: fx.AUTHORITY },
+    output: { result: verifyRoomRelays({ roomId: room.roomId, version: version + 1, relays: canonical, sig, authority: fx.AUTHORITY }) },
+  })
+  const unsorted = [...canonical].reverse()
+  vectors.roomRelays.push({
+    name: 'room-relays-not-canonical',
+    kind: 'negative',
+    note: 'The signed list in another order. Refused rather than sorted: the list a client verifies is the list it uses, exactly as sent.',
+    input: { roomId: room.roomId, version, relays: unsorted, sig, authority: fx.AUTHORITY },
+    output: { result: verifyRoomRelays({ roomId: room.roomId, version, relays: unsorted, sig, authority: fx.AUTHORITY }) },
+  })
+  vectors.roomRelays.push({
+    name: 'room-relays-another-authority',
+    kind: 'negative',
+    note: 'The list and signature checked against a different key. Refused: only the inviter pinned in the link may change a room\'s relays.',
+    input: { roomId: room.roomId, version, relays: canonical, sig, authority: fx.PARTICIPANT_A },
+    output: { result: verifyRoomRelays({ roomId: room.roomId, version, relays: canonical, sig, authority: fx.PARTICIPANT_A }) },
+  })
 }
 
 // ===========================================================================

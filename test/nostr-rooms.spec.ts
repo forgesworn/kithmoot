@@ -5,7 +5,7 @@ import { npubEncode } from 'nostr-tools/nip19'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { RoomAgent } from '../src/agent.js'
 import { generateRoomSecret } from '../src/room.js'
-import { encodeRoomLink } from '../src/link.js'
+import { encodeRoomLink, parseRoomLink } from '../src/link.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { createDeviceCredential } from '../src/credential.js'
 import { localIdentity } from '../src/identity.js'
@@ -15,6 +15,7 @@ import WebSocket from 'ws'
 import { hexToBytes } from '@noble/hashes/utils'
 import type { Event } from 'nostr-tools/pure'
 import { openNewRoomForm, openRoomDetails, TEST_RELAY_WS } from './browser.js'
+import { agentRelaysFor } from './relays.js'
 
 /** Everything the local test relay holds for a filter, read straight off it. */
 function relayHolds(filter: Record<string, unknown>): Promise<Event[]> {
@@ -373,6 +374,104 @@ test('a failed saved signer cannot silently join as the old visitor', async ({ b
   } finally { await context.close(); await clerk.leave() }
 })
 
+test('a room joined as the account opens again as that account while its signer is unreachable, and says so', async ({ browser, baseURL }) => {
+  // The bunker's relay was down, restoring the sign-in failed on load, and
+  // a conversation entered an hour before asked to reconnect first. The
+  // pass this device was given for the room is the account's own signature;
+  // the room opens on it.
+  let unavailable = false
+  let signatures = 0
+  const secret = generateSecretKey()
+  const context = await device(browser, baseURL!, secret, true, async () => { if (unavailable) throw new Error('Signer offline') })
+  await context.exposeFunction('testSignCounted', () => { signatures++ })
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Back without the signer', relays: [relay.href], iceUrls: [] })
+  const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
+  try {
+    const page = await context.newPage()
+    await signIn(page, baseURL!)
+    await page.goto(link)
+    await page.reload()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openRoomDetails(page)
+    await page.locator('#leave').click()
+    if (await page.locator('#actionConfirm').isVisible()) await page.locator('#actionConfirm').click()
+    await expect(page.locator('#roomArea')).toBeHidden()
+
+    unavailable = true
+    await page.addInitScript(() => {
+      const nostr = (window as unknown as { nostr: { signEvent(event: unknown): Promise<unknown> } }).nostr
+      const sign = nostr.signEvent
+      nostr.signEvent = (event: unknown) => { void (window as unknown as { testSignCounted(): void }).testSignCounted(); return sign(event) }
+    })
+    await page.goto(link)
+    await page.reload()
+    await expect(page.locator('#previousAccount')).toBeHidden()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#status')).toContainText('signer is not connected')
+    await page.locator('#roomMenu').click()
+    await expect(page.locator('#sendingIdentity')).toHaveAttribute('aria-label', /Sending as Nostr account/)
+    await page.locator('#roomSheetClose').click()
+    await page.locator('#chatInput').fill('Tally, back on the pass')
+    await page.locator('#chatInput').press('Enter')
+    await expect.poll(() => clerk.chat.messages().find(m => m.text === 'Tally, back on the pass')?.participant).toBe(getPublicKey(secret))
+    expect(signatures).toBe(0)
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
+  } finally { await context.close(); await clerk.leave() }
+})
+
+test('a private conversation is started on the relays its starter listed for private conversations', async ({ browser, baseURL }) => {
+  // The defaults are public relays that keep a room for days and turn away
+  // busy accounts. A person names their own in a NIP-17 DM relay list, and
+  // a conversation they start goes there.
+  const secret = generateSecretKey()
+  const ada = await device(browser, baseURL!, secret)
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
+  const rowanContext = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
+  await rowanContext.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
+  try {
+    const page = await ada.newPage()
+    await signIn(page, baseURL!)
+    await page.locator('#openAppSettings').click()
+    await page.locator('#appConnections summary').click()
+    await page.locator('#dmRelaySettingsOpen').click()
+    await expect(page.locator('#dmRelayStatus')).toContainText('no list yet')
+    await page.locator('#dmRelayList').fill(`wss://dm.example\n${relay.href}`)
+    await page.locator('#dmRelaySave').click()
+    await expect(page.locator('#dmRelayStatus')).toContainText('Saved')
+    const lists = await relayHolds({ kinds: [10050], authors: [getPublicKey(secret)] })
+    expect(lists).toHaveLength(1)
+    expect(lists[0]!.tags.filter(tag => tag[0] === 'relay').map(tag => tag[1])).toEqual(['wss://dm.example/', relay.href])
+    await page.locator('#dmRelaySettingsClose').click()
+
+    await page.goto(link)
+    await page.reload()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    const rowan = await rowanContext.newPage()
+    await rowan.goto(link)
+    await rowan.locator('#displayName').fill('Rowan')
+    await rowan.locator('#join').click()
+    await expect(rowan.locator('#roomArea')).toBeVisible()
+
+    await openRoomDetails(page)
+    await page.getByRole('button', { name: /^Message Rowan privately/ }).click()
+    await expect(page.locator('#status')).toContainText(/Private conversation with Rowan/, { timeout: 30_000 })
+    // A signed-in account's rooms are kept under its own prefix.
+    const links = await page.evaluate(() => Object.keys(localStorage).filter(key => key.includes('kithmoot.room.'))
+      .map(key => { try { return JSON.parse(localStorage.getItem(key)!).link as string } catch { return '' } }))
+    const conversation = links.map(candidate => { try { return parseRoomLink(candidate) } catch { return undefined } })
+      .find(parsed => parsed?.policy?.members?.length === 2)
+    expect(conversation?.relays).toEqual(['wss://dm.example/', relay.href])
+    // The invitation went where the link says, so a device that was never in
+    // the conversation can fetch it.
+    await expect.poll(async () => (await relayHolds({ kinds: [1463] })).length).toBeGreaterThan(0)
+  } finally { await ada.close(); await rowanContext.close() }
+})
+
 test('a disconnected signer offers Reconnect before forgetting an account room, and names the signer', async ({ browser, baseURL }) => {
   let unavailable = false
   const secret = generateSecretKey()
@@ -465,7 +564,9 @@ test('leave and tidy up deletes in order while the keys exist, takes a second ta
     })
     const devicePub = getPublicKey(hexToBytes(held.deviceSk)), inviterPub = getPublicKey(hexToBytes(held.inviterSk))
     expect((await relayHolds({ authors: [devicePub] })).length).toBeGreaterThan(0)
-    expect((await relayHolds({ authors: [inviterPub], kinds: [1463] })).length).toBe(1)
+    // The invitation is signed again while the room is open, to keep it alive
+    // on relays that forget, so there may be several copies; tidying deletes them all.
+    expect((await relayHolds({ authors: [inviterPub], kinds: [1463] })).length).toBeGreaterThanOrEqual(1)
 
     await openRoomDetails(page)
     await page.locator('#tidyUpRoom').click()
@@ -547,8 +648,10 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
   const aliceSk = generateSecretKey(), bobSk = generateSecretKey(), carolSk = generateSecretKey(), agentSk = generateSecretKey()
   const aliceKey = getPublicKey(aliceSk), bobKey = getPublicKey(bobSk), carolKey = getPublicKey(carolSk), agentKey = getPublicKey(agentSk)
   const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
-  const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, relays: [TEST_RELAY_WS] })))
-  const roomLinks = keepers.map(k => ({ roomId: k.roomId, name: k.link.name!, link: encodeRoomLink(baseURL!, { ...k.link, relays: [relay.href] }), openedAt: 1, readAt: 0 }))
+  const keepers = await Promise.all(['Kithmoot room', 'Bothy room', 'Research room'].map(name => RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: name, ...agentRelaysFor(baseURL!) })))
+  // The first room's link carries no name, as a link made on Android does:
+  // the name a member sees for it comes from the project alone.
+  const roomLinks = keepers.map((k, i) => ({ roomId: k.roomId, name: k.link.name!, link: encodeRoomLink(baseURL!, { ...k.link, relays: [relay.href], ...(i === 0 ? { name: undefined } : {}) }), openedAt: 1, readAt: 0 }))
   const aContext = await device(browser, baseURL!, aliceSk), bContext = await device(browser, baseURL!, bobSk), cContext = await device(browser, baseURL!, carolSk)
   const contexts = [aContext, bContext, cContext]
   await aContext.addInitScript(({ rooms, pubkey }) => {

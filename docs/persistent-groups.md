@@ -37,6 +37,70 @@ This uses the regular-event and EOSE conventions in
 existing [NIP-44 v2](https://github.com/nostr-protocol/nips/blob/master/44.md)
 encryption implementation.  Kind numbers remain provisional KithMoot kinds.
 
+## Conference rooms
+
+A group can be made to end on a date: **Ends: Never / After 1 day / After 3
+days / After 7 days** on the creation form, offered only for a group (a room
+that asks before anyone joins is already a meeting). The end, in Unix
+seconds, rides in the 1463 body as `ends` and on the event as a NIP-40
+`expiration` tag, and the decoder refuses the two disagreeing. See
+[protocol.md](protocol.md#room-links-and-admission) for the wire rule.
+
+- Every event a member's device signs for the room carries the same
+  expiration (an earlier one of its own is kept), so relays that honour
+  NIP-40 drop the room's traffic when it ends, not only its invitation. The
+  library does this in `RoomSession` when it is given `endsAt`; the app also
+  tags its file announcements and read positions, and `RoomAgent` a keeper's
+  invitation, retirement and epoch desk.
+- The end is kept wherever the room is: the creator's owner record (so the
+  six-hourly re-sign keeps it, and stops once it has come), the kept and tab
+  admissions, the rooms list and the account's bookmarks, and a keeper's
+  state file (`ends`).
+- At the end the room is over: a page in it leaves with "This conference
+  room ended on Sat 4 Oct, 18:00.", the rooms list marks it ended with
+  `markEnded`, nothing watches or rings for it, and a join link refuses with
+  the same sentence. `RoomSession.join` refuses after the end as well. The
+  room's header shows "Ends Sat 4 Oct, 18:00" before then, and so does the
+  invite sheet.
+- Expiry is a request to relays, not deletion: a relay may ignore NIP-40, and
+  anybody who copied the events keeps them. A relay that honours it has no
+  invitation left to hand out, so a late newcomer is told the invitation is
+  not available rather than the date.
+
+## The room's own relays
+
+The relays a group is made on are its meeting place. They ride in the 1463
+body as `relays` (after `ends`; see
+[protocol.md](protocol.md#room-links-and-admission) for the wire rule), and
+every member's device uses them ahead of its own relays, reading and
+writing, whatever that device has saved for the room or for its defaults.
+Two members can therefore never end up on relays with nothing in common,
+which is what left a joiner unable to see anybody's call offers.
+
+- The creator fixes them at creation: the relays it both reads and writes,
+  at most eight. Nobody changes them afterwards. The authority's **Use for
+  everyone** relays op still adds more, for every member, on top of them.
+- A joiner takes them from the signed invitation. Without one (a temporary
+  room, or an invitation written before the field) it takes the link's
+  relays, on first sight, and a later signed list replaces them.
+- They are kept apart from the person's own relays
+  (`kithmoot.room-relays-fixed.v1` on the web, `fixedRelays` in Android's
+  saved room), are never written into a saved relay list, and are listed in
+  the room's relay settings as the room's, not editable. A pool holds at
+  most sixteen relays; the person's own are cut first.
+- A link names the room's relays, then the op's, cut to eight, so a link
+  re-shared through several people does not drift with each sharer's own
+  relays, and a stale bookmark still opens on the room's relays.
+- Rooms made before this converge without anybody acting: the creator's
+  six-hourly re-sign adds `relays` to the invitation, and a member that holds
+  no signed list reads the invitation once in the background after opening.
+- An Android anonymous (Tor-only) room, and one sheltered behind a Bothy,
+  keep exactly their own relays for now.
+
+**Invite by QR**, beside **Invite** in the room, opens the same invite sheet
+on the link's QR code, drawn at 480 pixels to scan from across a table. Every
+member can share the link, as before.
+
 ## Persistence and limits
 
 The app retains group membership on this device by default; Room details
@@ -67,6 +131,27 @@ managed named channels or keeper nudges.  Those managed-room services still
 use the existing keeper.  This change removes the keeper requirement for
 basic group membership, chat and calls; it does not add distributed group
 administration or mobile push delivery.
+
+## A group follows its member to their other devices
+
+A signed-in account's room bookmarks carry the room secret of each group it has
+joined (`admission: { secret }`, beside `room` in the bookmark record). Without
+it a second device had only the link, and opening the room meant fetching the
+group invitation from the link's relays, which public relays drop within a day
+or two. With it the device keeps the membership as if it had joined itself
+and opens the room without that event.
+
+- The record is encrypted to the account's own key like the rest of it; only
+  the account's signer can read the secret. Group memberships only: a
+  temporary admission is a delegated, expiring permission and never syncs.
+- A secret is taken in only when it derives the room's own id, and never
+  replaces a membership the device already keeps.
+- A save from a device that holds no secret keeps the one the record carries,
+  because the record is last-writer-wins and would otherwise drop it.
+- Consequence for tidying up: the bookmark is replaceable and relays may keep
+  older copies, so the tombstone no longer removes the secret from every relay,
+  only from the record the account reads. The room itself is ended by the
+  retirement notice and a closing rekey, not by the bookmark.
 
 ## Ending a room and tidying up
 

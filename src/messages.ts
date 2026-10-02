@@ -1,5 +1,6 @@
 import { hexEquals, normaliseHex } from './hex.js'
 import type { ChatMessage } from './chat.js'
+import { compareMessages } from './message-order.js'
 
 /**
  * The message layer: what a chat message may say about another message,
@@ -311,15 +312,12 @@ export interface Conversation {
   byKey: Map<string, ResolvedMessage>
 }
 
-/** Later wins: greater `sentAt`, then greater id. The reactions rule. */
-export function later(a: Pick<ChatMessage, 'sentAt' | 'id'>, b: Pick<ChatMessage, 'sentAt' | 'id'>): boolean {
-  return a.sentAt > b.sentAt || (a.sentAt === b.sentAt && a.id > b.id)
+/** Later wins: later send time (see `compareMessages`), then greater id. The reactions rule. */
+export function later(a: Pick<ChatMessage, 'sentAt' | 'sentAtMs' | 'id'>, b: Pick<ChatMessage, 'sentAt' | 'sentAtMs' | 'id'>): boolean {
+  return compareMessages(a, b) > 0
 }
 
-function byTime(a: ChatMessage, b: ChatMessage): number {
-  if (a.sentAt !== b.sentAt) return a.sentAt - b.sentAt
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-}
+const byTime = compareMessages
 
 /**
  * Turn one conversation's verified messages into what a reader shows.

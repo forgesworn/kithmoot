@@ -7,7 +7,18 @@ const site = fileURLToPath(new URL('../site/', import.meta.url))
 const caddy = await readFile(new URL('../deploy/Caddyfile.kithmoot', import.meta.url), 'utf8')
 const csp = caddy.match(/header @notApp \{[^}]*Content-Security-Policy "([^"]+)"/)?.[1]
 if (!csp) throw new Error('The website acceptance test needs its production Content-Security-Policy')
-const types: Record<string, string> = { '.html': 'text/html', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp' }
+const types: Record<string, string> = { '.html': 'text/html', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.woff2': 'font/woff2' }
+
+// The homepage links straight to the desktop installers. A release that
+// updates the downloads page and forgets the homepage would leave it offering
+// an older version, so every installer it names must be on the downloads page.
+test('the homepage offers the same installers as the downloads page', async () => {
+  const home = await readFile(new URL('../site/index.html', import.meta.url), 'utf8')
+  const downloads = await readFile(new URL('../site/downloads/index.html', import.meta.url), 'utf8')
+  const installers = [...home.matchAll(/href="apk\/(desktop\/[^"]+)"/g)].map(match => match[1])
+  expect(installers.length).toBeGreaterThan(0)
+  for (const installer of installers) expect(downloads, installer).toContain(`href="/apk/${installer}"`)
+})
 
 for (const colour of ['light', 'dark'] as const) {
   test(`website works without JavaScript, under its production CSP, in ${colour} mode`, async ({ browser }, info) => {

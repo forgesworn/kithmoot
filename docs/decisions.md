@@ -469,6 +469,18 @@ now re-mints halfway through and restates itself under the new one, as an
 answer, because nothing has arrived. A secondary cannot: its credential was
 issued by the primary, and a new one is a new pairing.
 
+Coming back does not mint either. A primary keeps the credential it last
+minted for a room, beside the device key it names, and offers it on the next
+join (`resume` on `RoomSession`); the session uses it if it names this room,
+this device and this participant and has ten minutes left, and renews it in
+the background from its real expiry. A bunker reached over a relay can take
+seconds or never answer, and every join used to wait on it, so a person
+could lose a room they were in that morning to a signer timeout. The first
+join of a room still needs the signer, which is right: that is the moment
+the person says this device speaks for them there. What is kept authorises
+one device key, in one room, for at most twelve hours, and sign-out and
+Forget room remove it.
+
 ## An agent says it is one, and the switch is on the sender
 
 `RosterEntry.agent` is self-declared, like a name, and what it is for is
@@ -1604,6 +1616,28 @@ link is written; the exact old pair of two public relays now gains
 `nostr.mom` as its third route at use time instead. The forwarder and keeper
 install scripts default to the same three relays.
 
+
+## A private conversation lives where its two people said, 1 October 2026
+
+A DM started on the default relays inherited their limits: measured the
+same day, `relay.primal.net` returned room events for under a day and
+`nos.lol` for under three, and a pair talking a lot was turned away. A
+conversation meant to replace Signal cannot live on relays that forget it
+by the weekend.
+
+So a DM is started on the two people's NIP-17 DM relay lists (kind 10050),
+with the room it was started from as the fallback; the rule is in
+`docs/messages.md`, "Where it lives". This does not undo the 25 September
+entry. That one refused to make the project the operator of a relay every
+client names by default; here each person names a relay in their own
+signed list, which is their choice about their own conversations, and a
+person who names none gets exactly what they got before.
+
+The list is public, as the standard makes it: anyone can learn which relays
+a person uses for private conversations, not what is said there or with
+whom. The other person's list is asked for only while public profile
+lookups are on, because asking a public relay for it names their key to
+that relay, which is the thing that switch exists to control.
 ## Dependencies that run in a call are pinned exactly, 18 September 2026
 
 `@mediapipe/tasks-vision` `1.0.1` (installed under the `^1.0.1` range added
@@ -1805,3 +1839,90 @@ chat and invitations, and closes its media peers. It does not remove anybody
 from the room, revoke a room key, or change what another member sees. Tier
 gated admission and returning a check to Signet remain separate work, as
 `docs/signet-contact-admission.md` sets out.
+
+## On X11 the share frame and the redaction boxes are shaped windows, 28 September 2026
+
+The area frame and the redaction boxes are windows with a see-through
+middle. Until desktop 0.1.26 every platform made the middle click-through
+the same way: the window was told to ignore the mouse while the pointer was
+over the middle, and the main process polled `screen.getCursorScreenPoint()`
+every 50 ms to take that back once the pointer had left.
+
+On Linux that reading is not the pointer. It moves only while one of
+KithMoot's own windows is receiving mouse events. Over another program's
+window, or with KithMoot minimised, it stays at the last place one of our
+windows saw. So the pointer entered the middle, the window went
+click-through, no window of ours saw the pointer again, the poll went on
+believing the pointer was in the middle, and the frame or box never took
+input again. A tester met it as "after a short while you can't move or
+control it". It did not show in our own runs because the KithMoot window was
+beneath the box, and kept the reading fresh.
+
+**Decision.** On Linux the frame and the boxes are given a window shape
+(`setShape`): their controls, and not the middle. The X server then sends a
+click in the middle to whatever is beneath, and nothing watches the cursor.
+macOS and Windows keep the poll: `setShape` does not exist on macOS, the
+cursor reading is true on both, and neither was reported broken.
+
+**What it costs.** A shape cuts the middle out of the window altogether, so
+nothing can be drawn there. The area frame's marks canvas fills the middle.
+On Linux the marks are therefore visible in the frame only while Draw is on,
+when the whole window is restored so the pen can land. They still show on the
+sharer's own preview in the call window. Keeping them would take a second,
+permanently click-through window over the hole; not built.
+
+**What else the same work found.**
+
+- A frame whose shared part was not wholly on one display was refused by the
+  main process, the frame closed, and nothing was said: on Linux and Windows,
+  and on macOS once Screen Recording is granted, the page takes a refusal for
+  the person cancelling. The frame now says so before Start is pressed, keeps
+  Start off until it is put right, and stays open if a request is refused all
+  the same.
+- A share waited for its first picture before starting. A window that sends
+  none (one that has gone, or one macOS is not drawing) left the share neither
+  started nor refused, again with nothing said. After three seconds it now
+  starts without a picture and says so; the canvas stays black until one
+  arrives, so nothing unplanned is drawn.
+- At its smallest a box had no room left on its bar to take hold of. Its
+  least width went from 120 to 160, and the bar always keeps a handle.
+
+**Checked how.** `desktop/test/linux-x11/` drives the packaged app with the
+real pointer on Xorg, two monitors, under Cinnamon's window manager. The
+published 0.1.26 package fails it at the faults above and a package built
+from this change passes. Not checked: a person's own Linux desktop, and
+Windows, where nothing was changed but the box's least width.
+
+## A share can be hidden on purpose, and a cover is a pattern, 28 September 2026
+
+Two things the owner asked for after using redaction boxes on a call.
+
+**Hide my share.** Until now the only way to stop showing a share was to
+stop it, which ends the track and takes a fresh choice of screen, a fresh
+frame and a renegotiation to come back. And when a box could not be placed
+(a window share, an unknown screen) the whole picture went black without the
+sharer having asked for that. Hiding is now a control of its own. It uses
+the canvas every desktop share already goes through: the plan for a hidden
+share covers everything, and a plan that covers everything never draws the
+raw frame. The track stays live, so showing again needs nothing from the
+network and nothing of the hidden picture goes out on the way in or back.
+The share's sound is silenced with it. A share that ends while hidden does
+not leave the next one hidden.
+
+**The cover is a pattern.** Plain black reads as a fault: a dead camera, a
+lost screen. The cover is a quiet diagonal hatch in KithMoot's own dark
+colours, drawn in code. It is used everywhere black was: a box, a hidden
+share, and every case where the page is not sure where a box falls.
+
+**What the cover must never be.** It is never derived from the captured
+picture. Blur and pixelation are both reversible enough to be worth a
+researcher's afternoon, and both need the raw frame drawn somewhere first.
+And it never falls back to the raw frame: if a pattern cannot be made the
+cover is a solid colour.
+
+**Not decided here.** A drawn pattern from an image model in place of the
+hatch was asked for; it costs money to generate and waits for the owner's
+word. `share-cover.ts` is the one place that would change. Hiding is not
+offered on Wayland or in a browser, where a share does not go through the
+canvas.
+

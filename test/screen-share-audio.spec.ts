@@ -17,6 +17,14 @@ import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUD
  * the same trick `SYNTHETIC_MIC` uses for the microphone.
  */
 
+/** Share an area, behind More with the call's other ways to share: the
+ *  bar itself keeps one Share. */
+async function clickShareArea(page: Page): Promise<void> {
+  const area = page.locator('#shareArea')
+  if (!await area.isVisible()) await page.locator('#callExtras > summary').click()
+  await area.click()
+}
+
 async function readDiagnostics(page: Page): Promise<{ me: { publishing: string[]; screenAudio: { present: boolean; muted?: boolean; readyState?: string } } }> {
   // Cleared first, and every call in these specs re-clicks: collection is
   // async (it walks every peer connection's stats), so a read taken soon
@@ -163,7 +171,7 @@ test('a screen share with no captured audio still shares video, with a note by t
   }
 })
 
-test('a desktop sharing area sends only its crop and blanks invalid bounds', async ({ browser, baseURL }) => {
+test('a desktop sharing area sends only its crop and covers invalid bounds', async ({ browser, baseURL }) => {
   const context = await newDeviceContext(browser, baseURL!)
   await context.addInitScript(() => {
     const w = window as any
@@ -197,7 +205,7 @@ test('a desktop sharing area sends only its crop and blanks invalid bounds', asy
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const popped = page.waitForEvent('popup')
-    await page.locator('#shareArea').click()
+    await clickShareArea(page)
     const popup = await popped
     await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
     await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
@@ -210,13 +218,63 @@ test('a desktop sharing area sends only its crop and blanks invalid bounds', asy
     })
     await expect.poll(pixels).toEqual(Array.from({ length: 9 }, () => [0, 255, 0]).flat())
     await page.evaluate(() => (window as any).__areaBounds(null))
-    await expect.poll(pixels).toEqual(new Array(27).fill(0))
+    // The cover (app/src/share-cover.ts) is a pattern in two dark colours,
+    // and nothing of the picture, which here is pure red and pure green.
+    await expect.poll(async () => Math.max(...await pixels())).toBeLessThan(60)
     await page.evaluate(() => (window as any).__areaBounds({ x: .25, y: .25, width: .5, height: .5 }))
     await expect.poll(pixels).toEqual(Array.from({ length: 9 }, () => [0, 255, 0]).flat())
     await popup.evaluate(() => { (window.opener as any).__rawAreaTrack = (window as any).__rawAreaTrack })
     await popup.getByRole('button', { name: 'Stop sharing' }).click()
     await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
     expect(await page.evaluate(() => (window as any).__rawAreaTrack.readyState)).toBe('ended')
+  } finally { await context.close() }
+})
+
+test('a window or unlabelled share withholds this device\'s own preview and never takes its own stage; a tab share keeps it', async ({ browser, baseURL }) => {
+  // Reported from a real call on the Mac desktop app: sharing the KithMoot
+  // window put the share on the sharer's own stage, inside itself. The
+  // system picker does not say which window was chosen, so any window, and
+  // any share with no hint at all, is withheld. See `mayShowItself`.
+  const context = await newDeviceContext(browser, baseURL!)
+  await context.addInitScript(() => {
+    const w = window as any
+    w.__surface = 'window'
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480
+      const ctx = canvas.getContext('2d')!
+      const paint = () => { ctx.fillStyle = '#00ff00'; ctx.fillRect(0, 0, 640, 480) }
+      paint()
+      const timer = setInterval(paint, 33)
+      const stream = canvas.captureStream(30)
+      const track = stream.getVideoTracks()[0]!
+      track.addEventListener('ended', () => clearInterval(timer))
+      const surface = w.__surface
+      const settings = track.getSettings.bind(track)
+      track.getSettings = () => ({ ...settings(), ...(surface ? { displaySurface: surface } : {}) }) as MediaTrackSettings
+      return stream
+    }
+  })
+  try {
+    const page = await context.newPage()
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada'); await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openCall(page)
+    const preview = page.locator('video.screenPreview')
+    const guarded = () => preview.evaluate((v: HTMLVideoElement) => v.classList.contains('selfMirrorGuard') && v.srcObject === null)
+    for (const surface of ['window', undefined, 'monitor']) {
+      await page.evaluate(next => { (window as any).__surface = next }, surface)
+      await page.locator('#toggleScreen').click()
+      await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+      await expect.poll(guarded, { message: `${surface ?? 'no hint'}: own preview withheld` }).toBe(true)
+      await page.locator('#toggleScreen').click()
+      await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    }
+    await page.evaluate(() => { (window as any).__surface = 'browser' })
+    await page.locator('#toggleScreen').click()
+    await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    await expect.poll(guarded).toBe(false)
+    await expect.poll(() => preview.evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
   } finally { await context.close() }
 })
 
@@ -254,7 +312,7 @@ test('a full-screen area withholds this device\'s own live preview to avoid a mi
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const popped = page.waitForEvent('popup')
-    await page.locator('#shareArea').click()
+    await clickShareArea(page)
     const popup = await popped
     await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
     await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
@@ -308,7 +366,7 @@ test('cancelling an area chooser stops screen and audio returned afterwards', as
     await expect(page.locator('#roomArea')).toBeVisible()
     await openCall(page)
     const popped = page.waitForEvent('popup')
-    await page.locator('#shareArea').click()
+    await clickShareArea(page)
     const popup = await popped
     await popup.getByRole('button', { name: 'Start sharing', exact: true }).click()
     await expect.poll(() => page.evaluate(() => (window as any).__lateAreaTracks?.map((t: MediaStreamTrack) => t.readyState))).toEqual(['live', 'live'])
