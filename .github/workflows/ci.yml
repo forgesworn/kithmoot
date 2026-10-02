@@ -112,6 +112,10 @@ jobs:
           - { name: firefox 2 of 2, project: firefox, shard: 2/2, browsers: firefox }
           - { name: webkit 1 of 2, project: webkit, shard: 1/2, browsers: webkit }
           - { name: webkit 2 of 2, project: webkit, shard: 2/2, browsers: webkit }
+          # The installed desktop window's layout and call specs, against the
+          # VITE_DESKTOP build the config already serves on the next port. Not
+          # run here before October 2026, and two of them sat red for a week.
+          - { name: chromium desktop, project: chromium-desktop, browsers: chromium }
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
