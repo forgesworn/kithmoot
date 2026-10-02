@@ -1724,6 +1724,76 @@ which for the web is one reload. The `epochRequestAdmission` vectors pin the
 derivation, the message and the three refusals; the Android client moves in
 step on its own branch.
 
+## An epoch is not forgotten the moment it is left, 3 October 2026
+
+White Noise, the Marmot client, spent much of 2026 on two failures that the
+epoch design here could also have walked into, so they were checked against
+it one by one.
+
+**Forks.** In Marmot any admin may commit, and a commit whose relay
+acknowledgement came late was applied by its author and then, when the
+relay echoed it back, processed again as somebody else's: the author's
+device moved to an epoch nobody else was in, and every later message failed
+to decrypt. Here only the authority rekeys, and a member follows only rekeys
+it signs, so there is no second committer. Two gaps remained and are closed:
+
+- The authority's own rekey, coming back from a relay while its publish was
+  still out, was taken for one sealed to somebody else and sent the
+  authority to ask itself for the epoch. It is now known by id before it is
+  published and ignored when it returns.
+- Two different rekeys for one epoch, both signed by the authority, were
+  settled by arrival order: the later one silently replaced the earlier in
+  the pending set. The authority's key may be held in more than one place
+  at once (another open tab of the creator's browser, or a keeper beside a
+  browser), so this can happen. Rekeys are now compared by event id, and a
+  disagreement is reported as an `EpochConflict` and shown in the room. It
+  is not resolved automatically: a device that has followed one side cannot
+  step back, and the fix is for the authority to rekey from one place.
+
+**Silent loss on catch-up.** Marmot's mdk issue #2086: a returning member
+advanced its epoch past the five MLS keeps before downloading the messages
+sent in the epochs it skipped, and those messages were lost without any
+sign. Here it was worse. A chat log stopped listening to an epoch the
+moment it left it, so a message under the old key that reached the relay
+after the rekey was never heard, and a device applying three rekeys in a
+row on returning tore each subscription down before any relay had answered
+for it. Only the newest epoch was ever read.
+
+A log now goes on reading the epochs it has left: the four most recently
+left, none older than the chat retention window, one relay filter each so
+the newest cannot use up the others' `limit`. The rule for accepting a
+message under a left epoch is that its sender was never removed. A
+`created_at` cut-off at the rekey was considered and refused: it is the
+sender's own claim and stops nobody. The remaining question was whether a
+removed person, coming back under a fresh participant key with the old
+epoch's key, could now be heard where before they could not. In a gated
+room the admission policy refuses them under either epoch. In an open room
+the epoch desk already hands a fresh participant the current epoch on the
+epoch-0 proof the removed still hold ("The epoch desk answers holders of
+the room key" above), so reading left epochs lets them in nowhere the link
+does not.
+
+**Lost rekeys.** Relays keep events for days, not for ever: the 1 October
+measurement found kind 1463 invitations gone from `relay.primal.net` within
+a day. A rekey is sealed under the key of the epoch it leaves, so a device
+that misses one cannot read the next, and asks the authority. When the
+answer jumps it more than one epoch the session records an `EpochGap`, and
+from any epoch above 0 the room says that messages from that time cannot be
+read on this device. From epoch 0 it says nothing, because that is also
+every newcomer to a room that has been rekeyed; a returning device whose
+last epoch was 0 is not told, which is the case this does not cover.
+
+**Not done here.** A device with no keeper or browser holding the
+authority online cannot catch up past a lost rekey at all. Republishing
+rekeys costs what republishing invitations cost (it shows on public relays
+that the authority is up), and syncing epoch secrets through the account's
+bookmarks would hand later epochs to every device on the account, including
+one that was removed. The better change is a rekey any remaining device can
+open with its own key alone, so that one surviving rekey is enough; that is
+a change to `epoch.ts` in fold-kit, and it is next. Left epochs are held in
+memory, rebuilt on opening from the rekeys the device has kept, and not
+written down on their own.
+
 ## Signet channel checks, a draft, 19 September 2026
 
 The browser's word check now uses the contacts SDK's authenticated-channel

@@ -305,6 +305,24 @@ does not verify, before consulting the policy and without publishing any grant.
 The proof key is always epoch 0's, since the device asking is by definition
 behind. A responder from before this field ignores it. The
 `epochRequestAdmission` vectors pin the derivation and the refusals.
+A client that has left an epoch goes on reading its chat and channels for a
+while: the four most recently left epochs (`MAX_PAST_EPOCHS`), none left more
+than `CHAT_RETENTION_SECONDS` ago, each decoded under its own root. This is how
+a message published under an epoch just before a rekey, and delivered after
+it, is still heard, and how a device that applies several rekeys in a row on
+returning reads the epochs it passed through. A message under a left epoch
+from a participant removed at any epoch is refused, whatever its
+`created_at`: the removed keep the old key. Messages are never written under
+a left epoch.
+
+A rekey is compared by event id. Two different rekeys for one epoch, both
+validly signed by the authority, mean its key is rekeying from two places;
+a client reports this (`EpochConflict`) and does not choose between them by
+arrival order. A client that reaches an epoch through a grant rather than
+the rekey chain has jumped epochs (`EpochGap`) and cannot read the ones
+between; from an epoch above 0 that is a returning device whose rekey the
+relays no longer hold, and it says so.
+
 Clients that cannot follow an epoch must say so rather than display a quiet,
 empty room. Android capability gaps are recorded in the compatibility ledger;
 passing M2 codecs does not implement features it did not previously support.
