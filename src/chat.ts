@@ -755,7 +755,7 @@ export class ChatLog {
   /** `#epoch`'s stream, worked out once per epoch rather than per event. */
   #stream = ''
   /** The epochs this log has left and still reads, by stream. */
-  readonly #past = new Map<string, { root?: EpochRoot; leftAt: number; unsub: () => void }>()
+  readonly #past = new Map<string, { root?: EpochRoot; leftAt: number }>()
   /** How many messages the log holds: `MAX_CHAT_MESSAGES`, plus a page for
    *  every step back through the archive a reader asked for. */
   #window = MAX_CHAT_MESSAGES
@@ -777,8 +777,9 @@ export class ChatLog {
     this.#epoch = opts.epoch
     this.#nowMs = opts.nowMs ?? (opts.now ? undefined : Date.now)
     this.#now = opts.now ?? (() => Math.floor(this.#nowMs!() / 1000))
-    this.#unsub = this.#subscribe()
+    this.#enterEpoch()
     for (const past of [...opts.pastEpochs ?? []].sort((a, b) => a.leftAt - b.leftAt)) this.#keepPast(past)
+    this.#unsub = this.#listen()
   }
 
   /** The `d` tag this log reads and writes under now: public on the wire,
@@ -792,15 +793,23 @@ export class ChatLog {
     return deriveChannel(root.id, root.key, this.#opts.channel).id
   }
 
-  #subscribe(): () => void {
+  #enterEpoch(): void {
     const id = this.#stream = this.#streamOf(this.#epoch)
     this.#cursor = undefined
     this.#archiveDone = !this.#opts.archive
     if (this.#opts.archive) void this.#readArchive(id, this.#epoch)
+  }
+
+  /** One subscription for the current epoch and every left one it still
+   *  reads: one `REQ` on each relay, as before epochs were kept, since
+   *  relays cap the subscriptions a connection may hold. A filter each, so
+   *  each epoch has its own `limit` and the newest cannot use up the rest. */
+  #listen(): () => void {
+    const since = this.#now() - CHAT_RETENTION_SECONDS
     return this.#opts.transport.subscribe(
       // The newest the log can hold, not the whole retention window: the
       // rest would be decoded only to fall off the end.
-      [{ kinds: [KINDS.CHAT], '#d': [id], since: this.#now() - CHAT_RETENTION_SECONDS, limit: MAX_CHAT_MESSAGES }],
+      [this.#stream, ...this.#past.keys()].map((d) => ({ kinds: [KINDS.CHAT], '#d': [d], since, limit: MAX_CHAT_MESSAGES })),
       (event, via) => this.#ingest(event, via),
     )
   }
@@ -846,27 +855,24 @@ export class ChatLog {
     const leftStream = this.#stream
     this.#unsub()
     this.#epoch = next
-    this.#unsub = this.#subscribe()
+    this.#enterEpoch()
     if (!this.#keepPast({ root: left, leftAt: opts.leftAt ?? this.#now() })) {
       this.#opts.archive?.release?.({ kind: KINDS.CHAT, d: leftStream })
     }
+    this.#unsub = this.#listen()
   }
 
-  /** Go on reading a left epoch. Returns whether it is now read. */
+  /** Go on reading a left epoch, from the next `#listen`. Returns whether
+   *  it is read. Known before the subscription that reads it is opened: a
+   *  relay may replay into the handler before `subscribe` returns, and an
+   *  event decoded under the wrong epoch is remembered as read and never
+   *  tried again. */
   #keepPast(past: PastEpoch): boolean {
     const d = this.#streamOf(past.root)
     if (d === this.#stream || this.#past.has(d)) return this.#past.has(d)
     const since = this.#now() - CHAT_RETENTION_SECONDS
     if (past.leftAt < since) return false
-    // Known before subscribing: a relay may replay into the handler before
-    // `subscribe` returns, and an event decoded under the wrong epoch is
-    // remembered as read and never tried again.
-    const kept = { ...(past.root ? { root: past.root } : {}), leftAt: past.leftAt, unsub: () => {} }
-    this.#past.set(d, kept)
-    kept.unsub = this.#opts.transport.subscribe(
-      [{ kinds: [KINDS.CHAT], '#d': [d], since, limit: MAX_CHAT_MESSAGES }],
-      (event, via) => this.#ingest(event, via),
-    )
+    this.#past.set(d, { ...(past.root ? { root: past.root } : {}), leftAt: past.leftAt })
     // Oldest left first out, and whatever has aged past the window.
     for (const [stream, kept] of [...this.#past].sort((a, b) => a[1].leftAt - b[1].leftAt)) {
       if (this.#past.size <= MAX_PAST_EPOCHS && kept.leftAt >= since) break
@@ -878,10 +884,7 @@ export class ChatLog {
   }
 
   #dropPast(d: string): void {
-    const kept = this.#past.get(d)
-    if (!kept) return
-    this.#past.delete(d)
-    kept.unsub()
+    if (!this.#past.delete(d)) return
     this.#opts.archive?.release?.({ kind: KINDS.CHAT, d })
   }
 

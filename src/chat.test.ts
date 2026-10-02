@@ -350,34 +350,40 @@ describe('ChatLog', () => {
   it('goes on reading at most MAX_PAST_EPOCHS left epochs, none left before the retention window', async () => {
     const f = await fixture()
     const sim = new SimTransport(new SimRelay())
-    const open = new Set<string>()
+    // The streams read, by subscription: a log holds one at a time, so a
+    // relay sees one REQ for it however many epochs it reads.
+    const subs = new Set<string[]>()
     const transport: RelayTransport = {
       publish: (event) => sim.publish(event),
       subscribe: (filters, onEvent, onEose) => {
-        const d = (filters[0]!['#d'] as string[])[0]!
-        open.add(d)
+        const streams = filters.map((f) => (f['#d'] as string[])[0]!)
+        subs.add(streams)
         const off = sim.subscribe(filters, onEvent, onEose)
-        return () => { open.delete(d); off() }
+        return () => { subs.delete(streams); off() }
       },
       close: () => sim.close(),
+    }
+    const opened = () => {
+      expect(subs.size).toBeLessThanOrEqual(1)
+      return new Set([...subs].flat())
     }
     const log = new ChatLog({ ...f, transport, now: () => NOW })
     const epoch0 = log.stream
     const roots = Array.from({ length: MAX_PAST_EPOCHS + 1 }, (_, i) => ({ id: String(i + 1).repeat(64).slice(0, 64), key: new Uint8Array(32).fill(40 + i) }))
     roots.forEach((root, i) => log.rekey(root, { leftAt: NOW - 100 + i }))
     // The current epoch and the four most recently left; epoch 0 has gone.
-    expect(open.size).toBe(1 + MAX_PAST_EPOCHS)
-    expect(open.has(epoch0)).toBe(false)
-    expect(open.has(log.stream)).toBe(true)
+    expect(opened().size).toBe(1 + MAX_PAST_EPOCHS)
+    expect(opened().has(epoch0)).toBe(false)
+    expect(opened().has(log.stream)).toBe(true)
 
     // An epoch left before the retention window is not read at all.
     const left = log.stream
     log.rekey({ id: 'f'.repeat(64), key: new Uint8Array(32).fill(99) }, { leftAt: NOW - CHAT_RETENTION_SECONDS - 1 })
-    expect(open.has(left)).toBe(false)
-    expect(open.size).toBe(1 + MAX_PAST_EPOCHS)
+    expect(opened().has(left)).toBe(false)
+    expect(opened().size).toBe(1 + MAX_PAST_EPOCHS)
 
     log.close()
-    expect(open.size).toBe(0)
+    expect(subs.size).toBe(0)
   })
 
   it('send() publishes a message that shows up in messages()', async () => {

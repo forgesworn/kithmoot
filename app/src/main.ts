@@ -11408,6 +11408,8 @@ function resumeDockedCall(): void {
   $('identity').hidden = true
   $('identityMore').hidden = true
   $('roomArea').hidden = false
+  // What happened to the room's epochs while the call was docked.
+  reportEpochTrouble(s)
   setStatus('')
   showRoomTools()
   renderNudgeChoice()
