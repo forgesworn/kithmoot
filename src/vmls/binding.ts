@@ -42,7 +42,8 @@ const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER)
 
 // ---- a streaming reader: the same checks, in the same order, as cbor.rs ----
 
-const utf8 = new TextDecoder('utf-8', { fatal: true })
+// ignoreBOM: a leading U+FEFF is text, as it is to cbor.rs; never stripped.
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 const ALLOWED_CONTROLS = new Set([0x08, 0x09, 0x0a, 0x0c, 0x0d])
 const WIDTHS: Record<number, number> = { 24: 1, 25: 2, 26: 4, 27: 8 }
 const MINIMUMS: Record<number, bigint> = { 1: 24n, 2: 0x100n, 4: 0x10000n, 8: 0x100000000n }
