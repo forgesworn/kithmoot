@@ -65,6 +65,10 @@ async function checkRoom(page: Page, label: string): Promise<void> {
     const boxes = await shares.evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().width)))
     return boxes.join(',')
   }, { timeout: 30_000, message: `${label}: share boxes never settled` }).not.toBe('')
+  // A remote share is a 1px sink until its first frame moves its clock
+  // (`awaitingFrame`, syncRemoteVideos in app/src/main.ts), which can be a
+  // second after it decodes. Measured before then, it is not on the stage.
+  await expect(page.locator('#room video.screenPreview.awaitingFrame'), `${label}: a share never painted a frame`).toHaveCount(0, { timeout: 30_000 })
   await page.waitForTimeout(400)
 
   const cameras: Box[] = []
