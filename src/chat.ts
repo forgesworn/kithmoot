@@ -309,6 +309,24 @@ export interface EpochRoot {
   key: Uint8Array
 }
 
+/**
+ * An epoch a log has left, kept so that a message published under it which
+ * had not reached this device yet is still read. Without it, a device that
+ * follows a rekey, or several in a row on coming back, stops listening to
+ * the epoch it leaves before any relay has answered, and whatever was said
+ * there that it had not already heard is lost without a word.
+ */
+export interface PastEpoch {
+  /** The epoch's id and key. Undefined for epoch 0. */
+  root?: EpochRoot
+  /** When the room left it, in unix seconds: the rekey's `at`. */
+  leftAt: number
+}
+
+/** How many left epochs a log goes on reading. Each costs one filter on
+ *  every relay, and relays cap the filters a connection may hold. */
+export const MAX_PAST_EPOCHS = 4
+
 export interface EncodeChatOptions {
   /** The room this message belongs to: what its credential is checked
    *  against, whatever epoch it rides in. */
@@ -408,7 +426,9 @@ export interface DecodeChatOptions {
   channel?: string
   /** The epoch to read. Omit for epoch 0. A message from another epoch
    *  does not decode, for the same reason a message on another channel
-   *  does not: it is under another id and another key. */
+   *  does not: it is under another id and another key. A `ChatLog` reads
+   *  the epochs it has left by decoding each under its own root; see
+   *  `PastEpoch`. */
   epoch?: EpochRoot
 }
 
@@ -650,6 +670,15 @@ export interface ChatLogOptions {
   channel?: string
   /** The epoch to open in. Omit for epoch 0. `rekey` moves a log on. */
   epoch?: EpochRoot
+  /** Epochs the room has already left that this log should go on reading:
+   *  the ones a session passed through before the log was opened. At most
+   *  `MAX_PAST_EPOCHS`, the most recently left, are kept. */
+  pastEpochs?: readonly PastEpoch[]
+  /** Whether a participant has been removed from the room. A message under
+   *  a left epoch from one is refused: the removed still hold that epoch's
+   *  key, and what they publish under it after their removal must not be
+   *  heard. See `ChatLog.rekey`. */
+  isRemoved?: (participant: string) => boolean
   /** This sender's ownership proof, when it is an agent whose principal
    *  has attested to it. Carried on every message. */
   owner?: AgentOwnership
@@ -723,6 +752,10 @@ export class ChatLog {
   #unsub: () => void
   /** The epoch this log reads and writes. Undefined is epoch 0. */
   #epoch?: EpochRoot
+  /** `#epoch`'s stream, worked out once per epoch rather than per event. */
+  #stream = ''
+  /** The epochs this log has left and still reads, by stream. */
+  readonly #past = new Map<string, { root?: EpochRoot; leftAt: number; unsub: () => void }>()
   /** How many messages the log holds: `MAX_CHAT_MESSAGES`, plus a page for
    *  every step back through the archive a reader asked for. */
   #window = MAX_CHAT_MESSAGES
@@ -745,17 +778,22 @@ export class ChatLog {
     this.#nowMs = opts.nowMs ?? (opts.now ? undefined : Date.now)
     this.#now = opts.now ?? (() => Math.floor(this.#nowMs!() / 1000))
     this.#unsub = this.#subscribe()
+    for (const past of [...opts.pastEpochs ?? []].sort((a, b) => a.leftAt - b.leftAt)) this.#keepPast(past)
   }
 
   /** The `d` tag this log reads and writes under now: public on the wire,
    *  and what a caller asks a relay or the archive for. */
   get stream(): string {
-    const root = rootOf({ roomId: this.#opts.roomId, roomKey: this.#opts.roomKey, epoch: this.#epoch })
+    return this.#stream
+  }
+
+  #streamOf(epoch: EpochRoot | undefined): string {
+    const root = rootOf({ roomId: this.#opts.roomId, roomKey: this.#opts.roomKey, epoch })
     return deriveChannel(root.id, root.key, this.#opts.channel).id
   }
 
   #subscribe(): () => void {
-    const id = this.stream
+    const id = this.#stream = this.#streamOf(this.#epoch)
     this.#cursor = undefined
     this.#archiveDone = !this.#opts.archive
     if (this.#opts.archive) void this.#readArchive(id, this.#epoch)
@@ -789,16 +827,74 @@ export class ChatLog {
 
   /**
    * Move this log to a new epoch: read and write under the new id and key
-   * from now on, and keep what was already read. History from the epoch
-   * being left stays on screen for whoever was there for it, which is
-   * honest; nothing published under the old key after this is heard, which
-   * is the point. See `epoch.ts`.
+   * from now on, and keep what was already read.
+   *
+   * The epoch being left is still read, for a while: relays deliver late,
+   * and a device catching up applies several rekeys in a row, each of which
+   * would otherwise drop the epoch before any relay had answered for it.
+   * What arrives under it is decoded by the same rules as before, with one
+   * more: nothing from a participant `isRemoved` names is heard. The removed
+   * keep the old key, and what they publish under it after their removal is
+   * exactly what a rekey exists to shut out. A removed person who comes back
+   * under a fresh identity is no further in than the room's admission policy
+   * already lets them, since the authority hands such a newcomer the current
+   * epoch on the same terms. `MAX_PAST_EPOCHS` left epochs are read, none
+   * left longer ago than `CHAT_RETENTION_SECONDS`. See `epoch.ts`.
    */
-  rekey(next: EpochRoot): void {
+  rekey(next: EpochRoot, opts: { leftAt?: number } = {}): void {
+    const left = this.#epoch
+    const leftStream = this.#stream
     this.#unsub()
-    this.#release()
     this.#epoch = next
     this.#unsub = this.#subscribe()
+    if (!this.#keepPast({ root: left, leftAt: opts.leftAt ?? this.#now() })) {
+      this.#opts.archive?.release?.({ kind: KINDS.CHAT, d: leftStream })
+    }
+  }
+
+  /** Go on reading a left epoch. Returns whether it is now read. */
+  #keepPast(past: PastEpoch): boolean {
+    const d = this.#streamOf(past.root)
+    if (d === this.#stream || this.#past.has(d)) return this.#past.has(d)
+    const since = this.#now() - CHAT_RETENTION_SECONDS
+    if (past.leftAt < since) return false
+    // Known before subscribing: a relay may replay into the handler before
+    // `subscribe` returns, and an event decoded under the wrong epoch is
+    // remembered as read and never tried again.
+    const kept = { ...(past.root ? { root: past.root } : {}), leftAt: past.leftAt, unsub: () => {} }
+    this.#past.set(d, kept)
+    kept.unsub = this.#opts.transport.subscribe(
+      [{ kinds: [KINDS.CHAT], '#d': [d], since, limit: MAX_CHAT_MESSAGES }],
+      (event, via) => this.#ingest(event, via),
+    )
+    // Oldest left first out, and whatever has aged past the window.
+    for (const [stream, kept] of [...this.#past].sort((a, b) => a[1].leftAt - b[1].leftAt)) {
+      if (this.#past.size <= MAX_PAST_EPOCHS && kept.leftAt >= since) break
+      this.#dropPast(stream)
+    }
+    if (!this.#past.has(d)) return false
+    if (this.#opts.archive) void this.#readPastArchive(d)
+    return true
+  }
+
+  #dropPast(d: string): void {
+    const kept = this.#past.get(d)
+    if (!kept) return
+    this.#past.delete(d)
+    kept.unsub()
+    this.#opts.archive?.release?.({ kind: KINDS.CHAT, d })
+  }
+
+  /** What this device kept from a left epoch: the history a reload would
+   *  otherwise hide behind the rekeys it replays on opening. */
+  async #readPastArchive(d: string): Promise<void> {
+    let events: Event[] = []
+    try {
+      events = await this.#opts.archive!.read({ kind: KINDS.CHAT, d, since: this.#now() - CHAT_RETENTION_SECONDS, limit: MAX_CHAT_MESSAGES })
+    } catch {
+      return
+    }
+    await this.#ingestAll(events, () => this.#past.has(d))
   }
 
   /** What this device holds, first: the same window a relay is asked for,
@@ -816,7 +912,7 @@ export class ChatLog {
     this.#cursor = oldest ? { at: oldest.created_at, id: oldest.id } : { at: since, id: '' }
     // Told even when nothing in the window was kept, so a reader can ask
     // for what lies before it.
-    if (!await this.#ingestAll(events, epoch)) this.#notify()
+    if (!await this.#ingestAll(events, () => this.#epoch === epoch)) this.#notify()
   }
 
   /** Whether the archive may hold messages older than the log shows. */
@@ -854,7 +950,7 @@ export class ChatLog {
       this.#cursor = { at: oldest.created_at, id: oldest.id }
       this.#window += events.length
       this.#pagedTo = Math.min(this.#pagedTo ?? Infinity, oldest.created_at)
-      await this.#ingestAll(events, epoch)
+      await this.#ingestAll(events, () => this.#epoch === epoch)
       return events.length
     }
     this.#paging = run().finally(() => { this.#paging = undefined })
@@ -863,13 +959,13 @@ export class ChatLog {
 
   /** Archived events in, a chunk at a time with the page given a turn in
    *  between, newest first, and one notification per chunk that showed
-   *  something. Stops if the log closes or changes key meanwhile. Returns
-   *  whether anything showed. */
-  async #ingestAll(events: readonly Event[], epoch: EpochRoot | undefined): Promise<boolean> {
+   *  something. Stops if the log closes, or `live` says the stream being
+   *  read is no longer read. Returns whether anything showed. */
+  async #ingestAll(events: readonly Event[], live: () => boolean): Promise<boolean> {
     let any = false
     for (let i = 0; i < events.length; i += ARCHIVE_DECODE_CHUNK) {
       if (i > 0) await new Promise(resolve => setTimeout(resolve, 0))
-      if (this.#closed || this.#epoch !== epoch) return any
+      if (this.#closed || !live()) return any
       let changed = false
       for (const event of events.slice(i, i + ARCHIVE_DECODE_CHUNK)) changed = this.#ingest(event, undefined, true) || changed
       if (changed) this.#notify()
@@ -1026,6 +1122,10 @@ export class ChatLog {
     try { return this.#opts.isBlocked?.(participant) === true } catch { return true }
   }
 
+  #removed(participant: string): boolean {
+    try { return this.#opts.isRemoved?.(participant) === true } catch { return true }
+  }
+
   messages(): ChatMessage[] {
     return this.#messages.filter(message => !this.#blocked(message.participant)
       && (!message.speaker || !this.#blocked(message.speaker)))
@@ -1047,6 +1147,7 @@ export class ChatLog {
     this.#closed = true
     this.#unsub()
     this.#release()
+    for (const d of [...this.#past.keys()]) this.#dropPast(d)
     this.#listeners.clear()
   }
 
@@ -1075,15 +1176,21 @@ export class ChatLog {
       const first = this.#decoded.values().next().value
       if (first !== undefined) this.#decoded.delete(first)
     }
+    // Which epoch it rides in, by its stream: the current one, or one this
+    // log has left and still reads.
+    const d = event.tags.find((t) => t[0] === 'd')?.[1]?.toLowerCase()
+    const past = d === undefined || d === this.#stream ? undefined : this.#past.get(d)
+    const epoch = past ? past.root : this.#epoch
     const msg = decodeChatEvent(event, {
       roomId: this.#opts.roomId,
       roomKey: this.#opts.roomKey,
       now: this.#now(),
       policy: this.#opts.policy,
       channel: this.#opts.channel,
-      ...(this.#epoch ? { epoch: this.#epoch } : {}),
+      ...(epoch ? { epoch } : {}),
     })
     if (!msg || this.#blocked(msg.participant) || (msg.speaker && this.#blocked(msg.speaker))) return false
+    if (past && this.#removed(msg.participant)) return false
     // An archived event has no relay to name, and the lane it once took is
     // not recorded, so it claims none until a relay's copy arrives.
     msg.lane = fromArchive ? undefined : this.#laneOf(via)

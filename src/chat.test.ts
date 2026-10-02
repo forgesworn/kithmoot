@@ -12,6 +12,8 @@ import {
   MAX_CHAT_MESSAGES_PER_MINUTE,
   MAX_CHAT_TEXT_LENGTH,
   MAX_CHANNEL_NAME_LENGTH,
+  MAX_PAST_EPOCHS,
+  CHAT_RETENTION_SECONDS,
   deriveChannel,
 } from './chat.js'
 import { issueKindredProof } from './access.js'
@@ -343,6 +345,39 @@ describe('ChatLog', () => {
     log.close()
     await expect(current()).rejects.toThrow('closed')
     await expect(log.send('closed')).rejects.toThrow('closed')
+  })
+
+  it('goes on reading at most MAX_PAST_EPOCHS left epochs, none left before the retention window', async () => {
+    const f = await fixture()
+    const sim = new SimTransport(new SimRelay())
+    const open = new Set<string>()
+    const transport: RelayTransport = {
+      publish: (event) => sim.publish(event),
+      subscribe: (filters, onEvent, onEose) => {
+        const d = (filters[0]!['#d'] as string[])[0]!
+        open.add(d)
+        const off = sim.subscribe(filters, onEvent, onEose)
+        return () => { open.delete(d); off() }
+      },
+      close: () => sim.close(),
+    }
+    const log = new ChatLog({ ...f, transport, now: () => NOW })
+    const epoch0 = log.stream
+    const roots = Array.from({ length: MAX_PAST_EPOCHS + 1 }, (_, i) => ({ id: String(i + 1).repeat(64).slice(0, 64), key: new Uint8Array(32).fill(40 + i) }))
+    roots.forEach((root, i) => log.rekey(root, { leftAt: NOW - 100 + i }))
+    // The current epoch and the four most recently left; epoch 0 has gone.
+    expect(open.size).toBe(1 + MAX_PAST_EPOCHS)
+    expect(open.has(epoch0)).toBe(false)
+    expect(open.has(log.stream)).toBe(true)
+
+    // An epoch left before the retention window is not read at all.
+    const left = log.stream
+    log.rekey({ id: 'f'.repeat(64), key: new Uint8Array(32).fill(99) }, { leftAt: NOW - CHAT_RETENTION_SECONDS - 1 })
+    expect(open.has(left)).toBe(false)
+    expect(open.size).toBe(1 + MAX_PAST_EPOCHS)
+
+    log.close()
+    expect(open.size).toBe(0)
   })
 
   it('send() publishes a message that shows up in messages()', async () => {
