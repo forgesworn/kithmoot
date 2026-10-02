@@ -77,7 +77,7 @@ test('enrols, persists across a reload, keeps its keys non-extractable and repla
   await context.close()
 })
 
-test('S24: two tabs, one writer: the same operation signs once', async ({ browser }) => {
+test('two tabs asking for the same operation at once both get its one signature', async ({ browser }) => {
   const context = await browser.newContext()
   await serve(context)
   const a = await open(context)

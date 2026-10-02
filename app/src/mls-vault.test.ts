@@ -91,6 +91,12 @@ describe('enrolment and storage', () => {
     expect(await vault.device(ctx)).toMatchObject({ ok: true, value: { device, persona: alice.pubkey } })
   })
 
+  it('replaces an enrolled device only when asked to', async () => {
+    expect(await vault.enrol(ctx, alice, NOW + 3600)).toEqual({ ok: false, refusal: 'unauthorised' })
+    const replaced = await vault.enrol(ctx, alice, NOW + 3600, { replace: true })
+    expect(replaced.ok && replaced.value.device !== device).toBe(true)
+  })
+
   it('refuses enrolment for another persona than the signer', async () => {
     const bob = signer()
     expect(await vault.enrol(ctx, bob, NOW + 3600)).toEqual({ ok: false, refusal: 'unauthorised' })
@@ -206,6 +212,9 @@ describe('signLeafBindingV1', () => {
     expect(await vault.signLeafBindingV1(ctx, request(), approve)).toEqual({ ok: false, refusal: 'stale' })
     const fresh = vault.context(PRINCIPAL, alice.pubkey)
     expect((await vault.signLeafBindingV1(fresh, request(), approve)).ok).toBe(true)
+    // A retry of the earlier operation from the new generation is stale,
+    // not a replay of a signature made under the old one.
+    expect(await vault.signLeafBindingV1(fresh, before, approve)).toEqual({ ok: false, refusal: 'stale' })
   })
 
   it('refuses a reply it did not make, or one for another request', async () => {
@@ -245,12 +254,19 @@ describe('rendezvousEcdhV1', () => {
     expect(vault.acceptEcdhReply(req, result.value).ok).toBe(true)
   })
 
-  it('E04: a forged non-trivial value is refused at the boundary', async () => {
+  it('E04: only a reply this vault made is accepted, so no substituted value gets through', async () => {
     const req = ecdh()
     const result = await vault.rendezvousEcdhV1(ctx, req, child(alice.pubkey))
     if (!result.ok) throw new Error(result.refusal)
-    const forged = { ...result.value, shared_x: bytesToHex(randomBytes(32)) }
-    expect(vault.acceptEcdhReply(req, forged)).toEqual({ ok: false, refusal: 'unauthorised' })
+    // The defence is the vault's own brand on the reply object, not any
+    // check of `shared_x`: a forged value, and even a copy carrying the
+    // right value, are both refused.
+    expect(vault.acceptEcdhReply(req, { ...result.value, shared_x: bytesToHex(randomBytes(32)) })).toEqual({ ok: false, refusal: 'unauthorised' })
+    expect(vault.acceptEcdhReply(req, { ...result.value })).toEqual({ ok: false, refusal: 'unauthorised' })
+    // And the branded reply cannot be altered in place.
+    expect(Object.isFrozen(result.value)).toBe(true)
+    expect(() => { (result.value as { shared_x: string }).shared_x = '00'.repeat(32) }).toThrow(TypeError)
+    expect(vault.acceptEcdhReply(req, result.value).ok).toBe(true)
   })
 
   it('E05: a reply for another peer, an off-curve peer, or another account is refused', async () => {

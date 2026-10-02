@@ -105,7 +105,8 @@ export const SIGN_METHOD = 'signLeafBindingV1/1'
 export const MAX_JOURNAL_RECORDS = 1024
 /** An operation may be at most this far in the future (inclusive). */
 export const MAX_OPERATION_SECONDS = 600
-const MAX_BODY_BASE64 = 11_000
+/** The largest unsigned body (8,125 bytes) is 10,836 base64 characters. */
+const MAX_BODY_BASE64 = 10_836
 const HEX64 = /^[0-9a-f]{64}$/
 const NONCE_BYTES = 12
 const RECORD_VERSION = 1
@@ -153,6 +154,9 @@ interface PersonCredentialEvent {
 }
 
 interface JournalEntry {
+  /** The vault generation it was decided under: a retry from another
+   * generation is stale, never a replay (S25, E06). */
+  generation: number
   principal: string
   handle: string
   operation: string
@@ -236,13 +240,16 @@ export class MlsVault {
   /**
    * Makes a fresh device key for `ctx.persona`, asks the identity signer for
    * a person credential naming it, checks that credential against the
-   * engine's rules and seals both. Replaces any earlier device for the
-   * persona: a new device is a new leaf (§6.1).
+   * engine's rules and seals both. An earlier device for the persona is
+   * replaced only with `replace`: a new device is a new leaf (§6.1).
    */
-  async enrol(ctx: VaultContext, identity: ParticipantIdentity, expiresAt: number): Promise<VaultResult<EnrolledDevice>> {
+  async enrol(ctx: VaultContext, identity: ParticipantIdentity, expiresAt: number, options: { replace?: boolean } = {}): Promise<VaultResult<EnrolledDevice>> {
     await this.#ready()
     if (!this.#current(ctx)) return refuse('stale')
     if (!HEX64.test(ctx.persona) || identity.pubkey !== ctx.persona) return refuse('unauthorised')
+    // Replacing a device is the app's explicit choice: a new device is a new
+    // leaf, and the old one's groups must be left or repaired (§6.1).
+    if (!options.replace && await this.#open<DeviceRecord>('device', ctx.persona)) return refuse('unauthorised')
     const scalar = secp256k1.utils.randomSecretKey()
     try {
       const device = bytesToHex(schnorr.getPublicKey(scalar))
@@ -355,7 +362,7 @@ export class MlsVault {
             if (!this.#current(ctx)) return refuse('stale')
             const raced = await this.#journalEntry(ctx, device.device, req.operation)
             if (raced) return await this.#replay(ctx, req, bodyHash, raced, device)
-            const recorded = await this.#record(ctx, { principal: ctx.principal, handle: device.device, operation: req.operation, bodyHash, digest: req.digest, deadline: req.expires_at, outcome: { ok: false, refusal: 'denied' } })
+            const recorded = await this.#record(ctx, { generation: ctx.generation, principal: ctx.principal, handle: device.device, operation: req.operation, bodyHash, digest: req.digest, deadline: req.expires_at, outcome: { ok: false, refusal: 'denied' } })
             return recorded.ok ? refuse('denied') : recorded
           })
         }
@@ -383,7 +390,7 @@ export class MlsVault {
         } finally { scalar.fill(0) }
         if (!schnorr.verify(signature, hexToBytes(req.digest), hexToBytes(device.device))) return refuse('malformed')
         const recorded = await this.#record(ctx, {
-          principal: ctx.principal, handle: device.device, operation: req.operation, bodyHash, digest: req.digest,
+          generation: ctx.generation, principal: ctx.principal, handle: device.device, operation: req.operation, bodyHash, digest: req.digest,
           deadline: req.expires_at, outcome: { ok: true, signature: bytesToHex(signature), homeBox: scope.homeBox },
         })
         if (!recorded.ok) return recorded
@@ -410,6 +417,7 @@ export class MlsVault {
 
   async #replay(ctx: VaultContext, req: SignLeafBindingRequest, bodyHash: string, entry: JournalEntry, device: DeviceRecord): Promise<VaultResult<SignLeafBindingReply>> {
     if (entry.bodyHash !== bodyHash || entry.digest !== req.digest || entry.deadline !== req.expires_at || entry.principal !== ctx.principal) return refuse('replay')
+    if (entry.generation !== ctx.generation) return refuse('stale')
     if (!entry.outcome.ok) return refuse(entry.outcome.refusal)
     // A cached success is rechecked: still unexpired, still approved, still
     // not revoked (S22).
