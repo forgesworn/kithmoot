@@ -9,10 +9,21 @@
  * remaining kind entries. The kit's `KINDS.CHAT` is byte-identical to what
  * this file used to declare, so the spread order changes nothing about the
  * value - only which module's object literal defines it. */
-import { KINDS as CIRCLE_KINDS } from '@forgesworn/fold-kit'
+import { KINDS as CIRCLE_KINDS, MEMBER_EPOCH_KINDS } from '@forgesworn/fold-kit'
 
 export const KINDS = {
   ...CIRCLE_KINDS,
+  /** A device that missed a rekey asking the room's current members, not
+   *  just the authority, for the epochs it missed: encrypted under a key
+   *  derived from the epoch-0 room key, carrying the same admission proof
+   *  as an epoch request. Ephemeral. The kit names it
+   *  `MEMBER_EPOCH_KINDS.REQUEST`; it is spelt out here because a bare
+   *  `REQUEST` key would sit ambiguously beside `EPOCH_REQUEST`. */
+  MEMBER_EPOCH_REQUEST: MEMBER_EPOCH_KINDS.REQUEST,
+  /** A member's answer, sealed to the asking device and signed by a
+   *  one-time key: the missed secrets with the authority's own rekeys to
+   *  prove them. Ephemeral. See `member-epoch.ts`. */
+  MEMBER_EPOCH_GRANT: MEMBER_EPOCH_KINDS.GRANT,
   /** Reserved codecs only; no service enforcement in M2. */
   MEMBER_PASS: 20470,
   SERVICE_POLICY: 30460,

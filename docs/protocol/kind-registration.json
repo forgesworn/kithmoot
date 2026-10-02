@@ -100,6 +100,18 @@
       "status": "prepared; not submitted"
     },
     {
+      "kind": 20471,
+      "description": "KithMoot Member epoch request",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
+      "kind": 20472,
+      "description": "KithMoot Member epoch grant",
+      "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",
+      "status": "prepared; not submitted"
+    },
+    {
       "kind": 30460,
       "description": "KithMoot Service policy, reserved",
       "spec": "https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md",

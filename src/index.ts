@@ -39,6 +39,29 @@ export {
   RESERVED_CHANNELS,
   MAX_EPOCH,
 } from './epoch.js'
+export { EPOCH_COMMIT_PREFIX, epochCommitment } from './epoch-commit.js'
+export {
+  MEMBER_EPOCH_KINDS,
+  MAX_MEMBER_EPOCH_CHAIN,
+  MEMBER_EPOCH_REQUEST_KEY_INFO,
+  deriveMemberEpochRequestKey,
+  readRekeyEvidence,
+  encodeMemberEpochRequest,
+  decodeMemberEpochRequest,
+  encodeMemberEpochGrant,
+  decodeMemberEpochGrant,
+  hostMemberEpochDesk,
+  memberEpochSource,
+  requestMemberEpoch,
+} from './member-epoch.js'
+export type {
+  RekeyEvidence,
+  MemberEpochRequest,
+  MemberEpochGrant,
+  HostMemberEpochDeskOptions,
+  MemberEpochRequestOptions,
+  MemberEpochSource,
+} from './member-epoch.js'
 export { signRoomRelays, verifyRoomRelays, canonicalRoomRelays, invitationRelaysFrom, withRoomRelays, MAX_ROOM_RELAYS, type SignRoomRelaysOptions, type VerifyRoomRelaysOptions } from './room-relays.js'
 export type {
   RoomEpoch,
@@ -121,6 +144,8 @@ export {
   CREDENTIAL_RENEWAL_FRACTION,
   DEFAULT_EPOCH_SETTLE_MS,
   DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
+  EPOCH_RETRY_MS,
+  EpochUnreachableError,
   CONFERENCE_ENDED_MESSAGE,
 } from './session.js'
 export { withExpiration, isRoomEnds, requireRoomEnds, MAX_ROOM_ENDS_SECONDS } from './expiration.js'

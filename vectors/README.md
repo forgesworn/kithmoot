@@ -16,6 +16,8 @@ payloads for NIP-44).
 | `lib/determinism.mjs` | The handful of low-level helpers (fixed-seed key derivation, fixed-aux-rand signing) both `generate.mjs` and `verify.test.ts` share. |
 | `lib/fixtures.mjs` | Every fixed secret, keypair and timestamp the vectors are built from, in one place. |
 | `verify.test.ts` | A vitest suite (part of `npx vitest run`) that checks the JSON against the real `src/` implementation. |
+| `member-epoch-vectors.json` | Member epoch catch-up (kinds 20471/20472, the rekey commitment), copied byte for byte from `@forgesworn/fold-kit`, which generates it. Never hand-edited here. |
+| `verify-member-epoch.test.ts` | Checks `member-epoch-vectors.json` against `src/`'s re-exports of the kit. |
 
 ## What the vectors pin - and what they don't
 
