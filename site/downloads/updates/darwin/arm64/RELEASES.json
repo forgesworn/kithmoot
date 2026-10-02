@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.39",
+  "currentRelease": "0.1.40",
   "releases": [
     {
-      "version": "0.1.39",
+      "version": "0.1.40",
       "updateTo": {
-        "version": "0.1.39",
-        "pub_date": "2026-10-02T06:30:00Z",
-        "notes": "A voice call with nobody on camera keeps its controls to two rows on desktop: the buttons, who is speaking and More now share one row.",
-        "name": "0.1.39",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.39/KithMoot-0.1.39-mac-arm64.zip",
-        "sha256": "63648259bc91c482b8aad87f22fca98d8680bd53632b23d7204b9680a7d267e5",
-        "size": 136408227
+        "version": "0.1.40",
+        "pub_date": "2026-10-02T07:30:00Z",
+        "notes": "Messages sent within the same second show in the order they were sent.",
+        "name": "0.1.40",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.40/KithMoot-0.1.40-mac-arm64.zip",
+        "sha256": "732849b4124c9f9b6bdaeae98e3b1a0b61f4800ca4206d23fd2ca968dc0d08c7",
+        "size": 136408303
       }
     }
   ]
