@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.40",
+  "currentRelease": "0.1.41",
   "releases": [
     {
-      "version": "0.1.40",
+      "version": "0.1.41",
       "updateTo": {
-        "version": "0.1.40",
-        "pub_date": "2026-10-02T07:30:00Z",
-        "notes": "Messages sent within the same second show in the order they were sent.",
-        "name": "0.1.40",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.40/KithMoot-0.1.40-mac-arm64.zip",
-        "sha256": "732849b4124c9f9b6bdaeae98e3b1a0b61f4800ca4206d23fd2ca968dc0d08c7",
-        "size": 136408303
+        "version": "0.1.41",
+        "pub_date": "2026-10-02T08:30:00Z",
+        "notes": "Link your Signet contacts to a room, check each other with words you both take part in, and block people you blocked in Signet on this device.",
+        "name": "0.1.41",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.41/KithMoot-0.1.41-mac-arm64.zip",
+        "sha256": "313a58d1cc84812cc68b3e591f5bb381851262fefc6b67cc3888c70b360f225b",
+        "size": 136430581
       }
     }
   ]
