@@ -320,13 +320,13 @@ test('the speaking cue is more than a colour, and is shown rather than spoken', 
     // A thicker ring and a solid label: the label's fill changes, not just
     // its hue, so the cue survives a colour it cannot be told by.
     // After the ring's 120ms ease in.
+    // Polled: speech comes and goes, and on a slow runner one reading can
+    // land in a pause, with the label back at rest for that moment.
     await ringSettled(tile)
-    const cue = await tile.evaluate(el => {
+    await expect.poll(() => tile.evaluate(el => {
       const label = el.querySelector('h3')!
-      return { ring: getComputedStyle(el).boxShadow, label: getComputedStyle(label).backgroundColor, ink: getComputedStyle(label).color }
-    })
-    expect(cue.label).toBe('rgb(23, 96, 47)')
-    expect(cue.ink).toBe('rgb(255, 255, 255)')
+      return { label: getComputedStyle(label).backgroundColor, ink: getComputedStyle(label).color }
+    }), { timeout: 15_000 }).toEqual({ label: 'rgb(23, 96, 47)', ink: 'rgb(255, 255, 255)' })
     await expect(page.locator('#speakingNow')).toContainText('Bob')
 
     // B2: the h3's own colour is white on green, but `.name` set its own
