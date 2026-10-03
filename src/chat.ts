@@ -848,17 +848,22 @@ export class ChatLog {
    * under a fresh identity is no further in than the room's admission policy
    * already lets them, since the authority hands such a newcomer the current
    * epoch on the same terms. `MAX_PAST_EPOCHS` left epochs are read, none
-   * left longer ago than `CHAT_RETENTION_SECONDS`. See `epoch.ts`.
+   * left longer ago than `CHAT_RETENTION_SECONDS`. `crossed` names epochs
+   * the room went through between the one left and `next`, oldest first,
+   * when a catch-up handed them over: they are read the same way. See
+   * `epoch.ts`.
    */
-  rekey(next: EpochRoot, opts: { leftAt?: number } = {}): void {
+  rekey(next: EpochRoot, opts: { leftAt?: number; crossed?: readonly EpochRoot[] } = {}): void {
     const left = this.#epoch
     const leftStream = this.#stream
     this.#unsub()
     this.#epoch = next
     this.#enterEpoch()
-    if (!this.#keepPast({ root: left, leftAt: opts.leftAt ?? this.#now() })) {
+    const leftAt = opts.leftAt ?? this.#now()
+    if (!this.#keepPast({ root: left, leftAt })) {
       this.#opts.archive?.release?.({ kind: KINDS.CHAT, d: leftStream })
     }
+    for (const root of opts.crossed ?? []) this.#keepPast({ root, leftAt })
     this.#unsub = this.#listen()
   }
 

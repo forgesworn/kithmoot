@@ -1251,7 +1251,7 @@ export class RoomSession {
         for (const p of grant.removed) this.#removed.add(p)
         if (grant.epoch.epoch > this.#epoch.epoch) {
           const epoch = grant.epoch as RoomEpoch
-          this.#moveToEpoch(epoch, { epoch: epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() })
+          this.#moveToEpoch(epoch, { epoch: epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() }, grant.passed ?? [])
         }
         // Anything past what the authority handed over is readable now.
         for (const epoch of [...this.#pendingRekeys.keys()]) if (epoch <= this.#epoch.epoch) this.#pendingRekeys.delete(epoch)
@@ -1400,10 +1400,21 @@ export class RoomSession {
    * members who were kept are kept too, and their media with them; one that
    * never restates itself under the new key lapses on the ordinary timeout.
    */
-  #moveToEpoch(next: RoomEpoch, notice: RekeyNotice): void {
+  #moveToEpoch(next: RoomEpoch, notice: RekeyNotice, passed: readonly RoomEpoch[] = []): void {
     const from = this.#epoch.epoch
     const left = this.#epochRoot()
-    this.#pastEpochs = [...this.#pastEpochs, { ...(left ? { root: left } : {}), leftAt: notice.at }].slice(-MAX_PAST_EPOCHS)
+    // The epochs a member's grant carried between this one and `next`,
+    // each proven by the authority's rekey after it: read from now on like
+    // any epoch this session left, and kept so this device's member desk
+    // can hand them on in turn.
+    const between = passed.filter((e) => e.epoch > from && e.epoch < next.epoch).sort((a, b) => a.epoch - b.epoch)
+    for (const e of between) this.#keepSecret(e)
+    const crossed = between.map((e) => { const keys = deriveEpoch(e); return { id: keys.id, key: keys.key } })
+    this.#pastEpochs = [
+      ...this.#pastEpochs,
+      { ...(left ? { root: left } : {}), leftAt: notice.at },
+      ...crossed.map((root) => ({ root, leftAt: notice.at })),
+    ].slice(-MAX_PAST_EPOCHS)
     for (const epoch of this.#followed.keys()) if (epoch < next.epoch - 64) this.#followed.delete(epoch)
     this.#epochSecret = next
     this.#epoch = deriveEpoch(next)
@@ -1439,10 +1450,10 @@ export class RoomSession {
       )
     }
     const root = this.#epochRoot()!
-    this.#chat?.rekey(root, { leftAt: notice.at })
-    for (const log of this.#channels.values()) log.rekey(root, { leftAt: notice.at })
+    this.#chat?.rekey(root, { leftAt: notice.at, crossed })
+    for (const log of this.#channels.values()) log.rekey(root, { leftAt: notice.at, crossed })
     this.#assignments?.rekey(root)
-    const gap = next.epoch > from + 1 ? { from, to: next.epoch, at: this.#now() } : undefined
+    const gap = next.epoch > from + 1 + between.length ? { from, to: next.epoch, at: this.#now() } : undefined
     if (gap) this.#gaps.push(gap)
     try {
       this.#opts.onEpoch?.(notice)
