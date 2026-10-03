@@ -1792,14 +1792,28 @@ device. From epoch 0 it says nothing, because that is also every newcomer
 to a room that has been rekeyed; a returning device whose last epoch was 0
 is not told, which is the case this does not cover.
 
-**Next.** A member's answer already carries, and fold-kit already checks,
-the secret of every epoch in between; the session took only the last.
-fold-kit#8 hands the rest over as `passed`, and once KithMoot takes that
-release the session will read those epochs and pass them on from its own
-member desk rather than report them lost. The authority's own answer
-carries only the current epoch and will still leave a gap. Left epochs are
-held in memory, rebuilt on opening from the rekeys the device has kept,
-and not written down on their own.
+**Epochs a member's answer carries are read.** A member's answer carries,
+and fold-kit checks, the secret of every epoch between the asker's and the
+current one, each proven by the authority's rekey after it. Since fold-kit
+0.5.1 they are handed over as `passed`, and the session reads them like any
+epoch it left, keeps them for its own member desk to hand on, and reports
+no gap for them. The authority's own answer carries only the current epoch
+and still leaves one.
+
+What that widens, stated so it is a decision and not an accident: a device
+that catches up through a member can now read up to four epochs of
+history it was not in the roster for, as far back as the thirty-day
+window. For a returning member that is the point. For a newcomer it is
+the history before they arrived, which epochs never existed to hide. For a
+removed person who comes back to an open room under a fresh participant key
+with a link that still works, it is what was said after their removal, up
+to that window, where before they read only from the last rekey on. The
+secrets were already in the grant fold-kit 0.5.0 sent them, so this was
+never a cryptographic boundary, only one this client chose not to cross;
+the answer is the same as before, to replace the link, and the Remove
+dialogue already says so. Left epochs are held in memory, rebuilt on
+opening from the rekeys the device has kept, and not written down on their
+own.
 
 ## Signet channel checks, a draft, 19 September 2026
 
