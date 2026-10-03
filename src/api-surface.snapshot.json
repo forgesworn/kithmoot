@@ -282,6 +282,7 @@
     "EpochRequestAdmissionOptions",
     "EpochRoot",
     "EpochUnreachableError",
+    "EpochWaitReason",
     "EventArchive",
     "FILE_EVENT_KIND",
     "FetchAttachmentOptions",

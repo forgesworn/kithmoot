@@ -340,7 +340,16 @@ export interface RoomSessionBaseOptions {
    * session keeps asking on its own; what it says is under a key the room
    * has left. See `awaitingEpoch`.
    */
-  onEpochWaiting?: (waiting: boolean) => void
+  onEpochWaiting?: (waiting: boolean, why: EpochWaitReason) => void
+  /**
+   * Somebody the room does not know asked this device's member desk for
+   * the current epoch, after the room removed somebody (#207): a newcomer
+   * on a group link, a member whose device the room never saw, or a
+   * removed person back under a new key. They are not answered unless
+   * `letIn(participant)` is called. Called again every minute while they
+   * keep asking.
+   */
+  onUnknownAsking?: (asker: { participant: string; device: string }) => void
   /** Called on every epoch this session moves to, with what the rekey said:
    *  the number, who was removed and by whom. Also on this session's own
    *  rekeys, when it is the authority. A current-state grant is marked
@@ -498,10 +507,26 @@ export const EPOCH_RETRY_MS = 5_000
  * `epochRequestTimeoutMs`. Not a refusal: nobody said no, so trying again
  * later, once a member is online, is the remedy.
  */
+/** Why a session is waiting for the room's current epoch: nobody holding
+ *  it has answered, or the room answered that it does not know this
+ *  participant yet and is waiting for a member to let them in (#207). */
+export type EpochWaitReason = 'unanswered' | 'unknown'
+
 export class EpochUnreachableError extends Error {
+  /** True when the room answered, and the answer was that it does not know
+   *  this participant yet: it has removed somebody, so a newcomer waits for
+   *  a member to let them in (#207). Not a refusal; asking again is right. */
+  readonly unknown: boolean
   constructor(cause?: unknown) {
-    super('this room has moved to a new key, and no member could bring this device up to date', cause === undefined ? undefined : { cause })
+    const unknown = cause instanceof EpochRefusedError && cause.refused === 'unknown'
+    super(
+      unknown
+        ? 'this room has not let this device in yet: waiting for a member to let it in'
+        : 'this room has moved to a new key, and no member could bring this device up to date',
+      cause === undefined ? undefined : { cause },
+    )
     this.name = 'EpochUnreachableError'
+    this.unknown = unknown
   }
 }
 
@@ -620,6 +645,17 @@ export class RoomSession {
    *  are refused whatever key they arrive under, which is belt and braces:
    *  they cannot produce one under the current key at all. */
   readonly #removed = new Set<string>()
+  /** The authority's member list, from the newest rekey or grant that
+   *  carried one (#207). Undefined until one has. */
+  #members: ReadonlySet<string> | undefined
+  /** Every participant this session has seen in the roster, at whichever
+   *  epoch it was at: what the authority adds to the member list it writes,
+   *  so somebody offline as it rekeys stays a member. */
+  readonly #seen = new Set<string>()
+  /** Participants let in from this device while the room did not know them. */
+  readonly #letIn = new Set<string>()
+  /** True while the room's answer is that it does not know this participant. */
+  #unknownHere = false
   /** Rekeys heard for epochs ahead of this one, by epoch, until this session
    *  reaches the epoch each is sealed to. */
   readonly #pendingRekeys = new Map<number, Event>()
@@ -648,6 +684,7 @@ export class RoomSession {
   /** Set while this live session is behind and its last catch-up went
    *  unanswered. */
   #awaitingEpoch = false
+  #awaitingWhy: EpochWaitReason = 'unanswered'
   #epochRetryTimer?: ReturnType<typeof setTimeout>
   #closed = false
   /** Set while joining when a rekey said this participant is out, or the
@@ -1056,6 +1093,52 @@ export class RoomSession {
   }
 
   /**
+   * Whether the room knows this participant, once it has removed somebody
+   * (#207): on the authority's latest member list, in this room's roster,
+   * or let in from this device. What this device's member desk asks before
+   * handing the room's key to anybody, and what a keeper's desk asks too.
+   */
+  knows(participant: string): boolean {
+    const p = normaliseHex(participant)
+    if (this.#removed.has(p)) return false
+    if (p === this.participant || this.#members?.has(p) || this.#letIn.has(p)) return true
+    for (const entry of this.#entries.values()) if (entry.participant === p) return true
+    return false
+  }
+
+  /** Seed who the room knows from what was kept: a keeper reopening a
+   *  room from its state, so the members it had seen before a restart are
+   *  still on the list its next rekey writes, and still known to its desk. */
+  rememberMembers(participants: readonly string[]): void {
+    const merged = new Set(this.#members ?? [])
+    for (const raw of participants) {
+      const p = normaliseHex(raw)
+      if (!this.#removed.has(p)) merged.add(p)
+    }
+    this.#members = merged
+  }
+
+  /** Let a participant the room does not know in from this device: its
+   *  member desk answers their next ask. Not for a removed participant. */
+  letIn(participant: string): void {
+    const p = normaliseHex(participant)
+    if (this.#removed.has(p)) return
+    this.#letIn.add(p)
+  }
+
+  /**
+   * The member list this session would write into a rekey: the authority's
+   * last list, everybody seen in the roster, everybody let in, and this
+   * participant, less the removed. Cumulative on purpose: a member who is
+   * offline as the room rekeys is still a member.
+   */
+  memberList(): string[] {
+    const out = new Set<string>([...(this.#members ?? []), ...this.#seen, ...this.#letIn, this.participant])
+    for (const p of this.#removed) out.delete(p)
+    return [...out].sort()
+  }
+
+  /**
    * Mark participants removed without a rekey: what a keeper reopening a
    * room from its state does, so the people it removed last week are
    * refused before the roster has said a word. Entries already held for
@@ -1117,7 +1200,7 @@ export class RoomSession {
       try {
         await this.#catchUp()
       } catch (err) {
-        if (err instanceof EpochRefusedError) throw err
+        if (err instanceof EpochRefusedError && err.refused !== 'unknown') throw err
         throw new EpochUnreachableError(err)
       }
     }
@@ -1258,9 +1341,14 @@ export class RoomSession {
           now: this.#now,
           timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
           expiresAt: this.#opts.endsAt,
+          onUnknown: () => {
+            this.#unknownHere = true
+          },
         })
+        this.#unknownHere = false
         if (this.#left || this.#closed) return
         for (const p of grant.removed) this.#removed.add(p)
+        if (grant.members) this.#members = new Set(grant.members)
         if (grant.epoch.epoch > this.#epoch.epoch) {
           const epoch = grant.epoch as RoomEpoch
           this.#moveToEpoch(epoch, { epoch: epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() }, grant.passed ?? [])
@@ -1268,7 +1356,9 @@ export class RoomSession {
         // Anything past what the authority handed over is readable now.
         for (const epoch of [...this.#pendingRekeys.keys()]) if (epoch <= this.#epoch.epoch) this.#pendingRekeys.delete(epoch)
       } catch (err) {
-        if (err instanceof EpochRefusedError) this.#refused(err.refused)
+        // `unknown` is the room saying it has not let this participant in
+        // yet: keep asking, as when nobody answered, not a refusal.
+        if (err instanceof EpochRefusedError && err.refused !== 'unknown') this.#refused(err.refused)
         else failed = true
         throw err
       }
@@ -1331,10 +1421,12 @@ export class RoomSession {
   }
 
   #setAwaitingEpoch(waiting: boolean): void {
-    if (this.#awaitingEpoch === waiting) return
+    const why: EpochWaitReason = waiting && this.#unknownHere ? 'unknown' : 'unanswered'
+    if (this.#awaitingEpoch === waiting && this.#awaitingWhy === why) return
     this.#awaitingEpoch = waiting
+    this.#awaitingWhy = why
     try {
-      this.#opts.onEpochWaiting?.(waiting)
+      this.#opts.onEpochWaiting?.(waiting, why)
     } catch {
       // A caller's problem, not the room's.
     }
@@ -1376,6 +1468,16 @@ export class RoomSession {
         secretAt: (epoch) => this.#secrets.get(epoch),
         rekeyAt: (epoch) => this.#rekeyEvents.get(epoch),
         removed: () => this.#removed,
+        // Once the room has removed somebody, its key goes only to people it
+        // knows; anybody else is the caller's to let in (#207).
+        known: (participant) => this.knows(participant),
+        onUnknown: (request) => {
+          try {
+            this.#opts.onUnknownAsking?.({ participant: request.participant, device: request.device })
+          } catch {
+            // A caller's problem, not the room's.
+          }
+        },
         closed: () => this.#closed || this.#left,
         policy: this.#opts.policy,
         now: this.#now,
@@ -1413,6 +1515,7 @@ export class RoomSession {
    * never restates itself under the new key lapses on the ordinary timeout.
    */
   #moveToEpoch(next: RoomEpoch, notice: RekeyNotice, passed: readonly RoomEpoch[] = []): void {
+    if (notice.members) this.#members = new Set(notice.members)
     const from = this.#epoch.epoch
     const left = this.#epochRoot()
     // The epochs a member's grant carried between this one and `next`,
@@ -1510,6 +1613,7 @@ export class RoomSession {
         .map((e) => e.device),
     )]
     const now = this.#now()
+    const members = this.memberList().filter((p) => !removed.includes(p))
     const event = encodeRekeyEvent({
       roomId: this.roomId,
       authoritySk: opts.authoritySk,
@@ -1523,6 +1627,10 @@ export class RoomSession {
       // a device that missed the rekey, and that device check it, while
       // this authority is offline. See `member-epoch.ts`.
       commit: true,
+      // Who the room knows, so every member's desk can tell a member who was
+      // offline through this rekey from a removed person back under a new
+      // key (#207).
+      members,
       now,
       expiresAt: this.#opts.endsAt,
     })
@@ -1543,6 +1651,7 @@ export class RoomSession {
     const notice: RekeyNotice = {
       epoch: next.epoch,
       removed,
+      members,
       ...(opts.by !== undefined ? { by: normaliseHex(opts.by) } : {}),
       closed: opts.closed === true,
       secret: next.secret,
@@ -2274,6 +2383,7 @@ export class RoomSession {
     }
 
     this.#entries.set(key, entry)
+    this.#seen.add(entry.participant)
     if (key !== this.#selfKey()) this.#seenAt.set(key, this.#now())
 
     // A device we had not seen before has arrived, so tell it we are here.

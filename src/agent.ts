@@ -99,6 +99,11 @@ export interface KeeperState {
   removed?: string[]
   /** True once the room was closed. A closed room is not reopened. */
   closed?: boolean
+  /** Participants the room knows, lower-case hex: the member list its last
+   *  rekey wrote, and everybody seen or let in since. Kept so a restarted
+   *  keeper still knows members who have been away since, and writes them
+   *  into its next rekey (#207). Absent from state written before. */
+  members?: string[]
   /** Participants who asked to be nudged when they miss messages, lower-case
    *  hex. Absent until somebody has. See `Nudger` in src/node/nudge.ts. */
   nudge?: string[]
@@ -173,6 +178,11 @@ export interface ApprovalRequestOptions {
   /** A caller's own id, when it has one; random otherwise. */
   id?: string
 }
+
+/** The admin's answer that lets an unknown participant in (#207). */
+export const LET_IN = 'let in'
+/** How long a keeper's "let them in?" question stays open. */
+const LET_IN_ASK_SECONDS = 600
 
 /** How an approval request ended. */
 export interface ApprovalOutcome {
@@ -353,6 +363,7 @@ export class RoomAgent {
   readonly #described = new Set<string>()
   #describeTimer?: ReturnType<typeof setTimeout>
   #rosterUnsub?: () => void
+  #membersUnsub?: () => void
   readonly #transport: RelayTransport
   /** The quiet transport, when this is a quiet room: what still waits to
    *  be posted, and whether this agent may post at all. */
@@ -422,12 +433,22 @@ export class RoomAgent {
     let authority: { inviterSk: Uint8Array; delegation: InvitationDelegation[] } | undefined
     let expectedEpoch: number | undefined
     let endsAt: number | undefined
+    // Settled before asking, so the request can say who is asking: the host
+    // that lets this agent in then knows it, and hands it the room's key even
+    // after a removal (#207). A room-scoped identity is known only once the
+    // room is, so that request goes unnamed and a member is asked instead.
+    const identity = opts.identityForRoom ? undefined : (opts.identity ?? localIdentity(generateSecretKey()))
     if (link.invitation) {
       const transport = makeTransport(agentRelayPool(room, own))
       try {
         const admission = link.invitation.persistent
           ? await requestPersistentRoomAdmission({ transport, invitation: link.invitation })
-          : await requestRoomAdmissionCapability({ transport, invitation: link.invitation, now })
+          : await requestRoomAdmissionCapability({
+            transport,
+            invitation: link.invitation,
+            now,
+            ...(identity ? { participant: identity.pubkey } : {}),
+          })
         secret = admission.secret
         if ('endsAt' in admission && admission.endsAt !== undefined) {
           if (now() >= admission.endsAt) throw new Error(CONFERENCE_ENDED_MESSAGE)
@@ -446,7 +467,7 @@ export class RoomAgent {
 
     return RoomAgent.#start({
       ...opts,
-      identity: opts.identityForRoom?.(deriveRoom(secret).roomId) ?? opts.identity,
+      identity: opts.identityForRoom?.(deriveRoom(secret).roomId) ?? identity,
       deviceSk: opts.deviceKeyForRoom?.(deriveRoom(secret).roomId) ?? opts.deviceSk,
       link,
       url: opts.link,
@@ -478,7 +499,12 @@ export class RoomAgent {
     }
     if (state.endsAt !== undefined && now() >= state.endsAt) throw new Error(CONFERENCE_ENDED_MESSAGE)
     const epochNumber = state.epoch ?? 0
-    state = { ...state, epoch: epochNumber, removed: [...new Set((state.removed ?? []).map(normaliseHex))].sort() }
+    state = {
+      ...state,
+      epoch: epochNumber,
+      removed: [...new Set((state.removed ?? []).map(normaliseHex))].sort(),
+      ...(state.members ? { members: [...new Set(state.members.map(normaliseHex))].sort() } : {}),
+    }
     const invitation = roomInvitation(state.bearer, getPublicKey(state.inviterSk), state.persistent === true)
     const link: RoomLink = { invitation, relays, iceUrls: opts.iceUrls ?? [] }
     if (opts.policy) link.policy = opts.policy
@@ -590,6 +616,9 @@ export class RoomAgent {
     // can tell it anything. Marked on the session by way of the first
     // rekey notice it would otherwise have missed.
     if (opts.keeper && opts.removed?.length) agent.session.forgetParticipants(opts.removed)
+    // And who it knew, so a member away since the restart is still one.
+    if (opts.keeper?.members?.length) agent.session.rememberMembers(opts.keeper.members)
+    if (opts.keeper) agent.#keepMembers()
 
     try {
       if (opts.keeper?.persistent && opts.link.invitation) {
@@ -612,6 +641,12 @@ export class RoomAgent {
           roomSecret: opts.secret,
           now: opts.now,
           epoch: () => session.epoch,
+          // Whoever this keeper's link admits is somebody the room knows,
+          // so its epoch desk answers them after a removal too (#207).
+          admit: (request) => {
+            if (request.participant) session.letIn(request.participant)
+            return true
+          },
           onRetired: () => {
             if (agent) agent.#stopHosting()
           },
@@ -619,6 +654,7 @@ export class RoomAgent {
         agent.#hostTransport = hostTransport
         agent.#pools.push(hostTransport)
         if (opts.keeper) {
+          const admins = new Set(agent.admins.map((a) => a.toLowerCase()))
           agent.#epochDesk = hostRoomEpoch({
             transport: hostTransport,
             roomId: session.roomId,
@@ -626,6 +662,15 @@ export class RoomAgent {
             roomKey: deriveRoom(opts.secret).roomKey,
             current: () => session.currentEpoch(),
             removed: () => session.removed,
+            // Once the room has removed somebody, its key goes only to people
+            // it knows (#207): the member list, the roster, whoever this
+            // keeper's link let in, and the room's admins, who may come from
+            // a release that predates the admission proof.
+            known: (participant) => session.knows(participant) || admins.has(participant.toLowerCase()),
+            members: () => session.memberList(),
+            onUnknown: (request) => {
+              if (agent) agent.#askAdminsToLetIn(request.participant).catch(() => {})
+            },
             closed: () => session.closed,
             policy: opts.link.policy,
             legacyParticipants: new Set(agent.admins),
@@ -842,7 +887,7 @@ export class RoomAgent {
   /** Whether a participant's answer counts: on the announced admin list,
    *  or this agent's own verified principal. */
   #isApprover(participant: string): boolean {
-    return this.#announcedAdmins.has(participant) || (this.owner !== undefined && this.owner.principal === participant && verifyAgentOwnership(this.owner, { agent: this.participant, now: this.#now() }).ok)
+    return this.#announcedAdmins.has(participant) || (this.#keeper !== undefined && this.admins.includes(participant)) || (this.owner !== undefined && this.owner.principal === participant && verifyAgentOwnership(this.owner, { agent: this.participant, now: this.#now() }).ok)
   }
 
   /**
@@ -1030,6 +1075,44 @@ export class RoomAgent {
     }
   }
 
+  /**
+   * Somebody the room does not know asked this keeper for the room's key
+   * after a removal (#207): a newcomer on the link, or a removed person
+   * under a new key, which no rule about keys can tell apart. A keeper has
+   * nobody at it to decide, so it asks the room's admins, as an approval
+   * request every admin's app shows as a card; the first admin's
+   * `let in` lets them in, and they are handed the key on their next ask.
+   * One question per person at a time. With no admins there is nobody to
+   * ask, and a member on the web or desktop lets them in instead.
+   */
+  async #askAdminsToLetIn(participant: string): Promise<void> {
+    if (!this.#keeper || this.#left || !this.admins.length) return
+    const id = `let-in-${participant.slice(0, 16)}`
+    if (this.#approvals.has(id)) return
+    const outcome = await this.requestApproval({
+      id,
+      text: `Somebody new (${participant.slice(0, 8)}…) wants to join. Let them in?`,
+      options: [LET_IN, 'decline'],
+      ttlSeconds: LET_IN_ASK_SECONDS,
+    })
+    if (outcome.verdict !== LET_IN || this.#left) return
+    this.session.letIn(participant)
+    await this.#persist()
+  }
+
+  /** Persist again whenever somebody new joins the room's member list, so
+   *  a restart does not forget them (#207). */
+  #keepMembers(): void {
+    let count = this.session.memberList().length
+    this.#membersUnsub = this.session.onChange(() => {
+      if (this.#left) return
+      const now = this.session.memberList().length
+      if (now === count) return
+      count = now
+      this.#persist().catch(() => {})
+    })
+  }
+
   async #persist(): Promise<void> {
     const keeper = this.#keeper
     if (!keeper) return
@@ -1041,6 +1124,7 @@ export class RoomAgent {
       ...(keeper.persistent ? { persistent: true as const } : {}),
       epoch: current.epoch,
       removed: [...this.session.removed].sort(),
+      members: this.session.memberList(),
       ...(current.epoch > 0 ? { epochSecret: current.secret } : {}),
       ...(this.session.closed ? { closed: true } : {}),
       ...(keeper.nudge?.length ? { nudge: keeper.nudge } : {}),
@@ -1206,6 +1290,8 @@ export class RoomAgent {
     this.#controlUnsub = undefined
     this.#rosterUnsub?.()
     this.#rosterUnsub = undefined
+    this.#membersUnsub?.()
+    this.#membersUnsub = undefined
     if (this.#describeTimer !== undefined) clearTimeout(this.#describeTimer)
     this.#describeTimer = undefined
     for (const [id, open] of this.#approvals) {

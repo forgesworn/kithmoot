@@ -756,12 +756,30 @@ the roster, the chat, any channel, the descriptor or forwarded media from
 that epoch on; they cannot find the new epoch's events, which ride a
 different `d`; they cannot get back in by announcing, because nobody at the
 new epoch can decode them; and the authority refuses them the epoch on the
-credential that proves who they are. What they *can* do is come back under
-a key the room has never seen, if they still hold the link, because
-removal is by participant and the link is open. That is the honest shape
-of an open room: rotate the link as well when that matters. A member
+credential that proves who they are. A member
 admitted after a rekey reads from the epoch they were admitted to; history
 under earlier epochs is theirs who had it.
+
+**Once a room has removed somebody, its key goes only to people it knows.**
+Every epoch request proves admission under the epoch-0 room key, and a
+removed member keeps that key, so refusing by participant alone was undone
+by a fresh participant key: to a desk, a removed person back under a new
+key and a newcomer with the link are the same thing (#207). Rotating the
+link did not help either, since the link's secret is epoch 0. An honest
+member who was offline through the removal holds exactly the keys a
+removed one does, so no rule about keys separates them; whether the room
+has seen the participant does. So after a removal the authority's desk and
+every member's desk hand the epoch only to a participant the room knows:
+on the member list the authority writes into each rekey (everybody it has
+seen in the room, not only who is present as it rekeys, less the
+removed), in the current roster, or let in. Anybody else is asked about,
+the same "wants to join" card a knock gets, and waits ("Waiting for
+somebody in this room to let you in") until a member says yes; the
+authority answers them `unknown`, which is not a refusal. A room that has
+never removed anybody is unchanged. What is left: while the link is live,
+anybody holding it, a removed person included, can still ask to come
+back, and is a stranger asking to join. A room that has removed somebody
+asks before letting people in, whatever its link.
 
 **Host controls are signed requests to the keeper.** A person is not the
 authority when a box keeper made the room, so `kithmoot-agent create

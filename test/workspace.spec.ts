@@ -1,6 +1,9 @@
 import { writeFileSync } from 'node:fs'
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
+import { CONTROL_CHANNEL, decodeControl, encodeControl } from '../src/control.js'
+import { localIdentity } from '../src/identity.js'
+import { generateSecretKey } from 'nostr-tools/pure'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { withRelays, agentRelaysFor, TEST_RELAY_WS } from './relays.js'
@@ -263,11 +266,30 @@ test('catching up starts at unread messages and keeps your place across conversa
   } finally { writer.leave(); await context.close() }
 })
 
+/** An admin at their screen: yes to every "let them in?" the keeper asks.
+ *  Once a room has removed somebody, a newcomer is let in by an admin, not
+ *  by the link alone (#207). */
+function approveNewcomers(admin: RoomAgent): () => void {
+  const answered = new Set<string>()
+  const timer = setInterval(() => {
+    for (const m of admin.channel(CONTROL_CHANNEL).messages()) {
+      const c = decodeControl(m.text)
+      if (c?.op !== 'approval-request' || !c.id.startsWith('let-in-') || answered.has(c.id)) continue
+      answered.add(c.id)
+      void admin.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'approval', id: c.id, verdict: 'let in' }))
+    }
+  }, 200)
+  return () => clearInterval(timer)
+}
+
 test('refreshing a rekeyed room restores its lock state without announcing old removals again', async ({ browser, baseURL }) => {
   const { context, page, relay } = await setup(browser, baseURL!)
   // A small clock difference proves notices use the authority's timestamp,
   // not the time this browser renders them.
-  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Standing room', relays: [TEST_RELAY_WS], now: () => Math.floor(Date.now() / 1000) - 5 })
+  const adminIdentity = localIdentity(generateSecretKey())
+  const keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', roomName: 'Standing room', relays: [TEST_RELAY_WS], admins: [adminIdentity.pubkey], now: () => Math.floor(Date.now() / 1000) - 5 })
+  const admin = await RoomAgent.join({ link: keeper.url, name: 'Admin', identity: adminIdentity })
+  const stopApproving = approveNewcomers(admin)
   const former = await RoomAgent.join({ link: keeper.url, name: 'Former member' })
   let next: RoomAgent | undefined
   try {
@@ -275,7 +297,9 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
     former.leave()
     await join(page, withRelays(keeper.url, [relay]))
 
-    const notices = page.locator('#chatLog > .system:not(.intro)')
+    // An admin's "let in" for this reader is shown to the room like any
+    // approval's outcome (#207); what must not come back is the removals.
+    const notices = page.locator('#chatLog > .system:not(.intro)').filter({ hasNotText: 'answered \u201clet in\u201d' })
     const checkRestored = async (epoch: number, message: string) => {
       await expect(page.locator('#roomArea')).toBeVisible()
       await keeper.session.chat.send(message)
@@ -310,8 +334,10 @@ test('refreshing a rekeyed room restores its lock state without announcing old r
     await page.locator('#join').click()
     await checkRestored(2, 'The new lock also survives a refresh.')
   } finally {
+    stopApproving()
     next?.leave()
     former.leave()
+    admin.leave()
     keeper.leave()
     await context.close()
   }

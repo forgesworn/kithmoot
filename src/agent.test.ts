@@ -4,7 +4,9 @@ import { RoomAgent, AGENT_CHANNEL, TRANSCRIPT_CHANNEL } from './agent.js'
 import type { KeeperState } from './agent.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { CONTROL_CHANNEL, decodeControl, encodeControl } from './control.js'
-import { verifyAdmins, verifyChannels } from './epoch.js'
+import { deriveEpoch, verifyAdmins, verifyChannels } from './epoch.js'
+import { readRekeyEvidence } from './member-epoch.js'
+import { KINDS } from './kinds.js'
 import type { RekeyNotice } from './epoch.js'
 import { encodeJoinUrl } from './room.js'
 import { encodeRoomLink, parseRoomLink } from './link.js'
@@ -310,11 +312,15 @@ describe('RoomAgent', () => {
     expect(carol.chat.messages().map((m) => m.text)).toEqual(['just us now'])
     expect(bob.chat.messages()).toEqual([])
 
-    // Removal is by participant, and the link is still open: somebody
-    // arriving under a key the room has never seen is admitted to epoch 1,
-    // which is what an open weekly room wants and is stated in the docs.
+    // The link is still open, but once the room has removed somebody, a key
+    // it has never seen is not handed the room on the link alone: that is
+    // exactly what a removed person under a new key looks like (#207).
+    // Somebody in the room lets them in, and then they are.
     bob.leave()
-    const dave = await RoomAgent.join({ link: keeper.url, name: 'Dave', transport: transportFor(relay), announceJitterMs: 0 })
+    const daveIdentity = localIdentity(generateSecretKey())
+    expect(carol.session.knows(daveIdentity.pubkey)).toBe(false)
+    carol.session.letIn(daveIdentity.pubkey)
+    const dave = await RoomAgent.join({ link: keeper.url, name: 'Dave', identity: daveIdentity, transport: transportFor(relay), announceJitterMs: 0 })
     expect(dave.session.epoch).toBe(1)
     dave.leave()
     keeper.leave()
@@ -361,9 +367,94 @@ describe('RoomAgent', () => {
     await expect(
       RoomAgent.join({ link: again.url, name: 'Bob', identity: bobIdentity, transport: transportFor(relay), announceJitterMs: 0 }),
     ).rejects.toThrow(/removed/)
-    const eve = await RoomAgent.join({ link: again.url, name: 'Eve', transport: transportFor(relay), announceJitterMs: 0 })
+    // A newcomer after the removal is let in by somebody in the room; here,
+    // the keeper itself, as an admin's request would have it (#207).
+    const eveIdentity = localIdentity(generateSecretKey())
+    again.session.letIn(eveIdentity.pubkey)
+    const eve = await RoomAgent.join({ link: again.url, name: 'Eve', identity: eveIdentity, transport: transportFor(relay), announceJitterMs: 0 })
     expect(eve.session.epoch).toBe(1)
     eve.leave()
+    again.leave()
+  })
+
+  it('after a removal, the keeper asks its admins about a newcomer, and only an admin\u2019s yes lets them in (#207)', async () => {
+    const relay = new SimRelay({ replay: true })
+    const admin = localIdentity(generateSecretKey())
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, admins: [admin.pubkey] })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', identity: admin, transport: transportFor(relay), announceJitterMs: 0 })
+    const bob = await RoomAgent.join({ link: keeper.url, name: 'Bob', transport: transportFor(relay), announceJitterMs: 0 })
+    const carol = await RoomAgent.join({ link: keeper.url, name: 'Carol', transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+    await keeper.remove(bob.participant)
+    await settle()
+    bob.leave()
+
+    const dave = localIdentity(generateSecretKey())
+    const joining = RoomAgent.join({ link: keeper.url, name: 'Dave', identity: dave, transport: transportFor(relay), announceJitterMs: 0 })
+    // The question reaches the room's control channel.
+    const asked = async () => {
+      for (let i = 0; i < 200; i++) {
+        const request = ada.channel(CONTROL_CHANNEL).messages().map((m) => decodeControl(m.text)).find((c) => c?.op === 'approval-request')
+        if (request?.op === 'approval-request') return request
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      throw new Error('the keeper never asked')
+    }
+    const request = await asked()
+    expect(request.text).toContain(dave.pubkey.slice(0, 8))
+    expect(request.options).toEqual(['let in', 'decline'])
+    // Carol is not an admin: her yes counts for nothing.
+    await carol.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'approval', id: request.id, verdict: 'let in' }))
+    await settle()
+    expect(keeper.session.knows(dave.pubkey)).toBe(false)
+    // Ada is: Dave is let in, and handed the room on his next ask.
+    await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'approval', id: request.id, verdict: 'let in' }))
+    const joined = await joining
+    expect(keeper.session.knows(dave.pubkey)).toBe(true)
+    expect(joined.session.epoch).toBe(1)
+
+    // And an admin's no keeps the next one out.
+    const eve = localIdentity(generateSecretKey())
+    const eveJoining = RoomAgent.join({ link: keeper.url, name: 'Eve', identity: eve, transport: transportFor(relay), announceJitterMs: 0 }).catch(() => undefined)
+    let eveAsked: string | undefined
+    for (let i = 0; i < 200 && !eveAsked; i++) {
+      const found = ada.channel(CONTROL_CHANNEL).messages().map((m) => decodeControl(m.text)).find((c) => c?.op === 'approval-request' && c.text.includes(eve.pubkey.slice(0, 8)))
+      if (found?.op === 'approval-request') eveAsked = found.id
+      else await new Promise((r) => setTimeout(r, 25))
+    }
+    expect(eveAsked).toBeDefined()
+    await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'approval', id: eveAsked!, verdict: 'decline' }))
+    await new Promise((r) => setTimeout(r, 300))
+    expect(keeper.session.knows(eve.pubkey)).toBe(false)
+    void eveJoining.then((agent) => agent?.leave())
+    joined.leave()
+    carol.leave()
+    ada.leave()
+    keeper.leave()
+  }, 30_000)
+
+  it('a restarted keeper still knows the members it saw before, and writes them into its next rekey (#207)', async () => {
+    const relay = new SimRelay({ replay: true })
+    let state: KeeperState | undefined
+    const first = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, onState: (s) => void (state = s) })
+    const ann = await RoomAgent.join({ link: first.url, name: 'Ann', transport: transportFor(relay), announceJitterMs: 0 })
+    const bob = await RoomAgent.join({ link: first.url, name: 'Bob', transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+    // Ann has been and gone before the restart; only the state remembers her.
+    await ann.leave()
+    await first.leave()
+    expect(state?.members).toContain(ann.participant)
+
+    const again = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, state })
+    await settle()
+    expect(again.session.knows(ann.participant)).toBe(true)
+    await again.remove(bob.participant)
+    await settle()
+    const rekey = relay.published.filter((e) => e.kind === KINDS.ROOM_REKEY).at(-1)!
+    const evidence = readRekeyEvidence(rekey, { roomId: again.roomId, authority: again.link.invitation!.inviter, previous: deriveEpoch({ epoch: 0, secret: state!.secret }) })
+    expect(evidence?.members).toContain(ann.participant)
+    expect(evidence?.members).not.toContain(bob.participant)
+    bob.leave()
     again.leave()
   })
 

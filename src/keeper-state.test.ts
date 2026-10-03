@@ -63,6 +63,14 @@ describe('keeper state', () => {
     expect(() => parseKeeperState(JSON.stringify({ v: 2, secret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer), nudge: ['x'] }))).toThrow(/nudge/)
   })
 
+  it('carries who the room knows, written only when anybody is (#207)', () => {
+    expect(JSON.parse(serialiseKeeperState({ secret, inviterSk, bearer })).members).toBeUndefined()
+    const json = serialiseKeeperState({ secret, inviterSk, bearer, members: ['CD'.repeat(32), 'ab'.repeat(32), 'ab'.repeat(32)] })
+    expect(JSON.parse(json).members).toEqual(['ab'.repeat(32), 'cd'.repeat(32)])
+    expect(parseKeeperState(json).members).toEqual(['ab'.repeat(32), 'cd'.repeat(32)])
+    expect(() => parseKeeperState(JSON.stringify({ v: 2, secret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer), members: ['x'] }))).toThrow(/members/)
+  })
+
   it('refuses what it cannot read rather than guessing', () => {
     expect(() => parseKeeperState('{"v":3}')).toThrow(/version/)
     expect(() => parseKeeperState(JSON.stringify({ v: 1, secret: 'short', inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer) }))).toThrow(/secret/)
