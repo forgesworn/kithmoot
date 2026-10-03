@@ -986,6 +986,18 @@ export class RoomSession {
     return this.#removed
   }
 
+  /**
+   * When the authority rekeyed the room into `epoch`, in unix seconds: the
+   * signed `created_at` of the rekey this session heard or published, or
+   * undefined when it holds none for that epoch (it was admitted later, or
+   * the epoch is too far back to keep). What a reader uses to discount
+   * anything stamped after the room had left the epoch before it; see
+   * `room-name.ts`.
+   */
+  rekeyedAt(epoch: number): number | undefined {
+    return this.#rekeyEvents.get(epoch)?.created_at
+  }
+
   /** True once the room's authority closed it. */
   get closed(): boolean {
     return this.#closed
