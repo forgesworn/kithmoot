@@ -79,12 +79,13 @@ import { encodeControl, decodeControl } from '../dist/src/control.js'
 import { resolveConversation, mentionsOf, mentionedBy } from '../dist/src/messages.js'
 import { decodeReadPositions, readPositionId, readPositionPlaintext, localSelfCrypt, mergeReadPositions, READ_POSITION_KIND, READ_POSITION_LABEL } from '../dist/src/read-position.js'
 import { openInvite, localPeerCrypt, dmPolicy } from '../dist/src/dm.js'
+import { renameRoomOp, carryRoomNameOp, roomNameFromMessage, compareRoomNames, RoomNameBook } from '../dist/src/room-name.js'
 import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCallBellEvent, CALL_BELL_TTL_SECONDS } from '../dist/src/call-bell.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomName: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -2983,6 +2984,151 @@ for (const [name, roomKey, a, b, note] of [
     input: { roomId: room.roomId, version, relays: canonical, sig, authority: fx.PARTICIPANT_A },
     output: { result: verifyRoomRelays({ roomId: room.roomId, version, relays: canonical, sig, authority: fx.PARTICIPANT_A }) },
   })
+}
+
+
+// ===========================================================================
+// Room name: any member renaming the room for everybody
+// ===========================================================================
+//
+// A `name` op in the text of a chat message on the room's `control` channel,
+// under the current epoch: the relay sees a kind-1460 event like every other
+// control message. Each event vector carries everything needed to decode it
+// (`input.decode`: room id and key, the channel, the epoch root when there is
+// one, the reader's clock) and records three outputs: what `decodeChatEvent`
+// returns, what `decodeControl` makes of its text, and the rename record
+// `roomNameFromMessage` reads from it (null when there is none). Signed and
+// encrypted by hand with recorded randomness, then run through the real
+// decoders, like every other chat vector here.
+{
+  const CONTROL = 'control'
+  const room = ROOM_1
+  const control = deriveChannel(room.roomId, room.roomKey, CONTROL)
+  const epoch1 = deriveEpoch({ epoch: 1, secret: fx.EPOCH_SECRET_1 })
+  const control1 = deriveChannel(epoch1.id, epoch1.key, CONTROL)
+  const credentialA = buildCredential({ participantSk: fx.PARTICIPANT_A_SK, devicePubkey: fx.DEVICE_A, roomId: room.roomId, createdAt: fx.CREDENTIAL_CREATED_AT, expiresAt: fx.CREDENTIAL_EXPIRES_AT, auxRandLabel: 'room-name-credential-a' })
+  const credentialB = buildCredential({ participantSk: fx.PARTICIPANT_B_SK, devicePubkey: fx.DEVICE_B, roomId: room.roomId, createdAt: fx.CREDENTIAL_CREATED_AT, expiresAt: fx.CREDENTIAL_EXPIRES_AT, auxRandLabel: 'room-name-credential-b' })
+  const T = fx.MESSAGE_CREATED_AT + 400
+  const AT = T * 1000 + 250
+  const ID_1 = '0123456789abcdef0123456789abcdef'
+  const ID_2 = 'fedcba9876543210fedcba9876543210'
+
+  const decodeArgs = (epoch) => ({
+    roomId: room.roomId,
+    roomKeyHex: bytesToHex(room.roomKey),
+    channel: CONTROL,
+    ...(epoch ? { epoch: { epoch: epoch.epoch, id: epoch.id, keyHex: bytesToHex(epoch.key) } } : {}),
+    now: fx.NOW,
+  })
+  const decodeOpts = (epoch) => ({ roomId: room.roomId, roomKey: room.roomKey, channel: CONTROL, now: fx.NOW, ...(epoch ? { epoch: { id: epoch.id, key: epoch.key } } : {}) })
+
+  /** One message on the control channel, signed by `deviceSk`. */
+  function build({ message, label, deviceSk, epoch }) {
+    const channel = epoch ? control1 : control
+    const nonce = seed32(`${label}-nonce`)
+    const auxRand = seed32(`${label}-auxrand`)
+    const content = nip44.v2.encrypt(JSON.stringify(message), channel.key, nonce)
+    const event = finalizeDeterministic({ kind: KINDS.CHAT, created_at: message.sentAt, tags: [['d', channel.id]], content }, deviceSk, auxRand)
+    return { event, nonceHex: bytesToHex(nonce), auxRandHex: bytesToHex(auxRand) }
+  }
+  const fromA = (id, text, extra = {}) => ({ id, participant: fx.PARTICIPANT_A, device: fx.DEVICE_A, credential: credentialA.event, text, sentAt: T, sentAtMs: AT, ...extra })
+  const fromB = (id, text, extra = {}) => ({ id, participant: fx.PARTICIPANT_B, device: fx.DEVICE_B, credential: credentialB.event, text, sentAt: T, ...extra })
+
+  function eventVector(name, kind, note, { message, label, deviceSk, epoch, decodeEpoch = epoch }) {
+    const built = build({ message, label, deviceSk, epoch })
+    const decoded = decodeChatEvent(built.event, decodeOpts(decodeEpoch))
+    vectors.roomName.push({
+      name,
+      kind,
+      note,
+      input: { message, event: built.event, nonceHex: built.nonceHex, auxRandHex: built.auxRandHex, decode: decodeArgs(decodeEpoch) },
+      output: {
+        channelId: (decodeEpoch ? control1 : control).id,
+        message: decoded,
+        op: decoded ? decodeControl(decoded.text) : null,
+        record: decoded ? roomNameFromMessage(decoded) : null,
+      },
+    })
+  }
+
+  const rename = renameRoomOp('Book club', AT, ID_1)
+  eventVector('rename', 'positive',
+    'Alice renames the room "Book club". The op is the JSON text of an ordinary chat message on the `control` channel (`d` = deriveChannel(roomId, roomKey, "control").id, NIP-44 under that channel key, signed by her device, her credential inside), so a relay learns what it learns of any control message and the name is padded like any chat text. `id` is 16 random bytes in lower-case hex and `at` is unix milliseconds, together the rename\'s order key. The record names Alice as `by` because the op is not `carried` and her credential binds the signing device to her.',
+    { message: fromA('rename-msg-1', encodeControl(rename)), label: 'room-name-rename', deviceSk: fx.DEVICE_A_SK })
+
+  eventVector('rename-in-epoch-1', 'positive',
+    'The same rename after the room has been rekeyed to epoch 1: the control channel derives from the epoch\'s id and key (deriveChannel(epochId, epochKey, "control")), so only members holding epoch 1 can find or read it. The credential is still checked against the room id, which does not move.',
+    { message: fromA('rename-msg-2', encodeControl(rename)), label: 'room-name-epoch-1', deviceSk: fx.DEVICE_A_SK, epoch: epoch1 })
+
+  eventVector('rename-wrong-epoch', 'negative',
+    'The epoch-1 rename read with epoch 0\'s control channel: another `d`, another key, so it does not decode. A member removed at the rekey to epoch 1 holds only epoch 0 and cannot read any name set after their removal.',
+    { message: fromA('rename-msg-2', encodeControl(rename)), label: 'room-name-epoch-1', deviceSk: fx.DEVICE_A_SK, epoch: epoch1, decodeEpoch: null })
+
+  eventVector('carried-copy', 'positive',
+    'Bob posts Alice\'s rename again (into a new epoch, or before its last copy leaves the 30-day window). `carried: true`, and `id`, `at` and `name` copied unchanged, so the copy orders exactly where the original does and never outranks a later rename. The record has no `by`: Bob only repeated it and cannot say whose it was, so a reader shows no "renamed the room" line for it.',
+    { message: fromB('rename-msg-3', encodeControl(carryRoomNameOp(rename))), label: 'room-name-carried', deviceSk: fx.DEVICE_B_SK })
+
+  const hostile = 'Book‮ club\n​night'
+  eventVector('hostile-name-sanitised', 'positive',
+    'A name carrying a right-to-left override, a newline and a zero-width space, as a hostile client might write it. The reader sanitises it exactly as a display name or a link\'s `n` (sanitiseDisplayName: whitespace runs to one space, Unicode "other" characters removed, trimmed) and keeps "Book club night".',
+    { message: fromB('rename-msg-4', JSON.stringify({ op: 'name', name: hostile, id: ID_2, at: T * 1000 })), label: 'room-name-hostile', deviceSk: fx.DEVICE_B_SK })
+
+  eventVector('empty-name-refused', 'negative',
+    'A name that sanitises to nothing (spaces and a zero-width space). The message decodes - it is a chat message on the control channel - but it is not a rename: `op` and `record` are null.',
+    { message: fromB('rename-msg-5', JSON.stringify({ op: 'name', name: ' ​ ', id: ID_2, at: T * 1000 })), label: 'room-name-empty', deviceSk: fx.DEVICE_B_SK })
+
+  eventVector('over-length-name-refused', 'negative',
+    'A name of 33 characters, one over MAX_DISPLAY_NAME_LENGTH (32, counted in code points before sanitising). Refused rather than cut: an honest client cuts while the person can see it, and a reader that trimmed would let two clients show different names.',
+    { message: fromB('rename-msg-6', JSON.stringify({ op: 'name', name: 'x'.repeat(33), id: ID_2, at: T * 1000 })), label: 'room-name-long', deviceSk: fx.DEVICE_B_SK })
+
+  eventVector('stamped-after-its-message-refused', 'negative',
+    'A rename whose `at` falls in a second after its message\'s `sentAt`. Refused by roomNameFromMessage (floor(at / 1000) must not exceed sentAt), so a member cannot date a rename into the future to pin it above every later one. `op` decodes; `record` is null.',
+    { message: fromB('rename-msg-7', JSON.stringify({ op: 'name', name: 'Pinned', id: ID_2, at: (T + 60) * 1000 })), label: 'room-name-future', deviceSk: fx.DEVICE_B_SK })
+
+  eventVector('bad-id-refused', 'negative',
+    'An `id` in upper case. The id is exactly 32 lower-case hex characters, so two implementations compare ids as the same strings.',
+    { message: fromB('rename-msg-8', JSON.stringify({ op: 'name', name: 'Room', id: ID_2.toUpperCase(), at: T * 1000 })), label: 'room-name-bad-id', deviceSk: fx.DEVICE_B_SK })
+
+  eventVector('carried-false-refused', 'negative',
+    '`carried` is either absent or the JSON value true; anything else is refused.',
+    { message: fromB('rename-msg-9', JSON.stringify({ op: 'name', name: 'Room', id: ID_2, at: T * 1000, carried: false })), label: 'room-name-carried-false', deviceSk: fx.DEVICE_B_SK })
+
+  eventVector('forged-participant-refused', 'negative',
+    'Bob\'s device signs a rename that claims to come from Alice\'s device, with Alice\'s credential. The device that signed is not the device the message and credential name, so decodeChatEvent refuses the whole message: nobody renames the room in somebody else\'s name.',
+    { message: fromA('rename-msg-10', encodeControl(renameRoomOp('Forged', T * 1000, ID_2))), label: 'room-name-forged', deviceSk: fx.DEVICE_B_SK })
+
+  // --- Order -----------------------------------------------------------------
+  const orderVector = (name, note, records) => {
+    const sorted = [...records].sort(compareRoomNames)
+    vectors.roomName.push({ name, kind: 'positive', note, input: { records }, output: { order: sorted.map((r) => r.name), winner: sorted.at(-1).name } })
+  }
+  orderVector('newest-wins', 'Order is the message order: `at` (milliseconds), then `id`, then the name, each compared as plain values (ids and names by UTF-16 code unit, as JavaScript `<` does). The last is the room\'s name. Here the later `at` wins although its id is smaller.',
+    [{ name: 'Later', id: ID_1, at: AT + 1 }, { name: 'Earlier', id: ID_2, at: AT }])
+  orderVector('tie-breaks-on-id', 'Two renames in the same millisecond: the greater id wins, whatever arrived last.',
+    [{ name: 'Greater id', id: ID_2, at: AT }, { name: 'Smaller id', id: ID_1, at: AT }])
+  orderVector('tie-breaks-on-name', 'The same `at` and `id` with different names (only a misbehaving client sends that): the greater name wins, so every device still settles on one.',
+    [{ name: 'Beta', id: ID_1, at: AT }, { name: 'Alpha', id: ID_1, at: AT }])
+
+  // --- Epochs ------------------------------------------------------------------
+  {
+    const rekeyedAt = { 1: T + 100 }
+    const entries = [
+      { record: { name: 'Before the rekey', id: ID_1, at: AT, sentAt: T, by: fx.PARTICIPANT_A }, epoch: 0 },
+      { record: { name: 'After removal', id: ID_2, at: (T + 401) * 1000, sentAt: T + 401, by: fx.PARTICIPANT_B }, epoch: 0 },
+    ]
+    const book = new RoomNameBook()
+    for (const e of entries) book.add(e.record, e.epoch)
+    vectors.roomName.push({
+      name: 'left-epoch-cut',
+      kind: 'positive',
+      note: 'Renames read under epoch 0 by a device now in epoch 1, whose rekey into epoch 1 was signed at `rekeyedAt[1]` (the rekey event\'s created_at, unix seconds). A rename read under an epoch the room has left counts only if `at` <= (rekeyedAt[that epoch + 1] + 300) * 1000; after that the only writers under the old key are the members it removed. In epoch 0 the later rename wins; once in epoch 1 it is discounted.',
+      input: { entries, rekeyedAt, graceSeconds: 300 },
+      output: {
+        inEpoch0: book.current(0)?.name ?? null,
+        inEpoch1: book.current(1, { rekeyedAt: (e) => rekeyedAt[e] })?.name ?? null,
+      },
+    })
+  }
 }
 
 // ===========================================================================

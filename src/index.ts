@@ -63,6 +63,7 @@ export type {
   MemberEpochSource,
 } from './member-epoch.js'
 export { signRoomRelays, verifyRoomRelays, canonicalRoomRelays, invitationRelaysFrom, withRoomRelays, MAX_ROOM_RELAYS, type SignRoomRelaysOptions, type VerifyRoomRelaysOptions } from './room-relays.js'
+export { renameRoomOp, carryRoomNameOp, roomNameFromMessage, compareRoomNames, followRoomName, RoomNameBook, ROOM_NAME_REPOST_SECONDS, ROOM_NAME_REKEY_GRACE_SECONDS, type RoomNameOp, type RoomNameRecord, type RoomNameEpochs, type RoomNameSession, type FollowRoomNameOptions, type RoomNameFollower } from './room-name.js'
 export type {
   RoomEpoch,
   EpochKeys,

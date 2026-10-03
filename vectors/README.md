@@ -136,6 +136,7 @@ directly, with no reimplementation involved.
 | `chatInvite` | a DM room's link sealed to one member, opened by the pair and nobody else; a two-member policy | `src/dm.ts`, `src/access.ts` |
 | `readPosition` | a participant's read positions per room: the derived `d` tag, the record, its refusals, and the merge | `src/read-position.ts` |
 | `callBell` | the kind-1464 bell a closed phone waits for: the daily `d` tag, a start and an end, and the six ways a reader refuses one | `src/call-bell.ts` |
+| `roomName` | a member renaming the room for everybody: a `name` op on the `control` channel under epoch 0 and epoch 1, a carried copy, a hostile name sanitised, six refusals, the order (newest `at`, then `id`, then name), and the cut for renames read under an epoch the room has left | `src/room-name.ts`, `src/control.ts` |
 
 **A note on scope:** the brief for stage 1 described the join URL as
 carrying "secret + relays + ICE list". The join URL does not carry an ICE

@@ -2,6 +2,7 @@ import { MAX_CHAT_TEXT_LENGTH } from './chat.js'
 import { canonicalChannels } from './epoch.js'
 import { MAX_ROOM_RELAYS } from './room-relays.js'
 import { validateAssignmentActions, type AssignmentAction } from './assignments.js'
+import { MAX_DISPLAY_NAME_LENGTH, sanitiseDisplayName } from './display-name.js'
 
 /**
  * The channel a room's agent hosts and its people use to ask for agents.
@@ -131,6 +132,17 @@ export type ControlMessage =
    *  name. See `Nudger` in src/node/nudge.ts. */
   | { op: 'nudge'; on: boolean }
   /**
+   * Any member: the room is now called `name`, for everybody. A label, not
+   * structure, so it needs no authority's signature: the sender is the chat
+   * message's credential-bound participant, like `nudge`. `id` and `at`
+   * (unix milliseconds) are the rename's own order key, chosen by whoever
+   * renamed; a member carrying the current name into a new epoch, or back
+   * inside the retention window, copies them unchanged and sets `carried`,
+   * so a copy never outranks a later rename. See `room-name.ts` and
+   * `docs/room-name.md`.
+   */
+  | { op: 'name'; name: string; id: string; at: number; carried?: true }
+  /**
    * An agent asking a person for a decision, where everybody can see it
    * asked. `options` are the verdicts it will take, `approve`/`decline`
    * when absent; `expiresAt` is unix seconds after which it stops waiting.
@@ -146,6 +158,8 @@ export type ControlMessage =
   | { op: 'approval'; id: string; verdict: string; note?: string }
 
 const HEX64 = /^[0-9a-f]{64}$/
+/** A rename's id: 16 random bytes in lower-case hex, as a message id is. */
+const ROOM_NAME_ID = /^[0-9a-f]{32}$/
 const ID = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const MAX_AGENTS = 12
 const MAX_ADMINS = 32
@@ -356,6 +370,19 @@ export function decodeControl(text: string): ControlMessage | null {
     case 'nudge':
       if (typeof m.on !== 'boolean') return null
       return { op: 'nudge', on: m.on }
+    case 'name': {
+      // Refused rather than cut: a name over the cap is not one an honest
+      // client writes, and a limit that silently drops the tail is a limit
+      // somebody aims at. What is left is sanitised exactly as a display
+      // name or a link's `n` is, and nothing left means no rename.
+      if (typeof m.name !== 'string' || [...m.name].length > MAX_DISPLAY_NAME_LENGTH) return null
+      const name = sanitiseDisplayName(m.name)
+      if (name === undefined) return null
+      if (typeof m.id !== 'string' || !ROOM_NAME_ID.test(m.id)) return null
+      if (!Number.isSafeInteger(m.at) || (m.at as number) <= 0) return null
+      if (m.carried !== undefined && m.carried !== true) return null
+      return m.carried ? { op: 'name', name, id: m.id, at: m.at as number, carried: true } : { op: 'name', name, id: m.id, at: m.at as number }
+    }
     default:
       return null
   }

@@ -288,6 +288,16 @@ reference names its signalling relay and public key; unrecognised properties do
 not create capabilities. The old descriptor and first-offer shapes stay valid
 without a ticket or policy event.
 
+The room's name is shared room state with no kind of its own: any member
+renames the room with a `name` op on the encrypted control channel,
+`{"op":"name","name":"…","id":"<32 hex>","at":<unix ms>}`, plus
+`"carried":true` on a copy a member posts again. The newest by `at`, then
+`id`, then name wins; `floor(at/1000)` may not exceed the carrying message's
+`sentAt`; a name over 32 code points is refused, and the rest is sanitised as
+a display name. Members carry the current name into each new epoch and back
+inside the retention window. See [the room name](room-name.md) and the
+`roomName` vectors.
+
 Rekeys and the encrypted control channel are authority-bound. A room advances
 one verified epoch at a time; a removed device can read the removal notice but
 cannot recover a next-epoch secret addressed only to remaining devices. The
