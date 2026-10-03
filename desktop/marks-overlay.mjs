@@ -30,8 +30,10 @@ export class MarksOverlay {
     if (process.platform === 'darwin') window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     // Where the OS honours it the marks stay out of the share, which already
     // carries them to everyone else. Where it does not, they are painted twice
-    // in the same place, which is harmless.
-    window.setContentProtection(true)
+    // in the same place, which is harmless. Not on Windows: before Windows 10
+    // 2004 a protected window is captured as black instead of left out, and
+    // this one covers the whole shared display.
+    if (process.platform !== 'win32') window.setContentProtection(true)
     window.on('closed', () => { if (this.window === window) this.window = undefined; this.#listen(false) })
     if (!this.#place()) return
     this.#listen(true)
