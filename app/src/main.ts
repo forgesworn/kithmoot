@@ -10541,6 +10541,19 @@ function renderRooms(): void {
   const focused = document.activeElement as HTMLElement | null
   const focusedRoom = focused && list.contains(focused) ? focused.closest<HTMLElement>('[data-room]')?.dataset.room : undefined
   const action = focused?.dataset.action
+  // A row's menu lives inside the row, so redrawing the rows takes an open
+  // menu away from under the person about to choose from it: a preview
+  // arriving was enough. Held until the menu closes, then drawn.
+  const openMenu = Array.from(list.querySelectorAll<HTMLElement>('.rowMenuPopover')).find(menu => {
+    try { return menu.matches(':popover-open') } catch { return false }
+  })
+  if (openMenu) {
+    if (!openMenu.dataset.redraw) {
+      openMenu.dataset.redraw = 'pending'
+      openMenu.addEventListener('toggle', () => renderRooms(), { once: true })
+    }
+    return
+  }
   list.innerHTML = ''
   for (const room of filtered) list.append(roomRow(room))
   if (focusedRoom && action) {
