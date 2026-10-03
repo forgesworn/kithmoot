@@ -1815,6 +1815,13 @@ dialogue already says so. Left epochs are held in memory, rebuilt on
 opening from the rekeys the device has kept, and not written down on their
 own.
 
+The Android client followed the same day (kithmoot-android #126): it reads
+up to four left epochs, refuses a removed member's late message on them,
+reads the epochs a member's answer carried it past, and shows gaps and
+conflicts in the web client's words. It keeps left epochs only for as long
+as the room is open, not from one opening to the next, and a quiet room's
+dead drops are still opened only under the current epoch's key.
+
 ## Signet channel checks, a draft, 19 September 2026
 
 The browser's word check now uses the contacts SDK's authenticated-channel
