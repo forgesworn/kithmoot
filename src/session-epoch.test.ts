@@ -192,6 +192,13 @@ describe('room epochs', () => {
     await settle()
     await keeper.rekey({ authoritySk, removed: [bobIdentity.pubkey] })
     await settle()
+    // Carol and Dave come in on the link after the removal: whoever lets
+    // them in makes them known, and the desk then hands them the epoch
+    // (#207). Somebody the room never let in is the next test's business.
+    const carolIdentity = localIdentity(generateSecretKey())
+    const daveIdentity = localIdentity(generateSecretKey())
+    keeper.letIn(carolIdentity.pubkey)
+    keeper.letIn(daveIdentity.pubkey)
     const desk = hostRoomEpoch({
       transport: new SimTransport(relay),
       roomId: keeper.roomId,
@@ -199,6 +206,7 @@ describe('room epochs', () => {
       roomKey: deriveRoom(SECRET).roomKey,
       current: () => keeper.currentEpoch(),
       removed: () => keeper.removed,
+      known: (p) => keeper.knows(p),
       now,
     })
 
@@ -206,7 +214,7 @@ describe('room epochs', () => {
     // pubkey: told nothing about the epoch, she reads the replayed rekey,
     // cannot open it, asks, and lands in epoch 1.
     const caughtUp: RekeyNotice[] = []
-    const carol = member(relay, 'Carol', authority, { onEpoch: notice => caughtUp.push(notice) })
+    const carol = member(relay, 'Carol', authority, { identity: carolIdentity, onEpoch: notice => caughtUp.push(notice) })
     await carol.join([], {})
     await settle()
     expect(carol.epoch).toBe(1)
@@ -222,7 +230,7 @@ describe('room epochs', () => {
 
     // Dave was told by his responder that the room is at epoch 1, and asks
     // without waiting for anything.
-    const dave = member(relay, 'Dave', authority, { expectedEpoch: 1, epochSettleMs: 10_000 })
+    const dave = member(relay, 'Dave', authority, { identity: daveIdentity, expectedEpoch: 1, epochSettleMs: 10_000 })
     await dave.join([], {})
     await settle()
     expect(dave.epoch).toBe(1)

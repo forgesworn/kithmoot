@@ -422,12 +422,22 @@ export class RoomAgent {
     let authority: { inviterSk: Uint8Array; delegation: InvitationDelegation[] } | undefined
     let expectedEpoch: number | undefined
     let endsAt: number | undefined
+    // Settled before asking, so the request can say who is asking: the host
+    // that lets this agent in then knows it, and hands it the room's key even
+    // after a removal (#207). A room-scoped identity is known only once the
+    // room is, so that request goes unnamed and a member is asked instead.
+    const identity = opts.identityForRoom ? undefined : (opts.identity ?? localIdentity(generateSecretKey()))
     if (link.invitation) {
       const transport = makeTransport(agentRelayPool(room, own))
       try {
         const admission = link.invitation.persistent
           ? await requestPersistentRoomAdmission({ transport, invitation: link.invitation })
-          : await requestRoomAdmissionCapability({ transport, invitation: link.invitation, now })
+          : await requestRoomAdmissionCapability({
+            transport,
+            invitation: link.invitation,
+            now,
+            ...(identity ? { participant: identity.pubkey } : {}),
+          })
         secret = admission.secret
         if ('endsAt' in admission && admission.endsAt !== undefined) {
           if (now() >= admission.endsAt) throw new Error(CONFERENCE_ENDED_MESSAGE)
@@ -446,7 +456,7 @@ export class RoomAgent {
 
     return RoomAgent.#start({
       ...opts,
-      identity: opts.identityForRoom?.(deriveRoom(secret).roomId) ?? opts.identity,
+      identity: opts.identityForRoom?.(deriveRoom(secret).roomId) ?? identity,
       deviceSk: opts.deviceKeyForRoom?.(deriveRoom(secret).roomId) ?? opts.deviceSk,
       link,
       url: opts.link,
@@ -612,6 +622,12 @@ export class RoomAgent {
           roomSecret: opts.secret,
           now: opts.now,
           epoch: () => session.epoch,
+          // Whoever this keeper's link admits is somebody the room knows,
+          // so its epoch desk answers them after a removal too (#207).
+          admit: (request) => {
+            if (request.participant) session.letIn(request.participant)
+            return true
+          },
           onRetired: () => {
             if (agent) agent.#stopHosting()
           },
@@ -619,6 +635,7 @@ export class RoomAgent {
         agent.#hostTransport = hostTransport
         agent.#pools.push(hostTransport)
         if (opts.keeper) {
+          const admins = new Set(agent.admins.map((a) => a.toLowerCase()))
           agent.#epochDesk = hostRoomEpoch({
             transport: hostTransport,
             roomId: session.roomId,
@@ -626,6 +643,12 @@ export class RoomAgent {
             roomKey: deriveRoom(opts.secret).roomKey,
             current: () => session.currentEpoch(),
             removed: () => session.removed,
+            // Once the room has removed somebody, its key goes only to people
+            // it knows (#207): the member list, the roster, whoever this
+            // keeper's link let in, and the room's admins, who may come from
+            // a release that predates the admission proof.
+            known: (participant) => session.knows(participant) || admins.has(participant.toLowerCase()),
+            members: () => session.memberList(),
             closed: () => session.closed,
             policy: opts.link.policy,
             legacyParticipants: new Set(agent.admins),

@@ -211,6 +211,7 @@ describe('epoch requests and grants', () => {
       roomKey,
       current: () => epoch,
       removed: () => new Set([removedIdentity.pubkey]),
+      known: (p) => p === identity.pubkey,
       now,
     })
     const granted = await requestRoomEpoch({

@@ -160,6 +160,7 @@ export type {
   SecondaryRoomSessionOptions,
   EpochGap,
   EpochConflict,
+  EpochWaitReason,
 } from './session.js'
 export {
   createPairingCode,

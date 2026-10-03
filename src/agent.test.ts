@@ -310,11 +310,15 @@ describe('RoomAgent', () => {
     expect(carol.chat.messages().map((m) => m.text)).toEqual(['just us now'])
     expect(bob.chat.messages()).toEqual([])
 
-    // Removal is by participant, and the link is still open: somebody
-    // arriving under a key the room has never seen is admitted to epoch 1,
-    // which is what an open weekly room wants and is stated in the docs.
+    // The link is still open, but once the room has removed somebody, a key
+    // it has never seen is not handed the room on the link alone: that is
+    // exactly what a removed person under a new key looks like (#207).
+    // Somebody in the room lets them in, and then they are.
     bob.leave()
-    const dave = await RoomAgent.join({ link: keeper.url, name: 'Dave', transport: transportFor(relay), announceJitterMs: 0 })
+    const daveIdentity = localIdentity(generateSecretKey())
+    expect(carol.session.knows(daveIdentity.pubkey)).toBe(false)
+    carol.session.letIn(daveIdentity.pubkey)
+    const dave = await RoomAgent.join({ link: keeper.url, name: 'Dave', identity: daveIdentity, transport: transportFor(relay), announceJitterMs: 0 })
     expect(dave.session.epoch).toBe(1)
     dave.leave()
     keeper.leave()
@@ -361,7 +365,11 @@ describe('RoomAgent', () => {
     await expect(
       RoomAgent.join({ link: again.url, name: 'Bob', identity: bobIdentity, transport: transportFor(relay), announceJitterMs: 0 }),
     ).rejects.toThrow(/removed/)
-    const eve = await RoomAgent.join({ link: again.url, name: 'Eve', transport: transportFor(relay), announceJitterMs: 0 })
+    // A newcomer after the removal is let in by somebody in the room; here,
+    // the keeper itself, as an admin's request would have it (#207).
+    const eveIdentity = localIdentity(generateSecretKey())
+    again.session.letIn(eveIdentity.pubkey)
+    const eve = await RoomAgent.join({ link: again.url, name: 'Eve', identity: eveIdentity, transport: transportFor(relay), announceJitterMs: 0 })
     expect(eve.session.epoch).toBe(1)
     eve.leave()
     again.leave()

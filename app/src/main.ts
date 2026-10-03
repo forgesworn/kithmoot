@@ -41,7 +41,7 @@ import { FloatingSharePreview, floatingPreviewSupported } from './floating-share
 import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
-import { EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS } from '../../src/session.js'
+import { EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS, type EpochWaitReason } from '../../src/session.js'
 import { ANDROID_DOWNLOAD_URL, appLinkFor, isAndroidUserAgent } from './open-in-app.js'
 import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
@@ -1616,6 +1616,17 @@ function askToLetIn(request: InvitationRequest): Promise<boolean> {
   })
 }
 
+/** Somebody the room does not know asked this device for the room's key
+ *  after a removal (#207): a newcomer on a group link, or a removed person
+ *  back under a new key. Asked like a knock; a yes lets them in from here. */
+function askAboutUnknown(asking: RoomSession, asker: { participant: string; device: string }): void {
+  const request = `known:${asker.participant}`
+  if (asking !== session || knocks.has(request)) return
+  void askToLetIn({ request, device: asker.device, participant: asker.participant }).then((yes) => {
+    if (yes && session === asking) asking.letIn(asker.participant)
+  })
+}
+
 function answerKnock(knock: Knock, yes: boolean): void {
   if (knock.participant && contactIsBlocked(knock.participant)) yes = false
   if (!knocks.delete(knock.request)) return
@@ -1830,9 +1841,13 @@ function serveCurrentInvitation(): void {
       // joined; before that, what this browser was itself told, or 0 for a
       // room this browser made.
       epoch: () => session?.epoch ?? expectedEpoch ?? 0,
-      admit: request => {
+      admit: async request => {
         if (currentRoomId() !== admissionRoom || (request.participant && contactIsBlocked(request.participant))) return false
-        return knockOn(admissionRoom) ? askToLetIn(request) : true
+        const yes = knockOn(admissionRoom) ? await askToLetIn(request) : true
+        // Whoever this device lets in through the link, the room knows: its
+        // member desk hands them the key even after a removal (#207).
+        if (yes && request.participant) session?.letIn(request.participant)
+        return yes
       },
       // A delegated responder may receive recent requests replayed by a
       // lenient relay, including requests for people already admitted on a
@@ -6651,6 +6666,9 @@ function renderRoomLockState(): void {
 /** What the room says while it has moved to a key this device does not hold
  *  yet. The session keeps asking the authority and every current member. */
 const EPOCH_WAITING_NOTICE = 'This room has moved to a new key. Waiting for a member to bring this device up to date.'
+/** The room answered, and has not let this person in yet: it removed
+ *  somebody, so a newcomer waits for a member to say yes (#207). */
+const EPOCH_LET_IN_NOTICE = 'Waiting for somebody in this room to let you in.'
 /** How long a join that nobody could bring up to date waits before trying
  *  again. Each attempt already waited for an answer. */
 const EPOCH_JOIN_RETRY_MS = 5_000
@@ -6658,9 +6676,9 @@ const EPOCH_JOIN_RETRY_MS = 5_000
 /** Show, or clear, the notice that this device is behind the room's key.
  *  Until it clears, what it sends reaches nobody who moved on, so the room
  *  must not look current. */
-function renderEpochWaiting(waiting: boolean): void {
+function renderEpochWaiting(waiting: boolean, why: EpochWaitReason = 'unanswered'): void {
   const notice = $('epochNotice')
-  notice.textContent = waiting ? EPOCH_WAITING_NOTICE : ''
+  notice.textContent = waiting ? (why === 'unknown' ? EPOCH_LET_IN_NOTICE : EPOCH_WAITING_NOTICE) : ''
   notice.hidden = !waiting
 }
 
@@ -10107,7 +10125,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // A conference room: everything signed for it lapses at its end.
           endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
-          onEpochWaiting: waiting => { if (created && session === created) renderEpochWaiting(waiting) },
+          onEpochWaiting: (waiting, why) => { if (created && session === created) renderEpochWaiting(waiting, why) },
+          onUnknownAsking: asker => { if (created) askAboutUnknown(created, asker) },
           onEpochGap: () => { if (created) reportEpochTrouble(created) },
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
@@ -10164,7 +10183,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // A conference room: everything signed for it lapses at its end.
           endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
-          onEpochWaiting: waiting => { if (created && session === created) renderEpochWaiting(waiting) },
+          onEpochWaiting: (waiting, why) => { if (created && session === created) renderEpochWaiting(waiting, why) },
+          onUnknownAsking: asker => { if (created) askAboutUnknown(created, asker) },
           onEpochGap: () => { if (created) reportEpochTrouble(created) },
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
@@ -10419,7 +10439,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (err instanceof EpochUnreachableError) {
       retrying = true
       console.error('join waiting for the room key:', describeError(err))
-      setStatus(EPOCH_WAITING_NOTICE, 'progress')
+      setStatus(err.unknown ? EPOCH_LET_IN_NOTICE : EPOCH_WAITING_NOTICE, 'progress')
       await new Promise(resolve => setTimeout(resolve, EPOCH_JOIN_RETRY_MS))
       if (generation === roomGeneration) { await startSession(asVisitor, { deadline: Date.now() + 20_000, signerRetried: retry?.signerRetried }); return }
       return
