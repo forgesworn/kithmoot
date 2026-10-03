@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.45",
+  "currentRelease": "0.1.46",
   "releases": [
     {
-      "version": "0.1.45",
+      "version": "0.1.46",
       "updateTo": {
-        "version": "0.1.45",
-        "pub_date": "2026-10-03T15:00:00Z",
-        "notes": "Marks other people draw on your screen share now show over your actual screen when you share the whole screen, not only on KithMoot's own preview of it.",
-        "name": "0.1.45",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.45/KithMoot-0.1.45-mac-arm64.zip",
-        "sha256": "ac6a4598a2e0c147eb41f2adaad21b9c3ef829ac2f5c88c4241de0f3586eb9e7",
-        "size": 136437114
+        "version": "0.1.46",
+        "pub_date": "2026-10-03T19:30:00Z",
+        "notes": "When someone is removed from a room, they stay out. Anybody the room does not know who asks for its key after a removal, a removed person under a new key included, now waits until a member lets them in, and a member who was away while it happened comes straight back.",
+        "name": "0.1.46",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.46/KithMoot-0.1.46-mac-arm64.zip",
+        "sha256": "65927ebb7d4e0e01e5c9eddb77507fcfacd77c541ff23f2bd3de5fa29ffa159c",
+        "size": 136437574
       }
     }
   ]
