@@ -1,10 +1,11 @@
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
+import { ShareMarksOverlay } from './share-marks-overlay.js'
 import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
 import { ChannelChecks, CHECK_CHANNEL } from './channel-checks.js'
 import { showChannelCheckDialog } from './channel-check-dialog.js'
-import { coverCopy } from './redaction-geometry.js'
+import { coverCopy, effectiveSource } from './redaction-geometry.js'
 import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
@@ -329,9 +330,14 @@ const desktopShareArea = new DesktopShareArea({
   ended: () => screenTrack?.dispatchEvent(new Event('ended')),
   wholeDisplay: whole => { shareMayShowItself = whole; applySelfMirrorGuard() },
 })
+// Marks drawn on a whole-screen share, shown over the screen being shared:
+// that share's own preview is a blank tile (see `applySelfMirrorGuard`).
+const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
+  paint: (canvas, id) => shareViewer.areaOverlay(canvas, id),
+})
 const drawingNoticeGate = new DrawingNoticeGate()
 const emojiPicker = new EmojiPicker()
-window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop() })
+window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop(); shareMarksOverlay.close() })
 let drafts = new ConversationDrafts()
 // Only this tab holds draft text and file keys. Switching rooms retains the
 // originating collection; closing the tab still discards it.
@@ -3926,6 +3932,7 @@ async function joinCall(): Promise<void> {
  *  Shared by leaving a call and closing the room. */
 function stopLocalMedia(): void {
   desktopShareArea.stop()
+  shareMarksOverlay.close()
   desktopRedaction.closeAll()
   desktopRedaction.setHidden(false)
   micTrack?.removeEventListener('ended', onMicEnded)
@@ -4939,6 +4946,7 @@ async function toggleScreen(area = false): Promise<void> {
   if (screenStarting) return
   if (screenTrack) {
     desktopShareArea.stop()
+    shareMarksOverlay.close()
     screenTrack.stop()
     screenTrack = undefined
     shareMayShowItself = false
@@ -5015,6 +5023,7 @@ async function toggleScreen(area = false): Promise<void> {
       screenTrack.addEventListener('ended', () => {
         if (generation !== callGeneration) return
         desktopShareArea.stop()
+        shareMarksOverlay.close()
         screenTrack = undefined
         shareMayShowItself = false
         desktopRedaction.setHidden(false)
@@ -5040,6 +5049,16 @@ async function toggleScreen(area = false): Promise<void> {
       addLocalPreview('screen', screenTrack)
       clearShareError()
       publishActiveTracks()
+      // A whole screen: other people's marks go over the screen itself. The
+      // main process's record of what was captured has to agree with the
+      // track's own idea of it, as it does for redaction.
+      if (!area && shareMarksOverlay.supported) {
+        const shared = screenTrack
+        void desktopRedaction.refresh().then(state => {
+          if (screenTrack !== shared || effectiveSource(state.source, surface)?.kind !== 'screen') return
+          shareMarksOverlay.open(() => screenSource(meParticipant, myDeviceId)?.id ?? shared.id)
+        })
+      }
     } else {
       // No picture came back at all: nothing to show, so stop whatever the
       // browser did hand over rather than leak a live capture nobody sees.
@@ -5116,7 +5135,9 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
  * The marks overlay each of these carries (`shareMarkOverlays`,
  * `ShareViewer#overlay`) is untouched - it paints on a canvas of its own,
  * never a copy of the video's pixels - so drawing on a full-screen share
- * still shows up for the sharer, just without a live picture behind it.
+ * still shows up for the sharer, just without a live picture behind it. In
+ * the desktop app a whole-screen share's marks also go over the screen
+ * itself (`shareMarksOverlay`), which is where the sharer is looking.
  */
 function applySelfMirrorGuard(): void {
   const preview = localPreviewEls.get('screen')
@@ -6790,6 +6811,7 @@ function muteRequested(by: string): void {
   }
   if (screenTrack) {
     desktopShareArea.stop()
+    shareMarksOverlay.close()
     screenTrack.stop()
     screenTrack = undefined
     shareMayShowItself = false

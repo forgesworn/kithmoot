@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { BOX_BAR, BOX_EDGE, BOX_GRIP, BOX_MIN, DisplaySettle, SETTLE_MS, boxShape, captureOf, clampBox, insideHole, moveTo, onOneDisplay, placeBox, resizeFrom } from '../redaction-geometry.mjs'
+import { BOX_BAR, BOX_EDGE, BOX_GRIP, BOX_MIN, DisplaySettle, SETTLE_MS, boxShape, captureOf, clampBox, insideHole, moveTo, onOneDisplay, overlayBounds, placeBox, resizeFrom } from '../redaction-geometry.mjs'
 
 test('a moved box slides back wholly onto one display', () => {
   const left = { x: 0, y: 0, width: 1440, height: 900 }
@@ -112,4 +112,23 @@ test('a capture source maps to a display only when it cannot be another', () => 
   assert.equal(captureOf({ id: 'screen:9:0', display_id: '9' }, displays), null)
   assert.equal(captureOf({ id: 'web-contents-media-stream://1' }, displays), null)
   assert.equal(captureOf(undefined, displays), null)
+})
+
+test('marks on a whole-screen share cover the shared display, and nothing else is guessed at', () => {
+  const displays = [
+    { id: 1, bounds: { x: 0, y: 0, width: 1440, height: 900 } },
+    { id: 2, bounds: { x: 1440, y: -120, width: 2560, height: 1440 } },
+  ]
+  assert.deepEqual(overlayBounds({ kind: 'screen', displayId: '2' }, displays), { x: 1440, y: -120, width: 2560, height: 1440 })
+  // The whole display, menu bar and all, not its work area: the picture is all of it.
+  assert.deepEqual(overlayBounds({ kind: 'screen', displayId: '1' }, displays), { x: 0, y: 0, width: 1440, height: 900 })
+  // Another program's window cannot be followed, so no overlay.
+  assert.equal(overlayBounds({ kind: 'window' }, displays), undefined)
+  // Unknown source, or a display that has gone.
+  assert.equal(overlayBounds(null, displays), undefined)
+  assert.equal(overlayBounds({ kind: 'screen', displayId: '3' }, displays), undefined)
+  // A copy: moving the overlay never moves the display's own record.
+  const bounds = overlayBounds({ kind: 'screen', displayId: '1' }, displays)
+  bounds.x = 99
+  assert.equal(displays[0].bounds.x, 0)
 })
