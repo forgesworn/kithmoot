@@ -405,8 +405,11 @@ test('a room joined as the account opens again as that account while its signer 
       const sign = nostr.signEvent
       nostr.signEvent = (event: unknown) => { void (window as unknown as { testSignCounted(): void }).testSignCounted(); return sign(event) }
     })
+    // Through a blank page, so this is a full load: the page is already at
+    // the app after leaving, and a fragment-only goto is a same-document
+    // navigation that WebKit can fail on while Playwright waits for a load.
+    await page.goto('about:blank')
     await page.goto(link)
-    await page.reload()
     await expect(page.locator('#previousAccount')).toBeHidden()
     await page.locator('#join').click()
     await expect(page.locator('#roomArea')).toBeVisible()
