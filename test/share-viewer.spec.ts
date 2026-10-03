@@ -368,3 +368,100 @@ test('a drawer gets the same colour on every screen, two different drawers get t
     if (rowanOnSharerNow) expect(samOnSharer.color).not.toBe(rowanOnSharerNow.color)
   } finally { await a.close(); await b.close(); await c.close() }
 })
+
+test.describe('drawing on a screen share with a finger', () => {
+  const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }
+
+  /** A presenter on a desktop browser and a viewer on a phone-shaped touch
+   *  context, with the viewer's expanded share viewer open and Draw on. */
+  async function touchViewer(browser: Parameters<typeof newDeviceContext>[0], baseURL: string) {
+    const a = await newDeviceContext(browser, baseURL), b = await newDeviceContext(browser, baseURL, phone)
+    const presenter = await a.newPage(), viewer = await b.newPage()
+    const link = await createRoom(presenter, baseURL)
+    await open(presenter, link, 'Ada'); await presenter.locator('#join').click(); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(viewer, link, 'Rowan'); await viewer.locator('#join').click(); await expect(viewer.locator('#roomArea')).toBeVisible()
+    await openCall(presenter); await openCall(viewer)
+    await presenter.locator('#toggleScreen').click()
+    const expand = viewer.getByRole('button', { name: 'Expand screen share from Ada' })
+    await expect(expand).toBeVisible({ timeout: 60_000 }); await expand.tap()
+    const dialog = viewer.getByRole('dialog', { name: 'Screen-share viewer' })
+    await expect.poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+    const cdp = await b.newCDPSession(viewer)
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number; id: number }[]) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(p => ({ x: p.x, y: p.y, id: p.id })) })
+    return { a, b, presenter, viewer, dialog, touch }
+  }
+
+  test('a one-finger drag draws once Draw is on, says so while it is off, and reaches the sharer', async ({ browser, baseURL }) => {
+    const { a, b, presenter, dialog, touch } = await touchViewer(browser, baseURL!)
+    try {
+      // Off, the touch hint points at the button rather than leaving a drag to do nothing.
+      await expect(dialog.locator('.shareViewerNotice')).toContainText('Tap Draw to draw on the screen')
+      await dialog.getByRole('button', { name: 'Draw', exact: true }).tap()
+      await expect(dialog.locator('.shareViewport')).toHaveClass(/drawing/)
+      const stage = (await dialog.locator('.shareStage').boundingBox())!
+      const x0 = stage.x + stage.width * .2, y0 = stage.y + stage.height * .3
+      await touch('touchStart', [{ x: x0, y: y0, id: 0 }])
+      for (let i = 1; i <= 20; i++) {
+        await touch('touchMove', [{ x: x0 + i * 8, y: y0 + i * 3, id: 0 }])
+        await viewerPause(15)
+      }
+      await expect(dialog.locator('.shareAnnotations')).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/)
+      await touch('touchEnd', [])
+      await expect(presenter.locator('canvas.shareMarks')).toHaveAttribute('data-strokes', /^[1-9][0-9]*$/, { timeout: 10_000 })
+    } finally { await a.close(); await b.close() }
+  })
+
+  test('a touch that starts in the letterbox does not begin a stroke', async ({ browser, baseURL }) => {
+    const { a, b, presenter, dialog, touch } = await touchViewer(browser, baseURL!)
+    try {
+      await dialog.getByRole('button', { name: 'Draw', exact: true }).tap()
+      const stage = (await dialog.locator('.shareStage').boundingBox())!
+      const viewport = (await dialog.locator('.shareViewport').boundingBox())!
+      // Portrait: a wide picture is a band, so there is black above it.
+      expect(stage.y - viewport.y).toBeGreaterThan(40)
+      const x0 = stage.x + stage.width * .2, y0 = viewport.y + 10
+      await touch('touchStart', [{ x: x0, y: y0, id: 0 }])
+      // Dragging down onto the picture must not pick the stroke up part-way.
+      for (let i = 1; i <= 20; i++) {
+        await touch('touchMove', [{ x: x0 + i * 8, y: y0 + i * ((stage.y - y0 + stage.height / 2) / 20), id: 0 }])
+        await viewerPause(15)
+      }
+      await touch('touchEnd', [])
+      // Read once, not polled: marks fade after a couple of seconds, so a
+      // retrying assertion would pass on the fade rather than on the fix.
+      await viewerPause(500)
+      expect(await dialog.locator('.shareAnnotations').getAttribute('data-strokes')).toBe('0')
+      expect(await presenter.locator('canvas.shareMarks').getAttribute('data-strokes')).toBe('0')
+    } finally { await a.close(); await b.close() }
+  })
+
+  test('a second finger does not restart the stroke the first is drawing', async ({ browser, baseURL }) => {
+    const { a, b, dialog, touch } = await touchViewer(browser, baseURL!)
+    try {
+      await dialog.getByRole('button', { name: 'Draw', exact: true }).tap()
+      const stage = (await dialog.locator('.shareStage').boundingBox())!
+      const marks = dialog.locator('.shareAnnotations')
+      const count = async () => Number(await marks.getAttribute('data-strokes'))
+      const first = { x: stage.x + stage.width * .2, y: stage.y + stage.height * .3 }
+      const second = { x: stage.x + stage.width * .8, y: stage.y + stage.height * .7 }
+      await touch('touchStart', [{ ...first, id: 0 }])
+      await touch('touchMove', [{ x: first.x + 30, y: first.y + 10, id: 0 }])
+      await expect.poll(count).toBeGreaterThan(0)
+      await viewerPause(200)
+      const before = await count()
+      // The first finger rests; only the second moves. Had it taken over the
+      // stroke, its movement would publish new marks.
+      await touch('touchStart', [{ x: first.x + 30, y: first.y + 10, id: 0 }, { ...second, id: 1 }])
+      for (let i = 1; i <= 15; i++) {
+        await touch('touchMove', [{ x: first.x + 30, y: first.y + 10, id: 0 }, { x: second.x - i * 6, y: second.y - i * 4, id: 1 }])
+        await viewerPause(30)
+      }
+      expect(await count()).toBeLessThanOrEqual(before)
+      await touch('touchEnd', [{ x: first.x + 30, y: first.y + 10, id: 0 }])
+      await touch('touchEnd', [])
+    } finally { await a.close(); await b.close() }
+  })
+})
+
+const viewerPause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))

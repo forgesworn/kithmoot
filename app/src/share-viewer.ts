@@ -1,4 +1,5 @@
 import type { AnnotationPoint, ScreenAnnotation } from '../../src/signal.js'
+import { clampToPicture, mayBeginStroke } from './share-draw-input.js'
 import { markLegendEntries } from './share-mark-legend.js'
 import { ShareMarks, type LiveMark, type MarkAuthor } from './share-marks.js'
 
@@ -248,6 +249,12 @@ export class ShareViewer {
       const button = doc.createElement('button'); button.type = 'button'; button.textContent = label
       button.addEventListener('click', action); controls.append(button); return button
     }
+    // On a touch screen a drag with Draw off pans or does nothing, which reads
+    // as "I can't draw", so the hint says where drawing starts.
+    const touchScreen = win.matchMedia?.('(pointer: coarse)').matches ?? false
+    const idleHint = () => touchScreen
+      ? 'Tap Draw to draw on the screen. Pinch or use + and − to zoom. Drag to move around.'
+      : 'Scroll or use + and − to zoom. Drag to move around.'
     const out = makeButton('−', () => setZoom(zoom / 1.25)); out.setAttribute('aria-label', 'Zoom out')
     const amount = doc.createElement('output'); amount.setAttribute('aria-label', 'Zoom level'); controls.append(amount)
     const into = makeButton('+', () => setZoom(zoom * 1.25)); into.setAttribute('aria-label', 'Zoom in')
@@ -256,9 +263,9 @@ export class ShareViewer {
       drawing = !drawing
       draw.setAttribute('aria-pressed', String(drawing))
       viewport.classList.toggle('drawing', drawing)
-      notice.textContent = drawing ? 'Draw on the shared screen. Everyone sees your drawing as you move. Marks fade after a couple of seconds.' : 'Scroll or use + and − to zoom. Drag to move around.'
+      notice.textContent = drawing ? 'Draw on the shared screen. Everyone sees your drawing as you move. Marks fade after a couple of seconds.' : idleHint()
     })
-    draw.setAttribute('aria-pressed', 'false')
+    draw.setAttribute('aria-pressed', 'false'); draw.classList.add('shareDrawButton')
     const clear = makeButton('Clear marks', () => {
       const shareId = this.#source?.()?.id
       if (!shareId) return
@@ -311,7 +318,13 @@ export class ShareViewer {
       if (event.button !== 0) return
       if (drawing && track) {
         const rect = stage.getBoundingClientRect()
-        stroke = [{ x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) }]
+        // One pointer owns a stroke at a time, and a press must land on the
+        // picture itself: in portrait it is a band inside a tall viewport.
+        if (!mayBeginStroke(rect, event.clientX, event.clientY, event.pointerId, stroke ? dragging?.id : undefined)) {
+          if (stroke) event.preventDefault()
+          return
+        }
+        stroke = [clampToPicture(rect, event.clientX, event.clientY)]
         lastStrokeSent = 0
         dragging = { id: event.pointerId, x: 0, y: 0 }
         viewport.setPointerCapture(event.pointerId); event.preventDefault(); viewport.focus(); renderAnnotations(); return
@@ -326,7 +339,7 @@ export class ShareViewer {
     viewport.addEventListener('pointermove', event => {
       if (drawing && stroke && dragging?.id === event.pointerId) {
         const rect = stage.getBoundingClientRect()
-        const point = { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) }
+        const point = clampToPicture(rect, event.clientX, event.clientY)
         const last = stroke.at(-1)!
         if (stroke.length < 128 && Math.hypot(point.x - last.x, point.y - last.y) > 0.002) stroke.push(point)
         if (performance.now() - lastStrokeSent >= 50 || stroke.length >= 128) flushStroke()
@@ -382,7 +395,7 @@ export class ShareViewer {
       if (next !== track) {
         track = next
         video.srcObject = next ? new MediaStream([next]) : null
-        notice.textContent = next ? 'Scroll or use + and − to zoom. Drag to move around. Fit to screen resets the view.' : 'Screen sharing has stopped or is reconnecting.'
+        notice.textContent = next ? `${idleHint()} Fit to screen resets the view.` : 'Screen sharing has stopped or is reconnecting.'
         if (next) void video.play().catch(() => { notice.textContent = 'Press the shared screen to start its video.' })
       }
       if (!next && !notice.textContent) notice.textContent = 'Screen sharing has stopped or is reconnecting.'
