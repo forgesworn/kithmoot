@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.42",
+  "currentRelease": "0.1.43",
   "releases": [
     {
-      "version": "0.1.42",
+      "version": "0.1.43",
       "updateTo": {
-        "version": "0.1.42",
-        "pub_date": "2026-10-03T07:30:00Z",
-        "notes": "When a room moves to a new key and this computer missed it, any member who is online brings it up to date, and a room that cannot catch up says so instead of looking current.",
-        "name": "0.1.42",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.42/KithMoot-0.1.42-mac-arm64.zip",
-        "sha256": "1315be94750c63f86a0ea3fd3396c97f19afee7c14644b140c12b329358bfc3a",
-        "size": 136433271
+        "version": "0.1.43",
+        "pub_date": "2026-10-03T09:30:00Z",
+        "notes": "Rename a room for everyone. The new name is encrypted like the room's messages, so relays never see it.",
+        "name": "0.1.43",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.43/KithMoot-0.1.43-mac-arm64.zip",
+        "sha256": "ee03a173b11f1f1f6860ab504217bafb159f6e24e2ec3082025b3c1549a8d2a0",
+        "size": 136435877
       }
     }
   ]
