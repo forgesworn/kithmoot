@@ -377,6 +377,62 @@ describe('RoomAgent', () => {
     again.leave()
   })
 
+  it('after a removal, the keeper asks its admins about a newcomer, and only an admin\u2019s yes lets them in (#207)', async () => {
+    const relay = new SimRelay({ replay: true })
+    const admin = localIdentity(generateSecretKey())
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, admins: [admin.pubkey] })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', identity: admin, transport: transportFor(relay), announceJitterMs: 0 })
+    const bob = await RoomAgent.join({ link: keeper.url, name: 'Bob', transport: transportFor(relay), announceJitterMs: 0 })
+    const carol = await RoomAgent.join({ link: keeper.url, name: 'Carol', transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+    await keeper.remove(bob.participant)
+    await settle()
+    bob.leave()
+
+    const dave = localIdentity(generateSecretKey())
+    const joining = RoomAgent.join({ link: keeper.url, name: 'Dave', identity: dave, transport: transportFor(relay), announceJitterMs: 0 })
+    // The question reaches the room's control channel.
+    const asked = async () => {
+      for (let i = 0; i < 200; i++) {
+        const request = ada.channel(CONTROL_CHANNEL).messages().map((m) => decodeControl(m.text)).find((c) => c?.op === 'approval-request')
+        if (request?.op === 'approval-request') return request
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      throw new Error('the keeper never asked')
+    }
+    const request = await asked()
+    expect(request.text).toContain(dave.pubkey.slice(0, 8))
+    expect(request.options).toEqual(['let in', 'decline'])
+    // Carol is not an admin: her yes counts for nothing.
+    await carol.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'approval', id: request.id, verdict: 'let in' }))
+    await settle()
+    expect(keeper.session.knows(dave.pubkey)).toBe(false)
+    // Ada is: Dave is let in, and handed the room on his next ask.
+    await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'approval', id: request.id, verdict: 'let in' }))
+    const joined = await joining
+    expect(keeper.session.knows(dave.pubkey)).toBe(true)
+    expect(joined.session.epoch).toBe(1)
+
+    // And an admin's no keeps the next one out.
+    const eve = localIdentity(generateSecretKey())
+    const eveJoining = RoomAgent.join({ link: keeper.url, name: 'Eve', identity: eve, transport: transportFor(relay), announceJitterMs: 0 }).catch(() => undefined)
+    let eveAsked: string | undefined
+    for (let i = 0; i < 200 && !eveAsked; i++) {
+      const found = ada.channel(CONTROL_CHANNEL).messages().map((m) => decodeControl(m.text)).find((c) => c?.op === 'approval-request' && c.text.includes(eve.pubkey.slice(0, 8)))
+      if (found?.op === 'approval-request') eveAsked = found.id
+      else await new Promise((r) => setTimeout(r, 25))
+    }
+    expect(eveAsked).toBeDefined()
+    await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'approval', id: eveAsked!, verdict: 'decline' }))
+    await new Promise((r) => setTimeout(r, 300))
+    expect(keeper.session.knows(eve.pubkey)).toBe(false)
+    void eveJoining.then((agent) => agent?.leave())
+    joined.leave()
+    carol.leave()
+    ada.leave()
+    keeper.leave()
+  }, 30_000)
+
   it('a restarted keeper still knows the members it saw before, and writes them into its next rekey (#207)', async () => {
     const relay = new SimRelay({ replay: true })
     let state: KeeperState | undefined

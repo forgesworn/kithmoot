@@ -179,6 +179,11 @@ export interface ApprovalRequestOptions {
   id?: string
 }
 
+/** The admin's answer that lets an unknown participant in (#207). */
+export const LET_IN = 'let in'
+/** How long a keeper's "let them in?" question stays open. */
+const LET_IN_ASK_SECONDS = 600
+
 /** How an approval request ended. */
 export interface ApprovalOutcome {
   id: string
@@ -663,6 +668,9 @@ export class RoomAgent {
             // a release that predates the admission proof.
             known: (participant) => session.knows(participant) || admins.has(participant.toLowerCase()),
             members: () => session.memberList(),
+            onUnknown: (request) => {
+              if (agent) agent.#askAdminsToLetIn(request.participant).catch(() => {})
+            },
             closed: () => session.closed,
             policy: opts.link.policy,
             legacyParticipants: new Set(agent.admins),
@@ -879,7 +887,7 @@ export class RoomAgent {
   /** Whether a participant's answer counts: on the announced admin list,
    *  or this agent's own verified principal. */
   #isApprover(participant: string): boolean {
-    return this.#announcedAdmins.has(participant) || (this.owner !== undefined && this.owner.principal === participant && verifyAgentOwnership(this.owner, { agent: this.participant, now: this.#now() }).ok)
+    return this.#announcedAdmins.has(participant) || (this.#keeper !== undefined && this.admins.includes(participant)) || (this.owner !== undefined && this.owner.principal === participant && verifyAgentOwnership(this.owner, { agent: this.participant, now: this.#now() }).ok)
   }
 
   /**
@@ -1065,6 +1073,31 @@ export class RoomAgent {
       // A relay that refused the announcement gets it again on the next
       // `catalogue?`, which every arriving client sends.
     }
+  }
+
+  /**
+   * Somebody the room does not know asked this keeper for the room's key
+   * after a removal (#207): a newcomer on the link, or a removed person
+   * under a new key, which no rule about keys can tell apart. A keeper has
+   * nobody at it to decide, so it asks the room's admins, as an approval
+   * request every admin's app shows as a card; the first admin's
+   * `let in` lets them in, and they are handed the key on their next ask.
+   * One question per person at a time. With no admins there is nobody to
+   * ask, and a member on the web or desktop lets them in instead.
+   */
+  async #askAdminsToLetIn(participant: string): Promise<void> {
+    if (!this.#keeper || this.#left || !this.admins.length) return
+    const id = `let-in-${participant.slice(0, 16)}`
+    if (this.#approvals.has(id)) return
+    const outcome = await this.requestApproval({
+      id,
+      text: `Somebody new (${participant.slice(0, 8)}…) wants to join. Let them in?`,
+      options: [LET_IN, 'decline'],
+      ttlSeconds: LET_IN_ASK_SECONDS,
+    })
+    if (outcome.verdict !== LET_IN || this.#left) return
+    this.session.letIn(participant)
+    await this.#persist()
   }
 
   /** Persist again whenever somebody new joins the room's member list, so
