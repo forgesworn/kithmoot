@@ -1047,6 +1047,10 @@ dialog.shareViewer { position: fixed; inset: 1rem; margin: auto; width: calc(100
 .shareViewerControls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
 .shareViewerControls button { min-height: 44px; min-width: 44px; padding: 0.35rem 0.6rem; font-size: 0.85rem; margin: 0; }
 .shareViewerControls output { min-width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+.shareViewerControls .shareDrawButton[aria-pressed=true] { border-color: var(--accent); background: var(--accent-dim); }
+/* On a touch screen drawing has to be switched on before a finger draws, so
+   the button that does it stands out from the zoom controls beside it. */
+@media (pointer: coarse) { .shareViewerControls .shareDrawButton { border-color: var(--accent); color: var(--accent); font-weight: 650; } }
 .shareViewport { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #080b0d; touch-action: none; }
 .shareViewport.zoomed { cursor: grab; }
 .shareViewport.zoomed:active { cursor: grabbing; }

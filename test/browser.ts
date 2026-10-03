@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { expect, test, type Browser, type BrowserContextOptions, type BrowserContext, type Page } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { openRoomUrl, withRelays, testRelays } from './relays.js'
@@ -323,8 +323,8 @@ export async function open(page: Page, url: string, name: string): Promise<void>
   await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
 }
 
-export async function newDeviceContext(browser: Browser, baseURL: string): Promise<BrowserContext> {
-  const context = await browser.newContext()
+export async function newDeviceContext(browser: Browser, baseURL: string, options?: BrowserContextOptions): Promise<BrowserContext> {
+  const context = await browser.newContext(options)
   // Playwright's Firefox has no camera or microphone permission to grant -
   // it throws "Unknown permission: camera" - and the specs that run there
   // put nobody on camera, so there is nothing to grant. The other browsers
