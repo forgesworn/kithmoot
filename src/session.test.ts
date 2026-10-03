@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
-import { RoomSession } from './session.js'
+import { RoomSession as OpenedSession } from './session.js'
 import type { PrimaryRoomSessionOptions } from './session.js'
 import { issueKindredProof } from './access.js'
 import { createDeviceCredential } from './credential.js'
@@ -14,6 +14,26 @@ import { PRESENCE_TTL_SECONDS, RESUME_MIN_REMAINING_SECONDS } from './session.js
 import type { DeviceCredential } from './types.js'
 import { decodeCallBellEvent } from './call-bell.js'
 import type { RelayTransport } from './relay-pool.js'
+
+/**
+ * Every session a test opens is left after it. A call mesh that is never
+ * closed goes on re-sending offers, and each re-send schedules its next
+ * timer through whatever `setTimeout` is current: a later test that
+ * installs fake timers inherits them, and spends its fake hours running
+ * another test's retries, past its own timeout on a loaded machine.
+ */
+const opened = new Set<OpenedSession>()
+class RoomSession extends OpenedSession {
+  constructor(...args: ConstructorParameters<typeof OpenedSession>) {
+    super(...args)
+    opened.add(this)
+  }
+}
+afterEach(async () => {
+  const sessions = [...opened]
+  opened.clear()
+  await Promise.all(sessions.map((session) => session.leave().catch(() => {})))
+})
 
 const NOW = 1_800_000_000
 /** The room every test in this file joins - a kindred proof is minted for one

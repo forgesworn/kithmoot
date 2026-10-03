@@ -19,6 +19,15 @@ import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUD
 
 /** Share an area, behind More with the call's other ways to share: the
  *  bar itself keeps one Share. */
+/** "Stop sharing" closes the chooser's own window, so the click can outlive
+ *  the page it was made on: Playwright then reports the page closed, which
+ *  here means the button did its job. */
+async function stopSharingFrom(popup: Page): Promise<void> {
+  await popup.getByRole('button', { name: 'Stop sharing' }).click().catch((err: Error) => {
+    if (!popup.isClosed() && !/has been closed/.test(err.message)) throw err
+  })
+}
+
 async function clickShareArea(page: Page): Promise<void> {
   const area = page.locator('#shareArea')
   if (!await area.isVisible()) await page.locator('#callExtras > summary').click()
@@ -224,7 +233,7 @@ test('a desktop sharing area sends only its crop and covers invalid bounds', asy
     await page.evaluate(() => (window as any).__areaBounds({ x: .25, y: .25, width: .5, height: .5 }))
     await expect.poll(pixels).toEqual(Array.from({ length: 9 }, () => [0, 255, 0]).flat())
     await popup.evaluate(() => { (window.opener as any).__rawAreaTrack = (window as any).__rawAreaTrack })
-    await popup.getByRole('button', { name: 'Stop sharing' }).click()
+    await stopSharingFrom(popup)
     await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
     expect(await page.evaluate(() => (window as any).__rawAreaTrack.readyState)).toBe('ended')
   } finally { await context.close() }
@@ -327,7 +336,7 @@ test('a full-screen area withholds this device\'s own live preview to avoid a mi
     await expect.poll(() => preview.evaluate((v: HTMLVideoElement) => v.classList.contains('selfMirrorGuard'))).toBe(false)
     await expect.poll(() => preview.evaluate((v: HTMLVideoElement) => v.srcObject !== null)).toBe(true)
     await popup.evaluate(() => { (window.opener as any).__rawAreaTrack = (window as any).__rawAreaTrack })
-    await popup.getByRole('button', { name: 'Stop sharing' }).click()
+    await stopSharingFrom(popup)
     await expect(page.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
   } finally { await context.close() }
 })

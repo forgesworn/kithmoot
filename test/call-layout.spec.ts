@@ -275,10 +275,14 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
 
     // Faces past the end of the room scroll; the share stays where it is.
     await first.locator('#room').evaluate(el => { el.scrollTop = el.scrollHeight; el.scrollLeft = el.scrollWidth })
-    await first.waitForTimeout(300)
-    const scrolled = (await first.locator('#room video.screenPreview').boundingBox())!
-    expect(Math.abs(scrolled.y - stage!.y), 'the share scrolled away with the faces').toBeLessThanOrEqual(2)
-    expect(Math.abs(scrolled.x - stage!.x), 'the share scrolled away with the faces').toBeLessThanOrEqual(2)
+    // Polled, not read once: the strip reorders as people speak, tiles ease
+    // to their new places over 160 ms, and a share drawn from its owner's
+    // tile is caught mid-move by a reading that lands inside one.
+    const drift = async () => {
+      const scrolled = (await first.locator('#room video.screenPreview').boundingBox())!
+      return Math.max(Math.abs(scrolled.y - stage!.y), Math.abs(scrolled.x - stage!.x))
+    }
+    await expect.poll(drift, { message: 'the share scrolled away with the faces', timeout: 3_000 }).toBeLessThanOrEqual(2)
     await shot(first, '8-share-scrolled')
     await first.locator('#room').evaluate(el => { el.scrollTop = 0; el.scrollLeft = 0 })
 
