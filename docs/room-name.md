@@ -89,6 +89,17 @@ on, whose `n` is the current name. A device keeps the winning rename with
 its order key (`kithmoot.room-name.v1.<roomId>` in the web client), so a
 link written before a rename does not put the old name back.
 
+The web client's rooms list reads renames in rooms that are not open, off
+the same control channel, with the same read-only log it reads their chat
+with (`RoomWatch`). It reads under the epoch the room was in when this
+device was last inside it: the client keeps that epoch's id and key beside
+the room secret it already holds (`kithmoot.room-epoch.v1.<roomId>`), and
+forgets them with the room. A watch holds no device key, so it cannot open
+a rekey by itself. If the room rekeyed while it was closed here, the list
+keeps the name it had until the room is opened, which catches it up. A
+rename the list reads replaces the kept one only when it orders later, so a
+list reading an epoch the room has left cannot pull a name back.
+
 ## Epochs
 
 A rename is readable only by members holding the epoch it was posted under.

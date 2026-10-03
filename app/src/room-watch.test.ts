@@ -6,6 +6,9 @@ import { createDeviceCredential } from '../../src/credential.js'
 import { localIdentity } from '../../src/identity.js'
 import { encodeRosterEvent } from '../../src/roster.js'
 import { encodeChatEvent } from '../../src/chat.js'
+import { deriveEpoch } from '../../src/epoch.js'
+import { CONTROL_CHANNEL, encodeControl } from '../../src/control.js'
+import { renameRoomOp } from '../../src/room-name.js'
 import { issueKindredProof } from '../../src/access.js'
 import { PRESENCE_TTL_SECONDS } from '../../src/session.js'
 import { SimRelay, SimTransport } from '../../test/sim-relay.js'
@@ -210,5 +213,59 @@ describe('RoomWatch', () => {
     await transport.publish(encodeRosterEvent(guest.heartbeat(NOW), { roomId, roomKey, deviceSk: guest.deviceSk }))
     expect(watch.present().map((p) => p.name)).toEqual(['Guest'])
     watch.close()
+  })
+
+  it('reads the room where it was last seen: chat, presence and its shared name under a later epoch', async () => {
+    const secret = new Uint8Array(32).fill(13)
+    const { roomId, roomKey } = deriveRoom(secret)
+    const keys = deriveEpoch({ epoch: 2, secret: new Uint8Array(32).fill(14) })
+    const epoch = { epoch: 2, id: keys.id, key: keys.key }
+    const relay = new SimRelay()
+    let changes = 0
+    const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, epoch, now: () => NOW, onChange: () => changes++ })
+    const ada = await member(roomId, 'Ada')
+    const transport = new SimTransport(relay)
+    const message = (text: string, sentAt: number) => ({ id: `${text}-${sentAt}`, participant: ada.participant, device: getPublicKey(ada.deviceSk), credential: ada.credential, text, sentAt })
+    const rename = (name: string, sentAt: number, under?: typeof epoch) =>
+      transport.publish(encodeChatEvent(message(encodeControl(renameRoomOp(name, sentAt * 1000)), sentAt),
+        { roomId, roomKey, deviceSk: ada.deviceSk, channel: CONTROL_CHANNEL, ...(under ? { epoch: under } : {}) }))
+    // Under epoch 0, which the room has left: not read.
+    await rename('Stale', NOW - 30)
+    await transport.publish(encodeChatEvent(message('old', NOW - 30), { roomId, roomKey, deviceSk: ada.deviceSk }))
+    expect(watch.roomName()).toBeUndefined()
+    expect(watch.messages()).toEqual([])
+    // Under the epoch it is in now: read.
+    await rename('The moot', NOW - 20, epoch)
+    expect(watch.roomName()?.name).toBe('The moot')
+    expect(watch.roomName()?.by).toBe(ada.participant)
+    await rename('Newer', NOW - 10, epoch)
+    await rename('Older', NOW - 15, epoch)
+    expect(watch.roomName()?.name).toBe('Newer')
+    await transport.publish(encodeChatEvent(message('hello', NOW - 5), { roomId, roomKey, deviceSk: ada.deviceSk, epoch }))
+    expect(watch.messages().map((m) => m.text)).toEqual(['hello'])
+    await transport.publish(encodeRosterEvent(ada.heartbeat(NOW), { roomId, roomKey, deviceSk: ada.deviceSk, epoch }))
+    expect(watch.present().map((p) => p.name)).toEqual(['Ada'])
+    expect(changes).toBeGreaterThanOrEqual(5)
+    watch.close()
+  })
+
+  it('reads a rename in a room never rekeyed, and none in a quiet room', async () => {
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(15))
+    const relay = new SimRelay({ replay: true })
+    const ada = await member(roomId, 'Ada')
+    const op = encodeChatEvent(
+      { id: 'n', participant: ada.participant, device: getPublicKey(ada.deviceSk), credential: ada.credential, text: encodeControl(renameRoomOp('Kitchen', (NOW - 5) * 1000)), sentAt: NOW - 5 },
+      { roomId, roomKey, deviceSk: ada.deviceSk, channel: CONTROL_CHANNEL },
+    )
+    await new SimTransport(relay).publish(op)
+    // Already on the relay when the watch opens, as on a cold start.
+    // Read as the watch opens, so the caller asks for it then rather than
+    // waiting for a change.
+    const watch = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, now: () => NOW })
+    const quiet = new RoomWatch({ transport: new SimTransport(relay), roomId, roomKey, quiet: true, now: () => NOW })
+    expect(watch.roomName()?.name).toBe('Kitchen')
+    expect(quiet.roomName()).toBeUndefined()
+    watch.close()
+    quiet.close()
   })
 })

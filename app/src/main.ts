@@ -130,6 +130,8 @@ import {
   MINUTES_CHANNEL,
   CONTROL_CHANNEL,
   followRoomName,
+  compareRoomNames,
+  type EpochRoot,
   type RoomNameFollower,
   type RoomNameRecord,
   DEFAULT_APPROVAL_OPTIONS,
@@ -6374,17 +6376,67 @@ function adoptSharedRoomName(s: RoomSession, record: RoomNameRecord): void {
   }
   // A room on the dock: its saved name moves now, and its screen when it
   // comes back (`followSharedRoomName` applies the current name again).
-  const known = knownRoom(roomStore(), s.roomId)
-  if (!known || known.name === record.name) return
+  saveKnownRoomName(s.roomId, record.name)
+}
+
+/** Move a saved room's name in the list, when it is a room this device
+ *  keeps and the name is new. */
+function saveKnownRoomName(roomId: string, name: string): void {
+  const known = knownRoom(roomStore(), roomId)
+  if (!known || known.name === name) return
   try {
-    bookmarks?.save(rememberRoom(roomStore(), { roomId: s.roomId, link: known.link, name: record.name, openedAt: known.openedAt }))
+    bookmarks?.save(rememberRoom(roomStore(), { roomId, link: known.link, name, openedAt: known.openedAt }))
   } catch { /* The name still shows in the room itself. */ }
   renderRooms()
+}
+
+/** A rename the rooms list read in a room this device is not in right now.
+ *  Kept only when it is newer than the name this device already holds, so
+ *  a watch reading a stale epoch cannot pull a name back. */
+function adoptWatchedRoomName(roomId: string, record: RoomNameRecord): void {
+  if (session?.roomId === roomId) return
+  const kept = loadRoomNameRecord(roomId)
+  if (kept && compareRoomNames(record, kept) <= 0) return
+  storeRoomNameRecord(roomId, record)
+  saveKnownRoomName(roomId, record.name)
+}
+
+// The epoch each room was in when this device was last inside it, with its
+// keys, so the rooms list reads the room - its chat, who is there, its name -
+// where it is now rather than where it began. Kept beside the room secret
+// this device already holds, and forgotten with the room (`clearRoomLocally`
+// drops every key naming it). A watch cannot follow a rekey by itself;
+// opening the room does, and writes the new epoch here.
+
+const ROOM_EPOCH_PREFIX = 'kithmoot.room-epoch.v1.'
+
+function loadRoomEpoch(roomId: string): (EpochRoot & { epoch: number }) | undefined {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ROOM_EPOCH_PREFIX + roomId) ?? 'null') as { epoch?: unknown; id?: unknown; key?: unknown } | null
+    if (!raw || !Number.isSafeInteger(raw.epoch) || (raw.epoch as number) < 1) return undefined
+    if (typeof raw.id !== 'string' || !/^[0-9a-f]{64}$/.test(raw.id) || typeof raw.key !== 'string' || !/^[0-9a-f]{64}$/.test(raw.key)) return undefined
+    return { epoch: raw.epoch as number, id: raw.id, key: hexToBytes(raw.key) }
+  } catch { return undefined }
+}
+
+/** Write down the epoch `s` is in, when it is later than the one held, and
+ *  have the rooms list read the room there from now on. */
+function rememberRoomEpoch(s: RoomSession): void {
+  const keys = s.epochKeys()
+  if (keys.epoch < 1 || (loadRoomEpoch(s.roomId)?.epoch ?? 0) >= keys.epoch) return
+  try {
+    localStorage.setItem(ROOM_EPOCH_PREFIX + s.roomId, JSON.stringify({ epoch: keys.epoch, id: keys.id, key: bytesToHex(keys.key) }))
+  } catch { return /* The list reads the room where it began; opening it still works. */ }
+  if (!roomWatches.has(s.roomId)) return
+  stopWatching(s.roomId)
+  const known = knownRoom(roomStore(), s.roomId)
+  if (known) watchKnownRoom(known)
 }
 
 /** Follow `s`'s shared name, once per session; on a session already
  *  followed, show the name it holds now. */
 function followSharedRoomName(s: RoomSession): void {
+  rememberRoomEpoch(s)
   let follower = roomNameFollowers.get(s)
   if (!follower) {
     follower = followRoomName(s, {
@@ -6619,6 +6671,7 @@ function onEpochChange(notice: RekeyNotice): void {
   // there first; and a rename read under the epoch left may no longer count.
   const s = session
   if (s) {
+    rememberRoomEpoch(s)
     roomNameFollowers.get(s)?.refresh()
     if (!notice.closed) scheduleRoomNameCarry(s, 3_000, 12_000)
   }
@@ -10518,17 +10571,29 @@ function watchKnownRoom(room: KnownRoom): void {
     roster: () => [...watch.present(), { participant: meParticipant || currentParticipant() || '', name: joiningName() }],
     direct: () => dmPeerOf(room) !== undefined,
   })
+  const epoch = loadRoomEpoch(roomId)
+  let named: RoomNameRecord | undefined
+  const followName = (): void => {
+    const name = watch.roomName()
+    if (!name || name === named) return
+    named = name
+    adoptWatchedRoomName(roomId, name)
+  }
   const watch = new RoomWatch({
     transport: pool,
     roomId,
     roomKey,
     policy: link.policy,
     quiet: isQuietPolicy(link.policy),
+    ...(epoch ? { epoch } : {}),
     onChange: () => {
+      // The name first, so the redraw below shows it.
+      followName()
       renderRooms()
       notify(watch.messages())
     },
   })
+  followName()
   notify(watch.messages())
   roomWatches.set(room.roomId, { pool, watch })
   followReadPositions(roomId, roomKey, room.endsAt)
