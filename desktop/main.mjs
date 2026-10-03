@@ -1,5 +1,6 @@
 import { ShareArea, AREA_URL } from './share-area.mjs'
 import { Redaction, BOX_WINDOW, boxId } from './redaction.mjs'
+import { MarksOverlay, MARKS_URL, MARKS_WINDOW } from './marks-overlay.mjs'
 import { createDesktopUpdater } from './updater.mjs'
 import { createPackageUpdater, packageVersionFile, readPackageVersion } from './package-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
@@ -54,9 +55,12 @@ const shareArea = new ShareArea(() => win, areaMode)
 // Redaction boxes need a window placed on the real screen, which Wayland
 // forbids: there the preview area share is the way to keep things private.
 const redaction = areaMode === 'frame' ? new Redaction(() => win) : undefined
+// Marks drawn on a whole-screen share, shown over that screen. It goes where
+// the capture the redaction boxes are mapped onto is, so it needs the same mode.
+const marksOverlay = redaction ? new MarksOverlay(() => redaction.capture) : undefined
 // Unpackaged automation stands in for the capture source, which a synthetic
 // presentation never asks the main process to choose.
-if (testProfile) globalThis.kithmootTest = { redaction, shareArea }
+if (testProfile) globalThis.kithmootTest = { redaction, shareArea, marksOverlay }
 let configureDisplayCapture
 let callActive = false
 let powerBlock
@@ -68,6 +72,7 @@ const trusted = (contents) => contents && contents === win?.webContents && isApp
 function releaseCall() {
   shareArea.close()
   redaction?.closeAll()
+  marksOverlay?.close()
   callActive = false
   if (powerBlock !== undefined) powerSaveBlocker.stop(powerBlock)
   powerBlock = undefined
@@ -234,6 +239,19 @@ async function createWindow() {
         },
       }
     }
+    if (marksOverlay && url === MARKS_URL) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          ...MARKS_WINDOW, title: 'Marks on your screen',
+          webPreferences: {
+            session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
+            nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
+            backgroundThrottling: false,
+          },
+        },
+      }
+    }
     if (url === AREA_URL || windowOpenAction(url) === 'own-window') {
       return {
         action: 'allow',
@@ -256,6 +274,7 @@ async function createWindow() {
     if (details.url === AREA_URL) shareArea.attach(child)
     const id = boxId(details.url)
     if (id && redaction) redaction.attach(child, id)
+    if (details.url === MARKS_URL && marksOverlay) marksOverlay.attach(child)
   })
   win.webContents.on('will-navigate', (event, url) => {
     if (!isAppUrl(url)) { event.preventDefault(); void external(url) }

@@ -90,6 +90,19 @@ export function captureOf(source, displays) {
 }
 
 /**
+ * Where marks drawn on a whole-screen share belong on the real screen: the
+ * whole of the display being shared, since a mark's place is a fraction of
+ * the shared picture and the picture is that display, edge to edge. Nothing
+ * for a window or an unknown source: another program's window cannot be
+ * followed from here, and a guess would point at the wrong thing.
+ */
+export function overlayBounds(capture, displays) {
+  if (capture?.kind !== 'screen') return undefined
+  const display = displays.find(item => String(item.id) === capture.displayId)
+  return display ? { ...display.bounds } : undefined
+}
+
+/**
  * Keeps a box wholly on one display. On Windows a window straddling two
  * displays at different scales has its DIP bounds converted by the display
  * holding most of it, so the part on the other display is misplaced and
