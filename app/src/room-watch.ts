@@ -13,6 +13,12 @@
  * says when that interval has passed, so a list can tell "nobody heard from
  * yet" apart from "nobody here".
  *
+ * The room's name is read the same way, off the control channel, so a rename
+ * made while the room is closed here still reaches the list.
+ *
+ * A watch reads the epoch the room was in when this device was last inside
+ * it: see `RoomWatchOptions.epoch`.
+ *
  * The chat is the library's own `ChatLog`, opened without a credential, so
  * what counts as a message is decided in exactly one place. The roster is
  * decoded by the library too, and kept by the same rules `RoomSession` keeps
@@ -28,7 +34,9 @@ import { dmPeer } from '../../src/dm.js'
 import { KINDS } from '../../src/kinds.js'
 import { decodeRosterEvent } from '../../src/roster.js'
 import { evaluateAccess } from '../../src/access.js'
-import { ChatLog, type ChatMessage } from '../../src/chat.js'
+import { ChatLog, type ChatMessage, type EpochRoot } from '../../src/chat.js'
+import { CONTROL_CHANNEL } from '../../src/control.js'
+import { RoomNameBook, roomNameFromMessage, type RoomNameRecord } from '../../src/room-name.js'
 import { HEARTBEAT_INTERVAL_MS, PRESENCE_TTL_SECONDS } from '../../src/session.js'
 import type { RelayTransport } from '../../src/relay-pool.js'
 import type { RoomPolicy, RosterEntry } from '../../src/types.js'
@@ -139,6 +147,12 @@ export interface RoomWatchOptions {
    *  whole stream per room in the background; opening the room reads
    *  it. Presence is still watched, since it is in the open. */
   quiet?: boolean
+  /** The epoch the room was in when this device was last inside it, and
+   *  its keys: omit for epoch 0. Chat, presence and the name are read
+   *  under it. A rekey since then is not followed - a watch holds no
+   *  device key to open one with - so a room that has moved on reads
+   *  quiet here until it is opened again, which catches it up. */
+  epoch?: EpochRoot & { epoch: number }
 }
 
 export class RoomWatch {
@@ -146,6 +160,9 @@ export class RoomWatch {
   readonly #now: () => number
   readonly #startedAt: number
   readonly #chat?: ChatLog
+  readonly #control?: ChatLog
+  readonly #names = new RoomNameBook()
+  readonly #namesSeen = new Set<string>()
   readonly #presence = new PresenceLedger()
   readonly #unsubRoster: () => void
 
@@ -153,18 +170,25 @@ export class RoomWatch {
     this.#opts = opts
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
     this.#startedAt = this.#now()
+    const epoch = this.#epochRoot()
     if (!opts.quiet) {
-      this.#chat = new ChatLog({
+      const log = (channel?: string) => new ChatLog({
         transport: opts.transport,
         roomId: opts.roomId,
         roomKey: opts.roomKey,
         policy: opts.policy,
         now: this.#now,
+        ...(channel ? { channel } : {}),
+        ...(epoch ? { epoch } : {}),
       })
+      this.#chat = log()
       this.#chat.onChange(() => opts.onChange?.())
+      this.#control = log(CONTROL_CHANNEL)
+      this.#control.onChange((messages) => this.#readNames(messages))
+      this.#readNames(this.#control.messages(), false)
     }
     this.#unsubRoster = opts.transport.subscribe(
-      [{ kinds: [KINDS.ROSTER], '#d': [opts.roomId] }],
+      [{ kinds: [KINDS.ROSTER], '#d': [epoch?.id ?? opts.roomId] }],
       (event) => this.#ingest(event),
     )
   }
@@ -172,6 +196,12 @@ export class RoomWatch {
   /** The key this watch reads the room with. */
   get roomKey(): Uint8Array {
     return this.#opts.roomKey
+  }
+
+  /** The room's shared name as this watch has read it, or undefined when
+   *  it has read no rename. Undefined for a quiet room. */
+  roomName(): RoomNameRecord | undefined {
+    return this.#names.current(this.#opts.epoch?.epoch ?? 0)
   }
 
   /** Whether this watch reads the chat at all. False for a quiet room. */
@@ -224,11 +254,37 @@ export class RoomWatch {
   close(): void {
     this.#unsubRoster()
     this.#chat?.close()
+    this.#control?.close()
+  }
+
+  /** What the codecs are told: nothing in epoch 0, as a session does. */
+  #epochRoot(): EpochRoot | undefined {
+    const e = this.#opts.epoch
+    return e && e.epoch > 0 ? { id: e.id, key: e.key } : undefined
+  }
+
+  /** File the renames among `messages`; say so when one is new, except
+   *  from the constructor, before the caller holds the watch. */
+  #readNames(messages: ChatMessage[], announce = true): void {
+    let added = false
+    for (const message of messages) {
+      if (this.#namesSeen.has(message.id)) continue
+      this.#namesSeen.add(message.id)
+      const record = roomNameFromMessage(message)
+      if (record && this.#names.add(record, this.#opts.epoch?.epoch ?? 0)) added = true
+    }
+    if (!added || !announce) return
+    try {
+      this.#opts.onChange?.()
+    } catch {
+      // A caller's render() is not allowed to close the watch.
+    }
   }
 
   #ingest(event: Event): void {
     const now = this.#now()
-    const entry = decodeRosterEvent(event, { roomId: this.#opts.roomId, roomKey: this.#opts.roomKey, now })
+    const epoch = this.#epochRoot()
+    const entry = decodeRosterEvent(event, { roomId: this.#opts.roomId, roomKey: this.#opts.roomKey, now, ...(epoch ? { epoch } : {}) })
     if (!entry) return
     if (this.#opts.policy) {
       const verdict = evaluateAccess(this.#opts.policy, entry.participant, entry.proof, now, this.#opts.roomId)
