@@ -22,8 +22,8 @@ import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { encodeCallBellEvent, type CallBellState } from './call-bell.js'
-import { ChatLog } from './chat.js'
-import type { EpochRoot } from './chat.js'
+import { ChatLog, MAX_PAST_EPOCHS } from './chat.js'
+import type { EpochRoot, PastEpoch } from './chat.js'
 import type { EventArchive } from './archive.js'
 import {
   EpochRefusedError,
@@ -130,6 +130,35 @@ export interface CallView {
   since: number
   /** Everybody with at least one device on it. */
   participants: string[]
+}
+
+/**
+ * Epochs a session jumped over. The authority's answer to an epoch request
+ * put it straight at `to` from `from`, so nothing said in the epochs between
+ * can be read on this device: it never held their keys. From epoch 0 this
+ * is also what every newcomer to a rekeyed room sees, and says nothing was
+ * missed; from a later epoch it is a device that was here and fell behind.
+ */
+export interface EpochGap {
+  from: number
+  to: number
+  /** When this session made the jump, in unix seconds. */
+  at: number
+}
+
+/**
+ * Two different rekeys for one epoch, both signed by the room's authority.
+ * Its key is in use in two places at once - two tabs, or a browser and a
+ * keeper - and members who followed different ones are in different rooms
+ * that share a name. Nothing this session does resolves it; the authority
+ * has to rekey from one place.
+ */
+export interface EpochConflict {
+  epoch: number
+  /** The rekey this session heard or followed first, by event id. */
+  kept: string
+  /** The one that disagrees with it. */
+  other: string
 }
 
 export interface RoomSessionBaseOptions {
@@ -317,6 +346,11 @@ export interface RoomSessionBaseOptions {
    *  rekeys, when it is the authority. A current-state grant is marked
    *  `catchUp`: its cumulative removed list is not a new removal event. */
   onEpoch?: (notice: RekeyNotice) => void
+  /** Called when this session jumps epochs; see `EpochGap`. */
+  onEpochGap?: (gap: EpochGap) => void
+  /** Called when the authority signed two different rekeys for one epoch;
+   *  see `EpochConflict`. Once for each disagreeing event. */
+  onEpochConflict?: (conflict: EpochConflict) => void
   /** Called when this participant was removed: a rekey named it, or the
    *  authority refused it the current epoch. The session stays where it
    *  is, which is an epoch nobody else is in any more; the caller should
@@ -589,6 +623,15 @@ export class RoomSession {
   /** Rekeys heard for epochs ahead of this one, by epoch, until this session
    *  reaches the epoch each is sealed to. */
   readonly #pendingRekeys = new Map<number, Event>()
+  /** The rekey that moved this session into each recent epoch, by event
+   *  id, so a different one for the same epoch is noticed whenever it
+   *  arrives. */
+  readonly #followed = new Map<number, string>()
+  /** The epochs this session has left, most recent last, which its logs
+   *  go on reading for a while. See `ChatLog.rekey`. */
+  #pastEpochs: PastEpoch[] = []
+  readonly #gaps: EpochGap[] = []
+  readonly #conflicts: EpochConflict[] = []
   #unsubRekey?: () => void
   /** One epoch request in flight at a time. */
   #catchingUp?: Promise<void>
@@ -865,6 +908,8 @@ export class RoomSession {
       now: this.#now,
       ...(this.#nowMs ? { nowMs: this.#nowMs } : {}),
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
+      pastEpochs: this.#pastEpochs,
+      isRemoved: participant => this.#removed.has(participant),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
@@ -1079,11 +1124,18 @@ export class RoomSession {
     const epoch = peekRekeyEvent(event, { roomId: this.roomId, authority: this.#opts.authority })
     if (epoch === null) return
     this.#opts.archive?.keep(event)
+    // Compared by event id, never by arrival: the authority's own copy
+    // coming back from a relay is the same event and says nothing new.
+    const known = this.#followed.get(epoch) ?? this.#pendingRekeys.get(epoch)?.id ?? this.#rekeyEvents.get(epoch)?.id
+    if (known !== undefined && known !== event.id) {
+      this.#conflict({ epoch, kept: known, other: event.id })
+      return
+    }
     // Kept whatever epoch it is for, applied or not: this device's member
     // desk hands these on as the proof of each secret it grants. One this
     // device applied (see `#drainRekeys`) replaces a stranger copy.
     if (!this.#rekeyEvents.has(epoch)) this.#keepRekey(epoch, event)
-    if (epoch <= this.#epoch.epoch) return
+    if (epoch <= this.#epoch.epoch || this.#followed.get(epoch) === event.id) return
     this.#pendingRekeys.set(epoch, event)
     // During join the settle step drains; after it, every rekey is acted on
     // the moment it arrives.
@@ -1139,8 +1191,30 @@ export class RoomSession {
       }
       this.#pendingRekeys.delete(at)
       this.#keepRekey(notice.epoch, next)
+      this.#followed.set(notice.epoch, next.id)
       this.#moveToEpoch({ epoch: notice.epoch, secret: notice.secret }, notice)
     }
+  }
+
+  #conflict(conflict: EpochConflict): void {
+    if (this.#conflicts.some((c) => c.epoch === conflict.epoch && c.other === conflict.other)) return
+    this.#conflicts.push(conflict)
+    try {
+      this.#opts.onEpochConflict?.(conflict)
+    } catch {
+      // A caller's problem, not the room's.
+    }
+  }
+
+  /** Every jump over epochs this session has made; see `EpochGap`. */
+  epochGaps(): EpochGap[] {
+    return this.#gaps.map((gap) => ({ ...gap }))
+  }
+
+  /** Every pair of disagreeing rekeys this session has heard; see
+   *  `EpochConflict`. */
+  epochConflicts(): EpochConflict[] {
+    return this.#conflicts.map((conflict) => ({ ...conflict }))
   }
 
   /** Ask the authority, and the room's current members, for the current
@@ -1177,7 +1251,7 @@ export class RoomSession {
         for (const p of grant.removed) this.#removed.add(p)
         if (grant.epoch.epoch > this.#epoch.epoch) {
           const epoch = grant.epoch as RoomEpoch
-          this.#moveToEpoch(epoch, { epoch: epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() })
+          this.#moveToEpoch(epoch, { epoch: epoch.epoch, removed: grant.removed, closed: false, catchUp: true, at: this.#now() }, grant.passed ?? [])
         }
         // Anything past what the authority handed over is readable now.
         for (const epoch of [...this.#pendingRekeys.keys()]) if (epoch <= this.#epoch.epoch) this.#pendingRekeys.delete(epoch)
@@ -1326,7 +1400,22 @@ export class RoomSession {
    * members who were kept are kept too, and their media with them; one that
    * never restates itself under the new key lapses on the ordinary timeout.
    */
-  #moveToEpoch(next: RoomEpoch, notice: RekeyNotice): void {
+  #moveToEpoch(next: RoomEpoch, notice: RekeyNotice, passed: readonly RoomEpoch[] = []): void {
+    const from = this.#epoch.epoch
+    const left = this.#epochRoot()
+    // The epochs a member's grant carried between this one and `next`,
+    // each proven by the authority's rekey after it: read from now on like
+    // any epoch this session left, and kept so this device's member desk
+    // can hand them on in turn.
+    const between = passed.filter((e) => e.epoch > from && e.epoch < next.epoch).sort((a, b) => a.epoch - b.epoch)
+    for (const e of between) this.#keepSecret(e)
+    const crossed = between.map((e) => { const keys = deriveEpoch(e); return { id: keys.id, key: keys.key } })
+    this.#pastEpochs = [
+      ...this.#pastEpochs,
+      { ...(left ? { root: left } : {}), leftAt: notice.at },
+      ...crossed.map((root) => ({ root, leftAt: notice.at })),
+    ].slice(-MAX_PAST_EPOCHS)
+    for (const epoch of this.#followed.keys()) if (epoch < next.epoch - 64) this.#followed.delete(epoch)
     this.#epochSecret = next
     this.#epoch = deriveEpoch(next)
     this.#keepSecret(next)
@@ -1361,13 +1450,20 @@ export class RoomSession {
       )
     }
     const root = this.#epochRoot()!
-    this.#chat?.rekey(root)
-    for (const log of this.#channels.values()) log.rekey(root)
+    this.#chat?.rekey(root, { leftAt: notice.at, crossed })
+    for (const log of this.#channels.values()) log.rekey(root, { leftAt: notice.at, crossed })
     this.#assignments?.rekey(root)
+    const gap = next.epoch > from + 1 + between.length ? { from, to: next.epoch, at: this.#now() } : undefined
+    if (gap) this.#gaps.push(gap)
     try {
       this.#opts.onEpoch?.(notice)
     } catch {
       // A caller's problem, not the room's.
+    }
+    try {
+      if (gap) this.#opts.onEpochGap?.({ ...gap })
+    } catch {
+      // As above.
     }
     if (this.#unsub) {
       this.#publishEntry(true).catch(() => {})
@@ -1418,7 +1514,19 @@ export class RoomSession {
       now,
       expiresAt: this.#opts.endsAt,
     })
-    await this.#opts.transport.publish(event)
+    // Known before it is published, so a relay's copy coming back while the
+    // publish is still out is recognised as this device's own rekey and not
+    // taken for one sealed to somebody else.
+    this.#followed.set(next.epoch, event.id)
+    try {
+      await this.#opts.transport.publish(event)
+    } catch (err) {
+      // Not moved, so a retry signs a different rekey for this epoch. If a
+      // relay kept this one after all, the two will be reported as a
+      // conflict when it comes back, which is what they are.
+      this.#followed.delete(next.epoch)
+      throw err
+    }
     this.#keepRekey(next.epoch, event)
     const notice: RekeyNotice = {
       epoch: next.epoch,
@@ -2069,6 +2177,8 @@ export class RoomSession {
       now: this.#now,
       ...(this.#nowMs ? { nowMs: this.#nowMs } : {}),
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
+      pastEpochs: this.#pastEpochs,
+      isRemoved: participant => this.#removed.has(participant),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),

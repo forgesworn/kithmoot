@@ -6517,6 +6517,32 @@ function onEpochChange(notice: RekeyNotice): void {
   )
 }
 
+/** How many of a session's epoch gaps and conflicts this page has said. */
+const epochTroubleShown = new WeakMap<RoomSession, { gaps: number; conflicts: number }>()
+
+/**
+ * Say, once each, the stretches of a room this device could not read and
+ * any two rekeys that disagree. Called as they happen and again once the
+ * room is on screen, since joining makes its jumps before there is a
+ * conversation to say them in.
+ */
+function reportEpochTrouble(s: RoomSession): void {
+  if ($('roomArea').hidden || session !== s) return
+  const shown = epochTroubleShown.get(s) ?? { gaps: 0, conflicts: 0 }
+  const gaps = s.epochGaps()
+  const conflicts = s.epochConflicts()
+  for (const gap of gaps.slice(shown.gaps)) {
+    // From epoch 0 it is every newcomer to a room that has been rekeyed,
+    // who was never owed what was said before they came.
+    if (gap.from === 0) continue
+    addSystemLine('This device was away while the room lock changed, so messages sent in that time cannot be read here.', gap.at)
+  }
+  for (const conflict of conflicts.slice(shown.conflicts)) {
+    addSystemLine(`The room lock was changed from two places at once (epoch ${conflict.epoch}). Some people here may not see each other's messages until whoever holds the room changes it again from one device.`)
+  }
+  epochTroubleShown.set(s, { gaps: gaps.length, conflicts: conflicts.length })
+}
+
 const NOTICE_STORAGE_KEY = 'kithmoot.notice'
 
 /**
@@ -9913,6 +9939,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
           onEpochWaiting: waiting => { if (created && session === created) renderEpochWaiting(waiting) },
+          onEpochGap: () => { if (created) reportEpochTrouble(created) },
+          onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -9968,6 +9996,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           endsAt: roomEndsAt,
           onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
           onEpochWaiting: waiting => { if (created && session === created) renderEpochWaiting(waiting) },
+          onEpochGap: () => { if (created) reportEpochTrouble(created) },
+          onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -10163,6 +10193,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // conversation and the box to type in.
     $('identityMore').hidden = true
     $('roomArea').hidden = false
+    reportEpochTrouble(s)
     // "Invitation accepted. Go in when you are ready." has been acted on.
     // A line about getting in is stale the moment you are in.
     setStatus('')
@@ -11377,6 +11408,8 @@ function resumeDockedCall(): void {
   $('identity').hidden = true
   $('identityMore').hidden = true
   $('roomArea').hidden = false
+  // What happened to the room's epochs while the call was docked.
+  reportEpochTrouble(s)
   setStatus('')
   showRoomTools()
   renderNudgeChoice()

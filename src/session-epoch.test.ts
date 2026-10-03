@@ -3,8 +3,11 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { RoomSession } from './session.js'
 import { localIdentity } from './identity.js'
-import { hostRoomEpoch } from './epoch.js'
+import { encodeRekeyEvent, generateEpochSecret, hostRoomEpoch } from './epoch.js'
 import type { RekeyNotice } from './epoch.js'
+import type { Event } from 'nostr-tools/pure'
+import type { Filter } from 'nostr-tools/filter'
+import type { EpochConflict, EpochGap } from './session.js'
 import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
 
@@ -32,6 +35,38 @@ function member(relay: SimRelay, name: string, authority?: string, extra: Partia
     ...extra,
   } as ConstructorParameters<typeof RoomSession>[0])
   return session
+}
+
+/**
+ * A relay connection that can lag and go deaf. `hold` keeps what this
+ * device publishes back until `release`, the way a slow relay acknowledges
+ * late; `deaf` drops what the relay delivers, the way a device that is
+ * away hears nothing.
+ */
+class LaggyTransport extends SimTransport {
+  hold = false
+  deaf = false
+  readonly held: Event[] = []
+  readonly #relay: SimRelay
+
+  constructor(relay: SimRelay) {
+    super(relay)
+    this.#relay = relay
+  }
+
+  override async publish(event: Event): Promise<void> {
+    if (this.hold) this.held.push(event)
+    else await super.publish(event)
+  }
+
+  override subscribe(filters: Filter[], onEvent: (event: Event) => void, onEose?: () => void): () => void {
+    return super.subscribe(filters, (event) => { if (!this.deaf) onEvent(event) }, onEose)
+  }
+
+  release(): void {
+    this.hold = false
+    for (const event of this.held.splice(0)) this.#relay.publish(event)
+  }
 }
 
 describe('room epochs', () => {
@@ -249,5 +284,179 @@ describe('room epochs', () => {
     await keeper.join([], {})
     await settle()
     expect(keeper.participants().map((v) => v.name)).toEqual(['Keeper'])
+  })
+
+  it('a message published under the epoch just left, late, is still heard by those who moved on', async () => {
+    const relay = new SimRelay()
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const keeper = member(relay, 'Keeper', authority)
+    const laggy = new LaggyTransport(relay)
+    const alice = member(relay, 'Alice', authority, { transport: laggy })
+    const bob = member(relay, 'Bob', authority)
+    await keeper.join([], {})
+    await alice.join([], {})
+    await bob.join([], {})
+    await settle()
+
+    // Alice speaks in epoch 0, but her relay is slow to take it; the rekey
+    // lands first, and only then does her message reach the relay.
+    laggy.hold = true
+    await alice.chat.send('said just before the rekey')
+    await keeper.rekey({ authoritySk, removed: [] })
+    await settle()
+    expect(bob.epoch).toBe(1)
+    laggy.release()
+    await settle()
+    expect(bob.chat.messages().map((m) => m.text)).toEqual(['said just before the rekey'])
+    expect(keeper.chat.messages().map((m) => m.text)).toEqual(['said just before the rekey'])
+  })
+
+  it('what a removed member publishes under the old key is refused, however it is dated', async () => {
+    const relay = new SimRelay()
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const keeper = member(relay, 'Keeper', authority)
+    const laggy = new LaggyTransport(relay)
+    const bob = member(relay, 'Bob', authority, { transport: laggy })
+    await keeper.join([], {})
+    await bob.join([], {})
+    await settle()
+
+    // Signed while Bob was still a member, published after his removal:
+    // indistinguishable from a late message, and still not heard.
+    laggy.hold = true
+    await bob.chat.send('held back until after my removal')
+    await keeper.rekey({ authoritySk, removed: [bob.participant] })
+    await settle()
+    laggy.release()
+    await bob.chat.send('and this one after')
+    await settle()
+    expect(keeper.chat.messages()).toEqual([])
+  })
+
+  it('a device coming back through several rekeys reads what was said in the epochs between', async () => {
+    const relay = new SimRelay({ replay: true })
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const keeper = member(relay, 'Keeper', authority)
+    const alice = member(relay, 'Alice', authority)
+    const carolIdentity = localIdentity(generateSecretKey())
+    const carolDevice = generateSecretKey()
+    const away = new LaggyTransport(relay)
+    const carol = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, transport: away })
+    await keeper.join([], {})
+    await alice.join([], {})
+    await carol.join([], {})
+    await settle()
+
+    // Carol goes quiet without saying goodbye, so every rekey is still
+    // sealed to her device; she just hears none of them.
+    away.deaf = true
+    await keeper.rekey({ authoritySk, removed: [] })
+    await settle()
+    await alice.chat.send('in epoch 1')
+    await keeper.rekey({ authoritySk, removed: [] })
+    await settle()
+    await alice.chat.send('in epoch 2')
+    await keeper.rekey({ authoritySk, removed: [] })
+    await settle()
+    await alice.chat.send('in epoch 3')
+    await settle()
+    expect(carol.epoch).toBe(0)
+
+    // She opens the room again: the relay replays three rekeys, she
+    // applies them in a row, and the epochs she passed through are read.
+    const gaps: EpochGap[] = []
+    const back = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, onEpochGap: (gap) => gaps.push(gap) })
+    await back.join([], {})
+    await settle()
+    expect(back.epoch).toBe(3)
+    expect(back.chat.messages().map((m) => m.text).sort()).toEqual(['in epoch 1', 'in epoch 2', 'in epoch 3'])
+    expect(gaps).toEqual([])
+    expect(back.epochGaps()).toEqual([])
+  })
+
+  it('a device whose rekey the relays lost is caught up by the desk and told what it cannot read', async () => {
+    const relay = new SimRelay({ replay: true })
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const keeper = member(relay, 'Keeper', authority)
+    const carolIdentity = localIdentity(generateSecretKey())
+    const carolDevice = generateSecretKey()
+    const away = new LaggyTransport(relay)
+    const carol = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, transport: away })
+    await keeper.join([], {})
+    await carol.join([], {})
+    await settle()
+    await keeper.rekey({ authoritySk, removed: [] })
+    await settle()
+    expect(carol.epoch).toBe(1)
+
+    away.deaf = true
+    await keeper.rekey({ authoritySk, removed: [] })
+    await keeper.rekey({ authoritySk, removed: [] })
+    await settle()
+    // The relay lets epoch 2's rekey go, as real relays let events go
+    // within days. Epoch 3's is sealed under epoch 2's key, so Carol can
+    // no longer follow the chain on her own.
+    const lost = relay.published.findIndex((e) => e.kind === KINDS.ROOM_REKEY && e.tags.some((t) => t[0] === 'epoch' && t[1] === '2'))
+    relay.published.splice(lost, 1)
+    const desk = hostRoomEpoch({
+      transport: new SimTransport(relay),
+      roomId: keeper.roomId,
+      authoritySk,
+      roomKey: deriveRoom(SECRET).roomKey,
+      current: () => keeper.currentEpoch(),
+      removed: () => keeper.removed,
+      now,
+    })
+
+    const back = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice })
+    await back.join([], {})
+    await settle()
+    expect(back.epoch).toBe(3)
+    expect(back.epochGaps()).toEqual([{ from: 1, to: 3, at: NOW }])
+    desk.close()
+  })
+
+  it('two different rekeys for one epoch are reported, and the authority\'s own echo is not', async () => {
+    const relay = new SimRelay()
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const keeperConflicts: EpochConflict[] = []
+    const keeper = member(relay, 'Keeper', authority, { onEpochConflict: (c) => keeperConflicts.push(c) })
+    const conflicts: EpochConflict[] = []
+    const alice = member(relay, 'Alice', authority, { onEpochConflict: (c) => conflicts.push(c) })
+    await keeper.join([], {})
+    await alice.join([], {})
+    await settle()
+    const epoch0 = keeper.epochKeys()
+
+    await keeper.rekey({ authoritySk, removed: [] })
+    await settle()
+    expect(keeperConflicts).toEqual([])
+    expect(keeper.epochConflicts()).toEqual([])
+    const first = relay.published.find((e) => e.kind === KINDS.ROOM_REKEY)!
+
+    // The same key, rekeying from a second tab that had not seen the first.
+    const second = encodeRekeyEvent({
+      roomId: keeper.roomId,
+      authoritySk,
+      current: epoch0,
+      next: { epoch: 1, secret: generateEpochSecret() },
+      recipients: [alice.device],
+      removed: [],
+      now: NOW,
+    })
+    await new SimTransport(relay).publish(second)
+    await new SimTransport(relay).publish(second)
+    await settle()
+    expect(conflicts).toEqual([{ epoch: 1, kept: first.id, other: second.id }])
+    expect(alice.epochConflicts()).toEqual(conflicts)
+    expect(keeperConflicts).toEqual([{ epoch: 1, kept: first.id, other: second.id }])
+    // Neither side is abandoned on arrival order: Alice stays where she was.
+    expect(alice.epoch).toBe(1)
+    expect(alice.epochKeys().key).toEqual(keeper.epochKeys().key)
   })
 })

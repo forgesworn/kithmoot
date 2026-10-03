@@ -157,6 +157,8 @@ export type {
   RoomSessionBaseOptions,
   PrimaryRoomSessionOptions,
   SecondaryRoomSessionOptions,
+  EpochGap,
+  EpochConflict,
 } from './session.js'
 export {
   createPairingCode,
@@ -284,6 +286,7 @@ export {
   MAX_CHAT_MESSAGES,
   MAX_CHAT_MESSAGES_PER_MINUTE,
   CHAT_ARCHIVE_PAGE,
+  MAX_PAST_EPOCHS,
   MAX_CHAT_ATTACHMENTS,
   MAX_ATTACHMENT_URL_LENGTH,
   MAX_ATTACHMENT_NAME_LENGTH,
@@ -296,6 +299,7 @@ export type {
   ChatMessageKind,
   ChatAttachment,
   EpochRoot,
+  PastEpoch,
   ChatLogOptions,
   EncodeChatOptions,
   DecodeChatOptions,
