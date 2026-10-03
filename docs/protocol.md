@@ -333,8 +333,10 @@ grant is not seen. A client that reaches an epoch through a grant rather than
 the rekey chain has jumped epochs (`EpochGap`) and cannot read the ones
 between, except those a member grant carried (`passed`), which it reads as
 left epochs; from an epoch above 0 that is a returning device that was offline
-at a rekey or whose relays let one go, and it says so. The web client and the library do
-all of this; the Android client does not yet read left epochs.
+at a rekey or whose relays let one go, and it says so. The web client, the
+library and the Android client (kithmoot-android #126) do all of this. On
+Android, a quiet room still opens its dead drops only under the current
+epoch's key, so a late message on an epoch it has left is not read there.
 
 Clients that cannot follow an epoch must say so rather than display a quiet,
 empty room. Android capability gaps are recorded in the compatibility ledger;
