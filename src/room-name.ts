@@ -207,7 +207,14 @@ export interface RoomNameFollower {
   close(): void
 }
 
-/** Follow a room's name on `session`'s control channel. */
+/**
+ * Follow a room's name on `session`'s control channel.
+ *
+ * Attach before the session's first rekey, as a client does on joining:
+ * every rename is filed under the epoch the session is in when the follower
+ * first reads it, so messages a log already held from an earlier epoch
+ * would be filed under the wrong one by a follower attached later.
+ */
 export function followRoomName(session: RoomNameSession, opts: FollowRoomNameOptions = {}): RoomNameFollower {
   const log = session.channel(CONTROL_CHANNEL)
   const book = new RoomNameBook()

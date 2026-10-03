@@ -1,9 +1,12 @@
 # The room name
 
 Built 2026-10-03. Any member may rename a room, and the name changes for
-everybody in it. There is no private nickname beside it: the rename control
-that used to change only this device's copy now renames the room for
-everyone.
+everybody in it. There is no private nickname beside it. Before this, a
+room's name came only from its link and was kept per device: Android's
+"Rename" on the saved rooms list changed that device's copy alone, and the
+web and desktop clients had no rename at all. Now the web and desktop
+clients rename from the room's details ("Rename for everyone"), and
+Android's rename is to become the same.
 
 The reference implementation is `src/room-name.ts` (the op, the order, the
 book of renames, `followRoomName`) and `src/control.ts` (the codec). The

@@ -6364,6 +6364,9 @@ function adoptSharedRoomName(s: RoomSession, record: RoomNameRecord): void {
   if (session === s) {
     if (roomName === record.name) return
     roomName = record.name
+    // The address bar too, so a link copied from it, or a reload, carries
+    // the room's name as it is now.
+    if (location.hash.length > 1) history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
     rememberCurrentRoom()
     renderRoomTitle()
     renderRooms()
