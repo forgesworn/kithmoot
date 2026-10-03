@@ -1777,26 +1777,29 @@ epoch-0 proof the removed still hold ("The epoch desk answers holders of
 the room key" above), so reading left epochs lets them in nowhere the link
 does not.
 
-**Lost rekeys.** Relays keep events for days, not for ever: the 1 October
-measurement found kind 1463 invitations gone from `relay.primal.net` within
-a day. A rekey is sealed under the key of the epoch it leaves, so a device
-that misses one cannot read the next, and asks the authority. When the
-answer jumps it more than one epoch the session records an `EpochGap`, and
-from any epoch above 0 the room says that messages from that time cannot be
-read on this device. From epoch 0 it says nothing, because that is also
-every newcomer to a room that has been rekeyed; a returning device whose
-last epoch was 0 is not told, which is the case this does not cover.
+**Lost rekeys and skipped epochs.** Relays keep events for days, not for
+ever: the 1 October measurement found kind 1463 invitations gone from
+`relay.primal.net` within a day. A rekey is sealed under the key of the
+epoch it leaves, and only to the devices in the roster when it was made, so
+a device that was offline at a rekey, or whose relays have let one go,
+cannot follow the chain on its own. It asks, and since fold-kit 0.5.0 it
+asks the room's current members as well as the authority ("member epoch
+catch-up"): a member's answer carries the authority's signed rekeys as
+proof, so any member online is enough. When the answer jumps the session
+more than one epoch it records an `EpochGap`, and from any epoch above 0
+the room says that messages sent in that time cannot be read on this
+device. From epoch 0 it says nothing, because that is also every newcomer
+to a room that has been rekeyed; a returning device whose last epoch was 0
+is not told, which is the case this does not cover.
 
-**Not done here.** A device with no keeper or browser holding the
-authority online cannot catch up past a lost rekey at all. Republishing
-rekeys costs what republishing invitations cost (it shows on public relays
-that the authority is up), and syncing epoch secrets through the account's
-bookmarks would hand later epochs to every device on the account, including
-one that was removed. The better change is a rekey any remaining device can
-open with its own key alone, so that one surviving rekey is enough; that is
-a change to `epoch.ts` in fold-kit, and it is next. Left epochs are held in
-memory, rebuilt on opening from the rekeys the device has kept, and not
-written down on their own.
+**Next.** A member's answer already carries, and fold-kit already checks,
+the secret of every epoch in between; the session took only the last.
+fold-kit#8 hands the rest over as `passed`, and once KithMoot takes that
+release the session will read those epochs and pass them on from its own
+member desk rather than report them lost. The authority's own answer
+carries only the current epoch and will still leave a gap. Left epochs are
+held in memory, rebuilt on opening from the rekeys the device has kept,
+and not written down on their own.
 
 ## Signet channel checks, a draft, 19 September 2026
 

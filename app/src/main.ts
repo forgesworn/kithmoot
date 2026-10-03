@@ -6535,7 +6535,7 @@ function reportEpochTrouble(s: RoomSession): void {
     // From epoch 0 it is every newcomer to a room that has been rekeyed,
     // who was never owed what was said before they came.
     if (gap.from === 0) continue
-    addSystemLine('This device was away while the room lock changed, and the change it missed is no longer on the relays. Messages sent in that time cannot be read here.', gap.at)
+    addSystemLine('This device was away while the room lock changed, so messages sent in that time cannot be read here.', gap.at)
   }
   for (const conflict of conflicts.slice(shown.conflicts)) {
     addSystemLine(`The room lock was changed from two places at once (epoch ${conflict.epoch}). Some people here may not see each other's messages until whoever holds the room changes it again from one device.`)
