@@ -129,6 +129,9 @@ import {
   TRANSCRIPT_CHANNEL,
   MINUTES_CHANNEL,
   CONTROL_CHANNEL,
+  followRoomName,
+  type RoomNameFollower,
+  type RoomNameRecord,
   DEFAULT_APPROVAL_OPTIONS,
   encodeControl,
   decodeControl,
@@ -3024,6 +3027,10 @@ async function roomFromLocation(): Promise<boolean> {
   // An older saved invitation may predate names in room links. The rooms
   // list still knows the human name, so keep it when opening that bookmark
   // instead of replacing it with `Room deadbeef` on desktop.
+  // A name the room's members chose since the link was written outranks
+  // the one on the link: the newest rename this device read, kept with its
+  // order key (see `adoptSharedRoomName`).
+  roomName = loadRoomNameRecord(currentRoomId() ?? '')?.name ?? roomName
   if (!roomName) roomName = knownRooms(roomStore()).find((room) => room.roomId === currentRoomId())?.name
   // A room shared through a project carries its name in the project's
   // encrypted directory rather than in its link. Adopt it as this device's
@@ -4356,6 +4363,7 @@ function renderSheetRoom(): void {
   id.textContent = shortKey(roomId)
   id.title = roomId
   line.append(id)
+  renderRoomRename()
 }
 
 async function copyInput(id: string): Promise<void> {
@@ -6323,6 +6331,104 @@ function scheduleRoomRelaysRepost(s: RoomSession): void {
   }, 30_000 + Math.random() * 30_000)
 }
 
+// ---------------------------------------------------------------------------
+// The room's name, shared: any member renames it for everybody
+//
+// A `name` op on the control channel, under the current epoch (see
+// `src/room-name.ts` and `docs/room-name.md`). The newest rename replaces the
+// name this device holds, in the title, the rooms list and every link it
+// hands on. Kept with its order key, so this device can post it again after
+// a rekey, or when the last copy is about to leave the relays' window.
+
+const ROOM_NAME_PREFIX = 'kithmoot.room-name.v1.'
+const roomNameFollowers = new WeakMap<RoomSession, RoomNameFollower>()
+let roomNameCarryTimer: ReturnType<typeof setTimeout> | undefined
+
+function loadRoomNameRecord(roomId: string): Pick<RoomNameRecord, 'name' | 'id' | 'at'> | undefined {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ROOM_NAME_PREFIX + roomId) ?? 'null') as Partial<RoomNameRecord> | null
+    const name = sanitiseDisplayName(raw?.name)
+    return raw && name && typeof raw.id === 'string' && /^[0-9a-f]{32}$/.test(raw.id) && Number.isSafeInteger(raw.at) && raw.at! > 0
+      ? { name, id: raw.id, at: raw.at! }
+      : undefined
+  } catch { return undefined }
+}
+
+function storeRoomNameRecord(roomId: string, record: Pick<RoomNameRecord, 'name' | 'id' | 'at'>): void {
+  try { localStorage.setItem(ROOM_NAME_PREFIX + roomId, JSON.stringify({ name: record.name, id: record.id, at: record.at })) } catch { /* Still applies to this visit. */ }
+}
+
+/** The room's name changed, by a rename this device read or made. */
+function adoptSharedRoomName(s: RoomSession, record: RoomNameRecord): void {
+  storeRoomNameRecord(s.roomId, record)
+  if (session === s) {
+    if (roomName === record.name) return
+    roomName = record.name
+    rememberCurrentRoom()
+    renderRoomTitle()
+    renderRooms()
+    return
+  }
+  // A room on the dock: its saved name moves now, and its screen when it
+  // comes back (`followSharedRoomName` applies the current name again).
+  const known = knownRoom(roomStore(), s.roomId)
+  if (!known || known.name === record.name) return
+  try {
+    bookmarks?.save(rememberRoom(roomStore(), { roomId: s.roomId, link: known.link, name: record.name, openedAt: known.openedAt }))
+  } catch { /* The name still shows in the room itself. */ }
+  renderRooms()
+}
+
+/** Follow `s`'s shared name, once per session; on a session already
+ *  followed, show the name it holds now. */
+function followSharedRoomName(s: RoomSession): void {
+  let follower = roomNameFollowers.get(s)
+  if (!follower) {
+    follower = followRoomName(s, {
+      seed: loadRoomNameRecord(s.roomId),
+      onName: (record) => { if (record) adoptSharedRoomName(s, record) },
+      onRename: (record, message) => {
+        if (session !== s) return
+        addSystemLine(`${personLabel(record.by)} renamed the room to “${record.name}”.`, message.sentAt)
+      },
+    })
+    roomNameFollowers.set(s, follower)
+  }
+  const current = follower.current()
+  if (current) adoptSharedRoomName(s, current)
+}
+
+/** A while from now, post the room's name again if this epoch's control
+ *  log lacks a recent copy. Random, so members do not all post at once;
+ *  a second copy is harmless. */
+function scheduleRoomNameCarry(s: RoomSession, minMs: number, spreadMs: number): void {
+  clearTimeout(roomNameCarryTimer)
+  roomNameCarryTimer = setTimeout(() => {
+    if (session !== s) return
+    roomNameFollowers.get(s)?.carryIfDue().catch(() => { /* Tried again on the next visit or rekey. */ })
+  }, minMs + Math.random() * spreadMs)
+}
+
+/** Rename the room for everybody in it. */
+async function renameRoomForEveryone(name: string): Promise<void> {
+  const s = session
+  const follower = s ? roomNameFollowers.get(s) : undefined
+  if (!s || !follower) throw new Error('Join the room before renaming it.')
+  const record = await follower.rename(name)
+  // Shown now rather than when a relay echoes it back.
+  adoptSharedRoomName(s, { ...record, by: s.participant })
+}
+
+/** The rename form in the room's details: the current name, and hidden in a
+ *  direct message, whose title is the other person. */
+function renderRoomRename(): void {
+  const form = $('roomRename') as HTMLFormElement
+  const me = meParticipant || currentParticipant()
+  form.hidden = !session || (me ? dmPeer(roomPolicy, me) !== undefined : false)
+  const input = $('roomRenameInput') as HTMLInputElement
+  if (document.activeElement !== input) input.value = roomName ?? ''
+}
+
 /** The authority: every member should use these relays too. */
 async function shareRoomRelays(urls: string[]): Promise<string> {
   const s = session, sk = invitationAuthoritySk
@@ -6506,6 +6612,13 @@ function renderEpochWaiting(waiting: boolean): void {
 function onEpochChange(notice: RekeyNotice): void {
   renderRoomLockState()
   renderHost()
+  // The name rides into the new epoch, carried by whichever member gets
+  // there first; and a rename read under the epoch left may no longer count.
+  const s = session
+  if (s) {
+    roomNameFollowers.get(s)?.refresh()
+    if (!notice.closed) scheduleRoomNameCarry(s, 3_000, 12_000)
+  }
   // Joining replays old rekeys; a state grant includes everyone ever
   // removed. Neither is a new event to announce in this visit's chat.
   if ($('roomArea').hidden || notice.catchUp) return
@@ -10147,6 +10260,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const control = s.channel(CONTROL_CHANNEL)
     control.onChange((messages) => { if (session === s) ingestControl(messages) })
     ingestControl(control.messages())
+    followSharedRoomName(s)
+    scheduleRoomNameCarry(s, 30_000, 30_000)
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
     scheduleReseed(s, pool, !!quietTransport, sessionAuthority)
     scheduleRoomRelaysRepost(s)
@@ -11266,6 +11381,7 @@ function resetRoomState(): void {
   adminsAt = channelsAt = 0
   roomRelaysSeenAt = 0
   clearTimeout(roomRelaysRepostTimer)
+  clearTimeout(roomNameCarryTimer)
   channels = []
   channelLogs.clear()
   channelCounts.clear()
@@ -11369,6 +11485,7 @@ function resumeDockedCall(): void {
   // only the screen stopped following them.
   for (const [name, log] of channelLogs) channelCounts.set(name, log.messages().length)
   ingestControl(s.channel(CONTROL_CHANNEL).messages())
+  followSharedRoomName(s)
   scheduleRoomRelaysRepost(s)
   renderRoomLockState()
   renderHost()
@@ -13746,6 +13863,23 @@ $('chatInput').addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return
   event.preventDefault()
   ;($('chatForm') as HTMLFormElement).requestSubmit()
+})
+
+$('roomRename').addEventListener('submit', (event) => {
+  event.preventDefault()
+  const input = $('roomRenameInput') as HTMLInputElement
+  const name = sanitiseDisplayName(input.value)
+  if (name === undefined) {
+    setStatus('A room name cannot be empty.')
+    return
+  }
+  if (name === roomName) return
+  const button = $('roomRenameSave') as HTMLButtonElement
+  button.disabled = true
+  renameRoomForEveryone(name)
+    .then(() => { input.blur(); setStatus(`Renamed the room to “${name}” for everyone.`) })
+    .catch((err) => setStatus(describeError(err)))
+    .finally(() => { button.disabled = false; renderRoomRename() })
 })
 
 $('channelNew').addEventListener('submit', (event) => {
