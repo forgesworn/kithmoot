@@ -26,6 +26,8 @@ export interface StoredKeeperState {
   closed?: boolean
   /** Who asked to be nudged. Written only when somebody has. */
   nudge?: string[]
+  /** Who the room knows (#207). Written only when anybody is. */
+  members?: string[]
   /** A conference room's end, unix seconds. Written only for one. */
   ends?: number
 }
@@ -75,6 +77,13 @@ export function parseKeeperState(json: string): KeeperState {
     const nudge = [...new Set(stored.nudge.map(normaliseHex))].sort()
     if (nudge.length) state.nudge = nudge
   }
+  if (stored.members !== undefined) {
+    if (!Array.isArray(stored.members) || !stored.members.every((p) => typeof p === 'string' && HEX64.test(p))) {
+      throw new Error('keeper state: members is not a list of pubkeys')
+    }
+    const members = [...new Set(stored.members.map(normaliseHex))].sort()
+    if (members.length) state.members = members
+  }
   return state
 }
 
@@ -96,5 +105,6 @@ export function serialiseKeeperState(state: KeeperState): string {
   if (state.closed) stored.closed = true
   if (state.endsAt !== undefined) stored.ends = state.endsAt
   if (state.nudge?.length) stored.nudge = [...new Set(state.nudge.map(normaliseHex))].sort()
+  if (state.members?.length) stored.members = [...new Set(state.members.map(normaliseHex))].sort()
   return JSON.stringify(stored, null, 2) + '\n'
 }

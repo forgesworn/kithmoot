@@ -99,6 +99,11 @@ export interface KeeperState {
   removed?: string[]
   /** True once the room was closed. A closed room is not reopened. */
   closed?: boolean
+  /** Participants the room knows, lower-case hex: the member list its last
+   *  rekey wrote, and everybody seen or let in since. Kept so a restarted
+   *  keeper still knows members who have been away since, and writes them
+   *  into its next rekey (#207). Absent from state written before. */
+  members?: string[]
   /** Participants who asked to be nudged when they miss messages, lower-case
    *  hex. Absent until somebody has. See `Nudger` in src/node/nudge.ts. */
   nudge?: string[]
@@ -353,6 +358,7 @@ export class RoomAgent {
   readonly #described = new Set<string>()
   #describeTimer?: ReturnType<typeof setTimeout>
   #rosterUnsub?: () => void
+  #membersUnsub?: () => void
   readonly #transport: RelayTransport
   /** The quiet transport, when this is a quiet room: what still waits to
    *  be posted, and whether this agent may post at all. */
@@ -488,7 +494,12 @@ export class RoomAgent {
     }
     if (state.endsAt !== undefined && now() >= state.endsAt) throw new Error(CONFERENCE_ENDED_MESSAGE)
     const epochNumber = state.epoch ?? 0
-    state = { ...state, epoch: epochNumber, removed: [...new Set((state.removed ?? []).map(normaliseHex))].sort() }
+    state = {
+      ...state,
+      epoch: epochNumber,
+      removed: [...new Set((state.removed ?? []).map(normaliseHex))].sort(),
+      ...(state.members ? { members: [...new Set(state.members.map(normaliseHex))].sort() } : {}),
+    }
     const invitation = roomInvitation(state.bearer, getPublicKey(state.inviterSk), state.persistent === true)
     const link: RoomLink = { invitation, relays, iceUrls: opts.iceUrls ?? [] }
     if (opts.policy) link.policy = opts.policy
@@ -600,6 +611,9 @@ export class RoomAgent {
     // can tell it anything. Marked on the session by way of the first
     // rekey notice it would otherwise have missed.
     if (opts.keeper && opts.removed?.length) agent.session.forgetParticipants(opts.removed)
+    // And who it knew, so a member away since the restart is still one.
+    if (opts.keeper?.members?.length) agent.session.rememberMembers(opts.keeper.members)
+    if (opts.keeper) agent.#keepMembers()
 
     try {
       if (opts.keeper?.persistent && opts.link.invitation) {
@@ -1053,6 +1067,19 @@ export class RoomAgent {
     }
   }
 
+  /** Persist again whenever somebody new joins the room's member list, so
+   *  a restart does not forget them (#207). */
+  #keepMembers(): void {
+    let count = this.session.memberList().length
+    this.#membersUnsub = this.session.onChange(() => {
+      if (this.#left) return
+      const now = this.session.memberList().length
+      if (now === count) return
+      count = now
+      this.#persist().catch(() => {})
+    })
+  }
+
   async #persist(): Promise<void> {
     const keeper = this.#keeper
     if (!keeper) return
@@ -1064,6 +1091,7 @@ export class RoomAgent {
       ...(keeper.persistent ? { persistent: true as const } : {}),
       epoch: current.epoch,
       removed: [...this.session.removed].sort(),
+      members: this.session.memberList(),
       ...(current.epoch > 0 ? { epochSecret: current.secret } : {}),
       ...(this.session.closed ? { closed: true } : {}),
       ...(keeper.nudge?.length ? { nudge: keeper.nudge } : {}),
@@ -1229,6 +1257,8 @@ export class RoomAgent {
     this.#controlUnsub = undefined
     this.#rosterUnsub?.()
     this.#rosterUnsub = undefined
+    this.#membersUnsub?.()
+    this.#membersUnsub = undefined
     if (this.#describeTimer !== undefined) clearTimeout(this.#describeTimer)
     this.#describeTimer = undefined
     for (const [id, open] of this.#approvals) {

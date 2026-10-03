@@ -1106,6 +1106,18 @@ export class RoomSession {
     return false
   }
 
+  /** Seed who the room knows from what was kept: a keeper reopening a
+   *  room from its state, so the members it had seen before a restart are
+   *  still on the list its next rekey writes, and still known to its desk. */
+  rememberMembers(participants: readonly string[]): void {
+    const merged = new Set(this.#members ?? [])
+    for (const raw of participants) {
+      const p = normaliseHex(raw)
+      if (!this.#removed.has(p)) merged.add(p)
+    }
+    this.#members = merged
+  }
+
   /** Let a participant the room does not know in from this device: its
    *  member desk answers their next ask. Not for a removed participant. */
   letIn(participant: string): void {

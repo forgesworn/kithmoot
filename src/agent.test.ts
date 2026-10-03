@@ -4,7 +4,9 @@ import { RoomAgent, AGENT_CHANNEL, TRANSCRIPT_CHANNEL } from './agent.js'
 import type { KeeperState } from './agent.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { CONTROL_CHANNEL, decodeControl, encodeControl } from './control.js'
-import { verifyAdmins, verifyChannels } from './epoch.js'
+import { deriveEpoch, verifyAdmins, verifyChannels } from './epoch.js'
+import { readRekeyEvidence } from './member-epoch.js'
+import { KINDS } from './kinds.js'
 import type { RekeyNotice } from './epoch.js'
 import { encodeJoinUrl } from './room.js'
 import { encodeRoomLink, parseRoomLink } from './link.js'
@@ -372,6 +374,31 @@ describe('RoomAgent', () => {
     const eve = await RoomAgent.join({ link: again.url, name: 'Eve', identity: eveIdentity, transport: transportFor(relay), announceJitterMs: 0 })
     expect(eve.session.epoch).toBe(1)
     eve.leave()
+    again.leave()
+  })
+
+  it('a restarted keeper still knows the members it saw before, and writes them into its next rekey (#207)', async () => {
+    const relay = new SimRelay({ replay: true })
+    let state: KeeperState | undefined
+    const first = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, onState: (s) => void (state = s) })
+    const ann = await RoomAgent.join({ link: first.url, name: 'Ann', transport: transportFor(relay), announceJitterMs: 0 })
+    const bob = await RoomAgent.join({ link: first.url, name: 'Bob', transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+    // Ann has been and gone before the restart; only the state remembers her.
+    await ann.leave()
+    await first.leave()
+    expect(state?.members).toContain(ann.participant)
+
+    const again = await RoomAgent.create({ base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0, state })
+    await settle()
+    expect(again.session.knows(ann.participant)).toBe(true)
+    await again.remove(bob.participant)
+    await settle()
+    const rekey = relay.published.filter((e) => e.kind === KINDS.ROOM_REKEY).at(-1)!
+    const evidence = readRekeyEvidence(rekey, { roomId: again.roomId, authority: again.link.invitation!.inviter, previous: deriveEpoch({ epoch: 0, secret: state!.secret }) })
+    expect(evidence?.members).toContain(ann.participant)
+    expect(evidence?.members).not.toContain(bob.participant)
+    bob.leave()
     again.leave()
   })
 

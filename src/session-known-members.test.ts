@@ -108,12 +108,17 @@ describe('the known-members gate', () => {
 
   it('a member who was offline through the removal comes back on a new device without asking anybody', async () => {
     const relay = new SimRelay({ replay: true })
-    const { authority, alice, dave, asked } = await roomAfterRemoval(relay)
+    const { authority, keeper, alice, mallory, dave, asked } = await roomAfterRemoval(relay)
     const daveNow = member(relay, 'Dave', authority, { identity: dave, expectedEpoch: 1 })
     await daveNow.join([], {})
     await settle()
     expect(daveNow.epoch).toBe(1)
     expect(asked).toEqual([])
+    // The member grant carried the authority's list, so Dave's own desk
+    // knows who the room knows: the keeper, gone from the roster, and not
+    // the removed.
+    expect(daveNow.knows(keeper.participant)).toBe(true)
+    expect(daveNow.knows(mallory.pubkey)).toBe(false)
     await daveNow.leave()
     await alice.leave()
   }, 30_000)
