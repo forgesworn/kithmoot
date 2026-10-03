@@ -58,6 +58,7 @@ import type { ChatMessage } from '../src/chat.js'
 import { decodeReadPositions, readPositionId, readPositionPlaintext, localSelfCrypt, mergeReadPositions, type ReadPositions } from '../src/read-position.js'
 import { openInvite, localPeerCrypt } from '../src/dm.js'
 import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCallBellEvent } from '../src/call-bell.js'
+import { RoomNameBook, ROOM_NAME_REKEY_GRACE_SECONDS, compareRoomNames, roomNameFromMessage } from '../src/room-name.js'
 
 interface Vector {
   name: string
@@ -101,7 +102,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell', 'roomName']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -1302,5 +1303,66 @@ describe('reserved service admission vectors', () => {
     expect(bytesToHex(deriveServiceKey(hexToBytes(v.input.authoritySkHex), v.input.roomId, v.input.audience, 'authority'))).toBe(v.output.authoritySkHex)
     expect(bytesToHex(deriveServiceKey(hexToBytes(v.input.deviceSkHex), v.input.roomId, v.input.audience, 'device'))).toBe(v.output.deviceSkHex)
     expect(deriveServiceRoom(hexToBytes(v.input.trafficSecretHex), v.input.roomId, v.input.audience)).toBe(v.output.room)
+  })
+})
+
+describe('room name vectors', () => {
+  const eventVectors = groups.roomName.filter((v) => v.input.event)
+  function decodeOpts(decode: Record<string, unknown>) {
+    const epoch = decode.epoch as { id: string; keyHex: string } | undefined
+    return {
+      roomId: decode.roomId as string,
+      roomKey: hexToBytes(decode.roomKeyHex as string),
+      channel: decode.channel as string,
+      now: decode.now as number,
+      ...(epoch ? { epoch: { id: epoch.id, key: hexToBytes(epoch.keyHex) } } : {}),
+    }
+  }
+
+  for (const v of eventVectors) {
+    it(`roomName/${v.name}: the event rebuilds from its recorded inputs`, () => {
+      const event = v.input.event as Event
+      const sk = event.pubkey === fx.DEVICE_A ? fx.DEVICE_A_SK : fx.DEVICE_B_SK
+      // Rebuilt under the key of the channel the event was published to,
+      // which for `rename-wrong-epoch` is not the one it is read with.
+      const writer = v.name === 'rename-wrong-epoch' ? vec('roomName', 'rename-in-epoch-1').input.decode : v.input.decode
+      const root = writer.epoch ? { id: writer.epoch.id, key: hexToBytes(writer.epoch.keyHex) } : { id: writer.roomId, key: hexToBytes(writer.roomKeyHex) }
+      const channel = deriveChannel(root.id, root.key, writer.channel)
+      const content = nip44.v2.encrypt(JSON.stringify(v.input.message), channel.key, hexToBytes(v.input.nonceHex))
+      const rebuilt = finalizeDeterministic({ kind: KINDS.CHAT, created_at: v.input.message.sentAt, tags: [['d', channel.id]], content }, sk, hexToBytes(v.input.auxRandHex))
+      expect(rebuilt).toEqual(event)
+    })
+
+    it(`roomName/${v.name}: decodes, reads as an op and as a rename exactly as frozen`, () => {
+      const opts = decodeOpts(v.input.decode)
+      expect(deriveChannel(opts.epoch?.id ?? opts.roomId, opts.epoch?.key ?? opts.roomKey, opts.channel).id).toBe(v.output.channelId)
+      const message = decodeChatEvent(v.input.event as Event, opts)
+      expect(message).toEqual(v.output.message)
+      expect(message ? decodeControl(message.text) : null).toEqual(v.output.op)
+      expect(message ? roomNameFromMessage(message) : null).toEqual(v.output.record)
+      if (v.kind === 'negative') expect(v.output.record).toBeNull()
+      else expect(v.output.record).not.toBeNull()
+    })
+  }
+
+  it('the room name never crosses the wire in the clear', () => {
+    for (const v of eventVectors) expect(JSON.stringify(v.input.event)).not.toContain('Book club')
+  })
+
+  for (const v of groups.roomName.filter((x) => x.input.records)) {
+    it(`roomName/${v.name}: orders as frozen`, () => {
+      const sorted = [...v.input.records].sort(compareRoomNames)
+      expect(sorted.map((r: { name: string }) => r.name)).toEqual(v.output.order)
+      expect(sorted.at(-1).name).toBe(v.output.winner)
+    })
+  }
+
+  it('roomName/left-epoch-cut: a rename stamped after the rekey that left its epoch is discounted', () => {
+    const v = vec('roomName', 'left-epoch-cut')
+    expect(v.input.graceSeconds).toBe(ROOM_NAME_REKEY_GRACE_SECONDS)
+    const book = new RoomNameBook()
+    for (const e of v.input.entries) book.add(e.record, e.epoch)
+    expect(book.current(0)?.name ?? null).toBe(v.output.inEpoch0)
+    expect(book.current(1, { rekeyedAt: (e) => v.input.rekeyedAt[e] })?.name ?? null).toBe(v.output.inEpoch1)
   })
 })
