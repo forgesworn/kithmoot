@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.44",
+  "currentRelease": "0.1.45",
   "releases": [
     {
-      "version": "0.1.44",
+      "version": "0.1.45",
       "updateTo": {
-        "version": "0.1.44",
-        "pub_date": "2026-10-03T09:40:00Z",
-        "notes": "The rooms list now picks up a room's new name, and its latest messages, without opening the room.",
-        "name": "0.1.44",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.44/KithMoot-0.1.44-mac-arm64.zip",
-        "sha256": "a7f3cfa345b4d23cab6bcf74652678b8126fe9b95e7fd8b2990d66039096d5f7",
-        "size": 136435924
+        "version": "0.1.45",
+        "pub_date": "2026-10-03T15:00:00Z",
+        "notes": "Marks other people draw on your screen share now show over your actual screen when you share the whole screen, not only on KithMoot's own preview of it.",
+        "name": "0.1.45",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.45/KithMoot-0.1.45-mac-arm64.zip",
+        "sha256": "ac6a4598a2e0c147eb41f2adaad21b9c3ef829ac2f5c88c4241de0f3586eb9e7",
+        "size": 136437114
       }
     }
   ]
