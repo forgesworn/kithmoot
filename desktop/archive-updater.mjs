@@ -109,10 +109,17 @@ export function createArchiveUpdater({
 
   const small = async url => {
     const response = await fetch(url)
-    if (!response.ok) throw new Error(`${url} answered ${response.status}`)
-    const bytes = Buffer.from(await response.arrayBuffer())
-    if (bytes.length > MAX_MANIFEST_BYTES) throw new Error('manifest is too large')
-    return bytes
+    if (!response.ok || !response.body) throw new Error(`${url} answered ${response.status}`)
+    // Counted as it arrives: a server answering with gigabytes must not
+    // get them all held in memory before anything checks the size.
+    const chunks = []
+    let total = 0
+    for await (const chunk of response.body) {
+      total += chunk.length
+      if (total > MAX_MANIFEST_BYTES) throw new Error('manifest is too large')
+      chunks.push(Buffer.from(chunk))
+    }
+    return Buffer.concat(chunks)
   }
 
   /** Streams `url` to `path`, refusing anything that is not exactly `bytes`

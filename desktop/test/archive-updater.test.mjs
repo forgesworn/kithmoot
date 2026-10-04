@@ -121,6 +121,20 @@ for (const [name, change] of [
   })
 }
 
+test('an endless manifest is cut off as it streams, not buffered whole', async () => {
+  const t = setup()
+  try {
+    let pulled = 0
+    t.routes[`${t.origin}/downloads/release.json`] = () => new ReadableStream({
+      pull(controller) { pulled += 64 * 1024; controller.enqueue(new Uint8Array(64 * 1024)) },
+    })
+    t.updater.start()
+    assert.equal(await t.updater.check(), false)
+    assert.equal(t.updater.state().phase, 'error')
+    assert.ok(pulled <= 512 * 1024, `read ${pulled} bytes of an endless manifest`)
+  } finally { t.cleanup() }
+})
+
 test('a manifest changed after signing is refused', async () => {
   const t = setup()
   try {
