@@ -84,6 +84,29 @@
           </button>
         </div>
 
+        <!-- A recording of this room's call is running. Shown to everybody
+             for as long as the authority's signed notice stands, and kept
+             up, marked unconfirmed, if the notice stops being reposted.
+             Filled in by `renderRecording` in app/src/main.ts. -->
+        <div id="recordingBanner" class="recordingBanner" role="status" hidden>
+          <span class="recordingDot" aria-hidden="true"></span>
+          <span id="recordingBannerText"></span>
+          <button id="recordingStop" type="button" class="danger" hidden>Stop recording</button>
+        </div>
+        <!-- A finished recording on this device, waiting for its owner to
+             share it in the room, save it, or throw it away. -->
+        <div id="recordingReady" class="recordingReady" role="status" hidden>
+          <span id="recordingReadyText"></span>
+          <button id="recordingShare" type="button" class="primary">Share in this room</button>
+          <a id="recordingSave" class="button">Save to this device</a>
+          <button id="recordingDiscard" type="button">Discard</button>
+        </div>
+        <!-- The call is in meeting mode. Filled in by `renderMeeting` in
+             app/src/main.ts. -->
+        <div id="meetingNotice" class="meetingNotice" role="status" hidden>
+          <span id="meetingNoticeText"></span>
+          <button id="raiseHand" type="button" aria-pressed="false" hidden>Raise your hand</button>
+        </div>
         <nav id="mobileRoomViews" aria-label="Room views">
           <button id="mobileChat" type="button" aria-pressed="true">Chat</button>
           <button id="mobileCall" type="button" aria-pressed="false">Call</button>
@@ -217,6 +240,24 @@
                  conversation and composer off screen; desktop keeps this
                  details section open. -->
             <p id="wakeLockNote" class="indicator" hidden>This device may let its screen sleep during the call.</p>
+            <!-- Only for whoever holds the room's authority key: meeting mode,
+                 the stage, and recording. Filled in by `renderMeeting` in
+                 app/src/main.ts. -->
+            <details id="meetingPanel" class="meetingPanel" hidden>
+              <summary>Run this call as a meeting</summary>
+              <p class="note">
+                In <strong>meeting mode</strong> only speakers can talk or show
+                video. Everybody else's app locks their microphone and camera,
+                and every app in the room refuses to play anybody who is not a
+                speaker, so a changed app cannot get round it. People can raise
+                a hand to ask to speak.
+              </p>
+              <div class="hostRow">
+                <button id="meetingModeToggle" type="button" aria-pressed="false">Start meeting mode</button>
+                <button id="recordToggle" type="button" aria-pressed="false">Record the call</button>
+              </div>
+              <div id="meetingPeople"></div>
+            </details>
             <details id="callMore" class="callMore">
               <summary>Two devices, mirror, agents</summary>
               <button id="toggleCompanion" class="toggle" data-on="false" aria-pressed="false" title="Silence this device's microphone and speaker; its camera and screen share still work">Use beside another device</button>

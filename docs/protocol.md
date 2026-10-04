@@ -298,6 +298,23 @@ a display name. Members carry the current name into each new epoch and back
 inside the retention window. See [the room name](room-name.md) and the
 `roomName` vectors.
 
+A call can be run as a meeting. The authority signs a `meeting` op on the
+control channel, `{"op":"meeting","on":<bool>,"speakers":[<pubkey>…],"version":<int>,"sig":"<128 hex>"}`,
+over `sha256("kithmoot/v1/meeting:" + roomId + ":" + version + ":" + (on ? 1 : 0)
++ ":" + JSON(speakers))`, the speakers lower-case, deduplicated, sorted and at
+most 64. The newest verified version wins and any member may repost it. While
+`on`, a client MUST NOT send microphone, camera or screen from a participant
+not on the list, and MUST NOT play or show what it receives from one; a device
+whose participant it cannot place is treated as not on the list. A recording is
+announced the same way, `{"op":"recording","on":<bool>,"id":"<32 hex>","version":<int>,"sig":"<128 hex>"}`
+over `sha256("kithmoot/v1/recording:" + roomId + ":" + version + ":" + id + ":"
++ (on ? 1 : 0))`; a client records only after posting one, reposts it while
+recording, and every client shows a notice for as long as the newest is on.
+`{"op":"hand","up":<bool>}` raises or lowers the sender's hand and is unsigned:
+the sender is the message's credential-bound participant. See `src/meeting.ts`,
+"A meeting is moderated by the room's authority" in [decisions](decisions.md),
+and the `meeting` vectors.
+
 Rekeys and the encrypted control channel are authority-bound. A room advances
 one verified epoch at a time; a removed device can read the removal notice but
 cannot recover a next-epoch secret addressed only to remaining devices. The

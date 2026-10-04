@@ -2042,3 +2042,52 @@ word. `share-cover.ts` is the one place that would change. Hiding is not
 offered on Wayland or in a browser, where a share does not go through the
 canvas.
 
+## A meeting is moderated by the room's authority, and enforced by the people listening, 4 October 2026
+
+The owner asked for a meeting mode: whoever starts the meeting turns cameras
+off and microphones off for everybody, chooses speakers who may talk and turn
+their camera on, and may record the call so long as everybody knows. A room
+has no operator, so two questions had to be settled first.
+
+**Who moderates.** Three candidates: whoever started the call, people that
+person names, or anybody holding an admin credential. The room already has an
+answer that is signed rather than claimed: the authority key pinned in the
+link, which already signs the room's relays, channels and admin list. The
+meeting policy and the recording notice are signed by that key and nothing
+else, so the person who made the room (or a keeper holding its key) runs the
+meeting. Whoever started the call is not a signed fact, and any member could
+claim it. An admin on the keeper's list cannot sign yet; letting one ask the
+keeper to sign, as `channel` asks for `channels`, is the obvious next step and
+is not built. Both records are versioned and repostable by anybody, like the
+relay list, rather than bound to an epoch: neither grants access to anything an
+epoch protects.
+
+**Where it is enforced.** A mute request is manners: the target's own app
+obeys or it does not. Meeting mode does not rest on that. The attendee's app
+does lock its microphone, camera and screen share, but every other app in the
+room also refuses to play the sound or show the picture of anybody who is not
+on the signed speaker list, whatever arrives. A modified app can still send.
+Nobody running an honest one hears or sees it. `test/meeting.spec.ts` checks
+this with a page that pushes a camera and microphone into its senders after
+its own app has locked them: the packets arrive and nothing is shown or played.
+Bandwidth is not saved for a sender that ignores the policy, since the
+receiver does not yet stop the stream at the transport; that, and the same rule
+on Android and the desktop build, are still to do.
+
+**Recording.** Only the authority records, and only after its signed notice is
+out: a notice that fails to post is a recording that never starts. The notice
+is reposted every five minutes while the recording runs (more often would push
+the admin and channel lists out of the control log's 500 newest messages), and
+every app shows it. If the reposts stop, the notice stays up marked
+unconfirmed for twelve hours rather than coming down. The authority takes it
+down on its next visit. Anybody joining the call while it stands is asked
+before they join. The recording is one mix of what the recorder hears,
+audio only: one file, about 14 MB an hour, already inside the size a room seals
+and uploads. A voice kept off the stage is not in it. It stays on the
+recorder's device until they share it into the room, through the same sealed
+Wildbloom/Blossom upload and storage consent as a dropped file, or save or
+discard it. The room then plays it inline like any shared audio. Nothing in
+KithMoot can stop a participant recording with another app, and the notice
+says so. G8's "no recording" default holds for every meeting that does not
+start one.
+

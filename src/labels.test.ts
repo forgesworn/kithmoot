@@ -32,6 +32,7 @@ import { EPOCH_COMMIT_LABELS } from './epoch-commit.js'
 import { FORWARDER_LABELS } from './forwarder.js'
 import { INVITATION_LABELS } from './invitation.js'
 import { MEDIA_CRYPTO_LABELS } from './media-crypto.js'
+import { MEETING_LABELS } from './meeting.js'
 import { MEMBER_EPOCH_LABELS } from './member-epoch.js'
 import { OWNERSHIP_LABELS } from './ownership.js'
 import { PEER_ASSIST_LABELS } from './peer-assist.js'
@@ -86,8 +87,10 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
   'kithmoot/v1/call-bell:',
   'kithmoot/v1/forwarder-key',
   'kithmoot/v1/media-key',
+  'kithmoot/v1/meeting:',
   'kithmoot/v1/pairing',
   'kithmoot/v1/read-position-id',
+  'kithmoot/v1/recording:',
   'kithmoot/v1/relays:',
   'kithmoot/v1/room-id',
   'kithmoot/v1/room-key',
@@ -184,6 +187,7 @@ const MODULE_LABEL_LISTS: ReadonlyArray<readonly [string, readonly string[]]> = 
   ['den-client.ts', DEN_CLIENT_LABELS],
   ['forwarder.ts', FORWARDER_LABELS],
   ['media-crypto.ts', MEDIA_CRYPTO_LABELS],
+  ['meeting.ts', MEETING_LABELS],
   ['ownership.ts', OWNERSHIP_LABELS],
   ['peer-assist.ts', PEER_ASSIST_LABELS],
   ['pairing.ts', PAIRING_LABELS],

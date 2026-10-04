@@ -3,6 +3,7 @@ import { canonicalChannels } from './epoch.js'
 import { MAX_ROOM_RELAYS } from './room-relays.js'
 import { validateAssignmentActions, type AssignmentAction } from './assignments.js'
 import { MAX_DISPLAY_NAME_LENGTH, sanitiseDisplayName } from './display-name.js'
+import { canonicalSpeakers } from './meeting.js'
 
 /**
  * The channel a room's agent hosts and its people use to ask for agents.
@@ -97,6 +98,25 @@ export type ControlMessage =
    * counts, so it has no `host`.
    */
   | { op: 'relays'; relays: string[]; version: number; sig: string }
+  /**
+   * The room in meeting mode or out of it, and who its speakers are. Signed
+   * by the authority over the room id, `version`, the mode and the list
+   * (`signMeetingPolicy` in `meeting.ts`); a client checks it against the
+   * inviter pinned in its link and takes only the highest version. Like
+   * `relays`, any member may repost it, so it has no `host`.
+   */
+  | { op: 'meeting'; on: boolean; speakers: string[]; version: number; sig: string }
+  /**
+   * A recording running, or stopped. Signed by the authority as the meeting
+   * policy is (`signRecordingNotice`), reposted every
+   * `RECORDING_REPOST_SECONDS` while it runs, and shown by every client for
+   * as long as it stands. An honest client records only after posting one.
+   */
+  | { op: 'recording'; on: boolean; id: string; version: number; sig: string }
+  /** Any member: my hand is up, or down. The sender is the chat message's
+   *  credential-bound participant, like `nudge`, so there is nothing to
+   *  name and nothing to sign. */
+  | { op: 'hand'; up: boolean }
   /** An admin: keeper, remove this participant. Acted on only when the
    *  sender is on the announced list; the keeper checks. */
   | { op: 'remove'; participant: string }
@@ -334,6 +354,30 @@ export function decodeControl(text: string): ControlMessage | null {
       // is not canonical fails `verifyRoomRelays` rather than being mended.
       return { op: 'relays', relays: [...(m.relays as string[])], version: m.version as number, sig: m.sig.toLowerCase() }
     }
+    case 'meeting': {
+      if (typeof m.on !== 'boolean' || !Array.isArray(m.speakers)) return null
+      if (!m.speakers.every((p) => typeof p === 'string')) return null
+      if (!Number.isSafeInteger(m.version) || (m.version as number) < 0) return null
+      if (typeof m.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(m.sig)) return null
+      // Kept as sent, like `relays`: a list that is not canonical fails
+      // `verifyMeetingPolicy` rather than being mended here. One that could
+      // never be canonical is not a meeting policy at all.
+      try {
+        canonicalSpeakers(m.speakers as string[])
+      } catch {
+        return null
+      }
+      return { op: 'meeting', on: m.on, speakers: [...(m.speakers as string[])], version: m.version as number, sig: m.sig.toLowerCase() }
+    }
+    case 'recording': {
+      if (typeof m.on !== 'boolean' || typeof m.id !== 'string' || !/^[0-9a-f]{32}$/.test(m.id)) return null
+      if (!Number.isSafeInteger(m.version) || (m.version as number) < 0) return null
+      if (typeof m.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(m.sig)) return null
+      return { op: 'recording', on: m.on, id: m.id, version: m.version as number, sig: m.sig.toLowerCase() }
+    }
+    case 'hand':
+      if (typeof m.up !== 'boolean') return null
+      return { op: 'hand', up: m.up }
     case 'remove':
     case 'mute': {
       const participant = typeof m.participant === 'string' ? m.participant.toLowerCase() : undefined

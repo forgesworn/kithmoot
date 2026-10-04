@@ -3171,7 +3171,7 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 
 @media (forced-colors: active) {
   button.primary { forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight; }
-  #roomList .unread, #roomList .unread.agent { border: 1px solid transparent; }
+  #roomList .unread, #roomList .unread.agent, .workspaceRoom .unread { border: 1px solid transparent; }
 }
 
 @media (display-mode: standalone) {
@@ -3369,9 +3369,23 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
   #workspaceRooms section { margin: 0 0 1rem; }
   #workspaceRooms h3 { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; overflow-wrap: anywhere; margin: .65rem .5rem; }
   .workspaceRoom { display: flex; align-items: center; gap: .2rem; margin-bottom: .15rem; }
+  /* A room with something waiting: its name in bold and a count beside it,
+     the same pill the rooms list uses. */
+  .workspaceRoom.hasUnread .workspaceRoomLink { font-weight: 650; color: var(--text); }
+  .workspaceRoom .unread {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    min-width: 1.3rem; height: 1.3rem; padding: 0 .35rem; border-radius: 999px;
+    font-size: .7rem; font-weight: 700; color: var(--on-accent); background: var(--accent);
+  }
+  .workspaceRoom .unread.agent { color: var(--on-agent); background: var(--agent-fill); }
   .workspaceRoomLink { flex: 1; min-width: 0; text-align: left; margin: 0; border-color: transparent; background: transparent; font-size: .9rem; padding: .55rem .6rem; overflow-wrap: anywhere; }
   .workspaceRoomLink[aria-current='true'] { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); font-weight: 650; }
   .workspaceRoom .organiseRoom { border: 0; background: transparent; padding: .3rem; min-width: 32px; }
+  .workspaceRoom .pinRoom { border: 0; background: transparent; padding: .3rem; min-width: 32px; margin: 0; color: var(--muted); }
+  .workspaceRoom .pinRoom[aria-pressed='true'] { color: var(--accent); }
+  /* An unpinned room's star waits until the row is pointed at or focused,
+     so a rail of rooms is not a column of stars. */
+  .workspaceRoom:not(:hover, :focus-within) .pinRoom[aria-pressed='false'] { opacity: 0; }
   .workspaceRoom .forget { border: 0; background: transparent; padding: .3rem; min-width: 32px; margin: 0; color: var(--muted); }
   #workspaceHome { font-size: .85rem; margin-top: 1rem; }
   #workspaceNote { font-size: .75rem; margin: .5rem 0; }
@@ -3669,6 +3683,49 @@ button.primary:hover:not(:disabled) {
   background: var(--accent-dim);
 }
 .callBanner button.primary { margin: 0; white-space: nowrap; }
+/* A recording of this room's call. Red, and never dismissable: it stays
+   for as long as the signed notice does. An unconfirmed notice keeps the
+   dot but loses the pulse - see `renderRecording` in main.ts. */
+.recordingBanner, .recordingReady, .meetingNotice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .6rem;
+  margin: 0 0 .5rem;
+  padding: .5rem .7rem;
+  border-radius: 8px;
+}
+.recordingBanner[hidden], .recordingReady[hidden], .meetingNotice[hidden] { display: none; }
+.recordingBanner { border: 1px solid var(--danger-border); color: var(--text); background: var(--panel); }
+.recordingBanner > span:not(.recordingDot) { flex: 1 1 14rem; min-width: 0; }
+.recordingDot {
+  flex: none;
+  width: .7rem;
+  height: .7rem;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: recordingPulse 1.6s ease-in-out infinite;
+}
+.recordingBanner[data-state="unconfirmed"] .recordingDot { animation: none; opacity: .6; }
+@keyframes recordingPulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .recordingDot { animation: none; } }
+.recordingReady, .meetingNotice { border: 1px solid var(--accent); background: var(--accent-dim); }
+.recordingReady > span, .meetingNotice > span { flex: 1 1 14rem; min-width: 0; }
+.recordingBanner button, .recordingReady button, .meetingNotice button { margin: 0; white-space: nowrap; }
+/* The call's own controls carry the same dot while a recording runs. */
+#callBay.recording .callHead::before {
+  content: "";
+  flex: none;
+  width: .6rem;
+  height: .6rem;
+  margin-right: .4rem;
+  border-radius: 50%;
+  background: var(--danger);
+}
+/* A control meeting mode has locked: still pressable, so it can say why. */
+.toggle.meetingLocked { opacity: .45; cursor: not-allowed; }
+.meetingPanel { margin: .5rem 0; }
+.meetingPanel .handRaised { color: var(--accent); font-weight: 600; }
 /* Who is on the call, by name, for the pane that has no pictures in it.
    Hidden until the installed window's controls-only pane asks for it - see
    `[data-call-pane="controls"]` in desktop.css - because everywhere else

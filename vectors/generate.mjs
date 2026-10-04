@@ -71,6 +71,7 @@ import { evaluateAccess } from '../dist/src/access.js'
 import { mintTurnCredential } from '../dist/src/turn.js'
 import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
 import { verifyRoomRelays, canonicalRoomRelays } from '../dist/src/room-relays.js'
+import { verifyMeetingPolicy, verifyRecordingNotice, canonicalSpeakers } from '../dist/src/meeting.js'
 import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, decodeEpochGrant, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from '../dist/src/ownership.js'
 import { decodeChatEvent } from '../dist/src/chat.js'
@@ -85,7 +86,7 @@ import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCa
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomName: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomName: [], meeting: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -2986,6 +2987,93 @@ for (const [name, roomKey, a, b, note] of [
   })
 }
 
+
+// ===========================================================================
+// Meeting mode and recording notices: the authority moderating a call
+// ===========================================================================
+//
+// A `meeting` op and a `recording` op on the control channel, each signed by
+// the authority pinned in the link, versioned like `relays`, and repostable
+// by any member. Signed by hand with a recorded aux-rand and checked with the
+// real verifiers before they are written.
+{
+  const room = ROOM_1
+  const speakers = canonicalSpeakers([fx.PARTICIPANT_B, fx.PARTICIPANT_A])
+  const version = fx.NOW * 1000
+  const message = `kithmoot/v1/meeting:${room.roomId}:${version}:1:${JSON.stringify(speakers)}`
+  const auxRand = seed32('meeting-auxrand')
+  const sig = bytesToHex(schnorr.sign(sha256(utf8Bytes(message)), fx.AUTHORITY_SK, auxRand))
+  const policy = { on: true, speakers, version }
+  const op = { op: 'meeting', ...policy, sig }
+  vectors.meeting.push({
+    name: 'meeting-policy-signature',
+    kind: 'positive',
+    note: 'A room in meeting mode with two speakers. The message is `sha256("kithmoot/v1/meeting:<roomId>:<version>:<1 or 0>:<JSON array of the canonical speakers>")`: participant pubkeys in lower case, deduplicated, sorted, at most 64. Newest version wins. In meeting mode a client neither sends nor plays the microphone, camera or screen of anybody not on the list. Carried as JSON in a chat message on the `control` channel; any member may repost it, so it names no host.',
+    input: { roomId: room.roomId, policy, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), canonicalMessage: message, auxRandHex: bytesToHex(auxRand) },
+    output: { sig, text: encodeControl(op), result: decodeControl(encodeControl(op)) },
+    expected: {
+      verify: { roomId: room.roomId, policy, authority: fx.AUTHORITY },
+      result: verifyMeetingPolicy({ roomId: room.roomId, policy, sig, authority: fx.AUTHORITY }),
+    },
+  })
+  const off = { ...policy, on: false }
+  vectors.meeting.push({
+    name: 'meeting-policy-mode-flipped',
+    kind: 'negative',
+    note: 'The same signature with meeting mode switched off. Refused: the mode is inside the signature, so a member cannot unmute a moderated room.',
+    input: { roomId: room.roomId, policy: off, sig, authority: fx.AUTHORITY },
+    output: { result: verifyMeetingPolicy({ roomId: room.roomId, policy: off, sig, authority: fx.AUTHORITY }) },
+  })
+  const added = { ...policy, speakers: canonicalSpeakers([...speakers, fx.PARTICIPANT_C]) }
+  vectors.meeting.push({
+    name: 'meeting-policy-speaker-added',
+    kind: 'negative',
+    note: 'The same signature with a third speaker added. Refused: a member cannot put themselves on the stage.',
+    input: { roomId: room.roomId, policy: added, sig, authority: fx.AUTHORITY },
+    output: { result: verifyMeetingPolicy({ roomId: room.roomId, policy: added, sig, authority: fx.AUTHORITY }) },
+  })
+  const unsorted = { ...policy, speakers: [...speakers].reverse() }
+  vectors.meeting.push({
+    name: 'meeting-policy-not-canonical',
+    kind: 'negative',
+    note: 'The signed list in another order. Refused rather than sorted: the list a client verifies is the list it enforces.',
+    input: { roomId: room.roomId, policy: unsorted, sig, authority: fx.AUTHORITY },
+    output: { result: verifyMeetingPolicy({ roomId: room.roomId, policy: unsorted, sig, authority: fx.AUTHORITY }) },
+  })
+  vectors.meeting.push({
+    name: 'meeting-policy-another-authority',
+    kind: 'negative',
+    note: 'Checked against a different key. Refused: only the inviter pinned in the link moderates.',
+    input: { roomId: room.roomId, policy, sig, authority: fx.PARTICIPANT_A },
+    output: { result: verifyMeetingPolicy({ roomId: room.roomId, policy, sig, authority: fx.PARTICIPANT_A }) },
+  })
+
+  const id = bytesToHex(seed32('recording-id').slice(0, 16))
+  const notice = { on: true, id, version }
+  const recordingText = `kithmoot/v1/recording:${room.roomId}:${version}:${id}:1`
+  const recordingAux = seed32('recording-auxrand')
+  const recordingSig = bytesToHex(schnorr.sign(sha256(utf8Bytes(recordingText)), fx.AUTHORITY_SK, recordingAux))
+  const recordingOp = { op: 'recording', ...notice, sig: recordingSig }
+  vectors.meeting.push({
+    name: 'recording-notice-signature',
+    kind: 'positive',
+    note: 'A recording running. The message is `sha256("kithmoot/v1/recording:<roomId>:<version>:<32 hex id>:<1 or 0>")`. Every client shows a notice for as long as the newest version is on, and keeps showing it, marked unconfirmed, if it stops being reposted. An honest client records only after posting one.',
+    input: { roomId: room.roomId, notice, authoritySkHex: bytesToHex(fx.AUTHORITY_SK), canonicalMessage: recordingText, auxRandHex: bytesToHex(recordingAux) },
+    output: { sig: recordingSig, text: encodeControl(recordingOp), result: decodeControl(encodeControl(recordingOp)) },
+    expected: {
+      verify: { roomId: room.roomId, notice, authority: fx.AUTHORITY },
+      result: verifyRecordingNotice({ roomId: room.roomId, notice, sig: recordingSig, authority: fx.AUTHORITY }),
+    },
+  })
+  const stopped = { ...notice, on: false }
+  vectors.meeting.push({
+    name: 'recording-notice-stop-forged',
+    kind: 'negative',
+    note: 'The running notice\'s signature offered for a stop. Refused: a member cannot take the notice down while the recording runs.',
+    input: { roomId: room.roomId, notice: stopped, sig: recordingSig, authority: fx.AUTHORITY },
+    output: { result: verifyRecordingNotice({ roomId: room.roomId, notice: stopped, sig: recordingSig, authority: fx.AUTHORITY }) },
+  })
+}
 
 // ===========================================================================
 // Room name: any member renaming the room for everybody

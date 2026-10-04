@@ -33,6 +33,19 @@ async function join(page: Page, link: string) {
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
+/** Back into a room this browser has been in: straight in, or through the
+ *  door again if it asks. */
+async function reenter(page: Page, link: string) {
+  await page.goto(link)
+  const name = page.locator('#displayName')
+  await expect(page.locator('#roomArea:visible, #displayName:visible').first()).toBeVisible()
+  if (await name.isVisible()) {
+    await name.fill('Ada')
+    await page.locator('#join').click()
+  }
+  await expect(page.locator('#roomArea')).toBeVisible()
+}
+
 async function project(page: Page, room: string, name: string) {
   await page.getByRole('button', { name: `Set project for ${room}`, exact: true }).click()
   await page.locator('#projectName').fill(name)
@@ -583,4 +596,65 @@ test('rooms can be forgotten from the sidebar and the switcher, but not the one 
     await expect(switcher.locator('.roomRow')).toHaveCount(1)
     await expect(sidebar.locator('.workspaceRoom')).toHaveCount(1)
   } finally { await context.close() }
+})
+
+test('the installed window shows each other room\'s unread messages in the rail, and clears them on reading', async ({ browser, baseURL }) => {
+  const { context, page, relay } = await setup(browser, baseURL!)
+  // The installed window's bridge, as far as this needs it: its presence is
+  // what keeps every room watched while one is on screen.
+  await context.addInitScript(() => {
+    const known: Record<string, unknown> = { updateState: async () => ({ phase: 'disabled' }), installUpdate: async () => false }
+    Object.assign(window, { kithmootDesktop: new Proxy(known, {
+      get: (target, key) => key in target ? target[key as string]
+        : String(key).startsWith('supports') || key === 'shareAreaMode' ? undefined
+        : String(key).startsWith('on') ? () => () => {} : () => undefined,
+    }) })
+  })
+  const here = await RoomAgent.create({ base: baseURL!, name: 'Planner', roomName: 'Reading room', ...agentRelaysFor(baseURL!), agent: false })
+  const elsewhere = await RoomAgent.create({ base: baseURL!, name: 'Reviewer', roomName: 'Planning room', ...agentRelaysFor(baseURL!), agent: false })
+  try {
+    await join(page, withRelays(here.url, [relay]))
+    await page.evaluate(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), {
+      roomId: elsewhere.session.roomId, name: 'Planning room', link: withRelays(elsewhere.url, [relay]), openedAt: 1, readAt: 0,
+    })
+    const rail = page.locator('#workspaceRooms')
+    const planning = rail.locator('.workspaceRoom', { has: page.getByRole('button', { name: 'Planning room', exact: true }) })
+    const reading = rail.locator('.workspaceRoom', { has: page.getByRole('button', { name: 'Reading room', exact: true }) })
+    // Visited once, as a room is before it is on anybody's rail: that is
+    // how this device comes to hold its key, and watching needs the key.
+    await reenter(page, withRelays(here.url, [relay]))
+    await planning.getByRole('button', { name: 'Planning room', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Planning room')
+    await page.getByRole('button', { name: 'Reading room', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Reading room')
+    await expect(planning.locator('.unread')).toHaveCount(0)
+
+    await elsewhere.chat.send('Are we still on for Thursday?')
+    await elsewhere.chat.send('I have moved the review to the afternoon.')
+    await expect(planning.locator('.unread:not(.agent)')).toHaveText('2', { timeout: 30_000 })
+    await expect(planning.locator('.unread:not(.agent)')).toHaveAttribute('aria-label', '2 unread in Planning room')
+    await expect(planning).toHaveClass(/hasUnread/)
+    // The room on screen carries no count of its own in the rail.
+    await expect(reading.locator('.unread')).toHaveCount(0)
+
+    // Reading it clears it.
+    await planning.getByRole('button', { name: 'Planning room', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Planning room')
+    await expect(page.locator('#chatLog .msg', { hasText: 'afternoon' })).toHaveCount(1)
+    await page.getByRole('button', { name: 'Reading room', exact: true }).click()
+    await expect(page.locator('#roomTitle')).toHaveText('Reading room')
+    await expect(planning.locator('.unread')).toHaveCount(0, { timeout: 15_000 })
+
+    // Pinned: a section of its own at the top, kept across a reload.
+    await expect(rail.locator('h3', { hasText: 'Pinned' })).toHaveCount(0)
+    await planning.getByRole('button', { name: 'Pin Planning room', exact: true }).click()
+    const pinnedSection = rail.locator('section[data-project="pinned:"]')
+    await expect(rail.locator('section').first()).toHaveAttribute('data-project', 'pinned:')
+    await expect(pinnedSection.locator('h3')).toHaveText('Pinned')
+    await expect(pinnedSection.locator('.workspaceRoomLink')).toHaveText(['Planning room'])
+    await reenter(page, withRelays(here.url, [relay]))
+    await expect(pinnedSection.locator('.workspaceRoomLink')).toHaveText(['Planning room'])
+    await pinnedSection.getByRole('button', { name: 'Unpin Planning room', exact: true }).click()
+    await expect(pinnedSection).toHaveCount(0)
+  } finally { here.leave(); elsewhere.leave(); await context.close() }
 })

@@ -51,6 +51,7 @@ import { decodeChatEvent } from '../src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
 import { encodeControl, decodeControl } from '../src/control.js'
 import { canonicalRoomRelays, verifyRoomRelays } from '../src/room-relays.js'
+import { verifyMeetingPolicy, verifyRecordingNotice, type MeetingPolicy, type RecordingNotice } from '../src/meeting.js'
 import type { RoomPolicy } from '../src/types.js'
 import { verificationWords } from '../src/verification.js'
 import { resolveConversation, mentionsOf, mentionedBy, type ResolvedMessage, type Named } from '../src/messages.js'
@@ -1056,6 +1057,43 @@ describe('room relays', () => {
   for (const v of groups.roomRelays.filter((x) => x.kind === 'negative')) {
     it(v.name, () => {
       expect(verifyRoomRelays(v.input as { roomId: string; version: number; relays: string[]; sig: string; authority: string })).toBe(false)
+      expect(v.output.result).toBe(false)
+    })
+  }
+})
+
+describe('meeting mode and recording notices', () => {
+  const sign = (input: { canonicalMessage: string; authoritySkHex: string; auxRandHex: string }) =>
+    bytesToHex(schnorr.sign(sha256(new TextEncoder().encode(input.canonicalMessage)), hexToBytes(input.authoritySkHex), hexToBytes(input.auxRandHex)))
+
+  it('meeting-policy-signature', () => {
+    const v = vec('meeting', 'meeting-policy-signature')
+    const input = v.input as { roomId: string; policy: MeetingPolicy; authoritySkHex: string; canonicalMessage: string; auxRandHex: string }
+    expect(input.canonicalMessage).toBe(`kithmoot/v1/meeting:${input.roomId}:${input.policy.version}:${input.policy.on ? 1 : 0}:${JSON.stringify(input.policy.speakers)}`)
+    const sig = sign(input)
+    expect(sig).toBe(v.output.sig)
+    expect(verifyMeetingPolicy({ ...(v.expected!.verify as { roomId: string; policy: MeetingPolicy; authority: string }), sig })).toBe(true)
+    expect(encodeControl(JSON.parse(v.output.text as string))).toBe(v.output.text)
+    expect(decodeControl(v.output.text as string)).toEqual(v.output.result)
+  })
+
+  it('recording-notice-signature', () => {
+    const v = vec('meeting', 'recording-notice-signature')
+    const input = v.input as { roomId: string; notice: RecordingNotice; authoritySkHex: string; canonicalMessage: string; auxRandHex: string }
+    expect(input.canonicalMessage).toBe(`kithmoot/v1/recording:${input.roomId}:${input.notice.version}:${input.notice.id}:${input.notice.on ? 1 : 0}`)
+    const sig = sign(input)
+    expect(sig).toBe(v.output.sig)
+    expect(verifyRecordingNotice({ ...(v.expected!.verify as { roomId: string; notice: RecordingNotice; authority: string }), sig })).toBe(true)
+    expect(decodeControl(v.output.text as string)).toEqual(v.output.result)
+  })
+
+  for (const v of groups.meeting.filter((x) => x.kind === 'negative')) {
+    it(v.name, () => {
+      const input = v.input as { roomId: string; policy?: MeetingPolicy; notice?: RecordingNotice; sig: string; authority: string }
+      const result = input.policy
+        ? verifyMeetingPolicy({ roomId: input.roomId, policy: input.policy, sig: input.sig, authority: input.authority })
+        : verifyRecordingNotice({ roomId: input.roomId, notice: input.notice!, sig: input.sig, authority: input.authority })
+      expect(result).toBe(false)
       expect(v.output.result).toBe(false)
     })
   }
