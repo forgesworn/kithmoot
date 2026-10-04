@@ -1,6 +1,7 @@
 export const UPDATE_FEED = 'https://kithmoot.forgesworn.dev/downloads/updates/darwin/arm64/RELEASES.json'
 
 const genericError = 'Could not check for updates. KithMoot will try again.'
+const unverifiedError = 'An update was offered that KithMoot could not verify, so it was not installed.'
 
 export function createDesktopUpdater({
   autoUpdater,
@@ -36,7 +37,11 @@ export function createDesktopUpdater({
   const fail = error => {
     if (current.phase === 'ready' || current.phase === 'error') return
     log(error instanceof Error ? error : new Error('Unknown updater error'))
-    transition('error', { message: genericError })
+    // Squirrel refuses an update whose code signature does not satisfy this
+    // app's requirement: the one failure worth telling the person about.
+    if (/code signature|did not pass validation|code requirement/i.test(error?.message ?? '')) {
+      transition('error', { message: unverifiedError, unverified: true })
+    } else transition('error', { message: genericError })
   }
   const check = () => {
     if (!enabled || !started || ['checking', 'downloading', 'ready'].includes(current.phase)) return false

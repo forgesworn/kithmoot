@@ -91,3 +91,16 @@ test('a downloaded update installs once and only after it is ready', () => {
   assert.equal(updater.install(), true); assert.equal(updater.install(), false)
   assert.equal(calls.installs, 1)
 })
+
+test('an update refused for its code signature is flagged as unverified, other failures are not', () => {
+  const refused = fixture()
+  refused.updater.start(); refused.fireInitial()
+  refused.native.emit('error', new Error('Code signature at URL file:///tmp/KithMoot.app/ did not pass validation: code failed to satisfy specified code requirement(s)'))
+  assert.equal(refused.updater.state().phase, 'error')
+  assert.equal(refused.updater.state().unverified, true)
+  const offline = fixture()
+  offline.updater.start(); offline.fireInitial()
+  offline.native.emit('error', new Error('net::ERR_INTERNET_DISCONNECTED'))
+  assert.equal(offline.updater.state().phase, 'error')
+  assert.equal(offline.updater.state().unverified, undefined)
+})

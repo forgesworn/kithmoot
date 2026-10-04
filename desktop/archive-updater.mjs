@@ -157,7 +157,7 @@ export function createArchiveUpdater({
       const [manifest, signature] = await Promise.all([small(url), small(`${url}.sig`)])
       if (!verifyManifest(MANIFESTS.desktop, manifest, signature, keys)) {
         log(new Error('update manifest signature did not verify'))
-        transition('error', { message: unverified })
+        transition('error', { message: unverified, unverified: true })
         return false
       }
       const update = desktopUpdate(manifest, { currentVersion, platform, arch })
@@ -171,7 +171,7 @@ export function createArchiveUpdater({
       } catch (error) {
         if (/signed manifest|larger than/.test(error?.message ?? '')) {
           log(error)
-          transition('error', { message: unverified })
+          transition('error', { message: unverified, unverified: true })
           return false
         }
         throw error
