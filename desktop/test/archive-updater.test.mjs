@@ -116,6 +116,7 @@ for (const [name, change] of [
       t.updater.start()
       assert.equal(await t.updater.check(), false)
       assert.equal(t.updater.state().phase, 'error')
+      assert.equal(t.updater.state().unverified, true)
       assert.equal(t.srv.asked.some(url => url.includes('/apk/')), false)
     } finally { t.cleanup() }
   })
@@ -132,6 +133,7 @@ test('an endless manifest is cut off as it streams, not buffered whole', async (
     assert.equal(await t.updater.check(), false)
     assert.equal(t.updater.state().phase, 'error')
     assert.ok(pulled <= 512 * 1024, `read ${pulled} bytes of an endless manifest`)
+    assert.equal(t.updater.state().unverified, undefined)
   } finally { t.cleanup() }
 })
 
@@ -157,6 +159,7 @@ test('an archive that does not match the signed hash is deleted, not unpacked', 
     t.updater.start()
     assert.equal(await t.updater.check(), false)
     assert.match(t.updater.state().message, /could not verify/)
+    assert.equal(t.updater.state().unverified, true)
     assert.deepEqual(readdirSync(join(t.work, 'config', 'updates')), [])
     assert.equal(existsSync(sidePaths(t.installDir, '0.2.0').unpack), false)
     assert.equal(readFileSync(join(t.installDir, 'kithmoot'), 'utf8'), '0.1.47')

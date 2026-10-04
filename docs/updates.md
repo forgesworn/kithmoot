@@ -56,6 +56,12 @@ SHA-256 and its size in bytes, and:
    could not be verified;
 4. only then unpacks or installs it.
 
+A refusal at any of these steps, or Squirrel refusing a Mac update's code
+signature, is flagged `unverified` and shown in the app once per run as
+"Update not installed", rather than only logged: it may mean the download
+server has been tampered with. Ordinary failures, such as being offline,
+stay quiet and are retried.
+
 On Android the installer then also requires the new APK to be signed by the
 same certificate as the installed app (or its rotation lineage), and the app
 checks that itself first so a mismatch never reaches the person.

@@ -106,8 +106,26 @@ export function installUpdates(blockedReason: () => string | UpdateBlock | undef
   }
   const desktop = window.kithmootDesktop
   if (import.meta.env.VITE_DESKTOP === 'true' && desktop?.updateState && desktop.installUpdate && desktop.onUpdateState) {
-    const receive = (state: { phase: string; version?: string }) => {
+    const title = notice.querySelector('strong')!
+    let warning = false
+    let warned = false
+    const receive = (state: { phase: string; version?: string; unverified?: boolean }) => {
+      // An offered update that failed its signature or hash check is the
+      // one failure worth interrupting for: it may mean the download server
+      // is not what it should be. Said once, and never over a ready update.
+      if (state.phase === 'error' && state.unverified) {
+        if (warned || (!notice.hidden && !warning)) return
+        warned = warning = true
+        title.textContent = 'Update not installed'
+        notice.querySelector('span')!.textContent = 'KithMoot was offered an update it could not verify against its signing key, so it did not install it. This version keeps working, and KithMoot will check again later.'
+        button.disabled = false
+        button.textContent = 'Dismiss'
+        notice.hidden = false
+        return
+      }
       if (state.phase !== 'ready') return
+      warning = false
+      title.textContent = 'Update ready'
       const current = block()
       if (current) defer(current)
       else {
@@ -120,6 +138,7 @@ export function installUpdates(blockedReason: () => string | UpdateBlock | undef
     desktop.onUpdateState(receive)
     void desktop.updateState().then(receive).catch(() => {})
     button.addEventListener('click', async () => {
+      if (warning) { warning = false; notice.hidden = true; return }
       if (preparing || reloading) return
       if (!await prepare()) return
       button.disabled = true
