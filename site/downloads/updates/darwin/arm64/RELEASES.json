@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.50",
+  "currentRelease": "0.1.52",
   "releases": [
     {
-      "version": "0.1.50",
+      "version": "0.1.52",
       "updateTo": {
-        "version": "0.1.50",
-        "pub_date": "2026-10-04T15:00:00Z",
-        "notes": "You can now drag the edge of the rooms list to make it wider, so room names have space beside their unread counts. Double-click the edge to put it back. On Linux, restarting into an update now keeps any options KithMoot was started with.",
-        "name": "0.1.50",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.50/KithMoot-0.1.50-mac-arm64.zip",
-        "sha256": "7aef0c53dc69c60635ce2b46c0a33100e6c239cfd54373e6a8ed5871e1445f1a",
-        "size": 136451832
+        "version": "0.1.52",
+        "pub_date": "2026-10-04T18:30:00Z",
+        "notes": "When you sign in with a signer app or extension, a room's keys now reach this computer locked to a fresh key your signer approves each time it renews this computer's twelve-hour pass. If somebody copied this computer, they stop reading the room's new messages once that pass has run out and the room next changes its key.",
+        "name": "0.1.52",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.52/KithMoot-0.1.52-mac-arm64.zip",
+        "sha256": "ff5190a7b190a76808a7e0db7c77cae5024ff49f834220bb69be8db48d64a349",
+        "size": 136452594
       }
     }
   ]
