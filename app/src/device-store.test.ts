@@ -14,6 +14,8 @@ import {
   loadCredentialFor,
   loadKeptAdmission,
   loadOwnCredentialFor,
+  loadOwnSealKeysFor,
+  MAX_OWN_SEAL_KEYS,
   memoryDeviceStore,
   storeCredentialFor,
   storeKeptAdmission,
@@ -100,6 +102,33 @@ describe('per-room device keys', () => {
     expect(store.keys()).toEqual([])
     store.set(OWN_CREDENTIAL_PREFIX + ROOM_B, 'not json')
     expect(loadOwnCredentialFor(store, ROOM_B, NOW)).toBeUndefined()
+    expect(store.keys()).toEqual([])
+  })
+
+  it('keeps every seal key secret a room has used, past the credential, until the room is forgotten', () => {
+    const store = memoryDeviceStore()
+    const first = new Uint8Array(32).fill(5)
+    const second = new Uint8Array(32).fill(6)
+    const own = { ...credential('device-a'), tags: [['expiration', String(NOW + 3600)]] }
+    storeOwnCredentialFor(store, ROOM_A, own, first)
+    storeOwnCredentialFor(store, ROOM_A, own, second)
+    storeOwnCredentialFor(store, ROOM_A, own, second)
+    storeOwnCredentialFor(store, ROOM_A, own)
+    expect(loadOwnSealKeysFor(store, ROOM_A)).toEqual([first, second])
+    expect(loadOwnSealKeysFor(store, ROOM_B)).toEqual([])
+    // The credential lapsing does not take them: old rekeys are sealed to them.
+    storeOwnCredentialFor(store, ROOM_A, { ...own, tags: [['expiration', String(NOW)]] })
+    expect(loadOwnCredentialFor(store, ROOM_A, NOW)).toBeUndefined()
+    expect(loadOwnSealKeysFor(store, ROOM_A)).toEqual([first, second])
+    // Bounded, oldest out first.
+    for (let i = 0; i < MAX_OWN_SEAL_KEYS; i++) storeOwnCredentialFor(store, ROOM_B, own, new Uint8Array(32).fill(i + 10))
+    expect(loadOwnSealKeysFor(store, ROOM_B)).toHaveLength(MAX_OWN_SEAL_KEYS)
+    storeOwnCredentialFor(store, ROOM_B, own, first)
+    expect(loadOwnSealKeysFor(store, ROOM_B)[0]).toEqual(new Uint8Array(32).fill(11))
+    // Forgetting takes them.
+    forgetOwnCredentials(store, ROOM_A)
+    expect(loadOwnSealKeysFor(store, ROOM_A)).toEqual([])
+    forgetOwnCredentials(store)
     expect(store.keys()).toEqual([])
   })
 

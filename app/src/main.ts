@@ -59,6 +59,7 @@ import {
   loadCredentialFor,
   loadKeptAdmission,
   loadOwnCredentialFor,
+  loadOwnSealKeysFor,
   storeCredentialFor,
   storeOwnCredentialFor,
   storeKeptAdmission,
@@ -264,6 +265,7 @@ import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vau
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel } from './assignment-panel.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { credentialSeal } from '../../src/seal.js'
 import { npubEncode, decode as nip19Decode } from 'nostr-tools/nip19'
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
@@ -846,6 +848,11 @@ function accountPassForRoom(): DeviceCredential | undefined {
     const now = nowSeconds()
     const pass = loadOwnCredentialFor(deviceStore, roomId, now)
     if (!pass || pass.pubkey !== expectedAccount) return undefined
+    // A pass naming a seal key whose secret is not kept here is one the
+    // session will not resume (nothing sealed to it would open), and with
+    // no signer it could not mint another.
+    const seal = credentialSeal(pass)
+    if (typeof seal === 'string' && !loadOwnSealKeysFor(deviceStore, roomId).some(sk => getPublicKey(sk) === seal)) return undefined
     const expiresAt = Number(pass.tags.find(tag => tag[0] === 'expiration')?.[1])
     return expiresAt - now >= RESUME_MIN_REMAINING_SECONDS ? pass : undefined
   } catch {
@@ -10717,8 +10724,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // room id this session was built for, which a docked call may
           // not share with the screen.
           resume: loadOwnCredentialFor(deviceStore, sessionRoomId, nowSeconds()),
-          onCredential: (minted) => {
-            try { storeOwnCredentialFor(deviceStore, sessionRoomId, minted) } catch { /* storage may be unavailable */ }
+          sealKeys: loadOwnSealKeysFor(deviceStore, sessionRoomId),
+          onCredential: (minted, sealSk) => {
+            try { storeOwnCredentialFor(deviceStore, sessionRoomId, minted, sealSk) } catch { /* storage may be unavailable */ }
           },
           deviceSk,
           factory,

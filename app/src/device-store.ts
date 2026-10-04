@@ -147,6 +147,15 @@ export function forgetCredentialFor(store: DeviceStore, roomId: string): void {
  * kept beside it, for one room, for at most twelve hours.
  */
 export const OWN_CREDENTIAL_PREFIX = 'kithmoot.own-credential.'
+/** The secrets of the seal keys this browser's own credentials have named
+ *  in a room (see `seal.ts`), oldest first. Rekeys and epoch grants for this
+ *  device are sealed to them, not to the device key, and a browser reads a
+ *  room again from its first rekey, so every one is kept as the device key
+ *  is kept, up to `MAX_OWN_SEAL_KEYS`, and forgotten with the room. */
+export const OWN_SEAL_PREFIX = 'kithmoot.own-seal.'
+/** The session's own bound (`MAX_SEAL_KEYS`): a renewal every six hours for
+ *  a little over a month. */
+export const MAX_OWN_SEAL_KEYS = 128
 
 /** This browser's own credential for a room, or undefined. One past its
  *  expiry, or that does not parse, is removed on the way through. */
@@ -165,14 +174,36 @@ export function loadOwnCredentialFor(store: DeviceStore, roomId: string, now: nu
   }
 }
 
-export function storeOwnCredentialFor(store: DeviceStore, roomId: string, credential: DeviceCredential): void {
+/** The seal key secrets kept for this browser in a room, oldest first. An
+ *  entry that does not parse is dropped; the rest stand. */
+export function loadOwnSealKeysFor(store: DeviceStore, roomId: string): Uint8Array[] {
+  try {
+    const parsed = JSON.parse(store.get(OWN_SEAL_PREFIX + roomId) ?? '[]') as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((h): h is string => typeof h === 'string' && /^[0-9a-f]{64}$/.test(h)).map((h) => hexToBytes(h))
+  } catch {
+    return []
+  }
+}
+
+/** Keep the credential, and add the secret of the seal key it names to
+ *  those kept for the room. */
+export function storeOwnCredentialFor(store: DeviceStore, roomId: string, credential: DeviceCredential, sealSk?: Uint8Array): void {
   store.set(OWN_CREDENTIAL_PREFIX + roomId, JSON.stringify(credential))
+  if (!sealSk || sealSk.length !== 32) return
+  const hex = bytesToHex(sealSk)
+  const kept = loadOwnSealKeysFor(store, roomId).map((sk) => bytesToHex(sk)).filter((h) => h !== hex)
+  store.set(OWN_SEAL_PREFIX + roomId, JSON.stringify([...kept, hex].slice(-MAX_OWN_SEAL_KEYS)))
 }
 
 /** Forget this browser's own credential for one room, or for every room. */
 export function forgetOwnCredentials(store: DeviceStore, roomId?: string): void {
-  if (roomId !== undefined) return store.remove(OWN_CREDENTIAL_PREFIX + roomId)
-  for (const key of store.keys()) if (key.startsWith(OWN_CREDENTIAL_PREFIX)) store.remove(key)
+  if (roomId !== undefined) {
+    store.remove(OWN_CREDENTIAL_PREFIX + roomId)
+    store.remove(OWN_SEAL_PREFIX + roomId)
+    return
+  }
+  for (const key of store.keys()) if (key.startsWith(OWN_CREDENTIAL_PREFIX) || key.startsWith(OWN_SEAL_PREFIX)) store.remove(key)
 }
 
 /** Whether this browser has been paired as somebody's secondary device, in

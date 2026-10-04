@@ -18,6 +18,8 @@ payloads for NIP-44).
 | `verify.test.ts` | A vitest suite (part of `npx vitest run`) that checks the JSON against the real `src/` implementation. |
 | `member-epoch-vectors.json` | Member epoch catch-up (kinds 20471/20472, the rekey commitment), copied byte for byte from `@forgesworn/fold-kit`, which generates it. Never hand-edited here. |
 | `verify-member-epoch.test.ts` | Checks `member-epoch-vectors.json` against `src/`'s re-exports of the kit. |
+| `seal-vectors.json` | Seal keys (the `seal` tag in a device credential, and rekeys and epoch grants sealed to it), copied byte for byte from `@forgesworn/fold-kit`, which generates it. Never hand-edited here. |
+| `verify-seal.test.ts` | Checks `seal-vectors.json` against `src/`'s re-exports of the kit. |
 
 ## What the vectors pin - and what they don't
 

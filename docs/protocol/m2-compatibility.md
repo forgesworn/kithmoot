@@ -44,6 +44,24 @@ as newly supported. Its service decoders do not implement service admission.
 A hostile relay can withhold traffic or exhaust the bounded unwrap budget; the
 budget bounds CPU work rather than proving availability through a malicious relay.
 
+### Seal keys (fold-kit 0.7.0, key schedule parity phase 1)
+
+The web client names a seal key in each credential it mints for itself
+(`["seal", <pubkey>]`) and seals rekey copies and epoch grants to the seal key
+of the newest credential it has seen for a device. Compatibility:
+
+- Old senders, including today's Android, ignore the tag and seal to the
+  device key; new readers try the device key last, so they still read.
+- New senders seal to a seal key only when the credential names one, and only
+  a client that reads seal-sealed copies mints one, so an old reader never
+  receives a copy it cannot open.
+- Android mints credentials without a seal tag and is sealed to as before.
+  It needs no change to keep working; it heals only once it mints seal keys.
+- A paired secondary device's credential is minted by its primary and names no
+  seal key, so it is sealed to as before, unhealed.
+- The seal vectors (`vectors/seal-vectors.json`) are copied from fold-kit and
+  checked by `vectors/verify-seal.test.ts`.
+
 ### Call reliability profile 2 (2026-09-17 spec, step S3)
 
 Web `src/signal.ts` and `src/types.ts` now carry the profile-2 wire fields

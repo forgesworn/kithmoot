@@ -230,6 +230,19 @@ mapping. Check signature, room, device and expiry before attributing any track,
 message or action to that participant. Pairing grants only a room-scoped,
 expiring credential; it must not copy the participant secret to the new device.
 
+A credential may end with `["seal", <x-only pubkey>]`: the device's seal key,
+minted fresh at each renewal. The authority's rekey copy (1462 `keys`), its
+grant (20469) and a member's grant (20472) are NIP-44-sealed to the seal key of
+the newest credential the sender has seen for the device, not to the device
+key; with no seal tag, to the device key as before. Senders keep that newest
+credential per device and never move it back to an older one a roster entry
+carries, and a desk seals to the newer of it and the credential a request
+presents. Readers try every seal key they hold, then the device key, and keep
+their seal secrets as they keep the device key. Because the participant, not
+the device, signs the seal key, a copied device stops reading new epochs once
+the credential it caught has lapsed and the room has rekeyed. See fold-kit's
+`docs/seal-key.md` and `vectors/seal-vectors.json`.
+
 The roster is kind 20461, signed by the device, tagged `d` with the current
 room/epoch selector, and NIP-44-encrypted with the current room/epoch key. Its
 inner credential must agree with the outer author. A device advertises at
