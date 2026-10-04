@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.47",
+  "currentRelease": "0.1.48",
   "releases": [
     {
-      "version": "0.1.47",
+      "version": "0.1.48",
       "updateTo": {
-        "version": "0.1.47",
-        "pub_date": "2026-10-04T10:30:00Z",
-        "notes": "Meeting mode and recording. The person who made a room can run its call as a meeting: only the speakers they choose can talk or show video, and everybody else can raise a hand. They can also record the call's sound, and everybody is told: a red notice stays up while it runs, and anybody joining is asked first. The recording stays on their computer until they choose to share it in the room. The rooms list now shows unread messages for each room, puts the latest activity first, and lets you pin rooms to the top.",
-        "name": "0.1.47",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.47/KithMoot-0.1.47-mac-arm64.zip",
-        "sha256": "78cc4a6cdc3397844f0f81372794e9ad1f27317fc29e52341b5bbf27c1291c7f",
-        "size": 136444357
+        "version": "0.1.48",
+        "pub_date": "2026-10-04T12:30:00Z",
+        "notes": "Windows and Linux keep themselves up to date. The Windows download and the Linux tar.gz now check for new versions, verify each one before installing it, and ask before restarting, waiting until you are off a call. An update is accepted only if it matches a release manifest signed with a key built into KithMoot, so even someone who took over the download server could not slip in a different app. Install 0.1.48 by hand once; after that it is automatic.",
+        "name": "0.1.48",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.48/KithMoot-0.1.48-mac-arm64.zip",
+        "sha256": "22381d5d5c26218167a65d07fac973f19d530528bdc281f1ec7a54899c25b5c8",
+        "size": 136450743
       }
     }
   ]
