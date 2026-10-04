@@ -131,7 +131,7 @@ export default defineConfig({
       name: 'chromium',
       // Everything but the desktop shell's own spec, which needs the other
       // build and runs in `chromium-desktop` below.
-      testIgnore: ['desktop-room-layout.spec.ts'],
+      testIgnore: ['desktop-room-layout.spec.ts', 'rail-divider.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
@@ -174,7 +174,7 @@ export default defineConfig({
       // rather than quietly skipping - a layout spec that skips is exactly
       // how the last two attempts at this "passed".
       name: 'chromium-desktop',
-      testMatch: ['desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts'],
+      testMatch: ['desktop-room-layout.spec.ts', 'portrait-share.spec.ts', 'call-layout.spec.ts', 'call-focus.spec.ts', 'call-chat-divider.spec.ts', 'rail-divider.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         baseURL: process.env.E2E_DESKTOP_BASE_URL ?? `https://localhost:${appPort + 1}/j/`,

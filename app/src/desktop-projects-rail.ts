@@ -88,3 +88,61 @@ export function setProjectsRailUnread(people: number, agents: number): void {
     agentBadge.setAttribute('aria-label', `${label === '' ? 0 : Math.floor(agents)} from agents`)
   }
 }
+
+// ---------------------------------------------------------------------------
+// The rail's width, dragged by hand. The owner's words: "you added the
+// numbers of unread on the desktop, but now it's too squashed - we need a
+// drag line like we have between video and chat." A room's count, its star
+// and its buttons all sit beside its name in a 13rem rail, so the name is
+// what got squeezed. The divider itself is wired in desktop-layout.ts; the
+// clamping and the storage are kept here so they are tested without a
+// browser.
+
+const WIDTH_KEY = 'kithmoot.desktopProjectsRailWidth'
+
+/** The rail before anybody drags it, and its bounds. 13rem is `--rail-w`'s
+ *  default in desktop.css (RAIL_WIDTH_PX). The ceiling is also held to a
+ *  share of the window there, by `min(..., 40vw)`, so a width remembered
+ *  from a big window never crowds out the room in a small one. */
+export const RAIL_DEFAULT_PX = 208
+export const RAIL_MIN_PX = 176
+export const RAIL_MAX_PX = 512
+export const RAIL_MAX_FRACTION = 0.4
+
+/** How far one press of an arrow key moves the divider, and with Shift. */
+export const RAIL_STEP_PX = 16
+export const RAIL_STEP_PX_LARGE = 64
+
+/** The widest the rail may be in a window `windowWidth` wide. */
+export function railMaxWidth(windowWidth: number): number {
+  return Math.max(RAIL_MIN_PX, Math.min(RAIL_MAX_PX, Math.floor(windowWidth * RAIL_MAX_FRACTION)))
+}
+
+/** `px` held between the rail's floor and its ceiling for this window. */
+export function clampRailWidth(px: number, windowWidth: number): number {
+  if (!Number.isFinite(px)) return RAIL_DEFAULT_PX
+  return Math.round(Math.max(RAIL_MIN_PX, Math.min(px, railMaxWidth(windowWidth))))
+}
+
+/** The width this device last dragged the rail to, or undefined for the
+ *  default. Anything unreadable is the default rather than an error. */
+export function loadRailWidth(storage: Pick<Storage, 'getItem'>): number | undefined {
+  try {
+    const raw = storage.getItem(WIDTH_KEY)
+    if (raw === null) return undefined
+    const px = Number(raw)
+    return Number.isFinite(px) && px >= RAIL_MIN_PX && px <= RAIL_MAX_PX ? Math.round(px) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Remembers a dragged width; undefined forgets it, for the reset. */
+export function saveRailWidth(storage: Pick<Storage, 'setItem' | 'removeItem'>, px: number | undefined): void {
+  try {
+    if (px === undefined) storage.removeItem(WIDTH_KEY)
+    else storage.setItem(WIDTH_KEY, String(Math.round(px)))
+  } catch {
+    // The divider still works for the rest of this session.
+  }
+}
