@@ -3,10 +3,11 @@ import { Redaction, BOX_WINDOW, boxId } from './redaction.mjs'
 import { MarksOverlay, MARKS_URL, MARKS_WINDOW } from './marks-overlay.mjs'
 import { createDesktopUpdater } from './updater.mjs'
 import { createPackageUpdater, packageVersionFile, readPackageVersion } from './package-updater.mjs'
+import { createArchiveUpdater } from './archive-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
 import { app, autoUpdater, BrowserWindow, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
-import { extname, join, isAbsolute } from 'node:path'
+import { dirname, extname, join, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DesktopNotices } from './notifications.mjs'
 import { HOME, ORIGIN, CSP, isAppUrl, isExternalUrl, localAsset, allowedPermissions, windowOpenAction } from './policy.mjs'
@@ -47,10 +48,22 @@ const updates = packageManaged
     currentVersion: app.getVersion(), installedVersion: () => readPackageVersion(versionStamp),
     relaunch: () => { app.relaunch(); app.quit() }, notify: updateNotify, log: updateLog,
   })
-  : createDesktopUpdater({
-    autoUpdater, platform: process.platform, arch: process.arch, packaged: app.isPackaged,
-    notify: updateNotify, log: updateLog,
-  })
+  : process.platform === 'darwin'
+    ? createDesktopUpdater({
+      autoUpdater, platform: process.platform, arch: process.arch, packaged: app.isPackaged,
+      notify: updateNotify, log: updateLog,
+    })
+    // The Windows ZIP and the Linux tarball: a signed manifest, a verified
+    // download, and a swap on restart.
+    : createArchiveUpdater({
+      platform: process.platform, arch: process.arch, packaged: app.isPackaged,
+      currentVersion: app.getVersion(), installDir: dirname(process.execPath),
+      updatesDir: join(app.getPath('userData'), 'updates'),
+      fetch: url => net.fetch(url, { cache: 'no-store' }),
+      quit: () => app.quit(),
+      relaunch: execPath => { app.relaunch({ execPath }); app.quit() },
+      notify: updateNotify, log: updateLog,
+    })
 const shareArea = new ShareArea(() => win, areaMode)
 // Redaction boxes need a window placed on the real screen, which Wayland
 // forbids: there the preview area share is the way to keep things private.

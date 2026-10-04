@@ -54,6 +54,8 @@ const versionName = requireString('versionName', /^\d+\.\d+\.\d+$/)
 const versionCode = requireInteger('versionCode')
 const minSdk = requireInteger('minSdk')
 const targetSdk = requireInteger('targetSdk')
+const expectedApkBytes = requireInteger('apkBytes')
+if (expectedApkBytes === 0) fail('apkBytes is invalid')
 const expectedApkSha = sha256(requireString('apkSha256'))
 const expectedCertificate = sha256(requireString('currentCertificateSha256'))
 const downloadFilename = requireString('downloadFilename', /^[a-zA-Z0-9][a-zA-Z0-9._-]*\.apk$/)
@@ -105,6 +107,8 @@ if (!options.apk) {
 }
 
 if (!existsSync(options.apk) || !statSync(options.apk).isFile() || statSync(options.apk).size === 0) fail(`APK is missing or empty: ${options.apk}`)
+// The app checks a download against both, from the signed manifest.
+if (statSync(options.apk).size !== expectedApkBytes) fail(`APK is ${statSync(options.apk).size} bytes, expected ${expectedApkBytes}`)
 
 function toolPath(name) {
   const roots = [

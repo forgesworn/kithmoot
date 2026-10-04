@@ -6,6 +6,7 @@
   "versionCode": 76,
   "minSdk": 33,
   "targetSdk": 35,
+  "apkBytes": 141730059,
   "apkSha256": "f46c79eaec7166f12690294aac196484359696a2540a82dd96afc3165a4ef16a",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
