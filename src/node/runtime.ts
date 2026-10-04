@@ -394,7 +394,9 @@ export class AgentRuntime {
    *
    * Only what reaches it. A person who has not let agents hear them sends
    * this agent nothing, and there is nothing here that could change that -
-   * see `RoomSession.publishTracks`.
+   * see `RoomSession.publishTracks`. And only from speakers while the room
+   * is in meeting mode: what anybody else says is dropped unheard, as every
+   * person's app drops it.
    */
   listen(
     transcriber: Transcriber,
@@ -418,6 +420,9 @@ export class AgentRuntime {
       attach(
         rtp,
         (utterance) => {
+          // Checked per utterance, not per track: meeting mode can start or
+          // a speaker be dropped while somebody's track is still open.
+          if (!this.agent.mayHear(participant)) return
           const previous = queues.get(participant) ?? Promise.resolve()
           const next = previous
             .then(async () => {

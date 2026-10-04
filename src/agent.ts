@@ -32,6 +32,7 @@ import type { RemoteTrack } from './mesh.js'
 import type { AgentOwnership, ForwarderRef, KindredProof, RoomPolicy, SingularRole, TrackAdvert } from './types.js'
 import { parseForwarderRef } from './descriptor.js'
 import { verifyAgentOwnership } from './ownership.js'
+import { meetingAllows, verifyMeetingPolicy, type MeetingPolicy } from './meeting.js'
 
 /**
  * The relays an agent uses when its link names none. The same three the app
@@ -347,6 +348,8 @@ export class RoomAgent {
   readonly #announcedAdmins = new Set<string>()
   #announcedAdminsAt = 0
   readonly #announcedChannels = new Set<string>()
+  /** The room's meeting policy, newest verified version. */
+  #meeting: MeetingPolicy | undefined
   readonly #channelListeners = new Set<(channels: ReadonlySet<string>) => void>()
   #announcedChannelsAt = 0
   /** The keeper's own view of the room's channels, which is what it signs.
@@ -836,6 +839,16 @@ export class RoomAgent {
       this.#emit(this.#channelListeners, new Set(this.#announcedChannels))
       return
     }
+    // Meeting mode: signed by the authority, so believed whoever reposted
+    // it, replayed or live; the newest version wins.
+    if (control.op === 'meeting') {
+      const authority = this.link.invitation?.inviter
+      if (!authority || (this.#meeting && this.#meeting.version >= control.version)) return
+      const policy: MeetingPolicy = { on: control.on, speakers: control.speakers, version: control.version }
+      if (!verifyMeetingPolicy({ roomId: this.roomId, policy, sig: control.sig, authority })) return
+      this.#meeting = policy
+      return
+    }
     // The authority's relays op, signed, so as true replayed as live.
     if (control.op === 'relays') {
       this.#adoptRoomRelays(control, m)
@@ -877,6 +890,23 @@ export class RoomAgent {
       default:
         return
     }
+  }
+
+  /** The room's meeting policy, as the authority last signed it, once heard. */
+  get meeting(): MeetingPolicy | undefined {
+    return this.#meeting
+  }
+
+  /**
+   * Whether this agent may take in what `participant` says: always, unless
+   * the room is in meeting mode and they are not a speaker. The same rule
+   * every person's app applies, so an agent in the room - a transcriber
+   * above all - hears no more than the people do. A track nobody owns
+   * (`participant` undefined) is refused while the meeting is on.
+   */
+  mayHear(participant: string | undefined): boolean {
+    if (!this.#meeting?.on) return true
+    return participant !== undefined && meetingAllows(this.#meeting, participant, 'audio')
   }
 
   /** The admin list as the keeper announced it, once heard. */

@@ -17,6 +17,7 @@ import { FixedTranscriber } from './transcriber.js'
 import type { Utterance } from './utterances.js'
 import type { RtpTrackLike } from './audio.js'
 import { createFakeFactory } from '../../test/fake-rtc.js'
+import { signMeetingPolicy, type MeetingPolicy } from '../meeting.js'
 
 const BASE = 'https://example.test/j/'
 
@@ -253,6 +254,54 @@ describe('AgentRuntime', () => {
     expect(transcriber.heard).toHaveLength(1)
     await runtime.close()
     await person.close()
+  })
+})
+
+describe('AgentRuntime in meeting mode', () => {
+  it('transcribes only speakers, as every person\'s app plays only speakers', async () => {
+    const relay = new SimRelay({ replay: true })
+    const transport = () => new SimTransport(relay)
+    const factory = createFakeFactory()
+    const keeper = await RoomAgent.create({ base: BASE, name: 'Person', relays: ['wss://sim'], transport, announceJitterMs: 0, agent: false })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', transport, announceJitterMs: 0, factory })
+    await settle()
+    const runtime = new AgentRuntime(ada).start()
+    const transcriber = new FixedTranscriber('something said')
+    let feed: ((u: Utterance) => void) | undefined
+    runtime.listen(transcriber, { attach: async (_track: RtpTrackLike, onUtterance) => { feed = onUtterance; return () => {} } })
+    const track = { kind: 'audio', id: 'mic-1', onReceiveRtp: { subscribe: () => ({ unSubscribe() {} }) } }
+    factory.to(keeper.device)!.ontrack?.({ track: track as unknown as MediaStreamTrack })
+    await settle()
+    const utterance = { pcm: new Float32Array(16_000), sampleRate: 16_000, startedAt: 0, endedAt: 1000 }
+    const post = async (policy: MeetingPolicy, authoritySk = keeper.keeperState!.inviterSk) =>
+      keeper.sendControl({ op: 'meeting', ...policy, sig: signMeetingPolicy({ roomId: keeper.roomId, policy, authoritySk }) })
+
+    // A policy signed by anybody but the room's authority changes nothing.
+    await post({ on: true, speakers: [ada.participant], version: 1 }, generateSecretKey())
+    await settle()
+    expect(ada.meeting).toBeUndefined()
+
+    // Meeting mode, and the person is not a speaker: what they say is dropped.
+    await post({ on: true, speakers: [ada.participant], version: 2 })
+    await vi.waitFor(() => expect(ada.meeting?.version).toBe(2))
+    expect(ada.mayHear(keeper.participant)).toBe(false)
+    expect(ada.mayHear(undefined)).toBe(false)
+    feed!(utterance)
+    await settle()
+    expect(transcriber.heard).toHaveLength(0)
+
+    // An older version, replayed, does not undo a newer one.
+    await post({ on: false, speakers: [], version: 1 })
+    await settle()
+    expect(ada.meeting?.version).toBe(2)
+
+    // Made a speaker: heard again, on the same open track.
+    await post({ on: true, speakers: [ada.participant, keeper.participant].sort(), version: 3 })
+    await vi.waitFor(() => expect(ada.mayHear(keeper.participant)).toBe(true))
+    feed!(utterance)
+    await vi.waitFor(() => expect(transcriber.heard).toHaveLength(1))
+    await runtime.close()
+    keeper.leave()
   })
 })
 
