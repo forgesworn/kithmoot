@@ -1,10 +1,11 @@
 # Key schedule: healing, forward secrecy and quieter authorship
 
-Status: proposed 2026-10-04. Phase 1 is built on branches
-(`forgesworn/fold-kit` `feat/credential-seal-key`, released as 0.7.0 once
-published; this repository's `feat/seal-key`), and waits on that publish.
-Phases 2 to 4 are not started. Six owner decisions are listed at the end;
-each has a recommended answer, and the work so far follows them.
+Status: proposed 2026-10-04. Phase 1 shipped 2026-10-04 (fold-kit 0.7.0,
+#237, desktop 0.1.52). Phase 2's erasure audit is done
+(`docs/2026-10-05-erasure-audit.md`), and it splits phase 2 in two: healing
+(2a) and forward secrecy (2b). Phases 3 and 4 are not started. Seven owner
+decisions are listed at the end. Each has a recommended answer except the
+seventh, and the work so far follows those recommendations.
 
 ## Scope
 
@@ -114,6 +115,23 @@ Four facts decide most of the design.
 ## Phase 2: scheduled rekeys (healing completes, forward secrecy arrives)
 
 Phase 1 only heals at a rekey, and today a room rekeys only on removal.
+
+**Split by the erasure audit** (`docs/2026-10-05-erasure-audit.md`). Three
+things defeat forward secrecy today, and erasing epoch secrets fixes none of
+them:
+- rekey copies and authority grants are sealed from the authority's
+  long-lived key;
+- Android and paired secondaries have no seal keys;
+- the web recomputes every epoch at each load.
+
+**2a, healing:** cadence, history, newcomers, the quiet marker. It ships
+first and claims no forward secrecy.
+
+**2b, forward secrecy:** a one-time sender key for 1462 and 20469, seal keys
+on Android and secondaries, the web keeping its window's secrets instead of
+re-walking from epoch 0, archive and Android history pruned by age, then
+erasure. The bullets below were written before the split; the audit's "What
+this changes in the plan" takes precedence where they differ.
 
 - **Cadence.** The authority rekeys a room when it has been at one epoch for
   seven days and anybody has spoken in it since. A rekey with nobody removed
@@ -233,3 +251,8 @@ Phase 1 only heals at a rekey, and today a room rekeys only on removal.
 6. **Phase 4.** Recommended: design the rekey split now, since phase 2
    makes rekeys routine, and build ML-KEM when a pure-JS and Kotlin
    implementation pair has passed review.
+7. **The room archive against forward secrecy** (raised by the erasure
+   audit). Either the archive prunes at the history window and deep local
+   history goes, or it re-seals what it keeps to a device archive key, so
+   history the device holds is not forward secret against the device (as in
+   Signal). No recommendation yet. It gates 2b, not 2a.
