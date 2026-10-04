@@ -98,6 +98,13 @@ cd "$repo_root"
 
 remote() { ssh "${SSH_OPTS[@]}" "$DEPLOY_HOST" "$@"; }
 
+# --- check ------------------------------------------------------------------
+
+# The apps update only from manifests signed by a key built into them. One
+# that was edited after signing would be refused by every app, so stop here.
+echo "==> checking the signed update manifests"
+node scripts/update-signing.mjs check
+
 # --- build ------------------------------------------------------------------
 
 echo "==> building app/dist"

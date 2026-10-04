@@ -30,7 +30,7 @@ Camera, microphone and screen capture use Windows and Chromium permission contro
 Share an area is available; screen audio uses Windows loopback capture where supported.
 The Chromium sandbox remains enabled.
 Your encrypted local profile lives separately under the current Windows account and survives replacing this folder.
-Updates are manual. Close KithMoot before replacing the extracted application folder.
+KithMoot updates itself: it checks for a new version, verifies the download against a signed manifest, and asks before restarting. Keep this folder somewhere you can write to, or updates are switched off.
 To remove the application, close it and delete the extracted folder. Remove its profile separately only if you also want to erase this device's local KithMoot state.
 This preview is not Authenticode signed. Windows may identify its publisher as unknown or block it under local security policy.
 `)

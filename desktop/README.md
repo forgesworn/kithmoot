@@ -138,8 +138,17 @@ Signed Apple Silicon builds check the static Squirrel.Mac feed at
 the background, verifies its declared SHA-256 and size, and requires the new app
 to satisfy the running app's code-signing requirement. KithMoot asks before
 restarting and uses the same unfinished-work and active-call gates as PWA
-updates. Development builds and Linux tarball builds keep the updater disabled;
+updates. Development builds keep the updater disabled;
 the Debian package is updated by apt (below).
+
+## Automatic Windows and Linux tarball updates
+
+The Windows ZIP and the Linux tarball update themselves through
+`archive-updater.mjs`. They trust nothing the download server says without
+a signature: `downloads/release.json` must carry an Ed25519 signature by a
+key built into the app, and the archive must then match the size and SHA-256
+that signed manifest gives. The verified archive is unpacked beside the app
+and swapped in when the person accepts the restart. See `docs/updates.md`.
 
 ## Debian package and APT repository
 
