@@ -61,7 +61,9 @@ const updates = packageManaged
       updatesDir: join(app.getPath('userData'), 'updates'),
       fetch: url => net.fetch(url, { cache: 'no-store' }),
       quit: () => app.quit(),
-      relaunch: execPath => { app.relaunch({ execPath }); app.quit() },
+      // Given an execPath, Electron starts it with no arguments unless told:
+      // keep the flags this copy was started with, such as --ozone-platform.
+      relaunch: execPath => { app.relaunch({ execPath, args: process.argv.slice(1) }); app.quit() },
       notify: updateNotify, log: updateLog,
     })
 const shareArea = new ShareArea(() => win, areaMode)
