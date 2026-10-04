@@ -56,8 +56,8 @@ None of these are zeroed when they are dropped.
 **How the web reaches the current epoch.** At every load it starts from
 epoch 0, which is the link. It then replays every rekey from the relays and
 from the archive (`src/session.ts:897`), opening each copy with the seal keys
-and then the device key. It holds no secret on disk, but whatever it holds
-re-derives all of them.
+and then the device key. On disk it holds no epoch secret, only the newest
+epoch's reading key, but what it does hold re-derives every secret.
 
 ### Headless agent and keeper (`kithmoot-agent`)
 
@@ -182,6 +182,12 @@ A room's first rekey is where forward secrecy can begin.
      as count.
   5. Android's history gets the same window (30 days, at most 16), and its
      journal forgets a removed or closed room's secret.
+     Erasure also caps the grant path (the plan asked for it to be covered):
+     a member desk reads secrets from `#secrets` on the web and from the
+     epoch history on Android. Once those hold only the window, a member
+     grant carries at most 16 epochs, not `MAX_MEMBER_EPOCH_CHAIN` (32), and
+     a device further behind asks the authority. 2a leaves the 32 alone,
+     since nothing is erased yet.
   6. Dropped secrets are zeroed where the language allows: `Uint8Array.fill`
      on the web and in Node, and `ByteArray.fill` on Android.
 
