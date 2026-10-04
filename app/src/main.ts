@@ -59,6 +59,7 @@ import {
   loadCredentialFor,
   loadKeptAdmission,
   loadOwnCredentialFor,
+  loadOwnSealKeysFor,
   storeCredentialFor,
   storeOwnCredentialFor,
   storeKeptAdmission,
@@ -10717,8 +10718,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // room id this session was built for, which a docked call may
           // not share with the screen.
           resume: loadOwnCredentialFor(deviceStore, sessionRoomId, nowSeconds()),
-          onCredential: (minted) => {
-            try { storeOwnCredentialFor(deviceStore, sessionRoomId, minted) } catch { /* storage may be unavailable */ }
+          sealKeys: loadOwnSealKeysFor(deviceStore, sessionRoomId),
+          onCredential: (minted, sealSk) => {
+            try { storeOwnCredentialFor(deviceStore, sessionRoomId, minted, sealSk) } catch { /* storage may be unavailable */ }
           },
           deviceSk,
           factory,

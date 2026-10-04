@@ -188,7 +188,16 @@ describe('a chat log over an archive', () => {
     const base = { secret, now: () => NOW, announceJitterMs: 0, authority, epochSettleMs: 0 }
     const relay = new SimRelay({ replay: true })
     const keeper = new RoomSession({ ...base, transport: new SimTransport(relay), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), name: 'Keeper' })
-    const alice = new RoomSession({ ...base, ...aliceKeys, transport: new SimTransport(relay), name: 'Alice', archive })
+    // Kept beside the device key: the rekey copy for Alice is sealed to them.
+    const sealKeys: Uint8Array[] = []
+    const alice = new RoomSession({
+      ...base,
+      ...aliceKeys,
+      transport: new SimTransport(relay),
+      name: 'Alice',
+      archive,
+      onCredential: (_credential: unknown, sealSk?: Uint8Array) => { if (sealSk) sealKeys.push(sealSk) },
+    })
     await keeper.join([], {})
     await alice.join([], {})
     for (let i = 0; i < 10; i++) await new Promise(resolve => setTimeout(resolve, 0))
@@ -201,7 +210,7 @@ describe('a chat log over an archive', () => {
     alice.leave(); keeper.leave()
 
     // Every relay forgot: the rekey and the chat are only on Alice's device.
-    const again = new RoomSession({ ...base, ...aliceKeys, transport: new SimTransport(new SimRelay({ replay: true })), name: 'Alice', archive })
+    const again = new RoomSession({ ...base, ...aliceKeys, sealKeys, transport: new SimTransport(new SimRelay({ replay: true })), name: 'Alice', archive })
     await again.join([], {})
     await expect.poll(() => again.chat.messages().length).toBe(1)
     expect(again.epoch).toBe(1)

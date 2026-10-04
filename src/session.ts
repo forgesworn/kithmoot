@@ -3,6 +3,7 @@ import type { Event } from 'nostr-tools/pure'
 import { deriveRoom } from './room.js'
 import { randomFraction } from './random.js'
 import { createDeviceCredential, verifyDeviceCredential } from './credential.js'
+import { credentialSeal, generateSealKey, newerCredential } from './seal.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import type { ParticipantIdentity } from './identity.js'
 import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
@@ -404,9 +405,20 @@ export interface PrimaryRoomSessionOptions extends RoomSessionBaseOptions {
    * runs from its real expiry, in the background.
    */
   resume?: DeviceCredential
+  /**
+   * The seal key secrets this device kept from earlier sessions in this
+   * room, oldest first, as `onCredential` handed them over (see `seal.ts`).
+   * Rekeys and epoch grants for this device are sealed to its seal keys,
+   * not its device key, so a device reading the room again from its first
+   * rekey needs every one it has used here. Keep them as the device key is
+   * kept. A `resume` naming a seal key is used only when its secret is
+   * among them: without it, nothing sealed to that credential would open.
+   */
+  sealKeys?: readonly Uint8Array[]
   /** Called with every credential this device mints for itself, at join and
-   *  at each renewal, so the embedding can keep it to offer as `resume`. */
-  onCredential?: (credential: DeviceCredential) => void
+   *  at each renewal, and the secret of the seal key it names, so the
+   *  embedding can keep both to offer as `resume` and in `sealKeys`. */
+  onCredential?: (credential: DeviceCredential, sealSk?: Uint8Array) => void
 }
 
 /**
@@ -420,6 +432,7 @@ export interface SecondaryRoomSessionOptions extends RoomSessionBaseOptions {
   credential: DeviceCredential
   identity?: never
   resume?: never
+  sealKeys?: never
   onCredential?: never
 }
 
@@ -455,6 +468,13 @@ export const CREDENTIAL_RENEWAL_FRACTION = 0.5
 /** How long to wait before trying a renewal again after a signer refused or
  *  a relay was down. Short, because the clock is running on the old one. */
 const CREDENTIAL_RENEWAL_RETRY_MS = 60_000
+
+/** How many devices' newest credentials a session holds for sealing to. */
+const MAX_NEWEST_CREDENTIALS = 1_024
+/** How many seal key secrets a session holds: a renewal every six hours
+ *  for a little over a month. Past that, an old rekey sealed to a dropped
+ *  key is asked for again. */
+const MAX_SEAL_KEYS = 128
 
 /** The least life a resumed credential must have left to be used at join.
  *  Enough that a member whose clock runs a few minutes ahead does not refuse
@@ -574,6 +594,22 @@ export class RoomSession {
   /** Set only on a secondary device: the credential it was handed. A primary
    *  mints a fresh one at join. */
   #credential?: DeviceCredential
+  /**
+   * The seal key secrets this device holds, by public key, oldest first:
+   * those it was given (`sealKeys`) and those it mints. Rekeys and epoch
+   * grants are sealed to them rather than to the device key, so a copy of
+   * this device taken once stops reading the room once the credential it
+   * caught has lapsed and the room has rekeyed. See `seal.ts`.
+   */
+  readonly #sealKeys = new Map<string, Uint8Array>()
+  /**
+   * The newest credential seen for each device, from the roster. Only ever
+   * moves forward: a roster entry is signed by the device key, so a thief
+   * holding that key can publish an entry carrying the device's older,
+   * still-live credential, and must not move what rekeys and grants are
+   * sealed to back onto the seal key they copied.
+   */
+  readonly #newestCredentials = new Map<string, DeviceCredential>()
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
   /**
@@ -696,6 +732,7 @@ export class RoomSession {
     this.roomId = roomId
     this.#roomKey = roomKey
     this.#opts = opts
+    for (const sk of opts.identity ? opts.sealKeys ?? [] : []) this.#keepSealKey(sk)
     this.#epochSecret = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : { epoch: 0, secret: opts.secret }
     this.#epoch = deriveEpoch(this.#epochSecret)
     if (this.#epochSecret.epoch > 0) this.#keepSecret(this.#epochSecret)
@@ -759,13 +796,62 @@ export class RoomSession {
   ): Promise<DeviceCredential> {
     const identity = this.#opts.identity
     if (!identity) throw new Error('this device cannot sign for the participant, so it cannot issue credentials')
-    return createDeviceCredential({
+    // This device's own credential names a fresh seal key. A credential for
+    // another device does not: that device would have to mint the key, and
+    // the pairing flow does not carry one yet.
+    const seal = normaliseHex(devicePubkey) === this.device ? generateSealKey() : undefined
+    const credential = await createDeviceCredential({
       identity,
       devicePubkey,
       roomId: this.roomId,
       expiresAt: this.#now() + ttlSeconds,
+      ...(seal ? { seal: seal.pubkey } : {}),
       now: this.#now,
     })
+    if (seal) this.#keepSealKey(seal.secretKey)
+    return credential
+  }
+
+  /** Hold a seal key secret, newest last, up to `MAX_SEAL_KEYS`. */
+  #keepSealKey(sk: Uint8Array): void {
+    let pubkey: string
+    try {
+      pubkey = getPublicKey(sk)
+    } catch {
+      return
+    }
+    this.#sealKeys.delete(pubkey)
+    this.#sealKeys.set(pubkey, sk.slice())
+    if (this.#sealKeys.size > MAX_SEAL_KEYS) {
+      const [oldest, key] = this.#sealKeys.entries().next().value!
+      key.fill(0)
+      this.#sealKeys.delete(oldest)
+    }
+  }
+
+  /** The seal key secrets this device holds, newest first: the order a
+   *  reader tries them in. */
+  #sealSks(): Uint8Array[] {
+    return [...this.#sealKeys.values()].reverse()
+  }
+
+  /** Remember a device's credential if it is newer than the one held. */
+  #noteCredential(device: string, credential: DeviceCredential): void {
+    const held = this.#newestCredentials.get(device)
+    const newest = held ? newerCredential(held, credential) : credential
+    if (newest === held) return
+    this.#newestCredentials.delete(device)
+    this.#newestCredentials.set(device, newest)
+    if (this.#newestCredentials.size > MAX_NEWEST_CREDENTIALS) this.#newestCredentials.delete(this.#newestCredentials.keys().next().value!)
+  }
+
+  /**
+   * The newest credential this session has seen for a device, from the
+   * roster: what rekeys and epoch grants for it are sealed by. A keeper's
+   * epoch desk takes it as `credentialFor`.
+   */
+  credentialFor(device: string): DeviceCredential | undefined {
+    return this.#newestCredentials.get(normaliseHex(device))
   }
 
   async join(tracks: TrackAdvert[], claims: Partial<Record<SingularRole, number>>): Promise<void> {
@@ -995,6 +1081,10 @@ export class RoomSession {
       const now = this.#now()
       const verdict = verifyDeviceCredential(resume, { roomId: this.roomId, now })
       if (!verdict.ok || verdict.device !== this.device || normaliseHex(verdict.participant) !== this.participant) return undefined
+      // A seal key with no secret to go with it: everything sealed to this
+      // credential would be unreadable here until the next renewal.
+      const seal = credentialSeal(resume)
+      if (typeof seal === 'string' && !this.#sealKeys.has(seal)) return undefined
       const expiresAt = credentialExpiresAt(resume)
       return Number.isFinite(expiresAt) && expiresAt - now >= RESUME_MIN_REMAINING_SECONDS ? resume : undefined
     } catch {
@@ -1012,8 +1102,10 @@ export class RoomSession {
   }
 
   #announceCredential(credential: DeviceCredential): void {
+    const seal = credentialSeal(credential)
+    const sk = typeof seal === 'string' ? this.#sealKeys.get(seal)?.slice() : undefined
     try {
-      this.#opts.onCredential?.(credential)
+      this.#opts.onCredential?.(credential, sk)
     } catch {
       // Keeping it is the embedding's convenience; the room does not wait on it.
     }
@@ -1256,6 +1348,7 @@ export class RoomSession {
         authority: this.#opts.authority!,
         current: this.#epoch,
         deviceSk: this.#opts.deviceSk,
+        sealSks: this.#sealSks(),
       })
       // Left pending when it cannot be acted on, so the session still knows
       // it is behind (and keeps asking) until a grant moves it past it.
@@ -1344,6 +1437,7 @@ export class RoomSession {
           onUnknown: () => {
             this.#unknownHere = true
           },
+          sealSks: () => this.#sealSks(),
         })
         this.#unknownHere = false
         if (this.#left || this.#closed) return
@@ -1405,6 +1499,7 @@ export class RoomSession {
         current: () => this.#epoch,
         removed: () => this.#removed,
         expected: () => this.#highestKnownEpoch(),
+        sealSks: () => this.#sealSks(),
         now: this.#now,
         expiresAt: this.#opts.endsAt,
       })
@@ -1471,6 +1566,7 @@ export class RoomSession {
         // Once the room has removed somebody, its key goes only to people it
         // knows; anybody else is the caller's to let in (#207).
         known: (participant) => this.knows(participant),
+        credentialFor: (device) => this.credentialFor(device),
         onUnknown: (request) => {
           try {
             this.#opts.onUnknownAsking?.({ participant: request.participant, device: request.device })
@@ -1606,12 +1702,13 @@ export class RoomSession {
     const removed = [...new Set((opts.removed ?? []).map(normaliseHex))].sort()
     const next: RoomEpoch = { epoch: this.#epoch.epoch + 1, secret: generateEpochSecret() }
     // Deduplicated: a device with two tabs of this room open is two roster
-    // entries and still exactly one key to seal the epoch to.
+    // entries and still exactly one copy, sealed by the newest credential
+    // seen for that device (see `seal.ts`).
     const recipients = [...new Set(
       [...this.#entries.values()]
         .filter((e) => e.device !== this.device && !removed.includes(e.participant) && !this.#removed.has(e.participant))
         .map((e) => e.device),
-    )]
+    )].map((device) => ({ device, credential: this.credentialFor(device) }))
     const now = this.#now()
     const members = this.memberList().filter((p) => !removed.includes(p))
     const event = encodeRekeyEvent({
@@ -2334,6 +2431,11 @@ export class RoomSession {
       if (entry.device !== this.device && !evaluateAgentAccess(this.#opts.policy, entry, (p) => this.#isMember(p), this.#now()).admitted) return
     }
 
+    // Before the presence checks: a stale entry is not presence, but the
+    // credential it carries is still a signed fact about its device, and
+    // only a newer one is kept.
+    this.#noteCredential(entry.device, entry.credential)
+
     // The presence identity, which is the device key only for an entry that
     // names no page session - see `presenceKey`. Two tabs of one browser
     // sign as one device, and holding them under one key is what let the
@@ -2607,6 +2709,8 @@ export class RoomSession {
     }
 
     this.#left = true
+    for (const sk of this.#sealKeys.values()) sk.fill(0)
+    this.#sealKeys.clear()
     if (this.#replyTimer !== undefined) clearTimeout(this.#replyTimer)
     this.#replyTimer = undefined
     if (this.#heartbeatTimer !== undefined) clearInterval(this.#heartbeatTimer)

@@ -671,6 +671,9 @@ export class RoomAgent {
             // a release that predates the admission proof.
             known: (participant) => session.knows(participant) || admins.has(participant.toLowerCase()),
             members: () => session.memberList(),
+            // Sealed by the newest credential the roster has shown for the
+            // device, so a copied device heals (see seal.ts).
+            credentialFor: (device) => session.credentialFor(device),
             onUnknown: (request) => {
               if (agent) agent.#askAdminsToLetIn(request.participant).catch(() => {})
             },

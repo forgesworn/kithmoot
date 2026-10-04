@@ -1,7 +1,10 @@
 # Key schedule: healing, forward secrecy and quieter authorship
 
-Status: proposed 2026-10-04. Nothing here is built. Six owner decisions are
-listed at the end; each has a recommended answer.
+Status: proposed 2026-10-04. Phase 1 is built on branches
+(`forgesworn/fold-kit` `feat/credential-seal-key`, released as 0.7.0 once
+published; this repository's `feat/seal-key`), and waits on that publish.
+Phases 2 to 4 are not started. Six owner decisions are listed at the end;
+each has a recommended answer, and the work so far follows them.
 
 ## Scope
 
@@ -62,9 +65,16 @@ Four facts decide most of the design.
 ## Phase 1: a seal key in the credential (healing)
 
 - **Wire.** The 20460 credential gains a tag `seal`: an x-only secp256k1
-  public key, minted fresh by the device at every renewal and held only in
-  memory and the device's sealed store. The participant's signature covers
-  it, so only the signer can bind a new one.
+  public key, minted fresh by the device at every renewal. The participant's
+  signature covers it, so only the signer can bind a new one.
+- **Keeping the secrets.** The device keeps its seal secrets as it keeps its
+  device key, up to 128 a room (a month of renewals), and offers them back
+  to the session (`sealKeys`). A browser reads a room again from its first
+  rekey, and each old copy is sealed to the seal key current when it was
+  written, so a device that dropped them would have to ask a desk for every
+  epoch. Keeping them costs healing nothing: a thief who copies the device
+  holds the seal keys minted up to then and none after. Retiring them
+  belongs with epoch secrets in phase 2's erasure audit.
 - **Sealing.** A rekey's `keys` entry and both grants (20469, 20472) are
   sealed with NIP-44 to the seal key from the newest live credential the
   sender holds for that device. If the device has no `seal` key, the
@@ -87,6 +97,10 @@ Four facts decide most of the design.
   they arrive as a new member that everybody can see. Healing turns an
   invisible reader into a visible stranger. Keeping them out as well needs
   the link replaced, which the security notes should say.
+- **Secondary devices.** A paired device's credential is minted by its
+  primary and does not renew, so it names no seal key and is sealed to as
+  before. Healing it needs the pairing flow to carry a seal key the
+  secondary minted.
 - **What it does not cover.** A participant whose key lives on the device
   (a local nsec, no signer) heals only by removal. The same is true in MLS,
   where a thief who copies the signing key can update the leaf too. Device

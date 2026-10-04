@@ -125,6 +125,8 @@ export {
   PERSON_CREDENTIAL_MAX_SECONDS,
   RestampedCredentialExpiryError,
 } from './credential.js'
+export { SEAL_TAG, isSealPubkey, generateSealKey, credentialSeal, sealTarget, newerCredential } from './seal.js'
+export type { SealKey } from './seal.js'
 export { encodePersistentInvitation, decodePersistentInvitation, requestPersistentRoomAdmission, isInvitationRelays, requireInvitationRelays, MAX_INVITATION_RELAYS } from './persistent-invitation.js'
 export type { PersistentRoomAdmission } from './persistent-invitation.js'
 export { readRendezvousProvision, readRendezvousProvisionEnvelope, RENDEZVOUS_PURPOSE, RENDEZVOUS_PROVISION_MAX_SECONDS } from './rendezvous-provisioning.js'

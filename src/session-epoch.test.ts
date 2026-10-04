@@ -352,7 +352,14 @@ describe('room epochs', () => {
     const carolIdentity = localIdentity(generateSecretKey())
     const carolDevice = generateSecretKey()
     const away = new LaggyTransport(relay)
-    const carol = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, transport: away })
+    // Kept as the device key is kept: her copies of the rekeys are sealed to them.
+    const sealKeys: Uint8Array[] = []
+    const carol = member(relay, 'Carol', authority, {
+      identity: carolIdentity,
+      deviceSk: carolDevice,
+      transport: away,
+      onCredential: (_credential, sealSk) => { if (sealSk) sealKeys.push(sealSk) },
+    })
     await keeper.join([], {})
     await alice.join([], {})
     await carol.join([], {})
@@ -376,7 +383,7 @@ describe('room epochs', () => {
     // She opens the room again: the relay replays three rekeys, she
     // applies them in a row, and the epochs she passed through are read.
     const gaps: EpochGap[] = []
-    const back = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, onEpochGap: (gap) => gaps.push(gap) })
+    const back = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, sealKeys, onEpochGap: (gap) => gaps.push(gap) })
     await back.join([], {})
     await settle()
     expect(back.epoch).toBe(3)
@@ -393,7 +400,14 @@ describe('room epochs', () => {
     const carolIdentity = localIdentity(generateSecretKey())
     const carolDevice = generateSecretKey()
     const away = new LaggyTransport(relay)
-    const carol = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, transport: away })
+    // Kept as the device key is kept: her copies of the rekeys are sealed to them.
+    const sealKeys: Uint8Array[] = []
+    const carol = member(relay, 'Carol', authority, {
+      identity: carolIdentity,
+      deviceSk: carolDevice,
+      transport: away,
+      onCredential: (_credential, sealSk) => { if (sealSk) sealKeys.push(sealSk) },
+    })
     await keeper.join([], {})
     await carol.join([], {})
     await settle()
@@ -420,7 +434,7 @@ describe('room epochs', () => {
       now,
     })
 
-    const back = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice })
+    const back = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, sealKeys })
     await back.join([], {})
     await settle()
     expect(back.epoch).toBe(3)
