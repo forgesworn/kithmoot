@@ -836,7 +836,8 @@ export class RoomSession {
   }
 
   /** Remember a device's credential if it is newer than the one held. */
-  #noteCredential(device: string, credential: DeviceCredential): void {
+  #noteCredential(raw: string, credential: DeviceCredential): void {
+    const device = normaliseHex(raw)
     const held = this.#newestCredentials.get(device)
     const newest = held ? newerCredential(held, credential) : credential
     if (newest === held) return
