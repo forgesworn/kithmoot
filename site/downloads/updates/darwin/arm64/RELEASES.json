@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.49",
+  "currentRelease": "0.1.50",
   "releases": [
     {
-      "version": "0.1.49",
+      "version": "0.1.50",
       "updateTo": {
-        "version": "0.1.49",
-        "pub_date": "2026-10-04T13:00:00Z",
-        "notes": "If KithMoot is ever offered an update it cannot verify, it now says so on screen, rather than only skipping it: that would mean the download server is not serving what it should. This is also the first release Windows and the Linux tar.gz install by themselves, from 0.1.48.",
-        "name": "0.1.49",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.49/KithMoot-0.1.49-mac-arm64.zip",
-        "sha256": "7748e13e5d6f267aa5fff5968e6816f204ddd4f94151e670edd268c12af270d5",
-        "size": 136450275
+        "version": "0.1.50",
+        "pub_date": "2026-10-04T15:00:00Z",
+        "notes": "You can now drag the edge of the rooms list to make it wider, so room names have space beside their unread counts. Double-click the edge to put it back. On Linux, restarting into an update now keeps any options KithMoot was started with.",
+        "name": "0.1.50",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.50/KithMoot-0.1.50-mac-arm64.zip",
+        "sha256": "7aef0c53dc69c60635ce2b46c0a33100e6c239cfd54373e6a8ed5871e1445f1a",
+        "size": 136451832
       }
     }
   ]
