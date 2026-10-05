@@ -37,6 +37,8 @@ export type TimelineKind =
   | 'relay-reconnected'
   | 'relay-resubscribed'
   | 'call-tab-lock'
+  | 'call-declared'
+  | 'call-ring'
   | 'probe-failed'
 
 export interface TimelineEntry {
