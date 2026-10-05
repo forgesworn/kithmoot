@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.53",
+  "currentRelease": "0.1.54",
   "releases": [
     {
-      "version": "0.1.53",
+      "version": "0.1.54",
       "updateTo": {
-        "version": "0.1.53",
-        "pub_date": "2026-10-05T06:12:00Z",
-        "notes": "Forget room now erases the room's keys from this computer too: its device key, the newest key the room was read with, and the archived conversations it can still find. Before, only tidying a room up removed those. Pairing with Signet no longer waits on a relay that is down.",
-        "name": "0.1.53",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.53/KithMoot-0.1.53-mac-arm64.zip",
-        "sha256": "2dd51a32a68000c94d597d518fac3ea5a9f8fb949e7662ce3f60f45c1e4f4098",
-        "size": 136452764
+        "version": "0.1.54",
+        "pub_date": "2026-10-05T09:00:00Z",
+        "notes": "The rooms list is easier to scan when you have a lot of rooms: it is grouped into Pinned, Unread, Recent and Older, with ended rooms at the end, and Older and Ended fold away behind a count. Pin a room from its menu to keep it at the top. Rows are tighter, each room has a coloured initial, and search, Projects, Open invite link and New room share one toolbar. An update notice in a room no longer pushes the message box out of the window. When your signer was asleep as KithMoot opened, Reconnect now asks it again, and KithMoot tries again by itself when it comes back online, rather than needing a restart.",
+        "name": "0.1.54",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.54/KithMoot-0.1.54-mac-arm64.zip",
+        "sha256": "6eb17e51443d7607fb5b6dd67d947c4701c60dcdf07568691dc6b8548357161e",
+        "size": 136456343
       }
     }
   ]
