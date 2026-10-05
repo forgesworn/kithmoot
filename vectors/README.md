@@ -20,6 +20,8 @@ payloads for NIP-44).
 | `verify-member-epoch.test.ts` | Checks `member-epoch-vectors.json` against `src/`'s re-exports of the kit. |
 | `seal-vectors.json` | Seal keys (the `seal` tag in a device credential, and rekeys and epoch grants sealed to it), copied byte for byte from `@forgesworn/fold-kit`, which generates it. Never hand-edited here. |
 | `verify-seal.test.ts` | Checks `seal-vectors.json` against `src/`'s re-exports of the kit. |
+| `schedule-vectors.json` | Scheduled rekeys (the quiet marker), the authority's grant carrying the history window, and `epochsInWindow`, copied byte for byte from `@forgesworn/fold-kit`, which generates it. Never hand-edited here. |
+| `verify-schedule.test.ts` | Checks `schedule-vectors.json` against `src/`'s re-exports of the kit. |
 
 ## What the vectors pin - and what they don't
 
