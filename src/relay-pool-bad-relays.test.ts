@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
 import { NostrRelayPool } from './relay-pool.js'
+import { relayDials } from './relay-dial-gate.js'
 import { FakeWebSocket, fakeRelay, resetFakeRelays, type FakeRelayServer } from '../test/fake-socket.js'
 
 // The failures public relays were seen to have in September 2026, one at a
@@ -104,6 +105,109 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
       expect(pool.health().find(r => r.url === 'wss://bad.test/')!.lastError).toBeTruthy()
     })
   }
+
+  // Every feature of the app keeps its own pool: the room on screen, each
+  // room it watches, profiles, bookmarks and the rest. On 5 October 2026 a
+  // desktop app with a few rooms dialled two dead relays about 80 times a
+  // minute between them, and public relays banned the address. Each pool
+  // kept its own backoff, so the dials added up. Four pools now dial a
+  // refusing relay no more often than one did.
+  it('does not storm a refusing relay from several pools at once', async () => {
+    bad.refuseConnections = true
+    const pools = [0, 1, 2, 3].map(() => new NostrRelayPool([GOOD, BAD]))
+    try {
+      for (const each of pools) each.subscribe([{ kinds: [20461] }], () => {})
+      for (let second = 0; second < 120; second += 20) {
+        for (const each of pools) each.publish(evt()).catch(() => {})
+        await vi.advanceTimersByTimeAsync(20_000)
+      }
+      // One dial from each pool before anything has failed, then one at a
+      // time behind the doubling backoff: 1, 2, 4, then every 8 s.
+      expect(bad.attempts).toBeLessThanOrEqual(4 + 18)
+      expect(good.connections).toBe(4)
+    } finally { for (const each of pools) each.close() }
+  })
+
+  it('keeps the backoff when a pool is rebuilt or its relays are set again', async () => {
+    bad.refuseConnections = true
+    for (let round = 0; round < 6; round++) {
+      const each = new NostrRelayPool([GOOD, BAD])
+      each.subscribe([{ kinds: [20461] }], () => {})
+      each.setRelays([GOOD, BAD])
+      await vi.advanceTimersByTimeAsync(5_000)
+      each.close()
+    }
+    // Behind the backoff, about one round in two may dial.
+    expect(bad.attempts).toBeLessThanOrEqual(6)
+  })
+
+  it('lets other pools dial once a publish has reopened a failing relay, though it has not answered yet', async () => {
+    // nostr-tools reports an open socket only from its subscriptions, so a
+    // dial a publish made used to keep its one-at-a-time slot for the whole
+    // lease: a joiner whose relay withheld OKs for a while was left at the
+    // door with no socket to it once the relay recovered.
+    bad.refuseConnections = true
+    const writer = new NostrRelayPool([BAD]), reader = new NostrRelayPool([BAD])
+    try {
+      writer.publish(evt()).catch(() => {})
+      await vi.advanceTimersByTimeAsync(10)
+      bad.refuseConnections = false; bad.silent = true
+      await vi.advanceTimersByTimeAsync(1_500)
+      writer.publish(evt()).catch(() => {})
+      await vi.advanceTimersByTimeAsync(10)
+      const before = bad.attempts
+      reader.subscribe([{ kinds: [20461] }], () => {})
+      await vi.advanceTimersByTimeAsync(10)
+      expect(bad.attempts).toBe(before + 1)
+    } finally { writer.close(); reader.close() }
+  })
+
+  it('does not kill its own dial to a failing relay when a publish is held back from it', async () => {
+    // With one dial at a time per relay, a pool's publish is often turned
+    // away while that same pool's subscription has the dial under way.
+    // Treating that as a dead socket and closing the relay cancelled the
+    // dial at birth, over and over: a joiner whose relay withheld OKs for a
+    // while never reached it again once it recovered.
+    relayDials.failed('wss://bad.test/')
+    await vi.advanceTimersByTimeAsync(1_100)
+    bad.stallConnections = true
+    pool = new NostrRelayPool([GOOD, BAD])
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await vi.advanceTimersByTimeAsync(10)
+    expect(bad.stalled.size).toBe(1)
+    pool.publish(evt()).catch(() => {})
+    await vi.advanceTimersByTimeAsync(1_100)
+    expect(bad.stalled.size).toBe(1)
+  })
+
+  it('closes the sockets it gives up on against a host that never answers', async () => {
+    // A host that drops packets: the handshake never finishes and never
+    // fails. nostr-tools stopped listening at its timeout but left each
+    // socket connecting, and they piled up.
+    bad.stallConnections = true
+    const pools = [0, 1, 2].map(() => new NostrRelayPool([GOOD, BAD]))
+    try {
+      for (const each of pools) each.subscribe([{ kinds: [20461] }], () => {})
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(bad.attempts).toBeGreaterThan(0)
+      expect(bad.stalled.size).toBeLessThanOrEqual(1)
+    } finally { for (const each of pools) each.close() }
+  })
+
+  it('reaches a relay again from every pool once it answers', async () => {
+    bad.refuseConnections = true
+    const pools = [0, 1, 2].map(() => new NostrRelayPool([GOOD, BAD]))
+    try {
+      for (const each of pools) each.subscribe([{ kinds: [20461] }], () => {})
+      await vi.advanceTimersByTimeAsync(10_000)
+      bad.refuseConnections = false
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(bad.connections).toBe(3)
+      const live = evt(); bad.seed(live)
+      const seen = await pools[0]!.query(BAD, [{ ids: [live.id] }])
+      expect(seen.events.map(e => e.id)).toEqual([live.id])
+    } finally { for (const each of pools) each.close() }
+  })
 
   it('does not storm a relay that drops every socket as it opens', async () => {
     // Publishes alone: nostr-tools leaves a REQ fired onto such a socket as

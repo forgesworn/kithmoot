@@ -71,7 +71,7 @@ export class SharedProjectsPanel {
   }
   forRoom(room: string): readonly SharedProject[] { return this.#roomProjects.get(room) ?? [] }
   async attach(identity: ProjectIdentity, transport: RelayTransport): Promise<void> {
-    const detached = this.detach(), generation = this.#generation
+    const detached = this.detach(transport), generation = this.#generation
     await detached
     if (generation !== this.#generation) return
     this.#identity = identity; this.#transport = transport
@@ -104,10 +104,13 @@ export class SharedProjectsPanel {
       this.#status = e instanceof Error ? e.message : 'Projects could not connect.'; this.render()
     }
   }
-  async detach(): Promise<void> {
+  /** The panel owns the transport it was attached with, and closes it here
+   *  unless it is about to be attached with the same one again: each sign-in
+   *  used to leave one more pool connected to the default relays. */
+  async detach(keep?: RelayTransport): Promise<void> {
     ++this.#generation
     this.#off?.(); this.#off = undefined
-    const directory = this.#directory, release = this.#release
+    const directory = this.#directory, release = this.#release, transport = this.#transport
     this.#directory = undefined; this.#release = undefined; this.#identity = undefined; this.#transport = undefined
     this.#editing = undefined; this.#selectedMembers.clear(); this.#selectedRooms.clear(); this.#request = undefined; this.#busy = false
     this.#status = 'Sign in with your Nostr account to share projects across people and devices.'
@@ -115,6 +118,7 @@ export class SharedProjectsPanel {
     ;(this.el('sharedProjectCancel') as HTMLButtonElement).disabled = false
     this.editor.close(); this.dialog.close(); this.render()
     await directory?.close(); release?.()
+    if (transport && transport !== keep) transport.close()
   }
   async unavailable(message: string): Promise<void> {
     const detached = this.detach(), generation = this.#generation

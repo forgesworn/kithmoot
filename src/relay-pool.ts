@@ -6,11 +6,14 @@ import type { Filter } from 'nostr-tools/filter'
 import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
 import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
+import { relayDials, type RelayDialGate } from './relay-dial-gate.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
 /** Extra policy chosen by a caller that owns the complete network route. */
 export interface NostrRelayPoolOptions extends RelayPoolOptions {
   profile?: NetworkProfile
+  /** Shared dial backoff; every pool in the process shares one by default. */
+  dialGate?: RelayDialGate
 }
 
 /** The transport seam shared by real relays and the in-process simulator. */
@@ -104,11 +107,11 @@ export class NostrRelayPool implements RelayTransport {
   #authFailures = new Map<string, string>()
   #publishing = 0
   /** Relays whose last connection attempt failed, and when the next one may
-   *  start. Each publish retry, publish-driven rebind and recovery pass
-   *  would otherwise dial a refusing relay on its own schedule: about one
-   *  attempt a second between them. */
-  #dialFailures = new Map<string, number>()
-  #dialAfter = new Map<string, number>()
+   *  start, shared with every other pool in the process (relay-dial-gate.ts).
+   *  Each publish retry, publish-driven rebind and recovery pass would
+   *  otherwise dial a refusing relay on its own schedule: about one attempt
+   *  a second between them, and that again for every pool. */
+  readonly #dials: RelayDialGate
   /** Kinds already read back from each relay since the last setup. */
   #readBack = new Map<string, Set<number>>()
   #whenIdle: (() => void)[] = []
@@ -120,6 +123,7 @@ export class NostrRelayPool implements RelayTransport {
     if (this.options.profile === 'tor' && (this.options.authentication?.length ?? 0) !== 0) {
       throw new Error('Tor-only mode does not use relay authentication; start with a fresh local persona')
     }
+    this.#dials = options.dialGate ?? relayDials
     this.#authTimeout = options.authenticationTimeoutMs ?? AUTH_TIMEOUT_MS
     if (!Number.isSafeInteger(this.#authTimeout) || this.#authTimeout < 100 || this.#authTimeout > 120_000) throw new Error('Invalid relay authentication deadline')
     this.#authentication = this.#grants(options.authentication ?? [])
@@ -159,13 +163,19 @@ export class NostrRelayPool implements RelayTransport {
     // version of the same check.
     const pool = websocketImplementation ? new class extends AbstractSimplePool {
       override ensureRelay(url: string, params?: Parameters<AbstractSimplePool['ensureRelay']>[1]) {
-        return super.ensureRelay(url, owner.#authentication.get(normalizeURL(url))
+        const connecting = super.ensureRelay(url, owner.#authentication.get(normalizeURL(url))
           ? { ...params, connectionTimeout: owner.#authTimeout + 8_000 }
           : params)
+        return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => owner.#dials.connected(normalizeURL(url)))
       }
     }({ enableReconnect: false, enablePing: false, websocketImplementation,
       verifyEvent: this.#verifyEvent, maxWaitForConnection: 3_000 })
-      : new SimplePool({ enableReconnect: false, enablePing: false })
+      : new class extends SimplePool {
+        override ensureRelay(url: string, params?: Parameters<AbstractSimplePool['ensureRelay']>[1]) {
+          const connecting = super.ensureRelay(url, params)
+          return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => owner.#dials.connected(normalizeURL(url)))
+        }
+      }({ enableReconnect: false, enablePing: false })
     // SimplePool deliberately exposes fewer constructor options than its
     // base class. Set the verifier before ensureRelay creates any sockets.
     pool.verifyEvent = this.#verifyEvent
@@ -173,17 +183,20 @@ export class NostrRelayPool implements RelayTransport {
     // again until its backoff passes; one already connected is never held up.
     pool.allowConnectingToRelay = url => {
       const key = normalizeURL(url)
-      return current(key) && (pool.listConnectionStatus().get(key) === true || Date.now() >= (this.#dialAfter.get(key) ?? 0))
+      return current(key) && (pool.listConnectionStatus().get(key) === true || this.#dials.take(key))
     }
     // An open socket does not end the backoff: a relay that accepts the
     // upgrade and then drops it, or never answers on it, would otherwise be
     // redialled at full speed. Only an answer does; see `#answered`.
     pool.onRelayConnectionSuccess = url => {
+      this.#dials.connected(normalizeURL(url))
       if (generation === this.#generation) this.#mark(url, { state: 'connected', lastConnectedAt: Date.now(), lastError: undefined })
     }
     pool.onRelayConnectionFailure = url => {
-      if (generation !== this.#generation) return
+      // Counted even for a pool that has since moved on: the relay still
+      // failed, and its dial still has to be handed back.
       this.#dialFailed(normalizeURL(url))
+      if (generation !== this.#generation) return
       this.#mark(url, { state: 'disconnected', lastError: this.#authError(normalizeURL(url)) ?? 'Connection failed' })
     }
     return pool
@@ -257,8 +270,8 @@ export class NostrRelayPool implements RelayTransport {
     this.#health.clear()
     for (const [url, grant] of this.#authentication) if (grant === null) this.#mark(url, { state: 'disconnected', lastError: this.#authError(url) })
     this.#attempted.clear()
-    this.#dialFailures.clear()
-    this.#dialAfter.clear()
+    // The dial backoff is kept: it belongs to the relay, not to this pool,
+    // and a pool rebuilt every few seconds would otherwise redial at will.
     this.#readBack.clear()
     this.#abort = new AbortController()
     this.#pool = this.#createPool()
@@ -388,40 +401,38 @@ export class NostrRelayPool implements RelayTransport {
         if (!timedOut || Date.now() - start >= PUBLISH_RETRY_BUDGET_MS || generation !== this.#generation || this.#closed) throw error
         // A socket that swallowed the send without ever answering is worth
         // more suspicion than a slow one: reopen it rather than hammer the
-        // same half-open connection again.
-        if (generation === this.#generation) this.#mark(url, { state: 'disconnected' })
-        this.#pool.close([url])
-        this.#attempted.set(url, Date.now())
-        for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
+        // same half-open connection again. One held back by the dial gate
+        // had no socket of its own to blame, and closing the relay then
+        // would kill the dial this pool's subscriptions may have under way,
+        // which is the one dial the gate lets through.
+        if (!heldBack) {
+          if (generation === this.#generation) this.#mark(url, { state: 'disconnected' })
+          this.#pool.close([url])
+          this.#attempted.set(url, Date.now())
+          for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
+        }
         // Wait out the relay's dial backoff too, so the retry is not spent
         // being turned away by it, but never past the retry budget.
-        const backoff = Math.min((this.#dialAfter.get(url) ?? 0) - Date.now(), start + PUBLISH_RETRY_BUDGET_MS - Date.now())
+        const backoff = Math.min(this.#dials.retryAt(url) - Date.now(), start + PUBLISH_RETRY_BUDGET_MS - Date.now())
         await delay(Math.max(RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]!, backoff), this.#abort.signal)
         if (generation !== this.#generation || this.#closed) throw error
       }
     }
   }
 
-  #dialFailed(url: string): void {
-    // One silence is one failure. Several publishes that timed out on the
-    // same dead socket would otherwise double the backoff once each, and a
-    // join (which publishes a few events at once) would spend its whole
-    // retry budget waiting on a relay that has already come back.
-    if (Date.now() < (this.#dialAfter.get(url) ?? 0)) return
-    const failures = (this.#dialFailures.get(url) ?? 0) + 1
-    this.#dialFailures.set(url, failures)
-    this.#dialAfter.set(url, Date.now() + Math.min(DIAL_BACKOFF_MS * 2 ** (failures - 1), DIAL_BACKOFF_MAX_MS))
-  }
+  /** One silence is one failure (see `RelayDialGate.failed`). Several
+   *  publishes that timed out on the same dead socket would otherwise double
+   *  the backoff once each, and a join (which publishes a few events at
+   *  once) would spend its whole retry budget waiting on a relay that has
+   *  already come back. */
+  #dialFailed(url: string): void { this.#dials.failed(url) }
 
   /** The relay said something on its own account: an `OK` either way, or an
    *  event. That, not an open socket, is what clears its backoff. */
-  #answered(url: string): void {
-    this.#dialFailures.delete(url)
-    this.#dialAfter.delete(url)
-  }
+  #answered(url: string): void { this.#dials.answered(url) }
 
   /** Whether `url` is past its dial backoff, so a new connection may start. */
-  #dialable(url: string): boolean { return Date.now() >= (this.#dialAfter.get(url) ?? 0) }
+  #dialable(url: string): boolean { return this.#dials.open(url) }
 
   /** Whether a publish to `url` failed without the relay ever answering:
    *  a timeout, a lost connection, or a dial held back by its backoff. */
@@ -654,7 +665,7 @@ export class NostrRelayPool implements RelayTransport {
       },
       onevent: event => {
         clearTimeout(stall)
-        if (generation === this.#generation && this.#dialFailures.has(url)) this.#answered(url)
+        if (generation === this.#generation && this.#dials.failing(url)) this.#answered(url)
         if (!active() || sub.seen.has(event.id)) return
         sub.seen.add(event.id)
         // Every presence heartbeat is a new id, so a long-lived room would
@@ -703,6 +714,29 @@ export class NostrRelayPool implements RelayTransport {
   }
 }
 
+/** nostr-tools gives up on a socket that has not opened by its connection
+ *  timeout without closing it: it only stops listening, and forgets the
+ *  relay. Against a host that drops packets, each dial then leaves a socket
+ *  trying to connect until the operating system gives up, and they pile up:
+ *  136 to one host on 5 October 2026. Close it. `ensureRelay` puts the
+ *  relay in the pool's map before it first waits, so it can be read there
+ *  straight after the call. */
+async function closingAbandoned<T>(relay: unknown, connecting: Promise<T>, opened: () => void): Promise<T> {
+  try {
+    const connected = await connecting
+    // nostr-tools reports an open socket to `onRelayConnectionSuccess` from
+    // its subscriptions only, never from a publish or a direct dial. The
+    // shared gate has to hear of every one, or a dial a publish made keeps
+    // every other pool off the relay until its lease runs out.
+    opened()
+    return connected
+  } catch (error) {
+    const socket = (relay as unknown as { ws?: { readyState: number; close(): void } } | undefined)?.ws
+    if (socket?.readyState === 0) try { socket.close() } catch { /* already going */ }
+    throw error
+  }
+}
+
 function errorText(reason: unknown): string {
   if (reason instanceof Error) return reason.message
   return String(reason)
@@ -730,13 +764,6 @@ const SUBSCRIBE_STALL_MS = 5_000
  *  before its reader is told history has loaded: nostr-tools' own `maxWait`
  *  for a relay that never answers at all. */
 const SUBSCRIBE_EOSE_DEADLINE_MS = 8_000
-
-/** Dial backoff after a failed connection: doubling from 1s to at most 8s,
- *  so a publish's 20s retry budget still gets a late try at a relay that
- *  comes back, while one that refuses for hours is dialled at most every 8s
- *  however many publishes and subscriptions want it. */
-const DIAL_BACKOFF_MS = 1_000
-const DIAL_BACKOFF_MAX_MS = 8_000
 
 /** How nostr-tools rejects a publish it would not dial for, whether for a
  *  withdrawn authentication or the dial backoff above. */

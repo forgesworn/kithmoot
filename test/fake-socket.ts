@@ -51,6 +51,11 @@ export class FakeRelayServer {
     return this.#sockets.size
   }
 
+  /** Sockets still waiting on a handshake `stallConnections` never finishes,
+   *  that nobody has closed: each one a connection the client's machine is
+   *  still trying to make. */
+  readonly stalled = new Set<FakeWebSocket>()
+
   attach(socket: FakeWebSocket): void {
     this.#sockets.add(socket)
   }
@@ -198,7 +203,7 @@ export class FakeWebSocket {
         this.onerror?.()
         return
       }
-      if (this.#server.stallConnections) return
+      if (this.#server.stallConnections) { if (this.readyState === FakeWebSocket.CONNECTING) this.#server.stalled.add(this); return }
       this.readyState = FakeWebSocket.OPEN
       this.#server.attach(this)
       this.onopen?.()
@@ -214,6 +219,7 @@ export class FakeWebSocket {
   close(): void {
     if (this.readyState === FakeWebSocket.CLOSED) return
     this.readyState = FakeWebSocket.CLOSED
+    this.#server?.stalled.delete(this)
     this.#server?.detach(this)
     this.onclose?.({ message: 'closed' })
   }

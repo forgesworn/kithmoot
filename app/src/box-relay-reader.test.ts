@@ -49,6 +49,15 @@ describe('box discovery relay history', () => {
     f.sockets[2]!.message(['EOSE', 'box-1']); expect(f.ready).toHaveBeenCalledTimes(1)
     f.sockets[3]!.message(['EOSE', 'box-1']); expect(f.ready).toHaveBeenCalledTimes(2); f.reader.close()
   })
+  it('waits longer after each failed read, and starts again from 5 s once a read completes', () => {
+    vi.useFakeTimers(); const f = setup()
+    const reconnectsAfter = (ms: number) => { const before = f.sockets.length; f.sockets.at(-1)!.close(); vi.advanceTimersByTime(ms - 1); const early = f.sockets.length; vi.advanceTimersByTime(1); return early === before && f.sockets.length === before + 1 }
+    expect(reconnectsAfter(5_000)).toBe(true)
+    expect(reconnectsAfter(10_000)).toBe(true)
+    expect(reconnectsAfter(20_000)).toBe(true)
+    const s = f.sockets.at(-1)!; s.open(); s.message(['EOSE', 'box-1']); expect(f.ready).toHaveBeenCalledTimes(1)
+    expect(reconnectsAfter(5_000)).toBe(true); f.reader.close()
+  })
   it('filters events and ignores unknown or malformed completion frames', () => {
     const f = setup(), status = boxFixture().status()
     const s = f.sockets[0]!

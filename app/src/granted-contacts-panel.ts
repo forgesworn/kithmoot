@@ -1,4 +1,6 @@
 import { SimplePool } from 'nostr-tools/pool'
+import { normalizeURL } from 'nostr-tools/utils'
+import { relayDials } from '../../src/relay-dial-gate.js'
 import { createSimplePoolRelayIo } from '@forgesworn/signet-contacts/adapters/nostr-tools'
 import type { Capability } from '@forgesworn/signet-contacts'
 import type { SignetSession } from 'signet-login'
@@ -51,6 +53,11 @@ export class GrantedContactsPanel {
       this.#options.changed(this.#view)
       if (account?.signer.nip44 && account.signer.capabilities.canSignEvents && navigator.locks) {
         const pool = new SimplePool(); this.#pool = pool
+        // Polled every 30 s once paired: behind the same dial backoff as every
+        // other pool, so a dead relay is not redialled at that pace.
+        pool.allowConnectingToRelay = url => pool.listConnectionStatus().get(normalizeURL(url)) === true || relayDials.take(normalizeURL(url))
+        pool.onRelayConnectionFailure = url => relayDials.failed(normalizeURL(url))
+        pool.onRelayConnectionSuccess = url => relayDials.connected(normalizeURL(url))
         const client = new GrantedContactsClient({ signer: { pubkey: account.pubkey,
           nip44Encrypt: (peer, text) => account.signer.nip44!.encrypt(peer, text),
           nip44Decrypt: (peer, text) => account.signer.nip44!.decrypt(peer, text),
