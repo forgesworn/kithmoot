@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.52",
+  "currentRelease": "0.1.53",
   "releases": [
     {
-      "version": "0.1.52",
+      "version": "0.1.53",
       "updateTo": {
-        "version": "0.1.52",
-        "pub_date": "2026-10-04T18:30:00Z",
-        "notes": "When you sign in with a signer app or extension, a room's keys now reach this computer locked to a fresh key your signer approves each time it renews this computer's twelve-hour pass. If somebody copied this computer, they stop reading the room's new messages once that pass has run out and the room next changes its key.",
-        "name": "0.1.52",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.52/KithMoot-0.1.52-mac-arm64.zip",
-        "sha256": "ff5190a7b190a76808a7e0db7c77cae5024ff49f834220bb69be8db48d64a349",
-        "size": 136452594
+        "version": "0.1.53",
+        "pub_date": "2026-10-05T06:12:00Z",
+        "notes": "Forget room now erases the room's keys from this computer too: its device key, the newest key the room was read with, and the archived conversations it can still find. Before, only tidying a room up removed those. Pairing with Signet no longer waits on a relay that is down.",
+        "name": "0.1.53",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.53/KithMoot-0.1.53-mac-arm64.zip",
+        "sha256": "2dd51a32a68000c94d597d518fac3ea5a9f8fb949e7662ce3f60f45c1e4f4098",
+        "size": 136452764
       }
     }
   ]
