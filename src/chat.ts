@@ -33,6 +33,7 @@ import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from 
 // `./chat.js` keeps working - but NOT `CHANNEL_LABELS`: that name does not
 // exist in KithMoot today (this file's own label is `CHAT_LABELS`, below).
 import { deriveChannel, CHANNEL_ID_INFO, CHANNEL_KEY_INFO, MAX_CHANNEL_NAME_LENGTH } from '@forgesworn/fold-kit'
+import { MAX_HISTORY_EPOCHS } from './epoch.js'
 
 export { deriveChannel, CHANNEL_ID_INFO, CHANNEL_KEY_INFO, MAX_CHANNEL_NAME_LENGTH }
 
@@ -323,9 +324,19 @@ export interface PastEpoch {
   leftAt: number
 }
 
-/** How many left epochs a log goes on reading. Each costs one filter on
- *  every relay, and relays cap the filters a connection may hold. */
-export const MAX_PAST_EPOCHS = 4
+/** How many left epochs a log goes on reading: the history window's
+ *  `MAX_HISTORY_EPOCHS`, the rule every client applies, so what an
+ *  authority's grant hands a newcomer is what a member goes on reading. A
+ *  weekly schedule keeps about five inside the 30 days; removals are what
+ *  push it higher. Relays cap the filters a request may carry, so not every
+ *  one gets a filter of its own: see `SEPARATE_PAST_FILTERS`. */
+export const MAX_PAST_EPOCHS = MAX_HISTORY_EPOCHS
+
+/** How many of the most recently left epochs keep a filter, and so a
+ *  `limit`, of their own. Any older ones share one filter with several `#d`
+ *  values, so a log asks a relay for at most six filters however many
+ *  epochs it reads. */
+const SEPARATE_PAST_FILTERS = 4
 
 export interface EncodeChatOptions {
   /** The room this message belongs to: what its credential is checked
@@ -802,14 +813,21 @@ export class ChatLog {
 
   /** One subscription for the current epoch and every left one it still
    *  reads: one `REQ` on each relay, as before epochs were kept, since
-   *  relays cap the subscriptions a connection may hold. A filter each, so
-   *  each epoch has its own `limit` and the newest cannot use up the rest. */
+   *  relays cap the subscriptions a connection may hold. The current epoch
+   *  and the `SEPARATE_PAST_FILTERS` most recently left get a filter each,
+   *  so each has its own `limit` and the newest cannot use up the rest. Any
+   *  older share the last filter and its `limit`: relays cap the filters a
+   *  request may carry too, and what was said that long ago is the part a
+   *  reader scrolls to last and this device's archive already holds. */
   #listen(): () => void {
     const since = this.#now() - CHAT_RETENTION_SECONDS
+    // The newest the log can hold, not the whole retention window: the
+    // rest would be decoded only to fall off the end.
+    const filter = (d: string[]) => ({ kinds: [KINDS.CHAT], '#d': d, since, limit: MAX_CHAT_MESSAGES })
+    const past = [...this.#past].sort((a, b) => b[1].leftAt - a[1].leftAt).map(([d]) => d)
+    const older = past.slice(SEPARATE_PAST_FILTERS)
     return this.#opts.transport.subscribe(
-      // The newest the log can hold, not the whole retention window: the
-      // rest would be decoded only to fall off the end.
-      [this.#stream, ...this.#past.keys()].map((d) => ({ kinds: [KINDS.CHAT], '#d': [d], since, limit: MAX_CHAT_MESSAGES })),
+      [filter([this.#stream]), ...past.slice(0, SEPARATE_PAST_FILTERS).map((d) => filter([d])), ...(older.length ? [filter(older)] : [])],
       (event, via) => this.#ingest(event, via),
     )
   }
@@ -850,10 +868,11 @@ export class ChatLog {
    * epoch on the same terms. `MAX_PAST_EPOCHS` left epochs are read, none
    * left longer ago than `CHAT_RETENTION_SECONDS`. `crossed` names epochs
    * the room went through between the one left and `next`, oldest first,
-   * when a catch-up handed them over: they are read the same way. See
-   * `epoch.ts`.
+   * when a catch-up handed them over: they are read the same way, each
+   * from when the room left it where the catch-up said, else from
+   * `leftAt`. See `epoch.ts`.
    */
-  rekey(next: EpochRoot, opts: { leftAt?: number; crossed?: readonly EpochRoot[] } = {}): void {
+  rekey(next: EpochRoot, opts: { leftAt?: number; crossed?: readonly { root: EpochRoot; leftAt?: number }[] } = {}): void {
     const left = this.#epoch
     const leftStream = this.#stream
     this.#unsub()
@@ -863,7 +882,7 @@ export class ChatLog {
     if (!this.#keepPast({ root: left, leftAt })) {
       this.#opts.archive?.release?.({ kind: KINDS.CHAT, d: leftStream })
     }
-    for (const root of opts.crossed ?? []) this.#keepPast({ root, leftAt })
+    for (const crossed of opts.crossed ?? []) this.#keepPast({ root: crossed.root, leftAt: crossed.leftAt ?? leftAt })
     this.#unsub = this.#listen()
   }
 

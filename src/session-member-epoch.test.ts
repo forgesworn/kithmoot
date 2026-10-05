@@ -107,11 +107,13 @@ describe('member epoch catch-up', () => {
     const relay = new SimRelay({ replay: true })
     const authoritySk = generateSecretKey()
     const authority = getPublicKey(authoritySk)
-    const keeper = member(relay, 'Keeper', authority)
-    const alice = member(relay, 'Alice', authority)
+    let t = NOW
+    const clock = () => t
+    const keeper = member(relay, 'Keeper', authority, { now: clock })
+    const alice = member(relay, 'Alice', authority, { now: clock })
     const carolIdentity = localIdentity(generateSecretKey())
     const carolDevice = generateSecretKey()
-    const carol = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice })
+    const carol = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, now: clock })
     await keeper.join([], {})
     await alice.join([], {})
     await carol.join([], {})
@@ -119,21 +121,27 @@ describe('member epoch catch-up', () => {
     // Carol goes, so neither rekey is sealed to her device.
     await carol.leave()
     await settle()
+    t = NOW + 10
     await keeper.rekey({ authoritySk })
     await settle()
     await alice.chat.send('in epoch 1')
+    t = NOW + 20
     await keeper.rekey({ authoritySk })
     await settle()
     await alice.chat.send('in epoch 2')
     await settle()
     await keeper.leave()
 
-    const back = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice })
+    t = NOW + 30
+    const back = member(relay, 'Carol', authority, { identity: carolIdentity, deviceSk: carolDevice, now: clock })
     await back.join([], {})
     await until(() => back.chat.messages().length === 2, 10_000)
     expect(back.epoch).toBe(2)
     expect(back.chat.messages().map((m) => m.text).sort()).toEqual(['in epoch 1', 'in epoch 2'])
     expect(back.epochGaps()).toEqual([])
+    // Each epoch it read is one it left when the room did, not when it was
+    // brought up to date: the member grant's chain says when.
+    expect(back.pastSecrets().map((e) => [e.epoch, e.leftAt])).toEqual([[1, NOW + 20], [0, NOW + 10]])
     await alice.leave()
     await back.leave()
   }, 60_000)
