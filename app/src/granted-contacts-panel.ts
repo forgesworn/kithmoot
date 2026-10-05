@@ -71,7 +71,8 @@ export class GrantedContactsPanel {
     this.#el('signetContactsState').textContent = this.#message || (!available
       ? 'Connect a Nostr signer with encryption support to link your Signet contacts. This browser also needs support for coordinating tabs.'
       : this.#view.status === 'ready' ? `${this.#view.contacts.length} shared ${this.#view.contacts.length === 1 ? 'key' : 'keys'} available${this.#view.truncated ? ' (the granted copy is incomplete)' : ''}.`
-      : this.#view.status === 'stale' ? 'The granted copy has expired. Refresh it before using its names or tiers. Known blocks remain.'
+      : this.#view.status === 'stale' ? `Signet last shared this copy${this.#view.issuedAt ? ` on ${new Date(this.#view.issuedAt * 1000).toLocaleString()}` : ''}, so names may be out of date. Tiers and checks are hidden until it shares a new one: open Signet and unlock your contacts. Known blocks remain.`
+      : this.#view.status === 'lapsed' ? 'Signet has not shared a new copy for over a month, so its names are hidden. Open Signet and unlock your contacts to refresh it. Known blocks remain.'
       : this.#view.status === 'revoked' ? 'This contact grant was revoked. Its contacts are hidden; known blocks remain.'
       : this.#view.status === 'unavailable' ? 'The contact cache needs attention. No contact names or tiers are being used.'
       : this.#view.status === 'waiting' ? 'Waiting for the first granted copy.' : 'Link Signet to read only the contacts and fields you approve.')
