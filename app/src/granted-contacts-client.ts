@@ -11,18 +11,37 @@ const HEX = /^[0-9a-f]{64}$/
 /** Shows the code and resolves true only once the person says Signet matched it. */
 export type PairingConfirm = (code: string) => Promise<boolean>
 export type PairingOutcome = 'paired' | 'no-approval' | 'not-confirmed'
-/** How long a relay has to answer before a pairing looks elsewhere. */
-export const RELAY_ANSWER_MS = 4000
+/** How long a relay has to answer before a pairing looks elsewhere. A page
+ * that keeps retrying a dead relay holds back every new socket it opens: on
+ * 4 October healthy relays took up to 4.8 seconds to answer from such a page,
+ * so this is well past that. */
+export const RELAY_ANSWER_MS = 10_000
 /** The first relay that answers, in the order the person keeps them. Signet
  * replies on the one relay the link names, so a relay that is down would leave
- * both sides waiting with nothing said. All are asked at once: the wait is one
- * relay's, not the sum. */
-export async function firstReachableRelay(relays: readonly string[], reachable: (relay: string) => Promise<boolean>, timeoutMs = RELAY_ANSWER_MS): Promise<string | undefined> {
-  const answers = await Promise.all(relays.map(relay => new Promise<boolean>(resolve => {
-    const timer = setTimeout(() => resolve(false), timeoutMs)
-    void Promise.resolve().then(() => reachable(relay)).then(ok => ok === true, () => false).then(ok => { clearTimeout(timer); resolve(ok) })
-  })))
-  return relays.find((_, index) => answers[index])
+ * both sides waiting with nothing said. All are asked at once, and the answer
+ * comes once a relay has answered and every relay ahead of it has failed:
+ * a dead relay further down the list costs nothing. */
+export function firstReachableRelay(relays: readonly string[], reachable: (relay: string) => Promise<boolean>, timeoutMs = RELAY_ANSWER_MS): Promise<string | undefined> {
+  return new Promise(resolve => {
+    const answers: (boolean | undefined)[] = relays.map(() => undefined)
+    const decide = (): void => {
+      for (const [index, answer] of answers.entries()) {
+        if (answer === undefined) return
+        if (answer) { resolve(relays[index]); return }
+      }
+      resolve(undefined)
+    }
+    relays.forEach((relay, index) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const settle = (ok: boolean): void => {
+        if (answers[index] !== undefined) return
+        clearTimeout(timer); answers[index] = ok; decide()
+      }
+      timer = setTimeout(() => settle(false), timeoutMs)
+      void Promise.resolve().then(() => reachable(relay)).then(ok => settle(ok === true), () => settle(false))
+    })
+    decide()
+  })
 }
 interface Options {
   signer: ContactsSigner; relay: RelayIo; store: DeviceStore

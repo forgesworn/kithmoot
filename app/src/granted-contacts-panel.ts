@@ -70,7 +70,7 @@ export class GrantedContactsPanel {
     this.#el('signetContactsConfirm').hidden = !this.#answer
     this.#el('signetContactsState').textContent = this.#message || (!available
       ? 'Connect a Nostr signer with encryption support to link your Signet contacts. This browser also needs support for coordinating tabs.'
-      : this.#view.status === 'ready' ? `${this.#view.contacts.length} shared keys available${this.#view.truncated ? ' (the granted copy is incomplete)' : ''}.`
+      : this.#view.status === 'ready' ? `${this.#view.contacts.length} shared ${this.#view.contacts.length === 1 ? 'key' : 'keys'} available${this.#view.truncated ? ' (the granted copy is incomplete)' : ''}.`
       : this.#view.status === 'stale' ? 'The granted copy has expired. Refresh it before using its names or tiers. Known blocks remain.'
       : this.#view.status === 'revoked' ? 'This contact grant was revoked. Its contacts are hidden; known blocks remain.'
       : this.#view.status === 'unavailable' ? 'The contact cache needs attention. No contact names or tiers are being used.'
