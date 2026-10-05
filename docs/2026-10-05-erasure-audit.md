@@ -35,16 +35,24 @@ profile directory.
 
 | Store | Holds | At rest | Cap | Cleared by |
 |---|---|---|---|---|
-| Saved rooms | The link, which is the epoch 0 secret | Plain localStorage | One per room | Forgetting the room (`clearRoomLocally`, `app/src/main.ts:13990`) |
+| Saved rooms | The link, which is the epoch 0 secret | Plain localStorage | One per room | Forgetting the room |
 | Room bookmarks (`app/src/room-bookmarks.ts`), for a signer account | The link, and a group's epoch 0 secret as `admission`, on relays as kind 30078 | NIP-44 to the account's own key | One per room | A tombstone. A relay may keep an older copy |
-| `kithmoot.device.<room>` | The device secret key, one per room, never rotated | Plain localStorage | One | Forgetting the room |
+| `kithmoot.device.<room>` | The device secret key, one per room, never rotated | Plain localStorage | One | Forgetting the room (Forget room since the fix below; tidy-up only before). 30 days unused |
 | `kithmoot.own-seal.<room>` | Every seal secret this device minted | Plain localStorage | 128 (`MAX_OWN_SEAL_KEYS`) | Forgetting the room. Not by age or by epoch |
-| `kithmoot.own-credential.<room>`, `kithmoot.credential.<room>` | Own credential; a secondary's credential | Plain localStorage | One | Forgetting the room |
-| `kithmoot.room-epoch.v1.<room>` | The newest epoch's derived id and key, not its secret (`main.ts:6498`) | Plain localStorage | One, overwritten forwards | Forgetting the room |
+| `kithmoot.own-credential.<room>`, `kithmoot.credential.<room>` | Own credential; a secondary's credential. Neither holds a secret | Plain localStorage | One | Forgetting the room. A secondary's credential only by tidy-up: it keeps `isPairedSecondary` true |
+| `kithmoot.room-epoch.v1.<room>` | The newest epoch's derived id and key, not its secret (`main.ts:6498`) | Plain localStorage | One, overwritten forwards | Forgetting the room (Forget room since the fix below; tidy-up only before) |
 | `kithmoot.invitation-owner.v1.*` | The authority (root inviter) secret for rooms this browser made (`main.ts:1461`) | Plain localStorage | One per room | Forgetting the room |
 | `kithmoot.admission-kept.v1.*` | A group invitation's epoch 0 secret | Plain localStorage | One | Its expiry or the room |
-| Room archive (`app/src/room-archive.ts`) | Every accepted room event, still room-encrypted: chat, and every rekey (1462) | AES-GCM under a non-extractable key in the same IndexedDB | 50,000 per conversation, no age limit | Only the wipe-everything path (`deleteRoomArchive`, `main.ts:1119`). Forgetting one room leaves its records |
+| Room archive (`app/src/room-archive.ts`) | Every accepted room event, still room-encrypted: chat, and every rekey (1462) | AES-GCM under a non-extractable key in the same IndexedDB | 50,000 per conversation, no age limit | The wipe-everything path (`deleteRoomArchive`, `main.ts:1119`). Since the fix below, forgetting a room drops the conversations this device can still name |
 | `kithmoot.quiet.v1.<room>` | Queued outgoing events, encrypted under the current epoch | Plain localStorage | Dropped after 24 h | Forgetting the room |
+
+"Forgetting the room" is two paths. Forget room (`forgetLocally`) removes
+the saved room, its access and admissions, its own credentials and seal keys,
+and its quiet queue. Tidy-up (`clearRoomLocally`, `main.ts:13990`) calls
+that, then removes every stored key that names the room. **Corrected
+2026-10-05:** the first version of this table credited both paths with what
+only tidy-up removed. Forget room left the device key (until 30 days unused)
+and the newest epoch's key (for good). It now removes both; see "Fix now".
 
 In memory, a `RoomSession` holds:
 - the current epoch secret;
@@ -214,8 +222,15 @@ call.
   and the outbox. They do not touch `EpochVault`: the journal with the
   current secret, and up to 32 past secrets. `RoomMembers` stays too, and
   `EpochVault` has no public forget. A person who forgets a room expects its
-  keys gone. This is a privacy bug today, whatever phase 2 does.
-- **Web: forgetting a room leaves its archive records.** The keys that open
-  them go with the room, so only record sizes and counts stay. It is minor,
-  but `clearRoomLocally` should drop the room's conversations from the
-  archive.
+  keys gone. This is a privacy bug today, whatever phase 2 does. Fixed
+  2026-10-05 in kithmoot-android #159: forgetting erases both stores, and
+  each saved-room refresh sweeps rooms forgotten before the fix. A removed
+  or closed room keeps its last secret while saved; that waits for 2b item 5.
+- **Web: Forget room left the device key, the newest epoch's key and the
+  archive records.** Fixed 2026-10-05. Forget room now removes the device
+  key and the newest epoch's key, and drops the archive conversations this
+  device can still name: the room's rekeys, and its main chat in epoch 0 and
+  in that newest epoch. The archive has no room index, so named channels and
+  the main chat of epochs in between stay. They are ciphertext nothing on the
+  device opens any more, showing only record sizes and counts, until 2b's
+  archive work prunes by age.

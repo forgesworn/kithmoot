@@ -129,6 +129,18 @@ export class RoomArchive implements EventArchive {
     else this.#streams.delete(name)
   }
 
+  /** Delete one conversation's records: part of forgetting a room. Waits for
+   *  anything still being written, so nothing lands after it. */
+  async forget(query: Pick<ArchiveQuery, 'kind' | 'd'>): Promise<void> {
+    await this.flushed()
+    // No keys yet means nothing was ever kept: never mint a pair to forget nothing.
+    if (!await this.storage.keys()) return
+    const stream = await this.#streamHandle(query.kind, query.d.toLowerCase())
+    const records = await this.storage.stream(stream)
+    if (records.length) await this.storage.put([], records.map(record => record.key))
+    this.#streams.delete(streamName(query.kind, query.d.toLowerCase()))
+  }
+
   async #flush(): Promise<void> {
     while (this.#queue.length) {
       const batch = this.#queue.splice(0, 200)
