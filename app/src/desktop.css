@@ -139,7 +139,11 @@ html[data-desktop] #chatDrawerToggle { display: none; }
   html[data-desktop]:is([data-call-pane="resting"], [data-call-pane="controls"]) .desktopConversation[data-open="true"] {
     width: auto;
     flex: 1 1 auto;
-    min-height: var(--chat-min-height);
+    /* The floor is a share of the window, but never more than the room has:
+       an update notice above the room takes its height from the window, and
+       a floor that ignored it put the composer below the bottom edge. The
+       .75rem is .desktopRoomContent's gap above it. */
+    min-height: min(var(--chat-min-height), calc(100% - .75rem));
     border-left: 0;
     padding-left: 0;
     /* A width transition across a change of flex direction animates from a

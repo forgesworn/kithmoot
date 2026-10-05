@@ -649,3 +649,45 @@ test('a call with no cameras is a strip of names, and a camera brings the pane b
     await b.close()
   }
 })
+
+/**
+ * An update arriving while you are in a room. The notice goes above
+ * everything, in the window's fixed height, and on 5 October 2026 it pushed
+ * the composer out of the bottom of the window: nobody could type until they
+ * restarted. The notice takes its line; the conversation gives it up.
+ */
+test('an update notice in a room leaves the composer in the window', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved - run the chromium-desktop project against a VITE_DESKTOP=true build')
+  await mkdir(SHOTS, { recursive: true })
+  const context = await newDeviceContext(browser, baseURL!)
+  let writer: RoomAgent | undefined
+  try {
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const link = await createRoom(page, baseURL!)
+    await open(page, link, 'Ada')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    // An empty room has room to spare. The conversation holding its floor is
+    // what the notice used to push the composer past.
+    writer = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: [TEST_RELAY_WS], name: 'Rowan' })
+    for (let i = 1; i <= 24; i++) await writer.chat.send(`Note ${i}: ${TWENTY_WORDS}`)
+    await expect(page.locator('#chatLog .msg')).toHaveCount(24, { timeout: 60_000 })
+    await page.evaluate(() => { document.getElementById('updateNotice')!.hidden = false })
+    for (const size of [{ width: 1920, height: 1120 }, { width: 1440, height: 900 }, { width: 1280, height: 720 }, { width: 1100, height: 600 }]) {
+      await page.setViewportSize(size)
+      await page.waitForTimeout(200)
+      const label = `${size.width}x${size.height}`
+      await expect(page.locator('#updateApp'), `${label}: the update button`).toBeInViewport()
+      await expect(page.locator('#chatInput'), `${label}: the composer`).toBeInViewport()
+      const composer = await boxOf(page.locator('#chatInput'))
+      expect(composer.y + composer.height, `${label}: composer must stay in the window`).toBeLessThanOrEqual(size.height)
+      if (size.width === 1280) await page.screenshot({ path: `${SHOTS}/update-notice-1280x720.png` })
+    }
+    await page.locator('#chatInput').fill('Still typing with an update waiting')
+    await expect(page.locator('#chatInput')).toHaveValue('Still typing with an update waiting')
+  } finally {
+    await writer?.leave()
+    await context.close()
+  }
+})
