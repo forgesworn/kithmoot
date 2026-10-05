@@ -80,11 +80,14 @@ export class RelayDialGate {
   clear(): void { this.#relays.clear() }
 }
 
-/** Dial backoff after a failure: doubling from 1 s to at most 60 s. With every
- *  pool in the process behind one gate, that is at most one dial a minute to
- *  a relay that has refused for a while, from the whole app. */
+/** Dial backoff after a failure: doubling from 1 s to at most 8 s. A
+ *  publish keeps trying for 20 s (`PUBLISH_RETRY_BUDGET_MS`), so a relay that
+ *  comes back still gets a late try within it; a longer cap lost the message
+ *  instead. With every pool in the process behind one gate and one dial at a
+ *  time, 8 s is at most about seven dials a minute to a dead relay from the
+ *  whole app. */
 export const DIAL_BACKOFF_MS = 1_000
-export const DIAL_BACKOFF_MAX_MS = 60_000
+export const DIAL_BACKOFF_MAX_MS = 8_000
 
 /** How long one dial to a failing relay holds off the others. Past the
  *  longest connection timeout a pool gives a socket, including a relay that

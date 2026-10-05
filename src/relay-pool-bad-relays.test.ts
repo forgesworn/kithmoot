@@ -121,8 +121,8 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
         await vi.advanceTimersByTimeAsync(20_000)
       }
       // One dial from each pool before anything has failed, then one at a
-      // time behind the doubling backoff: 1, 2, 4, 8, 16, 32 and 60 s.
-      expect(bad.attempts).toBeLessThanOrEqual(4 + 7)
+      // time behind the doubling backoff: 1, 2, 4, then every 8 s.
+      expect(bad.attempts).toBeLessThanOrEqual(4 + 18)
       expect(good.connections).toBe(4)
     } finally { for (const each of pools) each.close() }
   })
@@ -138,6 +138,27 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
     }
     // Behind the backoff, about one round in two may dial.
     expect(bad.attempts).toBeLessThanOrEqual(6)
+  })
+
+  it('lets other pools dial once a publish has reopened a failing relay, though it has not answered yet', async () => {
+    // nostr-tools reports an open socket only from its subscriptions, so a
+    // dial a publish made used to keep its one-at-a-time slot for the whole
+    // lease: a joiner whose relay withheld OKs for a while was left at the
+    // door with no socket to it once the relay recovered.
+    bad.refuseConnections = true
+    const writer = new NostrRelayPool([BAD]), reader = new NostrRelayPool([BAD])
+    try {
+      writer.publish(evt()).catch(() => {})
+      await vi.advanceTimersByTimeAsync(10)
+      bad.refuseConnections = false; bad.silent = true
+      await vi.advanceTimersByTimeAsync(1_500)
+      writer.publish(evt()).catch(() => {})
+      await vi.advanceTimersByTimeAsync(10)
+      const before = bad.attempts
+      reader.subscribe([{ kinds: [20461] }], () => {})
+      await vi.advanceTimersByTimeAsync(10)
+      expect(bad.attempts).toBe(before + 1)
+    } finally { writer.close(); reader.close() }
   })
 
   it('closes the sockets it gives up on against a host that never answers', async () => {

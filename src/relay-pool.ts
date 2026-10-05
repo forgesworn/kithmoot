@@ -166,14 +166,14 @@ export class NostrRelayPool implements RelayTransport {
         const connecting = super.ensureRelay(url, owner.#authentication.get(normalizeURL(url))
           ? { ...params, connectionTimeout: owner.#authTimeout + 8_000 }
           : params)
-        return closingAbandoned(this.relays.get(normalizeURL(url)), connecting)
+        return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => owner.#dials.connected(normalizeURL(url)))
       }
     }({ enableReconnect: false, enablePing: false, websocketImplementation,
       verifyEvent: this.#verifyEvent, maxWaitForConnection: 3_000 })
       : new class extends SimplePool {
         override ensureRelay(url: string, params?: Parameters<AbstractSimplePool['ensureRelay']>[1]) {
           const connecting = super.ensureRelay(url, params)
-          return closingAbandoned(this.relays.get(normalizeURL(url)), connecting)
+          return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => owner.#dials.connected(normalizeURL(url)))
         }
       }({ enableReconnect: false, enablePing: false })
     // SimplePool deliberately exposes fewer constructor options than its
@@ -716,9 +716,15 @@ export class NostrRelayPool implements RelayTransport {
  *  136 to one host on 5 October 2026. Close it. `ensureRelay` puts the
  *  relay in the pool's map before it first waits, so it can be read there
  *  straight after the call. */
-async function closingAbandoned<T>(relay: unknown, connecting: Promise<T>): Promise<T> {
+async function closingAbandoned<T>(relay: unknown, connecting: Promise<T>, opened: () => void): Promise<T> {
   try {
-    return await connecting
+    const connected = await connecting
+    // nostr-tools reports an open socket to `onRelayConnectionSuccess` from
+    // its subscriptions only, never from a publish or a direct dial. The
+    // shared gate has to hear of every one, or a dial a publish made keeps
+    // every other pool off the relay until its lease runs out.
+    opened()
+    return connected
   } catch (error) {
     const socket = (relay as unknown as { ws?: { readyState: number; close(): void } } | undefined)?.ws
     if (socket?.readyState === 0) try { socket.close() } catch { /* already going */ }
