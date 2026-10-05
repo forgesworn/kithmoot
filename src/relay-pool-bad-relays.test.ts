@@ -134,6 +134,21 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
     expect(pool.health().find(r => r.url === 'wss://bad.test/')).toMatchObject({ state: 'connected', lastError: undefined })
   })
 
+  it('says a query to a relay in backoff is unknown, though the pool turns it away before the query is under way', async () => {
+    // A relay waiting out its backoff is refused inside nostr-tools' own
+    // call, so the query hears that it closed before that call has returned.
+    bad.refuseConnections = true
+    pool = new NostrRelayPool([GOOD, BAD])
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await vi.advanceTimersByTimeAsync(1_000)
+    // Refused while it was being asked: nostr-tools reports an end of stored
+    // events just before it says the relay closed.
+    await expect(pool.query(BAD, [{ kinds: [1460] }], 2_000)).resolves.toEqual({ events: [], complete: false })
+    // Refused before it was asked, inside the call that starts the query.
+    await vi.advanceTimersByTimeAsync(10)
+    await expect(pool.query(BAD, [{ kinds: [1460] }], 2_000)).resolves.toEqual({ events: [], complete: false })
+  })
+
   it('still delivers a publish to a relay that refused briefly and then came back', async () => {
     bad.refuseConnections = true
     good.rejectPublishes = true

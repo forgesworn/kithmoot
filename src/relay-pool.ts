@@ -532,21 +532,29 @@ export class NostrRelayPool implements RelayTransport {
     return new Promise(resolve => {
       const events = new Map<string, Event>()
       let settled = false
+      // A relay waiting out its backoff is refused inside `subscribeMap`
+      // itself, so `finish` can run before either of these is set.
+      let handle: { close(): void } | undefined
+      let timer: ReturnType<typeof setTimeout> | undefined
       const finish = (complete: boolean): void => {
         if (settled) return
         settled = true
         clearTimeout(timer)
-        handle.close()
+        handle?.close()
         resolve({ events: [...events.values()], complete })
       }
-      const handle = this.#pool.subscribeMap(filters.map(filter => ({ url: relay.url, filter: { ...filter } })), {
+      handle = this.#pool.subscribeMap(filters.map(filter => ({ url: relay.url, filter: { ...filter } })), {
         abort: this.#abort.signal,
         maxWait: timeoutMs * 2 + 5_000,
         onevent: event => { events.set(event.id, event) },
-        oneose: () => finish(true),
+        // nostr-tools reports an end of stored events for a relay it could
+        // not reach, just before it says the relay closed. Wait a microtask
+        // so the close is heard first.
+        oneose: () => queueMicrotask(() => finish(true)),
         onclose: () => finish(false),
       })
-      const timer = setTimeout(() => finish(false), timeoutMs)
+      if (settled) handle.close()
+      else timer = setTimeout(() => finish(false), timeoutMs)
     })
   }
 
