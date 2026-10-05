@@ -2091,3 +2091,84 @@ KithMoot can stop a participant recording with another app, and the notice
 says so. G8's "no recording" default holds for every meeting that does not
 start one.
 
+
+## Signet contacts tried against Signet on Android, 4 October 2026
+
+The 28 September run used the Signet web app, because Signet's Android app
+had no screen for the pairing code. That screen shipped in 0.15.0, so the
+pairing was run again against the Android app.
+
+**What ran.** KithMoot was the live web app at `kithmoot.forgesworn.dev/j/`
+(bundle `index-D9FpQ7yK.js`), signed in with a throwaway key. A second
+throwaway key joined the same room. Signet was 0.18.1, a debug build of
+signet-app `94ca789`, on an Android emulator: the Pixel was not attached. A
+third throwaway key and the second were added in Signet as Ada and Bob, at
+Ken. The pairing link reached Signet as a `signet-grant:` intent, which is
+what tapping it does; nothing was scanned. The link named
+`wss://relay.primal.net`. Signet kept the grant on `wss://relay.trotters.cc`.
+
+**What worked.** Signet's approval screen ticked names and keys alone, and
+the other four boxes were ticked by hand. The code KithMoot showed was typed
+into Signet and matched. Both contacts arrived with their tiers. A block on
+Ada in Signet reached KithMoot on the next refresh: she left the granted list
+and the roster, and a message she sent showed on her side and not on the
+owner's. A disconnect in Signet ended the grant on the next refresh: the
+list emptied, the panel said the grant was revoked, and Ada stayed hidden.
+
+**What failed: the relay check before the link.** Twice the panel said none
+of its relays answered, while the room on the same relays carried chat. Two
+of the three defaults, `nos.lol` and `nostr.mom`, are one host
+(142.132.206.70), which took connections and never finished TLS that day.
+The page kept retrying them, and while it did, every new WebSocket the page
+opened took 1.4 to 4.8 seconds, against 0.1 to 0.6 seconds from a blank page
+and from a KithMoot page whose relays were all healthy. The check gave each
+relay four seconds, so a healthy relay that came in late was counted as
+down. It also waited for the slowest relay before choosing. It now names the
+first relay in the person's order as soon as that relay answers and every
+relay ahead of it has failed, and gives up on a relay after ten seconds.
+Run again the same day from a local build with `nos.lol` still down, the
+link named `relay.primal.net` after ten seconds: the time it takes to give up
+on the person's first relay, which keeping their order costs while it is
+down. This replaces the four seconds of 28 September above.
+
+**What also failed: a relay query that met a dead relay.** The same dead
+relays threw `Cannot access 'c' before initialization` on every page. When
+the pool turns away a relay waiting out its backoff, nostr-tools reports the
+end of a subscription synchronously, from inside the call that creates it,
+so `RelayPool.query` reached its handle and timer before either existed and
+rejected with that error, instead of answering that the result is unknown.
+A relay refused a moment later was worse: nostr-tools reports an end of
+stored events just before it says the relay closed, and the query took that
+as a complete, empty answer. Both are fixed in their own pull request,
+since every caller of `query` sees the change.
+
+**On a phone, 5 October.** Repeated on the Pixel, in its Signet test
+profile, with the Signet release installed there, 0.16.0, against a local
+build of this branch. `nos.lol` was still down and first in the relay
+list: the link named `relay.trotters.cc` after ten seconds. Pairing,
+contacts, a block and a disconnect behaved as on the emulator; the block and
+the disconnect each reached KithMoot within fifteen seconds of the change in
+Signet.
+
+**What expiry does.** The grant was approved with Signet's shortest window,
+an hour, and Signet was then sent to the background and the phone locked.
+For the whole hour Signet published nothing: the copy kept its first issue
+time. At the hour KithMoot hid the names and tier and said the copy had
+expired; a refresh changed nothing. Bringing Signet to the front was not
+enough either. Only unlocking Signet's contacts with its PIN restarted it,
+and about ninety seconds later it published a fresh copy and the name came
+back. So with the default six hour window, a person who has not opened and
+unlocked Signet's contacts in six hours sees an empty list in KithMoot. This
+is the input the plan's D2 asked for.
+
+**Signet-side oddities**, for signet-app, seen on both 0.16.0 and 0.18.1: a
+screen opened from another keeps that screen's scroll position, which hid
+the code screen's instruction line and the "connected" message; and the
+companion apps screen shows "No companion apps connected" under a live
+contacts grant.
+
+**Not decided.** Two of KithMoot's three default relays share a host, so one
+outage takes out two thirds of a new person's relays. Early on 5 October the
+third, `relay.primal.net`, was refusing WebSockets with 502 as well, and a
+room could not be made on the defaults at all: "the relays did not save the
+group invitation". Whether to change the defaults is a decision of its own.

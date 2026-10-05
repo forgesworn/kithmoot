@@ -140,6 +140,17 @@ it('pairs on the first relay that answers, in the order the person keeps them', 
   expect(await firstReachableRelay(['wss://a.example/'], reachable)).toBeUndefined()
   expect(await firstReachableRelay([], reachable)).toBeUndefined()
 })
+it('names the first relay once it answers, without waiting on a silent one after it', async () => {
+  const never = () => new Promise<boolean>(() => {})
+  const late = () => new Promise<boolean>(resolve => setTimeout(() => resolve(true), 30))
+  // The default wait is longer than the test's own, so this passes only if
+  // the silent relay is not waited on.
+  expect(await firstReachableRelay(['wss://a.example/', 'wss://silent.example/'], relay => relay === 'wss://a.example/' ? late() : never())).toBe('wss://a.example/')
+})
+it('waits for a relay ahead that answers late rather than taking a quicker one behind it', async () => {
+  const late = () => new Promise<boolean>(resolve => setTimeout(() => resolve(true), 30))
+  expect(await firstReachableRelay(['wss://a.example/', 'wss://b.example/'], relay => relay === 'wss://a.example/' ? late() : Promise.resolve(true))).toBe('wss://a.example/')
+})
 it('counts a relay that never answers as down, without waiting on it for ever', async () => {
   const never = () => new Promise<boolean>(() => {})
   expect(await firstReachableRelay(['wss://silent.example/', 'wss://b.example/'], relay => relay === 'wss://b.example/' ? Promise.resolve(true) : never(), 20)).toBe('wss://b.example/')
