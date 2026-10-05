@@ -584,9 +584,18 @@ test('rooms can be forgotten from the sidebar and the switcher, but not the one 
     await join(page, rooms[0]!.link)
     const sidebar = page.locator('#workspaceRooms')
     await expect(sidebar.getByRole('button', { name: 'Forget Town hall', exact: true })).toHaveCount(0)
+    // Its keys as this device would hold them: forgetting takes them too.
+    const planning = rooms[2]!.roomId
+    const keysOf = (roomId: string) => page.evaluate(id => ['kithmoot.device.', 'kithmoot.room-epoch.v1.'].map(prefix => localStorage.getItem(prefix + id)), roomId)
+    await page.evaluate(id => {
+      localStorage.setItem('kithmoot.device.' + id, JSON.stringify({ sk: '11'.repeat(32), at: Math.floor(Date.now() / 1000) }))
+      localStorage.setItem('kithmoot.room-epoch.v1.' + id, JSON.stringify({ epoch: 2, id: '22'.repeat(32), key: '33'.repeat(32) }))
+    }, planning)
     await sidebar.getByRole('button', { name: 'Forget Release planning', exact: true }).click()
     await page.getByRole('button', { name: 'Forget room', exact: true }).click()
     await expect(sidebar.getByRole('button', { name: 'Release planning', exact: true })).toHaveCount(0)
+    expect(await keysOf(planning)).toEqual([null, null])
+    expect((await keysOf(rooms[0]!.roomId))[0]).not.toBeNull()
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
     await page.keyboard.press('Control+k')
     const switcher = page.locator('#roomSwitcherList')

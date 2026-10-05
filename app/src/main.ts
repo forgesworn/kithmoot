@@ -12422,6 +12422,20 @@ function forgetLocally(roomId: string): void {
   forgetOwnCredentials(deviceStore, roomId)
   forgetQuietState(deviceStore, roomId)
   forgetRoom(deviceStore, roomId)
+  // Its keys go with it: the device key, and the newest epoch's key the list
+  // read it under. The archive's records go too where this device can still
+  // name them: the room's rekeys, and its main chat in epoch 0 and in that
+  // newest epoch, read before its key goes. Named channels, and the main chat
+  // of epochs in between, stay as ciphertext nothing here opens any more.
+  const epoch = loadRoomEpoch(roomId)
+  deviceStore.remove(DEVICE_PREFIX + roomId)
+  browserDeviceStore(sessionStorage).remove(DEVICE_PREFIX + roomId)
+  try { localStorage.removeItem(ROOM_EPOCH_PREFIX + roomId) } catch { /* Storage unavailable: nothing is held there. */ }
+  const archive = roomArchive
+  if (archive) {
+    const streams = [{ kind: KINDS.CHAT, d: roomId }, { kind: KINDS.ROOM_REKEY, d: roomId }, ...(epoch ? [{ kind: KINDS.CHAT, d: epoch.id }] : [])]
+    void Promise.all(streams.map(stream => archive.forget(stream))).catch(error => console.warn('room archive could not forget a room', error))
+  }
   renderRooms()
 }
 

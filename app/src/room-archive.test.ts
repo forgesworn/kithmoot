@@ -113,6 +113,28 @@ describe('room archive at rest', () => {
     expect(loads).toBe(1)
   })
 
+  it('forgets one conversation on disk and in memory, after what is still being written, and leaves the rest', async () => {
+    const storage = new MemoryStorage()
+    const archive = new RoomArchive(storage, crypt)
+    archive.keep(chat('a', 1))
+    archive.keep(chat('b', 2, OTHER))
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toHaveLength(1)
+    // Still queued when the forget starts: it must not land afterwards.
+    archive.keep(chat('c', 3))
+    await archive.forget({ kind: 1460, d: ROOM.toUpperCase() })
+    await archive.flushed()
+    expect(await archive.read({ kind: 1460, d: ROOM, limit: 10 })).toEqual([])
+    expect(await new RoomArchive(storage, crypt).read({ kind: 1460, d: ROOM, limit: 10 })).toEqual([])
+    expect(await archive.read({ kind: 1460, d: OTHER, limit: 10 })).toHaveLength(1)
+    expect(storage.records.size).toBe(1)
+  })
+
+  it('forgetting in an archive that never kept anything mints no keys', async () => {
+    const storage = new MemoryStorage()
+    await new RoomArchive(storage, crypt).forget({ kind: 1460, d: ROOM })
+    expect(storage.stored).toBeUndefined()
+  })
+
   it('a reader waits for its own conversation to be written, not for every room', async () => {
     const storage = new MemoryStorage()
     const archive = new RoomArchive(storage, crypt)
