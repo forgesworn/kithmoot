@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { applyProjection, emptyContactsState, type ContactProjectionV2, type PairingV2 } from '@forgesworn/signet-contacts'
-import { grantedContactsView, grantedContactMeetsTier } from './granted-contacts.js'
+import { grantedContactsView, grantedContactMeetsTier, NAMES_OUTLIVE_EXPIRY_SECONDS } from './granted-contacts.js'
 const account = '1'.repeat(64), peer = '2'.repeat(64), grantId = '3'.repeat(32)
 const now = 1800000000
 const scopes: PairingV2['grantedCapabilities'] = ['signet.contacts.read:directory', 'signet.contacts.blocks.read', 'signet.contacts.read:tier', 'signet.contacts.read:checks', 'signet.contacts.read:check-records']
@@ -33,15 +33,35 @@ it('refuses a whole projection that carries a field its scopes do not cover', ()
   expect(view).toMatchObject({ status: 'unavailable', contacts: [] })
   expect(grantedContactMeetsTier(view, peer, 'ken')).toBe(false)
 })
-it('removes names and authority on expiry/revocation while preserving sticky blocks', () => {
+it('keeps names past expiry but drops tiers and checks, which people act on', () => {
+  const args = fixture(); args.now += 600
+  const stale = grantedContactsView(args)
+  expect(stale).toMatchObject({ status: 'stale', issuedAt: now, contacts: [{ pubkey: peer, name: 'Ada', tier: undefined, verification: undefined, checks: [] }] })
+  expect(grantedContactMeetsTier(stale, peer, 'ken')).toBe(false)
+})
+it('drops names a month past expiry and keeps blocks throughout', () => {
+  const args = fixture(); args.state.blockedPubkeys = ['9'.repeat(64)]
+  args.now += 600 + NAMES_OUTLIVE_EXPIRY_SECONDS - 1
+  expect(grantedContactsView(args).contacts).toHaveLength(1)
+  args.now++
+  const lapsed = grantedContactsView(args)
+  expect(lapsed).toMatchObject({ status: 'lapsed', contacts: [] }); expect(lapsed.blocked.has('9'.repeat(64))).toBe(true)
+})
+it('hides a contact the expired copy itself blocks, though no earlier copy had', () => {
+  const args = fixture(); args.state.projection!.contacts[0].blocked = true; args.now += 600
+  const stale = grantedContactsView(args)
+  expect(stale).toMatchObject({ status: 'stale', contacts: [] }); expect(stale.blocked.has(peer)).toBe(true)
+})
+it('removes names and authority on revocation, expired or not, while preserving sticky blocks', () => {
   const args = fixture(); args.state.blockedPubkeys = [peer]
   expect(grantedContactsView(args).contacts).toEqual([])
   args.now += 600
   const stale = grantedContactsView(args)
-  expect(stale.status).toBe('stale'); expect(stale.blocked.has(peer)).toBe(true)
+  expect(stale.status).toBe('stale'); expect(stale.contacts).toEqual([]); expect(stale.blocked.has(peer)).toBe(true)
   expect(grantedContactMeetsTier(stale, peer, 'ken')).toBe(false)
   args.state.revoked = true
   expect(grantedContactsView(args)).toMatchObject({ status: 'revoked', contacts: [] })
+  expect(grantedContactsView(args).blocked.has(peer)).toBe(true)
 })
 it('refuses a different account, grant, future projection or failed durable storage', () => {
   expect(grantedContactsView({ ...fixture(), account: '9'.repeat(64) }).status).toBe('disconnected')

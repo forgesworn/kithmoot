@@ -2172,3 +2172,32 @@ outage takes out two thirds of a new person's relays. Early on 5 October the
 third, `relay.primal.net`, was refusing WebSockets with 502 as well, and a
 room could not be made on the defaults at all: "the relays did not save the
 group invitation". Whether to change the defaults is a decision of its own.
+
+## An expired Signet copy keeps its names, 5 October 2026
+
+This changes one line of "Granted contacts and local blocks, 19 September
+2026": expiry no longer removes granted names along with trust fields. What
+an expired copy shows is now split by use.
+
+- **Names stay** past the copy's `expiresAt`, under a line saying when
+  Signet last shared it and that names may be out of date.
+- **Tiers and checks go at expiry.** They are what people act on: answer
+  this call, let this person in. The freshness window the owner chose in
+  Signet is their limit on relying on the copy, so it applies to these.
+  Room admission never uses an expired copy.
+- **Names go 30 days past expiry,** and the panel says to open Signet and
+  unlock its contacts. A copy nobody has refreshed for a month is an
+  export, not a view. Thirty days covers a fortnight away with room to
+  spare; it is a KithMoot constant, not on the wire, and can change.
+- **Blocks always stay,** including one the expired copy carries and no
+  earlier copy did.
+- **Revocation** still clears everything except blocks, at once.
+
+Why: the C1 run above showed that expiry almost always means Signet was not
+opened, not that anything changed. Signet publishes only while its contacts
+are unlocked, and a backgrounded phone does not keep its keepalive, so with
+the six hour default, hiding at expiry empties the list most mornings. An
+edit in Signet publishes at once, because Signet is running when it is made.
+A stale name grants nothing, since tiers and checks have gone, and a label
+the owner changed in Signet is shown, marked, for at most 30 days past
+expiry. This is D2 of the Signet contacts plan of 3 October, as recommended.

@@ -10,11 +10,19 @@ export interface GrantedContact {
   verification?: 'unverified' | 'proven' | 'mutual'
 }
 export interface GrantedContactsView {
-  status: 'disconnected' | 'waiting' | 'ready' | 'stale' | 'revoked' | 'unavailable'
+  /** `stale`: past the owner's window, names only. `lapsed`: long past it, nothing but blocks. */
+  status: 'disconnected' | 'waiting' | 'ready' | 'stale' | 'lapsed' | 'revoked' | 'unavailable'
   contacts: GrantedContact[]
   blocked: Set<string>
   truncated: boolean
+  /** When Signet issued the copy in use, in seconds. */
+  issuedAt?: number
 }
+/** How long names outlive the owner's freshness window. Expiry almost always
+ * means Signet was not opened, since it publishes only while its contacts are
+ * unlocked, so hiding names at once would empty the list most mornings. This
+ * covers a fortnight away with room to spare. A KithMoot constant, not wire. */
+export const NAMES_OUTLIVE_EXPIRY_SECONDS = 30 * 24 * 60 * 60
 const HEX = /^[0-9a-f]{64}$/
 const RANK: Record<ProjectedTier, number> = { none: 0, ken: 1, kith: 2, kin: 3 }
 /** SDK state must come from this account's authenticated grant client. Recheck
@@ -35,20 +43,24 @@ export function grantedContactsView(args: { account: string | undefined; binding
     || projection.expiresAt - projection.issuedAt > pairing.maxStalenessSeconds
     || projection.issuedAt > now || projection.frontier.publishedAt > now) return empty('unavailable', blocked)
   if (projection.revoked) return empty('revoked', blocked)
-  if (now >= projection.expiresAt) return empty('stale', blocked)
   const has = (scope: typeof projection.scopes[number]) => projection.scopes.includes(scope) && pairing.grantedCapabilities.includes(scope)
   if (!has('signet.contacts.read:directory') || !has('signet.contacts.blocks.read')) return empty('unavailable', blocked)
   // A block wins even if a malformed producer duplicated the same key under a
   // different contact ID. Never return a visible duplicate of a blocked key.
   for (const row of projection.contacts) if (row.blocked) for (const identity of row.identities ?? []) blocked.add(identity.pubkey)
+  // Past the owner's window a name is still a label, but tiers and checks are
+  // what people act on, so they go at expiry and names some time after.
+  const expired = now >= projection.expiresAt
+  if (now >= projection.expiresAt + NAMES_OUTLIVE_EXPIRY_SECONDS) return { ...empty('lapsed', blocked), issuedAt: projection.issuedAt }
+  const trusted = (scope: typeof projection.scopes[number]) => !expired && has(scope)
   const contacts = new Map<string, GrantedContact>()
   for (const row of projection.contacts) {
     for (const identity of row.identities ?? []) {
       if (blocked.has(identity.pubkey)) continue
       const next: GrantedContact = { pubkey: identity.pubkey, name: row.displayName,
-        tier: has('signet.contacts.read:tier') ? row.effectiveTier : undefined,
-        verification: has('signet.contacts.read:checks') ? identity.verification : undefined,
-        checks: has('signet.contacts.read:check-records') ? (row.checks ?? []).filter(check => check.pubkey === identity.pubkey && check.checkedAt <= now * 1000) : [] }
+        tier: trusted('signet.contacts.read:tier') ? row.effectiveTier : undefined,
+        verification: trusted('signet.contacts.read:checks') ? identity.verification : undefined,
+        checks: trusted('signet.contacts.read:check-records') ? (row.checks ?? []).filter(check => check.pubkey === identity.pubkey && check.checkedAt <= now * 1000) : [] }
       const prior = contacts.get(next.pubkey)
       if (prior) {
         if (prior.name !== next.name) prior.name = undefined
@@ -58,7 +70,7 @@ export function grantedContactsView(args: { account: string | undefined; binding
       } else contacts.set(next.pubkey, next)
     }
   }
-  return { status: 'ready', contacts: [...contacts.values()], blocked, truncated: !!projection.truncated }
+  return { status: expired ? 'stale' : 'ready', contacts: [...contacts.values()], blocked, truncated: !!projection.truncated, issuedAt: projection.issuedAt }
 }
 /** Current owner-granted tier only. This does not mint a room admission proof. */
 export function grantedContactMeetsTier(view: GrantedContactsView, pubkey: string, minimum: 'kin' | 'kith' | 'ken'): boolean {
