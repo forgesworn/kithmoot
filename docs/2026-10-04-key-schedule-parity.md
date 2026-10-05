@@ -3,9 +3,11 @@
 Status: proposed 2026-10-04. Phase 1 shipped 2026-10-04 (fold-kit 0.7.0,
 #237, desktop 0.1.52). Phase 2's erasure audit is done
 (`docs/2026-10-05-erasure-audit.md`), and it splits phase 2 in two: healing
-(2a) and forward secrecy (2b). Phases 3 and 4 are not started. Seven owner
-decisions are listed at the end. Each has a recommended answer except the
-seventh, and the work so far follows those recommendations.
+(2a) and forward secrecy (2b). 2a's readers shipped 2026-10-05 (fold-kit
+0.8.0 and this repository; the plan is `docs/2026-10-05-phase-2a-plan.md`);
+its keeper cadence is not built yet. Phases 3 and 4 are not started. Eight
+owner decisions are listed at the end. Each has a recommended answer except
+the seventh, the eighth is decided, and the work so far follows them.
 
 ## Scope
 
@@ -125,7 +127,11 @@ them:
 - the web recomputes every epoch at each load.
 
 **2a, healing:** cadence, history, newcomers, the quiet marker. It ships
-first and claims no forward secrecy.
+first and claims no forward secrecy. Its readers are done: the marker, the
+time-bound history rule, the window in the authority's grant, the web keeping
+its window's secrets (2b's item 3, brought forward), and watches that follow
+rekeys. What is left is the keeper's cadence (the plan's step 6), off by
+default until desktop 0.1.54 and Android 0.6.58 are in the field.
 
 **2b, forward secrecy:** a one-time sender key for 1462 and 20469, seal keys
 on Android and secondaries, the web keeping its window's secrets instead of
@@ -133,12 +139,31 @@ re-walking from epoch 0, archive and Android history pruned by age, then
 erasure. The bullets below were written before the split; the audit's "What
 this changes in the plan" takes precedence where they differ.
 
-- **Cadence.** The authority rekeys a room when it has been at one epoch for
+- **Cadence.** The keeper rekeys a room when it has been at one epoch for
   seven days and anybody has spoken in it since. A rekey with nobody removed
-  is the existing 1462 with an empty `removed` list. The authority is the
-  keeper for a standing room, or the creator's client. If the authority is
-  away, the rekey happens when it is next online, and the doc and the Remove
-  dialogue say so.
+  is the existing 1462 with an empty `removed` list, marked `scheduled`.
+  **Corrected 2026-10-05:** the cadence runs on the keeper only, not "the
+  creator's client". The keeper is the only place an authority desk runs
+  (`src/agent.ts`, `hostRoomEpoch`); a browser rekeys only to close a room,
+  and Android never builds a 1462. A browser rekeying on a schedule would
+  leave every member who was offline, and every newcomer, waiting for some
+  other member to come online. So the healing claim holds for keeper rooms.
+  If the keeper is away, the rekey happens when it is next online, and the
+  doc and the Remove dialogue say so.
+- **Rooms nobody has open (owner decision, 2026-10-05: option (a)).** A
+  rekey seals copies only to the devices in the roster, and the rooms list,
+  Android's background delivery and its call listener read a room under the
+  epoch they last held. So without more, a room nobody has opened since a
+  rekey would lose its unread marks, notifications and rings a week later.
+  Chosen: a scheduled rekey is also sealed to every device whose credential
+  the keeper has seen within the 30-day window, and each of those watches
+  follows 1462 from its stored epoch with its own copy. The cost, accepted:
+  a stolen device whose real owner then stays offline is sealed scheduled
+  rekeys for up to 30 days (about four), not just until its 12-hour
+  credential lapses; and each recipient adds about 370 bytes, so a 64 KiB
+  rekey fits about 170 devices, beyond which it falls back to online
+  devices plus the most recently seen. The readers (the web's rooms list)
+  shipped with 2a's readers; the keeper's side is the plan's step 6.
 - **Forward secrecy at epoch granularity.** A device erases an epoch's
   secret and every key derived from it once that epoch drops out of the
   history window. Over a scheduled cadence that is forward secrecy whose
@@ -159,8 +184,9 @@ this changes in the plan" takes precedence where they differ.
   *subscribes to*; it is not yet shown to decide what it *keeps*.
 - **History.** Seven-day epochs, four of them kept, gives five weeks, which
   just covers the thirty-day window, but removals use up the same four.
-  Recommended: make the rule time-bound only (every epoch left within thirty
-  days), with a hard cap of 16 for safety.
+  Done: the rule is time-bound (every epoch left within thirty days), with a
+  hard cap of 16 (fold-kit's `epochsInWindow`). A chat subscription keeps at
+  most six filters by folding the oldest epochs into one.
 - **Admission is unchanged.** The ask-before-letting-in rule keys off the
   removed set, not the epoch (`member-epoch.ts`, `admissible`), so a
   scheduled rekey does not gate an open room.
@@ -168,16 +194,20 @@ this changes in the plan" takes precedence where they differ.
   room reads thirty days of history under epoch 0. A grant to a newcomer
   carries the current epoch only (member grants carry up to
   `MAX_MEMBER_EPOCH_CHAIN` passed epochs, but only for a returning device).
-  After scheduled rekeys a newcomer would see one week. Recommended: a grant
-  to an admitted newcomer also carries the epochs within the history window,
-  which keeps today's behaviour and gives a link holder nothing they could
-  not read from epoch 0 today.
+  After scheduled rekeys a newcomer would see one week. Done: every
+  authority grant carries the epochs within the history window (`passed`),
+  since a request does not say which epoch the device holds. That keeps
+  today's behaviour and gives a link holder nothing they could not read from
+  epoch 0 today.
 - **Quiet in the room.** The web client posts "The room moved to epoch N"
-  on every rekey (`app/src/main.ts`, the rekey notice). A scheduled rekey
-  needs a marker so clients stay silent about it; Android likewise.
+  on every rekey (`app/src/main.ts`, the rekey notice). Done: a scheduled
+  rekey carries `"scheduled": true` in its encrypted body, and the web says
+  nothing of it; Android follows in 0.6.58.
 - **Vectors.** `scheduledRekey` (an empty `removed` list, members carried,
   the chain unbroken, the scheduled marker), a newcomer grant carrying the
-  window, and a chat history case across a scheduled rekey.
+  window, and a chat history case across a scheduled rekey. Done: fold-kit's
+  `schedule-vectors.json`, copied here, and the `chatHistory` group in
+  `vectors/kithmoot-vectors.json`.
 
 ## Phase 3: a throwaway outer author for chat (metadata)
 
@@ -256,3 +286,7 @@ this changes in the plan" takes precedence where they differ.
    history goes, or it re-seals what it keeps to a device archive key, so
    history the device holds is not forward secret against the device (as in
    Signal). No recommendation yet. It gates 2b, not 2a.
+8. **Rooms nobody has open** (raised by the 2a plan). Decided 2026-10-05:
+   option (a), a scheduled rekey is also sealed to every device the keeper
+   has seen within the 30-day window, and watches follow 1462 with their own
+   copy. See "Rooms nobody has open" under phase 2.

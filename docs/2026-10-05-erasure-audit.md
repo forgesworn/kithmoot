@@ -41,6 +41,7 @@ profile directory.
 | `kithmoot.own-seal.<room>` | Every seal secret this device minted | Plain localStorage | 128 (`MAX_OWN_SEAL_KEYS`) | Forgetting the room. Not by age or by epoch |
 | `kithmoot.own-credential.<room>`, `kithmoot.credential.<room>` | Own credential; a secondary's credential. Neither holds a secret | Plain localStorage | One | Forgetting the room. A secondary's credential only by tidy-up: it keeps `isPairedSecondary` true |
 | `kithmoot.room-epoch.v1.<room>` | The newest epoch's derived id and key, not its secret (`main.ts:6498`) | Plain localStorage | One, overwritten forwards | Forgetting the room (Forget room since the fix below; tidy-up only before) |
+| `kithmoot.room-epoch.v2.<room>` | Since 2a's readers: the newest epoch's secret, the window's left epochs' secrets with when each was left, the removed and the members (`app/src/room-epoch-store.ts`) | Plain localStorage | One epoch and at most 16 left, cut to the window each time it is written | Forgetting the room, both paths |
 | `kithmoot.invitation-owner.v1.*` | The authority (root inviter) secret for rooms this browser made (`main.ts:1461`) | Plain localStorage | One per room | Forgetting the room |
 | `kithmoot.admission-kept.v1.*` | A group invitation's epoch 0 secret | Plain localStorage | One | Its expiry or the room |
 | Room archive (`app/src/room-archive.ts`) | Every accepted room event, still room-encrypted: chat, and every rekey (1462) | AES-GCM under a non-extractable key in the same IndexedDB | 50,000 per conversation, no age limit | The wipe-everything path (`deleteRoomArchive`, `main.ts:1119`). Since the fix below, forgetting a room drops the conversations this device can still name |
@@ -185,7 +186,11 @@ A room's first rekey is where forward secrecy can begin.
   3. The web keeps its window's secrets instead of re-walking from epoch 0.
      `RoomSession` already accepts `opts.epoch` (`src/session.ts:736`, which
      the keeper uses), so this is a store and its wiring. It then retires
-     seal keys older than the oldest epoch in the window.
+     seal keys older than the oldest epoch in the window. **Brought forward
+     into 2a (2026-10-05)**, because a weekly cadence would otherwise stall a
+     busy device once its oldest seal keys drop: the store and its wiring
+     shipped with 2a's readers (`kithmoot.room-epoch.v2`, `pastEpochs`).
+     Retiring the seal keys is still 2b's.
   4. The archive prunes rekeys and chat outside the window, by age as well
      as count.
   5. Android's history gets the same window (30 days, at most 16), and its

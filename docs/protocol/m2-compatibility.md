@@ -62,6 +62,32 @@ of the newest credential it has seen for a device. Compatibility:
 - The seal vectors (`vectors/seal-vectors.json`) are copied from fold-kit and
   checked by `vectors/verify-seal.test.ts`.
 
+### Scheduled rekeys and the history window (fold-kit 0.8.0, key schedule parity phase 2a)
+
+These are the readers. No release rekeys on a schedule yet: the keeper's
+cadence comes later and starts off (`docs/2026-10-05-phase-2a-plan.md`,
+step 6). Each change, both ways:
+
+| Change | New writer, old reader | Old writer, new reader |
+|---|---|---|
+| `"scheduled": true` in a 1462 body | Ignored. Web and desktop up to 0.1.53 post "The room moved to epoch N."; Android up to 0.6.57 shows "Secure room update complete." Neither breaks | No marker, so the rekey is announced as before |
+| `passed` in a 20469 grant | Ignored: the current epoch only, as from any grant before (`epoch-grant-window-old-reader`) | No `passed`: the current epoch only, as before |
+| Window of 16 left epochs, 30 days | An old client reads 4 left epochs. On a weekly schedule that is still about a month; removals shorten it | Unchanged |
+| Chat filters folded past the fifth | A relay sees one REQ with at most six filters, the last with several `#d` values, which NIP-01 allows | Unchanged |
+| A rooms list following 1462 | Old lists read a room under the epoch they last held and go quiet after a rekey until it is opened | Follows only rekeys with a copy for its device, as a session does |
+| `kithmoot.room-epoch.v2.<room>` | An older web build reads `room-epoch.v1`, which is still written beside it, and replays from epoch 0 as it always has | No v2 record: the session opens from epoch 0, as before, and writes one from then on |
+
+- The keeper's desk hands every grant the window (`hostRoomEpoch`'s `past`,
+  from `RoomSession.pastSecrets`). Until it rekeys on a schedule that is
+  epochs left by removals only.
+- Old watches and Android background listeners going quiet after a rekey is
+  why the cadence starts off: once desktop 0.1.54 and Android 0.6.58 are out,
+  a scheduled rekey reaches a room nobody has open as well.
+- The schedule vectors (`vectors/schedule-vectors.json`) are copied from
+  fold-kit and checked by `vectors/verify-schedule.test.ts`; the `chatHistory`
+  group in `vectors/kithmoot-vectors.json` pins what a log reads across a
+  scheduled rekey.
+
 ### Call reliability profile 2 (2026-09-17 spec, step S3)
 
 Web `src/signal.ts` and `src/types.ts` now carry the profile-2 wire fields

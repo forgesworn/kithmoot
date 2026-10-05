@@ -346,14 +346,56 @@ The proof key is always epoch 0's, since the device asking is by definition
 behind. A responder from before this field ignores it. The
 `epochRequestAdmission` vectors pin the derivation and the refusals.
 A client that has left an epoch goes on reading its chat and channels for a
-while: the four most recently left epochs (`MAX_PAST_EPOCHS`), none left more
-than `CHAT_RETENTION_SECONDS` ago, each decoded under its own root. This is how
-a message published under an epoch just before a rekey, and delivered after
-it, is still heard, and how a device that applies several rekeys in a row on
-returning reads the epochs it passed through. A message under a left epoch
-from a participant removed at any epoch is refused, whatever its
-`created_at`: the removed keep the old key. Messages are never written under
-a left epoch.
+while: the history window, every epoch left within the last 30 days
+(`HISTORY_WINDOW_SECONDS`), newest first, at most 16 (`MAX_HISTORY_EPOCHS`),
+each decoded under its own root. Every client applies the one rule,
+fold-kit's `epochsInWindow`, so what an authority hands over is what a member
+goes on reading. When the room left an epoch is the `created_at` of the
+authority's rekey out of it. A chat subscription asks for the current epoch
+and the four most recently left in a filter each, and folds any older ones
+into one filter with several `#d` values, so it carries at most six filters
+however many epochs it reads (the `chatHistory` vectors). This is how a
+message published under an epoch just before a rekey, and delivered after
+it, is still heard, how a device that applies several rekeys in a row on
+returning reads the epochs it passed through, and how a room on a weekly
+schedule keeps its last month. A message under a left epoch from a
+participant removed at any epoch is refused, whatever its `created_at`: the
+removed keep the old key. Messages are never written under a left epoch.
+
+**Scheduled rekeys.** A rekey that turns the key on the room's schedule,
+rather than to remove somebody, carries `"scheduled": true` in its encrypted
+body (between where `closed` and `commit` would be), so it is signed and a
+relay cannot tell it from a removal. It never sits beside a non-empty
+`removed` or `closed`, and a reader believes it only when `removed` is empty
+and the room stays open, so a body that contradicts itself is still
+announced. A client moves to the new epoch exactly as for any rekey and says
+nothing about it: no "moved to epoch" line, no removal. A reader that does
+not know the field ignores it and announces the rekey as before. See
+fold-kit's `docs/scheduled-rekey.md` and `vectors/schedule-vectors.json`.
+
+**The window in an authority's grant.** An authority's grant (20469) may carry
+`passed`: the window's left epochs, oldest first, each
+`{epoch, secret (base64url), left (unix seconds)}`, never epoch 0 and never
+one at or above the epoch granted, at most 16. Every grant carries it, because
+a request does not say which epoch the device holds, so a newcomer and a
+device back after missing several rekeys are both handed the last month. A
+reader takes `passed` only in exactly that form and otherwise drops it and
+keeps the grant; a reader that does not know it reads the current epoch, as
+before. A member's grant (20472) already carries the epochs it passed, each
+proven by the next rekey, and its reader takes when each was left from that
+rekey's `created_at`. A client reads every passed epoch as a left one, from
+when the room left it.
+
+**Following a rekey from outside the room.** A client's rooms list reads a
+room it is not in under the epoch it last held, and follows the authority's
+1462 from there with this device's own copy (its device key and the seal
+keys its credentials named), as a member does. A device the rekey left out,
+because it was removed, the room was closed, or it was not in the room when
+the authority rekeyed, has no copy and stays where it is until the room is
+opened. The web keeps the epoch's secret, the window's secrets with when each
+was left, the removed and the members (`kithmoot.room-epoch.v2.<room>`) and
+opens the room from them, so it neither replays every rekey from epoch 0 nor
+stalls on one sealed to a seal key it has since dropped.
 
 A rekey is compared by event id. Two different rekeys for one epoch, both
 validly signed by the authority, mean its key is rekeying from two places;
