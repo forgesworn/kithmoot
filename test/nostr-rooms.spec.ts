@@ -220,7 +220,8 @@ test('Nostr rooms follow the identity across browsers; direct-link visitors need
     await returning.locator('#appSettingsClose').click()
     await expect(returning.locator('#roomList .roomRow')).toHaveCount(0)
     await expect(returning.locator('#backToRoom')).toBeHidden()
-    await expect(returning.locator('#homeSignIn')).toBeVisible()
+    // Sign in is in the header once there is a list, under it before.
+    await expect(returning.locator('#homeSignIn:visible, #headerSignIn:visible')).toBeVisible()
   } finally { await first.close(); await second.close(); await visitor.close() }
 })
 
@@ -260,7 +261,7 @@ test('a signer without encryption gets honest local-only rooms, and no private-k
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
-    await page.locator('#homeSignIn').click()
+    await page.locator('#homeSignIn:visible, #headerSignIn:visible').click()
     await expect(page.getByText('Paste private key', { exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#roomSyncStatus')).toContainText('browser only')
@@ -287,7 +288,7 @@ test('existing browser rooms are imported only after explicit confirmation', asy
     await page.locator('#doorToRooms').click()
     await page.locator('#roomSwitcherHome').click()
     await expect(page.locator('#roomList .roomName')).toHaveText('A browser shortcut')
-    await page.locator('#homeSignIn').click()
+    await page.locator('#homeSignIn:visible, #headerSignIn:visible').click()
     await page.getByRole('button', { name: /Browser extension/ }).click()
     await expect(page.locator('#roomList .roomRow')).toHaveCount(0)
     // Add the rooms already here lives in Settings, with the account.

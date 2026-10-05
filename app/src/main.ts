@@ -11431,7 +11431,17 @@ interface RoomRowState {
 
 const NO_MESSAGES = 'No messages yet'
 /** A drawing pin, in the text's own colour: an emoji pin is red in every theme. */
-const PIN_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>'
+function pinIcon(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('fill', 'currentColor')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', 'M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z')
+  svg.append(path)
+  return svg
+}
 
 function roomRowState(room: KnownRoom): RoomRowState {
   const time = formatActivityTime(activityAt(room, roomWatches.get(room.roomId)?.watch.messages() ?? []))
@@ -11549,7 +11559,7 @@ function roomRow(room: KnownRoom): HTMLLIElement {
     const pin = document.createElement('span')
     pin.className = 'roomPin'
     pin.setAttribute('aria-hidden', 'true')
-    pin.innerHTML = PIN_ICON
+    pin.append(pinIcon())
     time.append(pin)
   }
   time.append(state.time)
