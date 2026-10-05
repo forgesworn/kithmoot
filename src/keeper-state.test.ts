@@ -71,6 +71,17 @@ describe('keeper state', () => {
     expect(() => parseKeeperState(JSON.stringify({ v: 2, secret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer), members: ['x'] }))).toThrow(/members/)
   })
 
+  it('carries the room\'s named channels, so a restart does not empty them', () => {
+    expect(JSON.parse(serialiseKeeperState({ secret, inviterSk, bearer })).channels).toBeUndefined()
+    const json = serialiseKeeperState({ secret, inviterSk, bearer, channels: ['release', 'design', 'design'] })
+    expect(JSON.parse(json).channels).toEqual(['design', 'release'])
+    expect(parseKeeperState(json).channels).toEqual(['design', 'release'])
+    expect(parseKeeperState(serialiseKeeperState({ secret, inviterSk, bearer, channels: [] })).channels).toBeUndefined()
+    const stored = { v: 2, secret: bytesToHex(secret), inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer) }
+    expect(() => parseKeeperState(JSON.stringify({ ...stored, channels: 'design' }))).toThrow(/channels/)
+    expect(() => parseKeeperState(JSON.stringify({ ...stored, channels: ['agents'] }))).toThrow(/channels/)
+  })
+
   it('refuses what it cannot read rather than guessing', () => {
     expect(() => parseKeeperState('{"v":3}')).toThrow(/version/)
     expect(() => parseKeeperState(JSON.stringify({ v: 1, secret: 'short', inviterSk: bytesToHex(inviterSk), bearer: bytesToHex(bearer) }))).toThrow(/secret/)
