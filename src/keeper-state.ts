@@ -1,6 +1,7 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { normaliseHex } from './hex.js'
 import { isRoomEnds } from './expiration.js'
+import { canonicalChannels } from './epoch.js'
 import type { KeeperState } from './agent.js'
 
 /**
@@ -30,6 +31,10 @@ export interface StoredKeeperState {
   members?: string[]
   /** A conference room's end, unix seconds. Written only for one. */
   ends?: number
+  /** The room's named channels. Written only when there are any; without
+   *  them a restarted keeper announced an empty list and every client took
+   *  the room's channels off screen. */
+  channels?: string[]
 }
 
 const HEX64 = /^[0-9a-f]{64}$/i
@@ -84,6 +89,12 @@ export function parseKeeperState(json: string): KeeperState {
     const members = [...new Set(stored.members.map(normaliseHex))].sort()
     if (members.length) state.members = members
   }
+  if (stored.channels !== undefined) {
+    if (!Array.isArray(stored.channels)) throw new Error('keeper state: channels is not a list')
+    let channels: string[]
+    try { channels = canonicalChannels(stored.channels) } catch { throw new Error('keeper state: channels holds a name no room may use') }
+    if (channels.length) state.channels = channels
+  }
   return state
 }
 
@@ -106,5 +117,6 @@ export function serialiseKeeperState(state: KeeperState): string {
   if (state.endsAt !== undefined) stored.ends = state.endsAt
   if (state.nudge?.length) stored.nudge = [...new Set(state.nudge.map(normaliseHex))].sort()
   if (state.members?.length) stored.members = [...new Set(state.members.map(normaliseHex))].sort()
+  if (state.channels?.length) stored.channels = canonicalChannels(state.channels)
   return JSON.stringify(stored, null, 2) + '\n'
 }
