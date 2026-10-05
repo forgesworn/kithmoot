@@ -5,5 +5,6 @@ export default defineConfig({
     include: ['packages/**/*.test.ts', 'src/**/*.test.ts', 'app/src/**/*.test.ts', 'test/**/*.test.ts', 'server/**/*.test.mjs', 'vectors/**/*.test.ts'],
     exclude: ['test/live.test.ts', '**/node_modules/**'],
     environment: 'node',
+    setupFiles: ['test/relay-dials-setup.ts'],
   },
 })

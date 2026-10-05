@@ -105,6 +105,70 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
     })
   }
 
+  // Every feature of the app keeps its own pool: the room on screen, each
+  // room it watches, profiles, bookmarks and the rest. On 5 October 2026 a
+  // desktop app with a few rooms dialled two dead relays about 80 times a
+  // minute between them, and public relays banned the address. Each pool
+  // kept its own backoff, so the dials added up. Four pools now dial a
+  // refusing relay no more often than one did.
+  it('does not storm a refusing relay from several pools at once', async () => {
+    bad.refuseConnections = true
+    const pools = [0, 1, 2, 3].map(() => new NostrRelayPool([GOOD, BAD]))
+    try {
+      for (const each of pools) each.subscribe([{ kinds: [20461] }], () => {})
+      for (let second = 0; second < 120; second += 20) {
+        for (const each of pools) each.publish(evt()).catch(() => {})
+        await vi.advanceTimersByTimeAsync(20_000)
+      }
+      // One dial from each pool before anything has failed, then one at a
+      // time behind the doubling backoff: 1, 2, 4, 8, 16, 32 and 60 s.
+      expect(bad.attempts).toBeLessThanOrEqual(4 + 7)
+      expect(good.connections).toBe(4)
+    } finally { for (const each of pools) each.close() }
+  })
+
+  it('keeps the backoff when a pool is rebuilt or its relays are set again', async () => {
+    bad.refuseConnections = true
+    for (let round = 0; round < 6; round++) {
+      const each = new NostrRelayPool([GOOD, BAD])
+      each.subscribe([{ kinds: [20461] }], () => {})
+      each.setRelays([GOOD, BAD])
+      await vi.advanceTimersByTimeAsync(5_000)
+      each.close()
+    }
+    // Behind the backoff, about one round in two may dial.
+    expect(bad.attempts).toBeLessThanOrEqual(6)
+  })
+
+  it('closes the sockets it gives up on against a host that never answers', async () => {
+    // A host that drops packets: the handshake never finishes and never
+    // fails. nostr-tools stopped listening at its timeout but left each
+    // socket connecting, and they piled up.
+    bad.stallConnections = true
+    const pools = [0, 1, 2].map(() => new NostrRelayPool([GOOD, BAD]))
+    try {
+      for (const each of pools) each.subscribe([{ kinds: [20461] }], () => {})
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(bad.attempts).toBeGreaterThan(0)
+      expect(bad.stalled.size).toBeLessThanOrEqual(1)
+    } finally { for (const each of pools) each.close() }
+  })
+
+  it('reaches a relay again from every pool once it answers', async () => {
+    bad.refuseConnections = true
+    const pools = [0, 1, 2].map(() => new NostrRelayPool([GOOD, BAD]))
+    try {
+      for (const each of pools) each.subscribe([{ kinds: [20461] }], () => {})
+      await vi.advanceTimersByTimeAsync(10_000)
+      bad.refuseConnections = false
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(bad.connections).toBe(3)
+      const live = evt(); bad.seed(live)
+      const seen = await pools[0]!.query(BAD, [{ ids: [live.id] }])
+      expect(seen.events.map(e => e.id)).toEqual([live.id])
+    } finally { for (const each of pools) each.close() }
+  })
+
   it('does not storm a relay that drops every socket as it opens', async () => {
     // Publishes alone: nostr-tools leaves a REQ fired onto such a socket as
     // an unhandled rejection of its own, noise here and not this pool's.
