@@ -2976,6 +2976,8 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #home { width: 100%; }
 @media (min-width: 600px) {
   #home { max-width: 40rem; margin-inline: auto; }
+  /* A list of rooms is worth more of a wide window than a welcome is. */
+  #home[data-state='returning'] { max-width: 47.5rem; }
 }
 .homeIntro { margin: 1.5rem 0 2rem; max-width: 32rem; }
 #homeHeading, #arrivalTitle {
@@ -3040,8 +3042,25 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 #openLink button { margin: 0; }
 #homeSignIn { border: 0; background: transparent; padding: 0; }
 
-.roomsHead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1.5rem 0 .5rem; }
+.roomsHead { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 1.5rem 0 .75rem; }
 #home #roomsHeading { margin: 0; font-size: 1.25rem; font-weight: 600; text-transform: none; color: var(--text); }
+.roomsHead .roomSearchRow { flex: 1 1 12rem; margin: 0; }
+.roomsHead .roomSearchRow input { flex: 1 1 auto; width: 100%; margin: 0; }
+.roomsHeadActions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-left: auto; }
+.roomsHeadActions button { margin: 0; }
+/* Below 560px: the heading and New room, then the search across the whole
+   width, then Projects and the invite link. Four buttons and a heading do
+   not fit one phone line, and New room is the one that must not move. */
+@media (max-width: 559px) {
+  .roomsHeadActions { display: contents; }
+  #home #newRoom { order: 1; margin-left: auto; }
+  .roomsHead .roomSearchRow { order: 2; flex-basis: 100%; }
+  #homeSharedProjects, #homeOpenLink { order: 3; }
+}
+#home[data-state='returning'] #openLink { margin: 0 0 .75rem; }
+#home[data-state='returning'] #openLink > summary { display: none; }
+#headerSignIn { margin-left: auto; }
+#headerSignIn + #openAppSettings { margin-left: .5rem; }
 #newRoom { margin: 0; }
 .roomSearchRow { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
 .roomSearchRow label { font-weight: 600; }
@@ -3051,9 +3070,9 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
 .roomSearchRow input { min-width: 0; }
 .roomSearchRow button { margin: 0; }
 
-/* The rows themselves: one left edge, a border-top divider (never a card),
-   the open button carrying the whole name and preview column, time and
-   pill and presence in a second column, and the `⋯` menu in a fixed third. */
+/* The rows themselves: an initial, the name and preview, then time and pill
+   and presence, and the `⋯` menu in a fixed column. No dividers: the hover
+   surface marks the row. docs/2026-10-05-room-list-sections.md. */
 #roomList {
   display: block;
 }
@@ -3062,23 +3081,20 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   grid-template-columns: minmax(0, 1fr) auto 44px;
   align-items: center;
   gap: .75rem;
-  min-height: 64px;
-  padding: .625rem 0;
+  min-height: 56px;
+  padding: .5rem .25rem .5rem .5rem;
   border: 0;
-  border-top: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: 8px;
   background: transparent;
 }
-#roomList .roomRow:first-child { border-top: 0; }
 #roomList .open {
   grid-column: 1;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: .15rem;
+  align-items: center;
+  gap: 12px;
   border: 0;
   background: transparent;
-  padding: .3rem .25rem .3rem 0;
+  padding: 0;
   margin: 0;
   min-height: 44px;
   min-width: 0;
@@ -3087,6 +3103,40 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
   font: inherit;
   color: inherit;
 }
+#roomList .roomText { display: flex; flex-direction: column; gap: .1rem; min-width: 0; flex: 1 1 auto; }
+#roomList .roomAvatar {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: #fff;
+  background: var(--avatar, #0e7fa3);
+}
+/* Eight colours, each 4.5:1 or better against its white initial. */
+#roomList .roomAvatar[data-slot='0'] { --avatar: #0e7fa3; }
+#roomList .roomAvatar[data-slot='1'] { --avatar: #7a5fc4; }
+#roomList .roomAvatar[data-slot='2'] { --avatar: #b54c25; }
+#roomList .roomAvatar[data-slot='3'] { --avatar: #357d46; }
+#roomList .roomAvatar[data-slot='4'] { --avatar: #9c4479; }
+#roomList .roomAvatar[data-slot='5'] { --avatar: #6b7020; }
+#roomList .roomAvatar[data-slot='6'] { --avatar: #2a6db0; }
+#roomList .roomAvatar[data-slot='7'] { --avatar: #8c5616; }
+@media (prefers-color-scheme: light) {
+  #roomList .roomAvatar[data-slot='0'] { --avatar: #0b6b8a; }
+  #roomList .roomAvatar[data-slot='1'] { --avatar: #6a4fb3; }
+  #roomList .roomAvatar[data-slot='2'] { --avatar: #a2431f; }
+  #roomList .roomAvatar[data-slot='3'] { --avatar: #2f6f3e; }
+  #roomList .roomAvatar[data-slot='4'] { --avatar: #8a3a6b; }
+  #roomList .roomAvatar[data-slot='5'] { --avatar: #5b5f1c; }
+  #roomList .roomAvatar[data-slot='6'] { --avatar: #1f5f9e; }
+  #roomList .roomAvatar[data-slot='7'] { --avatar: #7a4a12; }
+}
+#roomList .roomAvatar[data-slot='ended'] { background: var(--control-hover); color: var(--muted); }
 /* One line, truncated with an ellipsis rather than crowding the time and
    pill beside it - the row's own min-width:0 track still shrinks at 200%
    text, so the ellipsis lands earlier rather than the row ever scrolling
@@ -3094,6 +3144,21 @@ body:not(:has(#roomArea:not([hidden]))) { max-width: 60rem; }
    of where the visible text is cut. */
 #roomList .roomName { display: block; font-size: 1rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 #roomList .roomPreview { font-size: .875rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+#roomList .hasUnread .roomName { font-weight: 700; }
+#roomList .hasUnread .roomTime { font-weight: 700; color: var(--text); }
+#roomList .roomPin { display: inline-flex; vertical-align: -2px; margin-right: .3rem; color: var(--muted); }
+#roomList .roomSection { list-style: none; margin: 1rem 0 .25rem; padding: 0 .5rem; }
+#roomList .roomSection:first-child { margin-top: 0; }
+#roomList .roomSection h3 { margin: 0; font-size: .8rem; font-weight: 600; letter-spacing: .04em; text-transform: none; color: var(--muted); }
+#roomList .sectionFold {
+  display: inline-flex; align-items: center; gap: .35rem;
+  min-height: 32px; margin: 0; padding: 0; border: 0; background: transparent;
+  font: inherit; color: inherit; cursor: pointer;
+}
+#roomList .sectionFold::before { content: '▸'; font-size: .7rem; transition: transform .15s; }
+#roomList .sectionFold[aria-expanded='true']::before { transform: rotate(90deg); }
+#roomList .sectionFold:hover { color: var(--text); }
+@media (prefers-reduced-motion: reduce) { #roomList .sectionFold::before { transition: none; } }
 #roomList .roomAside {
   grid-column: 2;
   display: flex;

@@ -97,7 +97,7 @@ Rules:
   - `Open invite link`, a quiet button that shows the existing invite field;
   - `New room` (primary).
 
-  Below 560px wide it wraps: heading and buttons on the first line, search on the second.
+  Below 560px wide it wraps into three lines: the heading with `New room`; then the search across the whole width; then `Projects` and `Open invite link`.
 - **The search field** is shown under the same rule as today (8 or more rooms). With fewer, the row has no search.
 - **`Already on Nostr? Sign in`** moves out of the bottom of the list into the header, beside Settings, as `Sign in`. It is shown under the same condition as today.
 - **Wider list:** on the home screen only, the list column is `min(760px, 100%)` wide, up from the current width.
@@ -121,10 +121,10 @@ Rules:
 ## 5. Pins are device-local and erased with the room
 
 - **Storage:**
-  - Web: `kithmoot.pinned.<roomId>` = `1` in the device store. Never in the account bookmark record and never on a relay.
+  - Web: the pins the desktop rooms rail already keeps (`app/src/room-pins.ts`, `kithmoot.pinned-rooms.v1` in localStorage), so a pin made in either place shows in both. Never in the account bookmark record and never on a relay.
   - Android: a `pinned` field on the saved-room record, in the same encrypted storage as the room. Check that the field is not serialised into anything sent to relays (account room bookmarks); if it would be, keep it out.
 - **Erasure:** forgetting a room removes its pin.
-  - Web: `forgetLocally` removes the key explicitly. `clearRoomLocally` and Forget this browser already sweep `kithmoot.` keys that name the room; check that they do.
+  - Web: `forgetLocally` unpins the room explicitly (it did not, before this). `clearRoomLocally` and Forget this browser already sweep `kithmoot.` keys that name the room; check that they do.
   - Android: the pin lives on the saved record, so `forgetRoom`, `resetSavedRooms` and the sweep take it with the room. Assert that in a test.
 - **Tests:**
   - pin, unpin, and the pin surviving a reload;
