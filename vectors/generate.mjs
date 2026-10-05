@@ -55,7 +55,7 @@ import { nip44 } from 'nostr-tools'
 import { serviceAdmissionVectors } from './lib/service-admission.mjs'
 import { getPublicKey, getEventHash } from 'nostr-tools/pure'
 
-import { deriveSecretKey, finalizeDeterministic, kindredCanonicalMessage, seed32 } from './lib/determinism.mjs'
+import { deriveSecretKey, finalizeDeterministic, kindredCanonicalMessage, seed32, withStubbedRandomness } from './lib/determinism.mjs'
 import * as fx from './lib/fixtures.mjs'
 
 // The real implementation, built to `dist/` by `npm run build:lib` (see the
@@ -72,9 +72,9 @@ import { mintTurnCredential } from '../dist/src/turn.js'
 import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
 import { verifyRoomRelays, canonicalRoomRelays } from '../dist/src/room-relays.js'
 import { verifyMeetingPolicy, verifyRecordingNotice, canonicalSpeakers } from '../dist/src/meeting.js'
-import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, decodeEpochGrant, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
+import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, encodeRekeyEvent, epochsInWindow, HISTORY_WINDOW_SECONDS, decodeEpochRequest, decodeEpochGrant, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins } from '../dist/src/epoch.js'
 import { normaliseAgentOwnership, verifyAgentOwnership } from '../dist/src/ownership.js'
-import { decodeChatEvent } from '../dist/src/chat.js'
+import { decodeChatEvent, ChatLog } from '../dist/src/chat.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../dist/src/attachment.js'
 import { encodeControl, decodeControl } from '../dist/src/control.js'
 import { resolveConversation, mentionsOf, mentionedBy } from '../dist/src/messages.js'
@@ -86,7 +86,7 @@ import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCa
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomName: [], meeting: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomName: [], meeting: [], chatHistory: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -3217,6 +3217,136 @@ for (const [name, roomKey, a, b, note] of [
       },
     })
   }
+}
+
+// ===========================================================================
+// chatHistory: what a member goes on reading as the key turns
+// ===========================================================================
+//
+// The history window (fold-kit's `epochsInWindow`; see its
+// docs/scheduled-rekey.md) applied to a room's chat by a real `ChatLog`: which
+// `#d` streams it asks a relay for, in how many filters, and that what was
+// said on either side of a scheduled rekey stays readable. The rekey itself is
+// written by the real encoder with recorded randomness; its format is pinned
+// by fold-kit's `schedule-vectors.json`, and what is pinned here is what a
+// reader does after it.
+{
+  const room = ROOM_1
+  const T = fx.NOW
+  const DAY = 86_400
+  const secretOf = (n) => seed32(`chat-history-epoch-${n}`)
+  const keysOf = (n) => n === 0 ? { epoch: 0, id: room.roomId, key: room.roomKey } : deriveEpoch({ epoch: n, secret: secretOf(n) })
+  const rootOf = (n) => n === 0 ? undefined : { id: keysOf(n).id, key: keysOf(n).key }
+
+  /** An in-memory relay for one log: it records each REQ's `#d` values and
+   *  replays the stored events a filter matches. */
+  function readWith(events) {
+    const reqs = []
+    const transport = {
+      async publish() {},
+      subscribe(filters, onEvent) {
+        reqs.push(filters.map((f) => f['#d']))
+        for (const event of events) {
+          const d = event.tags.find((t) => t[0] === 'd')?.[1]
+          if (filters.some((f) => f.kinds.includes(event.kind) && f['#d'].includes(d) && event.created_at >= f.since)) onEvent(event)
+        }
+        return () => {}
+      },
+      close() {},
+    }
+    return { transport, reqs }
+  }
+  function openLog({ current, left, events = [] }) {
+    const { transport, reqs } = readWith(events)
+    const log = new ChatLog({
+      transport,
+      roomId: room.roomId,
+      roomKey: room.roomKey,
+      now: () => T,
+      ...(current > 0 ? { epoch: rootOf(current) } : {}),
+      pastEpochs: left.map((e) => ({ ...(e.epoch > 0 ? { root: rootOf(e.epoch) } : {}), leftAt: e.leftAt })),
+    })
+    const out = { filters: reqs.at(-1), read: log.messages().map((m) => m.text) }
+    log.close()
+    return out
+  }
+  const leftJson = (left) => left.map((e) => ({ epoch: e.epoch, ...(e.epoch > 0 ? { secretHex: bytesToHex(secretOf(e.epoch)) } : {}), leftAt: e.leftAt }))
+
+  function streamsVector(name, note, current, left) {
+    const kept = epochsInWindow(left, T).map((e) => e.epoch)
+    vectors.chatHistory.push({
+      name,
+      kind: 'positive',
+      note,
+      input: { roomId: room.roomId, roomKeyHex: bytesToHex(room.roomKey), current: { epoch: current, secretHex: bytesToHex(secretOf(current)) }, left: leftJson(left), now: T, windowSeconds: HISTORY_WINDOW_SECONDS },
+      output: { kept, streams: Object.fromEntries([current, ...left.map((e) => e.epoch)].map((n) => [n, keysOf(n).id])), filters: openLog({ current, left }).filters },
+    })
+  }
+
+  streamsVector('streams-with-removals', 'A room in epoch 10 that has turned its key every three days (removals, say), and left epoch 0 forty days ago. `epochsInWindow` keeps epochs 9 to 1, newest first; epoch 0 is outside the window. A log asks for the current epoch and the four most recently left in a filter each, so each has its own `limit`, and folds the rest into one filter with several `#d` values: six filters at most, however many epochs it reads, since relays cap the filters a request may carry. Each `#d` is the main chat\'s stream in that epoch: the epoch id, or the room id in epoch 0.',
+    10, [{ epoch: 0, leftAt: T - 40 * DAY }, ...Array.from({ length: 9 }, (_, i) => ({ epoch: i + 1, leftAt: T - (9 - i) * 3 * DAY }))])
+  streamsVector('streams-weekly', 'A room on a weekly schedule, in epoch 6: epochs 5 to 2 were left within 30 days and each gets a filter of its own; epoch 1, left 32 days ago, and epoch 0 are not read. Nothing is folded.',
+    6, Array.from({ length: 6 }, (_, i) => ({ epoch: i, leftAt: T - (6 - i) * 7 * DAY + 3 * DAY })))
+  streamsVector('streams-at-the-cap', 'Twenty epochs left within the window, one a day: sixteen (`MAX_HISTORY_EPOCHS`) are read, the most recently left, and still in six filters.',
+    20, Array.from({ length: 20 }, (_, i) => ({ epoch: i, leftAt: T - (20 - i) * DAY })))
+
+  // --- Across a scheduled rekey ---------------------------------------------
+  const credentialA = buildCredential({ participantSk: fx.PARTICIPANT_A_SK, devicePubkey: fx.DEVICE_A, roomId: room.roomId, createdAt: fx.CREDENTIAL_CREATED_AT, expiresAt: fx.CREDENTIAL_EXPIRES_AT, auxRandLabel: 'chat-history-credential-a' })
+  function chatIn(epoch, id, text, sentAt) {
+    const keys = keysOf(epoch)
+    const label = `chat-history-${id}`
+    const message = { id, participant: fx.PARTICIPANT_A, device: fx.DEVICE_A, credential: credentialA.event, text, sentAt }
+    const content = nip44.v2.encrypt(JSON.stringify(message), keys.key, seed32(`${label}-nonce`))
+    const event = finalizeDeterministic({ kind: KINDS.CHAT, created_at: sentAt, tags: [['d', keys.id]], content }, fx.DEVICE_A_SK, seed32(`${label}-auxrand`))
+    return { message, event, nonceHex: bytesToHex(seed32(`${label}-nonce`)), auxRandHex: bytesToHex(seed32(`${label}-auxrand`)) }
+  }
+  const rekeyAt = T - 600
+  const randomHex = ['copy-nonce', 'body-nonce', 'auxrand'].map((l) => bytesToHex(seed32(`chat-history-rekey-${l}`)))
+  const rekey = withStubbedRandomness(randomHex.map(hexToBytesLocal), () => encodeRekeyEvent({
+    roomId: room.roomId,
+    authoritySk: fx.AUTHORITY_SK,
+    current: keysOf(1),
+    next: { epoch: 2, secret: secretOf(2) },
+    recipients: [fx.DEVICE_A],
+    removed: [],
+    commit: true,
+    members: [fx.PARTICIPANT_A],
+    scheduled: true,
+    now: rekeyAt,
+  }))
+  const notice = decodeRekeyEvent(rekey, { roomId: room.roomId, authority: fx.AUTHORITY, current: keysOf(1), deviceSk: fx.DEVICE_A_SK })
+  if (!notice?.scheduled || !notice.secret) throw new Error('chatHistory: the scheduled rekey does not read as scheduled')
+  const before = chatIn(1, 'before-the-turn', 'Said in epoch 1.', rekeyAt - 60)
+  const after = chatIn(2, 'after-the-turn', 'Said in epoch 2.', T - 30)
+  const events = [before.event, after.event]
+  const acrossInput = (leftAt) => ({
+    roomId: room.roomId,
+    roomKeyHex: bytesToHex(room.roomKey),
+    authority: fx.AUTHORITY,
+    deviceSkHex: bytesToHex(fx.DEVICE_A_SK),
+    epoch1: { epoch: 1, secretHex: bytesToHex(secretOf(1)) },
+    rekey: { event: rekey, randomHex },
+    messages: [before, after],
+    left: [{ epoch: 1, secretHex: bytesToHex(secretOf(1)), leftAt }],
+    now: T,
+  })
+  vectors.chatHistory.push({
+    name: 'across-a-scheduled-rekey',
+    kind: 'positive',
+    note: 'A member in epoch 1 reads a scheduled rekey (marked, nobody removed) and moves to epoch 2, the secret it carries. A log in epoch 2 that left epoch 1 when the rekey was signed (`leftAt` = its created_at) reads both streams, so a message from before the turn and one from after are both there, in order. A client lets the turn pass without a word: the notice is marked `scheduled`.',
+    input: acrossInput(rekeyAt),
+    output: {
+      notice: { epoch: notice.epoch, removed: notice.removed, closed: notice.closed, scheduled: true, secretHex: bytesToHex(notice.secret), at: notice.at },
+      ...openLog({ current: 2, left: [{ epoch: 1, leftAt: rekeyAt }], events }),
+    },
+  })
+  vectors.chatHistory.push({
+    name: 'left-before-the-window',
+    kind: 'negative',
+    note: 'The same two messages, read by a log told it left epoch 1 a second more than 30 days ago: epoch 1 is outside the window, so it is not asked for at all and only what was said in epoch 2 is read.',
+    input: acrossInput(T - HISTORY_WINDOW_SECONDS - 1),
+    output: openLog({ current: 2, left: [{ epoch: 1, leftAt: T - HISTORY_WINDOW_SECONDS - 1 }], events }),
+  })
 }
 
 // ===========================================================================

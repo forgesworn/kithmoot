@@ -45,9 +45,10 @@ import { unwrapSignalEvent, unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
 import { decodeDescriptorEvent } from '../src/descriptor.js'
-import { deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins, encodeRekeyEvent, encodeEpochRequest } from '../src/epoch.js'
+import { HISTORY_WINDOW_SECONDS, MAX_HISTORY_EPOCHS, epochsInWindow, deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins, encodeRekeyEvent, encodeEpochRequest } from '../src/epoch.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from '../src/ownership.js'
-import { decodeChatEvent } from '../src/chat.js'
+import { ChatLog, MAX_PAST_EPOCHS, decodeChatEvent } from '../src/chat.js'
+import type { RelayTransport } from '../src/relay-pool.js'
 import { deriveEnvelopeKey, paddedPlaintextLength, buildFileEvent, buildUploadAuthorisation } from '../src/attachment.js'
 import { encodeControl, decodeControl } from '../src/control.js'
 import { canonicalRoomRelays, verifyRoomRelays } from '../src/room-relays.js'
@@ -103,7 +104,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell', 'roomName']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell', 'roomName', 'chatHistory']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -1403,4 +1404,99 @@ describe('room name vectors', () => {
     expect(book.current(0)?.name ?? null).toBe(v.output.inEpoch0)
     expect(book.current(1, { rekeyedAt: (e) => v.input.rekeyedAt[e] })?.name ?? null).toBe(v.output.inEpoch1)
   })
+})
+
+describe('chat history vectors', () => {
+  type Left = { epoch: number; secretHex?: string; leftAt: number }
+  const keysOf = (v: { input: { roomId: string; roomKeyHex: string } }, e: { epoch: number; secretHex?: string }) =>
+    e.epoch === 0 ? { epoch: 0, id: v.input.roomId, key: hexToBytes(v.input.roomKeyHex) } : deriveEpoch({ epoch: e.epoch, secret: hexToBytes(e.secretHex!) })
+  /** Open a real log on a relay that records its REQ and replays `events`. */
+  function openLog(v: { input: { roomId: string; roomKeyHex: string; now: number } }, current: { epoch: number; secretHex?: string }, left: Left[], events: Event[] = []) {
+    const reqs: string[][][] = []
+    const transport: RelayTransport = {
+      publish: async () => {},
+      subscribe: (filters, onEvent) => {
+        reqs.push(filters.map((f) => f['#d'] as string[]))
+        for (const event of events) {
+          const d = event.tags.find((t) => t[0] === 'd')?.[1]
+          if (filters.some((f) => f.kinds!.includes(event.kind) && (f['#d'] as string[]).includes(d!) && event.created_at >= f.since!)) onEvent(event)
+        }
+        return () => {}
+      },
+      close: () => {},
+    }
+    const root = (e: { epoch: number; secretHex?: string }) => { const k = keysOf(v, e); return { id: k.id, key: k.key } }
+    const log = new ChatLog({
+      transport,
+      roomId: v.input.roomId,
+      roomKey: hexToBytes(v.input.roomKeyHex),
+      now: () => v.input.now,
+      ...(current.epoch > 0 ? { epoch: root(current) } : {}),
+      pastEpochs: left.map((e) => ({ ...(e.epoch > 0 ? { root: root(e) } : {}), leftAt: e.leftAt })),
+    })
+    const out = { filters: reqs.at(-1), read: log.messages().map((m) => m.text) }
+    log.close()
+    return out
+  }
+
+  it('the window is the one every client applies, and a log reads exactly that many', () => {
+    expect(MAX_PAST_EPOCHS).toBe(MAX_HISTORY_EPOCHS)
+  })
+
+  for (const v of groups.chatHistory.filter((x) => x.name.startsWith('streams-'))) {
+    it(`chatHistory/${v.name}: the window, the streams and the filters a log asks for`, () => {
+      expect(v.input.windowSeconds).toBe(HISTORY_WINDOW_SECONDS)
+      const left = v.input.left as Left[]
+      expect(epochsInWindow(left, v.input.now).map((e) => e.epoch)).toEqual(v.output.kept)
+      for (const [n, id] of Object.entries(v.output.streams)) {
+        const e = n === String(v.input.current.epoch) ? v.input.current : left.find((x) => String(x.epoch) === n)!
+        expect(keysOf(v, e).id).toBe(id)
+      }
+      const { filters } = openLog(v, v.input.current, left)
+      expect(filters).toEqual(v.output.filters)
+      // The current epoch first, then the four left last a filter each, the
+      // rest folded: never more than six, every kept epoch asked for once.
+      expect(filters!.length).toBeLessThanOrEqual(6)
+      expect(filters![0]).toEqual([v.output.streams[v.input.current.epoch]])
+      expect(filters!.slice(1, 5).every((d) => d.length === 1)).toBe(true)
+      expect(filters!.flat().sort()).toEqual([v.input.current.epoch, ...v.output.kept].map((n: number) => v.output.streams[n]).sort())
+    })
+  }
+
+  for (const name of ['across-a-scheduled-rekey', 'left-before-the-window']) {
+    it(`chatHistory/${name}: the rekey and the messages rebuild, and a log reads what is frozen`, () => {
+      const v = vec('chatHistory', name)
+      const i = v.input
+      const epoch1 = keysOf(v, i.epoch1)
+      const rekey = withStubbedRandomness((i.rekey.randomHex as string[]).map(hexToBytes), () => encodeRekeyEvent({
+        roomId: i.roomId,
+        authoritySk: fx.AUTHORITY_SK,
+        current: epoch1,
+        next: { epoch: 2, secret: hexToBytes(v.output.notice?.secretHex ?? vec('chatHistory', 'across-a-scheduled-rekey').output.notice.secretHex) },
+        recipients: [getPublicKey(hexToBytes(i.deviceSkHex))],
+        removed: [],
+        commit: true,
+        members: [fx.PARTICIPANT_A],
+        scheduled: true,
+        now: i.rekey.event.created_at,
+      }))
+      const { id, pubkey, created_at, kind, tags, content, sig } = rekey
+      expect({ id, pubkey, created_at, kind, tags, content, sig }).toEqual(i.rekey.event)
+      const notice = decodeRekeyEvent(i.rekey.event, { roomId: i.roomId, authority: i.authority, current: epoch1, deviceSk: hexToBytes(i.deviceSkHex) })
+      expect(notice?.scheduled).toBe(true)
+      expect(bytesToHex(notice!.secret!)).toBe(vec('chatHistory', 'across-a-scheduled-rekey').output.notice.secretHex)
+      if (v.output.notice) expect({ epoch: notice!.epoch, removed: notice!.removed, closed: notice!.closed, scheduled: true, secretHex: bytesToHex(notice!.secret!), at: notice!.at }).toEqual(v.output.notice)
+      const epoch2 = { epoch: 2, secretHex: bytesToHex(notice!.secret!) }
+
+      for (const m of i.messages) {
+        const sentUnder = m.event.tags[0][1] === epoch1.id ? epoch1 : keysOf(v, epoch2)
+        const rebuilt = finalizeDeterministic({ kind: KINDS.CHAT, created_at: m.message.sentAt, tags: [['d', sentUnder.id]], content: nip44.v2.encrypt(JSON.stringify(m.message), sentUnder.key, hexToBytes(m.nonceHex)) }, fx.DEVICE_A_SK, hexToBytes(m.auxRandHex))
+        expect(rebuilt).toEqual(m.event)
+      }
+      const read = openLog(v, epoch2, i.left, i.messages.map((m: { event: Event }) => m.event))
+      expect(read).toEqual({ filters: v.output.filters, read: v.output.read })
+      if (v.kind === 'positive') expect(read.read).toEqual(i.messages.map((m: { message: { text: string } }) => m.message.text))
+      else expect(read.read).toEqual([i.messages[1].message.text])
+    })
+  }
 })
