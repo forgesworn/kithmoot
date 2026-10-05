@@ -195,14 +195,23 @@ export class RoomWatch {
   readonly #names = new RoomNameBook()
   readonly #namesSeen = new Set<string>()
   readonly #presence = new PresenceLedger()
-  #unsubRoster: () => void
+  /** The roster, and the authority's rekeys when this watch follows them:
+   *  one REQ, since rooms on the same relays share a connection and relays
+   *  cap the subscriptions one may hold. */
+  #unsubRoom: () => void = () => {}
+  /** Set while that REQ is being opened: a relay may replay into it before
+   *  `subscribe` returns, and a rekey followed then would open the next
+   *  one before this one is held. */
+  #subscribing = false
+  /** Set while rekeys are being followed, so one replayed by the REQ a
+   *  follow opens waits its turn and the epochs are reported in order. */
+  #draining = false
   /** The epoch read now: `opts.epoch` until a rekey is followed. */
   #epoch: (EpochRoot & { epoch: number }) | undefined
   /** Rekeys heard ahead of this epoch, by epoch, until each can be read. */
   readonly #pendingRekeys = new Map<number, Event>()
   /** When the room left each epoch this watch followed it out of. */
   readonly #rekeyedAt = new Map<number, number>()
-  #unsubRekeys?: () => void
   #closed = false
 
   constructor(opts: RoomWatchOptions) {
@@ -228,20 +237,33 @@ export class RoomWatch {
       this.#control.onChange((messages) => this.#readNames(messages))
       this.#readNames(this.#control.messages(), false)
     }
-    this.#unsubRoster = this.#watchRoster()
-    if (opts.authority && opts.deviceSk) {
-      this.#unsubRekeys = opts.transport.subscribe(
-        [{ kinds: [KINDS.ROOM_REKEY], '#d': [opts.roomId], authors: [opts.authority] }],
-        (event) => this.#ingestRekey(event),
-      )
-    }
+    this.#watchRoom()
   }
 
-  #watchRoster(): () => void {
-    return this.#opts.transport.subscribe(
-      [{ kinds: [KINDS.ROSTER], '#d': [this.#epoch?.id ?? this.#opts.roomId] }],
-      (event) => this.#ingest(event),
-    )
+  /** (Re)open the room's REQ under the epoch read now: its roster, and the
+   *  authority's rekeys when this watch can open its copy of one. Replayed
+   *  rekeys at or below this epoch are ignored. */
+  #watchRoom(): void {
+    const { authority, deviceSk, roomId } = this.#opts
+    const follows = authority !== undefined && deviceSk !== undefined
+    this.#unsubRoom()
+    this.#subscribing = true
+    try {
+      this.#unsubRoom = this.#opts.transport.subscribe(
+        [
+          { kinds: [KINDS.ROSTER], '#d': [this.#epoch?.id ?? roomId] },
+          ...(follows ? [{ kinds: [KINDS.ROOM_REKEY], '#d': [roomId], authors: [authority] }] : []),
+        ],
+        (event) => {
+          if (event.kind === KINDS.ROOM_REKEY) {
+            if (follows) this.#ingestRekey(event)
+          } else this.#ingest(event)
+        },
+      )
+    } finally {
+      this.#subscribing = false
+    }
+    this.#drainRekeys()
   }
 
   /** The key this watch reads the room with. */
@@ -309,8 +331,7 @@ export class RoomWatch {
 
   close(): void {
     this.#closed = true
-    this.#unsubRoster()
-    this.#unsubRekeys?.()
+    this.#unsubRoom()
     this.#chat?.close()
     this.#control?.close()
   }
@@ -328,10 +349,20 @@ export class RoomWatch {
     const epoch = peekRekeyEvent(event, { roomId: this.#opts.roomId, authority: this.#opts.authority! })
     if (epoch === null || epoch <= this.epoch || this.#pendingRekeys.has(epoch)) return
     this.#pendingRekeys.set(epoch, event)
-    this.#drainRekeys()
+    if (!this.#subscribing) this.#drainRekeys()
   }
 
   #drainRekeys(): void {
+    if (this.#draining || this.#closed || !this.#opts.authority || !this.#opts.deviceSk) return
+    this.#draining = true
+    try {
+      this.#drainPending()
+    } finally {
+      this.#draining = false
+    }
+  }
+
+  #drainPending(): void {
     for (;;) {
       const left: EpochKeys = this.#epoch ?? { epoch: 0, id: this.#opts.roomId, key: this.#opts.roomKey }
       const next = this.#pendingRekeys.get(left.epoch + 1)
@@ -361,8 +392,7 @@ export class RoomWatch {
     const root = { id: keys.id, key: keys.key }
     this.#chat?.rekey(root, { leftAt: notice.at })
     this.#control?.rekey(root, { leftAt: notice.at })
-    this.#unsubRoster()
-    this.#unsubRoster = this.#watchRoster()
+    this.#watchRoom()
     try {
       this.#opts.onEpoch?.({ epoch: { epoch: next.epoch, secret: next.secret.slice() }, left, notice })
     } catch {

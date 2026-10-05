@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { PresenceLedger, RoomWatch, type WatchedRekey } from './room-watch.js'
 import { deriveRoom } from '../../src/room.js'
 import { createDeviceCredential } from '../../src/credential.js'
@@ -13,6 +13,8 @@ import { renameRoomOp } from '../../src/room-name.js'
 import { issueKindredProof } from '../../src/access.js'
 import { PRESENCE_TTL_SECONDS } from '../../src/session.js'
 import { SimRelay, SimTransport } from '../../test/sim-relay.js'
+import { KINDS } from '../../src/kinds.js'
+import type { Filter } from 'nostr-tools/filter'
 import type { DeviceCredential, KindredProof, RosterEntry } from '../../src/types.js'
 
 const NOW = 1_800_000_000
@@ -373,6 +375,44 @@ describe('RoomWatch', () => {
       expect(moved.map((m) => m.left.epoch)).toEqual([1])
       expect(watch.messages().map((m) => m.text)).toEqual(['in epoch 1'])
       watch.close()
+    })
+
+    it('asks for its roster and the authority\u2019s rekeys in one REQ, and opens it again once per rekey followed', async () => {
+      const relay = new SimRelay()
+      const reqs: Filter[][] = []
+      class Counting extends SimTransport {
+        override subscribe(filters: Filter[], onEvent: (event: Event) => void, onEose?: () => void): () => void {
+          reqs.push(filters)
+          return super.subscribe(filters, onEvent, onEose)
+        }
+      }
+      const kindsOf = (filters: Filter[]) => filters.flatMap((f) => f.kinds ?? [])
+      const roomReqs = () => reqs.filter((filters) => kindsOf(filters).includes(KINDS.ROSTER))
+      const watch = new RoomWatch({ transport: new Counting(relay), roomId, roomKey, authority, deviceSk, now: () => NOW })
+      // Chat, control, and the room: never a REQ of its own for rekeys.
+      expect(reqs).toHaveLength(3)
+      expect(reqs.filter((filters) => kindsOf(filters).includes(KINDS.ROOM_REKEY))).toEqual(roomReqs())
+      expect(roomReqs()).toEqual([[
+        { kinds: [KINDS.ROSTER], '#d': [roomId] },
+        { kinds: [KINDS.ROOM_REKEY], '#d': [roomId], authors: [authority] },
+      ]])
+
+      const one = { epoch: 1, secret: generateEpochSecret() }
+      await new SimTransport(relay).publish(rekey(zero, one))
+      expect(watch.epoch).toBe(1)
+      // Opened again once, under the new epoch, still carrying the rekeys.
+      expect(roomReqs()).toHaveLength(2)
+      expect(roomReqs()[1]).toEqual([
+        { kinds: [KINDS.ROSTER], '#d': [keysOf(one).id] },
+        { kinds: [KINDS.ROOM_REKEY], '#d': [roomId], authors: [authority] },
+      ])
+      watch.close()
+
+      // A watch that cannot open a copy asks for the roster alone.
+      reqs.length = 0
+      const keyless = new RoomWatch({ transport: new Counting(relay), roomId, roomKey, authority, now: () => NOW })
+      expect(roomReqs()).toEqual([[{ kinds: [KINDS.ROSTER], '#d': [roomId] }]])
+      keyless.close()
     })
 
     it('stays where it is when the rekey has no copy for it: removed, closed, or signed by somebody else', async () => {
