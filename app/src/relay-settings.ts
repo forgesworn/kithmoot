@@ -56,7 +56,10 @@ export class RelayConnections {
   #marks = new Set<string>()
   #authentication = new Map<string, Map<string, ParticipantIdentity | null>>()
   #authenticationHints = new Map<string, RelayHints>()
-  #pools = new Map<NostrRelayPool, { scope: string; hints: RelayHints; probeTimer?: ReturnType<typeof setTimeout> }>()
+  #pools = new Map<NostrRelayPool, PoolOwner>()
+  /** The live pool for each scope and set of hints, which every caller asking
+   *  for the same shares (see `pool`). */
+  #shared = new Map<string, NostrRelayPool>()
   readonly #probeIntervalMs: number
   readonly #visible: () => boolean
   /** `circle` says whether a relay URL is a box of the person's own circle,
@@ -230,15 +233,34 @@ export class RelayConnections {
     // later invitation. Only an explicit per-room save pins the endpoint list.
     this.save(scope.replace(/^room:/, 'inherited:'), this.configuration('default'))
   }
+  /** A pool for `scope` and `hints`. Callers asking for the same scope and
+   *  hints share one pool, and so one socket to each relay: each feature
+   *  used to get its own, so signing in alone held three to every default
+   *  relay, and the room on screen two to each of its own (the session, and
+   *  the rooms list watching it). What comes back is the caller's own hold
+   *  on it: `close()` ends that caller's subscriptions, and the pool closes
+   *  once nobody holds it. Everything else is the shared pool's. */
   pool(scope: string, hints: RelayHints = []): NostrRelayPool {
     this.#prune()
-    // Recheck at use time: a suspended tab can miss an expiry timer.
-    const configuration = this.configuration(scope, hints)
-    const pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration) })
-    const owner: { scope: string; hints: RelayHints; probeTimer?: ReturnType<typeof setTimeout> } = { scope, hints }
-    this.#pools.set(pool, owner)
-    this.#scheduleProbe(pool, owner)
-    return pool
+    const key = poolKey(scope, hints)
+    let pool = this.#shared.get(key)
+    if (!pool) {
+      const configuration = this.configuration(scope, hints)
+      pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration) })
+      const owner: PoolOwner = { scope, hints, key, holders: 0 }
+      this.#pools.set(pool, owner)
+      this.#shared.set(key, pool)
+      this.#scheduleProbe(pool, owner)
+    }
+    const shared = pool
+    this.#pools.get(shared)!.holders++
+    return holding(shared, () => this.#release(shared))
+  }
+  #release(pool: NostrRelayPool): void {
+    const owner = this.#pools.get(pool)
+    if (!owner || --owner.holders > 0) return
+    pool.close()
+    this.#prune()
   }
   /** `enablePing` is off in `NostrRelayPool` (see relay-pool.ts): this is
    *  what replaces it, on a schedule of our own rather than the library's.
@@ -305,8 +327,59 @@ export class RelayConnections {
     })
   }
   #prune(): void {
-    for (const [pool, owner] of this.#pools) if (pool.closed) { clearTimeout(owner.probeTimer); this.#pools.delete(pool) }
+    for (const [pool, owner] of this.#pools) {
+      if (!pool.closed) continue
+      clearTimeout(owner.probeTimer); this.#pools.delete(pool)
+      if (this.#shared.get(owner.key) === pool) this.#shared.delete(owner.key)
+    }
   }
+}
+
+interface PoolOwner { scope: string; hints: RelayHints; key: string; holders: number; probeTimer?: ReturnType<typeof setTimeout> }
+
+/** Same scope and the same hints, once normalised, is the only safe sharing:
+ *  a room's relays move per owner, worked out again from its hints. */
+function poolKey(scope: string, hints: RelayHints): string {
+  let normal: unknown
+  try { normal = normaliseRelayConfig(hints) } catch { normal = hints }
+  return JSON.stringify([scope, normal])
+}
+
+/** One caller's hold on a shared pool. Its subscriptions are its own and end
+ *  with it; once it has let go it can no longer read or write, as if the
+ *  pool had closed for it. The rest goes straight to the shared pool. */
+function holding(pool: NostrRelayPool, release: () => void): NostrRelayPool {
+  let released = false
+  const subscriptions = new Set<() => void>()
+  const closed = (): never => { throw new Error('pool is closed') }
+  return new Proxy(pool, {
+    get(target, property) {
+      switch (property) {
+        case 'closed': return released || target.closed
+        case 'close': return () => {
+          if (released) return
+          released = true
+          for (const stop of [...subscriptions]) stop()
+          release()
+        }
+        case 'subscribe': return (...args: Parameters<NostrRelayPool['subscribe']>) => {
+          if (released) closed()
+          const stop = target.subscribe(...args)
+          const once = (): void => { if (subscriptions.delete(once)) stop() }
+          subscriptions.add(once)
+          return once
+        }
+        case 'publish': case 'publishQuietly': case 'query':
+          if (released) return () => Promise.reject(new Error('pool is closed'))
+          break
+        case 'setRelays': case 'reconnect': case 'setAuthentication':
+          if (released) return closed
+          break
+      }
+      const value: unknown = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
 }
 
 export function profilePreference(storage: Pick<Storage, 'getItem'>): boolean {

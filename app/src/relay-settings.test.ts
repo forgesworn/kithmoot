@@ -361,3 +361,68 @@ describe('relay health', () => {
     } finally { pool.close(); vi.useRealTimers() }
   })
 })
+
+describe('pools shared by everyone asking for the same relays', () => {
+  // Each feature used to get a pool of its own: signing in alone held three
+  // sockets to every default relay, and the room on screen two to each of
+  // its own. Public relays count sockets per address.
+  const url = 'wss://shared.test'
+  const event = () => finalizeEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [], content: 'x' }, generateSecretKey())
+
+  it('opens one socket for every caller of the same scope, and ends each caller\'s subscriptions with it', async () => {
+    vi.useFakeTimers()
+    try {
+      resetFakeRelays()
+      const relay = fakeRelay(url)
+      const connections = new RelayConnections(storage(), [url], undefined, { intervalMs: 60_000, visible: () => true })
+      const first = connections.pool('default'), second = connections.pool('default')
+      const heard: string[][] = [[], []]
+      first.subscribe([{ kinds: [1] }], e => heard[0]!.push(e.id))
+      second.subscribe([{ kinds: [1] }], e => heard[1]!.push(e.id))
+      await vi.advanceTimersByTimeAsync(10)
+      expect(relay.connections).toBe(1)
+      first.close()
+      expect(first.closed).toBe(true); expect(second.closed).toBe(false)
+      await expect(first.publish(event())).rejects.toThrow('pool is closed')
+      expect(() => first.subscribe([{ kinds: [1] }], () => {})).toThrow('pool is closed')
+      const live = event()
+      await second.publish(live)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(heard[1]).toEqual([live.id]); expect(heard[0]).toEqual([])
+      first.close()
+      expect(relay.connections).toBe(1)
+      second.close()
+      await vi.advanceTimersByTimeAsync(10)
+      expect(relay.connections).toBe(0)
+      const again = connections.pool('default')
+      expect(again.closed).toBe(false)
+      again.close()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('keeps a pool apart for another scope or other hints', async () => {
+    vi.useFakeTimers()
+    try {
+      resetFakeRelays()
+      const relay = fakeRelay(url)
+      const connections = new RelayConnections(storage(), [url], undefined, { intervalMs: 60_000, visible: () => true })
+      const pools = [connections.pool('default'), connections.pool(room, [url]), connections.pool(room, [url, 'wss://other.test']), connections.pool(room, [`${url}/`])]
+      for (const pool of pools) pool.subscribe([{ kinds: [1] }], () => {})
+      await vi.advanceTimersByTimeAsync(10)
+      // The last asks for the same relay as the second, written differently.
+      expect(relay.connections).toBe(3)
+      for (const pool of pools) pool.close()
+    } finally { vi.useRealTimers() }
+  })
+
+  it('moves a shared room pool once, and every holder sees it', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    const roomId = 'a'.repeat(64), fixed = ['wss://room-a.test/', 'wss://room-b.test/']
+    const session = connections.pool(room, ['wss://hint.test']), watch = connections.pool(room, ['wss://hint.test'])
+    try {
+      connections.setRoomRelays(roomId, { fixed, signed: true })
+      expect(session.configuration().map(relay => relay.url)).toEqual([...fixed, 'wss://hint.test/'])
+      expect(watch.configuration()).toEqual(session.configuration())
+    } finally { session.close(); watch.close() }
+  })
+})
